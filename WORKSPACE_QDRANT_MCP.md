@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.8.0
-**Date:** 2026-02-15
+**Version:** 1.9.0
+**Date:** 2026-02-18
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
 
@@ -13,13 +13,18 @@
 2. [Architecture](#architecture)
 3. [Collection Architecture](#collection-architecture)
    - [Project ID Generation](#project-id-generation)
+   - [Base Point Identity Model](#base-point-identity-model)
+   - [Cross-Instance Deduplication](#cross-instance-deduplication)
 4. [Document Type Taxonomy](#document-type-taxonomy)
 5. [Write Path Architecture](#write-path-architecture)
 6. [Memory System](#memory-system)
 7. [File Watching and Ingestion](#file-watching-and-ingestion)
+   - [Two-Layer Watching Architecture](#two-layer-watching-architecture)
 8. [API Reference](#api-reference)
 9. [Search Instrumentation](#search-instrumentation)
 10. [Configuration Reference](#configuration-reference)
+    - [Search DB (FTS5)](#search-db-fts5)
+    - [Disaster Recovery](#disaster-recovery)
 
 ---
 
@@ -241,7 +246,18 @@ search({
 
 ### Project ID Generation
 
-Project IDs (`project_id`) are 12-character hex hashes that uniquely identify a project clone. The system handles multiple clones of the same repository, filesystem moves, and local projects gaining git remotes.
+Project IDs (`project_id`, also referred to as `tenant_id`) are 12-character hex hashes that uniquely identify a project clone. The system handles multiple clones of the same repository, filesystem moves, and local projects gaining git remotes.
+
+#### Tenant ID Precedence
+
+The `tenant_id` is determined by the following precedence rules:
+
+1. **If git remote exists** (takes precedence): `tenant_id = hash(normalized_remote_url)` — remote-based identity
+2. **If no remote**: `tenant_id = hash("path_" + filesystem_path)` — path-based identity, prefixed with `path_` to distinguish from remote-based IDs
+
+**Key consequence:** Multiple clones of the same remote produce the **same `tenant_id`**. This enables content-addressed deduplication — identical file content across clones shares Qdrant points naturally. See [Cross-Instance Deduplication](#cross-instance-deduplication).
+
+**When a local project gains a remote:** The system performs a cascade rename from the path-based `tenant_id` to the remote-based `tenant_id`. See [Local Project Gains Remote](#local-project-gains-remote) and [Cascade Rename Mechanism](#cascade-rename-mechanism).
 
 #### Core Algorithm
 
@@ -252,7 +268,7 @@ fn calculate_project_id(project_root: &Path, disambiguation_path: Option<&str>) 
     let git_remote = get_git_remote_url(project_root);
 
     if let Some(remote) = git_remote {
-        // Normalize git remote URL
+        // Remote-based identity (takes precedence)
         let normalized = normalize_git_url(&remote);
         let input = match disambiguation_path {
             Some(path) => format!("{}|{}", normalized, path),
@@ -262,9 +278,9 @@ fn calculate_project_id(project_root: &Path, disambiguation_path: Option<&str>) 
         return hex::encode(&hash[..6]) // 12 hex chars = 6 bytes
     }
 
-    // Local project: use canonical path hash
+    // Path-based identity (prefixed to distinguish from remote-based)
     let canonical = project_root.canonicalize().unwrap();
-    let input = format!("local_{}", canonical.display());
+    let input = format!("path_{}", canonical.display());
     let hash = Sha256::digest(input.as_bytes());
     hex::encode(&hash[..6])
 }
@@ -344,11 +360,12 @@ Clone 2: personal/myproject      → project_id = sha256("github.com/user/myproj
 
 For projects without a git remote:
 
-- Use **container folder name** only (not full path)
+- Use `path_` prefix + **canonical filesystem path** for identity
 - State database stores full `project_path` for move detection
+- The `path_` prefix ensures local project IDs never collide with remote-based IDs
 
 ```
-/Users/chris/experiments/my-test-project → project_id = sha256("my-test-project")[:12]
+/Users/chris/experiments/my-test-project → project_id = sha256("path_/Users/chris/experiments/my-test-project")[:12]
 ```
 
 #### Branch Handling
@@ -359,22 +376,51 @@ For projects without a git remote:
 - **Default search**: Returns results from all branches
 - **Filtered search**: Use `branch="main"` to scope to specific branch
 
-**Point ID formula:**
+**Base Point Identity Model:**
+
+The system uses a two-level identity scheme built on the **base point** concept:
 
 ```
-point_id = SHA256(tenant_id | branch | file_path | chunk_index)
+base_point = hash(tenant_id, branch, relative_path, file_hash)
 ```
 
-All four components are always known at write time. This ensures each branch gets independent points with no collision risk.
+- `tenant_id`: derived from git remote URL hash (git) or path hash (non-git)
+- `branch`: current branch name (git) or `"default"` (non-git)
+- `relative_path`: file path relative to project root (portable across moves/clones). Absolute path stored in Qdrant payload for display and file access.
+- `file_hash`: SHA256 of file content, or git blob SHA for git-tracked projects (via `git hash-object <file>`)
+
+The base point identifies a specific **version** of a specific file. It is deterministic (same inputs always produce the same base point) and content-aware (different file content = different base point).
+
+**Qdrant point ID** (one per chunk):
+
+```
+point_id = hash(base_point, chunk_index)
+```
+
+**Search DB file_id** uses the base point as its unique identity (one per file version). See [Search DB (FTS5)](#search-db-fts5) for details.
+
+All components are always known at write time. This ensures each branch gets independent points with no collision risk, and enables content-addressed deduplication across watch folder instances (see [Cross-Instance Deduplication](#cross-instance-deduplication)).
 
 **Branch lifecycle:**
 
-- **New branch detected**: For each file, check if identical `content_hash` exists on the source branch (via `tracked_files`/`qdrant_chunks`). If yes: create new point with branch-qualified ID and **copy the vector** from the existing point (no re-embedding). If no: embed and create new point normally.
-- **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant (trivial — filter by branch in payload)
+- **Branch detection**: Via the git watcher (Layer 2 — see [Two-Layer Watching Architecture](#two-layer-watching-architecture)). A `.git/HEAD` change triggers reflog parsing to identify the operation type.
+- **Branch switch protocol**: On branch switch detection:
+  1. Parse reflog to get old/new commit SHAs
+  2. `git diff-tree --name-status old_sha new_sha` to get the exact list of changed files
+  3. For changed files (M = modified): apply reference-counting deletion logic for old version, create new version
+  4. For files only on new branch (A = added): ingest as new
+  5. For files only on old branch (D = removed): apply reference-counting deletion logic
+  6. For **unchanged files**: update `branch` in `tracked_files` only (no re-ingestion needed)
+  7. Update `watch_folders.last_commit_hash = new_sha`
+- **First branch switch optimization**: When switching to a branch with no existing `tracked_files` entries, batch-copy entries from the old branch to the new branch (updating branch and file_hash where files differ). This avoids full re-ingestion.
+- **New branch detected (non-switch)**: For each file, check if identical `file_hash` exists on the source branch (via `tracked_files`). If yes: create new point with branch-qualified ID and **copy the vector** from the existing point (no re-embedding). If no: embed and create new point normally.
+- **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant (trivial — filter by branch in payload). Apply reference-counting deletion to avoid removing points still referenced by other watch folder instances.
 - **Branch renamed**: Treat as delete + create (Git doesn't track renames)
 
-**Rationale for hybrid approach (branch-qualified IDs + vector copy):**
-- Clean mental model: each branch is self-contained, no reference counting
+**Rationale for hybrid approach (base point identity + reference counting):**
+- Content-addressed: identical content across instances = shared points, divergent content = separate points
+- Precise change detection via `git diff-tree` eliminates full re-scanning
+- Reference counting prevents data loss when multiple watch folders share points
 - Trivial deletion and search scoping (filter by branch payload)
 - Eliminates embedding CPU cost for identical content (vector copy is a memcpy)
 - Storage is bounded: typically 3-5 active branches, not hundreds
@@ -382,13 +428,14 @@ All four components are always known at write time. This ensures each branch get
 
 #### Local Project Gains Remote
 
-When a local project (identified by container folder) gains a git remote:
+When a local project (identified by path-based `tenant_id`) gains a git remote:
 
-1. Daemon detects `.git/config` change during watching
+1. Daemon detects `.git/config` change during watching (Layer 1 file watcher)
 2. If project at same location:
-   - Compute new `project_id` from normalized remote URL
-   - Execute queue-mediated cascade rename (see [Cascade Rename Mechanism](#cascade-rename-mechanism))
-3. No re-ingestion required
+   - Compute new remote-based `tenant_id` from normalized remote URL (per [Tenant ID Precedence](#tenant-id-precedence))
+   - Execute queue-mediated cascade rename from `path_`-based ID to remote-based ID (see [Cascade Rename Mechanism](#cascade-rename-mechanism))
+   - This cascades through `watch_folders`, `tracked_files`, `qdrant_chunks`, Qdrant payloads, and search DB entries
+3. No re-ingestion required — only the `tenant_id` changes, all content remains valid
 
 #### Remote Rename Detection
 
@@ -464,15 +511,15 @@ CREATE TABLE watch_folders (
     collection TEXT NOT NULL,               -- "projects" or "libraries"
     tenant_id TEXT NOT NULL,                -- project_id (projects) or library name (libraries)
 
-    -- Hierarchy (for submodules)
-    parent_watch_id TEXT,                   -- NULL for top-level, references parent for submodules
-    submodule_path TEXT,                    -- Relative path within parent (NULL if not submodule)
+    -- Git tracking
+    is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
+    last_commit_hash TEXT,                  -- HEAD commit SHA (NULL if not git-tracked)
 
     -- Project-specific (NULL for libraries)
     git_remote_url TEXT,                    -- Normalized remote URL
     remote_hash TEXT,                       -- sha256(remote_url)[:12] for grouping duplicates
     disambiguation_path TEXT,               -- Path suffix for clone disambiguation
-    is_active INTEGER DEFAULT 0,            -- Activity flag (inherited by subprojects)
+    is_active INTEGER DEFAULT 0,            -- Activity flag (inherited by subprojects via junction table)
     last_activity_at TEXT,                  -- Synced across parent and all subprojects
 
     -- Library-specific (NULL for projects)
@@ -491,9 +538,7 @@ CREATE TABLE watch_folders (
     cleanup_on_disable INTEGER DEFAULT 0,   -- Remove content when disabled
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    last_scan TEXT,                         -- NULL if never scanned
-
-    FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id)
+    last_scan TEXT                          -- NULL if never scanned
 );
 
 -- Index for finding duplicates (same remote, different paths)
@@ -504,31 +549,36 @@ CREATE INDEX idx_watch_active ON watch_folders(is_active);
 CREATE INDEX idx_watch_updated ON watch_folders(updated_at);
 -- Index for enabled watches
 CREATE INDEX idx_watch_enabled ON watch_folders(enabled);
--- Index for subproject hierarchy
-CREATE INDEX idx_watch_parent ON watch_folders(parent_watch_id);
 ```
+
+**Note:** Submodule relationships are stored in the separate `watch_folder_submodules` junction table (see [Git Submodules](#git-submodules)), not via a FK on this table.
 
 **Key columns:**
 
 - `tenant_id`: `project_id` for projects, library name for libraries
-- `parent_watch_id`: Links submodules to their parent project
-- `is_active`: Activity flag - **inherited by all subprojects** (see below)
+- `is_git_tracked`: Whether this is a git-tracked project (enables Layer 2 git watcher)
+- `last_commit_hash`: HEAD commit SHA for git-tracked projects (used for submodule pin comparison and dedup assessment)
+- `is_active`: Activity flag - **inherited by all subprojects** via the junction table (see below)
 - `last_activity_at`: Timestamp - **synced across parent and all subprojects**
-- `is_archived`: Archive flag. Archived projects stop watching/ingesting but remain **fully searchable** in Qdrant. No search exclusion — archived projects are fair game for code exploration. User can un-archive. Archiving preserves `parent_watch_id` links (historical fact, no detaching).
+- `is_archived`: Archive flag. Archived projects stop watching/ingesting but remain **fully searchable** in Qdrant. No search exclusion — archived projects are fair game for code exploration. User can un-archive. Archiving preserves junction table entries (historical fact, no detaching).
 - `library_mode`: Only for libraries (`sync` = full sync, `incremental` = no deletes)
 
 **Activity Inheritance for Subprojects:**
 
-When a project has submodules (subprojects), they share activity state with the parent. Any activity on the parent OR any subproject updates the entire group:
+When a project has submodules (subprojects), they share activity state with the parent via the `watch_folder_submodules` junction table. Any activity on the parent OR any subproject updates the entire group:
 
 ```sql
 -- On RegisterProject or any activity (given a watch_id):
 UPDATE watch_folders
 SET is_active = 1, last_activity_at = datetime('now')
 WHERE watch_id = :watch_id
-   OR parent_watch_id = :watch_id
-   OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
-   OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id);
+   OR watch_id IN (SELECT child_watch_id FROM watch_folder_submodules WHERE parent_watch_id = :watch_id)
+   OR watch_id IN (SELECT parent_watch_id FROM watch_folder_submodules WHERE child_watch_id = :watch_id)
+   OR watch_id IN (
+       SELECT ws2.child_watch_id FROM watch_folder_submodules ws1
+       JOIN watch_folder_submodules ws2 ON ws1.parent_watch_id = ws2.parent_watch_id
+       WHERE ws1.child_watch_id = :watch_id
+   );
 ```
 
 This ensures:
@@ -550,8 +600,12 @@ CREATE TABLE tracked_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
     watch_folder_id TEXT NOT NULL,          -- FK to watch_folders.watch_id
     file_path TEXT NOT NULL,                -- RELATIVE path within project/library root
+    relative_path TEXT,                     -- Alias for file_path (for base_point computation clarity)
     branch TEXT,                            -- Git branch at ingestion (NULL for libraries)
     collection TEXT NOT NULL DEFAULT 'projects', -- Destination collection (format-based routing)
+
+    -- Identity
+    base_point TEXT,                        -- hash(tenant_id, branch, relative_path, file_hash)
 
     -- File metadata (from filesystem at ingestion time)
     file_type TEXT,                         -- code|doc|test|config|note|artifact
@@ -565,6 +619,10 @@ CREATE TABLE tracked_files (
     lsp_status TEXT DEFAULT 'none',         -- "none" | "partial" | "complete" | "failed"
     treesitter_status TEXT DEFAULT 'none',  -- "none" | "parsed" | "fallback" | "failed"
     last_error TEXT,                        -- Last processing error (NULL if success)
+
+    -- Library routing
+    incremental INTEGER DEFAULT 0 CHECK (incremental IN (0, 1)),
+                                            -- "Do not delete" flag for library-routed project files
 
     -- Timestamps
     created_at TEXT NOT NULL,               -- First ingestion time
@@ -580,16 +638,20 @@ CREATE INDEX idx_tracked_files_watch ON tracked_files(watch_folder_id);
 CREATE INDEX idx_tracked_files_path ON tracked_files(file_path);
 -- Index for branch operations
 CREATE INDEX idx_tracked_files_branch ON tracked_files(watch_folder_id, branch);
+-- Index for base_point lookups (reference counting, dedup)
+CREATE INDEX idx_tracked_files_base_point ON tracked_files(base_point);
 ```
 
 **Key columns:**
 
 - `file_path`: **Relative** to `watch_folders.path`. When a project moves, only the watch_folder root path changes; tracked_files entries remain valid.
+- `base_point`: Computed as `hash(tenant_id, branch, relative_path, file_hash)`. Identifies a specific version of a specific file. Used for reference counting across watch folder instances and as the identity key in the search DB. See [Base Point Identity Model](#base-point-identity-model).
 - `collection`: Destination Qdrant collection for this file. Normally matches `watch_folders.collection`, but format-based routing can override it (e.g., a `.pdf` in a project folder routes to `libraries`).
-- `file_hash`: SHA256 of file content at ingestion. Used for recovery (detect changes during daemon downtime, including git checkout/rsync which change content without changing mtime) and update optimization (skip re-embedding when content hasn't changed).
+- `file_hash`: SHA256 of file content at ingestion (or git blob SHA for git-tracked projects). Used for recovery (detect changes during daemon downtime, including git checkout/rsync which change content without changing mtime) and update optimization (skip re-embedding when content hasn't changed).
 - `file_mtime`: Filesystem modification time at ingestion. Used for fast change detection during recovery.
 - `lsp_status` / `treesitter_status`: Track processing pipeline state per file. Enables re-processing files that had partial or failed enrichment.
 - `chunk_count`: Cached count of Qdrant points for this file (also available via `qdrant_chunks` table).
+- `incremental`: "Do not delete" flag for library-routed project files. When set, file deletions do not propagate — only full project deletion cascades through this flag.
 
 #### Qdrant Chunks Table
 
@@ -663,10 +725,14 @@ HNSW:
 {
   "project_id": "a1b2c3d4e5f6", // Required, indexed (is_tenant=true)
   "project_name": "my-project",
-  "file_path": "src/main.rs", // Relative path
+  "base_point": "hash...",        // hash(tenant_id, branch, relative_path, file_hash)
+  "relative_path": "src/main.rs", // Path relative to project root (portable)
+  "absolute_path": "/Users/dev/repo/src/main.rs", // For display and file access
+  "file_hash": "sha256...",       // SHA256 of file content (or git blob SHA)
   "file_type": "code", // code|doc|test|config|note|artifact
   "language": "rust",
   "branch": "main",
+  "commit_hash": "abc123def...",  // HEAD commit SHA at ingestion time
   "symbols": ["MyClass", "my_function"],
   "chunk_index": 0,
   "total_chunks": 5,
@@ -681,10 +747,7 @@ HNSW:
 }
 ```
 
-**Note:** File metadata (`file_mtime`, `file_hash`, chunk details) is tracked in the
-SQLite `tracked_files` and `qdrant_chunks` tables, not in Qdrant payloads. This keeps
-Qdrant payloads lean (content-related fields only) and enables fast recovery queries
-via SQLite instead of slow Qdrant scrolling. See [Tracked Files Table](#tracked-files-table).
+**Note:** File processing metadata (`file_mtime`, chunk details, LSP/tree-sitter status) is tracked in the SQLite `tracked_files` and `qdrant_chunks` tables. However, key identity fields (`base_point`, `relative_path`, `absolute_path`, `file_hash`, `commit_hash`) are stored in Qdrant payloads to enable disaster recovery — `wqm admin recover-state` can rebuild state.db from Qdrant payloads alone. See [Tracked Files Table](#tracked-files-table) and [Disaster Recovery](#disaster-recovery).
 
 **Libraries Collection:**
 
@@ -1092,6 +1155,16 @@ CREATE TABLE unified_queue (
         'pending', 'in_progress', 'done', 'failed'
     )),
 
+    -- Per-destination state machine
+    qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN (
+        'pending', 'in_progress', 'done', 'failed'
+    )),
+    search_status TEXT DEFAULT 'pending' CHECK (search_status IN (
+        'pending', 'in_progress', 'done', 'failed'
+    )),
+    decision_json TEXT,                  -- Stored decision: action, old_base_point,
+                                         -- new_base_point, delete_old (boolean)
+
     -- Timestamps
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -1133,12 +1206,36 @@ CREATE INDEX idx_unified_queue_collection_tenant
 
 **Robust design features:**
 
-- **status column:** Tracks item lifecycle (pending → in_progress → done/failed)
+- **status column:** Derived value — tracks overall item lifecycle (pending -> in_progress -> done/failed). A queue item is `done` only when BOTH `qdrant_status = 'done'` AND `search_status = 'done'`.
+- **qdrant_status / search_status:** Per-destination state machines enabling parallel execution. Qdrant and search DB execute independently with no ordering dependency between them.
+- **decision_json:** Stores the keep/delete decision (computed once during the decision phase) before execution. On retry, only the failed destination is re-executed using the stored decision — no re-analysis needed.
 - **lease_until/worker_id:** Enables crash recovery by detecting stale leases
 - **idempotency_key:** SHA256 hash of `item_type|op|tenant_id|collection|payload_json` - prevents duplicate processing even for content items without file paths
 - **priority column:** Allows different priority levels for different item types (e.g., MCP content = 8, file watch = 5)
 - **updated_at:** Tracks when item status last changed
 - **branch:** Preserves branch context for project items
+
+**Per-destination processing flow:**
+
+```
+1. Decision phase (state.db transaction):
+   - Evaluate reference count for old base_point
+   - Record decision in decision_json (delete_old? which base points?)
+   - Set qdrant_status = pending, search_status = pending
+2. Qdrant execution (parallel):
+   - Create/delete chunk points per decision
+   - Set qdrant_status = done (or failed)
+3. Search DB execution (parallel):
+   - Create/delete code_lines + file_metadata per decision
+   - Set search_status = done (or failed)
+4. Completion:
+   - Queue item status = done when BOTH destinations complete
+5. Retry on failure:
+   - Re-execute only the failed destination using stored decision_json
+   - No re-analysis needed — decision is idempotent
+```
+
+**Decision staleness on retry:** If the decision was "keep old" because another instance referenced it, but by retry time that instance has also changed, the stale "keep" means old points linger slightly longer. The other instance's queue item handles its own cleanup. No data corruption, just delayed garbage collection.
 
 **Idempotency key calculation:**
 
@@ -2062,6 +2159,66 @@ See [Watch Folders Table (Unified)](#watch-folders-table-unified) in the Collect
 
 **Always recursive:** No depth limit configuration needed.
 
+### Two-Layer Watching Architecture
+
+The system uses a two-layer watching approach based on whether the project is git-tracked.
+
+#### Layer 1: File Watcher (all projects)
+
+- Uses `notify-debouncer-full` with platform-native watchers (inotify/FSEvents/ReadDirectoryChangesW)
+- Watches project directory for file changes: create, modify, delete, rename
+- For non-tracked projects: this is the sole watcher, branch = `"default"`
+- For git-tracked projects: handles real-time dirty-state changes between git operations (modified files that haven't been committed)
+- Exclusion patterns apply: `.git/`, `target/`, `node_modules/`, etc. (`.git/` directory is excluded from Layer 1)
+- See [Folder Move Detection Strategy](#folder-move-detection-strategy) for rename handling
+
+#### Layer 2: Git Watcher (git-tracked projects only)
+
+- Specifically watches: `.git/HEAD` and `.git/refs/heads/` (these are excluded from Layer 1 but explicitly monitored by Layer 2)
+- On change: parses last line of `.git/logs/HEAD` (reflog) to identify operation type
+- Reflog format: `<old-SHA> <new-SHA> <author> <timestamp> <operation description>`
+- Uses `git diff-tree <old-SHA> <new-SHA>` for exact file change detection (no recursive directory scan needed)
+
+**Event Detection Matrix:**
+
+| Reflog Operation | Detection Signal | Action |
+|------------------|-----------------|--------|
+| `checkout: moving from X to Y` | `.git/HEAD` changes | Branch switch -> diff-tree |
+| `commit: <msg>` | `.git/refs/heads/X` changes | New commit -> diff-tree vs parent |
+| `merge <branch>: <msg>` | `.git/refs/heads/X` changes | Merge -> diff-tree |
+| `pull: Fast-forward` | `.git/refs/heads/X` changes | Pull -> diff-tree |
+| `rebase (finish)` | `.git/refs/heads/X` changes | Rebase -> diff-tree |
+| `reset: moving to <ref>` | `.git/HEAD` or `.git/refs/` change | Reset -> diff-tree |
+
+**Supplementary `.git/` paths** (for enriched event detection):
+
+| Path | Changes On | Signal |
+|------|-----------|--------|
+| `.git/MERGE_HEAD` | Merge (non-FF) start/finish | Merge in progress |
+| `.git/rebase-merge/` | Rebase start/finish | Rebase in progress |
+| `.git/rebase-apply/` | Rebase start/finish | Rebase in progress |
+| `.git/refs/stash` | Stash push/pop | Stash operation |
+| `.git/FETCH_HEAD` | Fetch, pull | Remote data arrived |
+
+**Branch switch protocol** (triggered by Layer 2 detecting `.git/HEAD` change):
+
+```
+1. Parse reflog -> old_sha, new_sha
+2. git diff-tree --name-status old_sha new_sha -> file changes
+3. For each changed file:
+   a. M (modified): reference-count old base_point -> create new
+   b. A (added on new branch): create new
+   c. D (removed on new branch): reference-count old base_point
+4. For all unchanged files: update branch in tracked_files (no re-ingest)
+5. Update watch_folder.last_commit_hash = new_sha
+```
+
+**First branch switch optimization:** On the FIRST time a project switches to a branch that is truly new (no existing `tracked_files` for that branch), batch-copy `tracked_files` entries from the old branch to the new branch (updating branch and file_hash where files differ). This avoids full re-ingestion.
+
+**Reduced recursive watching optimization:** For git-tracked projects, the git watcher handles structural events (branch switches, commits, merges). The file watcher only needs to detect dirty-state changes (modified files between git operations). This may allow reducing the scope of recursive watching since git events cover branch switches, commits, and merges.
+
+**Layer 2 activation:** Set automatically on project registration by checking for `.git/` directory. Stored as `is_git_tracked = 1` in `watch_folders`. Layer 2 is never activated for non-git projects or libraries.
+
 ### Ingestion Filtering
 
 Ingestion filtering is defined system-wide in the configuration file (not per-watch). The system uses a multi-layered approach with the **file type allowlist** as the primary gate.
@@ -2490,24 +2647,78 @@ When a subfolder contains a `.git` directory (submodule):
 
 1. **Detect:** Daemon detects `.git` in subfolder during scanning
 2. **Separate entry:** Submodule is registered in `watch_folders` with its own `tenant_id` (project_id)
-3. **Link via parent_watch_id:** Submodule entry references parent project via `parent_watch_id` and stores relative path in `submodule_path`
-4. **Activity inheritance:** Submodules share `is_active` and `last_activity_at` with parent (see [Activity Inheritance](#watch-folders-table-unified))
+3. **Link via junction table:** Submodule relationships are stored in the `watch_folder_submodules` junction table (many-to-many). A submodule can have multiple parents, and a project can have multiple submodules.
+4. **Activity inheritance:** Submodules share `is_active` and `last_activity_at` with parent via the junction table (see [Activity Inheritance](#watch-folders-table-unified))
 
-See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the schema that handles both projects and submodules.
+#### Submodule Junction Table
+
+The `watch_folder_submodules` junction table replaces the previous single-FK `parent_watch_id` column on `watch_folders`:
+
+```sql
+CREATE TABLE IF NOT EXISTS watch_folder_submodules (
+    parent_watch_id TEXT NOT NULL,
+    child_watch_id TEXT NOT NULL,
+    submodule_path TEXT NOT NULL,   -- relative path within parent
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (parent_watch_id, child_watch_id),
+    FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (child_watch_id) REFERENCES watch_folders(watch_id)
+        ON DELETE CASCADE
+);
+CREATE INDEX idx_submodule_parent ON watch_folder_submodules(parent_watch_id);
+CREATE INDEX idx_submodule_child ON watch_folder_submodules(child_watch_id);
+```
+
+**Rationale for many-to-many:** A submodule can be used by multiple parent projects (e.g., a shared utility library referenced by several repos). The previous single-FK model (`parent_watch_id`) only captured one parent, which was insufficient for multi-project environments.
+
+#### Submodule Commit Pin Detection
+
+For git-tracked projects, the parent's tree entry stores the pinned commit for each submodule:
+
+```bash
+# Read submodule pinned commit from parent tree
+git ls-tree HEAD path/to/submodule
+# Output: 160000 commit <SHA> path/to/submodule
+
+# Detect submodule pin changes between commits
+git diff-tree old-sha new-sha -- path/to/submodule
+```
+
+The mode `160000` indicates a submodule (gitlink) entry. Changes to this entry detected via `git diff-tree` signal that the parent project has updated the submodule pin.
+
+#### Activation Cascade
+
+Activating a project cascades through the junction table to activate ALL submodule children:
+
+```sql
+-- Activate parent and all its submodules
+UPDATE watch_folders SET is_active = 1, last_activity_at = datetime('now')
+WHERE watch_id = :watch_id
+   OR watch_id IN (SELECT child_watch_id FROM watch_folder_submodules WHERE parent_watch_id = :watch_id)
+   OR watch_id IN (
+       SELECT parent_watch_id FROM watch_folder_submodules WHERE child_watch_id = :watch_id
+   )
+   OR watch_id IN (
+       SELECT ws2.child_watch_id FROM watch_folder_submodules ws1
+       JOIN watch_folder_submodules ws2 ON ws1.parent_watch_id = ws2.parent_watch_id
+       WHERE ws1.child_watch_id = :watch_id
+   );
+```
 
 **Submodule archive safety:**
 
-When archiving a project that has submodules, the system must check cross-references before archiving submodule data:
+When archiving a project that has submodules, the system must check cross-references via the junction table before archiving submodule data:
 
 1. Set `is_archived = 1` on the parent project's `watch_folders` entry
-2. For each submodule entry (linked via `parent_watch_id`):
-   a. Check if the same `remote_hash`/`git_remote_url` exists in any other **active** (non-archived) `watch_folders` entry
+2. For each submodule (linked via `watch_folder_submodules`):
+   a. Check if the submodule `child_watch_id` appears in any other **active** (non-archived) parent's junction table entry
    b. If yes: the submodule data stays fully active — another project still references it
    c. If no: set `is_archived = 1` on the submodule entry (data remains searchable, watching stops)
-3. **Preserve `parent_watch_id` as-is** — it is historical fact. No detaching on archive.
+3. Junction table entries are **preserved as-is** — they are historical fact. No detaching on archive.
 4. Qdrant data is **never deleted** on archive. Archived content remains fully searchable.
 
-**Un-archiving:** Set `is_archived = 0` on the project and its submodule entries. Daemon resumes watching/ingesting.
+**Un-archiving:** Set `is_archived = 0` on the project and its submodule entries (via junction table lookup). Daemon resumes watching/ingesting.
 
 ### Daemon Polling
 
@@ -4080,15 +4291,17 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 
 **Owner:** Rust daemon (memexd) - see [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)
 
-**Core Tables (14):**
+**state.db Core Tables (17):**
 
 | Table            | Purpose                                                           | Used By          |
 | ---------------- | ----------------------------------------------------------------- | ---------------- |
 | `schema_version` | Schema version tracking                                           | Daemon           |
-| `unified_queue`  | Write queue for daemon processing                                 | MCP, CLI, Daemon |
-| `watch_folders`  | Unified table for projects, libraries, and submodules (see below) | MCP, CLI, Daemon |
-| `tracked_files`  | Authoritative file inventory with metadata                        | Daemon (write), CLI (read) |
+| `unified_queue`  | Write queue with per-destination state machine                    | MCP, CLI, Daemon |
+| `watch_folders`  | Unified table for projects and libraries                          | MCP, CLI, Daemon |
+| `watch_folder_submodules` | Many-to-many junction table for submodule relationships | Daemon, CLI      |
+| `tracked_files`  | Authoritative file inventory with base_point identity             | Daemon (write), CLI (read) |
 | `qdrant_chunks`  | Qdrant point tracking per file chunk (child of tracked_files)     | Daemon only      |
+| `memory_mirror`  | Write-through copy of memory collection (for reverse recovery)    | Daemon           |
 | `search_events`  | Search instrumentation logs (all tools)                           | MCP, CLI, External |
 | `resolution_events` | Document open/expand events after search                       | External (future) |
 | `sparse_vocabulary` | BM25 IDF term-to-document-count mapping (schema v15)           | Daemon only      |
@@ -4099,7 +4312,16 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 | `canonical_tags` | Deduplicated cross-document tag hierarchy nodes (v16)             | Daemon only      |
 | `tag_hierarchy_edges` | Parent-child relationships between canonical tags (v16)      | Daemon only      |
 
-**Note:** The `watch_folders` table consolidates what were previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables. See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the complete schema.
+**search.db Tables (2):**
+
+| Table            | Purpose                                                           | Used By          |
+| ---------------- | ----------------------------------------------------------------- | ---------------- |
+| `file_metadata`  | Per-file-version metadata keyed by base_point                     | Daemon (write), MCP/CLI (read) |
+| `code_lines`     | FTS5 virtual table for full-text code search                      | Daemon (write), MCP/CLI (read) |
+
+See [Search DB (FTS5)](#search-db-fts5) for schemas.
+
+**Note:** The `watch_folders` table consolidates what were previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables. Submodule relationships are now stored in the `watch_folder_submodules` junction table. See [Watch Folders Table (Unified)](#watch-folders-table-unified) and [Git Submodules](#git-submodules) for schemas.
 
 **Note:** `tracked_files` + `qdrant_chunks` together form the authoritative file inventory, replacing the need to scroll Qdrant for file listings. See [Tracked Files Table](#tracked-files-table) and [Qdrant Chunks Table](#qdrant-chunks-table) for schemas.
 
@@ -4115,6 +4337,194 @@ CREATE TABLE schema_version (
 The daemon checks this table on startup and runs migrations if needed. Other components must NOT modify this table.
 
 **Other components (MCP, CLI) may read/write to tables but must NOT create tables or run migrations.**
+
+#### Search DB (FTS5)
+
+The search DB (`search.db`) is a **separate SQLite database** from `state.db`, dedicated to full-text search via FTS5 virtual tables. It provides the `workspace-qdrant/grep` MCP tool with fast pattern-matching search across all indexed code.
+
+**Path:** `~/.workspace-qdrant/search.db`
+
+**Owner:** Rust daemon (memexd) — same ownership model as state.db
+
+##### file_metadata Table
+
+Stores per-file-version metadata, keyed by the base point:
+
+```sql
+CREATE TABLE IF NOT EXISTS file_metadata (
+    metadata_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    base_point TEXT NOT NULL UNIQUE,    -- hash(tenant_id, branch, relative_path, file_hash)
+    tenant_id TEXT NOT NULL,
+    branch TEXT,
+    relative_path TEXT NOT NULL,
+    absolute_path TEXT,                 -- For display and file access
+    file_hash TEXT NOT NULL,
+    language TEXT,
+    file_type TEXT,
+    line_count INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_file_metadata_tenant ON file_metadata(tenant_id);
+CREATE INDEX idx_file_metadata_base_point ON file_metadata(base_point);
+```
+
+##### code_lines FTS5 Virtual Table
+
+Full-text search over individual code lines, referencing `file_metadata`:
+
+```sql
+CREATE VIRTUAL TABLE code_lines USING fts5(
+    line_text,
+    metadata_id UNINDEXED,            -- FK to file_metadata.metadata_id
+    line_number UNINDEXED,
+    content='code_lines_content',
+    content_rowid='rowid'
+);
+```
+
+##### Consistency with Qdrant
+
+The search DB follows the same reference-counting deletion logic as Qdrant — the decision (keep/delete old base_point) is made **once** in the queue processor's decision phase and applied to **both** destinations:
+
+- **Qdrant**: Delete/create chunk points
+- **Search DB**: Delete/create file_metadata + code_lines entries
+
+Within search.db, the delete-old + insert-new is **atomic** (SQLite transaction). This ensures no window where a file version is partially present.
+
+The per-destination state machine in the unified queue (`qdrant_status`, `search_status`) tracks completion independently. Both destinations execute in **parallel** with no ordering dependency. See [Per-destination processing flow](#queue-schema) for details.
+
+##### Memory Mirror Table
+
+Stores a copy of memory collection entries for reverse recovery (Qdrant rebuild from state.db):
+
+```sql
+CREATE TABLE IF NOT EXISTS memory_mirror (
+    memory_id TEXT PRIMARY KEY,
+    rule_text TEXT NOT NULL,
+    scope TEXT,
+    tenant_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+Write-through on every memory upsert ensures memory rules survive total Qdrant loss and can be used to rebuild the memory collection.
+
+### Cross-Instance Deduplication
+
+Multiple watch folders can share the same `tenant_id` when they are clones of the same repository (same git remote URL produces the same hash — see [Tenant ID Precedence](#tenant-id-precedence)). The system handles this naturally through content-addressed identity.
+
+**How it works:**
+
+- Each watch folder has its own `tracked_files` entries (independent file inventories)
+- The `base_point = hash(tenant_id, branch, relative_path, file_hash)` includes the `file_hash`, so:
+  - **Identical content** across clones = same `base_point` = shared Qdrant points and search DB entries
+  - **Divergent content** (different edits in different clones) = different `base_point` = separate points
+- No special handling is needed — the `file_hash` in the base point naturally separates divergent content
+
+**Reference counting for deletion:**
+
+Before deleting old points when a file changes in one clone, check whether any OTHER watch folder instance still references that file version:
+
+```sql
+-- Given: our watch_folder_id, tenant_id, branch, relative_path, old_file_hash
+SELECT COUNT(*) FROM tracked_files tf
+JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+WHERE wf.tenant_id = :tenant_id
+  AND tf.branch = :branch
+  AND tf.relative_path = :relative_path
+  AND tf.file_hash = :old_file_hash
+  AND tf.watch_folder_id != :our_watch_folder_id
+```
+
+If count > 0: keep old base point (and all its chunks/lines). If 0: delete.
+
+This query runs within the decision phase (state.db transaction) before any Qdrant or search DB operations. The decision is stored in `decision_json` and applied to both destinations.
+
+**Example scenario:**
+
+```
+Clone A: /Users/chris/work/myproject       (tenant_id = abc123)
+Clone B: /Users/chris/personal/myproject   (tenant_id = abc123)
+
+Both clones track src/main.rs with identical content:
+  base_point = hash(abc123, main, src/main.rs, sha256_of_content)
+  → One set of Qdrant points, one search DB entry (shared)
+
+Clone A edits src/main.rs:
+  1. Compute new file_hash → new base_point
+  2. Update Clone A's tracked_files entry
+  3. Reference count: Clone B still has old file_hash → keep old points
+  4. Create new points for Clone A's version
+  → Now two sets of points coexist (old version for Clone B, new version for Clone A)
+
+Clone B also edits src/main.rs:
+  1. Compute new file_hash → new base_point
+  2. Update Clone B's tracked_files entry
+  3. Reference count: no one has old file_hash anymore → delete old points
+  4. Create new points for Clone B's version
+```
+
+### Disaster Recovery
+
+The system provides two recovery directions: Qdrant-first (primary) and state.db-first (for memory rules).
+
+#### Primary Recovery: Rebuild state.db from Qdrant
+
+`wqm admin recover-state` scrolls all Qdrant collections and reconstructs state.db tables from payload metadata. Qdrant is always at or ahead of any state.db snapshot, making this the most reliable recovery path.
+
+**Recovery process:**
+
+1. Scroll all Qdrant collections (`projects`, `libraries`, `memory`, `scratchpad`)
+2. Extract payload metadata from all points
+3. Reconstruct tables:
+   - `watch_folders`: infer from `tenant_id` + `collection` + common ancestor of absolute file paths per tenant
+   - `tracked_files`: from `file_path`, `branch`, `file_hash`, `language`, `base_point`
+   - `qdrant_chunks`: from point IDs and chunk metadata (`chunk_index`, `content_hash`)
+4. Regenerate derived data:
+   - `sparse_vocabulary` / `corpus_statistics`: re-tokenize content from Qdrant payloads
+   - `keywords` / `tags`: re-run extraction pipeline
+   - LSP enrichment: daemon re-enriches automatically on startup
+5. Restore `memory_mirror` from memory collection points
+
+**Qdrant payloads contain sufficient data for recovery:**
+
+```json
+{
+    "content": "chunk text",
+    "base_point": "hash...",
+    "tenant_id": "abc123",
+    "branch": "main",
+    "relative_path": "src/main.rs",
+    "absolute_path": "/Users/dev/repo/src/main.rs",
+    "file_hash": "sha256...",
+    "language": "rust",
+    "chunk_index": 0,
+    ...
+}
+```
+
+The `absolute_path` enables inferring `watch_folders.path` (common ancestor of all absolute paths for a tenant). The `relative_path` + `branch` + `file_hash` enable reconstructing `tracked_files`.
+
+#### Reverse Recovery: Memory Mirror
+
+The `memory_mirror` table in state.db stores a write-through copy of all memory collection entries. If Qdrant is lost entirely, memory rules can be restored from this mirror.
+
+**Usage:** `wqm admin recover-qdrant --memory-only` (rebuilds memory collection from `memory_mirror` table)
+
+#### Qdrant Snapshot Management
+
+CLI commands for managing Qdrant snapshots:
+
+```bash
+wqm admin qdrant-snapshot create [--collection NAME]   # Create snapshot
+wqm admin qdrant-snapshot list                          # List available snapshots
+wqm admin qdrant-snapshot delete <ID>                   # Delete snapshot
+wqm admin qdrant-snapshot download <ID> [--output PATH] # Download snapshot
+wqm admin qdrant-snapshot upload <PATH>                 # Upload and restore snapshot
+```
+
+Users manage their own backup schedule (e.g., via cron). Qdrant-first recovery (`wqm admin recover-state`) is more reliable than snapshot restore because Qdrant is always at or ahead of any snapshot point in time.
 
 ---
 
@@ -5588,10 +5998,11 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 
 ---
 
-**Version:** 1.7.0
-**Last Updated:** 2026-02-07
+**Version:** 1.9.0
+**Last Updated:** 2026-02-18
 **Changes:**
 
+- v1.9.0: State integrity redesign — base point identity model (`hash(tenant_id, branch, relative_path, file_hash)`) replacing simple `SHA256(tenant_id | branch | file_path | chunk_index)` formula; two-layer watching architecture (Layer 1: file watcher for all projects, Layer 2: git watcher for `.git/HEAD` + `.git/refs/heads/` with reflog parsing and `git diff-tree` for precise change detection); branch switch protocol with selective re-ingestion; `watch_folder_submodules` junction table replacing single-FK `parent_watch_id` for many-to-many submodule relationships with commit pin detection via `git ls-tree`; per-destination queue state machine (`qdrant_status`, `search_status`, `decision_json`) enabling parallel Qdrant + search DB execution with retry on failed destination only; search.db (FTS5) documentation (`file_metadata` + `code_lines` tables); cross-instance deduplication via reference-counting across watch folders sharing same tenant_id; disaster recovery (`wqm admin recover-state` from Qdrant payloads, `memory_mirror` table for reverse recovery, `wqm admin qdrant-snapshot` commands); tenant ID precedence (remote-based takes precedence over path-based, `path_` prefix for local projects, cascade rename on gaining remote); `is_git_tracked` and `last_commit_hash` columns on `watch_folders`; `base_point`, `relative_path`, `incremental` columns on `tracked_files`; updated Qdrant payload schema with `base_point`, `relative_path`, `absolute_path`, `file_hash`, `commit_hash` fields for recovery
 - v1.8.1: Queue taxonomy expansion — added `tenant`, `collection`, `website`, `url`, `doc` item types and `add`, `rename`, `uplift`, `reset` operations; enqueue-only gRPC pattern for RegisterProject and DeleteProject (no direct SQLite mutations, all routed through unified queue); progressive single-level directory scanning replacing recursive WalkDir; BM25 IDF weighting with per-collection vocabulary persistence (schema v15: `sparse_vocabulary` + `corpus_statistics` tables); adaptive resource management with Active Processing mode (+50% resources when queue has work during user activity); collection-level uplift and reset cascade handlers; website progressive crawl with link extraction; heartbeat logging for adaptive resources
 - v1.8.0: Branch-scoped point IDs with hybrid vector copy approach — new formula `SHA256(tenant_id | branch | file_path | chunk_index)`; added `is_archived` column to `watch_folders` with archive semantics (no watching/ingesting, fully searchable, no search exclusion); documented submodule archive safety with cross-reference checks; added cascade rename mechanism (queue-mediated `tenant_id` changes via SQLite-first + Qdrant eventual consistency); added remote rename detection (periodic git remote check vs stored URL); memory tool default scope changed from `global` to `project`; converted all Python code examples to Rust/TypeScript; added automated affinity grouping section (embedding-based pipeline, registry-sourced taxonomy, zero-shot classification, phased implementation plan)
 - v1.7.0: Added comprehensive file type allowlist as primary ingestion gate (400+ extensions across 21 categories, 30+ extension-less filenames, size-restricted extensions, mandatory excluded directories); updated MCP registration policy — MCP server no longer auto-registers new projects, only re-activates existing entries (`register_if_new` field added to `RegisterProject` gRPC); expanded daemon startup automation from simple recovery to 6-step sequence (schema check, config reconciliation with fingerprinting, Qdrant collection verification, path validation, filesystem recovery, crash recovery); updated configuration reference — dropped legacy `.wq_config.yaml` name, documented embedded defaults via `include_str!()`, added complete `watching` section with allowlist/exclusion/size-restriction keys; added Qdrant dashboard visualization guide for named vectors; documented Distance Matrix API for graph visualization
