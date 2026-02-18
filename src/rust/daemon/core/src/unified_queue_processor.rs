@@ -1300,7 +1300,7 @@ impl UnifiedQueueProcessor {
         // === DELETE OPERATION ===
         if item.op == QueueOperation::Delete {
             return Self::process_file_delete(
-                item, pool, storage_client, &watch_folder_id, &relative_path, &payload.file_path, search_db,
+                item, queue_manager, pool, storage_client, &watch_folder_id, &relative_path, &payload.file_path, search_db,
             ).await;
         }
 
@@ -1359,7 +1359,7 @@ impl UnifiedQueueProcessor {
             return Err(UnifiedProcessorError::FileNotFound(payload.file_path.clone()));
         }
 
-        // === UPDATE OPERATION: hash comparison to skip unchanged files ===
+        // === UPDATE OPERATION: hash comparison + reference-counted deletion ===
         if item.op == QueueOperation::Update {
             let new_hash = tracked_files_schema::compute_file_hash(file_path)
                 .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e)))?;
@@ -1371,16 +1371,54 @@ impl UnifiedQueueProcessor {
                     info!("File unchanged (hash match), skipping update: {}", relative_path);
                     return Ok(());
                 }
-                // File changed -- delete old Qdrant points via tracked qdrant_chunks
-                let old_point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
-                    .await
-                    .unwrap_or_default();
-                if !old_point_ids.is_empty() {
-                    // Delete old points by filter (file_path + tenant_id) as we lack batch-by-id API
-                    storage_client
-                        .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
+
+                // Compute new base_point for comparison
+                let new_base_point = wqm_common::hashing::compute_base_point(
+                    &item.tenant_id, &item.branch, &relative_path, &new_hash,
+                );
+
+                // Reference-counted deletion: check if another watch folder still references the old base_point
+                let delete_old = if let Some(ref old_bp) = existing.base_point {
+                    let has_refs = queue_manager.has_other_references(old_bp, &watch_folder_id)
                         .await
-                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                        .unwrap_or(false);
+                    if has_refs {
+                        info!(
+                            "Old base_point {} still referenced by another watch folder, skipping Qdrant deletion",
+                            old_bp
+                        );
+                    }
+                    !has_refs
+                } else {
+                    // No old base_point recorded — safe to delete by filter
+                    true
+                };
+
+                // Build and store QueueDecision for retry-safe execution
+                let decision = wqm_common::queue_types::QueueDecision {
+                    delete_old,
+                    old_base_point: existing.base_point.clone(),
+                    new_base_point: new_base_point.clone(),
+                    old_file_hash: Some(existing.file_hash.clone()),
+                    new_file_hash: new_hash.clone(),
+                };
+
+                if let Err(e) = queue_manager.store_queue_decision(&item.queue_id, &decision).await {
+                    warn!("Failed to store QueueDecision for {}: {}", item.queue_id, e);
+                    // Non-fatal: proceed without stored decision
+                }
+
+                // Execute old point deletion only if no other references
+                if delete_old {
+                    let old_point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
+                        .await
+                        .unwrap_or_default();
+                    if !old_point_ids.is_empty() {
+                        storage_client
+                            .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
+                            .await
+                            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                    }
                 }
                 // Old chunk records will be cleaned up atomically in the transaction below
             } else {
@@ -1969,6 +2007,7 @@ impl UnifiedQueueProcessor {
     /// Process file delete operation with tracked_files awareness (Task 506 + Task 519)
     async fn process_file_delete(
         item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
         pool: &SqlitePool,
         storage_client: &Arc<StorageClient>,
         watch_folder_id: &str,
@@ -1983,20 +2022,39 @@ impl UnifiedQueueProcessor {
         if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
             pool, watch_folder_id, relative_path, Some(item.branch.as_str()),
         ).await {
-            // Get point_ids from qdrant_chunks for targeted deletion
-            let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
-                .await
-                .unwrap_or_default();
-
-            if !point_ids.is_empty() {
-                // Delete from Qdrant first (irreversible), scoped to tenant
-                storage_client
-                    .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
+            // Reference-counted deletion: check if another watch folder still references this base_point
+            let delete_from_qdrant = if let Some(ref bp) = existing.base_point {
+                let has_refs = queue_manager.has_other_references(bp, watch_folder_id)
                     .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                    .unwrap_or(false);
+                if has_refs {
+                    info!(
+                        "base_point {} still referenced by another watch folder, skipping Qdrant deletion for: {}",
+                        bp, relative_path
+                    );
+                }
+                !has_refs
+            } else {
+                true // No base_point recorded — safe to delete
+            };
+
+            if delete_from_qdrant {
+                // Get point_ids from qdrant_chunks for targeted deletion
+                let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
+                    .await
+                    .unwrap_or_default();
+
+                if !point_ids.is_empty() {
+                    // Delete from Qdrant first (irreversible), scoped to tenant
+                    storage_client
+                        .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                }
             }
 
-            // Clean up SQLite records in a transaction (CASCADE handles qdrant_chunks)
+            // Always clean up SQLite records (this watch folder's tracked entry)
+            // CASCADE handles qdrant_chunks
             let tx_result: Result<(), UnifiedProcessorError> = async {
                 let mut tx = pool.begin().await
                     .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e)))?;
@@ -2027,7 +2085,10 @@ impl UnifiedQueueProcessor {
                         debug!("FTS5: deleted code_lines for file_id={}", existing.file_id);
                     }
                 }
-                info!("Deleted tracked file and {} Qdrant points for: {} in {}ms", point_ids.len(), relative_path, delete_start.elapsed().as_millis());
+                info!(
+                    "Deleted tracked file for: {} in {}ms (qdrant_delete={})",
+                    relative_path, delete_start.elapsed().as_millis(), delete_from_qdrant
+                );
             }
             return Ok(());
         }
