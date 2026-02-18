@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 18;
+pub const CURRENT_SCHEMA_VERSION: i32 = 19;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -168,6 +168,7 @@ impl SchemaManager {
             16 => self.migrate_v16().await,
             17 => self.migrate_v17().await,
             18 => self.migrate_v18().await,
+            19 => self.migrate_v19().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -860,6 +861,91 @@ impl SchemaManager {
         }
 
         info!("Migration v18 complete");
+        Ok(())
+    }
+
+    /// Migration v19: Add base_point, relative_path, incremental columns to tracked_files
+    ///
+    /// These columns support content-addressed identity for state integrity:
+    /// - base_point: SHA256(tenant_id|branch|relative_path|file_hash)[:32]
+    /// - relative_path: normalized path within project root (mirrors file_path)
+    /// - incremental: whether this file supports chunk-level updates
+    async fn migrate_v19(&self) -> Result<(), SchemaError> {
+        info!("Migration v19: Adding base_point, relative_path, incremental to tracked_files");
+
+        use super::tracked_files_schema::{
+            MIGRATE_V19_ADD_COLUMNS_SQL,
+            CREATE_BASE_POINT_INDEX_SQL,
+            CREATE_REFCOUNT_INDEX_SQL,
+        };
+
+        // Check if columns already exist (handles fresh installs)
+        let has_base_point: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'base_point'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_base_point {
+            for alter_sql in MIGRATE_V19_ADD_COLUMNS_SQL {
+                debug!("Running ALTER TABLE: {}", alter_sql);
+                sqlx::query(alter_sql)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        } else {
+            debug!("base_point column already exists, skipping ALTER TABLE");
+        }
+
+        // Backfill relative_path from file_path (already stored as relative)
+        let backfilled: u64 = sqlx::query(
+            "UPDATE tracked_files SET relative_path = file_path WHERE relative_path IS NULL"
+        )
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+
+        if backfilled > 0 {
+            info!("Backfilled relative_path for {} rows", backfilled);
+        }
+
+        // Backfill base_point using Rust hash computation
+        // Requires joining with watch_folders to get tenant_id
+        let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
+            "SELECT tf.file_id, wf.tenant_id, COALESCE(tf.branch, 'default'), tf.file_path, tf.file_hash
+             FROM tracked_files tf
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+             WHERE tf.base_point IS NULL"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        if !rows.is_empty() {
+            info!("Backfilling base_point for {} existing rows", rows.len());
+            for (file_id, tenant_id, branch, file_path, file_hash) in &rows {
+                let base_point = wqm_common::hashing::compute_base_point(
+                    tenant_id, branch, file_path, file_hash,
+                );
+                sqlx::query(
+                    "UPDATE tracked_files SET base_point = ?1 WHERE file_id = ?2"
+                )
+                .bind(&base_point)
+                .bind(file_id)
+                .execute(&self.pool)
+                .await?;
+            }
+            info!("base_point backfill complete");
+        }
+
+        // Create indexes
+        sqlx::query(CREATE_BASE_POINT_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query(CREATE_REFCOUNT_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        info!("Migration v19 complete");
         Ok(())
     }
 }
@@ -1623,5 +1709,71 @@ mod tests {
             "SELECT COUNT(*) FROM keywords WHERE tenant_id = 't2'"
         ).fetch_one(&pool).await.unwrap();
         assert_eq!(t2_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_migration_v19_base_point_columns() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify new columns exist
+        let has_base_point: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'base_point'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(has_base_point, "base_point column should exist");
+
+        let has_relative_path: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'relative_path'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(has_relative_path, "relative_path column should exist");
+
+        let has_incremental: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'incremental'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(has_incremental, "incremental column should exist");
+
+        // Verify indexes exist
+        let has_bp_index: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_tracked_files_base_point'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(has_bp_index, "base_point index should exist");
+
+        let has_refcount_index: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_tracked_files_refcount'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(has_refcount_index, "refcount index should exist");
+    }
+
+    #[tokio::test]
+    async fn test_migration_v19_backfill() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Insert a watch_folder and tracked_file to test backfill
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w1', '/tmp/project', 'projects', 'tenant_abc', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, collection, created_at, updated_at)
+             VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'deadbeef', 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        // Verify the tracked_file has base_point and relative_path as NULL (migration already ran on fresh DB)
+        // For fresh installs, columns exist from CREATE TABLE but are NULL
+        let bp: Option<String> = sqlx::query_scalar(
+            "SELECT base_point FROM tracked_files WHERE file_path = 'src/main.rs'"
+        ).fetch_one(&pool).await.unwrap();
+        // base_point is NULL because the insert above didn't provide it
+        assert!(bp.is_none(), "base_point should be NULL for insert without explicit value");
+
+        // Verify incremental defaults to 0
+        let incr: i32 = sqlx::query_scalar(
+            "SELECT incremental FROM tracked_files WHERE file_path = 'src/main.rs'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(incr, 0, "incremental should default to 0");
     }
 }

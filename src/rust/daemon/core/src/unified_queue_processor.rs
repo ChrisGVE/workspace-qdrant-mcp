@@ -1756,6 +1756,9 @@ impl UnifiedQueueProcessor {
         };
         let extension = get_extension_for_storage(file_path);
         let is_test = is_test_file(file_path);
+        let base_point = wqm_common::hashing::compute_base_point(
+            &item.tenant_id, &item.branch, &relative_path, &file_hash,
+        );
 
         // Check if file is already tracked (read outside transaction)
         let existing = tracked_files_schema::lookup_tracked_file(
@@ -1781,6 +1784,7 @@ impl UnifiedQueueProcessor {
                         chunking_method,
                         lsp_status,
                         treesitter_status,
+                        Some(&base_point),
                     )
                     .await
                     .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files update failed: {}", e)))?;
@@ -1808,6 +1812,8 @@ impl UnifiedQueueProcessor {
                         Some(&item.collection),
                         extension.as_deref(),
                         is_test,
+                        Some(&base_point),
+                        Some(&relative_path),
                     )
                     .await
                     .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e)))?
