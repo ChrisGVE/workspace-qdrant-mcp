@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 19;
+pub const CURRENT_SCHEMA_VERSION: i32 = 20;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -169,6 +169,7 @@ impl SchemaManager {
             17 => self.migrate_v17().await,
             18 => self.migrate_v18().await,
             19 => self.migrate_v19().await,
+            20 => self.migrate_v20().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -946,6 +947,65 @@ impl SchemaManager {
             .await?;
 
         info!("Migration v19 complete");
+        Ok(())
+    }
+
+    /// Migration v20: Add qdrant_status, search_status, decision_json to unified_queue
+    ///
+    /// Per-destination status tracking for dual-write queue processing.
+    /// Items are only "done" when both Qdrant and search DB writes complete.
+    async fn migrate_v20(&self) -> Result<(), SchemaError> {
+        info!("Migration v20: Adding per-destination status columns to unified_queue");
+
+        use super::unified_queue_schema::{
+            MIGRATE_V20_ADD_COLUMNS_SQL,
+            CREATE_QDRANT_STATUS_INDEX_SQL,
+            CREATE_SEARCH_STATUS_INDEX_SQL,
+        };
+
+        // Check if columns already exist (handles fresh installs)
+        let has_qdrant_status: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('unified_queue') WHERE name = 'qdrant_status'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_qdrant_status {
+            for alter_sql in MIGRATE_V20_ADD_COLUMNS_SQL {
+                debug!("Running ALTER TABLE: {}", alter_sql);
+                sqlx::query(alter_sql)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        } else {
+            debug!("qdrant_status column already exists, skipping ALTER TABLE");
+        }
+
+        // Backfill: set qdrant_status and search_status based on existing status
+        // - done items → both destinations done
+        // - failed items → leave as pending (will be re-evaluated)
+        // - pending/in_progress → leave as pending
+        let backfilled: u64 = sqlx::query(
+            "UPDATE unified_queue SET qdrant_status = 'done', search_status = 'done'
+             WHERE status = 'done' AND qdrant_status = 'pending'"
+        )
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+
+        if backfilled > 0 {
+            info!("Backfilled qdrant_status/search_status for {} done items", backfilled);
+        }
+
+        // Create indexes
+        sqlx::query(CREATE_QDRANT_STATUS_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query(CREATE_SEARCH_STATUS_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        info!("Migration v20 complete");
         Ok(())
     }
 }
@@ -1775,5 +1835,56 @@ mod tests {
             "SELECT incremental FROM tracked_files WHERE file_path = 'src/main.rs'"
         ).fetch_one(&pool).await.unwrap();
         assert_eq!(incr, 0, "incremental should default to 0");
+    }
+
+    #[sqlx::test]
+    async fn test_migration_v20_destination_columns() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify new columns exist in unified_queue
+        let columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('unified_queue') ORDER BY name"
+        ).fetch_all(&pool).await.unwrap();
+
+        assert!(columns.contains(&"qdrant_status".to_string()), "qdrant_status column missing");
+        assert!(columns.contains(&"search_status".to_string()), "search_status column missing");
+        assert!(columns.contains(&"decision_json".to_string()), "decision_json column missing");
+    }
+
+    #[sqlx::test]
+    async fn test_migration_v20_defaults_and_constraints() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Insert an item without specifying qdrant_status/search_status — should default to 'pending'
+        sqlx::query(
+            "INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, priority, branch, payload_json, created_at, updated_at)
+             VALUES ('q1', 'k1', 'file', 'add', 't1', 'projects', 'pending', 5, 'main', '{}', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        let qdrant_status: String = sqlx::query_scalar(
+            "SELECT qdrant_status FROM unified_queue WHERE queue_id = 'q1'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(qdrant_status, "pending", "qdrant_status should default to 'pending'");
+
+        let search_status: String = sqlx::query_scalar(
+            "SELECT search_status FROM unified_queue WHERE queue_id = 'q1'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(search_status, "pending", "search_status should default to 'pending'");
+
+        let decision: Option<String> = sqlx::query_scalar(
+            "SELECT decision_json FROM unified_queue WHERE queue_id = 'q1'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(decision.is_none(), "decision_json should default to NULL");
+
+        // Verify CHECK constraint rejects invalid values
+        let invalid = sqlx::query(
+            "INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, priority, branch, payload_json, qdrant_status, created_at, updated_at)
+             VALUES ('q2', 'k2', 'file', 'add', 't1', 'projects', 'pending', 5, 'main', '{}', 'bogus', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await;
+        assert!(invalid.is_err(), "CHECK constraint should reject invalid qdrant_status");
     }
 }

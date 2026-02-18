@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 // Re-export canonical types from wqm-common
-pub use wqm_common::queue_types::{ItemType, QueueOperation, QueueStatus};
+pub use wqm_common::queue_types::{ItemType, QueueOperation, QueueStatus, DestinationStatus, QueueDecision};
 pub use wqm_common::payloads::{
     ContentPayload, FilePayload, FolderPayload, ProjectPayload,
     LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload,
@@ -72,6 +72,15 @@ pub struct UnifiedQueueItem {
     /// Only set for item_type='file', None for other types
     #[serde(default)]
     pub file_path: Option<String>,
+    /// Per-destination status: Qdrant vector write
+    #[serde(default)]
+    pub qdrant_status: Option<DestinationStatus>,
+    /// Per-destination status: search DB (FTS5) write
+    #[serde(default)]
+    pub search_status: Option<DestinationStatus>,
+    /// Pre-computed processing decision (JSON-serialized QueueDecision)
+    #[serde(default)]
+    pub decision_json: Option<String>,
 }
 
 fn default_max_retries() -> i32 { 3 }
@@ -125,6 +134,30 @@ impl UnifiedQueueItem {
     /// Parse the payload JSON into a CollectionPayload
     pub fn parse_collection_payload(&self) -> Result<CollectionPayload, serde_json::Error> {
         serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the decision_json field into a QueueDecision
+    pub fn parse_decision(&self) -> Option<Result<QueueDecision, serde_json::Error>> {
+        self.decision_json.as_ref().map(|json| serde_json::from_str(json))
+    }
+
+    /// Determine the overall queue status from per-destination sub-statuses.
+    ///
+    /// Rules:
+    /// - Both done → Done
+    /// - Either failed (and neither pending/in_progress) → Failed
+    /// - Otherwise → InProgress (still processing)
+    pub fn check_completion(&self) -> QueueStatus {
+        let qs = self.qdrant_status.unwrap_or(DestinationStatus::Pending);
+        let ss = self.search_status.unwrap_or(DestinationStatus::Pending);
+
+        match (qs, ss) {
+            (DestinationStatus::Done, DestinationStatus::Done) => QueueStatus::Done,
+            (DestinationStatus::Failed, DestinationStatus::Done)
+            | (DestinationStatus::Done, DestinationStatus::Failed)
+            | (DestinationStatus::Failed, DestinationStatus::Failed) => QueueStatus::Failed,
+            _ => QueueStatus::InProgress,
+        }
     }
 
     /// Check if the item can be retried
@@ -235,7 +268,12 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     -- Task 22: Per-file deduplication
     -- Only set for item_type='file', NULL for other types
     -- UNIQUE constraint prevents duplicate file ingestion
-    file_path TEXT UNIQUE
+    file_path TEXT UNIQUE,
+    -- State integrity: per-destination status tracking
+    qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN ('pending', 'in_progress', 'done', 'failed')),
+    search_status TEXT DEFAULT 'pending' CHECK (search_status IN ('pending', 'in_progress', 'done', 'failed')),
+    -- Pre-computed processing decision (JSON)
+    decision_json TEXT
 )
 "#;
 
@@ -261,6 +299,30 @@ pub const CREATE_UNIFIED_QUEUE_INDEXES_SQL: &[&str] = &[
        ON unified_queue(file_path)
        WHERE file_path IS NOT NULL"#,
 ];
+
+// ---------------------------------------------------------------------------
+// Migration SQL — v20: qdrant_status, search_status, decision_json columns
+// ---------------------------------------------------------------------------
+
+/// SQL statements for migration v20: add per-destination status and decision columns
+/// NOTE: SQLite ALTER TABLE ADD COLUMN supports CHECK constraints only if they
+/// reference the added column alone. We omit CHECK here for maximum compatibility
+/// and rely on daemon code to enforce valid values.
+pub const MIGRATE_V20_ADD_COLUMNS_SQL: &[&str] = &[
+    "ALTER TABLE unified_queue ADD COLUMN qdrant_status TEXT DEFAULT 'pending'",
+    "ALTER TABLE unified_queue ADD COLUMN search_status TEXT DEFAULT 'pending'",
+    "ALTER TABLE unified_queue ADD COLUMN decision_json TEXT",
+];
+
+/// Index for finding items with incomplete Qdrant writes
+pub const CREATE_QDRANT_STATUS_INDEX_SQL: &str =
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_qdrant_status
+       ON unified_queue(qdrant_status) WHERE qdrant_status != 'done'"#;
+
+/// Index for finding items with incomplete search DB writes
+pub const CREATE_SEARCH_STATUS_INDEX_SQL: &str =
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_search_status
+       ON unified_queue(search_status) WHERE search_status != 'done'"#;
 
 #[cfg(test)]
 mod tests {
@@ -413,5 +475,178 @@ mod tests {
 
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(key.len(), 32);
+    }
+
+    #[test]
+    fn test_queue_decision_serde_roundtrip() {
+        let decision = QueueDecision {
+            delete_old: true,
+            old_base_point: Some("abc123".to_string()),
+            new_base_point: "def456".to_string(),
+            old_file_hash: Some("oldhash".to_string()),
+            new_file_hash: "newhash".to_string(),
+        };
+
+        let json = serde_json::to_string(&decision).unwrap();
+        let parsed: QueueDecision = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.delete_old);
+        assert_eq!(parsed.old_base_point, Some("abc123".to_string()));
+        assert_eq!(parsed.new_base_point, "def456");
+        assert_eq!(parsed.old_file_hash, Some("oldhash".to_string()));
+        assert_eq!(parsed.new_file_hash, "newhash");
+    }
+
+    #[test]
+    fn test_queue_decision_no_old() {
+        let decision = QueueDecision {
+            delete_old: false,
+            old_base_point: None,
+            new_base_point: "def456".to_string(),
+            old_file_hash: None,
+            new_file_hash: "newhash".to_string(),
+        };
+
+        let json = serde_json::to_string(&decision).unwrap();
+        let parsed: QueueDecision = serde_json::from_str(&json).unwrap();
+
+        assert!(!parsed.delete_old);
+        assert!(parsed.old_base_point.is_none());
+    }
+
+    #[test]
+    fn test_check_completion_both_done() {
+        let item = UnifiedQueueItem {
+            queue_id: "q1".into(),
+            idempotency_key: "k1".into(),
+            item_type: ItemType::File,
+            op: QueueOperation::Add,
+            tenant_id: "t1".into(),
+            collection: "projects".into(),
+            priority: 0,
+            status: QueueStatus::InProgress,
+            branch: "main".into(),
+            payload_json: "{}".into(),
+            metadata: None,
+            created_at: "2025-01-01T00:00:00Z".into(),
+            updated_at: "2025-01-01T00:00:00Z".into(),
+            lease_until: None,
+            worker_id: None,
+            retry_count: 0,
+            max_retries: 3,
+            error_message: None,
+            last_error_at: None,
+            file_path: None,
+            qdrant_status: Some(DestinationStatus::Done),
+            search_status: Some(DestinationStatus::Done),
+            decision_json: None,
+        };
+        assert_eq!(item.check_completion(), QueueStatus::Done);
+    }
+
+    #[test]
+    fn test_check_completion_partial_done() {
+        let item = UnifiedQueueItem {
+            queue_id: "q1".into(),
+            idempotency_key: "k1".into(),
+            item_type: ItemType::File,
+            op: QueueOperation::Add,
+            tenant_id: "t1".into(),
+            collection: "projects".into(),
+            priority: 0,
+            status: QueueStatus::InProgress,
+            branch: "main".into(),
+            payload_json: "{}".into(),
+            metadata: None,
+            created_at: "2025-01-01T00:00:00Z".into(),
+            updated_at: "2025-01-01T00:00:00Z".into(),
+            lease_until: None,
+            worker_id: None,
+            retry_count: 0,
+            max_retries: 3,
+            error_message: None,
+            last_error_at: None,
+            file_path: None,
+            qdrant_status: Some(DestinationStatus::Done),
+            search_status: Some(DestinationStatus::Pending),
+            decision_json: None,
+        };
+        assert_eq!(item.check_completion(), QueueStatus::InProgress);
+    }
+
+    #[test]
+    fn test_check_completion_one_failed() {
+        let item = UnifiedQueueItem {
+            queue_id: "q1".into(),
+            idempotency_key: "k1".into(),
+            item_type: ItemType::File,
+            op: QueueOperation::Add,
+            tenant_id: "t1".into(),
+            collection: "projects".into(),
+            priority: 0,
+            status: QueueStatus::InProgress,
+            branch: "main".into(),
+            payload_json: "{}".into(),
+            metadata: None,
+            created_at: "2025-01-01T00:00:00Z".into(),
+            updated_at: "2025-01-01T00:00:00Z".into(),
+            lease_until: None,
+            worker_id: None,
+            retry_count: 0,
+            max_retries: 3,
+            error_message: None,
+            last_error_at: None,
+            file_path: None,
+            qdrant_status: Some(DestinationStatus::Done),
+            search_status: Some(DestinationStatus::Failed),
+            decision_json: None,
+        };
+        assert_eq!(item.check_completion(), QueueStatus::Failed);
+    }
+
+    #[test]
+    fn test_check_completion_none_defaults_pending() {
+        let item = UnifiedQueueItem {
+            queue_id: "q1".into(),
+            idempotency_key: "k1".into(),
+            item_type: ItemType::File,
+            op: QueueOperation::Add,
+            tenant_id: "t1".into(),
+            collection: "projects".into(),
+            priority: 0,
+            status: QueueStatus::Pending,
+            branch: "main".into(),
+            payload_json: "{}".into(),
+            metadata: None,
+            created_at: "2025-01-01T00:00:00Z".into(),
+            updated_at: "2025-01-01T00:00:00Z".into(),
+            lease_until: None,
+            worker_id: None,
+            retry_count: 0,
+            max_retries: 3,
+            error_message: None,
+            last_error_at: None,
+            file_path: None,
+            qdrant_status: None,
+            search_status: None,
+            decision_json: None,
+        };
+        // Both None → treated as pending → InProgress
+        assert_eq!(item.check_completion(), QueueStatus::InProgress);
+    }
+
+    #[test]
+    fn test_destination_status_display() {
+        assert_eq!(DestinationStatus::Pending.to_string(), "pending");
+        assert_eq!(DestinationStatus::InProgress.to_string(), "in_progress");
+        assert_eq!(DestinationStatus::Done.to_string(), "done");
+        assert_eq!(DestinationStatus::Failed.to_string(), "failed");
+    }
+
+    #[test]
+    fn test_destination_status_from_str() {
+        assert_eq!(DestinationStatus::from_str("pending"), Some(DestinationStatus::Pending));
+        assert_eq!(DestinationStatus::from_str("done"), Some(DestinationStatus::Done));
+        assert_eq!(DestinationStatus::from_str("invalid"), None);
     }
 }

@@ -14,7 +14,7 @@ use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTIO
 
 use crate::unified_queue_schema::{
     ItemType, QueueOperation as UnifiedOp, QueueStatus,
-    UnifiedQueueItem, UnifiedQueueStats,
+    UnifiedQueueItem, UnifiedQueueStats, DestinationStatus,
     generate_unified_idempotency_key,
 };
 
@@ -1174,6 +1174,15 @@ impl QueueManager {
                 error_message: row.try_get("error_message")?,
                 last_error_at: row.try_get("last_error_at")?,
                 file_path: row.try_get("file_path")?, // Task 22
+                qdrant_status: {
+                    let s: Option<String> = row.try_get("qdrant_status")?;
+                    s.and_then(|v| DestinationStatus::from_str(&v))
+                },
+                search_status: {
+                    let s: Option<String> = row.try_get("search_status")?;
+                    s.and_then(|v| DestinationStatus::from_str(&v))
+                },
+                decision_json: row.try_get("decision_json")?,
             });
         }
 
@@ -1551,6 +1560,15 @@ impl QueueManager {
                     error_message: row.try_get("error_message")?,
                     last_error_at: row.try_get("last_error_at")?,
                     file_path: row.try_get("file_path")?, // Task 22
+                    qdrant_status: {
+                        let s: Option<String> = row.try_get("qdrant_status")?;
+                        s.and_then(|v| DestinationStatus::from_str(&v))
+                    },
+                    search_status: {
+                        let s: Option<String> = row.try_get("search_status")?;
+                        s.and_then(|v| DestinationStatus::from_str(&v))
+                    },
+                    decision_json: row.try_get("decision_json")?,
                 }))
             }
             None => Ok(None),

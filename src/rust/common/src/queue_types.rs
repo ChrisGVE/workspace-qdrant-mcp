@@ -302,6 +302,66 @@ impl QueueStatus {
     }
 }
 
+/// Per-destination processing status for dual-write queue items.
+///
+/// Queue items write to both Qdrant (vectors) and the search DB (FTS5).
+/// Each destination has its own status, and the item's overall status
+/// is derived from both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DestinationStatus {
+    /// Not yet processed for this destination
+    Pending,
+    /// Currently being written to this destination
+    InProgress,
+    /// Successfully written to this destination
+    Done,
+    /// Write to this destination failed
+    Failed,
+}
+
+impl fmt::Display for DestinationStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DestinationStatus::Pending => write!(f, "pending"),
+            DestinationStatus::InProgress => write!(f, "in_progress"),
+            DestinationStatus::Done => write!(f, "done"),
+            DestinationStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
+impl DestinationStatus {
+    /// Parse from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(DestinationStatus::Pending),
+            "in_progress" => Some(DestinationStatus::InProgress),
+            "done" => Some(DestinationStatus::Done),
+            "failed" => Some(DestinationStatus::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// Pre-computed decision for queue item processing.
+///
+/// Stored as JSON in `decision_json` column so that retries can skip
+/// the decision-making step and proceed directly to execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueDecision {
+    /// Whether old Qdrant points should be deleted before upserting new ones
+    pub delete_old: bool,
+    /// Base point of the previous file version (for reference counting)
+    pub old_base_point: Option<String>,
+    /// Base point of the new file version
+    pub new_base_point: String,
+    /// SHA256 hash of the previous file content
+    pub old_file_hash: Option<String>,
+    /// SHA256 hash of the new file content
+    pub new_file_hash: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
