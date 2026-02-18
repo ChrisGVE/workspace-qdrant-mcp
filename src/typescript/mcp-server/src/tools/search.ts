@@ -57,6 +57,12 @@ export interface SearchOptions {
   tags?: string[];
   /** When true, fetch parent unit context for each chunk result */
   expandContext?: boolean;
+  /** File path glob filter (e.g., "**\/*.rs") — applies in both exact and semantic modes */
+  pathGlob?: string;
+  /** When true, use FTS5 exact/substring search instead of semantic search */
+  exact?: boolean;
+  /** Lines of context before/after matches (only for exact mode, default: 0) */
+  contextLines?: number;
 }
 
 export interface ParentContext {
@@ -109,6 +115,7 @@ interface FilterParams {
   includeDeleted: boolean;
   tag: string | undefined;
   tags: string[] | undefined;
+  pathGlob: string | undefined;
 }
 
 interface SearchCollectionParams {
@@ -119,6 +126,25 @@ interface SearchCollectionParams {
   filter: Record<string, unknown> | null;
   limit: number;
   scoreThreshold: number;
+}
+
+/**
+ * Extract the deterministic path prefix from a glob pattern.
+ * Returns everything before the first glob metacharacter (* ? [ {).
+ * Example: "src/**\/*.rs" → "src/", "**\/*.rs" → ""
+ */
+function extractGlobPrefix(glob: string): string {
+  const metaChars = /[*?[{]/;
+  const match = metaChars.exec(glob);
+  if (!match) {
+    // No glob chars — the whole string is a literal path
+    return glob;
+  }
+  // Take everything up to the first metachar,
+  // then trim to the last path separator for a clean prefix
+  const beforeMeta = glob.slice(0, match.index);
+  const lastSlash = beforeMeta.lastIndexOf('/');
+  return lastSlash >= 0 ? beforeMeta.slice(0, lastSlash + 1) : '';
 }
 
 /**
@@ -166,6 +192,11 @@ export class SearchTool {
    * Execute search with specified options
    */
   async search(options: SearchOptions): Promise<SearchResponse> {
+    // Route to FTS5 exact search when exact=true
+    if (options.exact) {
+      return this.searchExact(options);
+    }
+
     const {
       query,
       collection,
@@ -274,6 +305,7 @@ export class SearchTool {
           includeDeleted,
           tag,
           tags,
+          pathGlob: options.pathGlob,
         };
         const filter = this.buildFilter(filterParams);
 
@@ -337,6 +369,110 @@ export class SearchTool {
     }
 
     return response;
+  }
+
+  /**
+   * Execute FTS5 exact/substring search via daemon's TextSearchService.
+   * Maps TextSearchResponse to the standard SearchResponse format.
+   */
+  private async searchExact(options: SearchOptions): Promise<SearchResponse> {
+    const startTime = Date.now();
+    const eventId = randomUUID();
+
+    // Resolve tenant_id for project scope
+    let tenantId: string | undefined;
+    if (options.scope !== 'all') {
+      tenantId = options.projectId;
+      if (!tenantId) {
+        const cwd = process.cwd();
+        const projectInfo = await this.projectDetector.getProjectInfo(cwd, false);
+        tenantId = projectInfo?.projectId;
+      }
+    }
+
+    // Log search event
+    this._stateManager.logSearchEvent({
+      id: eventId,
+      projectId: tenantId,
+      actor: 'claude',
+      tool: 'mcp_qdrant',
+      op: 'search_exact',
+      queryText: options.query,
+    });
+
+    try {
+      // Build request conditionally to satisfy exactOptionalPropertyTypes
+      const request: {
+        pattern: string;
+        regex: boolean;
+        case_sensitive: boolean;
+        context_lines: number;
+        max_results: number;
+        tenant_id?: string;
+        branch?: string;
+        path_glob?: string;
+      } = {
+        pattern: options.query,
+        regex: false,
+        case_sensitive: true,
+        context_lines: options.contextLines ?? 0,
+        max_results: options.limit ?? 100,
+      };
+      if (tenantId) request.tenant_id = tenantId;
+      if (options.branch) request.branch = options.branch;
+      if (options.pathGlob) request.path_glob = options.pathGlob;
+
+      const response = await this.daemonClient.textSearch(request);
+
+      const results: SearchResult[] = response.matches.map((m, idx) => ({
+        id: `${m.file_path}:${m.line_number}`,
+        score: 1.0 - idx * 0.001, // Rank order, highest first
+        collection: PROJECTS_COLLECTION,
+        content: m.content,
+        metadata: {
+          file_path: m.file_path,
+          line_number: m.line_number,
+          tenant_id: m.tenant_id,
+          branch: m.branch,
+          context_before: m.context_before,
+          context_after: m.context_after,
+          _search_type: 'exact',
+        },
+      }));
+
+      // Update search event with results
+      const latencyMs = Date.now() - startTime;
+      this._stateManager.updateSearchEvent(eventId, {
+        resultCount: results.length,
+        latencyMs,
+      });
+
+      return {
+        results,
+        total: response.total_matches,
+        query: options.query,
+        mode: 'keyword', // exact search is closest to keyword mode
+        scope: options.scope ?? 'project',
+        collections_searched: [PROJECTS_COLLECTION],
+      };
+    } catch (error) {
+      const latencyMs = Date.now() - startTime;
+      this._stateManager.updateSearchEvent(eventId, {
+        resultCount: 0,
+        latencyMs,
+      });
+
+      return {
+        results: [],
+        total: 0,
+        query: options.query,
+        mode: 'keyword',
+        scope: options.scope ?? 'project',
+        collections_searched: [],
+        status: 'uncertain',
+        status_reason: `Exact search failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      };
+    }
   }
 
   /**
@@ -422,6 +558,18 @@ export class SearchTool {
       mustConditions.push({
         should: tagShouldConditions,
       });
+    }
+
+    // Path glob filter — extract deterministic prefix for Qdrant text match
+    // Qdrant doesn't support glob patterns, so we extract a prefix for filtering
+    if (params.pathGlob) {
+      const prefix = extractGlobPrefix(params.pathGlob);
+      if (prefix) {
+        mustConditions.push({
+          key: 'file_path',
+          match: { text: prefix },
+        });
+      }
     }
 
     // Exclude deleted libraries unless explicitly included

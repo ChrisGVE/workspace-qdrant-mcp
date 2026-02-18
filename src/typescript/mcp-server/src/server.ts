@@ -252,6 +252,18 @@ export class WorkspaceQdrantMcpServer {
               items: { type: 'string' },
               description: 'Filter results by multiple concept tags (OR logic)',
             },
+            pathGlob: {
+              type: 'string',
+              description: 'File path glob filter (e.g., "**/*.rs", "src/**/*.ts")',
+            },
+            exact: {
+              type: 'boolean',
+              description: 'Use exact substring search instead of semantic search (default: false)',
+            },
+            contextLines: {
+              type: 'number',
+              description: 'Lines of context before/after matches in exact mode (default: 0)',
+            },
           },
           required: ['query'],
         },
@@ -553,6 +565,9 @@ export class WorkspaceQdrantMcpServer {
     includeLibraries?: boolean;
     tag?: string;
     tags?: string[];
+    pathGlob?: string;
+    exact?: boolean;
+    contextLines?: number;
   } {
     const options: {
       query: string;
@@ -567,6 +582,9 @@ export class WorkspaceQdrantMcpServer {
       includeLibraries?: boolean;
       tag?: string;
       tags?: string[];
+      pathGlob?: string;
+      exact?: boolean;
+      contextLines?: number;
     } = {
       query: (args?.['query'] as string) ?? '',
     };
@@ -607,6 +625,15 @@ export class WorkspaceQdrantMcpServer {
 
     const tags = args?.['tags'] as string[] | undefined;
     if (tags && tags.length > 0) options.tags = tags;
+
+    const pathGlob = args?.['pathGlob'] as string | undefined;
+    if (pathGlob) options.pathGlob = pathGlob;
+
+    const exact = args?.['exact'] as boolean | undefined;
+    if (exact !== undefined) options.exact = exact;
+
+    const contextLines = args?.['contextLines'] as number | undefined;
+    if (contextLines !== undefined) options.contextLines = contextLines;
 
     return options;
   }
