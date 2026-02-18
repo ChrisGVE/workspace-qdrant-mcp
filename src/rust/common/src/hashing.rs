@@ -131,6 +131,53 @@ pub fn compute_content_hash(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Normalize a file path for stable ID generation.
+///
+/// Ensures the same physical file always produces the same path string:
+/// - Uses forward slashes
+/// - Strips trailing slashes
+pub fn normalize_path_for_id(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    normalized.trim_end_matches('/').to_string()
+}
+
+/// Compute the base point hash: `SHA256(tenant_id|branch|relative_path|file_hash)[:32]`
+///
+/// The base point uniquely identifies a specific VERSION of a specific file.
+/// It is shared across all chunks of that file version and across Qdrant
+/// and the search DB.
+///
+/// - `tenant_id`: derived from git remote URL hash (git) or path hash (non-git)
+/// - `branch`: current branch name (git) or "default" (non-git)
+/// - `relative_path`: file path relative to project root (normalized)
+/// - `file_hash`: SHA256 of file content or git blob SHA
+pub fn compute_base_point(
+    tenant_id: &str,
+    branch: &str,
+    relative_path: &str,
+    file_hash: &str,
+) -> String {
+    let normalized = normalize_path_for_id(relative_path);
+    let input = format!("{}|{}|{}|{}", tenant_id, branch, normalized, file_hash);
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let hash = hasher.finalize();
+    hash[..16].iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Compute a Qdrant point ID from a base point and chunk index.
+///
+/// Formula: `SHA256(base_point|chunk_index)[:32]`
+///
+/// Each chunk of a file version gets a unique, deterministic point ID.
+pub fn compute_point_id(base_point: &str, chunk_index: u32) -> String {
+    let input = format!("{}|{}", base_point, chunk_index);
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let hash = hasher.finalize();
+    hash[..16].iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +290,97 @@ mod tests {
 
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(key.len(), 32);
+    }
+
+    #[test]
+    fn test_normalize_path_for_id() {
+        assert_eq!(normalize_path_for_id("src/main.rs"), "src/main.rs");
+        assert_eq!(normalize_path_for_id("src\\main.rs"), "src/main.rs");
+        assert_eq!(normalize_path_for_id("src/dir/"), "src/dir");
+        assert_eq!(normalize_path_for_id("src\\dir\\file.rs"), "src/dir/file.rs");
+    }
+
+    #[test]
+    fn test_compute_base_point_deterministic() {
+        let bp1 = compute_base_point("tenant_abc", "main", "src/main.rs", "deadbeef");
+        let bp2 = compute_base_point("tenant_abc", "main", "src/main.rs", "deadbeef");
+        assert_eq!(bp1, bp2);
+        assert_eq!(bp1.len(), 32);
+        assert!(bp1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_compute_base_point_different_file_hash() {
+        let bp1 = compute_base_point("tenant_abc", "main", "src/main.rs", "hash_v1");
+        let bp2 = compute_base_point("tenant_abc", "main", "src/main.rs", "hash_v2");
+        assert_ne!(bp1, bp2);
+    }
+
+    #[test]
+    fn test_compute_base_point_different_branch() {
+        let bp1 = compute_base_point("tenant_abc", "main", "src/main.rs", "deadbeef");
+        let bp2 = compute_base_point("tenant_abc", "feature", "src/main.rs", "deadbeef");
+        assert_ne!(bp1, bp2);
+    }
+
+    #[test]
+    fn test_compute_base_point_different_path() {
+        let bp1 = compute_base_point("tenant_abc", "main", "src/main.rs", "deadbeef");
+        let bp2 = compute_base_point("tenant_abc", "main", "src/lib.rs", "deadbeef");
+        assert_ne!(bp1, bp2);
+    }
+
+    #[test]
+    fn test_compute_base_point_different_tenant() {
+        let bp1 = compute_base_point("tenant_abc", "main", "src/main.rs", "deadbeef");
+        let bp2 = compute_base_point("tenant_xyz", "main", "src/main.rs", "deadbeef");
+        assert_ne!(bp1, bp2);
+    }
+
+    #[test]
+    fn test_compute_base_point_path_normalization() {
+        let bp1 = compute_base_point("t", "main", "src/main.rs", "h");
+        let bp2 = compute_base_point("t", "main", "src\\main.rs", "h");
+        assert_eq!(bp1, bp2);
+    }
+
+    #[test]
+    fn test_compute_point_id_deterministic() {
+        let bp = compute_base_point("tenant_abc", "main", "src/main.rs", "deadbeef");
+        let pid1 = compute_point_id(&bp, 0);
+        let pid2 = compute_point_id(&bp, 0);
+        assert_eq!(pid1, pid2);
+        assert_eq!(pid1.len(), 32);
+    }
+
+    #[test]
+    fn test_compute_point_id_different_chunk_index() {
+        let bp = compute_base_point("tenant_abc", "main", "src/main.rs", "deadbeef");
+        let pid0 = compute_point_id(&bp, 0);
+        let pid1 = compute_point_id(&bp, 1);
+        let pid2 = compute_point_id(&bp, 2);
+        assert_ne!(pid0, pid1);
+        assert_ne!(pid1, pid2);
+        assert_ne!(pid0, pid2);
+    }
+
+    #[test]
+    fn test_compute_point_id_different_base_point() {
+        let bp1 = compute_base_point("tenant_abc", "main", "src/main.rs", "hash_v1");
+        let bp2 = compute_base_point("tenant_abc", "main", "src/main.rs", "hash_v2");
+        let pid1 = compute_point_id(&bp1, 0);
+        let pid2 = compute_point_id(&bp2, 0);
+        assert_ne!(pid1, pid2);
+    }
+
+    #[test]
+    fn test_base_point_cross_language_test_vector() {
+        // Test vector for cross-language parity (Rust ↔ TypeScript)
+        // TypeScript tests in tests/utils/base-point.test.ts must match these values
+        let bp = compute_base_point("test_tenant", "main", "src/example.rs", "abc123hash");
+        assert_eq!(bp, "fb8f745c24089bb3c094002a25e4762d");
+
+        let pid = compute_point_id(&bp, 0);
+        assert_eq!(pid, "29f8fee936e7f18423f871d91da964fa");
     }
 }
