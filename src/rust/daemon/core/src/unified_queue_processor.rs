@@ -916,7 +916,7 @@ impl UnifiedQueueProcessor {
 
         match item.item_type {
             ItemType::Text => {
-                Self::process_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
+                Self::process_content_item(item, queue_manager, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::File => {
                 Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions, lexicon_manager, search_db).await
@@ -977,6 +977,7 @@ impl UnifiedQueueProcessor {
     /// tags, priority) into the Qdrant point payload.
     async fn process_content_item(
         item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
@@ -1002,7 +1003,7 @@ impl UnifiedQueueProcessor {
 
         // Route to collection-specific or generic content processing
         if item.collection == wqm_common::constants::COLLECTION_MEMORY {
-            Self::process_memory_item(item, embedding_generator, storage_client, embedding_semaphore).await
+            Self::process_memory_item(item, queue_manager, embedding_generator, storage_client, embedding_semaphore).await
         } else if item.collection == wqm_common::constants::COLLECTION_SCRATCHPAD {
             Self::process_scratchpad_item(item, embedding_generator, storage_client, embedding_semaphore).await
         } else {
@@ -1013,6 +1014,7 @@ impl UnifiedQueueProcessor {
     /// Process a memory rule item — preserves all memory-specific metadata
     async fn process_memory_item(
         item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
@@ -1023,7 +1025,7 @@ impl UnifiedQueueProcessor {
         let action = payload.action.as_deref().unwrap_or("add");
         let now = wqm_common::timestamps::now_utc();
 
-        // For remove action, delete by label filter and return
+        // For remove action, delete by label filter and clean memory_mirror
         if action == "remove" {
             if let Some(label) = &payload.label {
                 info!("Removing memory rule with label: {}", label);
@@ -1035,6 +1037,16 @@ impl UnifiedQueueProcessor {
                     )
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+                // Also remove from memory_mirror (best-effort — Qdrant delete already succeeded)
+                let pool = queue_manager.pool();
+                if let Err(e) = sqlx::query("DELETE FROM memory_mirror WHERE memory_id = ?1")
+                    .bind(label)
+                    .execute(pool)
+                    .await
+                {
+                    warn!("Failed to delete memory_mirror row for label={}: {}", label, e);
+                }
             }
             return Ok(());
         }
