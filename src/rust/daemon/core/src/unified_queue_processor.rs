@@ -1042,13 +1042,9 @@ impl UnifiedQueueProcessor {
         }
 
         // Generate embedding (semaphore-gated)
-        let _permit = embedding_semaphore.acquire().await
-            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
-        let embedding_result = embedding_generator
-            .generate_embedding(&payload.content, "bge-small-en-v1.5")
-            .await
-            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
-        drop(_permit);
+        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
+            embedding_generator, embedding_semaphore, &payload.content, "bge-small-en-v1.5",
+        ).await?;
 
         // For update action, delete existing point by label first
         if action == "update" {
@@ -1104,8 +1100,8 @@ impl UnifiedQueueProcessor {
 
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
-            dense_vector: embedding_result.dense.vector,
-            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+            dense_vector: embed_result.dense_vector,
+            sparse_vector: embed_result.sparse_vector,
             payload: point_payload,
         };
 
@@ -1138,13 +1134,9 @@ impl UnifiedQueueProcessor {
         let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
 
         // Generate embedding (semaphore-gated)
-        let _permit = embedding_semaphore.acquire().await
-            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
-        let embedding_result = embedding_generator
-            .generate_embedding(&payload.content, "all-MiniLM-L6-v2")
-            .await
-            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
-        drop(_permit);
+        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
+            embedding_generator, embedding_semaphore, &payload.content, "all-MiniLM-L6-v2",
+        ).await?;
 
         // Build Qdrant payload
         let mut point_payload = std::collections::HashMap::new();
@@ -1166,8 +1158,8 @@ impl UnifiedQueueProcessor {
 
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
-            dense_vector: embedding_result.dense.vector,
-            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+            dense_vector: embed_result.dense_vector,
+            sparse_vector: embed_result.sparse_vector,
             payload: point_payload,
         };
 
@@ -1195,13 +1187,9 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ContentPayload: {}", e)))?;
 
         // Generate embedding (semaphore-gated, Task 504)
-        let _permit = embedding_semaphore.acquire().await
-            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
-        let embedding_result = embedding_generator
-            .generate_embedding(&payload.content, "bge-small-en-v1.5")
-            .await
-            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
-        drop(_permit);
+        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
+            embedding_generator, embedding_semaphore, &payload.content, "bge-small-en-v1.5",
+        ).await?;
 
         let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
 
@@ -1223,8 +1211,8 @@ impl UnifiedQueueProcessor {
 
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
-            dense_vector: embedding_result.dense.vector,
-            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+            dense_vector: embed_result.dense_vector,
+            sparse_vector: embed_result.sparse_vector,
             payload: point_payload,
         };
 
@@ -2221,15 +2209,7 @@ impl UnifiedQueueProcessor {
 
     /// Convert a SparseEmbedding to the HashMap format expected by DocumentPoint
     fn sparse_embedding_to_map(sparse: &SparseEmbedding) -> Option<std::collections::HashMap<u32, f32>> {
-        if sparse.indices.is_empty() {
-            warn!("Sparse embedding has empty indices — point will be stored without sparse vector (BM25 search won't match)");
-            return None;
-        }
-        let map: std::collections::HashMap<u32, f32> = sparse.indices.iter()
-            .zip(sparse.values.iter())
-            .map(|(&idx, &val)| (idx, val))
-            .collect();
-        Some(map)
+        crate::shared::embedding_pipeline::sparse_embedding_to_map(sparse)
     }
 
     /// Add LSP enrichment data to a point payload
@@ -4306,15 +4286,9 @@ impl UnifiedQueueProcessor {
         };
 
         // Generate embedding (semaphore-gated)
-        let _permit = embedding_semaphore.acquire().await
-            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
-
-        let embedding_result = embedding_generator
-            .generate_embedding(&extracted_text, "all-MiniLM-L6-v2")
-            .await
-            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
-
-        drop(_permit);
+        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
+            embedding_generator, embedding_semaphore, &extracted_text, "all-MiniLM-L6-v2",
+        ).await?;
 
         // Build Qdrant payload
         let mut point_payload = std::collections::HashMap::new();
@@ -4333,8 +4307,8 @@ impl UnifiedQueueProcessor {
 
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &payload.url, 0),
-            dense_vector: embedding_result.dense.vector,
-            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+            dense_vector: embed_result.dense_vector,
+            sparse_vector: embed_result.sparse_vector,
             payload: point_payload,
         };
 
