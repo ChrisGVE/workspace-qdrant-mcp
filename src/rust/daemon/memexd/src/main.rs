@@ -1056,6 +1056,45 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Start polling with 5-minute fallback interval (primary refresh is signal-driven)
     let _watch_poll_handle = Arc::clone(&watch_manager).start_polling(300);
 
+    // Git event consumer: processes branch switches and commits from the git watcher (Task 9)
+    {
+        let git_pool = unified_queue_processor.pool().clone();
+        let git_qm = unified_queue_processor.queue_manager().clone();
+        let git_watch_manager = Arc::clone(&watch_manager);
+        tokio::spawn(async move {
+            if let Some(mut rx) = git_watch_manager.take_git_event_rx().await {
+                info!("Git event consumer started");
+                while let Some(event) = rx.recv().await {
+                    debug!(
+                        "Processing git event: {:?} for {}",
+                        event.event_type, event.watch_folder_id
+                    );
+                    match workspace_qdrant_core::branch_switch::handle_git_event(
+                        &event, &git_pool, &git_qm,
+                    ).await {
+                        Ok(stats) => {
+                            let total = stats.batch_updated + stats.enqueued_changed
+                                + stats.enqueued_added + stats.enqueued_deleted;
+                            if total > 0 {
+                                info!(
+                                    "Git event {:?} processed: {} batch-updated, {} changed, {} added, {} deleted",
+                                    event.event_type, stats.batch_updated, stats.enqueued_changed,
+                                    stats.enqueued_added, stats.enqueued_deleted
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Git event processing failed (non-fatal): {}", e);
+                        }
+                    }
+                }
+                info!("Git event consumer stopped (channel closed)");
+            } else {
+                debug!("No git event receiver available");
+            }
+        });
+    }
+
     // Start nightly canonical tag hierarchy rebuild (Task 35)
     let hierarchy_cancel = tokio_util::sync::CancellationToken::new();
     let hierarchy_builder = Arc::new(HierarchyBuilder::new(

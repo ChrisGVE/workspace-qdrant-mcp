@@ -19,6 +19,7 @@ pub mod error;
 pub mod fairness_scheduler;
 pub mod file_classification;
 pub mod fts_batch_processor;
+pub mod branch_switch;
 pub mod git_integration;
 pub mod git_watcher;
 pub mod metadata_enrichment;
