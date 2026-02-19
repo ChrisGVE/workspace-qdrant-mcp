@@ -52,6 +52,12 @@ pub struct FileChange {
     pub branch: Option<String>,
     /// File path for file_metadata scoping.
     pub file_path: String,
+    /// Base point hash for identity model (optional, added in search.db v5).
+    pub base_point: Option<String>,
+    /// Relative path within project (optional, added in search.db v5).
+    pub relative_path: Option<String>,
+    /// File content hash (optional, added in search.db v5).
+    pub file_hash: Option<String>,
 }
 
 /// Statistics from a batch processing run.
@@ -209,6 +215,9 @@ impl<'a> FtsBatchProcessor<'a> {
                 .bind(&change.tenant_id)
                 .bind(&change.branch)
                 .bind(&change.file_path)
+                .bind(&change.base_point)
+                .bind(&change.relative_path)
+                .bind(&change.file_hash)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -262,6 +271,9 @@ impl<'a> FtsBatchProcessor<'a> {
                 .bind(&change.tenant_id)
                 .bind(&change.branch)
                 .bind(&change.file_path)
+                .bind(&change.base_point)
+                .bind(&change.relative_path)
+                .bind(&change.file_hash)
                 .execute(&mut *tx)
                 .await?;
 
@@ -292,6 +304,7 @@ impl<'a> FtsBatchProcessor<'a> {
     ///
     /// Use when there is no old content to diff against (new file ingestion).
     /// More efficient than diffing against an empty string for large files.
+    #[allow(clippy::too_many_arguments)]
     pub async fn full_rewrite(
         &self,
         file_id: i64,
@@ -299,6 +312,9 @@ impl<'a> FtsBatchProcessor<'a> {
         tenant_id: &str,
         branch: Option<&str>,
         file_path: &str,
+        base_point: Option<&str>,
+        relative_path: Option<&str>,
+        file_hash: Option<&str>,
     ) -> Result<BatchStats, SearchDbError> {
         let start = std::time::Instant::now();
         let pool = self.search_db.pool();
@@ -329,6 +345,9 @@ impl<'a> FtsBatchProcessor<'a> {
             .bind(tenant_id)
             .bind(branch)
             .bind(file_path)
+            .bind(base_point)
+            .bind(relative_path)
+            .bind(file_hash)
             .execute(&mut *tx)
             .await?;
 
@@ -580,6 +599,28 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// Helper to construct a FileChange for tests (new fields default to None).
+    fn test_change(
+        file_id: i64,
+        old_content: &str,
+        new_content: &str,
+        tenant_id: &str,
+        branch: Option<&str>,
+        file_path: &str,
+    ) -> FileChange {
+        FileChange {
+            file_id,
+            old_content: old_content.to_string(),
+            new_content: new_content.to_string(),
+            tenant_id: tenant_id.to_string(),
+            branch: branch.map(|s| s.to_string()),
+            file_path: file_path.to_string(),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
+        }
+    }
+
     async fn setup_db() -> (TempDir, SearchDbManager) {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("search.db");
@@ -621,14 +662,7 @@ mod tests {
         let (_tmp, db) = setup_db().await;
         let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
-        processor.add_change(FileChange {
-            file_id: 1,
-            old_content: String::new(),
-            new_content: "line 1\nline 2\nline 3".to_string(),
-            tenant_id: "proj-a".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/main.rs".to_string(),
-        });
+        processor.add_change(test_change(1, "", "line 1\nline 2\nline 3", "proj-a", Some("main"), "/src/main.rs"));
 
         // Queue depth = 1, below threshold => single-file mode
         let stats = processor.flush(1).await.unwrap();
@@ -664,14 +698,14 @@ mod tests {
 
         // Add 3 file changes
         for i in 1..=3 {
-            processor.add_change(FileChange {
-                file_id: i,
-                old_content: String::new(),
-                new_content: format!("fn file{}() {{}}\nfn helper{}() {{}}", i, i),
-                tenant_id: "proj-a".to_string(),
-                branch: Some("main".to_string()),
-                file_path: format!("/src/file{}.rs", i),
-            });
+            processor.add_change(test_change(
+                i,
+                "",
+                &format!("fn file{}() {{}}\nfn helper{}() {{}}", i, i),
+                "proj-a",
+                Some("main"),
+                &format!("/src/file{}.rs", i),
+            ));
         }
 
         assert_eq!(processor.pending_count(), 3);
@@ -703,25 +737,11 @@ mod tests {
         let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
         // First: ingest original content
-        processor.add_change(FileChange {
-            file_id: 1,
-            old_content: String::new(),
-            new_content: "line 1\nline 2\nline 3".to_string(),
-            tenant_id: "proj-a".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/main.rs".to_string(),
-        });
+        processor.add_change(test_change(1, "", "line 1\nline 2\nline 3", "proj-a", Some("main"), "/src/main.rs"));
         processor.flush(0).await.unwrap();
 
         // Second: update with modified content
-        processor.add_change(FileChange {
-            file_id: 1,
-            old_content: "line 1\nline 2\nline 3".to_string(),
-            new_content: "line 1\nline 2 modified\nline 3\nline 4".to_string(),
-            tenant_id: "proj-a".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/main.rs".to_string(),
-        });
+        processor.add_change(test_change(1, "line 1\nline 2\nline 3", "line 1\nline 2 modified\nline 3\nline 4", "proj-a", Some("main"), "/src/main.rs"));
         let stats = processor.flush(0).await.unwrap();
 
         assert_eq!(stats.files_processed, 1);
@@ -746,7 +766,7 @@ mod tests {
         let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
         let stats = processor
-            .full_rewrite(1, "alpha\nbeta\ngamma", "proj-a", Some("main"), "/src/lib.rs")
+            .full_rewrite(1, "alpha\nbeta\ngamma", "proj-a", Some("main"), "/src/lib.rs", None, None, None)
             .await
             .unwrap();
 
@@ -764,7 +784,7 @@ mod tests {
 
         // Full rewrite again with different content
         let stats2 = processor
-            .full_rewrite(1, "one\ntwo", "proj-a", Some("main"), "/src/lib.rs")
+            .full_rewrite(1, "one\ntwo", "proj-a", Some("main"), "/src/lib.rs", None, None, None)
             .await
             .unwrap();
         assert_eq!(stats2.lines_inserted, 2);
@@ -787,7 +807,7 @@ mod tests {
 
         // Insert some lines first
         processor
-            .full_rewrite(1, "a\nb\nc", "proj", Some("main"), "/file.rs")
+            .full_rewrite(1, "a\nb\nc", "proj", Some("main"), "/file.rs", None, None, None)
             .await
             .unwrap();
 
@@ -822,15 +842,15 @@ mod tests {
 
         // Insert files for two tenants
         processor
-            .full_rewrite(1, "a\nb", "proj-a", Some("main"), "/f1.rs")
+            .full_rewrite(1, "a\nb", "proj-a", Some("main"), "/f1.rs", None, None, None)
             .await
             .unwrap();
         processor
-            .full_rewrite(2, "c\nd\ne", "proj-a", Some("main"), "/f2.rs")
+            .full_rewrite(2, "c\nd\ne", "proj-a", Some("main"), "/f2.rs", None, None, None)
             .await
             .unwrap();
         processor
-            .full_rewrite(3, "x\ny", "proj-b", Some("main"), "/f3.rs")
+            .full_rewrite(3, "x\ny", "proj-b", Some("main"), "/f3.rs", None, None, None)
             .await
             .unwrap();
 
@@ -856,14 +876,7 @@ mod tests {
         let (_tmp, db) = setup_db().await;
         let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
-        processor.add_change(FileChange {
-            file_id: 1,
-            old_content: String::new(),
-            new_content: "fn search_target() {}\nfn other_function() {}".to_string(),
-            tenant_id: "proj-a".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/main.rs".to_string(),
-        });
+        processor.add_change(test_change(1, "", "fn search_target() {}\nfn other_function() {}", "proj-a", Some("main"), "/src/main.rs"));
         processor.flush(0).await.unwrap();
 
         // FTS5 should be searchable after flush
@@ -886,22 +899,8 @@ mod tests {
         let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
         // Multiple files in batch mode
-        processor.add_change(FileChange {
-            file_id: 1,
-            old_content: String::new(),
-            new_content: "fn batch_alpha() {}".to_string(),
-            tenant_id: "proj-a".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/a.rs".to_string(),
-        });
-        processor.add_change(FileChange {
-            file_id: 2,
-            old_content: String::new(),
-            new_content: "fn batch_beta() {}".to_string(),
-            tenant_id: "proj-a".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/b.rs".to_string(),
-        });
+        processor.add_change(test_change(1, "", "fn batch_alpha() {}", "proj-a", Some("main"), "/src/a.rs"));
+        processor.add_change(test_change(2, "", "fn batch_beta() {}", "proj-a", Some("main"), "/src/b.rs"));
 
         // Force batch mode with high queue depth
         processor.flush(50).await.unwrap();
@@ -931,22 +930,8 @@ mod tests {
         let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
         // Two files in different projects
-        processor.add_change(FileChange {
-            file_id: 1,
-            old_content: String::new(),
-            new_content: "fn shared_name() {}".to_string(),
-            tenant_id: "proj-x".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/x.rs".to_string(),
-        });
-        processor.add_change(FileChange {
-            file_id: 2,
-            old_content: String::new(),
-            new_content: "fn shared_name_v2() {}".to_string(),
-            tenant_id: "proj-y".to_string(),
-            branch: Some("main".to_string()),
-            file_path: "/src/y.rs".to_string(),
-        });
+        processor.add_change(test_change(1, "", "fn shared_name() {}", "proj-x", Some("main"), "/src/x.rs"));
+        processor.add_change(test_change(2, "", "fn shared_name_v2() {}", "proj-y", Some("main"), "/src/y.rs"));
         processor.flush(0).await.unwrap();
 
         // Scoped search for proj-x only
@@ -974,14 +959,14 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            processor.add_change(FileChange {
-                file_id: i,
-                old_content: String::new(),
-                new_content: content,
-                tenant_id: "proj-perf".to_string(),
-                branch: Some("main".to_string()),
-                file_path: format!("/src/file{}.rs", i),
-            });
+            processor.add_change(test_change(
+                i,
+                "",
+                &content,
+                "proj-perf",
+                Some("main"),
+                &format!("/src/file{}.rs", i),
+            ));
         }
 
         // Batch mode

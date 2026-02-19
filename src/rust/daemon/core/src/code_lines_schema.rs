@@ -140,6 +140,20 @@ CREATE TABLE IF NOT EXISTS file_metadata (
 )
 "#;
 
+/// SQL to add base_point columns to file_metadata (search.db v5).
+///
+/// Adds base_point, relative_path, and file_hash to align with the
+/// base_point identity model used by Qdrant and tracked_files.
+pub const ALTER_FILE_METADATA_V5_SQL: &[&str] = &[
+    "ALTER TABLE file_metadata ADD COLUMN base_point TEXT",
+    "ALTER TABLE file_metadata ADD COLUMN relative_path TEXT",
+    "ALTER TABLE file_metadata ADD COLUMN file_hash TEXT",
+];
+
+/// Index for base_point lookups (search.db v5).
+pub const CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_file_metadata_base_point ON file_metadata(base_point)";
+
 /// Indexes for the file_metadata table.
 pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_file_metadata_tenant ON file_metadata(tenant_id)",
@@ -148,14 +162,18 @@ pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[
 
 /// SQL to upsert a file_metadata row.
 ///
-/// `?1` = file_id, `?2` = tenant_id, `?3` = branch (nullable), `?4` = file_path.
+/// `?1` = file_id, `?2` = tenant_id, `?3` = branch (nullable), `?4` = file_path,
+/// `?5` = base_point (nullable), `?6` = relative_path (nullable), `?7` = file_hash (nullable).
 pub const UPSERT_FILE_METADATA_SQL: &str = r#"
-INSERT INTO file_metadata (file_id, tenant_id, branch, file_path)
-VALUES (?1, ?2, ?3, ?4)
+INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
 ON CONFLICT(file_id) DO UPDATE SET
     tenant_id = excluded.tenant_id,
     branch = excluded.branch,
-    file_path = excluded.file_path
+    file_path = excluded.file_path,
+    base_point = excluded.base_point,
+    relative_path = excluded.relative_path,
+    file_hash = excluded.file_hash
 "#;
 
 /// SQL to delete a file_metadata row when its code_lines are removed.
@@ -165,6 +183,12 @@ pub const DELETE_FILE_METADATA_SQL: &str =
 /// SQL to delete all file_metadata rows for a tenant (project deletion).
 pub const DELETE_FILE_METADATA_BY_TENANT_SQL: &str =
     "DELETE FROM file_metadata WHERE tenant_id = ?1";
+
+/// SQL to delete file_metadata and cascade to code_lines by base_point.
+///
+/// Returns the file_id so the caller can also delete from code_lines.
+pub const SELECT_FILE_ID_BY_BASE_POINT_SQL: &str =
+    "SELECT file_id FROM file_metadata WHERE base_point = ?1";
 
 // ============================================================================
 // Scoped FTS5 Search Queries
@@ -379,6 +403,24 @@ mod tests {
         assert!(UPSERT_FILE_METADATA_SQL.contains("INSERT INTO file_metadata"));
         assert!(UPSERT_FILE_METADATA_SQL.contains("ON CONFLICT(file_id)"));
         assert!(UPSERT_FILE_METADATA_SQL.contains("DO UPDATE SET"));
+        // v5 columns
+        assert!(UPSERT_FILE_METADATA_SQL.contains("base_point"));
+        assert!(UPSERT_FILE_METADATA_SQL.contains("relative_path"));
+        assert!(UPSERT_FILE_METADATA_SQL.contains("file_hash"));
+    }
+
+    #[test]
+    fn test_alter_file_metadata_v5_sql_valid() {
+        assert_eq!(ALTER_FILE_METADATA_V5_SQL.len(), 3);
+        assert!(ALTER_FILE_METADATA_V5_SQL[0].contains("base_point"));
+        assert!(ALTER_FILE_METADATA_V5_SQL[1].contains("relative_path"));
+        assert!(ALTER_FILE_METADATA_V5_SQL[2].contains("file_hash"));
+    }
+
+    #[test]
+    fn test_file_metadata_base_point_index_sql_valid() {
+        assert!(CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL.contains("IF NOT EXISTS"));
+        assert!(CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL.contains("base_point"));
     }
 
     #[test]

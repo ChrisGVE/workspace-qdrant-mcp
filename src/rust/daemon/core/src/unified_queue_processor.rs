@@ -1475,6 +1475,7 @@ impl UnifiedQueueProcessor {
                     let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress).await;
                     Self::update_fts5_for_file(
                         sdb, pool, existing.file_id, &payload.file_path, &item.tenant_id, Some(&item.branch),
+                        existing.base_point.as_deref(), Some(relative_path.as_str()), Some(existing.file_hash.as_str()),
                     ).await;
                     let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::Done).await;
                 } else {
@@ -1975,6 +1976,7 @@ impl UnifiedQueueProcessor {
         if let Some(sdb) = search_db {
             Self::update_fts5_for_file(
                 sdb, pool, file_id, &payload.file_path, &item.tenant_id, Some(&item.branch),
+                Some(&base_point), Some(&relative_path), Some(&file_hash),
             ).await;
         }
         let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::Done).await;
@@ -1992,6 +1994,7 @@ impl UnifiedQueueProcessor {
     /// Reads the file from disk, compares content hash against indexed_content cache.
     /// If changed (or new), computes line diff and applies to code_lines + FTS5.
     /// Failures are logged but non-fatal — they don't block Qdrant ingestion.
+    #[allow(clippy::too_many_arguments)]
     async fn update_fts5_for_file(
         search_db: &Arc<SearchDbManager>,
         state_pool: &SqlitePool,
@@ -1999,6 +2002,9 @@ impl UnifiedQueueProcessor {
         file_path: &str,
         tenant_id: &str,
         branch: Option<&str>,
+        base_point: Option<&str>,
+        relative_path: Option<&str>,
+        file_hash: Option<&str>,
     ) {
         let fts_start = std::time::Instant::now();
 
@@ -2042,12 +2048,16 @@ impl UnifiedQueueProcessor {
             tenant_id: tenant_id.to_string(),
             branch: branch.map(|s| s.to_string()),
             file_path: file_path.to_string(),
+            base_point: base_point.map(|s| s.to_string()),
+            relative_path: relative_path.map(|s| s.to_string()),
+            file_hash: file_hash.map(|s| s.to_string()),
         };
 
         // Use full_rewrite for new files (empty old content), diff for updates
         let fts_result = if change.old_content.is_empty() {
             processor.full_rewrite(
                 file_id, &change.new_content, tenant_id, branch, file_path,
+                base_point, relative_path, file_hash,
             ).await
         } else {
             // Use flush() with queue_depth=0 (single-file mode)

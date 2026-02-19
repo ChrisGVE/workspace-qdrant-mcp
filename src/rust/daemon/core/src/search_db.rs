@@ -13,7 +13,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 /// Current schema version for search.db
-pub const SEARCH_SCHEMA_VERSION: i32 = 4;
+pub const SEARCH_SCHEMA_VERSION: i32 = 5;
 
 /// Default search database filename
 pub const SEARCH_DB_FILENAME: &str = "search.db";
@@ -195,6 +195,7 @@ impl SearchDbManager {
             2 => self.migrate_v2().await,
             3 => self.migrate_v3().await,
             4 => self.migrate_v4().await,
+            5 => self.migrate_v5().await,
             _ => Err(SearchDbError::Migration(format!(
                 "Unknown search DB migration version: {}",
                 version
@@ -266,6 +267,30 @@ impl SearchDbManager {
                 .execute(&self.pool)
                 .await?;
         }
+
+        Ok(())
+    }
+
+    /// Migration v5: Add base_point columns to file_metadata.
+    ///
+    /// Aligns file_metadata with the base_point identity model used by
+    /// Qdrant and tracked_files. Adds base_point, relative_path, file_hash.
+    async fn migrate_v5(&self) -> SearchDbResult<()> {
+        use crate::code_lines_schema::{
+            ALTER_FILE_METADATA_V5_SQL, CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL,
+        };
+
+        info!("Search DB migration v5: adding base_point columns to file_metadata");
+
+        for alter_sql in ALTER_FILE_METADATA_V5_SQL {
+            sqlx::query(alter_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        sqlx::query(CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -1525,6 +1550,9 @@ mod tests {
             .bind("project-abc")
             .bind("main")
             .bind("/src/lib.rs")
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
             .execute(manager.pool())
             .await
             .unwrap();
@@ -1543,6 +1571,9 @@ mod tests {
             .bind("project-abc")
             .bind("feature/new")
             .bind("/src/lib.rs")
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
             .execute(manager.pool())
             .await
             .unwrap();
@@ -1568,6 +1599,9 @@ mod tests {
             .bind("project-xyz")
             .bind(None::<String>)
             .bind("/readme.md")
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
             .execute(manager.pool())
             .await
             .unwrap();
@@ -1592,6 +1626,9 @@ mod tests {
             .bind("proj")
             .bind("main")
             .bind("/a.rs")
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
             .execute(manager.pool())
             .await
             .unwrap();
@@ -1623,6 +1660,9 @@ mod tests {
                 .bind("proj-a")
                 .bind("main")
                 .bind(format!("/file{}.rs", i))
+                .bind(None::<&str>)
+                .bind(None::<&str>)
+                .bind(None::<&str>)
                 .execute(manager.pool())
                 .await
                 .unwrap();
@@ -1633,6 +1673,9 @@ mod tests {
             .bind("proj-b")
             .bind("main")
             .bind("/other.rs")
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
             .execute(manager.pool())
             .await
             .unwrap();
@@ -1671,6 +1714,7 @@ mod tests {
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(1_i64).bind("proj-a").bind("main").bind("/src/alpha.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         // Project B - file 2
@@ -1678,6 +1722,7 @@ mod tests {
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(2_i64).bind("proj-b").bind("main").bind("/src/beta.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         manager.rebuild_fts().await.unwrap();
@@ -1709,12 +1754,14 @@ mod tests {
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(1_i64).bind("proj-a").bind("main").bind("/src/main.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn feature_code_v2() {}')")
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(2_i64).bind("proj-a").bind("feature/v2").bind("/src/main.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         manager.rebuild_fts().await.unwrap();
@@ -1745,12 +1792,14 @@ mod tests {
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(1_i64).bind("proj").bind("main").bind("/src/api/handler.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn handler_test() {}')")
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(2_i64).bind("proj").bind("main").bind("/tests/api_test.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         manager.rebuild_fts().await.unwrap();
@@ -1781,6 +1830,7 @@ mod tests {
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(1_i64).bind("proj-a").bind("main").bind("/src/widget.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         // proj-b, /src/
@@ -1788,6 +1838,7 @@ mod tests {
             .execute(manager.pool()).await.unwrap();
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(2_i64).bind("proj-b").bind("main").bind("/src/widget.rs")
+            .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
             .execute(manager.pool()).await.unwrap();
 
         manager.rebuild_fts().await.unwrap();
@@ -1825,6 +1876,9 @@ mod tests {
                 .bind(&tenant)
                 .bind("main")
                 .bind(&file_path)
+                .bind(None::<&str>)
+                .bind(None::<&str>)
+                .bind(None::<&str>)
                 .execute(&mut *tx)
                 .await
                 .unwrap();

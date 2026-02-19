@@ -889,6 +889,9 @@ mod tests {
             .bind(tenant_id)
             .bind(branch)
             .bind(file_path)
+            .bind(None::<&str>) // base_point
+            .bind(None::<&str>) // relative_path
+            .bind(None::<&str>) // file_hash
             .execute(pool)
             .await
             .unwrap();
