@@ -562,6 +562,13 @@ impl IngestionEngine {
                 .map_err(|e| ProcessingError::Storage(format!("Collection creation failed: {}", e)))?;
         }
 
+        // Compute file hash and base_point for the base_point model (Task 10)
+        let file_hash = wqm_common::hashing::compute_file_hash(file_path)
+            .unwrap_or_else(|_| "unknown".to_string());
+        let base_point = wqm_common::hashing::compute_base_point(
+            collection, branch, &path_str, &file_hash,
+        );
+
         // Stage 3: Generate embeddings and build points for each chunk
         let embed_start = Instant::now();
         let mut points = Vec::with_capacity(content.chunks.len());
@@ -589,6 +596,10 @@ impl IngestionEngine {
                 payload.insert("file_extension".to_string(), serde_json::json!(ext));
             }
             payload.insert("item_type".to_string(), serde_json::json!("file"));
+            payload.insert("base_point".to_string(), serde_json::json!(base_point));
+            payload.insert("relative_path".to_string(), serde_json::json!(path_str));
+            payload.insert("absolute_path".to_string(), serde_json::json!(path_str));
+            payload.insert("file_hash".to_string(), serde_json::json!(file_hash));
 
             // Include chunk metadata (symbol_name, start_line, etc.)
             for (key, value) in &chunk.metadata {
@@ -607,7 +618,7 @@ impl IngestionEngine {
             };
 
             points.push(crate::storage::DocumentPoint {
-                id: generate_point_id(collection, branch, &path_str, chunk_idx),
+                id: wqm_common::hashing::compute_point_id(&base_point, chunk_idx as u32),
                 dense_vector: embedding_result.dense.vector,
                 sparse_vector,
                 payload,

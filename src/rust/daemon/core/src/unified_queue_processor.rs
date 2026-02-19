@@ -1526,6 +1526,13 @@ impl UnifiedQueueProcessor {
         // Generate stable document_id for this file (deterministic from tenant + path)
         let file_document_id = crate::generate_document_id(&item.tenant_id, &payload.file_path);
 
+        // Compute file hash and base_point BEFORE the chunk loop so point IDs use the base_point model
+        let file_hash_early = tracked_files_schema::compute_file_hash(file_path)
+            .unwrap_or_else(|_| "unknown".to_string());
+        let base_point = wqm_common::hashing::compute_base_point(
+            &item.tenant_id, &item.branch, &relative_path, &file_hash_early,
+        );
+
         // Process each chunk and build points + chunk metadata
         let mut points = Vec::new();
         let mut chunk_records: Vec<(String, i32, String, Option<TrackedChunkType>, Option<String>, Option<i32>, Option<i32>)> = Vec::new();
@@ -1548,6 +1555,10 @@ impl UnifiedQueueProcessor {
             point_payload.insert("document_id".to_string(), serde_json::json!(file_document_id));
             point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
             point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+            point_payload.insert("base_point".to_string(), serde_json::json!(base_point));
+            point_payload.insert("relative_path".to_string(), serde_json::json!(relative_path));
+            point_payload.insert("absolute_path".to_string(), serde_json::json!(payload.file_path));
+            point_payload.insert("file_hash".to_string(), serde_json::json!(file_hash_early));
             point_payload.insert(
                 "document_type".to_string(),
                 serde_json::json!(document_content.document_type.as_str()),
@@ -1658,7 +1669,7 @@ impl UnifiedQueueProcessor {
                 }
             }
 
-            let point_id = crate::generate_point_id(&item.tenant_id, &item.branch, &payload.file_path, chunk_idx);
+            let point_id = wqm_common::hashing::compute_point_id(&base_point, chunk_idx as u32);
             let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
 
             // Use lexicon-backed BM25 for sparse vectors (Task 19: true BM25 with persisted IDF)
@@ -1844,8 +1855,8 @@ impl UnifiedQueueProcessor {
         }
 
         // After Qdrant success: record in tracked_files + qdrant_chunks atomically (Task 519)
-        let file_hash = tracked_files_schema::compute_file_hash(file_path)
-            .unwrap_or_else(|_| "unknown".to_string());
+        // Reuse file_hash_early and base_point computed before the chunk loop (Task 10)
+        let file_hash = file_hash_early;
         let file_mtime = tracked_files_schema::get_file_mtime(file_path)
             .unwrap_or_else(|_| wqm_common::timestamps::now_utc());
         let language = chunk_records.first()
@@ -1858,9 +1869,6 @@ impl UnifiedQueueProcessor {
         };
         let extension = get_extension_for_storage(file_path);
         let is_test = is_test_file(file_path);
-        let base_point = wqm_common::hashing::compute_base_point(
-            &item.tenant_id, &item.branch, &relative_path, &file_hash,
-        );
 
         // Check if file is already tracked (read outside transaction)
         let existing = tracked_files_schema::lookup_tracked_file(
