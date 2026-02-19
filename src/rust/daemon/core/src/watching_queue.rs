@@ -22,6 +22,7 @@ use crate::file_classification::classify_file_type;
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::patterns::exclusion::should_exclude_file;
 use crate::project_disambiguation::ProjectIdCalculator;
+use crate::tracked_files_schema;
 use serde::{Deserialize, Serialize};
 
 //
@@ -960,6 +961,27 @@ impl FileWatcherQueue {
 
         // Determine operation type
         let operation = Self::determine_operation_type(event.event_kind, &event.path);
+
+        // Check incremental flag: skip deletion of files marked as "do not delete"
+        // Full project deletion (Tenant/Delete) ignores this flag — it only applies
+        // to individual file removal events from the file watcher.
+        if operation == UnifiedOp::Delete {
+            let file_path_str_owned = event.path.to_string_lossy().to_string();
+            match tracked_files_schema::is_incremental(queue_manager.pool(), &file_path_str_owned).await {
+                Ok(true) => {
+                    debug!(
+                        "Skipping delete for incremental file: {}",
+                        event.path.display()
+                    );
+                    return;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    // Non-fatal: if we can't check, proceed with the delete
+                    debug!("Failed to check incremental flag for {}: {}", event.path.display(), e);
+                }
+            }
+        }
 
         // Find project root
         let project_root = Self::find_project_root(&event.path);

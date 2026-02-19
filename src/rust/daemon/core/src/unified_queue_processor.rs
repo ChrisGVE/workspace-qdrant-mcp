@@ -2086,6 +2086,17 @@ impl UnifiedQueueProcessor {
     ) -> UnifiedProcessorResult<()> {
         let delete_start = std::time::Instant::now();
 
+        // Safety net: check incremental flag before deleting
+        // This is a backup check — the file watcher should already skip deletes
+        // for incremental files, but we double-check here to be safe.
+        if let Ok(true) = tracked_files_schema::is_incremental(pool, abs_file_path).await {
+            info!(
+                "Skipping delete for incremental file (safety net): {}",
+                abs_file_path
+            );
+            return Ok(());
+        }
+
         // Try tracked_files lookup first for precise deletion
         // watch_folder_id is guaranteed non-empty by caller validation (Task 556)
         if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(

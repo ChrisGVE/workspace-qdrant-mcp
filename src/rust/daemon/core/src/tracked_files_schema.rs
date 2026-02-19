@@ -623,6 +623,43 @@ pub async fn get_chunk_point_ids(pool: &SqlitePool, file_id: i64) -> Result<Vec<
     Ok(rows.iter().map(|r| r.get("point_id")).collect())
 }
 
+/// Check if a file has the incremental (do-not-delete) flag set.
+///
+/// Looks up by absolute file_path across all watch_folders. Returns true if the
+/// file exists in tracked_files with `incremental = 1`.
+pub async fn is_incremental(
+    pool: &SqlitePool,
+    file_path: &str,
+) -> Result<bool, sqlx::Error> {
+    let result: Option<i32> = sqlx::query_scalar(
+        "SELECT incremental FROM tracked_files WHERE file_path = ?1 LIMIT 1"
+    )
+    .bind(file_path)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(result.unwrap_or(0) != 0)
+}
+
+/// Set the incremental (do-not-delete) flag on a tracked file.
+pub async fn set_incremental(
+    pool: &SqlitePool,
+    file_path: &str,
+    incremental: bool,
+) -> Result<u64, sqlx::Error> {
+    let now = wqm_common::timestamps::now_utc();
+    let result = sqlx::query(
+        "UPDATE tracked_files SET incremental = ?1, updated_at = ?2 WHERE file_path = ?3"
+    )
+    .bind(if incremental { 1i32 } else { 0i32 })
+    .bind(&now)
+    .bind(file_path)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
 /// Get all tracked file paths for a watch_folder (for cleanup/recovery)
 pub async fn get_tracked_file_paths(
     pool: &SqlitePool,
