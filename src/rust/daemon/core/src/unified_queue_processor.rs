@@ -29,8 +29,8 @@ use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, QueueStatus, UnifiedQueueItem, DestinationStatus,
-    ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
-    MemoryPayload, UrlPayload, ScratchpadPayload, WebsitePayload,
+    FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
+    UrlPayload, WebsitePayload,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD};
@@ -916,7 +916,19 @@ impl UnifiedQueueProcessor {
 
         match item.item_type {
             ItemType::Text => {
-                Self::process_content_item(item, queue_manager, embedding_generator, storage_client, embedding_semaphore).await
+                let ctx = crate::context::ProcessingContext::new(
+                    queue_manager.pool().clone(),
+                    Arc::new(queue_manager.clone()),
+                    Arc::clone(storage_client),
+                    Arc::clone(embedding_generator),
+                    Arc::clone(document_processor),
+                    Arc::clone(embedding_semaphore),
+                    Arc::clone(lexicon_manager),
+                    lsp_manager.clone(),
+                    search_db.clone(),
+                    Arc::clone(allowed_extensions),
+                );
+                crate::strategies::processing::text::TextStrategy::process_content_item(&ctx, item).await
             }
             ItemType::File => {
                 Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions, lexicon_manager, search_db).await
@@ -968,265 +980,6 @@ impl UnifiedQueueProcessor {
                 Self::process_collection_item(item, queue_manager, storage_client).await
             }
         }
-    }
-
-    /// Process content item (Task 37.27) - direct text ingestion
-    ///
-    /// When the target collection is "memory", deserializes as MemoryPayload
-    /// and carries through all memory-specific fields (label, scope, title,
-    /// tags, priority) into the Qdrant point payload.
-    async fn process_content_item(
-        item: &UnifiedQueueItem,
-        queue_manager: &QueueManager,
-        embedding_generator: &Arc<EmbeddingGenerator>,
-        storage_client: &Arc<StorageClient>,
-        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
-    ) -> UnifiedProcessorResult<()> {
-        info!(
-            "Processing content item: {} -> collection: {}",
-            item.queue_id, item.collection
-        );
-
-        crate::shared::ensure_collection(storage_client, &item.collection)
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-
-        // Route to collection-specific or generic content processing
-        if item.collection == wqm_common::constants::COLLECTION_MEMORY {
-            Self::process_memory_item(item, queue_manager, embedding_generator, storage_client, embedding_semaphore).await
-        } else if item.collection == wqm_common::constants::COLLECTION_SCRATCHPAD {
-            Self::process_scratchpad_item(item, embedding_generator, storage_client, embedding_semaphore).await
-        } else {
-            Self::process_generic_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
-        }
-    }
-
-    /// Process a memory rule item — preserves all memory-specific metadata
-    async fn process_memory_item(
-        item: &UnifiedQueueItem,
-        queue_manager: &QueueManager,
-        embedding_generator: &Arc<EmbeddingGenerator>,
-        storage_client: &Arc<StorageClient>,
-        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
-    ) -> UnifiedProcessorResult<()> {
-        let payload: MemoryPayload = serde_json::from_str(&item.payload_json)
-            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse MemoryPayload: {}", e)))?;
-
-        let action = payload.action.as_deref().unwrap_or("add");
-        let now = wqm_common::timestamps::now_utc();
-
-        // For remove action, delete by label filter and clean memory_mirror
-        if action == "remove" {
-            if let Some(label) = &payload.label {
-                info!("Removing memory rule with label: {}", label);
-                storage_client
-                    .delete_points_by_payload_field(
-                        wqm_common::constants::COLLECTION_MEMORY,
-                        "label",
-                        label,
-                    )
-                    .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-
-                // Also remove from memory_mirror (best-effort — Qdrant delete already succeeded)
-                let pool = queue_manager.pool();
-                if let Err(e) = sqlx::query("DELETE FROM memory_mirror WHERE memory_id = ?1")
-                    .bind(label)
-                    .execute(pool)
-                    .await
-                {
-                    warn!("Failed to delete memory_mirror row for label={}: {}", label, e);
-                }
-            }
-            return Ok(());
-        }
-
-        // Generate embedding (semaphore-gated)
-        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
-            embedding_generator, embedding_semaphore, &payload.content, "bge-small-en-v1.5",
-        ).await?;
-
-        // For update action, delete existing point by label first
-        if action == "update" {
-            if let Some(label) = &payload.label {
-                info!("Updating memory rule with label: {} (delete + re-insert)", label);
-                let _ = storage_client
-                    .delete_points_by_payload_field(
-                        wqm_common::constants::COLLECTION_MEMORY,
-                        "label",
-                        label,
-                    )
-                    .await;
-            }
-        }
-
-        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
-
-        // Build point payload with ALL memory-specific fields
-        let mut point_payload = std::collections::HashMap::new();
-        point_payload.insert("content".to_string(), serde_json::json!(payload.content));
-        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
-        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
-        point_payload.insert("item_type".to_string(), serde_json::json!("content"));
-        point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type.to_lowercase()));
-
-        // Memory-specific fields
-        if let Some(label) = &payload.label {
-            point_payload.insert("label".to_string(), serde_json::json!(label));
-        }
-        if let Some(scope) = &payload.scope {
-            point_payload.insert("scope".to_string(), serde_json::json!(scope));
-        }
-        if let Some(project_id) = &payload.project_id {
-            point_payload.insert("project_id".to_string(), serde_json::json!(project_id));
-        }
-        if let Some(title) = &payload.title {
-            point_payload.insert("title".to_string(), serde_json::json!(title));
-        }
-        if let Some(tags) = &payload.tags {
-            // Store as comma-separated string for Qdrant keyword matching
-            point_payload.insert("tags".to_string(), serde_json::json!(tags.join(",")));
-        }
-        if let Some(priority) = payload.priority {
-            point_payload.insert("priority".to_string(), serde_json::json!(priority));
-        }
-
-        // Timestamps
-        if action == "add" {
-            point_payload.insert("created_at".to_string(), serde_json::json!(&now));
-        }
-        point_payload.insert("updated_at".to_string(), serde_json::json!(&now));
-
-        let point = DocumentPoint {
-            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
-            dense_vector: embed_result.dense_vector,
-            sparse_vector: embed_result.sparse_vector,
-            payload: point_payload,
-        };
-
-        storage_client
-            .insert_points_batch(&item.collection, vec![point], Some(1))
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-
-        info!(
-            "Successfully processed memory item {} (action={}, label={:?}) -> {}",
-            item.queue_id, action, payload.label, item.collection
-        );
-
-        Ok(())
-    }
-
-    /// Process a scratchpad item — persistent LLM scratch space
-    async fn process_scratchpad_item(
-        item: &UnifiedQueueItem,
-        embedding_generator: &Arc<EmbeddingGenerator>,
-        storage_client: &Arc<StorageClient>,
-        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
-    ) -> UnifiedProcessorResult<()> {
-        let payload: ScratchpadPayload = serde_json::from_str(&item.payload_json)
-            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ScratchpadPayload: {}", e)))?;
-
-        let now = wqm_common::timestamps::now_utc();
-
-        // Generate document ID from content hash (for idempotent updates)
-        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
-
-        // Generate embedding (semaphore-gated)
-        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
-            embedding_generator, embedding_semaphore, &payload.content, "all-MiniLM-L6-v2",
-        ).await?;
-
-        // Build Qdrant payload
-        let mut point_payload = std::collections::HashMap::new();
-        point_payload.insert("content".to_string(), serde_json::json!(payload.content));
-        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
-        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-        point_payload.insert("source_type".to_string(), serde_json::json!("scratchpad"));
-        point_payload.insert("item_type".to_string(), serde_json::json!("content"));
-        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
-        point_payload.insert("created_at".to_string(), serde_json::json!(&now));
-        point_payload.insert("updated_at".to_string(), serde_json::json!(&now));
-
-        if let Some(ref title) = payload.title {
-            point_payload.insert("title".to_string(), serde_json::json!(title));
-        }
-        if !payload.tags.is_empty() {
-            point_payload.insert("tags".to_string(), serde_json::json!(payload.tags));
-        }
-
-        let point = DocumentPoint {
-            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
-            dense_vector: embed_result.dense_vector,
-            sparse_vector: embed_result.sparse_vector,
-            payload: point_payload,
-        };
-
-        storage_client
-            .insert_points_batch(&item.collection, vec![point], Some(1))
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-
-        info!(
-            "Successfully processed scratchpad item {} (tenant={}, title={:?}) -> {}",
-            item.queue_id, item.tenant_id, payload.title, item.collection
-        );
-
-        Ok(())
-    }
-
-    /// Process a generic content item (non-memory)
-    async fn process_generic_content_item(
-        item: &UnifiedQueueItem,
-        embedding_generator: &Arc<EmbeddingGenerator>,
-        storage_client: &Arc<StorageClient>,
-        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
-    ) -> UnifiedProcessorResult<()> {
-        let payload: ContentPayload = serde_json::from_str(&item.payload_json)
-            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ContentPayload: {}", e)))?;
-
-        // Generate embedding (semaphore-gated, Task 504)
-        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
-            embedding_generator, embedding_semaphore, &payload.content, "bge-small-en-v1.5",
-        ).await?;
-
-        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
-
-        // Build payload with metadata
-        let mut point_payload = std::collections::HashMap::new();
-        point_payload.insert("content".to_string(), serde_json::json!(payload.content));
-        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
-        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
-        point_payload.insert("item_type".to_string(), serde_json::json!("content"));
-        point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type.to_lowercase()));
-
-        if let Some(main_tag) = &payload.main_tag {
-            point_payload.insert("main_tag".to_string(), serde_json::json!(main_tag));
-        }
-        if let Some(full_tag) = &payload.full_tag {
-            point_payload.insert("full_tag".to_string(), serde_json::json!(full_tag));
-        }
-
-        let point = DocumentPoint {
-            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
-            dense_vector: embed_result.dense_vector,
-            sparse_vector: embed_result.sparse_vector,
-            payload: point_payload,
-        };
-
-        storage_client
-            .insert_points_batch(&item.collection, vec![point], Some(1))
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-
-        info!(
-            "Successfully processed content item {} -> {}",
-            item.queue_id, item.collection
-        );
-
-        Ok(())
     }
 
     /// Process file item (Task 37.28 + Task 506) - file-based ingestion with tracked_files

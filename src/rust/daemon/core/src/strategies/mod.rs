@@ -4,10 +4,14 @@
 //! from the unified queue. The queue processor dispatches to the appropriate
 //! strategy via the `StrategyRegistry`.
 //!
+//! # Submodules
+//! - `processing/` -- per item_type strategies (file, text, folder, tenant, etc.)
+//!
 //! # Future submodules
-//! - `processing/` — per item_type strategies (file, text, folder, tenant, etc.)
-//! - `scan` — directory scanning strategies
-//! - `retry` — retry policy strategies
+//! - `scan` -- directory scanning strategies
+//! - `retry` -- retry policy strategies
+
+pub mod processing;
 
 use async_trait::async_trait;
 
