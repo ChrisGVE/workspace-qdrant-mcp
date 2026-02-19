@@ -987,19 +987,9 @@ impl UnifiedQueueProcessor {
             item.queue_id, item.collection
         );
 
-        // Ensure collection exists
-        if !storage_client
-            .collection_exists(&item.collection)
+        crate::shared::ensure_collection(storage_client, &item.collection)
             .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-        {
-            info!("Creating collection '{}' with multi-tenant config (dense+sparse)", item.collection);
-            let config = crate::storage::MultiTenantConfig::default();
-            storage_client
-                .create_multi_tenant_collection(&item.collection, &config)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-        }
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         // Route to collection-specific or generic content processing
         if item.collection == wqm_common::constants::COLLECTION_MEMORY {
@@ -1346,19 +1336,9 @@ impl UnifiedQueueProcessor {
         let relative_path = tracked_files_schema::compute_relative_path(&payload.file_path, &base_path)
             .unwrap_or_else(|| payload.file_path.clone());
 
-        // Ensure collection exists
-        if !storage_client
-            .collection_exists(&item.collection)
+        crate::shared::ensure_collection(storage_client, &item.collection)
             .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-        {
-            info!("Creating collection '{}' with multi-tenant config (dense+sparse)", item.collection);
-            let config = crate::storage::MultiTenantConfig::default();
-            storage_client
-                .create_multi_tenant_collection(&item.collection, &config)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-        }
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         // === DELETE OPERATION ===
         if item.op == QueueOperation::Delete {
@@ -2534,19 +2514,9 @@ impl UnifiedQueueProcessor {
 
         match item.op {
             QueueOperation::Add => {
-                // 1. Ensure the collection exists
-                if !storage_client
-                    .collection_exists(&item.collection)
+                crate::shared::ensure_collection(storage_client, &item.collection)
                     .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-                {
-                    info!("Creating project collection '{}' with multi-tenant config (dense+sparse)", item.collection);
-                    let config = crate::storage::MultiTenantConfig::default();
-                    storage_client
-                        .create_multi_tenant_collection(&item.collection, &config)
-                        .await
-                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-                }
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
                 // 2. Detect git status (Task 11)
                 let git_status = crate::git_integration::detect_git_status(
@@ -2751,19 +2721,9 @@ impl UnifiedQueueProcessor {
             )));
         }
 
-        // Ensure collection exists before scanning
-        if !storage_client
-            .collection_exists(&item.collection)
+        crate::shared::ensure_collection(storage_client, &item.collection)
             .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-        {
-            info!("Creating project collection '{}' for scan with multi-tenant config (dense+sparse)", item.collection);
-            let config = crate::storage::MultiTenantConfig::default();
-            storage_client
-                .create_multi_tenant_collection(&item.collection, &config)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-        }
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         info!(
             "Scanning project directory (single level): {} (tenant_id={})",
@@ -3004,19 +2964,9 @@ impl UnifiedQueueProcessor {
             )));
         }
 
-        // Ensure the libraries collection exists
-        if !storage_client
-            .collection_exists(&item.collection)
+        crate::shared::ensure_collection(storage_client, &item.collection)
             .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-        {
-            info!("Creating libraries collection '{}' for scan with multi-tenant config (dense+sparse)", item.collection);
-            let config = crate::storage::MultiTenantConfig::default();
-            storage_client
-                .create_multi_tenant_collection(&item.collection, &config)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-        }
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         info!(
             "Scanning library directory: {} (tenant_id={})",
@@ -3393,19 +3343,9 @@ impl UnifiedQueueProcessor {
 
         match item.op {
             QueueOperation::Add => {
-                // Create collection for the library
-                if !storage_client
-                    .collection_exists(&item.collection)
+                crate::shared::ensure_collection(storage_client, &item.collection)
                     .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-                {
-                    info!("Creating library collection '{}' with multi-tenant config (dense+sparse)", item.collection);
-                    let config = crate::storage::MultiTenantConfig::default();
-                    storage_client
-                        .create_multi_tenant_collection(&item.collection, &config)
-                        .await
-                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-                }
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
             }
             QueueOperation::Scan => {
                 // Scan library directory - look up path from watch_folders
