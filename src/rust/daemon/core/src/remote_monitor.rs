@@ -229,14 +229,17 @@ async fn update_watch_folders_remote(
         ));
     }
 
-    // Update submodules: they share the parent's tenant_id prefix
+    // Update submodules via junction table (Task 14): they share the parent's tenant_id prefix
     // Submodules keep their own git_remote_url but inherit parent's tenant_id
     let sub_result = sqlx::query(
         r#"
         UPDATE watch_folders
         SET tenant_id = ?1,
             updated_at = ?2
-        WHERE parent_watch_id = ?3
+        WHERE watch_id IN (
+            SELECT child_watch_id FROM watch_folder_submodules
+            WHERE parent_watch_id = ?3
+        )
         "#,
     )
     .bind(new_tenant_id)
@@ -303,6 +306,24 @@ mod tests {
         .expect("Failed to create watch_folders table");
 
         // Also create unified_queue for QueueManager
+        // Task 14: Junction table for submodule relationships
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS watch_folder_submodules (
+                parent_watch_id TEXT NOT NULL,
+                child_watch_id TEXT NOT NULL,
+                submodule_path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (parent_watch_id, child_watch_id),
+                FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE,
+                FOREIGN KEY (child_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create watch_folder_submodules table");
+
         sqlx::query(
             r#"
             CREATE TABLE unified_queue (
@@ -387,6 +408,14 @@ mod tests {
             VALUES ('sub-1', '/tmp/repo/lib', 'projects', 'old_tenant', 1,
                 'proj-1', 'https://github.com/lib/sub.git', 'subhash12345')
             "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Task 14: Insert junction table row
+        sqlx::query(
+            "INSERT INTO watch_folder_submodules (parent_watch_id, child_watch_id, submodule_path, created_at) VALUES ('proj-1', 'sub-1', 'lib', datetime('now'))"
         )
         .execute(&pool)
         .await

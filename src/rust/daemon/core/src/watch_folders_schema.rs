@@ -272,29 +272,35 @@ FROM watch_folders
 WHERE parent_watch_id IS NOT NULL
 "#;
 
-/// SQL to activate a project and all its related watches (parent, siblings, children)
+/// SQL to activate a project and all descendant submodules via recursive junction table traversal (Task 14)
 /// Use with parameter :watch_id
 pub const ACTIVATE_PROJECT_GROUP_SQL: &str = r#"
+WITH RECURSIVE descendants AS (
+    SELECT :watch_id AS watch_id
+    UNION
+    SELECT j.child_watch_id FROM watch_folder_submodules j
+    JOIN descendants d ON j.parent_watch_id = d.watch_id
+)
 UPDATE watch_folders
 SET is_active = 1,
     last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE watch_id = :watch_id
-   OR parent_watch_id = :watch_id
-   OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
-   OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
+WHERE watch_id IN (SELECT watch_id FROM descendants)
 "#;
 
-/// SQL to deactivate a project and all its related watches
+/// SQL to deactivate a project and all descendant submodules via recursive junction table traversal (Task 14)
 /// Use with parameter :watch_id
 pub const DEACTIVATE_PROJECT_GROUP_SQL: &str = r#"
+WITH RECURSIVE descendants AS (
+    SELECT :watch_id AS watch_id
+    UNION
+    SELECT j.child_watch_id FROM watch_folder_submodules j
+    JOIN descendants d ON j.parent_watch_id = d.watch_id
+)
 UPDATE watch_folders
 SET is_active = 0,
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE watch_id = :watch_id
-   OR parent_watch_id = :watch_id
-   OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
-   OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
+WHERE watch_id IN (SELECT watch_id FROM descendants)
 "#;
 
 /// SQL to pause all enabled watch folders

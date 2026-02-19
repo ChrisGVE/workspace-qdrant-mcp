@@ -675,9 +675,9 @@ async fn archive(watch_id: &str) -> Result<()> {
 /// the submodule is skipped (stays active). Otherwise it is archived with the parent.
 /// Returns (archived_count, skipped_count).
 fn archive_submodules_safely(conn: &Connection, parent_watch_id: &str) -> Result<(usize, usize)> {
-    // Get submodules of this parent
+    // Get submodules of this parent via junction table (Task 14)
     let mut stmt = conn.prepare(
-        "SELECT watch_id, remote_hash, git_remote_url FROM watch_folders WHERE parent_watch_id = ?1"
+        "SELECT wf.watch_id, wf.remote_hash, wf.git_remote_url FROM watch_folders wf INNER JOIN watch_folder_submodules j ON wf.watch_id = j.child_watch_id WHERE j.parent_watch_id = ?1"
     )?;
     let submodules: Vec<(String, Option<String>, Option<String>)> = stmt
         .query_map(params![parent_watch_id], |row| {

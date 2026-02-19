@@ -229,6 +229,22 @@ impl DaemonStateManager {
         .execute(&self.pool)
         .await?;
 
+        // Task 14: Auto-populate junction table when parent_watch_id is set
+        if let Some(ref parent_id) = record.parent_watch_id {
+            sqlx::query(
+                r#"
+                INSERT OR IGNORE INTO watch_folder_submodules
+                    (parent_watch_id, child_watch_id, submodule_path, created_at)
+                VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                "#,
+            )
+            .bind(parent_id)
+            .bind(&record.watch_id)
+            .bind(record.submodule_path.as_deref().unwrap_or(""))
+            .execute(&self.pool)
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -324,22 +340,21 @@ impl DaemonStateManager {
         Ok(results)
     }
 
-    /// Activate a project and all descendant watches (recursive)
-    /// Uses WITH RECURSIVE to traverse the full parent_watch_id hierarchy
+    /// Activate a project and all descendant submodules via recursive junction table traversal (Task 14)
     pub async fn activate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
         let result = sqlx::query(
             r#"
-            WITH RECURSIVE project_group AS (
-                SELECT watch_id FROM watch_folders WHERE watch_id = ?1
+            WITH RECURSIVE descendants AS (
+                SELECT ?1 AS watch_id
                 UNION
-                SELECT wf.watch_id FROM watch_folders wf
-                JOIN project_group pg ON wf.parent_watch_id = pg.watch_id
+                SELECT j.child_watch_id FROM watch_folder_submodules j
+                JOIN descendants d ON j.parent_watch_id = d.watch_id
             )
             UPDATE watch_folders
             SET is_active = 1,
                 last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id IN (SELECT watch_id FROM project_group)
+            WHERE watch_id IN (SELECT watch_id FROM descendants)
             "#,
         )
         .bind(watch_id)
@@ -349,21 +364,20 @@ impl DaemonStateManager {
         Ok(result.rows_affected())
     }
 
-    /// Deactivate a project and all descendant watches (recursive)
-    /// Uses WITH RECURSIVE to traverse the full parent_watch_id hierarchy
+    /// Deactivate a project and all descendant submodules via recursive junction table traversal (Task 14)
     pub async fn deactivate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
         let result = sqlx::query(
             r#"
-            WITH RECURSIVE project_group AS (
-                SELECT watch_id FROM watch_folders WHERE watch_id = ?1
+            WITH RECURSIVE descendants AS (
+                SELECT ?1 AS watch_id
                 UNION
-                SELECT wf.watch_id FROM watch_folders wf
-                JOIN project_group pg ON wf.parent_watch_id = pg.watch_id
+                SELECT j.child_watch_id FROM watch_folder_submodules j
+                JOIN descendants d ON j.parent_watch_id = d.watch_id
             )
             UPDATE watch_folders
             SET is_active = 0,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id IN (SELECT watch_id FROM project_group)
+            WHERE watch_id IN (SELECT watch_id FROM descendants)
             "#,
         )
         .bind(watch_id)
@@ -443,21 +457,20 @@ impl DaemonStateManager {
         }
     }
 
-    /// Update last_activity_at for a project and all descendant watches (heartbeat)
-    /// Uses WITH RECURSIVE to traverse the full parent_watch_id hierarchy
+    /// Update last_activity_at for a project and all descendant submodules via recursive junction table traversal (Task 14)
     pub async fn heartbeat_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
         let result = sqlx::query(
             r#"
-            WITH RECURSIVE project_group AS (
-                SELECT watch_id FROM watch_folders WHERE watch_id = ?1
+            WITH RECURSIVE descendants AS (
+                SELECT ?1 AS watch_id
                 UNION
-                SELECT wf.watch_id FROM watch_folders wf
-                JOIN project_group pg ON wf.parent_watch_id = pg.watch_id
+                SELECT j.child_watch_id FROM watch_folder_submodules j
+                JOIN descendants d ON j.parent_watch_id = d.watch_id
             )
             UPDATE watch_folders
             SET last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id IN (SELECT watch_id FROM project_group)
+            WHERE watch_id IN (SELECT watch_id FROM descendants)
             "#,
         )
         .bind(watch_id)
@@ -628,22 +641,23 @@ impl DaemonStateManager {
     // Archive methods (Task 582)
     // ========================================================================
 
-    /// Get all submodule watch folders for a given parent project.
+    /// Get all submodule watch folders for a given parent project via junction table (Task 14).
     pub async fn get_submodules_for_project(
         &self,
         parent_watch_id: &str,
     ) -> DaemonStateResult<Vec<WatchFolderRecord>> {
         let rows = sqlx::query(
             r#"
-            SELECT watch_id, path, collection, tenant_id,
-                   parent_watch_id, submodule_path,
-                   git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
-                   is_paused, pause_start_time, is_archived, last_commit_hash, is_git_tracked,
-                   library_mode,
-                   follow_symlinks, enabled, cleanup_on_disable,
-                   created_at, updated_at, last_scan
-            FROM watch_folders
-            WHERE parent_watch_id = ?1
+            SELECT wf.watch_id, wf.path, wf.collection, wf.tenant_id,
+                   wf.parent_watch_id, wf.submodule_path,
+                   wf.git_remote_url, wf.remote_hash, wf.disambiguation_path, wf.is_active, wf.last_activity_at,
+                   wf.is_paused, wf.pause_start_time, wf.is_archived, wf.last_commit_hash, wf.is_git_tracked,
+                   wf.library_mode,
+                   wf.follow_symlinks, wf.enabled, wf.cleanup_on_disable,
+                   wf.created_at, wf.updated_at, wf.last_scan
+            FROM watch_folders wf
+            INNER JOIN watch_folder_submodules j ON wf.watch_id = j.child_watch_id
+            WHERE j.parent_watch_id = ?1
             "#,
         )
         .bind(parent_watch_id)
@@ -673,13 +687,14 @@ impl DaemonStateManager {
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM watch_folders sub
+            INNER JOIN watch_folder_submodules j ON sub.watch_id = j.child_watch_id
             WHERE sub.remote_hash = ?1
               AND sub.git_remote_url = ?2
-              AND sub.parent_watch_id != ?3
+              AND j.parent_watch_id != ?3
               AND COALESCE(sub.is_archived, 0) = 0
               AND EXISTS (
                 SELECT 1 FROM watch_folders parent
-                WHERE parent.watch_id = sub.parent_watch_id
+                WHERE parent.watch_id = j.parent_watch_id
                   AND COALESCE(parent.is_archived, 0) = 0
               )
             "#,
