@@ -101,8 +101,7 @@ pub async fn check_base_point_migration(
     for (watch_id, path, tenant_id) in &watch_folders {
         // Enqueue a (Tenant, Scan) item to trigger full re-processing
         let payload = serde_json::json!({
-            "watch_id": watch_id,
-            "path": path,
+            "project_root": path,
             "scan_reason": "base_point_migration",
         });
 
