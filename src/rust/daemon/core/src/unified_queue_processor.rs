@@ -734,6 +734,14 @@ impl UnifiedQueueProcessor {
                                 let processing_time = start_time.elapsed().as_millis() as u64;
 
                                 // Per-destination state machine (Task 6):
+                                // Resolve any destination statuses that weren't explicitly set
+                                // by the handler (orchestration-only items, content items, etc.)
+                                // before checking finalization. Without this, items whose handlers
+                                // don't call update_destination_status() would stay pending forever.
+                                let _ = queue_manager
+                                    .ensure_destinations_resolved(&item.queue_id)
+                                    .await;
+
                                 // check_and_finalize resolves overall status from qdrant_status + search_status.
                                 // Delete item only when fully resolved as done.
                                 let overall = queue_manager
