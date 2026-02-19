@@ -26,9 +26,11 @@ pub struct ContentPayload {
 /// Qdrant point payload for filtering and display.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryPayload {
-    /// Rule content text
+    /// Rule content text (required for add/update, optional for remove)
+    #[serde(default)]
     pub content: String,
     /// Source type (always "memory_rule")
+    #[serde(default)]
     pub source_type: String,
     /// Rule label (identifier, max 15 chars, e.g. "prefer-uv")
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -394,6 +396,22 @@ mod tests {
         assert_eq!(payload.scope, Some("project".to_string()));
         assert_eq!(payload.project_id, Some("abc123".to_string()));
         assert_eq!(payload.priority, Some(9));
+    }
+
+    #[test]
+    fn test_memory_payload_remove_no_content() {
+        // Remove action omits content — this must not fail deserialization
+        let json = r#"{"action":"remove","label":"old-rule","source_type":"memory_rule"}"#;
+        let payload: MemoryPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.action, Some("remove".to_string()));
+        assert_eq!(payload.label, Some("old-rule".to_string()));
+        assert_eq!(payload.content, ""); // defaults to empty string
+
+        // Even without source_type (MCP server may omit it for remove)
+        let json2 = r#"{"action":"remove","label":"old-rule"}"#;
+        let payload2: MemoryPayload = serde_json::from_str(json2).unwrap();
+        assert_eq!(payload2.label, Some("old-rule".to_string()));
+        assert_eq!(payload2.source_type, "");
     }
 
     #[test]
