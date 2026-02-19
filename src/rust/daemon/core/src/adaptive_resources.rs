@@ -7,8 +7,8 @@
 //!
 //! | Level | Name     | When                           | Resources           |
 //! |-------|----------|--------------------------------|---------------------|
-//! | 0     | Normal   | User active, no queue work     | Baseline            |
-//! | 1     | Active   | User active + queue has work   | +50% concurrency    |
+//! | 0     | Normal   | User active                    | Baseline            |
+//! | 1     | Active   | Short idle period detected     | +50% concurrency    |
 //! | 2     | Elevated | Idle confirmed, ramping up     | ~75% of burst       |
 //! | 3     | Burst    | Sustained idle, full resources  | Maximum             |
 //!
@@ -30,7 +30,7 @@
 //! - Linux: falls back to always-interactive (no burst mode)
 //! - Other: always-interactive (no burst mode)
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -527,7 +527,6 @@ impl AdaptiveResourceManager {
     pub fn start(
         config: AdaptiveResourceConfig,
         cancellation_token: CancellationToken,
-        queue_depth: Option<Arc<AtomicUsize>>,
     ) -> Self {
         let normal_profile = ResourceProfile {
             max_concurrent_embeddings: config.normal_max_concurrent_embeddings,
@@ -625,10 +624,6 @@ impl AdaptiveResourceManager {
                             config.cpu_pressure_threshold,
                             physical_cores,
                         );
-                        let has_queue_work = queue_depth
-                            .as_ref()
-                            .map(|qd| qd.load(Ordering::Relaxed) > 0)
-                            .unwrap_or(false);
 
                         let old_level = sys_state.level;
 
@@ -679,24 +674,13 @@ impl AdaptiveResourceManager {
                             // --- User active or CPU pressure: ramp DOWN ---
                             sys_state.idle_detected_at = None; // reset idle confirmation
 
-                            // Determine target level based on queue state
-                            let target = if has_queue_work && cpu_ok {
-                                ResourceLevel::Active
-                            } else {
-                                ResourceLevel::Normal
-                            };
+                            // Target is always Normal when user is active — resource level
+                            // is driven purely by idle time, not queue depth.
+                            let target = ResourceLevel::Normal;
 
                             if sys_state.level <= target {
-                                // Already at or below target — just ensure correct level
+                                // Already at or below target
                                 sys_state.activity_detected_at = None;
-                                if sys_state.level < target {
-                                    // Can go up to Active immediately when queue has work
-                                    info!(
-                                        "Active processing: {:?} -> {:?} (queue has work)",
-                                        sys_state.level, target,
-                                    );
-                                    sys_state.transition_to(target);
-                                }
                             } else {
                                 // Need to ramp down
                                 if sys_state.activity_detected_at.is_none() {
@@ -781,12 +765,11 @@ impl AdaptiveResourceManager {
                         heartbeat_counter += 1;
                         if heartbeat_counter % heartbeat_interval == 0 {
                             info!(
-                                "Adaptive resources heartbeat: level={:?}, mode={}, idle_secs={:.0}, cpu_pressure={}, queue_work={}, embeddings={}, delay={}ms",
+                                "Adaptive resources heartbeat: level={:?}, mode={}, idle_secs={:.0}, cpu_pressure={}, embeddings={}, delay={}ms",
                                 sys_state.level,
                                 new_mode.as_str(),
                                 idle_secs,
                                 !cpu_ok,
-                                has_queue_work,
                                 new_profile.max_concurrent_embeddings,
                                 new_profile.inter_item_delay_ms,
                             );
@@ -1014,7 +997,7 @@ mod tests {
         let limits = test_limits();
         let config = AdaptiveResourceConfig::from_resource_limits(&limits);
         let token = CancellationToken::new();
-        let manager = AdaptiveResourceManager::start(config, token.clone(), None);
+        let manager = AdaptiveResourceManager::start(config, token.clone());
 
         let profile = manager.current_profile();
         assert_eq!(profile.max_concurrent_embeddings, 2);
@@ -1029,7 +1012,7 @@ mod tests {
         let limits = test_limits();
         let config = AdaptiveResourceConfig::from_resource_limits(&limits);
         let token = CancellationToken::new();
-        let manager = AdaptiveResourceManager::start(config, token.clone(), None);
+        let manager = AdaptiveResourceManager::start(config, token.clone());
 
         let rx = manager.subscribe();
         let profile = *rx.borrow();
