@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { utcNow } from '../utils/timestamps.js';
 
 // Canonical memory collection name from native bridge (single source of truth)
 import { COLLECTION_MEMORY, PRIORITY_HIGH } from '../common/native-bridge.js';
@@ -180,6 +181,17 @@ export class MemoryTool {
       });
 
       if (response.success) {
+        // Task 16: Write-through to memory_mirror
+        const now = utcNow();
+        this.stateManager.upsertMemoryMirror({
+          memoryId: response.document_id ?? label,
+          ruleText: content,
+          scope: scope ?? null,
+          tenantId: resolvedProjectId ?? null,
+          createdAt: now,
+          updatedAt: now,
+        });
+
         return {
           success: true,
           action: 'add',
@@ -213,6 +225,17 @@ export class MemoryTool {
     if (priority !== undefined) queueOperation.priority = priority;
 
     const queueResult = this.queueMemoryOperation(queueOperation);
+
+    // Task 16: Write-through to memory_mirror even on queue path
+    const now = utcNow();
+    this.stateManager.upsertMemoryMirror({
+      memoryId: label,
+      ruleText: content,
+      scope: scope ?? null,
+      tenantId: resolvedProjectId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     return {
       success: true,
@@ -270,6 +293,16 @@ export class MemoryTool {
       });
 
       if (response.success) {
+        // Task 16: Write-through to memory_mirror
+        this.stateManager.upsertMemoryMirror({
+          memoryId: label,
+          ruleText: content,
+          scope: null, // Update doesn't change scope
+          tenantId: null,
+          createdAt: utcNow(), // Will be ignored by ON CONFLICT UPDATE
+          updatedAt: utcNow(),
+        });
+
         return {
           success: true,
           action: 'update',
@@ -300,6 +333,16 @@ export class MemoryTool {
 
     const queueResult = this.queueMemoryOperation(updateOperation);
 
+    // Task 16: Write-through to memory_mirror even on queue path
+    this.stateManager.upsertMemoryMirror({
+      memoryId: label,
+      ruleText: content,
+      scope: null,
+      tenantId: null,
+      createdAt: utcNow(),
+      updatedAt: utcNow(),
+    });
+
     return {
       success: true,
       action: 'update',
@@ -329,6 +372,9 @@ export class MemoryTool {
       action: 'remove',
       label,
     });
+
+    // Task 16: Delete from memory_mirror immediately
+    this.stateManager.deleteMemoryMirror(label);
 
     return {
       success: true,
@@ -415,7 +461,33 @@ export class MemoryTool {
         message: `Found ${rules.length} rule(s)`,
       };
     } catch (error) {
-      // Collection may not exist or other error
+      // Qdrant unavailable — fall back to memory_mirror (Task 16)
+      try {
+        const mirrorRows = this.stateManager.listMemoryMirror(scope, resolvedProjectId, limit);
+        if (mirrorRows.length > 0) {
+          const rules: MemoryRule[] = mirrorRows.map((row) => {
+            const rule: MemoryRule = {
+              id: row.memoryId,
+              content: row.ruleText,
+              scope: (row.scope as MemoryScope) ?? 'global',
+              createdAt: row.createdAt,
+              updatedAt: row.updatedAt,
+            };
+            if (row.tenantId) rule.projectId = row.tenantId;
+            return rule;
+          });
+
+          return {
+            success: true,
+            action: 'list',
+            rules,
+            message: `Found ${rules.length} rule(s) from local mirror (Qdrant unavailable)`,
+          };
+        }
+      } catch {
+        // memory_mirror also unavailable
+      }
+
       return {
         success: false,
         action: 'list',

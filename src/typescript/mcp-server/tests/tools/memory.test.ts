@@ -71,6 +71,9 @@ function createMockStateManager(): SqliteStateManager {
         idempotencyKey: 'test-key',
       },
     }),
+    upsertMemoryMirror: vi.fn(),
+    deleteMemoryMirror: vi.fn(),
+    listMemoryMirror: vi.fn().mockReturnValue([]),
   } as unknown as SqliteStateManager;
 }
 
