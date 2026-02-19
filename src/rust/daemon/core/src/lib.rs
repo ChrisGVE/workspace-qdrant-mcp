@@ -74,6 +74,14 @@ pub mod remote_monitor;
 pub mod startup_recovery;
 pub mod startup_reconciliation;
 
+// ── Architectural refactoring modules (Phase 0+) ────────────────────────
+pub mod context;
+pub mod shared;
+pub mod specs;
+pub mod strategies;
+pub mod pipeline;
+pub mod lifecycle;
+
 use crate::config::Config;
 pub use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 pub use crate::document_processor::{

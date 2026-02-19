@@ -185,7 +185,7 @@ CLAUDE.local.md
 .claude/
 .taskmaster/
 .cursor/
-specs/
+/specs/
 *PRD*.txt
 *PRD*.md
 research/
