@@ -7,6 +7,7 @@
 //! This replaces Qdrant scrolling with fast SQLite queries.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use wqm_common::timestamps;
 use sqlx::SqlitePool;
@@ -16,6 +17,7 @@ use crate::allowed_extensions::AllowedExtensions;
 use crate::config::StartupConfig;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
+use crate::storage::StorageClient;
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
 use crate::file_classification::classify_file_type;
@@ -401,6 +403,139 @@ async fn enqueue_file_op(
     .map_err(|e| format!("Failed to enqueue: {}", e))
 }
 
+/// Backfill `memory_mirror` table from Qdrant memory collection.
+///
+/// Scrolls all points in the `memory` collection and inserts any missing
+/// rows into `memory_mirror` using INSERT OR IGNORE (idempotent).
+/// This ensures the SQLite mirror stays in sync after a fresh install,
+/// database reset, or if the mirror was added after points already existed.
+pub async fn backfill_memory_mirror(
+    pool: &SqlitePool,
+    storage_client: &Arc<StorageClient>,
+) -> Result<MemoryBackfillStats, String> {
+    use qdrant_client::qdrant::{Filter, PointId};
+
+    info!("Starting memory_mirror backfill from Qdrant...");
+    let start = std::time::Instant::now();
+
+    // Check if memory collection exists before scrolling
+    let exists = storage_client
+        .collection_exists(wqm_common::constants::COLLECTION_MEMORY)
+        .await
+        .map_err(|e| format!("Failed to check memory collection: {}", e))?;
+
+    if !exists {
+        info!("Memory collection does not exist, skipping backfill");
+        return Ok(MemoryBackfillStats::default());
+    }
+
+    let mut stats = MemoryBackfillStats::default();
+    let mut offset: Option<PointId> = None;
+    let batch_size: u32 = 100;
+
+    loop {
+        let points = storage_client
+            .scroll_with_filter(
+                wqm_common::constants::COLLECTION_MEMORY,
+                Filter::default(),
+                batch_size,
+                offset.clone(),
+            )
+            .await
+            .map_err(|e| format!("Failed to scroll memory collection: {}", e))?;
+
+        if points.is_empty() {
+            break;
+        }
+
+        stats.points_scanned += points.len() as u64;
+
+        // Track last point ID for pagination
+        if let Some(last) = points.last() {
+            offset = last.id.clone();
+        }
+
+        for point in &points {
+            // Extract label as memory_id (required — skip points without label)
+            let label = match point.payload.get("label").and_then(|v| v.as_str()) {
+                Some(l) => l,
+                None => {
+                    debug!("Skipping memory point without label");
+                    stats.skipped_no_label += 1;
+                    continue;
+                }
+            };
+
+            let empty = String::new();
+            let content = point.payload.get("content").and_then(|v| v.as_str()).unwrap_or(&empty);
+            let scope = point.payload.get("scope").and_then(|v| v.as_str());
+            let tenant_id = point.payload.get("tenant_id").and_then(|v| v.as_str());
+            let created_at = point.payload.get("created_at").and_then(|v| v.as_str());
+            let now = timestamps::now_utc();
+            let ts = created_at.unwrap_or(&now);
+
+            let result = sqlx::query(
+                "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+            )
+            .bind(label)
+            .bind(content)
+            .bind(scope)
+            .bind(tenant_id)
+            .bind(ts)
+            .bind(ts)
+            .execute(pool)
+            .await;
+
+            match result {
+                Ok(r) => {
+                    if r.rows_affected() > 0 {
+                        stats.inserted += 1;
+                    } else {
+                        stats.already_exists += 1;
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to insert memory_mirror row for label={}: {}", label, e);
+                    stats.errors += 1;
+                }
+            }
+        }
+
+        // If we got fewer than batch_size, we've reached the end
+        if (points.len() as u32) < batch_size {
+            break;
+        }
+
+        // Advance offset past the last returned point
+        // scroll_with_filter already returned the offset-based page;
+        // the next page starts from the last point's ID
+    }
+
+    let elapsed = start.elapsed();
+    info!(
+        "Memory mirror backfill complete: {} scanned, {} inserted, {} existed, {} skipped (no label), {} errors in {:?}",
+        stats.points_scanned, stats.inserted, stats.already_exists, stats.skipped_no_label, stats.errors, elapsed
+    );
+
+    Ok(stats)
+}
+
+/// Statistics from memory mirror backfill
+#[derive(Debug, Clone, Default)]
+pub struct MemoryBackfillStats {
+    /// Total Qdrant points scanned
+    pub points_scanned: u64,
+    /// New rows inserted into memory_mirror
+    pub inserted: u64,
+    /// Rows already present (INSERT OR IGNORE)
+    pub already_exists: u64,
+    /// Points skipped because they lack a label
+    pub skipped_no_label: u64,
+    /// Insert errors
+    pub errors: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -570,5 +705,79 @@ mod tests {
 
         assert_eq!(stats.reconciled, 0);
         assert_eq!(stats.reconcile_errors, 0);
+    }
+
+    #[test]
+    fn test_memory_backfill_stats_default() {
+        let stats = MemoryBackfillStats::default();
+        assert_eq!(stats.points_scanned, 0);
+        assert_eq!(stats.inserted, 0);
+        assert_eq!(stats.already_exists, 0);
+        assert_eq!(stats.skipped_no_label, 0);
+        assert_eq!(stats.errors, 0);
+    }
+
+    /// Test that memory_mirror INSERT OR IGNORE is idempotent
+    #[tokio::test]
+    async fn test_memory_mirror_insert_idempotent() {
+        let pool = create_test_pool().await;
+        // Create memory_mirror table
+        sqlx::query(crate::watch_folders_schema::CREATE_MEMORY_MIRROR_SQL)
+            .execute(&pool).await.unwrap();
+
+        let now = timestamps::now_utc();
+
+        // First insert succeeds
+        let r1 = sqlx::query(
+            "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )
+        .bind("rule-1")
+        .bind("Always use snake_case")
+        .bind("global")
+        .bind::<Option<&str>>(None)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool).await.unwrap();
+        assert_eq!(r1.rows_affected(), 1);
+
+        // Duplicate insert is silently ignored
+        let r2 = sqlx::query(
+            "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )
+        .bind("rule-1")
+        .bind("Different text")
+        .bind("project")
+        .bind::<Option<&str>>(None)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool).await.unwrap();
+        assert_eq!(r2.rows_affected(), 0);
+
+        // Original text preserved
+        let text: String = sqlx::query_scalar(
+            "SELECT rule_text FROM memory_mirror WHERE memory_id = 'rule-1'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(text, "Always use snake_case");
+
+        // Different key inserts fine
+        let r3 = sqlx::query(
+            "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )
+        .bind("rule-2")
+        .bind("Use Rust for performance")
+        .bind("global")
+        .bind::<Option<&str>>(None)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool).await.unwrap();
+        assert_eq!(r3.rows_affected(), 1);
+
+        // Total count is 2
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM memory_mirror")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 2);
     }
 }

@@ -897,6 +897,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let hierarchy_pool = queue_pool.clone();
     let hierarchy_embedding = Arc::clone(&embedding_generator);
 
+    // Clone storage_client before it's moved into the queue processor (Task 24)
+    let mirror_storage = Arc::clone(&storage_client);
+
     let mut unified_queue_processor = UnifiedQueueProcessor::with_components(
         queue_pool,
         unified_config.clone(),
@@ -1008,6 +1011,32 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
                 }
                 Err(e) => {
                     warn!("Startup recovery failed (non-fatal): {}", e);
+                }
+            }
+        });
+    }
+
+    // Memory mirror backfill: sync Qdrant memory points to SQLite (Task 24)
+    // Runs as background task after schema migration has created the table.
+    {
+        let mirror_pool = unified_queue_processor.pool().clone();
+        tokio::spawn(async move {
+            match workspace_qdrant_core::startup_recovery::backfill_memory_mirror(
+                &mirror_pool,
+                &mirror_storage,
+            ).await {
+                Ok(stats) => {
+                    if stats.inserted > 0 {
+                        info!(
+                            "Memory mirror backfill: {} inserted, {} already existed",
+                            stats.inserted, stats.already_exists
+                        );
+                    } else {
+                        debug!("Memory mirror backfill: no new entries ({} existed)", stats.already_exists);
+                    }
+                }
+                Err(e) => {
+                    warn!("Memory mirror backfill failed (non-fatal): {}", e);
                 }
             }
         });
