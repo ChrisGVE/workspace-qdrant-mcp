@@ -4,4 +4,5 @@
 //! extracting the processing logic from `unified_queue_processor.rs` into
 //! focused, testable units.
 
+pub mod file;
 pub mod text;
