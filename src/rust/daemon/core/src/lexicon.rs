@@ -265,6 +265,38 @@ impl LexiconManager {
         Ok(())
     }
 
+    /// Remove junk terms from sparse_vocabulary that were created before the
+    /// BM25 tokenizer was upgraded. Matches patterns: pure digits, version strings,
+    /// hex hashes (8+ chars), hex literals, terms containing path separators.
+    ///
+    /// Call once on startup before loading vocabulary into BM25 instances.
+    pub async fn cleanup_junk_terms(&self) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"DELETE FROM sparse_vocabulary WHERE
+               -- Pure digits
+               (term GLOB '[0-9]*' AND term NOT GLOB '*[^0-9]*')
+               -- Version strings (v1.2, 2.0.0, etc.)
+               OR term GLOB '[0-9]*.[0-9]*'
+               OR term GLOB 'v[0-9]*.[0-9]*'
+               -- Hex hashes (8+ hex chars)
+               OR (length(term) >= 8 AND term NOT GLOB '*[^a-f0-9]*')
+               -- Hex literals (0x...)
+               OR term GLOB '0x*'
+               -- Contains path separators
+               OR term LIKE '%/%' OR term LIKE '%\%'
+               -- Single character
+               OR length(term) <= 1"#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        let removed = result.rows_affected();
+        if removed > 0 {
+            info!("Cleaned {} junk terms from sparse_vocabulary", removed);
+        }
+        Ok(removed)
+    }
+
     /// Persist all loaded collections (call on shutdown or periodically).
     pub async fn persist_all(&self) -> Result<(), sqlx::Error> {
         let collections: Vec<String> = {
@@ -548,5 +580,56 @@ mod tests {
             .await;
 
         assert!(sparse.indices.is_empty(), "Empty collection should produce empty sparse vector");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_junk_terms() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let now = timestamps::now_utc();
+
+        // Insert a mix of valid and junk terms
+        let terms = vec![
+            (0, "function", "projects"),     // valid
+            (1, "120", "projects"),           // junk: pure digits
+            (2, "2.0.0", "projects"),         // junk: version string
+            (3, "abc123def456", "projects"),  // junk: hex hash (12 chars)
+            (4, "0xff", "projects"),          // junk: hex literal
+            (5, "usr/bin", "projects"),       // junk: contains path separator
+            (6, "a", "projects"),             // junk: single char
+            (7, "hello", "projects"),         // valid
+            (8, "v1.2.3", "projects"),        // junk: version with v prefix
+        ];
+
+        for (id, term, collection) in &terms {
+            sqlx::query(
+                "INSERT INTO sparse_vocabulary (term_id, term, collection, document_count, created_at) VALUES (?1, ?2, ?3, 1, ?4)"
+            )
+            .bind(*id as i64)
+            .bind(*term)
+            .bind(*collection)
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let mgr = LexiconManager::new(pool.clone(), 1.2);
+        let removed = mgr.cleanup_junk_terms().await.unwrap();
+
+        // Should have removed 7 junk terms (120, 2.0.0, abc123def456, 0xff, usr/bin, a, v1.2.3)
+        assert_eq!(removed, 7, "Should remove 7 junk terms, removed {}", removed);
+
+        // Verify valid terms remain
+        let remaining: Vec<(String,)> = sqlx::query_as(
+            "SELECT term FROM sparse_vocabulary ORDER BY term"
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        let remaining_terms: Vec<&str> = remaining.iter().map(|(t,)| t.as_str()).collect();
+        assert_eq!(remaining_terms, vec!["function", "hello"]);
     }
 }

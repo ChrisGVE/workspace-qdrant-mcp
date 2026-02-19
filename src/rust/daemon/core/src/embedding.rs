@@ -10,6 +10,53 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+/// Tokenize text for BM25 sparse vector generation.
+///
+/// Splits on whitespace and punctuation, trims trailing separators, lowercases,
+/// and filters out junk tokens (hex hashes, version strings, paths, pure digits,
+/// single characters). Matches the quality level of the keyword extraction pipeline.
+pub fn tokenize_for_bm25(text: &str) -> Vec<String> {
+    static JUNK: Lazy<BM25JunkFilter> = Lazy::new(BM25JunkFilter::new);
+
+    text.split(|c: char| c.is_whitespace() || "(){}[]<>;:,.\"'`~!@#$%^&*+=|\\".contains(c))
+        .map(|s| s.trim_matches(|c: char| c == '-' || c == '_' || c == '/'))
+        .filter(|s| s.len() > 1)
+        .map(|s| s.to_lowercase())
+        .filter(|s| !JUNK.is_junk(s))
+        .collect()
+}
+
+/// Junk pattern filter for BM25 tokens.
+struct BM25JunkFilter {
+    hex_hash: Regex,
+    version: Regex,
+    path: Regex,
+    hex_literal: Regex,
+    all_digits: Regex,
+}
+
+impl BM25JunkFilter {
+    fn new() -> Self {
+        Self {
+            hex_hash: Regex::new(r"^[a-f0-9]{8,}$").unwrap(),
+            version: Regex::new(r"^v?\d+\.\d+").unwrap(),
+            path: Regex::new(r"[/\\]").unwrap(),
+            hex_literal: Regex::new(r"^0x[a-f0-9]+$").unwrap(),
+            all_digits: Regex::new(r"^\d+$").unwrap(),
+        }
+    }
+
+    fn is_junk(&self, token: &str) -> bool {
+        self.hex_hash.is_match(token)
+            || self.version.is_match(token)
+            || self.path.is_match(token)
+            || self.hex_literal.is_match(token)
+            || self.all_digits.is_match(token)
+    }
+}
 
 /// Errors that can occur during embedding generation
 #[derive(Error, Debug)]
@@ -316,10 +363,7 @@ impl EmbeddingGenerator {
         })?;
 
         // Generate sparse embedding using BM25
-        let tokens: Vec<String> = text
-            .split_whitespace()
-            .map(|s| s.to_lowercase())
-            .collect();
+        let tokens = tokenize_for_bm25(text);
 
         let sparse = {
             let mut bm25 = self.bm25.lock().await;
@@ -359,10 +403,7 @@ impl EmbeddingGenerator {
     }
 
     pub async fn add_document_to_corpus(&self, text: &str) {
-        let tokens: Vec<String> = text
-            .split_whitespace()
-            .map(|s| s.to_lowercase())
-            .collect();
+        let tokens = tokenize_for_bm25(text);
         let mut bm25 = self.bm25.lock().await;
         bm25.add_document(&tokens);
     }
@@ -402,10 +443,7 @@ impl TextPreprocessor {
             text.to_string()
         };
 
-        let tokens: Vec<String> = cleaned
-            .split_whitespace()
-            .map(|s| s.to_lowercase())
-            .collect();
+        let tokens = tokenize_for_bm25(&cleaned);
 
         PreprocessedText {
             original: text.to_string(),
@@ -419,6 +457,54 @@ impl TextPreprocessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_tokenize_for_bm25_splits_punctuation() {
+        let tokens = tokenize_for_bm25("spatial.kdtree(data, metric='euclidean')");
+        assert!(tokens.contains(&"spatial".to_string()));
+        assert!(tokens.contains(&"kdtree".to_string()));
+        assert!(tokens.contains(&"data".to_string()));
+        assert!(tokens.contains(&"metric".to_string()));
+        assert!(tokens.contains(&"euclidean".to_string()));
+        // Should not contain concatenated garbage
+        assert!(!tokens.iter().any(|t| t.contains('(')));
+        assert!(!tokens.iter().any(|t| t.contains(')')));
+    }
+
+    #[test]
+    fn test_tokenize_for_bm25_filters_junk() {
+        let tokens = tokenize_for_bm25("version 2.0.0 hash abc123def456 num 120 path /usr/bin/test 0xff");
+        assert!(tokens.contains(&"version".to_string()));
+        assert!(tokens.contains(&"hash".to_string()));
+        assert!(tokens.contains(&"num".to_string()));
+        assert!(tokens.contains(&"path".to_string()));
+        // Junk filtered
+        assert!(!tokens.contains(&"2.0.0".to_string()), "version strings should be filtered");
+        assert!(!tokens.contains(&"abc123def456".to_string()), "hex hashes should be filtered");
+        assert!(!tokens.contains(&"120".to_string()), "pure digits should be filtered");
+        assert!(!tokens.contains(&"0xff".to_string()), "hex literals should be filtered");
+    }
+
+    #[test]
+    fn test_tokenize_for_bm25_filters_single_chars() {
+        let tokens = tokenize_for_bm25("a b c hello world");
+        assert!(!tokens.contains(&"a".to_string()));
+        assert!(!tokens.contains(&"b".to_string()));
+        assert!(!tokens.contains(&"c".to_string()));
+        assert!(tokens.contains(&"hello".to_string()));
+        assert!(tokens.contains(&"world".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_for_bm25_code_tokens() {
+        let tokens = tokenize_for_bm25("fn process_item(queue_manager: &QueueManager) -> Result<()>");
+        assert!(tokens.contains(&"fn".to_string()));
+        assert!(tokens.contains(&"process_item".to_string()) || tokens.contains(&"process".to_string()));
+        assert!(tokens.contains(&"queue_manager".to_string()) || tokens.contains(&"queuemanager".to_string()));
+        assert!(tokens.contains(&"result".to_string()));
+        // Should not contain angle brackets or ampersands
+        assert!(!tokens.iter().any(|t| t.contains('<') || t.contains('>') || t.contains('&')));
+    }
 
     #[test]
     fn test_bm25_idf_common_vs_rare_terms() {

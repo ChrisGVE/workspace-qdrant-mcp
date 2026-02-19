@@ -467,6 +467,11 @@ impl UnifiedQueueProcessor {
         }
 
         let task_handle = tokio::spawn(async move {
+            // One-time cleanup of junk BM25 terms from sparse_vocabulary (Task 22)
+            if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
+                warn!("Failed to clean junk terms from sparse_vocabulary: {} (non-critical)", e);
+            }
+
             if let Err(e) = Self::processing_loop(
                 queue_manager,
                 config,
