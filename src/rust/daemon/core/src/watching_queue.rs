@@ -2641,6 +2641,9 @@ pub struct CoordinatorSummary {
 pub struct WatchManager {
     pool: SqlitePool,
     watchers: Arc<RwLock<HashMap<String, Arc<FileWatcherQueue>>>>,
+    git_watchers: Arc<Mutex<HashMap<String, crate::git_watcher::GitWatcher>>>,
+    git_event_tx: mpsc::UnboundedSender<crate::git_watcher::GitEvent>,
+    git_event_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<crate::git_watcher::GitEvent>>>>,
     allowed_extensions: Arc<AllowedExtensions>,
     refresh_signal: Option<Arc<Notify>>,
 }
@@ -2648,12 +2651,23 @@ pub struct WatchManager {
 impl WatchManager {
     /// Create a new watch manager
     pub fn new(pool: SqlitePool, allowed_extensions: Arc<AllowedExtensions>) -> Self {
+        let (git_event_tx, git_event_rx) = mpsc::unbounded_channel();
         Self {
             pool,
             watchers: Arc::new(RwLock::new(HashMap::new())),
+            git_watchers: Arc::new(Mutex::new(HashMap::new())),
+            git_event_tx,
+            git_event_rx: Arc::new(Mutex::new(Some(git_event_rx))),
             allowed_extensions,
             refresh_signal: None,
         }
+    }
+
+    /// Take the git event receiver (can only be called once).
+    /// The consumer processes git events to enqueue changed files.
+    pub async fn take_git_event_rx(&self) -> Option<mpsc::UnboundedReceiver<crate::git_watcher::GitEvent>> {
+        let mut rx_lock = self.git_event_rx.lock().await;
+        rx_lock.take()
     }
 
     /// Set the refresh signal for event-driven watch folder refresh
@@ -2677,10 +2691,11 @@ impl WatchManager {
 
     /// Load watch configurations from watch_folders table (project watches)
     async fn load_watch_folders(&self, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
-        // Query watch configurations for project watches
+        // Query watch configurations for project watches (include is_git_tracked for git watcher)
         let rows = sqlx::query(
             r#"
-            SELECT watch_id, path, collection, tenant_id
+            SELECT watch_id, path, collection, tenant_id,
+                   COALESCE(is_git_tracked, 0) AS is_git_tracked
             FROM watch_folders
             WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'
             "#
@@ -2695,10 +2710,11 @@ impl WatchManager {
             let path: String = row.get("path");
             let collection: String = row.get("collection");
             let _tenant_id: String = row.get("tenant_id");
+            let is_git_tracked: bool = row.get::<i32, _>("is_git_tracked") != 0;
 
             let config = WatchConfig {
                 id: id.clone(),
-                path: PathBuf::from(path),
+                path: PathBuf::from(&path),
                 collection,
                 patterns: vec!["*".to_string()],
                 ignore_patterns: vec![],
@@ -2709,10 +2725,43 @@ impl WatchManager {
                 library_name: None,
             };
 
-            self.start_watcher(id, config, queue_manager.clone()).await;
+            self.start_watcher(id.clone(), config, queue_manager.clone()).await;
+
+            // Start git watcher for git-tracked projects (Task 7: two-layer watching)
+            if is_git_tracked {
+                self.start_git_watcher(&id, &path).await;
+            }
         }
 
         Ok(())
+    }
+
+    /// Start a git watcher for a git-tracked project
+    async fn start_git_watcher(&self, watch_id: &str, project_path: &str) {
+        use crate::git_watcher::GitWatcher;
+
+        let project_root = PathBuf::from(project_path);
+        match GitWatcher::new(
+            watch_id.to_string(),
+            project_root,
+            self.git_event_tx.clone(),
+        ) {
+            Ok(mut git_watcher) => {
+                match git_watcher.start() {
+                    Ok(()) => {
+                        info!("Started git watcher for project: {}", watch_id);
+                        let mut git_watchers = self.git_watchers.lock().await;
+                        git_watchers.insert(watch_id.to_string(), git_watcher);
+                    }
+                    Err(e) => {
+                        warn!("Failed to start git watcher for {}: {}", watch_id, e);
+                    }
+                }
+            }
+            Err(e) => {
+                debug!("No git watcher for {} (not a git repo or .git not found): {}", watch_id, e);
+            }
+        }
     }
 
     /// Load library watch configurations from watch_folders table
@@ -2816,6 +2865,12 @@ impl WatchManager {
                         error!("Failed to stop watcher {}: {}", id, e);
                     }
                 }
+                // Also stop git watcher if running
+                let mut git_watchers = self.git_watchers.lock().await;
+                if let Some(mut gw) = git_watchers.remove(id) {
+                    gw.stop().await;
+                    info!("Stopped git watcher for removed project: {}", id);
+                }
             }
         }
 
@@ -2867,7 +2922,8 @@ impl WatchManager {
     async fn start_single_watch_folder(&self, id: &str, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
         let row = sqlx::query(
             r#"
-            SELECT watch_id, path, collection, tenant_id
+            SELECT watch_id, path, collection, tenant_id,
+                   COALESCE(is_git_tracked, 0) AS is_git_tracked
             FROM watch_folders
             WHERE watch_id = ? AND enabled = 1 AND collection = 'projects'
             "#
@@ -2881,10 +2937,11 @@ impl WatchManager {
             let path: String = row.get("path");
             let collection: String = row.get("collection");
             let _tenant_id: String = row.get("tenant_id");
+            let is_git_tracked: bool = row.get::<i32, _>("is_git_tracked") != 0;
 
             let config = WatchConfig {
                 id: id.clone(),
-                path: PathBuf::from(path),
+                path: PathBuf::from(&path),
                 collection,
                 patterns: vec!["*".to_string()],
                 ignore_patterns: vec![],
@@ -2895,7 +2952,12 @@ impl WatchManager {
                 library_name: None,
             };
 
-            self.start_watcher(id, config, queue_manager.clone()).await;
+            self.start_watcher(id.clone(), config, queue_manager.clone()).await;
+
+            // Start git watcher for git-tracked projects (Task 7)
+            if is_git_tracked {
+                self.start_git_watcher(&id, &path).await;
+            }
         }
 
         Ok(())
