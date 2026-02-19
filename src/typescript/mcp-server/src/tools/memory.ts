@@ -11,7 +11,6 @@
  */
 
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { randomUUID } from 'node:crypto';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
@@ -141,6 +140,15 @@ export class MemoryTool {
       };
     }
 
+    if (!options.label?.trim()) {
+      return {
+        success: false,
+        action: 'add',
+        message:
+          'Label is required for adding a rule (max 15 chars, format: word-word-word, e.g. "prefer-uv", "use-pytest")',
+      };
+    }
+
     // Resolve project ID for project-scoped rules
     let resolvedProjectId = projectId;
     if (scope === 'project' && !resolvedProjectId) {
@@ -149,8 +157,7 @@ export class MemoryTool {
       resolvedProjectId = projectInfo?.projectId;
     }
 
-    // Use provided label or generate a UUID-based one (LLM should provide meaningful labels)
-    const label = options.label ?? randomUUID();
+    const label = options.label.trim();
     const metadata: Record<string, string> = {
       scope,
       rule_type: 'behavioral',

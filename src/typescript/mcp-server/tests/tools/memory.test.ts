@@ -112,6 +112,7 @@ describe('MemoryTool', () => {
     it('should add a global rule via daemon', async () => {
       const options: MemoryOptions = {
         action: 'add',
+        label: 'write-tests',
         content: 'Always write tests',
         scope: 'global',
         title: 'Testing Rule',
@@ -129,6 +130,7 @@ describe('MemoryTool', () => {
     it('should add a project-scoped rule', async () => {
       const options: MemoryOptions = {
         action: 'add',
+        label: 'proj-rule',
         content: 'Project-specific rule',
         scope: 'project',
       };
@@ -146,6 +148,7 @@ describe('MemoryTool', () => {
 
       const options: MemoryOptions = {
         action: 'add',
+        label: 'test-rule',
         content: 'Test rule',
         scope: 'global',
       };
@@ -161,6 +164,7 @@ describe('MemoryTool', () => {
     it('should reject empty content', async () => {
       const options: MemoryOptions = {
         action: 'add',
+        label: 'empty-rule',
         content: '',
         scope: 'global',
       };
@@ -171,9 +175,23 @@ describe('MemoryTool', () => {
       expect(result.message).toContain('Content is required');
     });
 
+    it('should reject missing label', async () => {
+      const options: MemoryOptions = {
+        action: 'add',
+        content: 'Some rule content',
+        scope: 'global',
+      };
+
+      const result = await memoryTool.execute(options);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('Label is required');
+    });
+
     it('should include tags in metadata', async () => {
       const options: MemoryOptions = {
         action: 'add',
+        label: 'tagged-rule',
         content: 'Rule with tags',
         scope: 'global',
         tags: ['testing', 'quality'],
@@ -193,6 +211,7 @@ describe('MemoryTool', () => {
     it('should include priority in metadata', async () => {
       const options: MemoryOptions = {
         action: 'add',
+        label: 'high-prio',
         content: 'High priority rule',
         scope: 'global',
         priority: 10,
@@ -415,6 +434,7 @@ describe('MemoryTool queue integration', () => {
 
     await memoryTool.execute({
       action: 'add',
+      label: 'test-rule',
       content: 'Test rule',
       scope: 'project',
       projectId: 'my-project',

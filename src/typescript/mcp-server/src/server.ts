@@ -324,7 +324,7 @@ export class WorkspaceQdrantMcpServer {
             },
             label: {
               type: 'string',
-              description: 'Rule label (max 15 chars, format: word-word-word, e.g., "prefer-uv", "use-pytest"). Required for update/remove.',
+              description: 'Rule label (max 15 chars, format: word-word-word, e.g., "prefer-uv", "use-pytest"). Required for add/update/remove.',
             },
             scope: {
               type: 'string',
