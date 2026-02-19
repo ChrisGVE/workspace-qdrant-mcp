@@ -2509,7 +2509,12 @@ impl UnifiedQueueProcessor {
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
 
-                // 2. Create watch_folder entry (idempotent — skip if already exists)
+                // 2. Detect git status (Task 11)
+                let git_status = crate::git_integration::detect_git_status(
+                    std::path::Path::new(&payload.project_root),
+                );
+
+                // 3. Create watch_folder entry (idempotent — skip if already exists)
                 let now = wqm_common::timestamps::now_utc();
                 let watch_id = uuid::Uuid::new_v4().to_string();
                 let is_active: i32 = if payload.is_active.unwrap_or(false) { 1 } else { 0 };
@@ -2517,8 +2522,8 @@ impl UnifiedQueueProcessor {
                     r#"INSERT OR IGNORE INTO watch_folders (
                         watch_id, path, collection, tenant_id, is_active,
                         git_remote_url, last_activity_at, follow_symlinks, enabled,
-                        cleanup_on_disable, created_at, updated_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1, 0, ?7, ?7)"#,
+                        cleanup_on_disable, is_git_tracked, last_commit_hash, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1, 0, ?8, ?9, ?7, ?7)"#,
                 )
                 .bind(&watch_id)
                 .bind(&payload.project_root)
@@ -2527,6 +2532,8 @@ impl UnifiedQueueProcessor {
                 .bind(is_active)
                 .bind(&payload.git_remote)
                 .bind(&now)
+                .bind(git_status.is_git as i32)
+                .bind(&git_status.commit_hash)
                 .execute(queue_manager.pool())
                 .await;
 
@@ -2534,8 +2541,9 @@ impl UnifiedQueueProcessor {
                     Ok(result) => {
                         if result.rows_affected() > 0 {
                             info!(
-                                "Created watch_folder for tenant={} path={} (active={})",
-                                item.tenant_id, payload.project_root, is_active
+                                "Created watch_folder for tenant={} path={} (active={}, git={}, branch={}, worktree={})",
+                                item.tenant_id, payload.project_root, is_active,
+                                git_status.is_git, git_status.branch, git_status.is_worktree,
                             );
                         } else {
                             info!(

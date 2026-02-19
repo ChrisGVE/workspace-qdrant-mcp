@@ -48,6 +48,103 @@ pub enum GitError {
 /// Result type for Git operations
 pub type GitResult<T> = Result<T, GitError>;
 
+// ========== GIT STATUS DETECTION (Task 11) ==========
+
+/// Git status for a project directory, detected at registration time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitStatus {
+    /// Whether the path is inside a git repository.
+    pub is_git: bool,
+    /// Current branch name ("HEAD" for detached HEAD, "default" for non-git).
+    pub branch: String,
+    /// SHA of the HEAD commit (None for non-git or empty repos).
+    pub commit_hash: Option<String>,
+    /// Whether this is a git worktree (not the main working tree).
+    pub is_worktree: bool,
+}
+
+impl GitStatus {
+    /// Create a non-git status.
+    pub fn not_git() -> Self {
+        Self {
+            is_git: false,
+            branch: "default".to_string(),
+            commit_hash: None,
+            is_worktree: false,
+        }
+    }
+}
+
+/// Detect git status for a project directory.
+///
+/// Determines whether the directory is inside a git repository, retrieves the
+/// current branch name and HEAD commit hash. Handles worktrees, detached HEAD,
+/// bare repos, and empty repos gracefully.
+///
+/// This is a one-time synchronous check intended for project registration.
+pub fn detect_git_status(project_root: &Path) -> GitStatus {
+    let git_indicator = project_root.join(".git");
+    if !git_indicator.exists() {
+        return GitStatus::not_git();
+    }
+
+    // .git file (not directory) indicates a worktree
+    let is_worktree = git_indicator.is_file();
+
+    let repo = match Repository::open(project_root) {
+        Ok(r) => r,
+        Err(_) => return GitStatus::not_git(),
+    };
+
+    // Bare repos have no working tree — treat as not-git for file watching
+    if repo.is_bare() {
+        return GitStatus::not_git();
+    }
+
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => {
+            // Empty repo with no commits yet
+            return GitStatus {
+                is_git: true,
+                branch: "main".to_string(),
+                commit_hash: None,
+                is_worktree,
+            };
+        }
+        Err(_) => {
+            // HEAD is unreadable — still a git repo
+            return GitStatus {
+                is_git: true,
+                branch: "HEAD".to_string(),
+                commit_hash: None,
+                is_worktree,
+            };
+        }
+    };
+
+    let commit_hash = head.target().map(|oid| oid.to_string());
+
+    let branch = if head.is_branch() {
+        head.shorthand()
+            .unwrap_or("HEAD")
+            .to_string()
+    } else {
+        // Detached HEAD — use short SHA or "HEAD"
+        commit_hash
+            .as_ref()
+            .map(|h| if h.len() >= 8 { h[..8].to_string() } else { h.clone() })
+            .unwrap_or_else(|| "HEAD".to_string())
+    };
+
+    GitStatus {
+        is_git: true,
+        branch,
+        commit_hash,
+        is_worktree,
+    }
+}
+
 //
 // ========== BRANCH LIFECYCLE TYPES ==========
 //
@@ -1208,5 +1305,78 @@ mod tests {
         // NOTE: Per 3-table SQLite compliance, only watch_folders modifications allowed
         assert!(branch_schema::ALTER_ADD_DEFAULT_BRANCH.contains("ALTER TABLE"));
         assert!(branch_schema::ALTER_ADD_DEFAULT_BRANCH.contains("watch_folders"));
+    }
+
+    // ── detect_git_status tests (Task 11) ──
+
+    #[test]
+    fn test_detect_git_status_git_repo() {
+        let tmp = tempdir().unwrap();
+        let _repo = create_test_repo(tmp.path()).unwrap();
+
+        let status = detect_git_status(tmp.path());
+        assert!(status.is_git);
+        assert!(!status.branch.is_empty());
+        assert!(status.commit_hash.is_some());
+        assert!(!status.is_worktree);
+    }
+
+    #[test]
+    fn test_detect_git_status_non_git() {
+        let tmp = tempdir().unwrap();
+        // No .git — just an empty directory
+        let status = detect_git_status(tmp.path());
+        assert!(!status.is_git);
+        assert_eq!(status.branch, "default");
+        assert!(status.commit_hash.is_none());
+        assert!(!status.is_worktree);
+    }
+
+    #[test]
+    fn test_detect_git_status_not_git_struct() {
+        let status = GitStatus::not_git();
+        assert!(!status.is_git);
+        assert_eq!(status.branch, "default");
+        assert!(status.commit_hash.is_none());
+    }
+
+    #[test]
+    fn test_detect_git_status_empty_repo() {
+        let tmp = tempdir().unwrap();
+        // Init without initial commit
+        let _repo = Repository::init(tmp.path()).unwrap();
+
+        let status = detect_git_status(tmp.path());
+        assert!(status.is_git);
+        // Unborn branch → "main" default
+        assert_eq!(status.branch, "main");
+        assert!(status.commit_hash.is_none());
+    }
+
+    #[test]
+    fn test_detect_git_status_bare_repo() {
+        let tmp = tempdir().unwrap();
+        let _repo = Repository::init_bare(tmp.path()).unwrap();
+
+        let status = detect_git_status(tmp.path());
+        // Bare repos treated as non-git for file watching
+        assert!(!status.is_git);
+    }
+
+    #[test]
+    fn test_detect_git_status_detached_head() {
+        let tmp = tempdir().unwrap();
+        let repo = create_test_repo(tmp.path()).unwrap();
+
+        // Detach HEAD by checking out the commit directly
+        let head = repo.head().unwrap();
+        let oid = head.target().unwrap();
+        repo.set_head_detached(oid).unwrap();
+
+        let status = detect_git_status(tmp.path());
+        assert!(status.is_git);
+        assert!(status.commit_hash.is_some());
+        // Branch should be short SHA (8 chars), not a branch name
+        assert!(status.branch.len() == 8 || status.branch == "HEAD");
     }
 }
