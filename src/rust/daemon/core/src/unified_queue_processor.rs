@@ -992,9 +992,10 @@ impl UnifiedQueueProcessor {
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
-            info!("Creating collection: {}", item.collection);
+            info!("Creating collection '{}' with multi-tenant config (dense+sparse)", item.collection);
+            let config = crate::storage::MultiTenantConfig::default();
             storage_client
-                .create_collection(&item.collection, None, None)
+                .create_multi_tenant_collection(&item.collection, &config)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
@@ -1339,9 +1340,10 @@ impl UnifiedQueueProcessor {
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
-            info!("Creating collection: {}", item.collection);
+            info!("Creating collection '{}' with multi-tenant config (dense+sparse)", item.collection);
+            let config = crate::storage::MultiTenantConfig::default();
             storage_client
-                .create_collection(&item.collection, None, None)
+                .create_multi_tenant_collection(&item.collection, &config)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
@@ -2228,6 +2230,7 @@ impl UnifiedQueueProcessor {
     /// Convert a SparseEmbedding to the HashMap format expected by DocumentPoint
     fn sparse_embedding_to_map(sparse: &SparseEmbedding) -> Option<std::collections::HashMap<u32, f32>> {
         if sparse.indices.is_empty() {
+            warn!("Sparse embedding has empty indices — point will be stored without sparse vector (BM25 search won't match)");
             return None;
         }
         let map: std::collections::HashMap<u32, f32> = sparse.indices.iter()
@@ -2525,9 +2528,10 @@ impl UnifiedQueueProcessor {
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
                 {
-                    info!("Creating project collection: {}", item.collection);
+                    info!("Creating project collection '{}' with multi-tenant config (dense+sparse)", item.collection);
+                    let config = crate::storage::MultiTenantConfig::default();
                     storage_client
-                        .create_collection(&item.collection, None, None)
+                        .create_multi_tenant_collection(&item.collection, &config)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
@@ -2741,9 +2745,10 @@ impl UnifiedQueueProcessor {
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
-            info!("Creating project collection for scan: {}", item.collection);
+            info!("Creating project collection '{}' for scan with multi-tenant config (dense+sparse)", item.collection);
+            let config = crate::storage::MultiTenantConfig::default();
             storage_client
-                .create_collection(&item.collection, None, None)
+                .create_multi_tenant_collection(&item.collection, &config)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
@@ -2993,9 +2998,10 @@ impl UnifiedQueueProcessor {
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
-            info!("Creating libraries collection for scan: {}", item.collection);
+            info!("Creating libraries collection '{}' for scan with multi-tenant config (dense+sparse)", item.collection);
+            let config = crate::storage::MultiTenantConfig::default();
             storage_client
-                .create_collection(&item.collection, None, None)
+                .create_multi_tenant_collection(&item.collection, &config)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
@@ -3381,9 +3387,10 @@ impl UnifiedQueueProcessor {
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
                 {
-                    info!("Creating library collection: {}", item.collection);
+                    info!("Creating library collection '{}' with multi-tenant config (dense+sparse)", item.collection);
+                    let config = crate::storage::MultiTenantConfig::default();
                     storage_client
-                        .create_collection(&item.collection, None, None)
+                        .create_multi_tenant_collection(&item.collection, &config)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }

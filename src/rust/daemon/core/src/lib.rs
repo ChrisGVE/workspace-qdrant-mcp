@@ -556,8 +556,9 @@ impl IngestionEngine {
             .await
             .map_err(|e| ProcessingError::Storage(format!("Collection check failed: {}", e)))?
         {
+            let config = crate::storage::MultiTenantConfig::default();
             self.storage_client
-                .create_collection(collection, None, None)
+                .create_multi_tenant_collection(collection, &config)
                 .await
                 .map_err(|e| ProcessingError::Storage(format!("Collection creation failed: {}", e)))?;
         }

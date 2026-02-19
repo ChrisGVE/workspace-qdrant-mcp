@@ -29,7 +29,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
 use wqm_common::timestamps;
-use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError};
+use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError, MultiTenantConfig};
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
 use workspace_qdrant_core::BM25;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
@@ -536,9 +536,10 @@ impl DocumentServiceImpl {
                 Ok(())
             }
             Ok(false) => {
-                info!("Creating collection '{}'", collection_name);
+                info!("Creating collection '{}' with multi-tenant config (dense+sparse)", collection_name);
+                let config = MultiTenantConfig::default();
                 self.storage_client
-                    .create_collection(collection_name, Some(DEFAULT_VECTOR_SIZE), None)
+                    .create_multi_tenant_collection(collection_name, &config)
                     .await
                     .map_err(Self::map_storage_error)?;
                 info!("Successfully created collection '{}'", collection_name);
