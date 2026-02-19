@@ -2915,7 +2915,69 @@ impl WatchManager {
             }
         }
 
+        // Task 12: Manage git watchers based on is_active state.
+        // Stop git watcher (but not file watcher) when project deactivated (is_active=0).
+        // Start git watcher when project activated (is_active=1) and is git-tracked.
+        self.reconcile_git_watchers().await;
+
         Ok(())
+    }
+
+    /// Reconcile git watcher lifecycle based on project is_active and is_git_tracked state (Task 12).
+    ///
+    /// - Active + git-tracked + no git watcher → start git watcher
+    /// - Inactive (or not git-tracked) + git watcher running → stop git watcher
+    /// - File watchers are not affected by is_active (they continue buffering events)
+    async fn reconcile_git_watchers(&self) {
+        // Query all project watch folders with git tracking and active status
+        let rows = sqlx::query(
+            r#"
+            SELECT watch_id, path,
+                   COALESCE(is_git_tracked, 0) AS is_git_tracked,
+                   COALESCE(is_active, 0) AS is_active
+            FROM watch_folders
+            WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await;
+
+        let rows = match rows {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed to query watch_folders for git watcher reconciliation: {}", e);
+                return;
+            }
+        };
+
+        for row in rows {
+            let watch_id: String = row.get("watch_id");
+            let path: String = row.get("path");
+            let is_git_tracked: bool = row.get::<i32, _>("is_git_tracked") != 0;
+            let is_active: bool = row.get::<i32, _>("is_active") != 0;
+
+            let has_git_watcher = {
+                let git_watchers = self.git_watchers.lock().await;
+                git_watchers.contains_key(&watch_id)
+            };
+
+            if is_active && is_git_tracked && !has_git_watcher {
+                // Start git watcher for active, git-tracked project
+                debug!("Starting git watcher for active project: {}", watch_id);
+                self.start_git_watcher(&watch_id, &path).await;
+            } else if (!is_active || !is_git_tracked) && has_git_watcher {
+                // Stop git watcher for inactive or non-git project (file watcher continues)
+                let mut git_watchers = self.git_watchers.lock().await;
+                if let Some(mut gw) = git_watchers.remove(&watch_id) {
+                    gw.stop().await;
+                    info!(
+                        "Stopped git watcher for {} project: {} (file watcher continues)",
+                        if !is_active { "deactivated" } else { "non-git" },
+                        watch_id
+                    );
+                }
+            }
+        }
     }
 
     /// Get all enabled watch IDs from watch_folders table

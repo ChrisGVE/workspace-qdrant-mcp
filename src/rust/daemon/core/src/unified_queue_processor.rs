@@ -258,6 +258,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Search database manager for FTS5 code search index (Task 52)
     search_db: Option<Arc<SearchDbManager>>,
+
+    /// Signal to trigger WatchManager refresh after creating a new watch_folder (Task 12)
+    watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl UnifiedQueueProcessor {
@@ -315,6 +318,7 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            watch_refresh_signal: None,
         }
     }
 
@@ -366,7 +370,14 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            watch_refresh_signal: None,
         }
+    }
+
+    /// Set the watch refresh signal for triggering WatchManager refresh after new watch_folders (Task 12)
+    pub fn with_watch_refresh_signal(mut self, signal: Arc<tokio::sync::Notify>) -> Self {
+        self.watch_refresh_signal = Some(signal);
+        self
     }
 
     /// Set the search database manager for FTS5 code search integration (Task 52)
@@ -460,6 +471,7 @@ impl UnifiedQueueProcessor {
         let resource_profile_rx = self.resource_profile_rx.clone();
         let queue_depth_counter = self.queue_depth_counter.clone();
         let search_db = self.search_db.clone();
+        let watch_refresh_signal = self.watch_refresh_signal.clone();
 
         // Mark as running in health state
         if let Some(ref h) = queue_health {
@@ -490,6 +502,7 @@ impl UnifiedQueueProcessor {
                 resource_profile_rx,
                 queue_depth_counter,
                 search_db,
+                watch_refresh_signal,
             )
             .await
             {
@@ -570,6 +583,7 @@ impl UnifiedQueueProcessor {
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
         search_db: Option<Arc<SearchDbManager>>,
+        watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -785,6 +799,15 @@ impl UnifiedQueueProcessor {
                                     "Successfully processed unified item {} (type={:?}, op={:?}) in {}ms",
                                     item.queue_id, item.item_type, item.op, processing_time
                                 );
+
+                                // Task 12: Signal WatchManager to refresh after creating a new watch_folder.
+                                // This enables immediate file + git watcher startup for newly registered projects.
+                                if item.item_type == ItemType::Tenant && item.op == QueueOperation::Add {
+                                    if let Some(ref signal) = watch_refresh_signal {
+                                        signal.notify_one();
+                                        debug!("Signaled WatchManager refresh after Tenant/Add for {}", item.tenant_id);
+                                    }
+                                }
                             }
                             Err(e) => {
                                 // Classify error into 5 categories for observability

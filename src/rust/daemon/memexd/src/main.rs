@@ -920,6 +920,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Attach search database for FTS5 code search integration (Task 52)
     unified_queue_processor = unified_queue_processor.with_search_db(Arc::clone(&search_db));
 
+    // Attach watch refresh signal so queue processor can trigger WatchManager refresh
+    // after creating new watch_folders (Task 12: git watcher activation on project registration)
+    unified_queue_processor = unified_queue_processor.with_watch_refresh_signal(Arc::clone(&watch_refresh_signal));
+
     // Start adaptive resource manager for dynamic CPU scaling (idle/burst mode)
     let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
     let adaptive_config = AdaptiveResourceConfig::from_resource_limits(&config.resource_limits);

@@ -719,6 +719,18 @@ impl ProjectService for ProjectServiceImpl {
             }
         }
 
+        // Task 12: Signal WatchManager to refresh so git watcher starts promptly
+        // for newly registered or activated projects.
+        if created || is_high_priority {
+            if let Some(ref signal) = self.watch_refresh_signal {
+                signal.notify_one();
+                debug!(
+                    project_id = %project_id,
+                    "Signaled WatchManager refresh for project registration/activation"
+                );
+            }
+        }
+
         let response = RegisterProjectResponse {
             created,
             project_id,
@@ -813,6 +825,17 @@ impl ProjectService for ProjectServiceImpl {
                             "Scheduling deferred LSP shutdown"
                         );
                         self.schedule_deferred_shutdown(&req.project_id, has_queue_items).await;
+                    }
+                }
+
+                // Task 12: Signal WatchManager to stop git watcher for deactivated projects
+                if !is_active {
+                    if let Some(ref signal) = self.watch_refresh_signal {
+                        signal.notify_one();
+                        debug!(
+                            project_id = %req.project_id,
+                            "Signaled WatchManager refresh for project deactivation"
+                        );
                     }
                 }
 
