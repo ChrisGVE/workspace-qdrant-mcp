@@ -987,6 +987,22 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         unified_config.worker_id
     );
 
+    // base_point migration: one-time full re-scan for new point ID scheme (Task 20)
+    // Runs as a background task before normal startup recovery.
+    {
+        let migration_pool = unified_queue_processor.pool().clone();
+        let migration_qm = unified_queue_processor.queue_manager().clone();
+        tokio::spawn(async move {
+            match workspace_qdrant_core::startup_recovery::check_base_point_migration(
+                &migration_pool, &migration_qm,
+            ).await {
+                Ok(true) => info!("base_point migration triggered"),
+                Ok(false) => {} // Already done
+                Err(e) => warn!("base_point migration check failed (non-fatal): {}", e),
+            }
+        });
+    }
+
     // Startup recovery: reconcile tracked_files with filesystem (Task 507)
     // Detects files added, deleted, or modified while daemon was not running.
     // Runs as a background task so it doesn't block signal handlers or other init.

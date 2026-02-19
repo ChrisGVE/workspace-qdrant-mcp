@@ -62,6 +62,77 @@ impl FullRecoveryStats {
     }
 }
 
+/// Check and trigger the one-time base_point migration.
+///
+/// On first startup after upgrading to the base_point model, enqueues
+/// a full (Tenant, Scan) for every active watch folder so that all files
+/// get re-ingested with the new point ID scheme.
+///
+/// The migration flag is stored in `operational_state` and checked each
+/// startup. Once set, no further re-scans are triggered.
+pub async fn check_base_point_migration(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+) -> Result<bool, String> {
+    // Check if migration already done
+    let done = crate::daemon_state::get_operational_state(
+        pool, "base_point_migration_done", "daemon", None,
+    )
+    .await
+    .unwrap_or(None);
+
+    if done.as_deref() == Some("true") {
+        debug!("base_point migration already done, skipping");
+        return Ok(false);
+    }
+
+    info!("base_point migration: triggering full re-scan for all active watch folders");
+
+    // Get all enabled, non-archived project watch folders
+    let watch_folders = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT watch_id, path, tenant_id FROM watch_folders
+         WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'"
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to query watch_folders for migration: {}", e))?;
+
+    let mut enqueued = 0u64;
+    for (watch_id, path, tenant_id) in &watch_folders {
+        // Enqueue a (Tenant, Scan) item to trigger full re-processing
+        let payload = serde_json::json!({
+            "watch_id": watch_id,
+            "path": path,
+            "scan_reason": "base_point_migration",
+        });
+
+        match queue_manager.enqueue_unified(
+            ItemType::Tenant,
+            QueueOperation::Scan,
+            tenant_id,
+            "projects",
+            &serde_json::to_string(&payload).unwrap_or_default(),
+            5, // Normal priority
+            Some("main"),
+            None,
+        ).await {
+            Ok(_) => enqueued += 1,
+            Err(e) => warn!("Failed to enqueue migration scan for {}: {}", watch_id, e),
+        }
+    }
+
+    // Mark migration as done
+    crate::daemon_state::set_operational_state(
+        pool, "base_point_migration_done", "daemon",
+        "true", None,
+    )
+    .await
+    .map_err(|e| format!("Failed to set migration flag: {}", e))?;
+
+    info!("base_point migration: enqueued {} re-scan(s)", enqueued);
+    Ok(true)
+}
+
 /// Run startup recovery for all enabled watch_folders.
 ///
 /// For each enabled watch_folder:

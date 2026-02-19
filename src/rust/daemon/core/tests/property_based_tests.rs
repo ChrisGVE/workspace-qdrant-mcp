@@ -957,3 +957,6 @@ proptest! {
         });
     }
 }
+
+// base_point property tests moved to base_point_property_tests.rs
+// (not gated by processing_engine feature)
