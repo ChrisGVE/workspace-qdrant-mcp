@@ -34,6 +34,9 @@ pub mod restore;
 pub mod update;
 pub mod watch;
 
+// Recovery
+pub mod recover_state;
+
 // Shared utilities
 pub mod qdrant_helpers;
 

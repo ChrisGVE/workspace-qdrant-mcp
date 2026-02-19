@@ -277,6 +277,81 @@ pub async fn get_collection_point_count(
     }
 }
 
+/// Scroll a Qdrant collection and return all points with full payloads.
+///
+/// Used by recover-state to reconstruct SQLite from Qdrant data.
+pub async fn scroll_all_points(
+    client: &reqwest::Client,
+    base_url: &str,
+    collection: &str,
+) -> Result<Vec<serde_json::Value>> {
+    let scroll_url = format!("{}/collections/{}/points/scroll", base_url, collection);
+    let mut all_points = Vec::new();
+    let mut offset: Option<serde_json::Value> = None;
+    let batch_size = 100;
+
+    loop {
+        let mut body = serde_json::json!({
+            "limit": batch_size,
+            "with_payload": true,
+            "with_vector": false
+        });
+
+        if let Some(ref off) = offset {
+            body["offset"] = off.clone();
+        }
+
+        let resp = client
+            .post(&scroll_url)
+            .json(&body)
+            .send()
+            .await
+            .context(format!(
+                "Failed to scroll Qdrant {} collection",
+                collection
+            ))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            if status.as_u16() == 404 {
+                // Collection doesn't exist — return empty
+                return Ok(all_points);
+            }
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "Qdrant scroll failed for {} ({}): {}",
+                collection,
+                status,
+                text
+            );
+        }
+
+        let resp_json: serde_json::Value = resp
+            .json()
+            .await
+            .context("Failed to parse Qdrant scroll response")?;
+
+        let points = resp_json["result"]["points"]
+            .as_array()
+            .unwrap_or(&Vec::new())
+            .clone();
+
+        if points.is_empty() {
+            break;
+        }
+
+        all_points.extend(points);
+
+        let next_offset = &resp_json["result"]["next_page_offset"];
+        if next_offset.is_null() {
+            break;
+        }
+        offset = Some(next_offset.clone());
+    }
+
+    Ok(all_points)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

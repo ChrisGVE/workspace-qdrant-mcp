@@ -83,6 +83,15 @@ enum AdminCommand {
         #[arg(long)]
         collection: Option<String>,
     },
+    /// Rebuild state.db from Qdrant collections
+    ///
+    /// Scrolls all Qdrant collections and reconstructs watch_folders, tracked_files,
+    /// qdrant_chunks, and memory_mirror. Existing state.db is backed up first.
+    RecoverState {
+        /// Actually perform recovery (default: dry-run description)
+        #[arg(long)]
+        confirm: bool,
+    },
 }
 
 /// Execute admin command
@@ -99,6 +108,9 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
         }
         AdminCommand::CleanupOrphans { delete, collection } => {
             cleanup_orphans(delete, collection).await
+        }
+        AdminCommand::RecoverState { confirm } => {
+            super::recover_state::execute(confirm).await
         }
     }
 }
