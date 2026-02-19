@@ -95,6 +95,16 @@ impl ResourceLevel {
             Self::Burst => Self::Elevated,
         }
     }
+
+    /// String label for the level (used in idle_history logging).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Active => "active",
+            Self::Elevated => "elevated",
+            Self::Burst => "burst",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -748,8 +758,10 @@ impl AdaptiveResourceManager {
                         state_clone.set_mode(new_mode);
                         state_clone.set_profile(&new_profile);
 
-                        // Track mode transitions for history
-                        mode_tracker.on_mode_change(new_mode, idle_secs);
+                        // Track level transitions for history (uses ResourceLevel
+                        // directly to avoid ResourceMode ambiguity between Active
+                        // Processing and Active ramp-down level)
+                        mode_tracker.on_mode_change(sys_state.level, idle_secs);
 
                         if new_profile != current_profile {
                             if old_level != sys_state.level {

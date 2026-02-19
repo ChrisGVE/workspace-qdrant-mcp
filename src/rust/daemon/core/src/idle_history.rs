@@ -14,7 +14,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 use wqm_common::paths;
 
-use crate::adaptive_resources::ResourceMode;
+use crate::adaptive_resources::ResourceLevel;
 
 /// A single state transition record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,15 +86,15 @@ impl IdleHistory {
     /// Record a state transition.
     pub fn record_transition(
         &self,
-        from_mode: ResourceMode,
-        to_mode: ResourceMode,
+        from_level: ResourceLevel,
+        to_level: ResourceLevel,
         idle_seconds: f64,
         duration_in_previous: Duration,
     ) {
         let entry = StateTransition {
             timestamp: wqm_common::timestamps::now_utc(),
-            from_mode: from_mode.as_str().to_string(),
-            to_mode: to_mode.as_str().to_string(),
+            from_mode: from_level.as_str().to_string(),
+            to_mode: to_level.as_str().to_string(),
             idle_seconds,
             duration_in_previous_secs: duration_in_previous.as_secs_f64(),
         };
@@ -279,7 +279,7 @@ impl IdleHistory {
 /// Call this from the adaptive resource polling loop whenever mode changes.
 pub struct ModeTracker {
     history: Option<IdleHistory>,
-    last_mode: ResourceMode,
+    last_level: ResourceLevel,
     last_change: std::time::Instant,
 }
 
@@ -292,15 +292,18 @@ impl ModeTracker {
         }
         Self {
             history,
-            last_mode: ResourceMode::Normal,
+            last_level: ResourceLevel::Normal,
             last_change: std::time::Instant::now(),
         }
     }
 
-    /// Record a mode change if the mode actually changed.
+    /// Record a level change if the level actually changed.
     /// Returns true if a transition was recorded.
-    pub fn on_mode_change(&mut self, new_mode: ResourceMode, idle_seconds: f64) -> bool {
-        if new_mode == self.last_mode {
+    ///
+    /// Tracks `ResourceLevel` directly (not `ResourceMode`) to avoid
+    /// ambiguity between Active Processing and Active ramp-down level.
+    pub fn on_mode_change(&mut self, new_level: ResourceLevel, idle_seconds: f64) -> bool {
+        if new_level == self.last_level {
             return false;
         }
 
@@ -308,14 +311,14 @@ impl ModeTracker {
 
         if let Some(ref history) = self.history {
             history.record_transition(
-                self.last_mode,
-                new_mode,
+                self.last_level,
+                new_level,
                 idle_seconds,
                 duration_in_previous,
             );
         }
 
-        self.last_mode = new_mode;
+        self.last_level = new_level;
         self.last_change = std::time::Instant::now();
         true
     }
@@ -359,15 +362,15 @@ mod tests {
         let (history, _dir) = make_test_history();
 
         history.record_transition(
-            ResourceMode::Normal,
-            ResourceMode::RampingUp(1),
+            ResourceLevel::Normal,
+            ResourceLevel::Elevated,
             125.0,
             Duration::from_secs(300),
         );
 
         history.record_transition(
-            ResourceMode::RampingUp(1),
-            ResourceMode::Burst,
+            ResourceLevel::Elevated,
+            ResourceLevel::Burst,
             200.0,
             Duration::from_secs(60),
         );
@@ -389,14 +392,14 @@ mod tests {
         // Simulate rapid flip-flopping: 15 transitions in quick succession
         for i in 0..15 {
             let from = if i % 2 == 0 {
-                ResourceMode::Burst
+                ResourceLevel::Burst
             } else {
-                ResourceMode::Normal
+                ResourceLevel::Normal
             };
             let to = if i % 2 == 0 {
-                ResourceMode::Normal
+                ResourceLevel::Normal
             } else {
-                ResourceMode::Burst
+                ResourceLevel::Burst
             };
             history.record_transition(from, to, 5.0, Duration::from_secs(10));
         }
@@ -415,14 +418,14 @@ mod tests {
 
         // Normal usage: 2 transitions (idle → burst → back to normal)
         history.record_transition(
-            ResourceMode::Normal,
-            ResourceMode::Burst,
+            ResourceLevel::Normal,
+            ResourceLevel::Burst,
             200.0,
             Duration::from_secs(7200), // 2 hours in normal
         );
         history.record_transition(
-            ResourceMode::Burst,
-            ResourceMode::Normal,
+            ResourceLevel::Burst,
+            ResourceLevel::Normal,
             5.0,
             Duration::from_secs(3600), // 1 hour in burst
         );
@@ -456,8 +459,8 @@ mod tests {
 
         // Write a recent entry
         history.record_transition(
-            ResourceMode::Normal,
-            ResourceMode::Burst,
+            ResourceLevel::Normal,
+            ResourceLevel::Burst,
             200.0,
             Duration::from_secs(60),
         );
@@ -485,19 +488,49 @@ mod tests {
     fn test_mode_tracker() {
         let mut tracker = ModeTracker {
             history: None, // No file I/O for this test
-            last_mode: ResourceMode::Normal,
+            last_level: ResourceLevel::Normal,
             last_change: std::time::Instant::now(),
         };
 
-        // Same mode → no transition
-        assert!(!tracker.on_mode_change(ResourceMode::Normal, 5.0));
+        // Same level → no transition
+        assert!(!tracker.on_mode_change(ResourceLevel::Normal, 5.0));
 
-        // Different mode → transition
-        assert!(tracker.on_mode_change(ResourceMode::Burst, 200.0));
-        assert_eq!(tracker.last_mode, ResourceMode::Burst);
+        // Different level → transition
+        assert!(tracker.on_mode_change(ResourceLevel::Burst, 200.0));
+        assert_eq!(tracker.last_level, ResourceLevel::Burst);
 
-        // Same mode again → no transition
-        assert!(!tracker.on_mode_change(ResourceMode::Burst, 300.0));
+        // Same level again → no transition
+        assert!(!tracker.on_mode_change(ResourceLevel::Burst, 300.0));
+    }
+
+    #[test]
+    fn test_mode_tracker_full_descent_no_skip() {
+        // Reproduce the exact bug scenario:
+        // last_level starts at Active (from Active Processing),
+        // then system ramps up to Burst, then descends.
+        // All intermediate transitions must be recorded.
+        let mut tracker = ModeTracker {
+            history: None,
+            last_level: ResourceLevel::Active,
+            last_change: std::time::Instant::now(),
+        };
+
+        // Ramp up: Active → Burst
+        assert!(tracker.on_mode_change(ResourceLevel::Burst, 300.0));
+        assert_eq!(tracker.last_level, ResourceLevel::Burst);
+
+        // Ramp down: Burst → Elevated
+        assert!(tracker.on_mode_change(ResourceLevel::Elevated, 5.0));
+        assert_eq!(tracker.last_level, ResourceLevel::Elevated);
+
+        // Ramp down: Elevated → Active (this was previously skipped
+        // because ResourceMode::Active == ResourceMode::Active)
+        assert!(tracker.on_mode_change(ResourceLevel::Active, 5.0));
+        assert_eq!(tracker.last_level, ResourceLevel::Active);
+
+        // Ramp down: Active → Normal
+        assert!(tracker.on_mode_change(ResourceLevel::Normal, 5.0));
+        assert_eq!(tracker.last_level, ResourceLevel::Normal);
     }
 
     #[test]
