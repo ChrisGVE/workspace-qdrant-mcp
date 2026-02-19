@@ -66,6 +66,8 @@ function createMockStateManager(options?: {
       }),
     ),
     isConnected: vi.fn().mockReturnValue(true),
+    getWatchFolderIdByTenantId: vi.fn().mockReturnValue(null),
+    getActiveBasePoints: vi.fn().mockReturnValue([]),
   } as unknown as SqliteStateManager;
 }
 

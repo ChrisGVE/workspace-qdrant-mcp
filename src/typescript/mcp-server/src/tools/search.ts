@@ -116,6 +116,8 @@ interface FilterParams {
   tag: string | undefined;
   tags: string[] | undefined;
   pathGlob: string | undefined;
+  /** Task 15: base_point values for instance-aware filtering */
+  basePoints: string[] | undefined;
 }
 
 interface SearchCollectionParams {
@@ -233,6 +235,19 @@ export class SearchTool {
       currentProjectId = projectInfo?.projectId;
     }
 
+    // Task 15: Resolve base_points for instance-aware filtering
+    let basePoints: string[] | undefined;
+    if (currentProjectId && scope === 'project') {
+      const watchFolderId = this._stateManager.getWatchFolderIdByTenantId(currentProjectId);
+      if (watchFolderId) {
+        const points = this._stateManager.getActiveBasePoints(watchFolderId, false);
+        // Only use base_point filter if manageable size (avoid huge Qdrant filters)
+        if (points.length > 0 && points.length <= 500) {
+          basePoints = points;
+        }
+      }
+    }
+
     // Log search event (pre-execution)
     const filters: Record<string, unknown> = {};
     if (collection) filters.collection = collection;
@@ -306,6 +321,7 @@ export class SearchTool {
           tag,
           tags,
           pathGlob: options.pathGlob,
+          basePoints: coll === PROJECTS_COLLECTION ? basePoints : undefined,
         };
         const filter = this.buildFilter(filterParams);
 
@@ -514,6 +530,14 @@ export class SearchTool {
       mustConditions.push({
         key: 'tenant_id',
         match: { value: params.projectId },
+      });
+    }
+
+    // Task 15: Instance-aware base_point filter for multi-clone scenarios
+    if (params.basePoints && params.basePoints.length > 0) {
+      mustConditions.push({
+        key: 'base_point',
+        match: { any: params.basePoints },
       });
     }
 
