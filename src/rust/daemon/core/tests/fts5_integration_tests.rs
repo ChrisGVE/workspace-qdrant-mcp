@@ -40,6 +40,9 @@ async fn test_file_add_then_search_exact() {
             "proj1",
             Some("main"),
             "src/reader.rs",
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -68,6 +71,9 @@ async fn test_file_add_via_flush_then_search() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/config.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -105,6 +111,9 @@ async fn test_file_update_diff_search_finds_new_content() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/handler.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -123,6 +132,9 @@ async fn test_file_update_diff_search_finds_new_content() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/handler.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -157,6 +169,9 @@ async fn test_file_update_adds_new_lines() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/main.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -169,6 +184,9 @@ async fn test_file_update_adds_new_lines() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/main.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -202,6 +220,9 @@ async fn test_file_delete_removes_from_search() {
             "proj1",
             Some("main"),
             "src/to_delete.rs",
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -233,15 +254,15 @@ async fn test_tenant_delete_removes_all_project_files() {
 
     // Add files for two projects
     processor
-        .full_rewrite(1, "fn proj_a_func() {}", "proj-a", Some("main"), "src/a.rs")
+        .full_rewrite(1, "fn proj_a_func() {}", "proj-a", Some("main"), "src/a.rs", None, None, None)
         .await
         .unwrap();
     processor
-        .full_rewrite(2, "fn proj_a_other() {}", "proj-a", Some("main"), "src/b.rs")
+        .full_rewrite(2, "fn proj_a_other() {}", "proj-a", Some("main"), "src/b.rs", None, None, None)
         .await
         .unwrap();
     processor
-        .full_rewrite(3, "fn proj_b_func() {}", "proj-b", Some("main"), "src/c.rs")
+        .full_rewrite(3, "fn proj_b_func() {}", "proj-b", Some("main"), "src/c.rs", None, None, None)
         .await
         .unwrap();
 
@@ -296,6 +317,9 @@ async fn test_batch_mode_20_files_all_searchable() {
             tenant_id: "batch-proj".to_string(),
             branch: Some("main".to_string()),
             file_path: format!("src/mod_{}.rs", i),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
         });
     }
 
@@ -364,6 +388,9 @@ async fn test_search_accuracy_100_files() {
             tenant_id: "accuracy-proj".to_string(),
             branch: Some("main".to_string()),
             file_path: format!("src/module_{}.rs", i),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
         });
     }
 
@@ -445,6 +472,9 @@ async fn test_regex_search_accuracy_across_files() {
             tenant_id: "regex-proj".to_string(),
             branch: Some("main".to_string()),
             file_path: path.to_string(),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
         });
     }
     processor.flush(0).await.unwrap();
@@ -494,6 +524,9 @@ async fn test_context_lines_after_batch_ingest() {
         tenant_id: "ctx-proj".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/main.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -543,6 +576,9 @@ async fn test_path_glob_across_ingested_files() {
             tenant_id: "glob-proj".to_string(),
             branch: Some("main".to_string()),
             file_path: path.to_string(),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
         });
     }
     processor.flush(0).await.unwrap();
@@ -593,6 +629,9 @@ async fn test_concurrent_search_during_writes() {
                 "conc-proj",
                 Some("main"),
                 "src/existing.rs",
+                None,
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -635,6 +674,9 @@ async fn test_concurrent_search_during_writes() {
                 "conc-proj",
                 Some("main"),
                 "src/concurrent.rs",
+                None,
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -684,6 +726,9 @@ async fn test_concurrent_writes_no_corruption() {
                     "conc-proj",
                     Some("main"),
                     &format!("src/writer_{}.rs", i),
+                    None,
+                    None,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -732,6 +777,9 @@ async fn test_full_lifecycle_round_trip() {
         tenant_id: "lifecycle-proj".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/lifecycle.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -749,6 +797,9 @@ async fn test_full_lifecycle_round_trip() {
         tenant_id: "lifecycle-proj".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/lifecycle.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -794,7 +845,7 @@ async fn test_empty_file_searchable() {
     let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     processor
-        .full_rewrite(1, "", "proj1", Some("main"), "src/empty.rs")
+        .full_rewrite(1, "", "proj1", Some("main"), "src/empty.rs", None, None, None)
         .await
         .unwrap();
 
@@ -817,6 +868,9 @@ async fn test_unicode_content_searchable() {
             "proj1",
             Some("main"),
             "src/unicode.rs",
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -848,7 +902,7 @@ async fn test_large_file_searchable() {
     let content = lines.join("\n");
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/large.rs")
+        .full_rewrite(1, &content, "proj1", Some("main"), "src/large.rs", None, None, None)
         .await
         .unwrap();
 
@@ -893,6 +947,9 @@ async fn test_multi_tenant_isolation() {
             tenant_id: tenant.to_string(),
             branch: Some("main".to_string()),
             file_path: "src/main.rs".to_string(),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
         });
     }
     processor.flush(0).await.unwrap();

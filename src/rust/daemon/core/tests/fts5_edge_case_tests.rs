@@ -41,7 +41,7 @@ async fn test_crlf_content_indexable_and_searchable() {
     let content = "fn main() {\r\n    println!(\"hello\");\r\n}\r\n";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/main.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/main.rs", None, None, None)
         .await
         .unwrap();
 
@@ -73,6 +73,9 @@ async fn test_crlf_diff_update_works() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/main.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -86,6 +89,9 @@ async fn test_crlf_diff_update_works() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/main.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -110,7 +116,7 @@ async fn test_mixed_line_endings_crlf_and_lf() {
     let content = "line_one\r\nline_two\nline_three\r\nline_four\n";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/mixed.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/mixed.rs", None, None, None)
         .await
         .unwrap();
 
@@ -145,7 +151,7 @@ async fn test_very_long_line_indexed_and_searchable() {
     let content = format!("fn main() {{\n    {}\n}}", long_line);
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/long.rs")
+        .full_rewrite(1, &content, "proj1", Some("main"), "src/long.rs", None, None, None)
         .await
         .unwrap();
 
@@ -176,7 +182,7 @@ async fn test_multiple_long_lines_searchable() {
     let content = lines.join("\n");
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/multilong.rs")
+        .full_rewrite(1, &content, "proj1", Some("main"), "src/multilong.rs", None, None, None)
         .await
         .unwrap();
 
@@ -211,7 +217,7 @@ async fn test_whitespace_only_file() {
     let content = "   \n\t\t\n  \n   \t   \n";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/whitespace.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/whitespace.rs", None, None, None)
         .await
         .unwrap();
 
@@ -228,7 +234,7 @@ async fn test_single_space_file() {
     let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     processor
-        .full_rewrite(1, " ", "proj1", Some("main"), "src/space.rs")
+        .full_rewrite(1, " ", "proj1", Some("main"), "src/space.rs", None, None, None)
         .await
         .unwrap();
 
@@ -251,14 +257,14 @@ async fn test_trailing_newline_vs_no_trailing() {
     // Without trailing newline: split('\n') gives ["line1", "line2"]
     let no_trailing = "trailing_test_a\ntrailing_test_b";
     processor
-        .full_rewrite(1, no_trailing, "proj1", Some("main"), "src/no_trail.rs")
+        .full_rewrite(1, no_trailing, "proj1", Some("main"), "src/no_trail.rs", None, None, None)
         .await
         .unwrap();
 
     // With trailing newline: split('\n') gives ["line1", "line2", ""]
     let with_trailing = "trailing_test_c\ntrailing_test_d\n";
     processor
-        .full_rewrite(2, with_trailing, "proj1", Some("main"), "src/with_trail.rs")
+        .full_rewrite(2, with_trailing, "proj1", Some("main"), "src/with_trail.rs", None, None, None)
         .await
         .unwrap();
 
@@ -299,7 +305,7 @@ async fn test_sparse_content_with_many_blank_lines() {
     let content = lines.join("\n");
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/sparse.rs")
+        .full_rewrite(1, &content, "proj1", Some("main"), "src/sparse.rs", None, None, None)
         .await
         .unwrap();
 
@@ -341,7 +347,7 @@ let special = "tabs	and	tabs";
 "#;
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/special.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/special.rs", None, None, None)
         .await
         .unwrap();
 
@@ -371,7 +377,7 @@ async fn test_quotes_and_sql_injection_safe() {
     let content = "let x = \"'; DROP TABLE code_lines; --\";\nlet y = normal_code();";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/injection.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/injection.rs", None, None, None)
         .await
         .unwrap();
 
@@ -396,7 +402,7 @@ async fn test_regex_special_chars_in_exact_search() {
     let content = "fn compute(x: Vec<i32>) -> Result<(), Box<dyn Error>> {}";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/generics.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/generics.rs", None, None, None)
         .await
         .unwrap();
 
@@ -423,7 +429,7 @@ async fn test_file_id_reuse_after_delete() {
 
     // Create file with ID 1
     processor
-        .full_rewrite(1, "fn original_v1() {}", "proj1", Some("main"), "src/a.rs")
+        .full_rewrite(1, "fn original_v1() {}", "proj1", Some("main"), "src/a.rs", None, None, None)
         .await
         .unwrap();
 
@@ -437,7 +443,7 @@ async fn test_file_id_reuse_after_delete() {
 
     // Reuse file ID 1 for a different file
     processor
-        .full_rewrite(1, "fn replacement_v2() {}", "proj1", Some("main"), "src/b.rs")
+        .full_rewrite(1, "fn replacement_v2() {}", "proj1", Some("main"), "src/b.rs", None, None, None)
         .await
         .unwrap();
 
@@ -462,7 +468,7 @@ async fn test_overwrite_same_file_id_without_delete() {
 
     // Create file with ID 1
     processor
-        .full_rewrite(1, "fn version_one() {}", "proj1", Some("main"), "src/file.rs")
+        .full_rewrite(1, "fn version_one() {}", "proj1", Some("main"), "src/file.rs", None, None, None)
         .await
         .unwrap();
 
@@ -474,6 +480,9 @@ async fn test_overwrite_same_file_id_without_delete() {
             "proj1",
             Some("main"),
             "src/file.rs",
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -502,7 +511,7 @@ async fn test_emoji_content() {
     let content = "// 🚀 Launch sequence\nfn rocket_launch() {\n    println!(\"🎯 Target acquired\");\n}";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/emoji.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/emoji.rs", None, None, None)
         .await
         .unwrap();
 
@@ -528,7 +537,7 @@ async fn test_box_drawing_characters() {
     let content = "// ┌──────────┐\n// │ box_draw │\n// └──────────┘";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/boxdraw.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/boxdraw.rs", None, None, None)
         .await
         .unwrap();
 
@@ -546,7 +555,7 @@ async fn test_cjk_mixed_with_ascii() {
     let content = "// 変数の定義\nlet name = \"太郎\";\n// 関数の呼び出し\ncall_function(name);";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/cjk.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/cjk.rs", None, None, None)
         .await
         .unwrap();
 
@@ -582,6 +591,9 @@ async fn test_concurrent_update_and_search_same_file() {
                 "proj1",
                 Some("main"),
                 "src/concurrent.rs",
+                None,
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -617,6 +629,9 @@ async fn test_concurrent_update_and_search_same_file() {
                     "proj1",
                     Some("main"),
                     "src/concurrent.rs",
+                    None,
+                    None,
+                    None,
                 )
                 .await;
             assert!(result.is_ok(), "Update should not error during concurrent access");
@@ -648,6 +663,9 @@ async fn test_diff_completely_different_content() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/file.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -659,6 +677,9 @@ async fn test_diff_completely_different_content() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/file.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -691,6 +712,9 @@ async fn test_diff_content_to_empty() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/file.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -702,6 +726,9 @@ async fn test_diff_content_to_empty() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/file.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -724,6 +751,9 @@ async fn test_diff_empty_to_content() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/file.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -735,6 +765,9 @@ async fn test_diff_empty_to_content() {
         tenant_id: "proj1".to_string(),
         branch: Some("main".to_string()),
         file_path: "src/file.rs".to_string(),
+        base_point: None,
+        relative_path: None,
+        file_hash: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -756,7 +789,7 @@ async fn test_regex_with_special_quantifiers() {
     let content = "let aaa = 1;\nlet aaab = 2;\nlet bbb = 3;\nlet abc = 4;";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/regex.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/regex.rs", None, None, None)
         .await
         .unwrap();
 
@@ -786,7 +819,7 @@ async fn test_case_insensitive_search() {
     let content = "fn MyFunction() {}\nfn myfunction() {}\nfn MYFUNCTION() {}";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/case.rs")
+        .full_rewrite(1, content, "proj1", Some("main"), "src/case.rs", None, None, None)
         .await
         .unwrap();
 
@@ -845,6 +878,9 @@ async fn test_batch_with_mixed_edge_cases() {
             tenant_id: "batch-edge".to_string(),
             branch: Some("main".to_string()),
             file_path: path.to_string(),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
         });
     }
 
