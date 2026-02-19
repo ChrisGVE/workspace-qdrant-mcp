@@ -28,7 +28,7 @@ use crate::lsp::{
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::unified_queue_schema::{
-    ItemType, QueueOperation, UnifiedQueueItem,
+    ItemType, QueueOperation, QueueStatus, UnifiedQueueItem, DestinationStatus,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
     MemoryPayload, UrlPayload, ScratchpadPayload, WebsitePayload,
 };
@@ -733,13 +733,26 @@ impl UnifiedQueueProcessor {
                             Ok(()) => {
                                 let processing_time = start_time.elapsed().as_millis() as u64;
 
-                                // Delete item from queue per spec line 813:
-                                // "On success: DELETE items from queue"
-                                if let Err(e) = queue_manager
-                                    .delete_unified_item(&item.queue_id)
+                                // Per-destination state machine (Task 6):
+                                // check_and_finalize resolves overall status from qdrant_status + search_status.
+                                // Delete item only when fully resolved as done.
+                                let overall = queue_manager
+                                    .check_and_finalize(&item.queue_id)
                                     .await
-                                {
-                                    error!("Failed to delete item {} from queue: {}", item.queue_id, e);
+                                    .unwrap_or(QueueStatus::Done);
+
+                                if overall == QueueStatus::Done {
+                                    if let Err(e) = queue_manager
+                                        .delete_unified_item(&item.queue_id)
+                                        .await
+                                    {
+                                        error!("Failed to delete item {} from queue: {}", item.queue_id, e);
+                                    }
+                                } else {
+                                    debug!(
+                                        "Item {} not fully resolved (status={:?}), keeping in queue",
+                                        item.queue_id, overall
+                                    );
                                 }
 
                                 Self::update_metrics_success(
@@ -1430,6 +1443,42 @@ impl UnifiedQueueProcessor {
             }
         }
 
+        // === PER-DESTINATION RETRY SKIP (Task 6) ===
+        // If qdrant_status is already 'done' from a previous attempt, skip directly
+        // to the search DB (FTS5) update. This avoids re-upserting into Qdrant on retry.
+        let qdrant_already_done = item.qdrant_status == Some(DestinationStatus::Done);
+        if qdrant_already_done {
+            info!(
+                "Qdrant already done for {} (retry), skipping to search DB update",
+                item.queue_id
+            );
+
+            // We still need file_id for FTS5 — look it up from tracked_files
+            if let Some(sdb) = search_db {
+                if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+                    pool, &watch_folder_id, &relative_path, Some(item.branch.as_str()),
+                ).await {
+                    // Mark search status in_progress
+                    let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress).await;
+                    Self::update_fts5_for_file(
+                        sdb, pool, existing.file_id, &payload.file_path, &item.tenant_id, Some(&item.branch),
+                    ).await;
+                    let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::Done).await;
+                } else {
+                    // No tracked file — mark search as done (nothing to index)
+                    let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::Done).await;
+                }
+            } else {
+                // No search DB configured — mark search as done
+                let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::Done).await;
+            }
+
+            return Ok(());
+        }
+
+        // Mark qdrant status as in_progress
+        let _ = queue_manager.update_destination_status(&item.queue_id, "qdrant", DestinationStatus::InProgress).await;
+
         // === INGEST / UPDATE: process file content ===
         let document_content = document_processor
             .process_file_content(file_path, &item.collection)
@@ -1776,6 +1825,8 @@ impl UnifiedQueueProcessor {
                     }
                 }
             }
+            // Mark qdrant destination as failed (Task 6)
+            let _ = queue_manager.update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Failed).await;
             return Err(UnifiedProcessorError::Storage(qdrant_err.clone()));
         }
 
@@ -1892,15 +1943,20 @@ impl UnifiedQueueProcessor {
         }
         let file_id = tx_result?;
 
+        // Mark qdrant destination as done (Task 6: per-destination state machine)
+        let _ = queue_manager.update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Done).await;
+
         // === FTS5 CODE SEARCH INDEX UPDATE (Task 52) ===
         // After successful Qdrant upsert + tracked_files write, update the FTS5
         // code_lines index in search.db. This is non-fatal — FTS5 failures do not
         // block the primary ingestion pipeline.
+        let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress).await;
         if let Some(sdb) = search_db {
             Self::update_fts5_for_file(
                 sdb, pool, file_id, &payload.file_path, &item.tenant_id, Some(&item.branch),
             ).await;
         }
+        let _ = queue_manager.update_destination_status(&item.queue_id, "search", DestinationStatus::Done).await;
 
         info!(
             "Successfully processed file item {} ({})",

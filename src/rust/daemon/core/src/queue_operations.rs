@@ -1779,6 +1779,52 @@ impl QueueManager {
         Ok(())
     }
 
+    /// Check and finalize a queue item based on per-destination statuses.
+    ///
+    /// If both qdrant_status and search_status are 'done', marks the item as 'done'.
+    /// If either is 'failed', marks the item as 'failed'.
+    /// Returns the resolved overall QueueStatus.
+    pub async fn check_and_finalize(&self, queue_id: &str) -> QueueResult<QueueStatus> {
+        let row = sqlx::query(
+            "SELECT qdrant_status, search_status FROM unified_queue WHERE queue_id = ?1"
+        )
+        .bind(queue_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Err(QueueError::InvalidOperation(format!("Queue item not found: {}", queue_id)));
+        };
+
+        let qs_str: String = row.try_get::<String, _>("qdrant_status").unwrap_or_else(|_| "pending".to_string());
+        let ss_str: String = row.try_get::<String, _>("search_status").unwrap_or_else(|_| "pending".to_string());
+        let qs = DestinationStatus::from_str(&qs_str).unwrap_or(DestinationStatus::Pending);
+        let ss = DestinationStatus::from_str(&ss_str).unwrap_or(DestinationStatus::Pending);
+
+        let overall = if qs == DestinationStatus::Done && ss == DestinationStatus::Done {
+            QueueStatus::Done
+        } else if qs == DestinationStatus::Failed || ss == DestinationStatus::Failed {
+            QueueStatus::Failed
+        } else {
+            QueueStatus::InProgress
+        };
+
+        // Update overall status if resolved
+        if overall == QueueStatus::Done || overall == QueueStatus::Failed {
+            let now = timestamps::now_utc();
+            sqlx::query(
+                "UPDATE unified_queue SET status = ?1, updated_at = ?2 WHERE queue_id = ?3"
+            )
+            .bind(overall.to_string())
+            .bind(&now)
+            .bind(queue_id)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        Ok(overall)
+    }
+
     /// Update the per-destination status for a queue item.
     ///
     /// Called after each destination (Qdrant, search DB) completes or fails.
@@ -3638,5 +3684,88 @@ mod tests {
         // Invalid destination should error
         let err = manager.update_destination_status(&queue_id, "invalid", DestinationStatus::Done).await;
         assert!(err.is_err(), "Invalid destination should return error");
+    }
+
+    #[tokio::test]
+    async fn test_check_and_finalize_both_done() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("finalize_both.db");
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+        apply_sql_script(&pool, include_str!("schema/watch_folders_schema.sql")).await.unwrap();
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        let (queue_id, _) = manager.enqueue_unified(
+            ItemType::File, UnifiedOp::Add, "fin-tenant", "projects",
+            r#"{"file_path":"/test/fin.rs"}"#, 5, Some("main"), None,
+        ).await.unwrap();
+
+        // Initially both pending — should be InProgress
+        let status = manager.check_and_finalize(&queue_id).await.unwrap();
+        assert_eq!(status, QueueStatus::InProgress);
+
+        // Mark qdrant done
+        manager.update_destination_status(&queue_id, "qdrant", DestinationStatus::Done).await.unwrap();
+        let status = manager.check_and_finalize(&queue_id).await.unwrap();
+        assert_eq!(status, QueueStatus::InProgress);
+
+        // Mark search done — both done → overall Done
+        manager.update_destination_status(&queue_id, "search", DestinationStatus::Done).await.unwrap();
+        let status = manager.check_and_finalize(&queue_id).await.unwrap();
+        assert_eq!(status, QueueStatus::Done);
+
+        // Verify overall status was updated in DB
+        let row: (String,) = sqlx::query_as("SELECT status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(row.0, "done");
+    }
+
+    #[tokio::test]
+    async fn test_check_and_finalize_partial_failure() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("finalize_fail.db");
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+        apply_sql_script(&pool, include_str!("schema/watch_folders_schema.sql")).await.unwrap();
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        let (queue_id, _) = manager.enqueue_unified(
+            ItemType::File, UnifiedOp::Add, "fin-tenant2", "projects",
+            r#"{"file_path":"/test/fail.rs"}"#, 5, Some("main"), None,
+        ).await.unwrap();
+
+        // Qdrant succeeds, search fails
+        manager.update_destination_status(&queue_id, "qdrant", DestinationStatus::Done).await.unwrap();
+        manager.update_destination_status(&queue_id, "search", DestinationStatus::Failed).await.unwrap();
+
+        let status = manager.check_and_finalize(&queue_id).await.unwrap();
+        assert_eq!(status, QueueStatus::Failed);
+
+        // Verify overall status was updated in DB
+        let row: (String,) = sqlx::query_as("SELECT status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(row.0, "failed");
+    }
+
+    #[tokio::test]
+    async fn test_check_and_finalize_nonexistent_item() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("finalize_missing.db");
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+        apply_sql_script(&pool, include_str!("schema/watch_folders_schema.sql")).await.unwrap();
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        let err = manager.check_and_finalize("nonexistent-id").await;
+        assert!(err.is_err());
     }
 }
