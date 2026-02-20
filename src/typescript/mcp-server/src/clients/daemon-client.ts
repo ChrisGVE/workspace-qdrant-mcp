@@ -1,11 +1,8 @@
 /**
- * gRPC client for communicating with the Rust daemon (memexd)
+ * gRPC client for communicating with the Rust daemon (memexd).
  *
- * Provides type-safe wrappers around daemon RPC methods with:
- * - Automatic retry with exponential backoff
- * - Connection health monitoring
- * - Promise-based API
- * - Timeout handling
+ * Provides type-safe wrappers around daemon RPC methods with automatic
+ * retry (exponential backoff), connection health monitoring, and timeouts.
  */
 
 import * as grpc from '@grpc/grpc-js';
@@ -44,10 +41,7 @@ import type {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Proto file location
 const PROTO_PATH = join(__dirname, '..', 'proto', 'workspace_daemon.proto');
-
-// Default configuration
 const DEFAULT_HOST = 'localhost';
 const DEFAULT_PORT = 50051;
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -80,21 +74,25 @@ interface ProtoGrpcType {
 }
 
 /**
- * Daemon client for gRPC communication with memexd
- *
- * Usage:
- * ```typescript
- * const client = new DaemonClient({ port: 50051 });
- * await client.connect();
- *
- * const health = await client.healthCheck();
- * if (health.status === ServiceStatus.SERVICE_STATUS_HEALTHY) {
- *   await client.registerProject({ path: '/my/project', project_id: 'abc123' });
- * }
- *
- * await client.close();
- * ```
+ * Generic gRPC unary call wrapper — turns callback-style into Promise.
+ * The `method` must be a function(request, callback) on the service client.
  */
+function grpcUnary<TReq, TRes>(
+  client: unknown,
+  methodName: string,
+  request: TReq,
+): Promise<TRes> {
+  return new Promise<TRes>((resolve, reject) => {
+    if (!client) { reject(new Error('Client not connected')); return; }
+    const fn = (client as Record<string, unknown>)[methodName];
+    if (typeof fn !== 'function') { reject(new Error(`Unknown method: ${methodName}`)); return; }
+    (fn as (req: TReq, cb: (err: Error | null, res: TRes) => void) => void)
+      .call(client, request, (error, response) => {
+        if (error) reject(error); else resolve(response);
+      });
+  });
+}
+
 export class DaemonClient {
   private readonly host: string;
   private readonly port: number;
@@ -116,30 +114,13 @@ export class DaemonClient {
     this.maxRetries = config.maxRetries ?? MAX_RETRIES;
   }
 
-  /**
-   * Get current connection state
-   */
-  getConnectionState(): ConnectionState {
-    return { ...this.connectionState };
-  }
+  getConnectionState(): ConnectionState { return { ...this.connectionState }; }
+  isConnected(): boolean { return this.connectionState.connected; }
 
-  /**
-   * Check if connected to daemon
-   */
-  isConnected(): boolean {
-    return this.connectionState.connected;
-  }
-
-  /**
-   * Connect to the daemon
-   */
   async connect(): Promise<void> {
     const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
-      keepCase: true,
-      longs: String,
-      enums: Number,
-      defaults: true,
-      oneofs: true,
+      keepCase: true, longs: String, enums: Number,
+      defaults: true, oneofs: true,
       includeDirs: [join(__dirname, '..', 'proto')],
     });
 
@@ -147,354 +128,104 @@ export class DaemonClient {
     const address = `${this.host}:${this.port}`;
     const credentials = grpc.credentials.createInsecure();
 
-    // Create service clients
-    const SystemService = proto.workspace_daemon.SystemService;
-    const ProjectService = proto.workspace_daemon.ProjectService;
-    const DocumentService = proto.workspace_daemon.DocumentService;
-    const EmbeddingService = proto.workspace_daemon.EmbeddingService;
-    const TextSearchService = proto.workspace_daemon.TextSearchService;
+    this.systemClient = new proto.workspace_daemon.SystemService(address, credentials) as unknown as SystemServiceClient;
+    this.projectClient = new proto.workspace_daemon.ProjectService(address, credentials) as unknown as ProjectServiceClient;
+    this.documentClient = new proto.workspace_daemon.DocumentService(address, credentials) as unknown as DocumentServiceClient;
+    this.embeddingClient = new proto.workspace_daemon.EmbeddingService(address, credentials) as unknown as EmbeddingServiceClient;
+    this.textSearchClient = new proto.workspace_daemon.TextSearchService(address, credentials) as unknown as TextSearchServiceClient;
 
-    this.systemClient = new SystemService(
-      address,
-      credentials
-    ) as unknown as SystemServiceClient;
-    this.projectClient = new ProjectService(
-      address,
-      credentials
-    ) as unknown as ProjectServiceClient;
-    this.documentClient = new DocumentService(
-      address,
-      credentials
-    ) as unknown as DocumentServiceClient;
-    this.embeddingClient = new EmbeddingService(
-      address,
-      credentials
-    ) as unknown as EmbeddingServiceClient;
-    this.textSearchClient = new TextSearchService(
-      address,
-      credentials
-    ) as unknown as TextSearchServiceClient;
-
-    // Test connection with health check
     try {
       await this.healthCheck();
-      this.connectionState = {
-        connected: true,
-        lastHealthCheck: new Date(),
-      };
+      this.connectionState = { connected: true, lastHealthCheck: new Date() };
     } catch (error) {
-      this.connectionState = {
-        connected: false,
-        lastError: error instanceof Error ? error.message : 'Unknown error',
-      };
+      this.connectionState = { connected: false, lastError: error instanceof Error ? error.message : 'Unknown error' };
       throw error;
     }
   }
 
-  /**
-   * Close the connection
-   */
   close(): void {
-    if (this.systemClient) {
-      grpc.closeClient(this.systemClient as unknown as grpc.Client);
-    }
-    if (this.projectClient) {
-      grpc.closeClient(this.projectClient as unknown as grpc.Client);
-    }
-    if (this.documentClient) {
-      grpc.closeClient(this.documentClient as unknown as grpc.Client);
-    }
-    if (this.embeddingClient) {
-      grpc.closeClient(this.embeddingClient as unknown as grpc.Client);
-    }
-    if (this.textSearchClient) {
-      grpc.closeClient(this.textSearchClient as unknown as grpc.Client);
+    const clients = [this.systemClient, this.projectClient, this.documentClient,
+                     this.embeddingClient, this.textSearchClient];
+    for (const c of clients) {
+      if (c) grpc.closeClient(c as unknown as grpc.Client);
     }
     this.connectionState = { connected: false };
   }
 
-  // ============================================================================
-  // SystemService Methods
-  // ============================================================================
+  // ── SystemService ──
 
-  /**
-   * Check daemon health
-   */
   async healthCheck(): Promise<HealthCheckResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<HealthCheckResponse>((resolve, reject) => {
-          if (!this.systemClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          const deadline = new Date(Date.now() + this.timeoutMs);
-          (this.systemClient as unknown as grpc.Client).waitForReady(deadline, (err) => {
-            if (err) {
-              reject(err);
-              return;
-            }
-            this.systemClient!.health({}, (error, response) => {
-              if (error) reject(error);
-              else resolve(response);
-            });
+    return this.callWithRetry(() =>
+      new Promise<HealthCheckResponse>((resolve, reject) => {
+        if (!this.systemClient) { reject(new Error('Client not connected')); return; }
+        const deadline = new Date(Date.now() + this.timeoutMs);
+        (this.systemClient as unknown as grpc.Client).waitForReady(deadline, (err) => {
+          if (err) { reject(err); return; }
+          this.systemClient!.health({}, (error, response) => {
+            if (error) reject(error); else resolve(response);
           });
-        })
+        });
+      }),
     );
   }
 
-  /**
-   * Get comprehensive system status
-   */
   async getStatus(): Promise<SystemStatusResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<SystemStatusResponse>((resolve, reject) => {
-          if (!this.systemClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.systemClient.getStatus({}, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.systemClient, 'getStatus', {}));
   }
 
-  /**
-   * Get system metrics
-   */
   async getMetrics(): Promise<MetricsResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<MetricsResponse>((resolve, reject) => {
-          if (!this.systemClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.systemClient.getMetrics({}, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.systemClient, 'getMetrics', {}));
   }
 
-  /**
-   * Notify daemon of server status (UP/DOWN)
-   */
-  async notifyServerStatus(
-    state: ServerState,
-    projectName?: string,
-    projectRoot?: string
-  ): Promise<void> {
-    return this.callWithRetry(
-      () =>
-        new Promise<void>((resolve, reject) => {
-          if (!this.systemClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          const notification: ServerStatusNotification = { state };
-          if (projectName !== undefined) {
-            notification.project_name = projectName;
-          }
-          if (projectRoot !== undefined) {
-            notification.project_root = projectRoot;
-          }
-          this.systemClient.notifyServerStatus(notification, (error) => {
-            if (error) reject(error);
-            else resolve();
-          });
-        })
-    );
+  async notifyServerStatus(state: ServerState, projectName?: string, projectRoot?: string): Promise<void> {
+    const notification: ServerStatusNotification = { state };
+    if (projectName !== undefined) notification.project_name = projectName;
+    if (projectRoot !== undefined) notification.project_root = projectRoot;
+    return this.callWithRetry(() => grpcUnary(this.systemClient, 'notifyServerStatus', notification));
   }
 
-  // ============================================================================
-  // ProjectService Methods
-  // ============================================================================
+  // ── ProjectService ──
 
-  /**
-   * Register a project for high-priority processing
-   * Called when MCP server starts for a project
-   */
   async registerProject(request: RegisterProjectRequest): Promise<RegisterProjectResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<RegisterProjectResponse>((resolve, reject) => {
-          if (!this.projectClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.projectClient.registerProject(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.projectClient, 'registerProject', request));
   }
 
-  /**
-   * Deprioritize a project
-   * Called when MCP server stops
-   */
-  async deprioritizeProject(
-    request: DeprioritizeProjectRequest
-  ): Promise<DeprioritizeProjectResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<DeprioritizeProjectResponse>((resolve, reject) => {
-          if (!this.projectClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.projectClient.deprioritizeProject(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+  async deprioritizeProject(request: DeprioritizeProjectRequest): Promise<DeprioritizeProjectResponse> {
+    return this.callWithRetry(() => grpcUnary(this.projectClient, 'deprioritizeProject', request));
   }
 
-  /**
-   * Send heartbeat to keep session alive
-   * Should be called periodically (recommended: every 30s)
-   */
   async heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<HeartbeatResponse>((resolve, reject) => {
-          if (!this.projectClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.projectClient.heartbeat(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.projectClient, 'heartbeat', request));
   }
 
-  // ============================================================================
-  // DocumentService Methods
-  // ============================================================================
+  // ── DocumentService ──
 
-  /**
-   * Ingest text content directly (synchronous)
-   * Use for content not from files: user input, web content, notes
-   *
-   * Note: Per ADR-002, prefer using the unified queue for writes.
-   * This method is provided for admin/diagnostic use.
-   */
   async ingestText(request: IngestTextRequest): Promise<IngestTextResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<IngestTextResponse>((resolve, reject) => {
-          if (!this.documentClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.documentClient.ingestText(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.documentClient, 'ingestText', request));
   }
 
-  // ============================================================================
-  // EmbeddingService Methods
-  // ============================================================================
+  // ── EmbeddingService ──
 
-  /**
-   * Generate dense embedding for text
-   */
   async embedText(request: EmbedTextRequest): Promise<EmbedTextResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<EmbedTextResponse>((resolve, reject) => {
-          if (!this.embeddingClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.embeddingClient.embedText(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.embeddingClient, 'embedText', request));
   }
 
-  /**
-   * Generate sparse vector using BM25
-   */
   async generateSparseVector(request: SparseVectorRequest): Promise<SparseVectorResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<SparseVectorResponse>((resolve, reject) => {
-          if (!this.embeddingClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.embeddingClient.generateSparseVector(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.embeddingClient, 'generateSparseVector', request));
   }
 
-  // ============================================================================
-  // TextSearchService Methods
-  // ============================================================================
+  // ── TextSearchService ──
 
-  /**
-   * Search code using FTS5 trigram index (exact or regex)
-   */
   async textSearch(request: TextSearchRequest): Promise<TextSearchResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<TextSearchResponse>((resolve, reject) => {
-          if (!this.textSearchClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.textSearchClient.search(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.textSearchClient, 'search', request));
   }
 
-  /**
-   * Count matches without returning full results (faster)
-   */
   async textSearchCount(request: TextSearchRequest): Promise<TextSearchCountResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<TextSearchCountResponse>((resolve, reject) => {
-          if (!this.textSearchClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.textSearchClient.countMatches(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+    return this.callWithRetry(() => grpcUnary(this.textSearchClient, 'countMatches', request));
   }
 
-  // ============================================================================
-  // Private Methods
-  // ============================================================================
+  // ── Retry logic ──
 
-  /**
-   * Execute a call with exponential backoff retry
-   */
   private async callWithRetry<T>(fn: () => Promise<T>): Promise<T> {
     let lastError: Error | undefined;
     let delay = INITIAL_RETRY_DELAY_MS;
@@ -502,90 +233,39 @@ export class DaemonClient {
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
         const result = await fn();
-        // Update connection state on success
-        this.connectionState = {
-          connected: true,
-          lastHealthCheck: new Date(),
-        };
+        this.connectionState = { connected: true, lastHealthCheck: new Date() };
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-
-        // Check if error is retryable
-        if (!this.isRetryableError(lastError)) {
-          throw lastError;
-        }
-
-        // Wait before retry (exponential backoff)
+        if (!this.isRetryableError(lastError)) throw lastError;
         if (attempt < this.maxRetries - 1) {
-          await this.sleep(delay);
-          delay *= 2; // Exponential backoff
+          await new Promise<void>((r) => setTimeout(r, delay));
+          delay *= 2;
         }
       }
     }
 
-    // Update connection state on failure
-    this.connectionState = {
-      connected: false,
-      lastError: lastError?.message,
-    };
-
+    this.connectionState = { connected: false, lastError: lastError?.message };
     throw lastError;
   }
 
-  /**
-   * Check if an error is retryable
-   */
   private isRetryableError(error: Error): boolean {
-    // gRPC error codes that are retryable
-    const retryableCodes = [
-      grpc.status.UNAVAILABLE,
-      grpc.status.DEADLINE_EXCEEDED,
-      grpc.status.RESOURCE_EXHAUSTED,
-    ];
-
-    // Check if it's a gRPC error with a retryable code
+    const retryableCodes = [grpc.status.UNAVAILABLE, grpc.status.DEADLINE_EXCEEDED, grpc.status.RESOURCE_EXHAUSTED];
     const grpcError = error as { code?: number };
-    if (typeof grpcError.code === 'number') {
-      return retryableCodes.includes(grpcError.code);
-    }
-
-    // Retry on connection errors
-    return (
-      error.message.includes('ECONNREFUSED') ||
-      error.message.includes('ETIMEDOUT') ||
-      error.message.includes('ENOTFOUND')
-    );
-  }
-
-  /**
-   * Sleep for a specified duration
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    if (typeof grpcError.code === 'number') return retryableCodes.includes(grpcError.code);
+    return error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT') || error.message.includes('ENOTFOUND');
   }
 }
 
 // Re-export types for convenience
 export { ServiceStatus } from './grpc-types.js';
 export type {
-  HealthCheckResponse,
-  SystemStatusResponse,
-  MetricsResponse,
-  RegisterProjectRequest,
-  RegisterProjectResponse,
-  DeprioritizeProjectRequest,
-  DeprioritizeProjectResponse,
-  HeartbeatRequest,
-  HeartbeatResponse,
-  IngestTextRequest,
-  IngestTextResponse,
-  EmbedTextRequest,
-  EmbedTextResponse,
-  SparseVectorRequest,
-  SparseVectorResponse,
-  TextSearchRequest,
-  TextSearchResponse,
-  TextSearchCountResponse,
-  TextSearchMatch,
+  HealthCheckResponse, SystemStatusResponse, MetricsResponse,
+  RegisterProjectRequest, RegisterProjectResponse,
+  DeprioritizeProjectRequest, DeprioritizeProjectResponse,
+  HeartbeatRequest, HeartbeatResponse,
+  IngestTextRequest, IngestTextResponse,
+  EmbedTextRequest, EmbedTextResponse,
+  SparseVectorRequest, SparseVectorResponse,
+  TextSearchRequest, TextSearchResponse, TextSearchCountResponse, TextSearchMatch,
 } from './grpc-types.js';
