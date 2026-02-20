@@ -289,21 +289,36 @@ impl UnifiedQueueProcessor {
                                 let error_category = Self::classify_error(&e);
                                 let is_permanent = Self::is_permanent_category(error_category);
 
-                                error!(
-                                    error_category = error_category,
-                                    permanent = is_permanent,
-                                    "Failed to process unified item {} (type={:?}): {}",
-                                    item.queue_id, item.item_type, e
-                                );
+                                if error_category == "permanent_gone" {
+                                    // File deleted or inaccessible — nothing to retry.
+                                    // Delete from queue silently (the resource is gone).
+                                    warn!(
+                                        "Item {} gone (type={:?}), removing from queue: {}",
+                                        item.queue_id, item.item_type, e
+                                    );
+                                    if let Err(del_err) = queue_manager
+                                        .delete_unified_item(&item.queue_id)
+                                        .await
+                                    {
+                                        error!("Failed to delete gone item {}: {}", item.queue_id, del_err);
+                                    }
+                                } else {
+                                    error!(
+                                        error_category = error_category,
+                                        permanent = is_permanent,
+                                        "Failed to process unified item {} (type={:?}): {}",
+                                        item.queue_id, item.item_type, e
+                                    );
 
-                                // Mark item as failed (with exponential backoff for transient errors)
-                                // Prefix error message with category for observability
-                                let categorized_msg = format!("[{}] {}", error_category, e);
-                                if let Err(mark_err) = queue_manager
-                                    .mark_unified_failed(&item.queue_id, &categorized_msg, is_permanent)
-                                    .await
-                                {
-                                    error!("Failed to mark item {} as failed: {}", item.queue_id, mark_err);
+                                    // Mark item as failed (with exponential backoff for transient errors)
+                                    // Prefix error message with category for observability
+                                    let categorized_msg = format!("[{}] {}", error_category, e);
+                                    if let Err(mark_err) = queue_manager
+                                        .mark_unified_failed(&item.queue_id, &categorized_msg, is_permanent)
+                                        .await
+                                    {
+                                        error!("Failed to mark item {} as failed: {}", item.queue_id, mark_err);
+                                    }
                                 }
 
                                 Self::update_metrics_failure(&metrics, &e).await;

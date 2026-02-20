@@ -186,9 +186,13 @@ impl FileStrategy {
         if !file_path.exists() {
             Self::cleanup_missing_file(ctx, item, pool, &watch_folder_id, &relative_path, &payload)
                 .await;
-            return Err(UnifiedProcessorError::FileNotFound(
-                payload.file_path.clone(),
-            ));
+            // File is gone — cleanup already handled above. Treat as a no-op
+            // success so the queue item is deleted rather than stuck in 'failed'.
+            info!(
+                "File no longer exists, cleaned up and dequeuing: {}",
+                payload.file_path
+            );
+            return Ok(());
         }
 
         // === UPDATE OPERATION: hash comparison + reference-counted deletion ===
