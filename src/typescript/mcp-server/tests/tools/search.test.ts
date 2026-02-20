@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SearchTool, type SearchOptions, type SearchResult, type ParentContext } from '../../src/tools/search.js';
+import { applyRRFFusion } from '../../src/tools/search-qdrant.js';
 import type { DaemonClient } from '../../src/clients/daemon-client.js';
 import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../src/utils/project-detector.js';
@@ -307,12 +308,8 @@ describe('SearchTool', () => {
         { id: '3', score: 0.7, collection: 'projects', content: 'doc3', metadata: { _search_type: 'keyword' } },
       ];
 
-      // Access the private method via any cast for testing
-      const tool = searchTool as unknown as {
-        applyRRFFusion: (results: SearchResult[], mode: string) => SearchResult[];
-      };
       const combined = [...semanticResults, ...keywordResults];
-      const fused = tool.applyRRFFusion(combined, 'hybrid');
+      const fused = applyRRFFusion(combined, 'hybrid');
 
       // doc2 should have highest score (appears in both)
       const doc2 = fused.find((r) => r.id === '2');
@@ -333,10 +330,7 @@ describe('SearchTool', () => {
         { id: '1', score: 0.9, collection: 'projects', content: 'doc1', metadata: { _search_type: 'semantic' } },
       ];
 
-      const tool = searchTool as unknown as {
-        applyRRFFusion: (results: SearchResult[], mode: string) => SearchResult[];
-      };
-      const fused = tool.applyRRFFusion(results, 'semantic');
+      const fused = applyRRFFusion(results, 'semantic');
 
       // Results should be unchanged
       expect(fused).toEqual(results);
