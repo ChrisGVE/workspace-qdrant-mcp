@@ -15,6 +15,7 @@ use tracing::{debug, info, warn, error};
 use wqm_common::timestamps;
 use workspace_qdrant_core::QueueProcessorHealth;
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
+use workspace_qdrant_core::lifecycle::WatchFolderLifecycle;
 
 use crate::proto::{
     system_service_server::SystemService,
@@ -603,23 +604,13 @@ impl SystemService for SystemServiceImpl {
             }
         }
 
-        // Update watch_folders activation status if we have a database pool
+        // Delegate is_active mutation to WatchFolderLifecycle
         if let (Some(pool), Some(project_root)) = (&self.db_pool, &req.project_root) {
-            let now = timestamps::now_utc();
             let is_active = matches!(state, ServerState::Up);
+            let lifecycle = WatchFolderLifecycle::new(pool.clone());
 
-            let result = sqlx::query(
-                "UPDATE watch_folders SET is_active = ?1, last_activity_at = ?2, updated_at = ?3 WHERE path = ?4"
-            )
-            .bind(is_active as i32)
-            .bind(&now)
-            .bind(&now)
-            .bind(project_root)
-            .execute(pool)
-            .await;
-
-            match result {
-                Ok(r) if r.rows_affected() > 0 => {
+            match lifecycle.set_active_by_path(project_root, is_active).await {
+                Ok(rows) if rows > 0 => {
                     info!(
                         "Updated watch_folder activation: path={}, is_active={}",
                         project_root, is_active

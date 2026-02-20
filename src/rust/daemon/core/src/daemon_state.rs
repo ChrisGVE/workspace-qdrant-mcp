@@ -18,6 +18,7 @@ use tracing::{info, warn};
 
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
 use crate::schema_version::{SchemaManager, SchemaError};
+use crate::lifecycle::WatchFolderLifecycle;
 
 /// Daemon state management errors
 #[derive(thiserror::Error, Debug)]
@@ -44,6 +45,14 @@ pub enum DaemonStateError {
 /// Result type for daemon state operations
 pub type DaemonStateResult<T> = Result<T, DaemonStateError>;
 
+impl From<crate::lifecycle::WatchFolderLifecycleError> for DaemonStateError {
+    fn from(err: crate::lifecycle::WatchFolderLifecycleError) -> Self {
+        match err {
+            crate::lifecycle::WatchFolderLifecycleError::Database(e) => Self::Database(e),
+            crate::lifecycle::WatchFolderLifecycleError::NotFound(msg) => Self::State(msg),
+        }
+    }
+}
 
 /// Watch folder record matching spec-defined watch_folders table
 /// Per WORKSPACE_QDRANT_MCP.md v1.6.4, this unified table consolidates
@@ -341,50 +350,21 @@ impl DaemonStateManager {
     }
 
     /// Activate a project and all descendant submodules via recursive junction table traversal (Task 14)
+    ///
+    /// Delegates to `WatchFolderLifecycle::activate_project_group` — the single
+    /// code path for all `is_active` mutations.
     pub async fn activate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
-        let result = sqlx::query(
-            r#"
-            WITH RECURSIVE descendants AS (
-                SELECT ?1 AS watch_id
-                UNION
-                SELECT j.child_watch_id FROM watch_folder_submodules j
-                JOIN descendants d ON j.parent_watch_id = d.watch_id
-            )
-            UPDATE watch_folders
-            SET is_active = 1,
-                last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id IN (SELECT watch_id FROM descendants)
-            "#,
-        )
-        .bind(watch_id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected())
+        let lifecycle = WatchFolderLifecycle::new(self.pool.clone());
+        Ok(lifecycle.activate_project_group(watch_id).await?)
     }
 
     /// Deactivate a project and all descendant submodules via recursive junction table traversal (Task 14)
+    ///
+    /// Delegates to `WatchFolderLifecycle::deactivate_project_group` — the single
+    /// code path for all `is_active` mutations.
     pub async fn deactivate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
-        let result = sqlx::query(
-            r#"
-            WITH RECURSIVE descendants AS (
-                SELECT ?1 AS watch_id
-                UNION
-                SELECT j.child_watch_id FROM watch_folder_submodules j
-                JOIN descendants d ON j.parent_watch_id = d.watch_id
-            )
-            UPDATE watch_folders
-            SET is_active = 0,
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id IN (SELECT watch_id FROM descendants)
-            "#,
-        )
-        .bind(watch_id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected())
+        let lifecycle = WatchFolderLifecycle::new(self.pool.clone());
+        Ok(lifecycle.deactivate_project_group(watch_id).await?)
     }
 
     /// Get watch folder by tenant_id (project_id for projects, library_name for libraries)

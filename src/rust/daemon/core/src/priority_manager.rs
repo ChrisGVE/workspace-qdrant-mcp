@@ -29,6 +29,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn, error};
 
 use wqm_common::constants::COLLECTION_PROJECTS;
+use crate::lifecycle::WatchFolderLifecycle;
 use crate::metrics::METRICS;
 
 /// Priority levels for the queue system — re-exported from wqm_common
@@ -76,6 +77,15 @@ pub enum PriorityError {
 
 /// Result type for priority operations
 pub type PriorityResult<T> = Result<T, PriorityError>;
+
+impl From<crate::lifecycle::WatchFolderLifecycleError> for PriorityError {
+    fn from(err: crate::lifecycle::WatchFolderLifecycleError) -> Self {
+        match err {
+            crate::lifecycle::WatchFolderLifecycleError::Database(e) => Self::Database(e),
+            crate::lifecycle::WatchFolderLifecycleError::NotFound(msg) => Self::ProjectNotFound(msg),
+        }
+    }
+}
 
 /// Session information for tracking active MCP server connections
 ///
@@ -146,26 +156,13 @@ impl PriorityManager {
             return Err(PriorityError::EmptyParameter);
         }
 
-        let now = Utc::now();
-
-        // Update watch_folders to mark as active
-        let update_query = r#"
-            UPDATE watch_folders
-            SET is_active = 1,
-                last_activity_at = ?1,
-                updated_at = ?1
-            WHERE tenant_id = ?2
-              AND collection = ?3
-        "#;
-
-        let result = sqlx::query(update_query)
-            .bind(timestamps::format_utc(&now))
-            .bind(tenant_id)
-            .bind(COLLECTION_PROJECTS)
-            .execute(&self.db_pool)
+        // Delegate is_active mutation to WatchFolderLifecycle
+        let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
+        let rows = lifecycle
+            .activate_by_tenant(tenant_id, COLLECTION_PROJECTS)
             .await?;
 
-        if result.rows_affected() == 0 {
+        if rows == 0 {
             return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
         }
 
@@ -214,20 +211,11 @@ impl PriorityManager {
             return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
         }
 
-        // Update watch_folders to mark as inactive
-        sqlx::query(
-            r#"
-            UPDATE watch_folders
-            SET is_active = 0,
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE tenant_id = ?1
-              AND collection = ?2
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(COLLECTION_PROJECTS)
-        .execute(&self.db_pool)
-        .await?;
+        // Delegate is_active mutation to WatchFolderLifecycle
+        let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
+        lifecycle
+            .deactivate_by_tenant(tenant_id, COLLECTION_PROJECTS)
+            .await?;
 
         // Record session end metrics
         METRICS.session_ended(tenant_id, "normal", 0.0);
@@ -287,24 +275,11 @@ impl PriorityManager {
 
         let previous_priority = if current_active == 1 { "high" } else { "normal" };
 
-        // Update watch_folders
-        let now = timestamps::format_utc(&chrono::Utc::now());
-        sqlx::query(
-            r#"
-            UPDATE watch_folders
-            SET is_active = ?1,
-                last_activity_at = ?2,
-                updated_at = ?2
-            WHERE tenant_id = ?3
-              AND collection = ?4
-            "#,
-        )
-        .bind(new_is_active)
-        .bind(&now)
-        .bind(tenant_id)
-        .bind(COLLECTION_PROJECTS)
-        .execute(&self.db_pool)
-        .await?;
+        // Delegate is_active mutation to WatchFolderLifecycle
+        let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
+        lifecycle
+            .set_active_by_tenant(tenant_id, COLLECTION_PROJECTS, new_is_active == 1)
+            .await?;
 
         info!(
             "Set priority for project {}: {} -> {}",
@@ -429,52 +404,22 @@ impl PriorityManager {
         let cutoff = Utc::now() - ChronoDuration::seconds(timeout_secs as i64);
         let cutoff_str = timestamps::format_utc(&cutoff);
 
-        // Start transaction
-        let mut tx = self.db_pool.begin().await?;
+        // Delegate finding and deactivation to WatchFolderLifecycle
+        let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
 
-        // Find orphaned projects (active but stale heartbeat)
-        let orphaned_query = r#"
-            SELECT tenant_id
-            FROM watch_folders
-            WHERE is_active = 1
-              AND collection = ?1
-              AND last_activity_at IS NOT NULL
-              AND last_activity_at < ?2
-        "#;
-
-        let rows = sqlx::query(orphaned_query)
-            .bind(COLLECTION_PROJECTS)
-            .bind(&cutoff_str)
-            .fetch_all(&mut *tx)
+        let demoted_projects = lifecycle
+            .find_stale_active_tenants(COLLECTION_PROJECTS, &cutoff_str)
             .await?;
 
-        let mut demoted_projects = Vec::new();
-
-        for row in &rows {
-            use sqlx::Row;
-            let tenant_id: String = row.try_get("tenant_id")?;
-            demoted_projects.push(tenant_id.clone());
-
-            // Record orphaned session cleanup metrics
-            METRICS.session_ended(&tenant_id, "high", 0.0);
-
-            // Reset is_active to 0 (dequeue ordering is computed at query time)
-            sqlx::query(
-                r#"
-                UPDATE watch_folders
-                SET is_active = 0,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE tenant_id = ?1
-                  AND collection = ?2
-                "#,
-            )
-            .bind(&tenant_id)
-            .bind(COLLECTION_PROJECTS)
-            .execute(&mut *tx)
-            .await?;
+        // Record metrics for each orphaned session
+        for tenant_id in &demoted_projects {
+            METRICS.session_ended(tenant_id, "high", 0.0);
         }
 
-        tx.commit().await?;
+        // Bulk deactivate in a single transaction
+        lifecycle
+            .deactivate_orphaned_tenants(&demoted_projects, COLLECTION_PROJECTS)
+            .await?;
 
         let cleanup = OrphanedSessionCleanup {
             projects_affected: demoted_projects.len(),

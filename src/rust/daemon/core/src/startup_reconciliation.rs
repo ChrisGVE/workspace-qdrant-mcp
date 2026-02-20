@@ -15,6 +15,8 @@ use std::path::Path;
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, info, warn};
 
+use crate::lifecycle::WatchFolderLifecycle;
+
 /// Statistics returned by `clean_stale_state`.
 #[derive(Debug, Clone, Default)]
 pub struct StaleCleanupStats {
@@ -188,15 +190,12 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
                 "Watch folder path no longer exists, deactivating: watch_id={}, path={}",
                 watch_id, path
             );
-            sqlx::query(
-                "UPDATE watch_folders SET is_active = 0, \
-                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-                 WHERE watch_id = ?1"
-            )
-            .bind(&watch_id)
-            .execute(pool)
-            .await
-            .map_err(|e| format!("Failed to deactivate watch folder {}: {}", watch_id, e))?;
+            // Delegate is_active mutation to WatchFolderLifecycle
+            let lifecycle = WatchFolderLifecycle::new(pool.clone());
+            lifecycle
+                .deactivate_by_watch_id(&watch_id)
+                .await
+                .map_err(|e| format!("Failed to deactivate watch folder {}: {}", watch_id, e))?;
 
             stats.folders_deactivated += 1;
         } else {
