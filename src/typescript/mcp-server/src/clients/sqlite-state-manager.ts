@@ -1,23 +1,17 @@
 /**
  * SQLite state manager for TypeScript MCP server
  *
- * Provides access to the unified_queue and watch_folders tables.
- * Implements graceful handling when daemon hasn't initialized the database.
+ * Thin facade over domain-specific query modules. Provides access to the
+ * unified_queue and watch_folders tables with graceful degradation.
  *
  * IMPORTANT: Per ADR-003, the Rust daemon owns the SQLite database and schema.
  * This client may read/write to tables but must NOT create tables or run migrations.
- *
- * NOTE: Project lookups query watch_folders WHERE collection = 'projects'.
- * The old registered_projects table has been consolidated into watch_folders.
  */
 
 import Database, { type Database as DatabaseType } from 'better-sqlite3';
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { utcNow } from '../utils/timestamps.js';
 
 import type {
   UnifiedQueueItem,
@@ -30,9 +24,9 @@ import type {
   MemoryPayload,
   LibraryPayload,
 } from '../types/state.js';
-import { COLLECTION_PROJECTS, PRIORITY_LOW } from '../common/native-bridge.js';
+import { PRIORITY_LOW } from '../common/native-bridge.js';
 
-// Re-export types
+// Re-export types for consumers
 export type {
   UnifiedQueueItem,
   QueueItemType,
@@ -45,32 +39,30 @@ export type {
   LibraryPayload,
 };
 
+// Re-export payload builder functions
+export {
+  generateIdempotencyKey,
+  buildContentPayload,
+  buildMemoryPayload,
+  buildLibraryPayload,
+  VALID_ITEM_TYPES,
+  VALID_OPERATIONS,
+} from './queue-payload-builders.js';
+
+// Import delegate modules
+import * as queueOps from './queue-operations.js';
+import * as projectQueries from './project-queries.js';
+import * as searchEventQueries from './search-event-queries.js';
+import * as tagQueries from './tag-queries.js';
+import * as instanceQueries from './instance-queries.js';
+import * as memoryMirrorQueries from './memory-mirror-queries.js';
+
+// Re-export delegate types
+export type { SearchEventInput, SearchEventUpdate } from './search-event-queries.js';
+export type { MemoryMirrorEntry } from './memory-mirror-queries.js';
+
 // Default database path
 const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');
-
-// Valid item types
-const VALID_ITEM_TYPES: QueueItemType[] = [
-  'text',
-  'file',
-  'url',
-  'website',
-  'doc',
-  'folder',
-  'tenant',
-  'collection',
-];
-
-// Valid operations per item type
-const VALID_OPERATIONS: Record<QueueItemType, QueueOperation[]> = {
-  text: ['add', 'update', 'delete', 'uplift'],
-  file: ['add', 'update', 'delete', 'rename', 'uplift'],
-  url: ['add', 'update', 'delete', 'uplift'],
-  website: ['add', 'update', 'delete', 'scan', 'uplift'],
-  doc: ['delete', 'uplift'],
-  folder: ['delete', 'scan', 'rename'],
-  tenant: ['add', 'update', 'delete', 'scan', 'rename', 'uplift'],
-  collection: ['uplift', 'reset'],
-};
 
 export interface SqliteStateManagerConfig {
   dbPath?: string;
@@ -90,82 +82,6 @@ export interface DegradedQueryResult<T> {
 }
 
 /**
- * Generate idempotency key for queue deduplication
- *
- * Format matches Python and Rust implementations:
- * Input: {item_type}|{op}|{tenant_id}|{collection}|{payload_json}
- * Output: SHA256 hash truncated to 32 hex characters
- */
-export function generateIdempotencyKey(
-  itemType: QueueItemType,
-  op: QueueOperation,
-  tenantId: string,
-  collection: string,
-  payload: Record<string, unknown>
-): string {
-  // Serialize payload with sorted keys (matching Python json.dumps(sort_keys=True))
-  const payloadJson = JSON.stringify(payload, Object.keys(payload).sort());
-
-  // Construct canonical input string
-  const inputString = `${itemType}|${op}|${tenantId}|${collection}|${payloadJson}`;
-
-  // Hash and truncate to 32 hex chars
-  return createHash('sha256').update(inputString, 'utf-8').digest('hex').slice(0, 32);
-}
-
-/**
- * Build content payload for queue
- */
-export function buildContentPayload(
-  content: string,
-  sourceType: string,
-  mainTag?: string,
-  fullTag?: string
-): ContentPayload {
-  return {
-    content,
-    source_type: sourceType,
-    main_tag: mainTag,
-    full_tag: fullTag,
-  };
-}
-
-/**
- * Build memory payload for queue
- */
-export function buildMemoryPayload(
-  label: string,
-  content: string,
-  scope: 'global' | 'project',
-  projectId?: string
-): MemoryPayload {
-  return {
-    content,
-    source_type: 'memory_rule',
-    label,
-    scope,
-    project_id: projectId,
-  };
-}
-
-/**
- * Build library payload for queue
- */
-export function buildLibraryPayload(
-  libraryName: string,
-  content?: string,
-  source?: string,
-  url?: string
-): LibraryPayload {
-  return {
-    library_name: libraryName,
-    content,
-    source,
-    url,
-  };
-}
-
-/**
  * SQLite state manager for MCP server
  *
  * Provides synchronous access to the daemon's SQLite database.
@@ -180,16 +96,10 @@ export class SqliteStateManager {
     this.dbPath = config.dbPath ?? DEFAULT_DB_PATH;
   }
 
-  /**
-   * Initialize the state manager
-   *
-   * Opens database connection if file exists.
-   * Does NOT create the database - that's the daemon's responsibility.
-   */
+  // ── Core lifecycle ────────────────────────────────────────────────────
+
   initialize(): DegradedQueryResult<boolean> {
-    if (this.initialized) {
-      return { data: true, status: 'ok' };
-    }
+    if (this.initialized) return { data: true, status: 'ok' };
 
     if (!existsSync(this.dbPath)) {
       return {
@@ -201,14 +111,8 @@ export class SqliteStateManager {
     }
 
     try {
-      this.db = new Database(this.dbPath, {
-        readonly: false,
-        fileMustExist: true,
-      });
-
-      // Enable WAL mode for better concurrent access
+      this.db = new Database(this.dbPath, { readonly: false, fileMustExist: true });
       this.db.pragma('journal_mode = WAL');
-
       this.initialized = true;
       return { data: true, status: 'ok' };
     } catch (error) {
@@ -221,9 +125,6 @@ export class SqliteStateManager {
     }
   }
 
-  /**
-   * Close the database connection
-   */
   close(): void {
     if (this.db) {
       this.db.close();
@@ -232,36 +133,16 @@ export class SqliteStateManager {
     }
   }
 
-  /**
-   * Check if connected to database
-   */
   isConnected(): boolean {
     return this.initialized && this.db !== null;
   }
 
-  /**
-   * Get database path
-   */
   getDatabasePath(): string {
     return this.dbPath;
   }
 
-  // ============================================================================
-  // Unified Queue Methods
-  // ============================================================================
+  // ── Unified Queue (delegated) ─────────────────────────────────────────
 
-  /**
-   * Enqueue an item to the unified queue with idempotency support
-   *
-   * @param itemType Type of queue item
-   * @param op Operation type
-   * @param tenantId Project/tenant identifier
-   * @param collection Target collection name
-   * @param payload Payload dictionary
-   * @param priority Priority level 0-10 (default 5)
-   * @param branch Git branch (default 'main')
-   * @param metadata Optional additional metadata
-   */
   enqueueUnified(
     itemType: QueueItemType,
     op: QueueOperation,
@@ -270,902 +151,80 @@ export class SqliteStateManager {
     payload: Record<string, unknown>,
     priority = PRIORITY_LOW,
     branch = 'main',
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
   ): DegradedQueryResult<EnqueueResult | null> {
-    if (!this.db) {
-      return {
-        data: null,
-        status: 'degraded',
-        reason: 'database_not_found',
-        message: 'Database not initialized. Start daemon first.',
-      };
-    }
-
-    // Validate inputs
-    if (!VALID_ITEM_TYPES.includes(itemType)) {
-      throw new Error(`Invalid item type: ${itemType}`);
-    }
-
-    const validOps = VALID_OPERATIONS[itemType];
-    if (!validOps?.includes(op)) {
-      throw new Error(`Invalid operation '${op}' for item type '${itemType}'`);
-    }
-
-    if (!tenantId.trim()) {
-      throw new Error('tenant_id cannot be empty');
-    }
-    if (!collection.trim()) {
-      throw new Error('collection cannot be empty');
-    }
-    if (priority < 0 || priority > 10) {
-      throw new Error('Priority must be between 0 and 10');
-    }
-
-    try {
-      // Generate idempotency key
-      const idempotencyKey = generateIdempotencyKey(itemType, op, tenantId, collection, payload);
-      const queueId = randomUUID();
-      const now = utcNow();
-      const payloadJson = JSON.stringify(payload, Object.keys(payload).sort());
-      const metadataJson = metadata ? JSON.stringify(metadata) : '{}';
-
-      // Use transaction for atomicity
-      const result = this.db.transaction(() => {
-        // Check for existing item with same idempotency key
-        const existing = this.db!.prepare(
-          'SELECT queue_id FROM unified_queue WHERE idempotency_key = ?'
-        ).get(idempotencyKey) as { queue_id: string } | undefined;
-
-        if (existing) {
-          return {
-            queueId: existing.queue_id,
-            isNew: false,
-            idempotencyKey,
-          };
-        }
-
-        // Insert new queue item
-        this.db!.prepare(
-          `
-          INSERT INTO unified_queue
-          (queue_id, item_type, op, tenant_id, collection, priority, status,
-           idempotency_key, payload_json, branch, metadata, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
-          `
-        ).run(
-          queueId,
-          itemType,
-          op,
-          tenantId,
-          collection,
-          priority,
-          idempotencyKey,
-          payloadJson,
-          branch,
-          metadataJson,
-          now,
-          now
-        );
-
-        return {
-          queueId,
-          isNew: true,
-          idempotencyKey,
-        };
-      })();
-
-      return { data: result, status: 'ok' };
-    } catch (error) {
-      // Check for "table not found" error
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('no such table')) {
-        return {
-          data: null,
-          status: 'degraded',
-          reason: 'table_not_found',
-          message: 'Table unified_queue not found. Daemon has not initialized database.',
-        };
-      }
-      throw error;
-    }
+    return queueOps.enqueueUnified(
+      this.db, itemType, op, tenantId, collection, payload, priority, branch, metadata,
+    );
   }
 
-  /**
-   * Get queue statistics
-   */
   getQueueStats(): DegradedQueryResult<QueueStats | null> {
-    if (!this.db) {
-      return {
-        data: null,
-        status: 'degraded',
-        reason: 'database_not_found',
-        message: 'Database not initialized',
-      };
-    }
-
-    try {
-      // Get counts by status
-      const statusCounts = this.db
-        .prepare(
-          `
-        SELECT status, COUNT(*) as count
-        FROM unified_queue
-        GROUP BY status
-      `
-        )
-        .all() as Array<{ status: QueueStatus; count: number }>;
-
-      // Get counts by item type
-      const typeCounts = this.db
-        .prepare(
-          `
-        SELECT item_type, COUNT(*) as count
-        FROM unified_queue
-        WHERE status = 'pending'
-        GROUP BY item_type
-      `
-        )
-        .all() as Array<{ item_type: QueueItemType; count: number }>;
-
-      // Get counts by collection
-      const collectionCounts = this.db
-        .prepare(
-          `
-        SELECT collection, COUNT(*) as count
-        FROM unified_queue
-        WHERE status = 'pending'
-        GROUP BY collection
-      `
-        )
-        .all() as Array<{ collection: string; count: number }>;
-
-      // Get stale items (in_progress but lease expired)
-      const staleCount = this.db
-        .prepare(
-          `
-        SELECT COUNT(*) as count
-        FROM unified_queue
-        WHERE status = 'in_progress'
-        AND lease_expires_at < datetime('now')
-      `
-        )
-        .get() as { count: number };
-
-      // Build stats object
-      const statusMap = new Map(statusCounts.map((r) => [r.status, r.count]));
-      const typeMap: Record<QueueItemType, number> = {} as Record<QueueItemType, number>;
-      for (const row of typeCounts) {
-        typeMap[row.item_type] = row.count;
-      }
-
-      const stats: QueueStats = {
-        total_pending: statusMap.get('pending') ?? 0,
-        total_in_progress: statusMap.get('in_progress') ?? 0,
-        total_done: statusMap.get('done') ?? 0,
-        total_failed: statusMap.get('failed') ?? 0,
-        by_item_type: typeMap,
-        by_collection: collectionCounts.map((r) => ({ collection: r.collection, count: r.count })),
-        stale_items_count: staleCount.count,
-      };
-
-      return { data: stats, status: 'ok' };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('no such table')) {
-        return {
-          data: null,
-          status: 'degraded',
-          reason: 'table_not_found',
-          message: 'Table unified_queue not found.',
-        };
-      }
-      throw error;
-    }
+    return queueOps.getQueueStats(this.db);
   }
 
-  // ============================================================================
-  // Project Methods
-  // ============================================================================
+  // ── Project queries (delegated) ───────────────────────────────────────
 
-  /**
-   * Get project by path
-   *
-   * Fetches project_id from watch_folders table (collection = 'projects').
-   * Used by MCP server to get project_id for the current working directory.
-   *
-   * NOTE: Queries watch_folders instead of the deprecated registered_projects table.
-   */
-  getProjectByPath(projectPath: string): DegradedQueryResult<RegisteredProject | null> {
-    if (!this.db) {
-      return {
-        data: null,
-        status: 'degraded',
-        reason: 'database_not_found',
-        message: 'Database not initialized',
-      };
-    }
-
-    try {
-      const project = this.db
-        .prepare(
-          `
-        SELECT tenant_id, path, git_remote_url, remote_hash,
-               disambiguation_path, is_active,
-               created_at, updated_at, last_activity_at
-        FROM watch_folders
-        WHERE collection = ? AND (? = path OR ? LIKE path || '/' || '%')
-        ORDER BY length(path) DESC
-        LIMIT 1
-      `
-        )
-        .get(COLLECTION_PROJECTS, projectPath, projectPath) as
-        | {
-            tenant_id: string;
-            path: string;
-            git_remote_url: string | null;
-            remote_hash: string | null;
-            disambiguation_path: string | null;
-            is_active: number;
-            created_at: string;
-            updated_at: string | null;
-            last_activity_at: string | null;
-          }
-        | undefined;
-
-      if (!project) {
-        return { data: null, status: 'ok' };
-      }
-
-      // Derive container_folder from path (basename)
-      const containerFolder = project.path.split('/').filter(Boolean).at(-1) ?? project.path;
-
-      return {
-        data: {
-          project_id: project.tenant_id,
-          project_path: project.path,
-          git_remote_url: project.git_remote_url ?? undefined,
-          remote_hash: project.remote_hash ?? undefined,
-          disambiguation_path: project.disambiguation_path ?? undefined,
-          container_folder: containerFolder,
-          is_active: project.is_active === 1,
-          created_at: project.created_at,
-          last_seen_at: project.updated_at ?? undefined,
-          last_activity_at: project.last_activity_at ?? undefined,
-        },
-        status: 'ok',
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('no such table')) {
-        return {
-          data: null,
-          status: 'degraded',
-          reason: 'table_not_found',
-          message: 'Table watch_folders not found. Daemon has not initialized database.',
-        };
-      }
-      throw error;
-    }
+  getProjectByPath(projectPath: string) {
+    return projectQueries.getProjectByPath(this.db, projectPath);
   }
 
-  /**
-   * Get project by ID
-   *
-   * NOTE: Queries watch_folders instead of the deprecated registered_projects table.
-   */
-  getProjectById(projectId: string): DegradedQueryResult<RegisteredProject | null> {
-    if (!this.db) {
-      return {
-        data: null,
-        status: 'degraded',
-        reason: 'database_not_found',
-        message: 'Database not initialized',
-      };
-    }
-
-    try {
-      const project = this.db
-        .prepare(
-          `
-        SELECT tenant_id, path, git_remote_url, remote_hash,
-               disambiguation_path, is_active,
-               created_at, updated_at, last_activity_at
-        FROM watch_folders
-        WHERE tenant_id = ? AND collection = ?
-      `
-        )
-        .get(projectId, COLLECTION_PROJECTS) as
-        | {
-            tenant_id: string;
-            path: string;
-            git_remote_url: string | null;
-            remote_hash: string | null;
-            disambiguation_path: string | null;
-            is_active: number;
-            created_at: string;
-            updated_at: string | null;
-            last_activity_at: string | null;
-          }
-        | undefined;
-
-      if (!project) {
-        return { data: null, status: 'ok' };
-      }
-
-      // Derive container_folder from path (basename)
-      const containerFolder = project.path.split('/').filter(Boolean).at(-1) ?? project.path;
-
-      return {
-        data: {
-          project_id: project.tenant_id,
-          project_path: project.path,
-          git_remote_url: project.git_remote_url ?? undefined,
-          remote_hash: project.remote_hash ?? undefined,
-          disambiguation_path: project.disambiguation_path ?? undefined,
-          container_folder: containerFolder,
-          is_active: project.is_active === 1,
-          created_at: project.created_at,
-          last_seen_at: project.updated_at ?? undefined,
-          last_activity_at: project.last_activity_at ?? undefined,
-        },
-        status: 'ok',
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('no such table')) {
-        return {
-          data: null,
-          status: 'degraded',
-          reason: 'table_not_found',
-          message: 'Table watch_folders not found. Daemon has not initialized database.',
-        };
-      }
-      throw error;
-    }
+  getProjectById(projectId: string) {
+    return projectQueries.getProjectById(this.db, projectId);
   }
 
-  /**
-   * List all active projects
-   *
-   * NOTE: Queries watch_folders instead of the deprecated registered_projects table.
-   */
-  listActiveProjects(): DegradedQueryResult<RegisteredProject[]> {
-    if (!this.db) {
-      return {
-        data: [],
-        status: 'degraded',
-        reason: 'database_not_found',
-        message: 'Database not initialized',
-      };
-    }
-
-    try {
-      const projects = this.db
-        .prepare(
-          `
-        SELECT tenant_id, path, git_remote_url, remote_hash,
-               disambiguation_path, is_active,
-               created_at, updated_at, last_activity_at
-        FROM watch_folders
-        WHERE is_active = 1 AND collection = ?
-        ORDER BY last_activity_at DESC
-      `
-        )
-        .all(COLLECTION_PROJECTS) as Array<{
-        tenant_id: string;
-        path: string;
-        git_remote_url: string | null;
-        remote_hash: string | null;
-        disambiguation_path: string | null;
-        is_active: number;
-        created_at: string;
-        updated_at: string | null;
-        last_activity_at: string | null;
-      }>;
-
-      return {
-        data: projects.map((p) => {
-          // Derive container_folder from path (basename)
-          const parts = p.path.split('/').filter(Boolean);
-          const containerFolder: string = parts.length > 0 ? parts[parts.length - 1]! : p.path;
-
-          return {
-            project_id: p.tenant_id,
-            project_path: p.path,
-            git_remote_url: p.git_remote_url ?? undefined,
-            remote_hash: p.remote_hash ?? undefined,
-            disambiguation_path: p.disambiguation_path ?? undefined,
-            container_folder: containerFolder,
-            is_active: p.is_active === 1,
-            created_at: p.created_at,
-            last_seen_at: p.updated_at ?? undefined,
-            last_activity_at: p.last_activity_at ?? undefined,
-          };
-        }),
-        status: 'ok',
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('no such table')) {
-        return {
-          data: [],
-          status: 'degraded',
-          reason: 'table_not_found',
-          message: 'Table watch_folders not found. Daemon has not initialized database.',
-        };
-      }
-      throw error;
-    }
+  listActiveProjects() {
+    return projectQueries.listActiveProjects(this.db);
   }
 
-  // ─── Search Event Logging (Task 12) ─────────────────────────────────
+  // ── Search event instrumentation (delegated) ──────────────────────────
 
-  /**
-   * Log a search event to the search_events table.
-   *
-   * Called at the start of a search to create the initial record, then
-   * updated after search completes with result_count, latency_ms, and
-   * top_result_refs. Errors are swallowed (logged as warnings) so that
-   * search execution is never blocked by instrumentation failures.
-   */
-  logSearchEvent(event: {
-    id: string;
-    sessionId?: string | undefined;
-    projectId?: string | undefined;
-    actor: string;
-    tool: string;
-    op: string;
-    queryText?: string | undefined;
-    filters?: string | undefined;
-    topK?: number | undefined;
-    resultCount?: number | undefined;
-    latencyMs?: number | undefined;
-    topResultRefs?: string | undefined;
-    outcome?: string | undefined;
-    parentEventId?: string | undefined;
-  }): void {
-    if (!this.db) {
-      return;
-    }
-
-    try {
-      const now = utcNow();
-      const stmt = this.db.prepare(`
-        INSERT INTO search_events (
-          id, ts, session_id, project_id, actor, tool, op,
-          query_text, filters, top_k, result_count, latency_ms,
-          top_result_refs, outcome, parent_event_id, created_at
-        ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?,
-          ?, ?, ?, ?
-        )
-      `);
-      stmt.run(
-        event.id,
-        now,
-        event.sessionId ?? null,
-        event.projectId ?? null,
-        event.actor,
-        event.tool,
-        event.op,
-        event.queryText ?? null,
-        event.filters ?? null,
-        event.topK ?? null,
-        event.resultCount ?? null,
-        event.latencyMs ?? null,
-        event.topResultRefs ?? null,
-        event.outcome ?? null,
-        event.parentEventId ?? null,
-        now,
-      );
-    } catch {
-      // Instrumentation must never break search. Table may not exist if
-      // daemon hasn't migrated to v12+ yet.
-    }
+  logSearchEvent(event: searchEventQueries.SearchEventInput): void {
+    searchEventQueries.logSearchEvent(this.db, event);
   }
 
-  /**
-   * Update a search event with post-search results.
-   *
-   * Updates result_count, latency_ms, top_result_refs, and outcome
-   * for a previously created search event.
-   */
-  updateSearchEvent(
-    eventId: string,
-    update: {
-      resultCount: number;
-      latencyMs: number;
-      topResultRefs?: string | undefined;
-      outcome?: string | undefined;
-    },
-  ): void {
-    if (!this.db) {
-      return;
-    }
-
-    try {
-      const stmt = this.db.prepare(`
-        UPDATE search_events
-        SET result_count = ?, latency_ms = ?, top_result_refs = ?, outcome = ?
-        WHERE id = ?
-      `);
-      stmt.run(
-        update.resultCount,
-        update.latencyMs,
-        update.topResultRefs ?? null,
-        update.outcome ?? null,
-        eventId,
-      );
-    } catch {
-      // Instrumentation must never break search
-    }
+  updateSearchEvent(eventId: string, update: searchEventQueries.SearchEventUpdate): void {
+    searchEventQueries.updateSearchEvent(this.db, eventId, update);
   }
 
-  // ─── Tag/Basket Query Methods (Task 34) ─────────────────────────────
+  // ── Tag/basket queries (delegated) ────────────────────────────────────
 
-  /**
-   * Find tags matching query terms.
-   *
-   * Tokenizes the query into words and searches the `tags` table for
-   * matching concept tags within the given collection and tenant.
-   * Returns distinct tag IDs with their names, ordered by score.
-   */
-  getMatchingTags(
-    query: string,
-    collection: string,
-    tenantId?: string,
-  ): { tagId: number; tag: string; score: number }[] {
-    if (!this.db) return [];
-
-    try {
-      // Tokenize query into meaningful words (3+ chars, lowercase)
-      const tokens = query
-        .toLowerCase()
-        .split(/\s+/)
-        .map((t) => t.replace(/[^a-z0-9_-]/g, ''))
-        .filter((t) => t.length >= 3);
-
-      if (tokens.length === 0) return [];
-
-      // Build LIKE conditions for each token
-      const likeConditions = tokens.map(() => 'LOWER(t.tag) LIKE ?').join(' OR ');
-      const likeParams = tokens.map((t) => `%${t}%`);
-
-      const params: (string | number)[] = [collection, ...likeParams];
-      let tenantClause = '';
-      if (tenantId) {
-        tenantClause = 'AND t.tenant_id = ?';
-        params.push(tenantId);
-      }
-
-      const rows = this.db
-        .prepare(
-          `
-          SELECT DISTINCT t.tag_id, t.tag, t.score
-          FROM tags t
-          WHERE t.collection = ?
-            AND t.tag_type = 'concept'
-            AND (${likeConditions})
-            ${tenantClause}
-          ORDER BY t.score DESC
-          LIMIT 10
-          `,
-        )
-        .all(...params) as Array<{ tag_id: number; tag: string; score: number }>;
-
-      return rows.map((r) => ({ tagId: r.tag_id, tag: r.tag, score: r.score }));
-    } catch {
-      // Tags table may not exist if daemon hasn't migrated to v16+
-      return [];
-    }
+  getMatchingTags(query: string, collection: string, tenantId?: string) {
+    return tagQueries.getMatchingTags(this.db, query, collection, tenantId);
   }
 
-  /**
-   * Retrieve keyword baskets for a set of tag IDs.
-   *
-   * Returns the keywords_json content (an array of keyword strings)
-   * for each basket associated with the given tag IDs.
-   */
-  getKeywordBasketsForTags(
-    tagIds: number[],
-  ): { tagId: number; keywords: string[] }[] {
-    if (!this.db || tagIds.length === 0) return [];
-
-    try {
-      const placeholders = tagIds.map(() => '?').join(',');
-      const rows = this.db
-        .prepare(
-          `
-          SELECT kb.tag_id, kb.keywords_json
-          FROM keyword_baskets kb
-          WHERE kb.tag_id IN (${placeholders})
-          `,
-        )
-        .all(...tagIds) as Array<{ tag_id: number; keywords_json: string }>;
-
-      return rows.map((r) => {
-        let keywords: string[] = [];
-        try {
-          keywords = JSON.parse(r.keywords_json) as string[];
-        } catch {
-          // Malformed JSON - skip
-        }
-        return { tagId: r.tag_id, keywords };
-      });
-    } catch {
-      // Table may not exist
-      return [];
-    }
+  getKeywordBasketsForTags(tagIds: number[]) {
+    return tagQueries.getKeywordBasketsForTags(this.db, tagIds);
   }
 
-  /**
-   * List concept tags for a collection, optionally filtered by tenant.
-   *
-   * Returns distinct tag names with document count and average score,
-   * ordered by frequency (most common first). Useful for tag exploration.
-   */
-  listTags(
-    collection: string,
-    tenantId?: string,
-    limit = 50,
-  ): { tag: string; docCount: number; avgScore: number }[] {
-    if (!this.db) return [];
-
-    try {
-      const params: (string | number)[] = [collection];
-      let tenantClause = '';
-      if (tenantId) {
-        tenantClause = 'AND t.tenant_id = ?';
-        params.push(tenantId);
-      }
-      params.push(limit);
-
-      const rows = this.db
-        .prepare(
-          `
-          SELECT t.tag,
-                 COUNT(DISTINCT t.doc_id) as doc_count,
-                 ROUND(AVG(t.score), 4) as avg_score
-          FROM tags t
-          WHERE t.collection = ?
-            AND t.tag_type = 'concept'
-            ${tenantClause}
-          GROUP BY t.tag
-          ORDER BY doc_count DESC, avg_score DESC
-          LIMIT ?
-          `,
-        )
-        .all(...params) as Array<{ tag: string; doc_count: number; avg_score: number }>;
-
-      return rows.map((r) => ({
-        tag: r.tag,
-        docCount: r.doc_count,
-        avgScore: r.avg_score,
-      }));
-    } catch {
-      return [];
-    }
+  listTags(collection: string, tenantId?: string, limit = 50) {
+    return tagQueries.listTags(this.db, collection, tenantId, limit);
   }
 
-  /**
-   * Get the canonical tag hierarchy for a collection.
-   *
-   * Returns canonical tags with their parent-child relationships.
-   * Each entry includes name, level, parent name, and child count.
-   */
-  getTagHierarchy(
-    collection: string,
-    tenantId?: string,
-  ): { name: string; level: number; parentName: string | null; childCount: number }[] {
-    if (!this.db) return [];
-
-    try {
-      const params: string[] = [collection];
-      let tenantClause = '';
-      if (tenantId) {
-        tenantClause = 'AND ct.tenant_id = ?';
-        params.push(tenantId);
-      }
-
-      const rows = this.db
-        .prepare(
-          `
-          SELECT ct.canonical_name,
-                 ct.level,
-                 parent.canonical_name as parent_name,
-                 (SELECT COUNT(*) FROM canonical_tags child
-                  WHERE child.parent_id = ct.canonical_id) as child_count
-          FROM canonical_tags ct
-          LEFT JOIN canonical_tags parent ON ct.parent_id = parent.canonical_id
-          WHERE ct.collection = ?
-            ${tenantClause}
-          ORDER BY ct.level ASC, ct.canonical_name ASC
-          `,
-        )
-        .all(...params) as Array<{
-        canonical_name: string;
-        level: number;
-        parent_name: string | null;
-        child_count: number;
-      }>;
-
-      return rows.map((r) => ({
-        name: r.canonical_name,
-        level: r.level,
-        parentName: r.parent_name,
-        childCount: r.child_count,
-      }));
-    } catch {
-      return [];
-    }
+  getTagHierarchy(collection: string, tenantId?: string) {
+    return tagQueries.getTagHierarchy(this.db, collection, tenantId);
   }
 
-  // ========================================================================
-  // Instance-aware search methods (Task 15: base_point filtering)
-  // ========================================================================
+  // ── Instance-aware queries (delegated) ────────────────────────────────
 
-  /**
-   * Get the watch_id for a project by its tenant_id.
-   * Returns null if not found or database unavailable.
-   */
-  getWatchFolderIdByTenantId(tenantId: string): string | null {
-    if (!this.db) return null;
-
-    try {
-      const row = this.db.prepare(
-        `SELECT watch_id FROM watch_folders
-         WHERE tenant_id = ? AND collection = 'projects' AND parent_watch_id IS NULL
-         LIMIT 1`
-      ).get(tenantId) as { watch_id: string } | undefined;
-
-      return row?.watch_id ?? null;
-    } catch {
-      return null;
-    }
+  getWatchFolderIdByTenantId(tenantId: string) {
+    return instanceQueries.getWatchFolderIdByTenantId(this.db, tenantId);
   }
 
-  /**
-   * Get all distinct base_point values for files tracked under a watch folder
-   * (and optionally its submodules via junction table).
-   *
-   * Used to filter Qdrant search results to the correct instance in
-   * multi-clone scenarios.
-   */
-  getActiveBasePoints(watchFolderId: string, includeSubmodules = false): string[] {
-    if (!this.db) return [];
-
-    try {
-      let sql: string;
-      if (includeSubmodules) {
-        sql = `SELECT DISTINCT base_point FROM tracked_files
-               WHERE base_point IS NOT NULL AND (
-                   watch_folder_id = ?
-                   OR watch_folder_id IN (
-                       SELECT child_watch_id FROM watch_folder_submodules
-                       WHERE parent_watch_id = ?
-                   )
-               )`;
-        return (this.db.prepare(sql).all(watchFolderId, watchFolderId) as Array<{ base_point: string }>)
-          .map(r => r.base_point);
-      } else {
-        sql = `SELECT DISTINCT base_point FROM tracked_files
-               WHERE base_point IS NOT NULL AND watch_folder_id = ?`;
-        return (this.db.prepare(sql).all(watchFolderId) as Array<{ base_point: string }>)
-          .map(r => r.base_point);
-      }
-    } catch {
-      return [];
-    }
+  getActiveBasePoints(watchFolderId: string, includeSubmodules = false) {
+    return instanceQueries.getActiveBasePoints(this.db, watchFolderId, includeSubmodules);
   }
 
-  // ========================================================================
-  // Memory mirror methods (Task 16: write-through for memory rules)
-  // ========================================================================
+  // ── Memory mirror (delegated) ─────────────────────────────────────────
 
-  /**
-   * Upsert a memory rule into the memory_mirror table.
-   * Called after successful Qdrant writes to enable rebuild recovery.
-   */
-  upsertMemoryMirror(entry: {
-    memoryId: string;
-    ruleText: string;
-    scope: string | null;
-    tenantId: string | null;
-    createdAt: string;
-    updatedAt: string;
-  }): void {
-    if (!this.db) return;
-
-    try {
-      this.db.prepare(
-        `INSERT INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(memory_id) DO UPDATE SET
-             rule_text = excluded.rule_text,
-             scope = excluded.scope,
-             tenant_id = excluded.tenant_id,
-             updated_at = excluded.updated_at`
-      ).run(
-        entry.memoryId,
-        entry.ruleText,
-        entry.scope,
-        entry.tenantId,
-        entry.createdAt,
-        entry.updatedAt
-      );
-    } catch {
-      // memory_mirror table may not exist yet (daemon not initialized)
-    }
+  upsertMemoryMirror(entry: memoryMirrorQueries.MemoryMirrorEntry): void {
+    memoryMirrorQueries.upsertMemoryMirror(this.db, entry);
   }
 
-  /**
-   * Delete a memory rule from the memory_mirror table.
-   * Called after successful Qdrant deletes.
-   */
   deleteMemoryMirror(memoryId: string): void {
-    if (!this.db) return;
-
-    try {
-      this.db.prepare(
-        'DELETE FROM memory_mirror WHERE memory_id = ?'
-      ).run(memoryId);
-    } catch {
-      // memory_mirror table may not exist yet
-    }
+    memoryMirrorQueries.deleteMemoryMirror(this.db, memoryId);
   }
 
-  /**
-   * List memory rules from the memory_mirror table.
-   * Used as fallback when Qdrant is unavailable.
-   */
-  listMemoryMirror(
-    scope?: string,
-    tenantId?: string,
-    limit = 50
-  ): Array<{
-    memoryId: string;
-    ruleText: string;
-    scope: string | null;
-    tenantId: string | null;
-    createdAt: string;
-    updatedAt: string;
-  }> {
-    if (!this.db) return [];
-
-    try {
-      let sql = `SELECT memory_id AS memoryId, rule_text AS ruleText,
-                        scope, tenant_id AS tenantId,
-                        created_at AS createdAt, updated_at AS updatedAt
-                 FROM memory_mirror`;
-      const conditions: string[] = [];
-      const params: (string | number)[] = [];
-
-      if (scope === 'global') {
-        conditions.push("(scope = 'global' OR scope IS NULL)");
-      } else if (scope === 'project' && tenantId) {
-        conditions.push("scope = 'project'");
-        conditions.push('tenant_id = ?');
-        params.push(tenantId);
-      }
-
-      if (conditions.length > 0) {
-        sql += ' WHERE ' + conditions.join(' AND ');
-      }
-
-      sql += ' ORDER BY updatedAt DESC LIMIT ?';
-      params.push(limit);
-
-      return this.db.prepare(sql).all(...params) as Array<{
-        memoryId: string;
-        ruleText: string;
-        scope: string | null;
-        tenantId: string | null;
-        createdAt: string;
-        updatedAt: string;
-      }>;
-    } catch {
-      return [];
-    }
+  listMemoryMirror(scope?: string, tenantId?: string, limit = 50) {
+    return memoryMirrorQueries.listMemoryMirror(this.db, scope, tenantId, limit);
   }
 }
