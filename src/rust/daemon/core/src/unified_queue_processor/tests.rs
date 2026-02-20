@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_lsp_enrichment_status_lowercase_in_payload() {
         use crate::lsp::project_manager::{EnrichmentStatus, LspEnrichment};
-        use crate::strategies::processing::file::FileStrategy;
+        use crate::strategies::processing::file::lsp_payload::add_lsp_enrichment_to_payload;
 
         let mut payload = std::collections::HashMap::new();
         let enrichment = LspEnrichment {
@@ -234,7 +234,7 @@ mod tests {
             error_message: None,
         };
 
-        FileStrategy::add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
         let status = payload.get("lsp_enrichment_status").unwrap().as_str().unwrap();
         assert_eq!(status, "success", "lsp_enrichment_status must be lowercase");
 
@@ -248,7 +248,7 @@ mod tests {
             error_message: Some("test error".to_string()),
         };
 
-        FileStrategy::add_lsp_enrichment_to_payload(&mut payload2, &enrichment2);
+        add_lsp_enrichment_to_payload(&mut payload2, &enrichment2);
         let status2 = payload2.get("lsp_enrichment_status").unwrap().as_str().unwrap();
         assert_eq!(status2, "failed", "lsp_enrichment_status must be lowercase");
     }
