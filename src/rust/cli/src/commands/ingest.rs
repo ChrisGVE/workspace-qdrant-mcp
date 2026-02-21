@@ -340,7 +340,6 @@ async fn try_queue_fallback_text(
                 &tenant_id,
                 collection,
                 &payload,
-                0, // Priority is dynamic (computed at dequeue time)
                 &branch,
             ) {
                 Ok(result) => {
@@ -466,7 +465,6 @@ async fn ingest_url(
                 &tenant_id,
                 &target_collection,
                 &url_payload,
-                0,
                 &branch,
             ) {
                 Ok(result) => {

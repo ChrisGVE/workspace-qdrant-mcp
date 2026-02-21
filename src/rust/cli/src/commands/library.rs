@@ -563,7 +563,6 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode
                 tag,                    // tenant_id
                 COLLECTION_LIBRARIES,   // collection
                 &payload_json,
-                0,              // priority
                 "",             // branch (not applicable)
                 None,
             ) {
@@ -714,7 +713,6 @@ async fn remove(tag: &str, skip_confirm: bool) -> Result<()> {
                 tag,            // tenant_id
                 collection,     // collection
                 &payload_json,  // payload
-                0,              // priority is dynamic (computed at dequeue time)
                 "",             // branch (not applicable for libraries)
                 None,           // metadata
             ) {
@@ -811,14 +809,12 @@ async fn rescan(tag: &str, force: bool) -> Result<()> {
                 "patterns": DEFAULT_LIBRARY_PATTERNS,
             }).to_string();
 
-            // Use priority 0 for rescans (high priority)
             match client.enqueue(
                 ItemType::Folder,
                 QueueOperation::Scan,
                 tag,                    // tenant_id
                 COLLECTION_LIBRARIES,   // collection
                 &payload_json,
-                0,              // high priority
                 "",             // branch
                 None,
             ) {
@@ -1138,7 +1134,6 @@ async fn ingest(file: &PathBuf, library: &str, chunk_tokens: usize, overlap_toke
                 library,               // tenant_id
                 COLLECTION_LIBRARIES,   // collection
                 &payload_json,
-                5,              // priority
                 "",             // branch (not applicable for libraries)
                 None,
             ) {

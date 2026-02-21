@@ -333,7 +333,7 @@ impl FileWatcherQueue {
         for attempt in 0..MAX_RETRIES {
             match queue_manager.enqueue_unified(
                 ItemType::File, operation, &tenant_id, &final_collection,
-                &payload_json, 0, Some(&branch), metadata.as_deref(),
+                &payload_json, Some(&branch), metadata.as_deref(),
             ).await {
                 Ok(_) => {
                     let mut count = events_processed.lock().await;

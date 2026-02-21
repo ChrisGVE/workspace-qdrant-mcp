@@ -102,7 +102,6 @@ impl CollectionStrategy {
                     tenant_id,
                     &item.collection,
                     &payload,
-                    0,
                     None,
                     None,
                 )

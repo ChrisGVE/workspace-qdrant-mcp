@@ -703,41 +703,9 @@ mod tests {
         assert_eq!(info.priority, "normal");
     }
 
-    #[tokio::test]
-    async fn test_register_session_does_not_modify_queue_priority() {
-        let (pool, _temp_dir) = setup_test_db().await;
-        let priority_manager = PriorityManager::new(pool.clone());
-
-        // Create test project
-        create_test_project(&pool, "abcd12345678", "/test/project").await;
-
-        // Enqueue items with normal priority
-        let queue_id = uuid::Uuid::new_v4().to_string();
-        sqlx::query(
-            r#"INSERT INTO unified_queue (
-                queue_id, item_type, op, tenant_id, collection, priority, status, branch, idempotency_key, payload_json
-            ) VALUES (?1, 'file', 'add', 'abcd12345678', 'projects', ?2, 'pending', 'main', ?3, '{}')"#,
-        )
-        .bind(&queue_id)
-        .bind(priority::NORMAL)
-        .bind(format!("test_{}", queue_id))
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        // Register session — should NOT modify stored queue priority
-        priority_manager.register_session("abcd12345678", "main").await.unwrap();
-
-        // Verify queue item still has its original stored priority (unchanged)
-        let stored_priority: i32 = sqlx::query_scalar(
-            "SELECT priority FROM unified_queue WHERE queue_id = ?1"
-        )
-        .bind(&queue_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(stored_priority, priority::NORMAL);
-    }
+    // test_register_session_does_not_modify_queue_priority removed:
+    // The priority column was removed from unified_queue (Task 16).
+    // Priority is computed dynamically at dequeue time via CASE/JOIN.
 
     #[tokio::test]
     async fn test_heartbeat_updates_timestamp() {

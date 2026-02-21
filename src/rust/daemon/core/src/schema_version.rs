@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 21;
+pub const CURRENT_SCHEMA_VERSION: i32 = 22;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -171,6 +171,7 @@ impl SchemaManager {
             19 => self.migrate_v19().await,
             20 => self.migrate_v20().await,
             21 => self.migrate_v21().await,
+            22 => self.migrate_v22().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -472,16 +473,16 @@ impl SchemaManager {
         sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
             .execute(&self.pool).await?;
 
-        // Copy all existing data
+        // Copy all existing data (priority removed in v22)
         sqlx::query(
             "INSERT INTO unified_queue (
-                queue_id, item_type, op, tenant_id, collection, priority,
+                queue_id, item_type, op, tenant_id, collection,
                 status, created_at, updated_at, lease_until, worker_id,
                 idempotency_key, payload_json, retry_count, max_retries,
                 error_message, last_error_at, branch, metadata, file_path
             )
             SELECT
-                queue_id, item_type, op, tenant_id, collection, priority,
+                queue_id, item_type, op, tenant_id, collection,
                 status, created_at, updated_at, lease_until, worker_id,
                 idempotency_key, payload_json, retry_count, max_retries,
                 error_message, last_error_at, branch, metadata, file_path
@@ -607,10 +608,10 @@ impl SchemaManager {
             )
         "#).execute(&self.pool).await?;
 
-        // Copy data with value transformations
+        // Copy data with value transformations (priority removed in v22)
         sqlx::query(r#"
             INSERT INTO unified_queue_v11 (
-                queue_id, item_type, op, tenant_id, collection, priority, status,
+                queue_id, item_type, op, tenant_id, collection, status,
                 created_at, updated_at, lease_until, worker_id, idempotency_key,
                 payload_json, retry_count, max_retries, error_message, last_error_at,
                 branch, metadata, file_path
@@ -631,7 +632,7 @@ impl SchemaManager {
                     WHEN op = 'ingest' THEN 'add'
                     ELSE op
                 END,
-                tenant_id, collection, priority, status,
+                tenant_id, collection, status,
                 created_at, updated_at, lease_until, worker_id, idempotency_key,
                 payload_json, retry_count, max_retries, error_message, last_error_at,
                 branch, metadata, file_path
@@ -1078,6 +1079,44 @@ impl SchemaManager {
         }
 
         info!("Migration v21 complete");
+        Ok(())
+    }
+
+    /// Migration v22: Remove unused `priority` column from unified_queue
+    ///
+    /// Priority is computed dynamically at dequeue time via a CASE/JOIN expression
+    /// with `watch_folders.is_active`. The stored column was always 0.
+    /// Drop and recreate the table (no migration effort needed — pre-release).
+    async fn migrate_v22(&self) -> Result<(), SchemaError> {
+        info!("Migration v22: Remove unused priority column from unified_queue");
+
+        use super::unified_queue_schema::{CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL};
+
+        // Drop and recreate (pre-release, no data to preserve)
+        sqlx::query("DROP TABLE IF EXISTS unified_queue")
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        // Recreate v20 indexes (qdrant_status, search_status)
+        use super::unified_queue_schema::{CREATE_QDRANT_STATUS_INDEX_SQL, CREATE_SEARCH_STATUS_INDEX_SQL};
+        sqlx::query(CREATE_QDRANT_STATUS_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query(CREATE_SEARCH_STATUS_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        info!("Migration v22 complete");
         Ok(())
     }
 }
@@ -1933,8 +1972,8 @@ mod tests {
 
         // Insert an item without specifying qdrant_status/search_status — should default to 'pending'
         sqlx::query(
-            "INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, priority, branch, payload_json, created_at, updated_at)
-             VALUES ('q1', 'k1', 'file', 'add', 't1', 'projects', 'pending', 5, 'main', '{}', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+            "INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, branch, payload_json, created_at, updated_at)
+             VALUES ('q1', 'k1', 'file', 'add', 't1', 'projects', 'pending', 'main', '{}', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
         ).execute(&pool).await.unwrap();
 
         let qdrant_status: String = sqlx::query_scalar(
@@ -1954,8 +1993,8 @@ mod tests {
 
         // Verify CHECK constraint rejects invalid values
         let invalid = sqlx::query(
-            "INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, priority, branch, payload_json, qdrant_status, created_at, updated_at)
-             VALUES ('q2', 'k2', 'file', 'add', 't1', 'projects', 'pending', 5, 'main', '{}', 'bogus', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+            "INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, branch, payload_json, qdrant_status, created_at, updated_at)
+             VALUES ('q2', 'k2', 'file', 'add', 't1', 'projects', 'pending', 'main', '{}', 'bogus', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
         ).execute(&pool).await;
         assert!(invalid.is_err(), "CHECK constraint should reject invalid qdrant_status");
     }

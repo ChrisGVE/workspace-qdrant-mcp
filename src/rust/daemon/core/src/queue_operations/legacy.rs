@@ -172,7 +172,6 @@ impl QueueManager {
                 tenant_id: row.try_get("tenant_id")?,
                 branch: row.try_get("branch")?,
                 operation,
-                priority: row.try_get("priority")?,
                 missing_tools,
                 queued_timestamp,
                 retry_count: row.try_get("retry_count")?,
@@ -238,16 +237,15 @@ impl QueueManager {
             // Commit transaction before enqueueing (enqueue_unified uses its own transaction)
             tx.commit().await?;
 
-            // Enqueue to unified_queue (priority is dynamic, always pass 0)
+            // Enqueue to unified_queue
             match self.enqueue_unified(
                 ItemType::File,
                 unified_op,
                 &tenant_id,
                 &collection,
                 &payload_json,
-                0,
                 Some(&branch),
-                None, // No custom idempotency key - let it generate
+                None,
             ).await {
                 Ok((new_queue_id, _is_new)) => {
                     // Update last_check_timestamp in missing_metadata_queue

@@ -1885,7 +1885,6 @@ impl TaskSubmitter {
                     &tenant_id,
                     collection,
                     &payload_json,
-                    0, // Priority computed at dequeue time
                     Some(branch),
                     Some(&metadata),
                 ).await.map_err(|e| PriorityError::Communication(

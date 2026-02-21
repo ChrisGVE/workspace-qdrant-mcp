@@ -651,7 +651,6 @@ impl ProjectService for ProjectServiceImpl {
                 &project_id,
                 "projects",
                 &payload_json,
-                0,  // Priority is dynamic (computed at dequeue time)
                 None,
                 None,
             ).await {
@@ -1282,7 +1281,6 @@ impl ProjectService for ProjectServiceImpl {
             &req.project_id,
             COLLECTION_PROJECTS,
             &payload_json,
-            0,
             None,
             None,
         ).await {

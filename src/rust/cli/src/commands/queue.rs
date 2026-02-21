@@ -131,8 +131,6 @@ pub struct QueueListItem {
     pub collection: String,
     #[tabled(rename = "Status")]
     pub status: String,
-    #[tabled(rename = "Pri")]
-    pub priority: i32,
     #[tabled(rename = "Age")]
     pub age: String,
     #[tabled(rename = "Retry")]
@@ -159,8 +157,6 @@ pub struct QueueListItemVerbose {
     pub collection: String,
     #[tabled(rename = "Status")]
     pub status: String,
-    #[tabled(rename = "Pri")]
-    pub priority: i32,
     #[tabled(rename = "Created")]
     pub created_at: String,
     #[tabled(rename = "Retry")]
@@ -183,7 +179,6 @@ pub struct QueueDetailItem {
     pub op: String,
     pub tenant_id: String,
     pub collection: String,
-    pub priority: i32,
     pub status: String,
     pub branch: String,
     pub payload_json: String,
@@ -329,7 +324,7 @@ async fn list(
 
     // Validate order_by
     let order_column = match order_by {
-        "created_at" | "priority" | "status" | "item_type" | "collection" => order_by,
+        "created_at" | "status" | "item_type" | "collection" => order_by,
         _ => "created_at",
     };
     let order_direction = if desc { "DESC" } else { "ASC" };
@@ -337,7 +332,7 @@ async fn list(
     let query = format!(
         r#"
         SELECT queue_id, idempotency_key, item_type, op, collection, status,
-               priority, created_at, retry_count, worker_id
+               created_at, retry_count, worker_id
         FROM unified_queue
         {}
         ORDER BY {} {}
@@ -360,10 +355,9 @@ async fn list(
             row.get::<_, String>(3)?,  // op
             row.get::<_, String>(4)?,  // collection
             row.get::<_, String>(5)?,  // status
-            row.get::<_, i32>(6)?,     // priority
-            row.get::<_, String>(7)?,  // created_at
-            row.get::<_, i32>(8)?,     // retry_count
-            row.get::<_, Option<String>>(9)?,  // worker_id
+            row.get::<_, String>(6)?,  // created_at
+            row.get::<_, i32>(7)?,     // retry_count
+            row.get::<_, Option<String>>(8)?,  // worker_id
         ))
     })?;
 
@@ -381,7 +375,7 @@ async fn list(
     if verbose {
         let display_items: Vec<QueueListItemVerbose> = items
             .iter()
-            .map(|(queue_id, idempotency_key, item_type, op, collection, status, priority, created_at, retry_count, worker_id)| {
+            .map(|(queue_id, idempotency_key, item_type, op, collection, status, created_at, retry_count, worker_id)| {
                 QueueListItemVerbose {
                     queue_id: queue_id.clone(),
                     idempotency_key: idempotency_key.clone(),
@@ -389,7 +383,6 @@ async fn list(
                     op: op.clone(),
                     collection: collection.clone(),
                     status: status.clone(),
-                    priority: *priority,
                     created_at: wqm_common::timestamp_fmt::format_local(created_at),
                     retry_count: *retry_count,
                     worker_id: worker_id.clone().unwrap_or_default(),
@@ -406,14 +399,13 @@ async fn list(
     } else {
         let display_items: Vec<QueueListItem> = items
             .iter()
-            .map(|(queue_id, _idempotency_key, item_type, op, collection, status, priority, created_at, retry_count, _worker_id)| {
+            .map(|(queue_id, _idempotency_key, item_type, op, collection, status, created_at, retry_count, _worker_id)| {
                 QueueListItem {
                     queue_id: queue_id.clone(),
                     item_type: item_type.clone(),
                     op: op.clone(),
                     collection: collection.clone(),
                     status: format_status(status),
-                    priority: *priority,
                     age: format_relative_time(created_at),
                     retry_count: *retry_count,
                 }
@@ -437,7 +429,7 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
     // Try exact match first, then prefix match
     let query = r#"
         SELECT queue_id, idempotency_key, item_type, op, tenant_id, collection,
-               priority, status, branch, payload_json, metadata, created_at,
+               status, branch, payload_json, metadata, created_at,
                updated_at, lease_until, worker_id, retry_count, max_retries,
                error_message, last_error_at
         FROM unified_queue
@@ -455,19 +447,18 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
             op: row.get(3)?,
             tenant_id: row.get(4)?,
             collection: row.get(5)?,
-            priority: row.get(6)?,
-            status: row.get(7)?,
-            branch: row.get(8)?,
-            payload_json: row.get(9)?,
-            metadata: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            lease_until: row.get(13)?,
-            worker_id: row.get(14)?,
-            retry_count: row.get(15)?,
-            max_retries: row.get(16)?,
-            error_message: row.get(17)?,
-            last_error_at: row.get(18)?,
+            status: row.get(6)?,
+            branch: row.get(7)?,
+            payload_json: row.get(8)?,
+            metadata: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            lease_until: row.get(12)?,
+            worker_id: row.get(13)?,
+            retry_count: row.get(14)?,
+            max_retries: row.get(15)?,
+            error_message: row.get(16)?,
+            last_error_at: row.get(17)?,
         })
     });
 
@@ -487,7 +478,6 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
                 output::kv("Branch", &item.branch);
                 output::separator();
                 output::kv("Status", &format_status(&item.status));
-                output::kv("Priority", &item.priority.to_string());
                 output::kv("Retry Count", &format!("{}/{}", item.retry_count, item.max_retries));
                 output::separator();
                 output::kv("Created At", &wqm_common::timestamp_fmt::format_local(&item.created_at));

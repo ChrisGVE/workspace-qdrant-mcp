@@ -35,8 +35,6 @@ pub struct UnifiedQueueItem {
     pub tenant_id: String,
     /// Target Qdrant collection
     pub collection: String,
-    /// Processing priority (0-10, higher = more urgent)
-    pub priority: i32,
     /// Current status (pending, in_progress, done, failed)
     pub status: QueueStatus,
     /// Git branch (default: main)
@@ -234,11 +232,11 @@ pub use wqm_common::hashing::{
 
 /// SQL to create the unified queue schema.
 ///
-/// NOTE: The `priority` column is unused — priority is computed dynamically at dequeue time
-/// via a CASE expression that JOINs with `watch_folders.is_active`. Two levels:
+/// Priority is computed dynamically at dequeue time via a CASE expression that JOINs
+/// with `watch_folders.is_active`. Two levels:
 /// - High (1): active projects + memory collection
 /// - Low (0): libraries + inactive projects
-/// All callers should pass 0 when enqueuing. See `dequeue_unified()` in `queue_operations.rs`.
+/// See `dequeue_unified()` in `queue_operations/dequeue.rs`.
 pub const CREATE_UNIFIED_QUEUE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS unified_queue (
     queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
@@ -248,8 +246,6 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
     tenant_id TEXT NOT NULL,
     collection TEXT NOT NULL,
-    -- UNUSED: priority is computed at dequeue time, not stored. Always set to 0.
-    priority INTEGER NOT NULL DEFAULT 0 CHECK (priority >= 0 AND priority <= 10),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
         'pending', 'in_progress', 'done', 'failed'
     )),
@@ -280,7 +276,7 @@ CREATE TABLE IF NOT EXISTS unified_queue (
 /// SQL to create indexes for the unified queue
 pub const CREATE_UNIFIED_QUEUE_INDEXES_SQL: &[&str] = &[
     r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_dequeue
-       ON unified_queue(status, priority DESC, created_at ASC)
+       ON unified_queue(status, created_at ASC)
        WHERE status = 'pending'"#,
     r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unified_queue_idempotency
        ON unified_queue(idempotency_key)"#,
@@ -523,7 +519,6 @@ mod tests {
             op: QueueOperation::Add,
             tenant_id: "t1".into(),
             collection: "projects".into(),
-            priority: 0,
             status: QueueStatus::InProgress,
             branch: "main".into(),
             payload_json: "{}".into(),
@@ -553,7 +548,6 @@ mod tests {
             op: QueueOperation::Add,
             tenant_id: "t1".into(),
             collection: "projects".into(),
-            priority: 0,
             status: QueueStatus::InProgress,
             branch: "main".into(),
             payload_json: "{}".into(),
@@ -583,7 +577,6 @@ mod tests {
             op: QueueOperation::Add,
             tenant_id: "t1".into(),
             collection: "projects".into(),
-            priority: 0,
             status: QueueStatus::InProgress,
             branch: "main".into(),
             payload_json: "{}".into(),
@@ -613,7 +606,6 @@ mod tests {
             op: QueueOperation::Add,
             tenant_id: "t1".into(),
             collection: "projects".into(),
-            priority: 0,
             status: QueueStatus::Pending,
             branch: "main".into(),
             payload_json: "{}".into(),

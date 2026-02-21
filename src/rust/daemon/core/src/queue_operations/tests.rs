@@ -97,7 +97,6 @@ async fn test_unified_queue_enqueue_dequeue() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             Some("main"),
             None,
         )
@@ -115,7 +114,6 @@ async fn test_unified_queue_enqueue_dequeue() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             Some("main"),
             None,
         )
@@ -164,7 +162,6 @@ async fn test_unified_queue_delete_item() {
             "test-tenant",
             "test-collection",
             r#"{"content":"test"}"#,
-            0,
             None,
             None,
         )
@@ -218,7 +215,6 @@ async fn test_unified_queue_mark_failed_retry() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -306,7 +302,6 @@ async fn test_unified_queue_mark_failed_permanent() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -359,7 +354,6 @@ async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -419,7 +413,6 @@ async fn test_unified_queue_recover_stale_leases() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -464,7 +457,6 @@ async fn test_unified_queue_stats() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file1.rs"}"#,
-            0,
             None,
             None,
         )
@@ -478,7 +470,6 @@ async fn test_unified_queue_stats() {
             "test-tenant",
             "test-collection",
             r#"{"content":"test content"}"#,
-            0,
             None,
             None,
         )
@@ -492,7 +483,6 @@ async fn test_unified_queue_stats() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file2.rs"}"#,
-            0,
             None,
             None,
         )
@@ -536,7 +526,6 @@ async fn test_unified_queue_cleanup() {
             "test-tenant",
             "test-collection",
             r#"{"content":"test"}"#,
-            0,
             None,
             None,
         )
@@ -584,7 +573,6 @@ async fn test_unified_queue_depth() {
                 "test-tenant",
                 "test-collection",
                 &format!(r#"{{"file_path":"/test/file{}.rs"}}"#, i),
-                0,
                 None,
                 None,
             )
@@ -635,7 +623,6 @@ async fn test_concurrent_enqueue_idempotency() {
                     "test-tenant",
                     "test-collection",
                     r#"{"file_path":"/test/concurrent_file.rs"}"#,
-                    0,
                     Some("main"),
                     Some(&format!(r#"{{"worker":{}}}"#, i)),
                 )
@@ -692,7 +679,6 @@ async fn test_concurrent_enqueue_different_items() {
                     "test-tenant",
                     "test-collection",
                     &format!(r#"{{"file_path":"/test/file_{}.rs"}}"#, i),
-                    0,
                     Some("main"),
                     None,
                 )
@@ -755,7 +741,6 @@ async fn test_concurrent_enqueue_mixed_operations() {
                     "test-tenant",
                     "test-collection",
                     r#"{"content":"test content","source_type":"test"}"#,
-                    0,
                     Some("main"),
                     None,
                 )
@@ -815,7 +800,6 @@ async fn test_idempotency_across_workers() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/worker_test.rs"}"#,
-            0,
             Some("main"),
             None,
         )
@@ -840,7 +824,6 @@ async fn test_idempotency_across_workers() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/worker_test.rs"}"#,
-            0,
             Some("main"),
             None,
         )
@@ -881,7 +864,6 @@ async fn test_validation_empty_tenant_id() {
             "",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -910,7 +892,6 @@ async fn test_validation_whitespace_tenant_id() {
             "   ",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -939,7 +920,6 @@ async fn test_validation_empty_collection() {
             "test-tenant",
             "",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -968,7 +948,6 @@ async fn test_validation_invalid_json_payload() {
             "test-tenant",
             "test-collection",
             "not valid json",
-            0,
             None,
             None,
         )
@@ -997,7 +976,6 @@ async fn test_validation_file_missing_file_path() {
             "test-tenant",
             "test-collection",
             r#"{"other_field":"value"}"#,
-            0,
             None,
             None,
         )
@@ -1030,7 +1008,6 @@ async fn test_validation_content_missing_content() {
             "test-tenant",
             "test-collection",
             r#"{"source_type":"mcp"}"#,
-            0,
             None,
             None,
         )
@@ -1063,7 +1040,6 @@ async fn test_validation_delete_document_missing_document_id() {
             "test-tenant",
             "test-collection",
             r#"{"point_ids":["abc"]}"#,
-            0,
             None,
             None,
         )
@@ -1096,7 +1072,6 @@ async fn test_validation_file_rename_missing_old_path() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/new.rs"}"#,
-            0,
             None,
             None,
         )
@@ -1129,7 +1104,6 @@ async fn test_validation_valid_items_pass() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -1144,7 +1118,6 @@ async fn test_validation_valid_items_pass() {
             "test-tenant",
             "test-collection",
             r#"{"content":"test content","source_type":"mcp"}"#,
-            0,
             None,
             None,
         )
@@ -1159,7 +1132,6 @@ async fn test_validation_valid_items_pass() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":"/test/new.rs","old_path":"/test/old.rs"}"#,
-            0,
             None,
             None,
         )
@@ -1174,7 +1146,6 @@ async fn test_validation_valid_items_pass() {
             "test-tenant",
             "test-collection",
             r#"{"document_id":"doc-123"}"#,
-            0,
             None,
             None,
         )
@@ -1201,7 +1172,6 @@ async fn test_validation_empty_string_in_required_field() {
             "test-tenant",
             "test-collection",
             r#"{"file_path":""}"#,
-            0,
             None,
             None,
         )
@@ -1243,9 +1213,9 @@ async fn test_dequeue_fifo_ordering() {
         let ts = format!("2026-01-0{}T00:00:00.000Z", i);
         sqlx::query(
             r#"INSERT INTO unified_queue
-               (queue_id, item_type, op, tenant_id, collection, priority, status,
+               (queue_id, item_type, op, tenant_id, collection, status,
                 branch, idempotency_key, payload_json, created_at, updated_at)
-               VALUES (?1, 'file', 'add', 'tenant-a', 'projects', 0, 'pending',
+               VALUES (?1, 'file', 'add', 'tenant-a', 'projects', 'pending',
                 'main', ?2, ?3, ?4, ?4)"#,
         )
         .bind(format!("fifo-q{}", i))
@@ -1294,9 +1264,9 @@ async fn test_dequeue_lifo_ordering() {
         let ts = format!("2026-01-0{}T00:00:00.000Z", i);
         sqlx::query(
             r#"INSERT INTO unified_queue
-               (queue_id, item_type, op, tenant_id, collection, priority, status,
+               (queue_id, item_type, op, tenant_id, collection, status,
                 branch, idempotency_key, payload_json, created_at, updated_at)
-               VALUES (?1, 'file', 'add', 'tenant-a', 'projects', 0, 'pending',
+               VALUES (?1, 'file', 'add', 'tenant-a', 'projects', 'pending',
                 'main', ?2, ?3, ?4, ?4)"#,
         )
         .bind(format!("lifo-q{}", i))
@@ -1411,7 +1381,6 @@ async fn test_delete_cascade_purges_pending_items() {
                 "tenant-to-delete",
                 "projects",
                 &format!(r#"{{"file_path":"/file_{}.rs"}}"#, i),
-                0,
                 None,
                 None,
             )
@@ -1431,7 +1400,6 @@ async fn test_delete_cascade_purges_pending_items() {
             "tenant-to-delete",
             "projects",
             r#"{"tenant_id":"tenant-to-delete"}"#,
-            0,
             None,
             None,
         )
@@ -1480,7 +1448,6 @@ async fn test_delete_cascade_does_not_affect_other_tenants() {
             "tenant-a",
             "projects",
             r#"{"file_path":"/a/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -1494,7 +1461,6 @@ async fn test_delete_cascade_does_not_affect_other_tenants() {
             "tenant-b",
             "projects",
             r#"{"file_path":"/b/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -1509,7 +1475,6 @@ async fn test_delete_cascade_does_not_affect_other_tenants() {
             "tenant-a",
             "projects",
             r#"{"tenant_id":"tenant-a"}"#,
-            0,
             None,
             None,
         )
@@ -1549,7 +1514,6 @@ async fn test_op_priority_dequeue_ordering() {
             "tenant-add",
             "projects",
             r#"{"file_path":"/add/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -1564,7 +1528,6 @@ async fn test_op_priority_dequeue_ordering() {
             "tenant-update",
             "projects",
             r#"{"file_path":"/update/file.rs"}"#,
-            0,
             None,
             None,
         )
@@ -1579,7 +1542,6 @@ async fn test_op_priority_dequeue_ordering() {
             "tenant-delete",
             "projects",
             r#"{"tenant_id":"tenant-delete"}"#,
-            0,
             None,
             None,
         )
@@ -1594,7 +1556,6 @@ async fn test_op_priority_dequeue_ordering() {
             "tenant-scan",
             "projects",
             r#"{"tenant_id":"tenant-scan"}"#,
-            0,
             None,
             None,
         )
@@ -1720,7 +1681,7 @@ async fn test_store_queue_decision() {
     let (queue_id, _) = manager
         .enqueue_unified(
             ItemType::File, UnifiedOp::Update, "t1", "projects",
-            r#"{"file_path":"/test/file.rs"}"#, 0, Some("main"), None,
+            r#"{"file_path":"/test/file.rs"}"#, Some("main"), None,
         )
         .await
         .unwrap();
@@ -1779,7 +1740,7 @@ async fn test_update_destination_status() {
     let (queue_id, _) = manager
         .enqueue_unified(
             ItemType::File, UnifiedOp::Add, "t1", "projects",
-            r#"{"file_path":"/test/file.rs"}"#, 0, Some("main"), None,
+            r#"{"file_path":"/test/file.rs"}"#, Some("main"), None,
         )
         .await
         .unwrap();
@@ -1829,7 +1790,7 @@ async fn test_check_and_finalize_both_done() {
 
     let (queue_id, _) = manager.enqueue_unified(
         ItemType::File, UnifiedOp::Add, "fin-tenant", "projects",
-        r#"{"file_path":"/test/fin.rs"}"#, 5, Some("main"), None,
+        r#"{"file_path":"/test/fin.rs"}"#, Some("main"), None,
     ).await.unwrap();
 
     // Initially both pending -- should be InProgress
@@ -1867,7 +1828,7 @@ async fn test_check_and_finalize_partial_failure() {
 
     let (queue_id, _) = manager.enqueue_unified(
         ItemType::File, UnifiedOp::Add, "fin-tenant2", "projects",
-        r#"{"file_path":"/test/fail.rs"}"#, 5, Some("main"), None,
+        r#"{"file_path":"/test/fail.rs"}"#, Some("main"), None,
     ).await.unwrap();
 
     // Qdrant succeeds, search fails
@@ -1912,7 +1873,7 @@ async fn test_ensure_destinations_resolved_both_pending() {
 
     let (queue_id, _) = manager.enqueue_unified(
         ItemType::Tenant, UnifiedOp::Scan, "resolve-tenant", "projects",
-        r#"{"project_root":"/test"}"#, 5, None, None,
+        r#"{"project_root":"/test"}"#, None, None,
     ).await.unwrap();
 
     // Both statuses start as pending -- ensure_destinations_resolved should set both to done
@@ -1942,7 +1903,7 @@ async fn test_ensure_destinations_resolved_preserves_explicit_status() {
 
     let (queue_id, _) = manager.enqueue_unified(
         ItemType::File, UnifiedOp::Add, "resolve-tenant2", "projects",
-        r#"{"file_path":"/test/file.rs"}"#, 5, Some("main"), None,
+        r#"{"file_path":"/test/file.rs"}"#, Some("main"), None,
     ).await.unwrap();
 
     // Explicitly set qdrant to failed, leave search as pending
@@ -1975,7 +1936,7 @@ async fn test_ensure_destinations_resolved_preserves_done() {
 
     let (queue_id, _) = manager.enqueue_unified(
         ItemType::File, UnifiedOp::Add, "resolve-tenant3", "projects",
-        r#"{"file_path":"/test/done.rs"}"#, 5, Some("main"), None,
+        r#"{"file_path":"/test/done.rs"}"#, Some("main"), None,
     ).await.unwrap();
 
     // Explicitly set both to done

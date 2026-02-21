@@ -161,7 +161,6 @@ async fn test_register_project_enqueues_tenant_add() {
         "test_tenant_01",
         "projects",
         &payload,
-        0,
         None,
         None,
     ).await.unwrap();
@@ -186,7 +185,6 @@ async fn test_delete_project_enqueues_tenant_delete() {
         "test_tenant_01",
         "projects",
         &payload,
-        0,
         None,
         None,
     ).await.unwrap();
@@ -238,7 +236,6 @@ async fn test_progressive_scan_single_level_only() {
         "test_project",
         "projects",
         &payload,
-        0,
         None,
         None,
     ).await.unwrap();
@@ -255,7 +252,7 @@ async fn test_progressive_scan_single_level_only() {
         let fp = serde_json::json!({"file_path": file_path}).to_string();
         queue_manager.enqueue_unified(
             ItemType::File, QueueOperation::Add, "test_project", "projects",
-            &fp, 0, None, None,
+            &fp, None, None,
         ).await.unwrap();
     }
     for dname in &["subdir1", "subdir2"] {
@@ -263,7 +260,7 @@ async fn test_progressive_scan_single_level_only() {
         let fp = serde_json::json!({"folder_path": dir_path}).to_string();
         queue_manager.enqueue_unified(
             ItemType::Folder, QueueOperation::Scan, "test_project", "projects",
-            &fp, 0, None, None,
+            &fp, None, None,
         ).await.unwrap();
     }
 
@@ -305,7 +302,6 @@ async fn test_collection_uplift_cascade() {
         "system",
         "projects",
         &payload,
-        0,
         None,
         None,
     ).await.unwrap();
@@ -336,7 +332,6 @@ async fn test_collection_reset_cascade() {
         "system",
         "projects",
         &payload,
-        0,
         None,
         None,
     ).await.unwrap();
@@ -356,13 +351,13 @@ async fn test_idempotent_enqueue_deduplication() {
     // First enqueue
     let (_, is_new_1) = queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "tenant1", "projects",
-        &payload, 0, None, None,
+        &payload, None, None,
     ).await.unwrap();
 
     // Duplicate enqueue (same idempotency key)
     let (_, is_new_2) = queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "tenant1", "projects",
-        &payload, 0, None, None,
+        &payload, None, None,
     ).await.unwrap();
 
     assert!(is_new_1);
@@ -384,7 +379,7 @@ async fn test_website_add_creates_scan() {
 
     queue_manager.enqueue_unified(
         ItemType::Website, QueueOperation::Add, "tenant1", "projects",
-        &payload, 0, None, None,
+        &payload, None, None,
     ).await.unwrap();
 
     assert_eq!(count_queue_items(&pool, "website", "add").await, 1);
@@ -415,7 +410,7 @@ async fn test_tenant_uplift_with_tracked_files() {
     let payload = serde_json::json!({"project_root": "/test/project"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Tenant, QueueOperation::Uplift, "tenant_1", "projects",
-        &payload, 0, None, None,
+        &payload, None, None,
     ).await.unwrap();
 
     assert_eq!(count_queue_items(&pool, "tenant", "uplift").await, 1);

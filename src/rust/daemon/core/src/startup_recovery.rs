@@ -111,7 +111,6 @@ pub async fn check_base_point_migration(
             tenant_id,
             "projects",
             &serde_json::to_string(&payload).unwrap_or_default(),
-            5, // Normal priority
             Some("main"),
             None,
         ).await {
@@ -363,7 +362,6 @@ async fn recover_watch_folder(
         tenant_id,
         collection,
         &scan_payload,
-        0, // Priority computed at dequeue time
         Some(&branch),
         None,
     )
@@ -464,7 +462,6 @@ async fn enqueue_file_op(
         tenant_id,
         collection,
         &payload_json,
-        0, // Priority computed at dequeue time
         Some(&branch),
         metadata,
     )

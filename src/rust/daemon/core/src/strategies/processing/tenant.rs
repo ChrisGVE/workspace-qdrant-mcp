@@ -213,7 +213,6 @@ impl TenantStrategy {
                         &item.tenant_id,
                         &item.collection,
                         &scan_payload_json,
-                        0,
                         None,
                         None,
                     )
@@ -319,7 +318,6 @@ impl TenantStrategy {
                             &item.tenant_id,
                             &item.collection,
                             &doc_payload,
-                            0,
                             None,
                             None,
                         )
@@ -636,7 +634,6 @@ impl TenantStrategy {
                     &item.tenant_id,
                     &item.collection,
                     &payload_json,
-                    0,
                     Some(""), // No branch for libraries
                     None,
                 )
@@ -805,7 +802,6 @@ impl TenantStrategy {
                     &item.tenant_id,
                     &item.collection,
                     &payload_json,
-                    0,
                     Some(&item.branch),
                     None,
                 )
@@ -913,7 +909,6 @@ impl TenantStrategy {
                     &item.tenant_id,
                     &item.collection,
                     &payload_json,
-                    0,
                     Some(&item.branch),
                     None,
                 )

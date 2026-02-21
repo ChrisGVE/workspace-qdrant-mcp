@@ -329,7 +329,6 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
                 "stress_tenant",
                 "stress_test_collection",
                 &payload_json,
-                0,
                 Some("main"),
                 None,
             )
@@ -817,7 +816,6 @@ async fn stress_test_queue_depth() -> TestResult {
                 "tenant",
                 "queue_depth_test",
                 &payload_json,
-                0,
                 Some("main"),
                 None,
             )

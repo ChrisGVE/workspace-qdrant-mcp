@@ -33,9 +33,6 @@ pub enum QueueError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
-    #[error("Invalid priority: {0}")]
-    InvalidPriority(i32),
-
     #[error("Invalid operation type: {0}")]
     InvalidOperation(String),
 
@@ -71,7 +68,6 @@ pub struct MissingMetadataItem {
     pub tenant_id: String,
     pub branch: String,
     pub operation: UnifiedOp,
-    pub priority: i32,
     pub missing_tools: Vec<MissingTool>,
     pub queued_timestamp: DateTime<Utc>,
     pub retry_count: i32,

@@ -46,7 +46,6 @@ impl QueueManager {
                 new_tenant_id,
                 collection,
                 &payload_json,
-                0,
                 None,
                 Some(&metadata),
             ).await?;
@@ -79,7 +78,6 @@ impl QueueManager {
             &payload.library_name,
             COLLECTION_LIBRARIES,
             &payload_json,
-            0, // priority computed at dequeue
             branch,
             None,
         ).await

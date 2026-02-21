@@ -71,7 +71,6 @@ impl UnifiedQueueClient {
         tenant_id: &str,
         collection: &str,
         payload: &ContentPayload,
-        priority: i32,
         branch: &str,
     ) -> Result<EnqueueResult> {
         let payload_json = serde_json::to_string(payload)
@@ -83,7 +82,6 @@ impl UnifiedQueueClient {
             tenant_id,
             collection,
             &payload_json,
-            priority,
             branch,
             None,
         )
@@ -96,7 +94,6 @@ impl UnifiedQueueClient {
         collection: &str,
         payload: &FilePayload,
         op: QueueOperation,
-        priority: i32,
         branch: &str,
     ) -> Result<EnqueueResult> {
         let payload_json = serde_json::to_string(payload)
@@ -108,7 +105,6 @@ impl UnifiedQueueClient {
             tenant_id,
             collection,
             &payload_json,
-            priority,
             branch,
             None,
         )
@@ -120,7 +116,6 @@ impl UnifiedQueueClient {
         tenant_id: &str,
         collection: &str,
         payload: &UrlPayload,
-        priority: i32,
         branch: &str,
     ) -> Result<EnqueueResult> {
         let payload_json = serde_json::to_string(payload)
@@ -132,7 +127,6 @@ impl UnifiedQueueClient {
             tenant_id,
             collection,
             &payload_json,
-            priority,
             branch,
             None,
         )
@@ -143,7 +137,6 @@ impl UnifiedQueueClient {
         &self,
         tenant_id: &str,
         payload: &ScratchpadPayload,
-        priority: i32,
     ) -> Result<EnqueueResult> {
         let payload_json = serde_json::to_string(payload)
             .context("Failed to serialize scratchpad payload")?;
@@ -154,7 +147,6 @@ impl UnifiedQueueClient {
             tenant_id,
             wqm_common::constants::COLLECTION_SCRATCHPAD,
             &payload_json,
-            priority,
             "main",
             None,
         )
@@ -168,7 +160,6 @@ impl UnifiedQueueClient {
         tenant_id: &str,
         collection: &str,
         payload_json: &str,
-        priority: i32,
         branch: &str,
         metadata: Option<&str>,
     ) -> Result<EnqueueResult> {
@@ -193,9 +184,9 @@ impl UnifiedQueueClient {
             r#"
             INSERT OR IGNORE INTO unified_queue (
                 queue_id, idempotency_key, item_type, op, tenant_id, collection,
-                priority, status, branch, payload_json, metadata,
+                status, branch, payload_json, metadata,
                 created_at, updated_at, retry_count, max_retries
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?9, ?10, ?11, ?11, 0, 3)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?10, 0, 3)
             "#,
             rusqlite::params![
                 &queue_id,
@@ -204,7 +195,6 @@ impl UnifiedQueueClient {
                 &op_str,
                 tenant_id,
                 collection,
-                priority,
                 branch,
                 payload_json,
                 metadata,

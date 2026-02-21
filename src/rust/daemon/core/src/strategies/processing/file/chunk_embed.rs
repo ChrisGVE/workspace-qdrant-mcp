@@ -356,7 +356,6 @@ mod tests {
             op: QueueOperation::Add,
             tenant_id: "tenant-abc".into(),
             collection: "projects".into(),
-            priority: 5,
             status: QueueStatus::InProgress,
             branch: "main".into(),
             payload_json: "{}".into(),

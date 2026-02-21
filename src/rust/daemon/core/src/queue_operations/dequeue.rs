@@ -121,18 +121,20 @@ impl QueueManager {
             )
             {tenant_filter}
             ORDER BY
-                CASE WHEN q.op = 'delete' THEN 10
-                     WHEN q.op = 'reset' THEN 8
-                     WHEN q.op = 'scan' THEN 5
-                     WHEN q.op = 'update' THEN 3
-                     ELSE 1
-                END DESC,
+                -- Tier 1: Activity priority (active project or memory = high, else low)
                 CASE
                     WHEN q.collection = '{coll_memory}' THEN 1
                     WHEN q.collection = '{coll_libraries}' THEN 0
                     WHEN w.is_active = 1 THEN 1
                     ELSE 0
                 END {priority_order},
+                -- Tier 2: Operation ordering (subordinated to activity priority)
+                CASE WHEN q.op = 'delete' THEN 10
+                     WHEN q.op = 'reset' THEN 8
+                     WHEN q.op = 'scan' THEN 5
+                     WHEN q.op = 'update' THEN 3
+                     ELSE 1
+                END DESC,
                 q.created_at {created_at_order}
             LIMIT {limit_param}
             "#,
@@ -249,7 +251,6 @@ impl QueueManager {
                     .ok_or_else(|| QueueError::InvalidOperation(op_str.clone()))?,
                 tenant_id: row.try_get("tenant_id")?,
                 collection: row.try_get("collection")?,
-                priority: row.try_get("priority")?,
                 status: QueueStatus::from_str(&status_str)
                     .ok_or_else(|| QueueError::InvalidOperation(status_str.clone()))?,
                 branch: row.try_get("branch")?,

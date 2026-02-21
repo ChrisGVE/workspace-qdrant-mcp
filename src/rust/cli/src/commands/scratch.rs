@@ -101,7 +101,7 @@ async fn add_entry(
     };
 
     let queue = UnifiedQueueClient::connect()?;
-    let result = queue.enqueue_scratchpad(&tenant_id, &payload, 0)?;
+    let result = queue.enqueue_scratchpad(&tenant_id, &payload)?;
 
     // Signal daemon to process queue
     if let Ok(mut client) = DaemonClient::connect_default().await {

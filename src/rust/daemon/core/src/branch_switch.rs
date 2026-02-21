@@ -292,7 +292,6 @@ async fn enqueue_file_op(
         tenant_id,
         collection,
         &payload_json,
-        0, // Priority computed at dequeue time
         Some(branch),
         None,
     )
@@ -321,7 +320,6 @@ async fn enqueue_tenant_scan(
         tenant_id,
         collection,
         &payload,
-        0,
         Some(&branch),
         None,
     )

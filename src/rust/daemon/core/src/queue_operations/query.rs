@@ -152,7 +152,6 @@ impl QueueManager {
                         .ok_or_else(|| QueueError::InvalidOperation(op_str.clone()))?,
                     tenant_id: row.try_get("tenant_id")?,
                     collection: row.try_get("collection")?,
-                    priority: row.try_get("priority")?,
                     status: QueueStatus::from_str(&status_str)
                         .ok_or_else(|| QueueError::InvalidOperation(status_str.clone()))?,
                     branch: row.try_get("branch")?,

@@ -575,7 +575,6 @@ async fn cleanup_orphans(delete: bool, collection_filter: Option<String>) -> Res
             tenant,
             coll,
             &payload_json,
-            0,
             "",
             None,
         ) {

@@ -9,7 +9,6 @@ pub const ITEM_TYPE: FieldDef = FieldDef::categorical("item_type");
 pub const OP: FieldDef = FieldDef::categorical("op");
 pub const TENANT_ID: FieldDef = FieldDef::categorical("tenant_id");
 pub const COLLECTION: FieldDef = FieldDef::categorical("collection");
-pub const PRIORITY: FieldDef = FieldDef::categorical("priority");
 pub const STATUS: FieldDef = FieldDef::categorical("status");
 pub const CREATED_AT: FieldDef = FieldDef::categorical("created_at");
 pub const UPDATED_AT: FieldDef = FieldDef::categorical("updated_at");
@@ -28,7 +27,7 @@ pub const FILE_PATH: FieldDef = FieldDef::content("file_path");
 /// All columns in definition order.
 pub const ALL_COLUMNS: &[FieldDef] = &[
     QUEUE_ID, ITEM_TYPE, OP, TENANT_ID, COLLECTION,
-    PRIORITY, STATUS, CREATED_AT, UPDATED_AT,
+    STATUS, CREATED_AT, UPDATED_AT,
     LEASE_UNTIL, WORKER_ID, IDEMPOTENCY_KEY,
     PAYLOAD_JSON, RETRY_COUNT, MAX_RETRIES,
     ERROR_MESSAGE, LAST_ERROR_AT, BRANCH, METADATA, FILE_PATH,
@@ -46,7 +45,7 @@ mod tests {
 
     #[test]
     fn column_count() {
-        assert_eq!(ALL_COLUMNS.len(), 20);
+        assert_eq!(ALL_COLUMNS.len(), 19);
     }
 
     #[test]

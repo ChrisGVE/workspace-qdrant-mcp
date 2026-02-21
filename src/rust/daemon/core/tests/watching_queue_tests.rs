@@ -201,7 +201,6 @@ async fn test_unified_queue_enqueue_operation() {
         "test-tenant",
         "projects",
         &payload_json,
-        0,
         Some("main"),
         None,
     ).await;
@@ -257,7 +256,6 @@ async fn test_unified_queue_priority_always_zero() {
         "tenant",
         "projects",
         &serde_json::to_string(&payload1).unwrap(),
-        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue ingest");
@@ -275,7 +273,6 @@ async fn test_unified_queue_priority_always_zero() {
         "tenant",
         "projects",
         &serde_json::to_string(&payload2).unwrap(),
-        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue update");
@@ -293,7 +290,6 @@ async fn test_unified_queue_priority_always_zero() {
         "tenant",
         "projects",
         &serde_json::to_string(&payload3).unwrap(),
-        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue delete");
@@ -334,7 +330,6 @@ async fn test_unified_queue_idempotency() {
         "tenant",
         "projects",
         &payload_json,
-        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue first time");
@@ -348,7 +343,6 @@ async fn test_unified_queue_idempotency() {
         "tenant",
         "projects",
         &payload_json,
-        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue second time");

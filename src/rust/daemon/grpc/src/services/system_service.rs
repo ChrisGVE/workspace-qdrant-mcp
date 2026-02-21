@@ -485,8 +485,8 @@ impl SystemService for SystemServiceImpl {
                     let result = sqlx::query(
                         "INSERT OR IGNORE INTO unified_queue \
                          (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
-                          priority, status, payload_json, created_at, updated_at) \
-                         VALUES (?1, ?2, 'folder', 'scan', ?3, ?4, 1, 'pending', ?5, ?6, ?7)"
+                          status, payload_json, created_at, updated_at) \
+                         VALUES (?1, ?2, 'folder', 'scan', ?3, ?4, 'pending', ?5, ?6, ?7)"
                     )
                     .bind(&queue_id)
                     .bind(idempotency_key)
@@ -681,8 +681,8 @@ impl SystemService for SystemServiceImpl {
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO unified_queue \
              (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
-              priority, status, metadata, created_at, updated_at) \
-             VALUES (?1, ?2, 'metadata', 'pause', '_system', '_system', 0, 'done', ?3, ?4, ?5)"
+              status, metadata, created_at, updated_at) \
+             VALUES (?1, ?2, 'metadata', 'pause', '_system', '_system', 'done', ?3, ?4, ?5)"
         )
         .bind(&queue_id)
         .bind(&queue_id)
@@ -742,8 +742,8 @@ impl SystemService for SystemServiceImpl {
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO unified_queue \
              (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
-              priority, status, metadata, created_at, updated_at) \
-             VALUES (?1, ?2, 'metadata', 'resume', '_system', '_system', 0, 'done', ?3, ?4, ?5)"
+              status, metadata, created_at, updated_at) \
+             VALUES (?1, ?2, 'metadata', 'resume', '_system', '_system', 'done', ?3, ?4, ?5)"
         )
         .bind(&queue_id)
         .bind(&queue_id)

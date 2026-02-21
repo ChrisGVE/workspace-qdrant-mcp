@@ -43,7 +43,6 @@ impl QueueManager {
     /// * `tenant_id` - Project/tenant identifier
     /// * `collection` - Target Qdrant collection
     /// * `payload_json` - JSON payload with operation-specific data
-    /// * `priority` - UNUSED: always pass 0. Priority is computed at dequeue time via CASE/JOIN.
     /// * `branch` - Git branch (default: main)
     /// * `metadata` - Optional additional metadata as JSON
     pub async fn enqueue_unified(
@@ -53,7 +52,6 @@ impl QueueManager {
         tenant_id: &str,
         collection: &str,
         payload_json: &str,
-        priority: i32,
         branch: Option<&str>,
         metadata: Option<&str>,
     ) -> QueueResult<(String, bool)> {
@@ -70,11 +68,6 @@ impl QueueManager {
         if collection.is_empty() {
             error!("Queue validation failed: collection is empty or whitespace-only");
             return Err(QueueError::EmptyCollection);
-        }
-
-        // Validate priority
-        if !(0..=10).contains(&priority) {
-            return Err(QueueError::InvalidPriority(priority));
         }
 
         // Validate payload_json is valid JSON
@@ -113,9 +106,9 @@ impl QueueManager {
         // The UNIQUE constraint on file_path will also prevent duplicate file entries
         let insert_query = r#"
             INSERT OR IGNORE INTO unified_queue (
-                item_type, op, tenant_id, collection, priority,
+                item_type, op, tenant_id, collection,
                 branch, payload_json, metadata, idempotency_key, file_path
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         "#;
 
         let result = sqlx::query(insert_query)
@@ -123,7 +116,6 @@ impl QueueManager {
             .bind(op.to_string())
             .bind(tenant_id)
             .bind(collection)
-            .bind(priority)
             .bind(branch)
             .bind(payload_json)
             .bind(metadata)

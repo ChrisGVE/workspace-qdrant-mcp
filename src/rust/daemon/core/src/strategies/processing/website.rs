@@ -116,7 +116,6 @@ impl WebsiteStrategy {
                 &item.tenant_id,
                 &item.collection,
                 &scan_payload,
-                0,
                 None,
                 None,
             )
@@ -181,7 +180,6 @@ impl WebsiteStrategy {
                 &item.tenant_id,
                 &item.collection,
                 &root_url_payload,
-                0,
                 None,
                 None,
             )
@@ -257,7 +255,6 @@ impl WebsiteStrategy {
                         &item.tenant_id,
                         &item.collection,
                         &url_payload,
-                        0,
                         None,
                         None,
                     )
@@ -294,7 +291,6 @@ impl WebsiteStrategy {
                 &item.tenant_id,
                 &item.collection,
                 &scan_payload,
-                0,
                 None,
                 None,
             )

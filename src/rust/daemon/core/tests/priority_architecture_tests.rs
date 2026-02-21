@@ -9,7 +9,10 @@
 
 use workspace_qdrant_core::{
     QueueManager,
-    unified_queue_schema::{ItemType, QueueOperation},
+    unified_queue_schema::{
+        ItemType, QueueOperation,
+        CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL,
+    },
     fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig},
 };
 use sqlx::SqlitePool;
@@ -21,39 +24,15 @@ async fn create_test_database() -> SqlitePool {
         .await
         .expect("Failed to create in-memory database");
 
-    sqlx::query(
-        r#"
-        CREATE TABLE unified_queue (
-            queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
-            item_type TEXT NOT NULL CHECK (item_type IN (
-                'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
-            )),
-            op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
-            tenant_id TEXT NOT NULL,
-            collection TEXT NOT NULL,
-            priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
-            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
-                'pending', 'in_progress', 'done', 'failed'
-            )),
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            lease_until TEXT,
-            worker_id TEXT,
-            idempotency_key TEXT NOT NULL UNIQUE,
-            payload_json TEXT NOT NULL DEFAULT '{}',
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            max_retries INTEGER NOT NULL DEFAULT 3,
-            error_message TEXT,
-            last_error_at TEXT,
-            branch TEXT DEFAULT 'main',
-            metadata TEXT DEFAULT '{}',
-            file_path TEXT UNIQUE
-        )
-        "#
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create unified_queue table");
+    sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+        .execute(&pool)
+        .await
+        .expect("Failed to create unified_queue table");
+
+    for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
+        sqlx::query(index_sql).execute(&pool).await
+            .expect("Failed to create unified_queue index");
+    }
 
     sqlx::query(
         r#"
@@ -138,7 +117,7 @@ async fn test_active_project_dequeued_before_inactive() {
     let payload_inactive = serde_json::json!({"file_path": "/test/inactive/file.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "inactive_tenant", "projects",
-        &payload_inactive, 0, None, None,
+        &payload_inactive, None, None,
     ).await.unwrap();
 
     // Small delay to ensure different created_at timestamps
@@ -147,7 +126,7 @@ async fn test_active_project_dequeued_before_inactive() {
     let payload_active = serde_json::json!({"file_path": "/test/active/file.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "active_tenant", "projects",
-        &payload_active, 0, None, None,
+        &payload_active, None, None,
     ).await.unwrap();
 
     // Dequeue with priority DESC — active should come first
@@ -172,7 +151,7 @@ async fn test_memory_collection_high_priority() {
     let payload_lib = serde_json::json!({"file_path": "/lib/doc.md"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "lib_tenant", "libraries",
-        &payload_lib, 0, None, None,
+        &payload_lib, None, None,
     ).await.unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -180,7 +159,7 @@ async fn test_memory_collection_high_priority() {
     let payload_memory = serde_json::json!({"content": "remember this"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Text, QueueOperation::Add, "user", "memory",
-        &payload_memory, 0, None, None,
+        &payload_memory, None, None,
     ).await.unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -188,7 +167,7 @@ async fn test_memory_collection_high_priority() {
     let payload_proj = serde_json::json!({"file_path": "/test/file.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "project_tenant", "projects",
-        &payload_proj, 0, None, None,
+        &payload_proj, None, None,
     ).await.unwrap();
 
     // Dequeue with priority DESC
@@ -213,7 +192,7 @@ async fn test_op_based_priority_delete_before_add() {
     let payload_add = serde_json::json!({"file_path": "/test/add.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "tenant_1", "projects",
-        &payload_add, 0, None, None,
+        &payload_add, None, None,
     ).await.unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -221,7 +200,7 @@ async fn test_op_based_priority_delete_before_add() {
     let payload_del = serde_json::json!({"file_path": "/test/delete.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Delete, "tenant_1", "projects",
-        &payload_del, 0, None, None,
+        &payload_del, None, None,
     ).await.unwrap();
 
     let items = queue_manager.dequeue_unified(
@@ -246,7 +225,7 @@ async fn test_anti_starvation_asc_mode_reverses_priority() {
     let payload_active = serde_json::json!({"file_path": "/test/active/a.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "active_tenant", "projects",
-        &payload_active, 0, None, None,
+        &payload_active, None, None,
     ).await.unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -254,7 +233,7 @@ async fn test_anti_starvation_asc_mode_reverses_priority() {
     let payload_inactive = serde_json::json!({"file_path": "/test/inactive/b.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "inactive_tenant", "projects",
-        &payload_inactive, 0, None, None,
+        &payload_inactive, None, None,
     ).await.unwrap();
 
     // Dequeue with priority ASC (anti-starvation mode) — inactive should come first
@@ -283,7 +262,7 @@ async fn test_fairness_scheduler_flips_direction() {
         let payload = serde_json::json!({"file_path": format!("/test/active/f{}.rs", i)}).to_string();
         queue_manager.enqueue_unified(
             ItemType::File, QueueOperation::Add, "active_t", "projects",
-            &payload, 0, None, None,
+            &payload, None, None,
         ).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
     }
@@ -291,7 +270,7 @@ async fn test_fairness_scheduler_flips_direction() {
         let payload = serde_json::json!({"file_path": format!("/test/inactive/f{}.rs", i)}).to_string();
         queue_manager.enqueue_unified(
             ItemType::File, QueueOperation::Add, "inactive_t", "projects",
-            &payload, 0, None, None,
+            &payload, None, None,
         ).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
     }
@@ -346,13 +325,13 @@ async fn test_progressive_scan_does_not_recurse() {
     let payload_file = serde_json::json!({"file_path": root.join("top.rs").to_string_lossy()}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "test_t", "projects",
-        &payload_file, 0, None, None,
+        &payload_file, None, None,
     ).await.unwrap();
 
     let payload_dir = serde_json::json!({"folder_path": root.join("level1").to_string_lossy()}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Folder, QueueOperation::Scan, "test_t", "projects",
-        &payload_dir, 0, None, None,
+        &payload_dir, None, None,
     ).await.unwrap();
 
     // Should NOT have level2 or deep.rs — those come from scanning level1 later
@@ -378,7 +357,7 @@ async fn test_scan_op_higher_priority_than_add() {
     let payload_file = serde_json::json!({"file_path": "/test/project/file.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "tenant_1", "projects",
-        &payload_file, 0, None, None,
+        &payload_file, None, None,
     ).await.unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -386,7 +365,7 @@ async fn test_scan_op_higher_priority_than_add() {
     let payload_scan = serde_json::json!({"folder_path": "/test/project/subdir"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Folder, QueueOperation::Scan, "tenant_1", "projects",
-        &payload_scan, 0, None, None,
+        &payload_scan, None, None,
     ).await.unwrap();
 
     // Dequeue — scan (priority=5) should come before add (priority=1)
@@ -429,7 +408,7 @@ async fn test_submodule_directory_with_git_is_separate() {
     let regular_payload = serde_json::json!({"folder_path": root.join("regular_dir").to_string_lossy()}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Folder, QueueOperation::Scan, "parent_tenant", "projects",
-        &regular_payload, 0, None, None,
+        &regular_payload, None, None,
     ).await.unwrap();
 
     let submodule_payload = serde_json::json!({
@@ -438,7 +417,7 @@ async fn test_submodule_directory_with_git_is_separate() {
     }).to_string();
     queue_manager.enqueue_unified(
         ItemType::Tenant, QueueOperation::Add, "submodule_tenant", "projects",
-        &submodule_payload, 0, None, None,
+        &submodule_payload, None, None,
     ).await.unwrap();
 
     // Verify: regular_dir is a folder scan, submodule is a tenant add
@@ -468,7 +447,7 @@ async fn test_tenant_delete_enqueues_for_full_removal() {
 
     let (queue_id, is_new) = queue_manager.enqueue_unified(
         ItemType::Tenant, QueueOperation::Delete, "project_tenant", "projects",
-        &payload, 0, None, None,
+        &payload, None, None,
     ).await.unwrap();
 
     assert!(is_new);
@@ -492,14 +471,14 @@ async fn test_delete_op_highest_priority_in_dequeue() {
     let payload_add = serde_json::json!({"file_path": "/test/project/add.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Add, "t1", "projects",
-        &payload_add, 0, None, None,
+        &payload_add, None, None,
     ).await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
 
     let payload_update = serde_json::json!({"file_path": "/test/project/update.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Update, "t1", "projects",
-        &payload_update, 0, None, None,
+        &payload_update, None, None,
     ).await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
 
@@ -507,14 +486,14 @@ async fn test_delete_op_highest_priority_in_dequeue() {
     let payload_scan = serde_json::json!({"folder_path": "/test/project/subdir"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Folder, QueueOperation::Scan, "t1", "projects",
-        &payload_scan, 0, None, None,
+        &payload_scan, None, None,
     ).await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
 
     let payload_del = serde_json::json!({"file_path": "/test/project/delete.rs"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::File, QueueOperation::Delete, "t1", "projects",
-        &payload_del, 0, None, None,
+        &payload_del, None, None,
     ).await.unwrap();
 
     // Dequeue all — should be ordered by op priority: delete(10) > scan(5) > update(3) > add(1)

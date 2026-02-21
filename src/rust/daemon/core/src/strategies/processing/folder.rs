@@ -244,7 +244,6 @@ impl FolderStrategy {
                             &submodule_tenant,
                             &item.collection,
                             &payload_json,
-                            0,
                             None,
                             None,
                         )
@@ -276,7 +275,6 @@ impl FolderStrategy {
                         &item.tenant_id,
                         &item.collection,
                         &payload_json,
-                        0,
                         None,
                         None,
                     )
@@ -345,7 +343,6 @@ impl FolderStrategy {
                         &item.tenant_id,
                         &item.collection,
                         &payload_json,
-                        0,
                         Some(&item.branch),
                         None,
                     )
@@ -465,7 +462,6 @@ impl FolderStrategy {
                     &item.tenant_id,
                     &item.collection,
                     &payload_json,
-                    0,
                     Some(&item.branch),
                     None,
                 )
