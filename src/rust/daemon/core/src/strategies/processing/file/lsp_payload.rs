@@ -109,7 +109,9 @@ pub(crate) fn add_lsp_enrichment_to_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lsp::project_manager::{EnrichmentStatus, LspEnrichment};
+    use crate::lsp::project_manager::{
+        EnrichmentStatus, LspEnrichment, Reference, TypeInfo, ResolvedImport,
+    };
 
     #[test]
     fn test_lsp_enrichment_status_lowercase_in_payload() {
@@ -151,5 +153,227 @@ mod tests {
             status2, "failed",
             "lsp_enrichment_status must be lowercase"
         );
+    }
+
+    #[test]
+    fn test_lsp_enrichment_skipped_includes_error() {
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Skipped,
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            error_message: Some("server not ready".to_string()),
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        assert_eq!(
+            payload["lsp_enrichment_status"],
+            serde_json::json!("skipped")
+        );
+        assert_eq!(
+            payload["lsp_enrichment_error"],
+            serde_json::json!("server not ready")
+        );
+        // No other fields should be added for skipped status
+        assert!(!payload.contains_key("lsp_references"));
+        assert!(!payload.contains_key("lsp_type_signature"));
+    }
+
+    #[test]
+    fn test_lsp_enrichment_skipped_without_error() {
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Skipped,
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            error_message: None,
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        assert_eq!(
+            payload["lsp_enrichment_status"],
+            serde_json::json!("skipped")
+        );
+        assert!(!payload.contains_key("lsp_enrichment_error"));
+    }
+
+    #[test]
+    fn test_lsp_enrichment_references_truncated_at_20() {
+        let refs: Vec<Reference> = (0..30)
+            .map(|i| Reference {
+                file: format!("/src/file_{}.rs", i),
+                line: i,
+                column: 0,
+                end_line: None,
+                end_column: None,
+            })
+            .collect();
+
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Success,
+            references: refs,
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            error_message: None,
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        let lsp_refs = payload["lsp_references"].as_array().unwrap();
+        assert_eq!(lsp_refs.len(), 20, "References should be capped at 20");
+        // But the count should reflect the total
+        assert_eq!(payload["lsp_references_count"], serde_json::json!(30));
+    }
+
+    #[test]
+    fn test_lsp_enrichment_type_info_doc_truncation() {
+        let long_doc = "x".repeat(600);
+
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Success,
+            references: vec![],
+            type_info: Some(TypeInfo {
+                type_signature: "fn foo() -> Bar".to_string(),
+                kind: "function".to_string(),
+                documentation: Some(long_doc),
+                container: None,
+            }),
+            resolved_imports: vec![],
+            definition: None,
+            error_message: None,
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        assert_eq!(
+            payload["lsp_type_signature"],
+            serde_json::json!("fn foo() -> Bar")
+        );
+        assert_eq!(payload["lsp_type_kind"], serde_json::json!("function"));
+
+        let doc = payload["lsp_type_documentation"].as_str().unwrap();
+        assert!(doc.ends_with("..."), "Long docs should be truncated with '...'");
+        assert_eq!(doc.len(), 503, "Truncated doc: 500 chars + '...'");
+    }
+
+    #[test]
+    fn test_lsp_enrichment_type_info_short_doc_not_truncated() {
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Success,
+            references: vec![],
+            type_info: Some(TypeInfo {
+                type_signature: "struct Foo".to_string(),
+                kind: "struct".to_string(),
+                documentation: Some("A simple struct.".to_string()),
+                container: None,
+            }),
+            resolved_imports: vec![],
+            definition: None,
+            error_message: None,
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        assert_eq!(
+            payload["lsp_type_documentation"],
+            serde_json::json!("A simple struct.")
+        );
+    }
+
+    #[test]
+    fn test_lsp_enrichment_imports_serialization() {
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Success,
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![
+                ResolvedImport {
+                    import_name: "std::collections::HashMap".to_string(),
+                    target_file: Some("/rustlib/collections.rs".to_string()),
+                    target_symbol: None,
+                    is_stdlib: true,
+                    resolved: true,
+                },
+                ResolvedImport {
+                    import_name: "crate::config::Settings".to_string(),
+                    target_file: Some("/project/src/config.rs".to_string()),
+                    target_symbol: None,
+                    is_stdlib: false,
+                    resolved: true,
+                },
+            ],
+            definition: None,
+            error_message: None,
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        let imports = payload["lsp_imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 2);
+        assert_eq!(imports[0]["name"], serde_json::json!("std::collections::HashMap"));
+        assert_eq!(imports[0]["is_stdlib"], serde_json::json!(true));
+        assert_eq!(imports[1]["is_stdlib"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_lsp_enrichment_definition_location() {
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Success,
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: Some(Reference {
+                file: "/project/src/types.rs".to_string(),
+                line: 42,
+                column: 4,
+                end_line: None,
+                end_column: None,
+            }),
+            error_message: None,
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        let def = &payload["lsp_definition"];
+        assert_eq!(def["file"], serde_json::json!("/project/src/types.rs"));
+        assert_eq!(def["line"], serde_json::json!(42));
+        assert_eq!(def["column"], serde_json::json!(4));
+    }
+
+    #[test]
+    fn test_lsp_enrichment_success_no_data() {
+        let mut payload = HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Success,
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            error_message: None,
+        };
+
+        add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+
+        assert_eq!(
+            payload["lsp_enrichment_status"],
+            serde_json::json!("success")
+        );
+        // Empty collections should not be added
+        assert!(!payload.contains_key("lsp_references"));
+        assert!(!payload.contains_key("lsp_imports"));
+        assert!(!payload.contains_key("lsp_definition"));
+        assert!(!payload.contains_key("lsp_type_signature"));
     }
 }
