@@ -55,6 +55,7 @@ fn projects_config() -> PipelineConfig {
         basket: BasketConfig::default(),
         summary: QuasiSummaryConfig::default(),
         lsp: LspCandidateConfig::default(),
+        cooccurrence_weight: 0.3, // enabled for code projects
     }
 }
 
@@ -97,6 +98,7 @@ fn libraries_config() -> PipelineConfig {
             priority_boost: 1.0, // no LSP boost for libraries
             ..LspCandidateConfig::default()
         },
+        cooccurrence_weight: 0.0, // disabled — no LSP symbols in prose
     }
 }
 
@@ -137,6 +139,7 @@ fn scratchpad_config() -> PipelineConfig {
             priority_boost: 1.0,
             ..LspCandidateConfig::default()
         },
+        cooccurrence_weight: 0.0, // disabled for ephemeral content
     }
 }
 

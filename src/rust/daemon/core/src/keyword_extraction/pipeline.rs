@@ -33,6 +33,9 @@ pub struct PipelineConfig {
     pub basket: BasketConfig,
     pub summary: QuasiSummaryConfig,
     pub lsp: LspCandidateConfig,
+    /// Weight for co-occurrence centrality boosting (0.0 = disabled).
+    /// Default: 0.0 (no boosting until graph has data).
+    pub cooccurrence_weight: f64,
 }
 
 impl Default for PipelineConfig {
@@ -45,6 +48,7 @@ impl Default for PipelineConfig {
             basket: BasketConfig::default(),
             summary: QuasiSummaryConfig::default(),
             lsp: LspCandidateConfig::default(),
+            cooccurrence_weight: 0.0,
         }
     }
 }
@@ -68,6 +72,9 @@ pub struct PipelineInput<'a> {
     /// Pre-computed document frequency map: term → document count.
     /// Used for IDF penalty in keyword selection. Empty map falls back to 0.
     pub df_lookup: &'a std::collections::HashMap<String, u64>,
+    /// Pre-computed co-occurrence centrality scores for symbols.
+    /// Used to boost tags by cross-file symbol importance. None = skip boosting.
+    pub centrality_scores: Option<&'a std::collections::HashMap<String, f64>>,
 }
 
 /// Result of the extraction pipeline.
@@ -242,8 +249,26 @@ pub async fn run_pipeline(
         }
     };
 
+    // Step 6.5: Boost candidates by co-occurrence centrality (Task 31)
+    let mut ranked_subset: Vec<_> = ranked.iter().take(50).cloned().collect();
+    if let Some(centrality) = input.centrality_scores {
+        if config.cooccurrence_weight > 0.0 {
+            for candidate in &mut ranked_subset {
+                if let Some(&cent) = centrality.get(&candidate.phrase) {
+                    candidate.combined_score =
+                        config.cooccurrence_weight * cent
+                            + (1.0 - config.cooccurrence_weight) * candidate.combined_score;
+                }
+            }
+            ranked_subset.sort_by(|a, b| {
+                b.combined_score
+                    .partial_cmp(&a.combined_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+    }
+
     // Step 7: Select tags with MMR diversity
-    let ranked_subset: Vec<_> = ranked.iter().take(50).cloned().collect();
     let tags = tag_selector::select_tags(&ranked_subset, &candidate_vectors, &config.tag);
 
     // Step 8: Keyword basket assignment

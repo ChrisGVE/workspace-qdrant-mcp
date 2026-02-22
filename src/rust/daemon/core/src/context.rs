@@ -10,6 +10,7 @@ use tokio::sync::{RwLock, Semaphore};
 use crate::allowed_extensions::AllowedExtensions;
 use crate::embedding::EmbeddingGenerator;
 use crate::document_processor::DocumentProcessor;
+use crate::keyword_extraction::cooccurrence_graph::CentralityCache;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
 use crate::queue_operations::QueueManager;
@@ -51,6 +52,9 @@ pub struct ProcessingContext {
 
     /// File type allowlist for ingestion filtering.
     pub allowed_extensions: Arc<AllowedExtensions>,
+
+    /// TTL-based cache for symbol co-occurrence centrality scores.
+    pub cooccurrence_cache: Arc<tokio::sync::Mutex<CentralityCache>>,
 }
 
 impl ProcessingContext {
@@ -78,6 +82,7 @@ impl ProcessingContext {
             lsp_manager,
             search_db,
             allowed_extensions,
+            cooccurrence_cache: Arc::new(tokio::sync::Mutex::new(CentralityCache::default())),
         }
     }
 }
@@ -103,6 +108,7 @@ mod tests {
             let _ = &ctx.lsp_manager;
             let _ = &ctx.search_db;
             let _ = &ctx.allowed_extensions;
+            let _ = &ctx.cooccurrence_cache;
         }
     }
 }

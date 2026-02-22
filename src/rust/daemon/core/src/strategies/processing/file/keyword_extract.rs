@@ -10,6 +10,7 @@ use tracing::{info, warn};
 
 use crate::context::ProcessingContext;
 use crate::keyword_extraction::collection_config;
+use crate::keyword_extraction::cooccurrence_graph;
 use crate::keyword_extraction::pipeline::PipelineInput;
 use crate::storage::DocumentPoint;
 use crate::unified_queue_schema::UnifiedQueueItem;
@@ -60,6 +61,21 @@ pub(super) async fn run_keyword_extraction(
         }
     }
 
+    // Fetch co-occurrence centrality scores for code files (Task 31)
+    let centrality_scores = if is_code {
+        let mut cache = ctx.cooccurrence_cache.lock().await;
+        match cache.get_or_compute(&ctx.pool, &item.tenant_id, &item.collection).await {
+            Ok(scores) if !scores.is_empty() => Some(scores),
+            Ok(_) => None,
+            Err(e) => {
+                warn!("Failed to fetch centrality scores: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let pipeline_input = PipelineInput {
         file_path,
         full_text: &full_text,
@@ -69,6 +85,7 @@ pub(super) async fn run_keyword_extraction(
         chunk_texts: &chunk_texts,
         corpus_size,
         df_lookup: &df_lookup,
+        centrality_scores: centrality_scores.as_ref(),
     };
 
     let extraction_start = std::time::Instant::now();
@@ -101,6 +118,29 @@ pub(super) async fn run_keyword_extraction(
             "Failed to update lexicon for {}: {}",
             item.collection, e
         );
+    }
+
+    // Update co-occurrence graph with symbols from this file (Task 31)
+    if is_code {
+        if let Some(lang) = language {
+            let symbols = cooccurrence_graph::extract_symbols(
+                &full_text,
+                lang,
+                &pipeline_config.lsp,
+            );
+            if symbols.len() >= 2 {
+                if let Err(e) = cooccurrence_graph::update_graph(
+                    &ctx.pool,
+                    &item.tenant_id,
+                    &item.collection,
+                    &symbols,
+                )
+                .await
+                {
+                    warn!("Failed to update co-occurrence graph: {}", e);
+                }
+            }
+        }
     }
 
     // Inject extraction results into all point payloads
