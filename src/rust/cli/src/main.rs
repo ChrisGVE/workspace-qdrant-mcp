@@ -55,6 +55,9 @@ Setup & Diagnostics:
   man          Man page generation and installation
   hooks        Claude Code hooks management
   debug        Diagnostic tools (logs, errors)
+
+Benchmarking:
+  benchmark    Benchmarking tools (sparse vector evaluation)
 {after-help}";
 
 /// Workspace Qdrant MCP CLI
@@ -183,6 +186,10 @@ enum Commands {
     /// Diagnostic tools (logs, errors, queue-errors, language)
     #[command(display_order = 63)]
     Debug(commands::debug::DebugArgs),
+
+    /// Benchmarking tools (sparse vector evaluation)
+    #[command(display_order = 70)]
+    Benchmark(commands::benchmark::BenchmarkArgs),
 }
 
 /// Main entry point with minimal tokio runtime for fast startup
@@ -261,6 +268,9 @@ async fn main() -> Result<()> {
         },
         Commands::Hooks(args) => commands::hooks::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,
+
+        // Benchmarking
+        Commands::Benchmark(args) => commands::benchmark::execute(args).await,
     };
 
     // Handle result

@@ -44,3 +44,6 @@ pub mod qdrant_helpers;
 pub mod hooks;
 pub mod init;
 pub mod man;
+
+// Benchmarking
+pub mod benchmark;
