@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 22;
+pub const CURRENT_SCHEMA_VERSION: i32 = 23;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -172,6 +172,7 @@ impl SchemaManager {
             20 => self.migrate_v20().await,
             21 => self.migrate_v21().await,
             22 => self.migrate_v22().await,
+            23 => self.migrate_v23().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -1117,6 +1118,26 @@ impl SchemaManager {
             .await?;
 
         info!("Migration v22 complete");
+        Ok(())
+    }
+
+    /// Migration v23: Create symbol co-occurrence table for concept graph
+    async fn migrate_v23(&self) -> Result<(), SchemaError> {
+        info!("Migration v23: Creating symbol_cooccurrence table");
+
+        use super::cooccurrence_schema::{CREATE_SYMBOL_COOCCURRENCE_SQL, CREATE_COOCCURRENCE_INDEXES_SQL};
+
+        sqlx::query(CREATE_SYMBOL_COOCCURRENCE_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_COOCCURRENCE_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        info!("Migration v23 complete");
         Ok(())
     }
 }

@@ -58,6 +58,7 @@ pub mod tokenizer;
 pub mod parent_unit;
 pub mod title_extraction;
 pub mod resolution_events_schema;
+pub mod cooccurrence_schema;
 pub mod keyword_extraction;
 pub mod indexed_content_schema;
 pub mod keywords_schema;
