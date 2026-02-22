@@ -19,6 +19,7 @@ tracing = { version = "0.1", features = ["log", "attributes", "std"] }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 async-trait = "0.1"
+futures = "0.3"
 
 # Document processing and file watching
 # Use notify v8 for compatibility with notify-debouncer-full
@@ -203,7 +204,6 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 # wiremock = { workspace = true }
 filetime = { workspace = true }
-futures = "0.3"
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 dirs = "5.0"
 libc = "0.2"

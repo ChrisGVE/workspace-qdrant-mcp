@@ -25,6 +25,7 @@
 //! to a full table scan with LIKE only.
 
 use std::collections::HashMap;
+use futures::TryStreamExt;
 use sqlx::Row;
 use tracing::debug;
 
@@ -282,17 +283,20 @@ pub async fn search_exact(
         query = query.bind(format!("{}%", prefix));
     }
 
-    let rows = query.fetch_all(pool).await?;
-
     let max_results = if options.max_results > 0 {
         options.max_results
     } else {
         usize::MAX
     };
 
-    // Apply glob filter and collect matches
+    // Stream rows and apply early termination at max_results.
+    // With fetch(), SQLite evaluates the correlated subquery row-by-row,
+    // so we avoid computing line numbers for rows beyond max_results.
+    let mut stream = query.fetch(pool);
     let mut matches = Vec::new();
-    for row in &rows {
+    let mut truncated = false;
+
+    while let Some(row) = stream.try_next().await? {
         let file_path: String = row.get("file_path");
 
         // Apply glob filter if set
@@ -314,15 +318,13 @@ pub async fn search_exact(
             context_after: vec![],
         });
 
-        if matches.len() > max_results {
+        if matches.len() >= max_results {
+            truncated = true;
             break;
         }
     }
-
-    let truncated = matches.len() > max_results;
-    if truncated {
-        matches.truncate(max_results);
-    }
+    // Drop the stream to release the connection before context queries
+    drop(stream);
 
     // Attach context lines if requested
     if options.context_lines > 0 {
@@ -708,17 +710,20 @@ pub async fn search_regex(
         query = query.bind(format!("{}%", prefix));
     }
 
-    let rows = query.fetch_all(pool).await?;
-
-    // Apply regex + glob filters in Rust
+    // Apply regex + glob filters in Rust with streaming + early termination
     let max_results = if options.max_results > 0 {
         options.max_results
     } else {
         usize::MAX
     };
 
+    let mut stream = query.fetch(pool);
     let mut matches = Vec::new();
-    for row in &rows {
+    let mut truncated = false;
+    let mut candidates_scanned: usize = 0;
+
+    while let Some(row) = stream.try_next().await? {
+        candidates_scanned += 1;
         let file_path: String = row.get("file_path");
 
         // Apply glob filter if set
@@ -741,16 +746,14 @@ pub async fn search_regex(
                 context_before: vec![],
                 context_after: vec![],
             });
-            if matches.len() > max_results {
+            if matches.len() >= max_results {
+                truncated = true;
                 break;
             }
         }
     }
-
-    let truncated = matches.len() > max_results;
-    if truncated {
-        matches.truncate(max_results);
-    }
+    // Drop the stream to release the connection before context queries
+    drop(stream);
 
     // Attach context lines if requested
     if options.context_lines > 0 {
@@ -761,7 +764,7 @@ pub async fn search_regex(
 
     debug!(
         "Regex search complete: {} matches in {}ms (pattern={:?}, fts_candidates={}, truncated={})",
-        matches.len(), query_time_ms, pattern, rows.len(), truncated
+        matches.len(), query_time_ms, pattern, candidates_scanned, truncated
     );
 
     Ok(SearchResults {
