@@ -11,6 +11,7 @@
 
 pub mod basket_assignment;
 pub mod canonical_tags;
+pub mod cooccurrence_graph;
 pub mod collection_config;
 pub mod hierarchy_builder;
 pub mod keyword_selector;
