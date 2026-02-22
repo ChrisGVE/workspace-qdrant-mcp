@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use tracing::{info, warn};
 
 use crate::context::ProcessingContext;
+use crate::specs::parse_payload;
 use crate::strategies::ProcessingStrategy;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
@@ -46,12 +47,7 @@ impl WebsiteStrategy {
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
-        let payload: WebsitePayload = serde_json::from_str(&item.payload_json).map_err(|e| {
-            UnifiedProcessorError::InvalidPayload(format!(
-                "Failed to parse WebsitePayload: {}",
-                e
-            ))
-        })?;
+        let payload: WebsitePayload = parse_payload(item)?;
 
         info!(
             "Processing website item: {} (op={:?}, url={})",

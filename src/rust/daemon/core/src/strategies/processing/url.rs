@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use tracing::{info, warn};
 
 use crate::context::ProcessingContext;
+use crate::specs::parse_payload;
 use crate::storage::DocumentPoint;
 use crate::strategies::ProcessingStrategy;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
@@ -48,12 +49,7 @@ impl UrlStrategy {
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
-        let payload: UrlPayload = serde_json::from_str(&item.payload_json).map_err(|e| {
-            UnifiedProcessorError::InvalidPayload(format!(
-                "Failed to parse UrlPayload: {}",
-                e
-            ))
-        })?;
+        let payload: UrlPayload = parse_payload(item)?;
 
         info!(
             "Processing URL item: {} (url={})",

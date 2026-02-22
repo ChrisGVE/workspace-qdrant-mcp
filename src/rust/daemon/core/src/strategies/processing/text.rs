@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use tracing::{info, warn};
 
 use crate::context::ProcessingContext;
+use crate::specs::parse_payload;
 use crate::storage::DocumentPoint;
 use crate::strategies::ProcessingStrategy;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
@@ -74,12 +75,7 @@ impl TextStrategy {
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
-        let payload: MemoryPayload = serde_json::from_str(&item.payload_json).map_err(|e| {
-            UnifiedProcessorError::InvalidPayload(format!(
-                "Failed to parse MemoryPayload: {}",
-                e
-            ))
-        })?;
+        let payload: MemoryPayload = parse_payload(item)?;
 
         let action = payload.action.as_deref().unwrap_or("add");
         let now = wqm_common::timestamps::now_utc();
@@ -213,13 +209,7 @@ impl TextStrategy {
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
-        let payload: ScratchpadPayload =
-            serde_json::from_str(&item.payload_json).map_err(|e| {
-                UnifiedProcessorError::InvalidPayload(format!(
-                    "Failed to parse ScratchpadPayload: {}",
-                    e
-                ))
-            })?;
+        let payload: ScratchpadPayload = parse_payload(item)?;
 
         let now = wqm_common::timestamps::now_utc();
 
@@ -288,12 +278,7 @@ impl TextStrategy {
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
-        let payload: ContentPayload = serde_json::from_str(&item.payload_json).map_err(|e| {
-            UnifiedProcessorError::InvalidPayload(format!(
-                "Failed to parse ContentPayload: {}",
-                e
-            ))
-        })?;
+        let payload: ContentPayload = parse_payload(item)?;
 
         // Generate embedding (semaphore-gated, Task 504)
         let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(

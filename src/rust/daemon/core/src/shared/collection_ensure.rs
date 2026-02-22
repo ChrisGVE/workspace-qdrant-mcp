@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use tracing::info;
 
+use crate::specs::Collection;
 use crate::storage::{MultiTenantConfig, StorageClient, StorageError};
 
 /// Ensure a Qdrant collection exists, creating it with multi-tenant config if not.
@@ -23,6 +24,21 @@ pub async fn ensure_collection(
         storage_client,
         collection_name,
         &MultiTenantConfig::default(),
+    )
+    .await
+}
+
+/// Ensure a canonical Qdrant collection exists using `Collection` enum config.
+///
+/// Convenience wrapper that pulls the name and creation config from the enum.
+pub async fn ensure_canonical_collection(
+    storage_client: &Arc<StorageClient>,
+    collection: &Collection,
+) -> Result<(), StorageError> {
+    ensure_collection_with_config(
+        storage_client,
+        collection.name(),
+        &collection.creation_config(),
     )
     .await
 }

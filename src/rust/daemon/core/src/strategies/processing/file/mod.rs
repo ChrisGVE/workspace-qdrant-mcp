@@ -30,6 +30,7 @@ use tracing::{debug, error, info};
 use crate::context::ProcessingContext;
 use crate::strategies::ProcessingStrategy;
 use crate::tracked_files_schema;
+use crate::specs::parse_payload;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
     DestinationStatus, FilePayload, ItemType, QueueOperation, UnifiedQueueItem,
@@ -76,9 +77,7 @@ impl FileStrategy {
         );
 
         // Parse the file payload
-        let payload: FilePayload = serde_json::from_str(&item.payload_json).map_err(|e| {
-            UnifiedProcessorError::InvalidPayload(format!("Failed to parse FilePayload: {}", e))
-        })?;
+        let payload: FilePayload = parse_payload(item)?;
 
         // File type allowlist check (Task 511) - skip for delete operations
         if item.op != QueueOperation::Delete

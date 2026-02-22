@@ -15,6 +15,7 @@ use crate::context::ProcessingContext;
 use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file};
 use crate::queue_operations::QueueManager;
+use crate::specs::parse_payload;
 use crate::strategies::ProcessingStrategy;
 use crate::tracked_files_schema;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
@@ -60,12 +61,7 @@ impl FolderStrategy {
             item.queue_id, item.op, item.collection
         );
 
-        let payload: FolderPayload = serde_json::from_str(&item.payload_json).map_err(|e| {
-            UnifiedProcessorError::InvalidPayload(format!(
-                "Failed to parse FolderPayload: {}",
-                e
-            ))
-        })?;
+        let payload: FolderPayload = parse_payload(item)?;
 
         match item.op {
             QueueOperation::Scan => {

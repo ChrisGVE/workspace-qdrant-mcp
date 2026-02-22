@@ -3,11 +3,19 @@
 //! Each specification encapsulates a single business rule and can be combined
 //! with `AndSpec`, `OrSpec`, `NotSpec` for complex conditions.
 //!
+//! # Submodules
+//! - `collection` — canonical Collection enum for the 4 Qdrant collections
+//! - `payload` — typed payload parsing helper for queue items
+//!
 //! # Future submodules
 //! - `file_filter` — file exclusion/inclusion specs
 //! - `priority` — priority computation spec
-//! - `collection` — collection definitions and routing
-//! - `payload` — payload validation per item_type
+
+pub mod collection;
+pub mod payload;
+
+pub use collection::Collection;
+pub use payload::parse_payload;
 
 use std::marker::PhantomData;
 

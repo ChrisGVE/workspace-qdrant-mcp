@@ -17,6 +17,7 @@ use crate::file_classification::classify_file_type;
 use crate::fts_batch_processor::{FtsBatchConfig, FtsBatchProcessor};
 use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file};
 use crate::queue_operations::QueueManager;
+use crate::specs::parse_payload;
 use crate::storage::StorageClient;
 use crate::strategies::ProcessingStrategy;
 use crate::tracked_files_schema;
@@ -131,13 +132,7 @@ impl TenantStrategy {
             item.queue_id, item.op
         );
 
-        let payload: ProjectPayload =
-            serde_json::from_str(&item.payload_json).map_err(|e| {
-                UnifiedProcessorError::InvalidPayload(format!(
-                    "Failed to parse ProjectPayload: {}",
-                    e
-                ))
-            })?;
+        let payload: ProjectPayload = parse_payload(item)?;
 
         match item.op {
             QueueOperation::Add => {
@@ -423,13 +418,7 @@ impl TenantStrategy {
             item.queue_id, item.op
         );
 
-        let payload: LibraryPayload =
-            serde_json::from_str(&item.payload_json).map_err(|e| {
-                UnifiedProcessorError::InvalidPayload(format!(
-                    "Failed to parse LibraryPayload: {}",
-                    e
-                ))
-            })?;
+        let payload: LibraryPayload = parse_payload(item)?;
 
         match item.op {
             QueueOperation::Add => {
@@ -1471,13 +1460,7 @@ impl TenantStrategy {
         item: &UnifiedQueueItem,
         storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<()> {
-        let payload: ProjectPayload =
-            serde_json::from_str(&item.payload_json).map_err(|e| {
-                UnifiedProcessorError::InvalidPayload(format!(
-                    "Failed to parse ProjectPayload for rename: {}",
-                    e
-                ))
-            })?;
+        let payload: ProjectPayload = parse_payload(item)?;
 
         let old_tenant = payload.old_tenant_id.as_deref().ok_or_else(|| {
             UnifiedProcessorError::InvalidPayload(
