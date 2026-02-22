@@ -529,15 +529,40 @@ WHERE 1=1",
 // Regex search with trigram acceleration (Task 54)
 // ---------------------------------------------------------------------------
 
+/// Structured representation of literals extracted from a regex pattern.
+///
+/// Separates mandatory literals (must all appear) from alternation groups
+/// (at least one branch must appear). This allows building AND/OR FTS5 queries
+/// instead of flat OR queries, dramatically reducing candidate counts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegexLiterals {
+    /// Literals that must all appear in a matching line (AND semantics).
+    pub mandatory: Vec<String>,
+    /// Groups of literals from alternation (`|`). Within each group, any one
+    /// branch matching is sufficient (OR semantics). Groups themselves are
+    /// AND'd with the mandatory literals.
+    pub alternations: Vec<Vec<String>>,
+}
+
 /// Extract literal substrings (≥3 characters) from a regex pattern.
 ///
 /// Walks the regex string character by character, collecting runs of literal
-/// characters. When a metacharacter is encountered, the current run is flushed.
-/// Escaped literals (e.g., `\.`, `\\`) are treated as literal characters.
+/// characters. Tracks alternation groups (`(a|b|c)`) separately from
+/// sequential mandatory literals.
 ///
-/// Returns a list of literal strings suitable for FTS5 trigram pre-filtering.
-pub fn extract_literals_from_regex(pattern: &str) -> Vec<String> {
-    let mut literals = Vec::new();
+/// Returns a `RegexLiterals` with mandatory literals AND'd together and
+/// alternation groups OR'd internally, AND'd with mandatories.
+pub fn extract_literals_from_regex(pattern: &str) -> RegexLiterals {
+    let mut result = RegexLiterals {
+        mandatory: Vec::new(),
+        alternations: Vec::new(),
+    };
+    extract_literals_recursive(pattern, &mut result);
+    result
+}
+
+/// Core extraction logic, separated for recursion on group contents.
+fn extract_literals_recursive(pattern: &str, result: &mut RegexLiterals) {
     let mut current = String::new();
     let mut chars = pattern.chars().peekable();
 
@@ -550,8 +575,8 @@ pub fn extract_literals_from_regex(pattern: &str) -> Vec<String> {
                         // Metacharacter classes — end the current literal run
                         'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B'
                         | 'A' | 'z' | 'Z' | 'G' => {
-                            flush_literal(&mut current, &mut literals);
-                            chars.next(); // consume the class character
+                            flush_to_mandatory(&mut current, &mut result.mandatory);
+                            chars.next();
                         }
                         // Escaped literals — add the literal character
                         _ => {
@@ -560,23 +585,63 @@ pub fn extract_literals_from_regex(pattern: &str) -> Vec<String> {
                         }
                     }
                 }
-                // Trailing backslash — ignore
             }
             // Character class — skip everything until closing `]`
             '[' => {
-                flush_literal(&mut current, &mut literals);
-                // Skip contents of character class
+                flush_to_mandatory(&mut current, &mut result.mandatory);
                 while let Some(inner) = chars.next() {
                     if inner == '\\' {
-                        chars.next(); // skip escaped char inside class
+                        chars.next();
                     } else if inner == ']' {
                         break;
                     }
                 }
             }
+            // Group start — extract group content, check for alternation
+            '(' => {
+                flush_to_mandatory(&mut current, &mut result.mandatory);
+                let group_content = extract_group_content(&mut chars);
+                process_group(&group_content, result);
+            }
+            // Alternation at top level — treat remaining pattern as alternate branch.
+            // This handles patterns like `async|await` (no parens).
+            '|' => {
+                flush_to_mandatory(&mut current, &mut result.mandatory);
+                let rest: String = chars.collect();
+                // Collect all mandatory literals found so far + those from rest
+                // as an alternation group
+                let mut left_lits = std::mem::take(&mut result.mandatory);
+                let mut right_result = RegexLiterals {
+                    mandatory: Vec::new(),
+                    alternations: Vec::new(),
+                };
+                extract_literals_recursive(&rest, &mut right_result);
+                let mut right_lits = right_result.mandatory;
+                // Merge any alternations from the right side
+                result.alternations.extend(right_result.alternations);
+                // If both sides have literals, create an alternation group
+                if !left_lits.is_empty() || !right_lits.is_empty() {
+                    let mut group = Vec::new();
+                    // Combine each side's literals into a single string for FTS5
+                    if !left_lits.is_empty() {
+                        group.append(&mut left_lits);
+                    }
+                    // Use a separator to distinguish right-side literals
+                    if !right_lits.is_empty() {
+                        // For top-level alternation, each side becomes a branch
+                        // We need to restructure: put all left as one alt, all right as another
+                    }
+                    // Simpler: for top-level `|`, just OR all extracted literals
+                    group.append(&mut right_lits);
+                    if !group.is_empty() {
+                        result.alternations.push(group);
+                    }
+                }
+                return; // rest already consumed
+            }
             // Other metacharacters that end a literal run
-            '.' | '*' | '+' | '?' | ']' | '(' | ')' | '{' | '}' | '|' | '^' | '$' => {
-                flush_literal(&mut current, &mut literals);
+            '.' | '*' | '+' | '?' | ']' | ')' | '{' | '}' | '^' | '$' => {
+                flush_to_mandatory(&mut current, &mut result.mandatory);
             }
             // Literal character
             _ => {
@@ -585,34 +650,139 @@ pub fn extract_literals_from_regex(pattern: &str) -> Vec<String> {
         }
     }
 
-    // Flush any remaining literal
-    flush_literal(&mut current, &mut literals);
-
-    literals
+    flush_to_mandatory(&mut current, &mut result.mandatory);
 }
 
-/// Flush the current literal buffer into the literals list if ≥ 3 chars.
-fn flush_literal(current: &mut String, literals: &mut Vec<String>) {
+/// Extract the content of a parenthesized group, handling nested parens.
+fn extract_group_content(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut content = String::new();
+    let mut depth = 1;
+    while let Some(ch) = chars.next() {
+        match ch {
+            '(' => {
+                depth += 1;
+                content.push(ch);
+            }
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+                content.push(ch);
+            }
+            '\\' => {
+                content.push(ch);
+                if let Some(next) = chars.next() {
+                    content.push(next);
+                }
+            }
+            _ => content.push(ch),
+        }
+    }
+    content
+}
+
+/// Process a group's content. If it contains `|`, extract literals from each
+/// branch and create an alternation group. Otherwise, treat its literals as mandatory.
+fn process_group(content: &str, result: &mut RegexLiterals) {
+    let branches = split_alternation(content);
+    if branches.len() <= 1 {
+        // No alternation — extract as mandatory
+        extract_literals_recursive(content, result);
+    } else {
+        // Alternation — extract literals from each branch, create OR group
+        let mut alt_group: Vec<String> = Vec::new();
+        for branch in &branches {
+            let mut branch_result = RegexLiterals {
+                mandatory: Vec::new(),
+                alternations: Vec::new(),
+            };
+            extract_literals_recursive(branch, &mut branch_result);
+            alt_group.extend(branch_result.mandatory);
+            // Nested alternations from branches are merged up
+            result.alternations.extend(branch_result.alternations);
+        }
+        if !alt_group.is_empty() {
+            result.alternations.push(alt_group);
+        }
+    }
+}
+
+/// Split a group's content by top-level `|` (respecting nested parens).
+fn split_alternation(content: &str) -> Vec<String> {
+    let mut branches = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0;
+    let mut chars = content.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            '\\' => {
+                current.push(ch);
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            '|' if depth == 0 => {
+                branches.push(std::mem::take(&mut current));
+            }
+            _ => current.push(ch),
+        }
+    }
+    branches.push(current);
+    branches
+}
+
+/// Flush the current literal buffer into the mandatory list if ≥ 3 chars.
+fn flush_to_mandatory(current: &mut String, mandatory: &mut Vec<String>) {
     if current.len() >= 3 {
-        literals.push(current.clone());
+        mandatory.push(current.clone());
     }
     current.clear();
 }
 
-/// Build an FTS5 OR query from extracted literals.
+/// Build an FTS5 query from structured regex literals.
 ///
-/// Each literal is double-quote escaped for FTS5 trigram matching.
-/// Returns `None` if no literals have ≥ 3 characters.
-fn build_fts5_or_query(literals: &[String]) -> Option<String> {
-    let terms: Vec<String> = literals
-        .iter()
-        .filter_map(|lit| escape_fts5_pattern(lit))
-        .collect();
+/// Mandatory literals are AND'd together. Alternation groups are OR'd
+/// internally and AND'd with the mandatory terms. This produces queries like:
+/// `"impl " AND " for "` or `"pub " AND ("struct" OR "enum" OR "trait")`.
+///
+/// Returns `None` if no usable literals were extracted.
+fn build_fts5_query(literals: &RegexLiterals) -> Option<String> {
+    let mut clauses: Vec<String> = Vec::new();
 
-    if terms.is_empty() {
+    // Mandatory literals → AND'd terms
+    for lit in &literals.mandatory {
+        if let Some(escaped) = escape_fts5_pattern(lit) {
+            clauses.push(escaped);
+        }
+    }
+
+    // Alternation groups → parenthesized OR clauses
+    for group in &literals.alternations {
+        let terms: Vec<String> = group
+            .iter()
+            .filter_map(|lit| escape_fts5_pattern(lit))
+            .collect();
+        if terms.len() == 1 {
+            clauses.push(terms.into_iter().next().unwrap());
+        } else if terms.len() > 1 {
+            clauses.push(format!("({})", terms.join(" OR ")));
+        }
+    }
+
+    if clauses.is_empty() {
         None
     } else {
-        Some(terms.join(" OR "))
+        Some(clauses.join(" AND "))
     }
 }
 
@@ -657,7 +827,7 @@ pub async fn search_regex(
 
     // Extract literals for FTS5 acceleration
     let literals = extract_literals_from_regex(pattern);
-    let fts5_query = build_fts5_or_query(&literals);
+    let fts5_query = build_fts5_query(&literals);
 
     debug!(
         "Regex search: pattern={:?}, literals={:?}, fts5_query={:?}, tenant={:?}, path_glob={:?}",
@@ -1404,90 +1574,190 @@ mod tests {
     #[test]
     fn test_extract_literals_basic() {
         let lits = extract_literals_from_regex("async.*fn");
-        assert_eq!(lits, vec!["async"]);
-        // "fn" is only 2 chars, not extracted
+        assert_eq!(lits.mandatory, vec!["async"]);
+        assert!(lits.alternations.is_empty());
     }
 
     #[test]
-    fn test_extract_literals_multiple() {
+    fn test_extract_literals_multiple_mandatory() {
         let lits = extract_literals_from_regex("pub fn \\w+\\(\\)");
-        // "pub fn " has 7 chars (including trailing space)
-        assert_eq!(lits, vec!["pub fn "]);
+        assert_eq!(lits.mandatory, vec!["pub fn "]);
+        assert!(lits.alternations.is_empty());
     }
 
     #[test]
     fn test_extract_literals_escaped_chars() {
-        // \. is a literal dot, \( is a literal paren
         let lits = extract_literals_from_regex("log\\.info\\(");
-        assert_eq!(lits, vec!["log.info("]);
+        assert_eq!(lits.mandatory, vec!["log.info("]);
     }
 
     #[test]
     fn test_extract_literals_no_literals() {
-        // All metacharacters, no extractable literals
         let lits = extract_literals_from_regex("^.$");
-        assert!(lits.is_empty());
+        assert!(lits.mandatory.is_empty());
+        assert!(lits.alternations.is_empty());
 
         let lits = extract_literals_from_regex("[a-z]+");
-        assert!(lits.is_empty());
+        assert!(lits.mandatory.is_empty());
 
         let lits = extract_literals_from_regex("\\d+\\.\\d+");
-        assert!(lits.is_empty()); // "." is only 1 char between \d groups
+        assert!(lits.mandatory.is_empty());
     }
 
     #[test]
     fn test_extract_literals_word_boundary() {
-        // \b is a metacharacter class, ends the literal run
         let lits = extract_literals_from_regex("\\bclass\\b");
-        assert_eq!(lits, vec!["class"]);
+        assert_eq!(lits.mandatory, vec!["class"]);
     }
 
     #[test]
-    fn test_extract_literals_alternation() {
+    fn test_extract_literals_top_level_alternation() {
+        // Top-level `|` without parens: `async|await`
         let lits = extract_literals_from_regex("async|await");
-        assert_eq!(lits, vec!["async", "await"]);
+        assert!(lits.mandatory.is_empty());
+        assert_eq!(lits.alternations.len(), 1);
+        assert!(lits.alternations[0].contains(&"async".to_string()));
+        assert!(lits.alternations[0].contains(&"await".to_string()));
+    }
+
+    #[test]
+    fn test_extract_literals_parenthesized_alternation() {
+        // `impl \w+ for \w+` → mandatory: ["impl ", " for "]
+        let lits = extract_literals_from_regex("impl \\w+ for \\w+");
+        assert_eq!(lits.mandatory, vec!["impl ", " for "]);
+        assert!(lits.alternations.is_empty());
+    }
+
+    #[test]
+    fn test_extract_literals_group_alternation() {
+        // `use (std|tokio|serde)::\w+` → mandatory: ["use "], alternation: [["std","tokio","serde"]]
+        let lits = extract_literals_from_regex("use (std|tokio|serde)::\\w+");
+        assert_eq!(lits.mandatory, vec!["use "]);
+        assert_eq!(lits.alternations.len(), 1);
+        assert_eq!(lits.alternations[0], vec!["std", "tokio", "serde"]);
+    }
+
+    #[test]
+    fn test_extract_literals_pub_decls() {
+        // `pub (fn|struct|enum|trait|type) \w+`
+        let lits = extract_literals_from_regex("pub (fn|struct|enum|trait|type) \\w+");
+        assert_eq!(lits.mandatory, vec!["pub "]);
+        assert_eq!(lits.alternations.len(), 1);
+        // "fn" is < 3 chars, filtered out at query build time
+        assert!(lits.alternations[0].contains(&"struct".to_string()));
+        assert!(lits.alternations[0].contains(&"enum".to_string()));
+        assert!(lits.alternations[0].contains(&"trait".to_string()));
+        assert!(lits.alternations[0].contains(&"type".to_string()));
     }
 
     #[test]
     fn test_extract_literals_mixed() {
         let lits = extract_literals_from_regex("fn\\s+main\\(");
-        // "fn" (2 chars, too short), "main(" (5 chars, good)
-        assert_eq!(lits, vec!["main("]);
+        assert_eq!(lits.mandatory, vec!["main("]);
     }
 
     #[test]
     fn test_extract_literals_escaped_backslash() {
         let lits = extract_literals_from_regex("C:\\\\Windows\\\\system32");
-        assert_eq!(lits, vec!["C:\\Windows\\system32"]);
+        assert_eq!(lits.mandatory, vec!["C:\\Windows\\system32"]);
     }
 
-    // ── FTS5 OR query building tests ──
+    // ── FTS5 query building tests ──
 
     #[test]
-    fn test_build_fts5_or_query_basic() {
-        let lits = vec!["async".to_string(), "await".to_string()];
-        let query = build_fts5_or_query(&lits);
-        assert_eq!(query, Some("\"async\" OR \"await\"".to_string()));
-    }
-
-    #[test]
-    fn test_build_fts5_or_query_empty() {
-        let lits: Vec<String> = vec![];
-        assert_eq!(build_fts5_or_query(&lits), None);
-    }
-
-    #[test]
-    fn test_build_fts5_or_query_short_filtered() {
-        // "fn" is < 3 chars, filtered out by escape_fts5_pattern
-        let lits = vec!["fn".to_string()];
-        assert_eq!(build_fts5_or_query(&lits), None);
+    fn test_build_fts5_query_mandatory_and() {
+        // Two mandatory literals → AND'd
+        let lits = RegexLiterals {
+            mandatory: vec!["impl ".to_string(), " for ".to_string()],
+            alternations: vec![],
+        };
+        let query = build_fts5_query(&lits);
+        assert_eq!(query, Some("\"impl \" AND \" for \"".to_string()));
     }
 
     #[test]
-    fn test_build_fts5_or_query_single() {
-        let lits = vec!["println".to_string()];
-        let query = build_fts5_or_query(&lits);
+    fn test_build_fts5_query_with_alternation() {
+        // mandatory + alternation → AND with OR group
+        let lits = RegexLiterals {
+            mandatory: vec!["use ".to_string()],
+            alternations: vec![vec!["std".to_string(), "tokio".to_string(), "serde".to_string()]],
+        };
+        let query = build_fts5_query(&lits);
+        assert_eq!(
+            query,
+            Some("\"use \" AND (\"std\" OR \"tokio\" OR \"serde\")".to_string())
+        );
+    }
+
+    #[test]
+    fn test_build_fts5_query_alternation_only() {
+        // No mandatory, just alternation (top-level `|`)
+        let lits = RegexLiterals {
+            mandatory: vec![],
+            alternations: vec![vec!["async".to_string(), "await".to_string()]],
+        };
+        let query = build_fts5_query(&lits);
+        assert_eq!(query, Some("(\"async\" OR \"await\")".to_string()));
+    }
+
+    #[test]
+    fn test_build_fts5_query_empty() {
+        let lits = RegexLiterals {
+            mandatory: vec![],
+            alternations: vec![],
+        };
+        assert_eq!(build_fts5_query(&lits), None);
+    }
+
+    #[test]
+    fn test_build_fts5_query_short_filtered() {
+        // "fn" is < 3 chars, filtered out
+        let lits = RegexLiterals {
+            mandatory: vec!["fn".to_string()],
+            alternations: vec![],
+        };
+        assert_eq!(build_fts5_query(&lits), None);
+    }
+
+    #[test]
+    fn test_build_fts5_query_single() {
+        let lits = RegexLiterals {
+            mandatory: vec!["println".to_string()],
+            alternations: vec![],
+        };
+        let query = build_fts5_query(&lits);
         assert_eq!(query, Some("\"println\"".to_string()));
+    }
+
+    #[test]
+    fn test_build_fts5_query_end_to_end_trait_impl() {
+        // Full pipeline: pattern → extract → build
+        let lits = extract_literals_from_regex("impl \\w+ for \\w+");
+        let query = build_fts5_query(&lits);
+        assert_eq!(query, Some("\"impl \" AND \" for \"".to_string()));
+    }
+
+    #[test]
+    fn test_build_fts5_query_end_to_end_std_imports() {
+        let lits = extract_literals_from_regex("use (std|tokio|serde)::\\w+");
+        let query = build_fts5_query(&lits);
+        assert_eq!(
+            query,
+            Some("\"use \" AND (\"std\" OR \"tokio\" OR \"serde\")".to_string())
+        );
+    }
+
+    #[test]
+    fn test_build_fts5_query_end_to_end_pub_decls() {
+        let lits = extract_literals_from_regex("pub (fn|struct|enum|trait|type) \\w+");
+        let query = build_fts5_query(&lits);
+        // "fn" filtered out (< 3 chars), remaining OR'd
+        assert_eq!(
+            query,
+            Some(
+                "\"pub \" AND (\"struct\" OR \"enum\" OR \"trait\" OR \"type\")".to_string()
+            )
+        );
     }
 
     // ── Regex search query building tests ──
