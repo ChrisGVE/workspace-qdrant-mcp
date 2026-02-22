@@ -446,79 +446,80 @@ ORDER BY line_number"#,
 ///
 /// ## Query structure
 ///
-/// Uses a two-CTE approach to correctly derive absolute line numbers:
-/// 1. `all_lines` — numbers ALL lines in each file using `ROW_NUMBER()`
-/// 2. `matching` — filters to lines matching the search pattern (FTS5 + LIKE)
-///
-/// This ensures line numbers reflect the true position in the file, not the
-/// position among matching lines.
+/// Finds matching lines first (FTS5 + INSTR), then derives line numbers
+/// using a correlated subquery that counts `seq` values within each file.
+/// This avoids computing `ROW_NUMBER()` over the entire `code_lines` table
+/// (339K+ rows) — the correlated subquery only runs for matched rows.
 fn build_search_query(
     fts5_pattern: &Option<String>,
     options: &SearchOptions,
 ) -> (String, bool) {
     let use_fts = fts5_pattern.is_some();
 
-    // CTE 1: Number ALL lines in each file
-    let all_lines_cte = r#"
-WITH all_lines AS (
-    SELECT
-        cl.line_id,
-        cl.file_id,
-        ROW_NUMBER() OVER (PARTITION BY cl.file_id ORDER BY cl.seq) AS line_number,
-        cl.content
-    FROM code_lines cl
-)"#;
+    // Line number via correlated subquery: count how many lines in the same
+    // file have a seq value <= this line's seq. Only evaluated per matched row.
+    let line_number_expr =
+        "(SELECT COUNT(*) FROM code_lines c2 WHERE c2.file_id = cl.file_id AND c2.seq <= cl.seq)";
 
-    // CTE 2: Filter to matching lines using FTS5 + exact match verification
-    //
-    // Case-sensitive: use INSTR() for exact substring (SQLite LIKE is case-insensitive by default)
-    // Case-insensitive: use INSTR(LOWER(), LOWER()) for case-folded comparison
+    // Build the matching query — FTS5 pre-filter + INSTR verification
     let matching_cte = if use_fts {
         if options.case_insensitive {
-            r#",
-matching AS (
-    SELECT al.line_id, al.file_id, al.line_number, al.content
-    FROM all_lines al
-    JOIN code_lines_fts fts ON al.line_id = fts.rowid
-    WHERE fts.content MATCH ?1 AND INSTR(LOWER(al.content), ?2) > 0
-)"#
+            format!(
+                r#"
+WITH matching AS (
+    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    FROM code_lines cl
+    JOIN code_lines_fts fts ON cl.line_id = fts.rowid
+    WHERE fts.content MATCH ?1 AND INSTR(LOWER(cl.content), ?2) > 0
+)"#,
+                line_number_expr
+            )
         } else {
-            r#",
-matching AS (
-    SELECT al.line_id, al.file_id, al.line_number, al.content
-    FROM all_lines al
-    JOIN code_lines_fts fts ON al.line_id = fts.rowid
-    WHERE fts.content MATCH ?1 AND INSTR(al.content, ?2) > 0
-)"#
+            format!(
+                r#"
+WITH matching AS (
+    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    FROM code_lines cl
+    JOIN code_lines_fts fts ON cl.line_id = fts.rowid
+    WHERE fts.content MATCH ?1 AND INSTR(cl.content, ?2) > 0
+)"#,
+                line_number_expr
+            )
         }
     } else {
         // INSTR-only fallback for short patterns (< 3 chars)
         if options.case_insensitive {
-            r#",
-matching AS (
-    SELECT al.line_id, al.file_id, al.line_number, al.content
-    FROM all_lines al
-    WHERE INSTR(LOWER(al.content), ?1) > 0
-)"#
+            format!(
+                r#"
+WITH matching AS (
+    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    FROM code_lines cl
+    WHERE INSTR(LOWER(cl.content), ?1) > 0
+)"#,
+                line_number_expr
+            )
         } else {
-            r#",
-matching AS (
-    SELECT al.line_id, al.file_id, al.line_number, al.content
-    FROM all_lines al
-    WHERE INSTR(al.content, ?1) > 0
-)"#
+            format!(
+                r#"
+WITH matching AS (
+    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    FROM code_lines cl
+    WHERE INSTR(cl.content, ?1) > 0
+)"#,
+                line_number_expr
+            )
         }
     };
 
     // Main query joins with file_metadata for scoping
     let mut sql = format!(
-        "{}{}
+        "{}
 SELECT m.line_id, m.file_id, m.line_number, m.content,
        fm.file_path, fm.tenant_id, fm.branch
 FROM matching m
 JOIN file_metadata fm ON m.file_id = fm.file_id
 WHERE 1=1",
-        all_lines_cte, matching_cte
+        matching_cte
     );
 
     // The bind index depends on whether FTS5 is used
@@ -773,11 +774,10 @@ pub async fn search_regex(
 
 /// Build SQL query for regex search.
 ///
-/// When FTS5 literals are available, uses a two-CTE approach:
-/// 1. `all_lines` — numbers ALL lines per file using ROW_NUMBER()
-/// 2. `candidates` — pre-filters using FTS5 MATCH (OR query of literals)
+/// When FTS5 literals are available, uses FTS5 MATCH as pre-filter then
+/// derives line numbers via correlated subquery (only for matched rows).
 ///
-/// When no FTS5 literals are available, scans all lines with scope filters only.
+/// When no FTS5 literals are available, scans all lines with scope filters.
 /// Regex matching is always done in Rust after fetching candidates.
 fn build_regex_search_query(
     fts5_query: &Option<String>,
@@ -785,44 +785,43 @@ fn build_regex_search_query(
 ) -> (String, bool) {
     let use_fts = fts5_query.is_some();
 
-    // CTE 1: Number ALL lines in each file
-    let all_lines_cte = r#"
-WITH all_lines AS (
-    SELECT
-        cl.line_id,
-        cl.file_id,
-        ROW_NUMBER() OVER (PARTITION BY cl.file_id ORDER BY cl.seq) AS line_number,
-        cl.content
-    FROM code_lines cl
-)"#;
+    // Line number via correlated subquery — only evaluated per matched row
+    let line_number_expr =
+        "(SELECT COUNT(*) FROM code_lines c2 WHERE c2.file_id = cl.file_id AND c2.seq <= cl.seq)";
 
-    // CTE 2: FTS5 candidate pre-filter or full scan
+    // Candidates CTE: FTS5 pre-filter or full scan
     let candidates_cte = if use_fts {
-        r#",
-candidates AS (
-    SELECT al.line_id, al.file_id, al.line_number, al.content
-    FROM all_lines al
-    JOIN code_lines_fts fts ON al.line_id = fts.rowid
+        format!(
+            r#"
+WITH candidates AS (
+    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    FROM code_lines cl
+    JOIN code_lines_fts fts ON cl.line_id = fts.rowid
     WHERE fts.content MATCH ?1
-)"#
+)"#,
+            line_number_expr
+        )
     } else {
         // No FTS5 — return all lines (regex filtering in Rust)
-        r#",
-candidates AS (
-    SELECT al.line_id, al.file_id, al.line_number, al.content
-    FROM all_lines al
-)"#
+        format!(
+            r#"
+WITH candidates AS (
+    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    FROM code_lines cl
+)"#,
+            line_number_expr
+        )
     };
 
     // Main query joins with file_metadata for scoping
     let mut sql = format!(
-        "{}{}
+        "{}
 SELECT c.line_id, c.file_id, c.line_number, c.content,
        fm.file_path, fm.tenant_id, fm.branch
 FROM candidates c
 JOIN file_metadata fm ON c.file_id = fm.file_id
 WHERE 1=1",
-        all_lines_cte, candidates_cte
+        candidates_cte
     );
 
     // Bind indices: FTS5 mode starts scope filters at ?2, non-FTS at ?1
@@ -950,9 +949,11 @@ mod tests {
         let (sql, use_fts) = build_search_query(&pattern, &options);
         assert!(use_fts);
         assert!(sql.contains("MATCH ?1"));
-        assert!(sql.contains("INSTR(al.content, ?2)"));
-        assert!(sql.contains("all_lines"));
+        assert!(sql.contains("INSTR(cl.content, ?2)"));
         assert!(sql.contains("matching"));
+        // Uses correlated subquery for line numbers, not ROW_NUMBER over all_lines
+        assert!(sql.contains("SELECT COUNT(*)"));
+        assert!(!sql.contains("all_lines"));
     }
 
     #[test]
@@ -961,7 +962,7 @@ mod tests {
         let (sql, use_fts) = build_search_query(&None, &options);
         assert!(!use_fts);
         assert!(!sql.contains("MATCH"));
-        assert!(sql.contains("INSTR(al.content, ?1)"));
+        assert!(sql.contains("INSTR(cl.content, ?1)"));
     }
 
     #[test]
@@ -983,7 +984,7 @@ mod tests {
             ..Default::default()
         };
         let (sql, _) = build_search_query(&pattern, &options);
-        assert!(sql.contains("INSTR(LOWER(al.content), ?2)"));
+        assert!(sql.contains("INSTR(LOWER(cl.content), ?2)"));
     }
 
     #[test]
@@ -1523,8 +1524,10 @@ mod tests {
         let (sql, use_fts) = build_regex_search_query(&fts_query, &options);
         assert!(use_fts);
         assert!(sql.contains("MATCH ?1"));
-        assert!(sql.contains("all_lines"));
         assert!(sql.contains("candidates"));
+        // Uses correlated subquery, not ROW_NUMBER over all_lines
+        assert!(sql.contains("SELECT COUNT(*)"));
+        assert!(!sql.contains("all_lines"));
     }
 
     #[test]
@@ -1533,8 +1536,8 @@ mod tests {
         let (sql, use_fts) = build_regex_search_query(&None, &options);
         assert!(!use_fts);
         assert!(!sql.contains("MATCH"));
-        assert!(sql.contains("all_lines"));
         assert!(sql.contains("candidates"));
+        assert!(!sql.contains("all_lines"));
     }
 
     #[test]
