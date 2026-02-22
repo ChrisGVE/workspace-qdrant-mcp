@@ -92,6 +92,8 @@ pub struct SearchResults {
     pub truncated: bool,
     /// Time spent in the FTS5 query (milliseconds).
     pub query_time_ms: u64,
+    /// Which search engine produced these results ("fts5" or "grep").
+    pub search_engine: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +175,7 @@ fn expand_braces(glob: &str) -> Vec<String> {
 /// Compile a glob pattern (with optional brace expansion) into a matcher.
 ///
 /// Returns a closure that tests whether a file path matches the glob.
-fn compile_glob_matcher(glob_pattern: &str) -> Result<Box<dyn Fn(&str) -> bool + Send + Sync>, SearchDbError> {
+pub(crate) fn compile_glob_matcher(glob_pattern: &str) -> Result<Box<dyn Fn(&str) -> bool + Send + Sync>, SearchDbError> {
     let patterns = expand_braces(glob_pattern);
     let compiled: Vec<glob::Pattern> = patterns
         .iter()
@@ -200,7 +202,7 @@ fn compile_glob_matcher(glob_pattern: &str) -> Result<Box<dyn Fn(&str) -> bool +
 ///
 /// If `path_glob` is set, extracts a prefix from the glob. Otherwise uses `path_prefix`.
 /// The glob matcher (if any) is applied in Rust after SQL results are fetched.
-fn resolve_path_filter(options: &SearchOptions) -> (Option<String>, SearchOptions) {
+pub(crate) fn resolve_path_filter(options: &SearchOptions) -> (Option<String>, SearchOptions) {
     if let Some(ref glob) = options.path_glob {
         let prefix = extract_glob_prefix(glob);
         let mut effective = options.clone();
@@ -235,6 +237,7 @@ pub async fn search_exact(
             matches: vec![],
             truncated: false,
             query_time_ms: 0,
+            search_engine: "fts5".to_string(),
         });
     }
 
@@ -343,6 +346,7 @@ pub async fn search_exact(
         matches,
         truncated,
         query_time_ms,
+        search_engine: "fts5".to_string(),
     })
 }
 
@@ -855,26 +859,40 @@ fn flush_to_mandatory(current: &mut String, mandatory: &mut Vec<String>) {
 ///
 /// Returns `None` if no usable literals were extracted.
 fn build_fts5_query(literals: &RegexLiterals) -> Option<String> {
-    let mut clauses: Vec<String> = Vec::new();
-
-    // Mandatory literals → AND'd terms
-    for lit in &literals.mandatory {
-        if let Some(escaped) = escape_fts5_pattern(lit) {
-            clauses.push(escaped);
-        }
-    }
-
-    // Alternation groups → parenthesized OR clauses
+    // Collect alternation group clauses first so we can check for redundancy
+    let mut alt_clauses: Vec<(String, Vec<String>)> = Vec::new();
     for group in &literals.alternations {
+        let raw_terms: Vec<String> = group.clone();
         let terms: Vec<String> = group
             .iter()
             .filter_map(|lit| escape_fts5_pattern(lit))
             .collect();
         if terms.len() == 1 {
-            clauses.push(terms.into_iter().next().unwrap());
+            alt_clauses.push((terms.into_iter().next().unwrap(), raw_terms));
         } else if terms.len() > 1 {
-            clauses.push(format!("({})", terms.join(" OR ")));
+            alt_clauses.push((format!("({})", terms.join(" OR ")), raw_terms));
         }
+    }
+
+    let mut clauses: Vec<String> = Vec::new();
+
+    // Mandatory literals → AND'd terms, but skip if redundant with alternations.
+    // A mandatory term is redundant when every branch of some alternation group
+    // starts with it (from affix merging), since the alternation already covers it.
+    'mandatory: for lit in &literals.mandatory {
+        for (_, raw_terms) in &alt_clauses {
+            if raw_terms.len() >= 2 && raw_terms.iter().all(|t| t.starts_with(lit.as_str())) {
+                continue 'mandatory;
+            }
+        }
+        if let Some(escaped) = escape_fts5_pattern(lit) {
+            clauses.push(escaped);
+        }
+    }
+
+    // Append alternation clauses
+    for (clause, _) in alt_clauses {
+        clauses.push(clause);
     }
 
     if clauses.is_empty() {
@@ -889,8 +907,10 @@ fn build_fts5_query(literals: &RegexLiterals) -> Option<String> {
 /// ## Strategy
 ///
 /// 1. Extract literal substrings from the regex for FTS5 pre-filtering
-/// 2. If literals found: query FTS5 with OR query, verify with regex in Rust
-/// 3. If no literals: scan all code_lines (with scope filters), verify with regex
+/// 2. Lightweight FTS5-only probe: if candidates exceed threshold, delegate
+///    to `grep-searcher` for SIMD-accelerated file scanning
+/// 3. Otherwise stream FTS5 candidates, verify with regex in Rust
+/// 4. If no extractable literals: full table scan with regex in Rust
 ///
 /// Case-insensitive mode uses `regex::RegexBuilder::case_insensitive(true)`.
 /// When `path_glob` is set, applies glob filtering in Rust after SQL results.
@@ -907,8 +927,13 @@ pub async fn search_regex(
             matches: vec![],
             truncated: false,
             query_time_ms: 0,
+            search_engine: "fts5".to_string(),
         });
     }
+
+    // Extract literals for FTS5 acceleration
+    let literals = extract_literals_from_regex(pattern);
+    let fts5_query = build_fts5_query(&literals);
 
     // Resolve path_glob → SQL prefix + glob matcher
     let (glob_pattern, effective_options) = resolve_path_filter(options);
@@ -922,10 +947,6 @@ pub async fn search_regex(
         .case_insensitive(options.case_insensitive)
         .build()
         .map_err(|e| SearchDbError::InvalidPattern(format!("{}", e)))?;
-
-    // Extract literals for FTS5 acceleration
-    let literals = extract_literals_from_regex(pattern);
-    let fts5_query = build_fts5_query(&literals);
 
     debug!(
         "Regex search: pattern={:?}, literals={:?}, fts5_query={:?}, tenant={:?}, path_glob={:?}",
@@ -956,7 +977,22 @@ pub async fn search_regex(
         query = query.bind(format!("{}%", prefix));
     }
 
-    // Apply regex + glob filters in Rust with streaming + early termination
+    // Grep fallback: if FTS5 candidate count exceeds threshold, delegate to
+    // grep-searcher for SIMD-accelerated file scanning instead of streaming
+    // thousands of SQLite rows (~3μs/row overhead).
+    // The probe is FTS5-only (no JOINs) so it's sub-millisecond.
+    if use_fts {
+        let threshold = crate::grep_search::GREP_FALLBACK_THRESHOLD;
+        if fts5_exceeds_threshold(pool, fts5_query.as_ref().unwrap(), threshold).await? {
+            debug!(
+                "grep fallback: FTS5 candidates exceed threshold ({}), using grep",
+                threshold
+            );
+            return crate::grep_search::search_regex_via_grep(search_db, pattern, options).await;
+        }
+    }
+
+    // Apply regex + glob filters in Rust with streaming + early termination.
     let max_results = if options.max_results > 0 {
         options.max_results
     } else {
@@ -970,6 +1006,7 @@ pub async fn search_regex(
 
     while let Some(row) = stream.try_next().await? {
         candidates_scanned += 1;
+
         let file_path: String = row.get("file_path");
 
         // Apply glob filter if set
@@ -1018,7 +1055,28 @@ pub async fn search_regex(
         matches,
         truncated,
         query_time_ms,
+        search_engine: "fts5".to_string(),
     })
+}
+
+/// Lightweight FTS5-only candidate count probe.
+///
+/// Checks whether the FTS5 MATCH produces more than `threshold` candidates
+/// by using `LIMIT 1 OFFSET threshold`. Only touches the FTS5 virtual table
+/// (no JOINs with code_lines or file_metadata), so it's sub-millisecond.
+async fn fts5_exceeds_threshold(
+    pool: &sqlx::SqlitePool,
+    fts5_query: &str,
+    threshold: i64,
+) -> Result<bool, SearchDbError> {
+    let result: Option<i64> = sqlx::query_scalar(
+        "SELECT rowid FROM code_lines_fts WHERE content MATCH ?1 LIMIT 1 OFFSET ?2",
+    )
+    .bind(fts5_query)
+    .bind(threshold)
+    .fetch_optional(pool)
+    .await?;
+    Ok(result.is_some())
 }
 
 /// Build SQL query for regex search.
@@ -1845,11 +1903,11 @@ mod tests {
     fn test_build_fts5_query_end_to_end_std_imports() {
         let lits = extract_literals_from_regex("use (std|tokio|serde)::\\w+");
         let query = build_fts5_query(&lits);
-        // prefix "use " + suffix "::" merged into branches for tight trigrams
+        // prefix "use " merged into all branches → redundant AND removed
         assert_eq!(
             query,
             Some(
-                "\"use \" AND (\"use std::\" OR \"use tokio::\" OR \"use serde::\")".to_string()
+                "(\"use std::\" OR \"use tokio::\" OR \"use serde::\")".to_string()
             )
         );
     }
@@ -1858,11 +1916,11 @@ mod tests {
     fn test_build_fts5_query_end_to_end_pub_decls() {
         let lits = extract_literals_from_regex("pub (fn|struct|enum|trait|type) \\w+");
         let query = build_fts5_query(&lits);
-        // prefix "pub " + suffix " " merged into branches
+        // prefix "pub " merged into all branches → redundant AND removed
         assert_eq!(
             query,
             Some(
-                "\"pub \" AND (\"pub fn \" OR \"pub struct \" OR \"pub enum \" OR \"pub trait \" OR \"pub type \")".to_string()
+                "(\"pub fn \" OR \"pub struct \" OR \"pub enum \" OR \"pub trait \" OR \"pub type \")".to_string()
             )
         );
     }
