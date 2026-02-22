@@ -2,6 +2,7 @@
 
 mod search;
 mod sparse;
+pub mod stats;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -41,13 +42,17 @@ enum BenchmarkCommand {
         #[arg(long)]
         tenant_id: Option<String>,
 
-        /// Warmup iterations before measuring (default: 1)
-        #[arg(long, default_value_t = 1)]
+        /// Warmup iterations before measuring (default: 2)
+        #[arg(long, default_value_t = 2)]
         warmup: usize,
 
-        /// Measurement iterations per query (default: 3)
-        #[arg(long, default_value_t = 3)]
+        /// Measurement iterations per query (default: 10)
+        #[arg(long, default_value_t = 10)]
         iterations: usize,
+
+        /// High-iteration stress mode (50 iterations, 5 warmup)
+        #[arg(long)]
+        stress: bool,
 
         /// Output JSON report to file
         #[arg(long)]
@@ -69,7 +74,15 @@ pub async fn execute(args: BenchmarkArgs) -> Result<()> {
             tenant_id,
             warmup,
             iterations,
+            stress,
             output: output_file,
-        } => search::execute(tenant_id, warmup, iterations, output_file).await,
+        } => {
+            let (warmup, iterations) = if stress {
+                (5, 50)
+            } else {
+                (warmup, iterations)
+            };
+            search::execute(tenant_id, warmup, iterations, output_file).await
+        }
     }
 }

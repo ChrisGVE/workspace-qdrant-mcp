@@ -1,11 +1,12 @@
 //! Sparse vector benchmark — BM25 vs SPLADE++ evaluation.
 //!
 //! Samples documents from SQLite tracked_files, generates both BM25 and SPLADE++
-//! sparse vectors, and reports comparative metrics.
+//! sparse vectors, and reports comparative metrics with per-sample latency tracking.
 
 use anyhow::{Context, Result};
 use std::time::Instant;
 
+use super::stats::LatencyStats;
 use crate::config::get_database_path;
 use crate::output;
 
@@ -57,7 +58,6 @@ pub async fn execute(
         ..Default::default()
     };
 
-    // BM25 uses the standalone BM25 struct directly, not through the generator
     let _gen_bm25 = workspace_qdrant_core::EmbeddingGenerator::new(config_bm25)
         .context("Failed to create BM25 embedding generator")?;
     let gen_splade = workspace_qdrant_core::EmbeddingGenerator::new(config_splade)
@@ -82,17 +82,21 @@ pub async fn execute(
     println!("Readable samples: {}", samples.len());
     println!();
 
-    // Generate BM25 sparse vectors
+    // Generate BM25 sparse vectors with per-sample latency tracking
     println!("Generating BM25 sparse vectors...");
     let bm25_start = Instant::now();
     let mut bm25_total_dims = 0usize;
     let mut bm25_count = 0usize;
+    let mut bm25_latencies: Vec<f64> = Vec::new();
 
     for (_, text) in &samples {
+        let call_start = Instant::now();
         let tokens = workspace_qdrant_core::embedding::tokenize_for_bm25(text);
         let mut bm25 = workspace_qdrant_core::BM25::new(1.2);
         bm25.add_document(&tokens);
         let sparse = bm25.generate_sparse_vector(&tokens);
+        let call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
+        bm25_latencies.push(call_ms);
         bm25_total_dims += sparse.indices.len();
         bm25_count += 1;
     }
@@ -133,20 +137,9 @@ pub async fn execute(
     // Compute stats
     let bm25_avg_dims = if bm25_count > 0 { bm25_total_dims as f64 / bm25_count as f64 } else { 0.0 };
     let splade_avg_dims = if splade_count > 0 { splade_total_dims as f64 / splade_count as f64 } else { 0.0 };
-    let bm25_avg_ms = if bm25_count > 0 { bm25_elapsed.as_secs_f64() * 1000.0 / bm25_count as f64 } else { 0.0 };
 
-    splade_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let splade_avg_ms = if !splade_latencies.is_empty() {
-        splade_latencies.iter().sum::<f64>() / splade_latencies.len() as f64
-    } else {
-        0.0
-    };
-    let splade_p95_ms = if !splade_latencies.is_empty() {
-        let p95_idx = (splade_latencies.len() as f64 * 0.95) as usize;
-        splade_latencies[p95_idx.min(splade_latencies.len() - 1)]
-    } else {
-        0.0
-    };
+    let bm25_stats = LatencyStats::from_latencies(&bm25_latencies);
+    let splade_stats = LatencyStats::from_latencies(&splade_latencies);
 
     // Print results
     println!();
@@ -156,8 +149,38 @@ pub async fn execute(
     println!("{:<25} {:>12} {:>12}", "---", "----", "--------");
     println!("{:<25} {:>12} {:>12}", "Vectors generated", bm25_count, splade_count);
     println!("{:<25} {:>12.1} {:>12.1}", "Avg non-zero dims", bm25_avg_dims, splade_avg_dims);
-    println!("{:<25} {:>10.2}ms {:>10.2}ms", "Avg latency (excl init)", bm25_avg_ms, splade_avg_ms);
-    println!("{:<25} {:>12} {:>10.2}ms", "P95 latency", "n/a", splade_p95_ms);
+
+    if let Some(ref bs) = bm25_stats {
+        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Median latency",
+            bs.median,
+            splade_stats.as_ref().map_or(0.0, |s| s.median),
+        );
+        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Mean latency",
+            bs.mean,
+            splade_stats.as_ref().map_or(0.0, |s| s.mean),
+        );
+        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Std dev",
+            bs.std_dev,
+            splade_stats.as_ref().map_or(0.0, |s| s.std_dev),
+        );
+        println!("{:<25} {:>10.2}ms {:>10.2}ms", "P95 latency",
+            bs.p95,
+            splade_stats.as_ref().map_or(0.0, |s| s.p95),
+        );
+        println!("{:<25} {:>10.2}ms {:>10.2}ms", "P99 latency",
+            bs.p99,
+            splade_stats.as_ref().map_or(0.0, |s| s.p99),
+        );
+        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Min latency",
+            bs.min,
+            splade_stats.as_ref().map_or(0.0, |s| s.min),
+        );
+        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Max latency",
+            bs.max,
+            splade_stats.as_ref().map_or(0.0, |s| s.max),
+        );
+    }
+
     println!("{:<25} {:>12} {:>10.0}ms", "First call (incl init)", "~0", splade_first_call_ms);
     println!("{:<25} {:>10.0}ms {:>10.0}ms", "Total time",
         bm25_elapsed.as_secs_f64() * 1000.0,
@@ -177,14 +200,25 @@ pub async fn execute(
             "bm25": {
                 "vectors_generated": bm25_count,
                 "avg_nonzero_dims": bm25_avg_dims,
-                "avg_latency_ms": bm25_avg_ms,
+                "median_ms": bm25_stats.as_ref().map(|s| s.median),
+                "mean_ms": bm25_stats.as_ref().map(|s| s.mean),
+                "std_dev_ms": bm25_stats.as_ref().map(|s| s.std_dev),
+                "p95_ms": bm25_stats.as_ref().map(|s| s.p95),
+                "p99_ms": bm25_stats.as_ref().map(|s| s.p99),
+                "min_ms": bm25_stats.as_ref().map(|s| s.min),
+                "max_ms": bm25_stats.as_ref().map(|s| s.max),
                 "total_ms": bm25_elapsed.as_secs_f64() * 1000.0,
             },
             "splade": {
                 "vectors_generated": splade_count,
                 "avg_nonzero_dims": splade_avg_dims,
-                "avg_latency_ms": splade_avg_ms,
-                "p95_latency_ms": splade_p95_ms,
+                "median_ms": splade_stats.as_ref().map(|s| s.median),
+                "mean_ms": splade_stats.as_ref().map(|s| s.mean),
+                "std_dev_ms": splade_stats.as_ref().map(|s| s.std_dev),
+                "p95_ms": splade_stats.as_ref().map(|s| s.p95),
+                "p99_ms": splade_stats.as_ref().map(|s| s.p99),
+                "min_ms": splade_stats.as_ref().map(|s| s.min),
+                "max_ms": splade_stats.as_ref().map(|s| s.max),
                 "first_call_ms": splade_first_call_ms,
                 "total_ms": splade_elapsed.as_secs_f64() * 1000.0,
             },

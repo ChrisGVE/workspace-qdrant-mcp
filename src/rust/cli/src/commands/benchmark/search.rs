@@ -2,6 +2,7 @@
 //!
 //! Runs a set of representative queries through both the FTS5 index
 //! (search.db) and ripgrep, comparing latency, result count, and overlap.
+//! Reports median, mean, std dev, min, max for each query.
 
 use anyhow::{Context, Result};
 use std::collections::HashSet;
@@ -12,16 +13,14 @@ use std::time::Instant;
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::text_search::{self, SearchOptions};
 
+use super::stats::LatencyStats;
 use crate::config::get_database_path;
 use crate::output;
 
 /// A single benchmark query with its search parameters.
 struct BenchQuery {
-    /// Human-readable label
     label: &'static str,
-    /// Pattern to search for
     pattern: &'static str,
-    /// Whether to use regex mode
     regex: bool,
 }
 
@@ -36,8 +35,12 @@ struct EngineResult {
 struct QueryComparison {
     label: String,
     pattern: String,
-    fts5: EngineResult,
-    rg: EngineResult,
+    fts5_stats: LatencyStats,
+    rg_stats: LatencyStats,
+    fts5_match_count: usize,
+    rg_match_count: usize,
+    fts5_files: HashSet<String>,
+    rg_files: HashSet<String>,
     shared_files: usize,
     fts5_only_files: usize,
     rg_only_files: usize,
@@ -46,6 +49,7 @@ struct QueryComparison {
 /// Default query set covering typical code search patterns.
 fn default_queries() -> Vec<BenchQuery> {
     vec![
+        // Exact queries (8)
         BenchQuery {
             label: "exact: common keyword",
             pattern: "async fn",
@@ -86,6 +90,7 @@ fn default_queries() -> Vec<BenchQuery> {
             pattern: "queue processor",
             regex: false,
         },
+        // Regex queries (10)
         BenchQuery {
             label: "regex: fn signature",
             pattern: r"pub async fn \w+\(",
@@ -94,6 +99,46 @@ fn default_queries() -> Vec<BenchQuery> {
         BenchQuery {
             label: "regex: struct definition",
             pattern: r"pub struct \w+ \{",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: fn definition",
+            pattern: r"fn \w+\(",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: mutable binding",
+            pattern: r"let mut \w+",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: trait impl",
+            pattern: r"impl \w+ for \w+",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: std imports",
+            pattern: r"use (std|tokio|serde)::\w+",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: derive macros",
+            pattern: r"#\[derive\(\w+",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: public decls",
+            pattern: r"pub (fn|struct|enum|trait|type) \w+",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: async Result",
+            pattern: r"async fn \w+.*-> Result",
+            regex: true,
+        },
+        BenchQuery {
+            label: "regex: method chains",
+            pattern: r"\.(await|unwrap|expect)\b",
             regex: true,
         },
     ]
@@ -117,16 +162,12 @@ pub async fn execute(
         return Ok(());
     }
 
-    // Resolve project root path for rg
     let project_root = resolve_project_root(&db_path, tenant_id.as_deref())?;
-    let rg_available = check_rg_available();
-
-    if !rg_available {
+    if !check_rg_available() {
         output::error("ripgrep (rg) not found in PATH. Install it to run the full benchmark.");
         return Ok(());
     }
 
-    // Open search.db
     let search_db = SearchDbManager::new(&search_db_path)
         .await
         .context("Failed to open search.db")?;
@@ -139,12 +180,16 @@ pub async fn execute(
     if let Some(ref tid) = tenant_id {
         println!("Tenant ID:    {}", tid);
     }
-    println!("Queries:      {}", queries.len());
+    println!("Queries:      {} ({} exact, {} regex)",
+        queries.len(),
+        queries.iter().filter(|q| !q.regex).count(),
+        queries.iter().filter(|q| q.regex).count(),
+    );
     println!("Warmup:       {} iteration(s)", warmup);
     println!("Iterations:   {}", iterations);
     println!();
 
-    // Warmup: run all queries once without recording
+    // Warmup
     if warmup > 0 {
         println!("Warming up...");
         for _ in 0..warmup {
@@ -177,12 +222,8 @@ pub async fn execute(
 
         let fts5 = last_fts5.unwrap();
         let rg = last_rg.unwrap();
-
-        // Use median latency for stability
-        fts5_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        rg_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let fts5_median = median(&fts5_latencies);
-        let rg_median = median(&rg_latencies);
+        let fts5_stats = LatencyStats::from_latencies(&fts5_latencies).unwrap();
+        let rg_stats = LatencyStats::from_latencies(&rg_latencies).unwrap();
 
         let shared = fts5.file_paths.intersection(&rg.file_paths).count();
         let fts5_only = fts5.file_paths.difference(&rg.file_paths).count();
@@ -191,16 +232,12 @@ pub async fn execute(
         comparisons.push(QueryComparison {
             label: q.label.to_string(),
             pattern: q.pattern.to_string(),
-            fts5: EngineResult {
-                latency_ms: fts5_median,
-                match_count: fts5.match_count,
-                file_paths: fts5.file_paths,
-            },
-            rg: EngineResult {
-                latency_ms: rg_median,
-                match_count: rg.match_count,
-                file_paths: rg.file_paths,
-            },
+            fts5_stats,
+            rg_stats,
+            fts5_match_count: fts5.match_count,
+            rg_match_count: rg.match_count,
+            fts5_files: fts5.file_paths,
+            rg_files: rg.file_paths,
             shared_files: shared,
             fts5_only_files: fts5_only,
             rg_only_files: rg_only,
@@ -209,10 +246,8 @@ pub async fn execute(
 
     search_db.close().await;
 
-    // Print results table
-    print_results(&comparisons);
+    print_results(&comparisons, iterations);
 
-    // Write JSON report if requested
     if let Some(path) = output_file {
         write_json_report(&path, &comparisons, &project_root, iterations).await?;
         println!("Report written to: {}", path);
@@ -291,7 +326,6 @@ fn run_rg_query(project_root: &PathBuf, query: &BenchQuery) -> Result<EngineResu
             continue;
         }
         match_count += 1;
-        // rg output: "path:line:content" — extract path
         if let Some(colon_pos) = line.find(':') {
             file_paths.insert(line[..colon_pos].to_string());
         }
@@ -304,29 +338,30 @@ fn run_rg_query(project_root: &PathBuf, query: &BenchQuery) -> Result<EngineResu
     })
 }
 
-/// Print formatted results table.
-fn print_results(comparisons: &[QueryComparison]) {
+/// Print formatted results table with statistics.
+fn print_results(comparisons: &[QueryComparison], iterations: usize) {
     println!();
-    println!("Results (median latency over iterations)");
-    println!("{}", "─".repeat(105));
+    println!("Results (n={} iterations per query)", iterations);
+    println!("{}", "─".repeat(120));
     println!(
-        "{:<28} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
-        "Query", "FTS5 ms", "rg ms", "Ratio", "FTS5 #", "rg #", "Shared", "FTS5only"
+        "{:<28} {:>8} {:>8} {:>8} {:>7} {:>7} {:>8} {:>8} {:>8} {:>8}",
+        "Query", "FTS5 p50", "rg p50", "Ratio", "FTS5 #", "rg #",
+        "Shared", "stdF", "stdR", "min/max"
     );
-    println!("{}", "─".repeat(105));
+    println!("{}", "─".repeat(120));
 
     let mut total_fts5_ms = 0.0;
     let mut total_rg_ms = 0.0;
 
     for c in comparisons {
-        let ratio = if c.rg.latency_ms > 0.0 {
-            c.fts5.latency_ms / c.rg.latency_ms
+        let ratio = if c.rg_stats.median > 0.0 {
+            c.fts5_stats.median / c.rg_stats.median
         } else {
             f64::INFINITY
         };
 
-        total_fts5_ms += c.fts5.latency_ms;
-        total_rg_ms += c.rg.latency_ms;
+        total_fts5_ms += c.fts5_stats.median;
+        total_rg_ms += c.rg_stats.median;
 
         let ratio_str = if ratio < 1.0 {
             format!("{:.2}x", ratio)
@@ -334,20 +369,27 @@ fn print_results(comparisons: &[QueryComparison]) {
             format!("{:.1}x", ratio)
         };
 
+        let minmax = format!(
+            "{:.0}/{:.0}",
+            c.fts5_stats.min, c.fts5_stats.max,
+        );
+
         println!(
-            "{:<28} {:>7.2} {:>7.2} {:>8} {:>8} {:>8} {:>8} {:>8}",
+            "{:<28} {:>7.1} {:>7.1} {:>8} {:>7} {:>7} {:>8} {:>7.1} {:>7.1} {:>8}",
             truncate_label(&c.label, 27),
-            c.fts5.latency_ms,
-            c.rg.latency_ms,
+            c.fts5_stats.median,
+            c.rg_stats.median,
             ratio_str,
-            c.fts5.match_count,
-            c.rg.match_count,
+            c.fts5_match_count,
+            c.rg_match_count,
             c.shared_files,
-            c.fts5_only_files,
+            c.fts5_stats.std_dev,
+            c.rg_stats.std_dev,
+            minmax,
         );
     }
 
-    println!("{}", "─".repeat(105));
+    println!("{}", "─".repeat(120));
 
     let total_ratio = if total_rg_ms > 0.0 {
         total_fts5_ms / total_rg_ms
@@ -355,22 +397,20 @@ fn print_results(comparisons: &[QueryComparison]) {
         0.0
     };
     println!(
-        "{:<28} {:>7.2} {:>7.2} {:>7.2}x",
+        "{:<28} {:>7.1} {:>7.1} {:>7.2}x",
         "TOTAL", total_fts5_ms, total_rg_ms, total_ratio,
     );
 
     println!();
     println!("Legend:");
-    println!("  FTS5 ms  = FTS5 trigram index query latency (median)");
-    println!("  rg ms    = ripgrep filesystem scan latency (median)");
+    println!("  FTS5 p50 = FTS5 median latency (ms)");
+    println!("  rg p50   = ripgrep median latency (ms)");
     println!("  Ratio    = FTS5/rg (< 1.0 = FTS5 faster)");
-    println!("  FTS5 #   = total line matches from FTS5");
-    println!("  rg #     = total line matches from ripgrep");
-    println!("  Shared   = files found by both engines");
-    println!("  FTS5only = files found only by FTS5 (may indicate stale index)");
+    println!("  stdF/R   = standard deviation for FTS5/rg");
+    println!("  min/max  = FTS5 min/max latency (ms)");
 }
 
-/// Write a JSON report to disk.
+/// Write a JSON report to disk with full statistics.
 async fn write_json_report(
     path: &str,
     comparisons: &[QueryComparison],
@@ -380,8 +420,8 @@ async fn write_json_report(
     let queries: Vec<serde_json::Value> = comparisons
         .iter()
         .map(|c| {
-            let ratio = if c.rg.latency_ms > 0.0 {
-                c.fts5.latency_ms / c.rg.latency_ms
+            let ratio = if c.rg_stats.median > 0.0 {
+                c.fts5_stats.median / c.rg_stats.median
             } else {
                 0.0
             };
@@ -389,14 +429,26 @@ async fn write_json_report(
                 "label": c.label,
                 "pattern": c.pattern,
                 "fts5": {
-                    "latency_ms": c.fts5.latency_ms,
-                    "match_count": c.fts5.match_count,
-                    "unique_files": c.fts5.file_paths.len(),
+                    "median_ms": c.fts5_stats.median,
+                    "mean_ms": c.fts5_stats.mean,
+                    "std_dev_ms": c.fts5_stats.std_dev,
+                    "min_ms": c.fts5_stats.min,
+                    "max_ms": c.fts5_stats.max,
+                    "p95_ms": c.fts5_stats.p95,
+                    "p99_ms": c.fts5_stats.p99,
+                    "match_count": c.fts5_match_count,
+                    "unique_files": c.fts5_files.len(),
                 },
                 "rg": {
-                    "latency_ms": c.rg.latency_ms,
-                    "match_count": c.rg.match_count,
-                    "unique_files": c.rg.file_paths.len(),
+                    "median_ms": c.rg_stats.median,
+                    "mean_ms": c.rg_stats.mean,
+                    "std_dev_ms": c.rg_stats.std_dev,
+                    "min_ms": c.rg_stats.min,
+                    "max_ms": c.rg_stats.max,
+                    "p95_ms": c.rg_stats.p95,
+                    "p99_ms": c.rg_stats.p99,
+                    "match_count": c.rg_match_count,
+                    "unique_files": c.rg_files.len(),
                 },
                 "comparison": {
                     "latency_ratio": ratio,
@@ -439,7 +491,6 @@ fn resolve_project_root(
             .context(format!("No project found for tenant_id '{}'", tid))?;
         path
     } else {
-        // Use the first active project, or any project
         let path: String = conn
             .query_row(
                 "SELECT path FROM watch_folders WHERE collection = 'projects' ORDER BY is_active DESC LIMIT 1",
@@ -462,19 +513,6 @@ fn check_rg_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Compute median of a sorted slice.
-fn median(sorted: &[f64]) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-    let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
-        (sorted[mid - 1] + sorted[mid]) / 2.0
-    } else {
-        sorted[mid]
-    }
-}
-
 /// Truncate a label to fit column width.
 fn truncate_label(s: &str, max: usize) -> String {
     if s.len() <= max {
@@ -487,26 +525,6 @@ fn truncate_label(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_median_odd() {
-        assert!((median(&[1.0, 2.0, 3.0]) - 2.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_median_even() {
-        assert!((median(&[1.0, 2.0, 3.0, 4.0]) - 2.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_median_single() {
-        assert!((median(&[5.0]) - 5.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_median_empty() {
-        assert!((median(&[]) - 0.0).abs() < 1e-6);
-    }
 
     #[test]
     fn test_truncate_short() {
@@ -522,8 +540,9 @@ mod tests {
     fn test_default_queries_not_empty() {
         let queries = default_queries();
         assert!(!queries.is_empty());
-        // Should have both exact and regex queries
-        assert!(queries.iter().any(|q| !q.regex));
-        assert!(queries.iter().any(|q| q.regex));
+        let exact = queries.iter().filter(|q| !q.regex).count();
+        let regex = queries.iter().filter(|q| q.regex).count();
+        assert!(exact >= 8, "should have at least 8 exact queries");
+        assert!(regex >= 8, "should have at least 8 regex queries");
     }
 }
