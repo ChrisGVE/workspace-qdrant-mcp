@@ -389,6 +389,16 @@ embedding:
   # Format: Boolean
   enable_sparse_vectors: true
 
+  # sparse_vector_mode: Algorithm for sparse vector generation
+  # Purpose: Controls which sparse embedding method is used alongside dense vectors
+  # Options:
+  #   - "bm25": Traditional BM25 with IDF weighting (fast, no model download)
+  #   - "splade": SPLADE++ learned sparse model (~150MB download on first use)
+  # Trade-offs: SPLADE++ captures semantic term importance but requires more resources
+  # Migration: Switching modes requires re-indexing all sparse vectors
+  # Format: String ("bm25" or "splade")
+  sparse_vector_mode: "bm25"
+
   # chunk_size: Maximum character count per text segment
   # Purpose: Controls text segmentation for embedding processing
   # Context preservation: Larger chunks maintain more semantic context

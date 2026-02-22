@@ -193,21 +193,33 @@ pub(super) async fn embed_chunks(
             wqm_common::hashing::compute_point_id(base_point, chunk_idx as u32);
         let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
 
-        // Use lexicon-backed BM25 for sparse vectors (Task 19: true BM25 with persisted IDF)
-        let chunk_tokens: Vec<String> = chunk
-            .content
-            .split_whitespace()
-            .map(|s| s.to_lowercase())
-            .collect();
-        let lexicon_sparse = ctx
-            .lexicon_manager
-            .generate_sparse_vector(&item.collection, &chunk_tokens)
-            .await;
-        // Fall back to embedding generator's sparse vector if lexicon has no corpus stats yet
-        let sparse = if !lexicon_sparse.indices.is_empty() {
-            lexicon_sparse
+        // Generate sparse vector based on configured mode (bm25 or splade)
+        let sparse = if ctx.embedding_generator.sparse_vector_mode() == "splade" {
+            // SPLADE++ learned sparse vectors (Task 38)
+            match ctx.embedding_generator.generate_splade_sparse_vector(&chunk.content).await {
+                Ok(s) => s,
+                Err(e) => {
+                    debug!("SPLADE++ fallback to BM25: {}", e);
+                    embedding_result.sparse.clone()
+                }
+            }
         } else {
-            embedding_result.sparse.clone()
+            // BM25 with lexicon-backed IDF (Task 19)
+            let chunk_tokens: Vec<String> = chunk
+                .content
+                .split_whitespace()
+                .map(|s| s.to_lowercase())
+                .collect();
+            let lexicon_sparse = ctx
+                .lexicon_manager
+                .generate_sparse_vector(&item.collection, &chunk_tokens)
+                .await;
+            // Fall back to embedding generator's ephemeral BM25 if lexicon has no corpus stats
+            if !lexicon_sparse.indices.is_empty() {
+                lexicon_sparse
+            } else {
+                embedding_result.sparse.clone()
+            }
         };
 
         let point = DocumentPoint {

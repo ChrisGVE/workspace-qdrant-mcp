@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use fastembed::{TextEmbedding, InitOptions, EmbeddingModel, SparseTextEmbedding, SparseInitOptions, SparseModel};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
@@ -90,6 +90,15 @@ pub struct EmbeddingConfig {
     /// Default: 2 (sufficient for all-MiniLM-L6-v2, leaves CPU for other work)
     #[serde(default)]
     pub num_threads: Option<usize>,
+    /// Sparse vector generation mode: "bm25" (default) or "splade".
+    /// SPLADE++ uses a learned sparse model (~150MB download on first use).
+    /// Switching modes requires re-indexing sparse vectors.
+    #[serde(default = "default_sparse_mode")]
+    pub sparse_vector_mode: String,
+}
+
+fn default_sparse_mode() -> String {
+    "bm25".to_string()
 }
 
 impl Default for EmbeddingConfig {
@@ -102,6 +111,7 @@ impl Default for EmbeddingConfig {
             bm25_k1: 1.2,
             model_cache_dir: None,
             num_threads: Some(2),
+            sparse_vector_mode: "bm25".to_string(),
         }
     }
 }
@@ -271,6 +281,8 @@ pub struct EmbeddingGenerator {
     initialized: Arc<std::sync::atomic::AtomicBool>,
     /// Optional directory for model cache
     model_cache_dir: Option<PathBuf>,
+    /// SPLADE++ sparse embedding model (lazy-initialized)
+    splade_model: Arc<Mutex<Option<SparseTextEmbedding>>>,
 }
 
 impl std::fmt::Debug for EmbeddingGenerator {
@@ -278,6 +290,7 @@ impl std::fmt::Debug for EmbeddingGenerator {
         f.debug_struct("EmbeddingGenerator")
             .field("config", &self.config)
             .field("initialized", &self.initialized.load(std::sync::atomic::Ordering::SeqCst))
+            .field("sparse_mode", &self.config.sparse_vector_mode)
             .finish()
     }
 }
@@ -291,6 +304,7 @@ impl EmbeddingGenerator {
             bm25: Arc::new(Mutex::new(BM25::new(config.bm25_k1))),
             initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             model_cache_dir,
+            splade_model: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -422,6 +436,58 @@ impl EmbeddingGenerator {
 
     pub async fn is_model_ready(&self, _model_name: &str) -> bool {
         self.initialized.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Get the configured sparse vector mode ("bm25" or "splade").
+    pub fn sparse_vector_mode(&self) -> &str {
+        &self.config.sparse_vector_mode
+    }
+
+    /// Generate a sparse vector using the SPLADE++ model.
+    ///
+    /// Lazy-initializes the SPLADE++ model on first call (~150MB download).
+    /// Converts fastembed's `SparseEmbedding` (indices: `Vec<usize>`) to our
+    /// `SparseEmbedding` (indices: `Vec<u32>`).
+    pub async fn generate_splade_sparse_vector(
+        &self,
+        text: &str,
+    ) -> Result<SparseEmbedding, EmbeddingError> {
+        let mut guard = self.splade_model.lock().await;
+        if guard.is_none() {
+            info!("Initializing SPLADE++ model (first call, ~150MB download)...");
+            let mut init_opts = SparseInitOptions::new(SparseModel::SPLADEPPV1)
+                .with_show_download_progress(true);
+            if let Some(ref cache_dir) = self.model_cache_dir {
+                init_opts = init_opts.with_cache_dir(cache_dir.clone());
+            }
+            let model = SparseTextEmbedding::try_new(init_opts).map_err(|e| {
+                EmbeddingError::InitializationError {
+                    message: format!("SPLADE++ init failed: {}", e),
+                }
+            })?;
+            *guard = Some(model);
+            info!("SPLADE++ model initialized");
+        }
+
+        let model = guard.as_mut().unwrap();
+        let results = model
+            .embed(vec![text.to_string()], None)
+            .map_err(|e| EmbeddingError::GenerationError {
+                message: format!("SPLADE++ embedding failed: {}", e),
+            })?;
+
+        let fe_sparse = results.into_iter().next().ok_or_else(|| {
+            EmbeddingError::GenerationError {
+                message: "SPLADE++ returned no embeddings".to_string(),
+            }
+        })?;
+
+        // Convert fastembed usize indices to our u32 indices
+        Ok(SparseEmbedding {
+            indices: fe_sparse.indices.into_iter().map(|i| i as u32).collect(),
+            values: fe_sparse.values,
+            vocab_size: 30522, // BERT vocab size for SPLADE++
+        })
     }
 }
 
@@ -623,6 +689,48 @@ mod tests {
         // but vocab is empty so no matching terms → empty result
         let sparse = bm25.generate_sparse_vector(&["hello".to_string()]);
         assert!(sparse.indices.is_empty());
+    }
+
+    #[test]
+    fn test_splade_embedding_conversion() {
+        // Simulate fastembed SparseEmbedding with usize indices
+        let fe_indices: Vec<usize> = vec![42, 1337, 30000];
+        let fe_values: Vec<f32> = vec![0.5, 1.2, 0.8];
+
+        // Convert to our SparseEmbedding with u32 indices
+        let sparse = SparseEmbedding {
+            indices: fe_indices.into_iter().map(|i| i as u32).collect(),
+            values: fe_values.clone(),
+            vocab_size: 30522,
+        };
+
+        assert_eq!(sparse.indices, vec![42u32, 1337, 30000]);
+        assert_eq!(sparse.values, vec![0.5, 1.2, 0.8]);
+        assert_eq!(sparse.vocab_size, 30522);
+    }
+
+    #[test]
+    fn test_sparse_vector_mode_config() {
+        // Default mode is bm25
+        let config = EmbeddingConfig::default();
+        assert_eq!(config.sparse_vector_mode, "bm25");
+
+        // Can be set to splade
+        let config = EmbeddingConfig {
+            sparse_vector_mode: "splade".to_string(),
+            ..EmbeddingConfig::default()
+        };
+        assert_eq!(config.sparse_vector_mode, "splade");
+    }
+
+    #[test]
+    fn test_embedding_generator_sparse_mode_accessor() {
+        let config = EmbeddingConfig {
+            sparse_vector_mode: "splade".to_string(),
+            ..EmbeddingConfig::default()
+        };
+        let gen = EmbeddingGenerator::new(config).unwrap();
+        assert_eq!(gen.sparse_vector_mode(), "splade");
     }
 
     #[test]
