@@ -4382,6 +4382,27 @@ CREATE VIRTUAL TABLE code_lines USING fts5(
 );
 ```
 
+##### Regex Search: Hybrid FTS5 + grep-searcher Dispatch
+
+Regex search uses a hybrid dispatch strategy. For most queries, FTS5 trigram pre-filtering narrows candidates efficiently. But for high-frequency patterns (e.g., `\.(await|unwrap|expect)\b` producing 10K+ candidates), SQLite row-fetch overhead (~3μs/row) dominates. In those cases, the search engine delegates to ripgrep's `grep-searcher` crate for SIMD-accelerated file scanning.
+
+**Dispatch flow:**
+
+1. Extract literal substrings from the regex for FTS5 pre-filtering
+2. Run a lightweight FTS5-only probe: `SELECT rowid FROM code_lines_fts WHERE content MATCH ?1 LIMIT 1 OFFSET ?2` (no JOINs, sub-millisecond)
+3. If candidates exceed threshold (5,000) → delegate to `grep-searcher` module which scans source files directly via `file_metadata` paths
+4. Otherwise → stream FTS5 candidates with Rust regex verification
+
+**Dependencies:** `grep-searcher`, `grep-regex`, `grep-matcher` (ripgrep's library crates)
+
+**Module:** `src/rust/daemon/core/src/grep_search.rs`
+
+The grep path uses `tokio::task::spawn_blocking` for synchronous file I/O, supports context lines via grep-searcher's built-in `before_context`/`after_context`, and applies the same glob/scope filters as the FTS5 path. The `SearchResults.search_engine` field indicates which path was used (`"fts5"` or `"grep"`).
+
+##### FTS5 Query Optimization: Redundant AND Elimination
+
+When affix merging prepends a prefix to all alternation branches (e.g., `pub (fn|struct|enum|trait|type) \w+` → branches `"pub fn "`, `"pub struct "`, etc.), the standalone mandatory term `"pub "` is redundant since it's a prefix of every branch. The query builder detects this and omits the redundant AND clause, reducing FTS5 intersection work.
+
 ##### Consistency with Qdrant
 
 The search DB follows the same reference-counting deletion logic as Qdrant — the decision (keep/delete old base_point) is made **once** in the queue processor's decision phase and applied to **both** destinations:
