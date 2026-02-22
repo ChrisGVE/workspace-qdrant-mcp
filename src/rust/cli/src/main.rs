@@ -57,7 +57,7 @@ Setup & Diagnostics:
   debug        Diagnostic tools (logs, errors)
 
 Benchmarking:
-  benchmark    Benchmarking tools (sparse vector evaluation)
+  benchmark    Benchmarking tools (sparse vectors, search engines)
 {after-help}";
 
 /// Workspace Qdrant MCP CLI
@@ -187,7 +187,7 @@ enum Commands {
     #[command(display_order = 63)]
     Debug(commands::debug::DebugArgs),
 
-    /// Benchmarking tools (sparse vector evaluation)
+    /// Benchmarking tools (sparse vectors, search engines)
     #[command(display_order = 70)]
     Benchmark(commands::benchmark::BenchmarkArgs),
 }

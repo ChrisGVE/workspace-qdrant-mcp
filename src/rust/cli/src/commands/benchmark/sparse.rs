@@ -1,64 +1,16 @@
-//! Benchmark command - sparse vector evaluation.
+//! Sparse vector benchmark — BM25 vs SPLADE++ evaluation.
 //!
-//! Evaluates BM25 vs SPLADE++ sparse vector quality by sampling documents,
-//! generating both vector types, and comparing search precision/recall.
+//! Samples documents from SQLite tracked_files, generates both BM25 and SPLADE++
+//! sparse vectors, and reports comparative metrics.
 
 use anyhow::{Context, Result};
-use clap::{Args, Subcommand};
 use std::time::Instant;
 
 use crate::config::get_database_path;
 use crate::output;
 
-/// Benchmark command arguments
-#[derive(Args)]
-pub struct BenchmarkArgs {
-    #[command(subcommand)]
-    command: BenchmarkCommand,
-}
-
-/// Benchmark subcommands
-#[derive(Subcommand)]
-enum BenchmarkCommand {
-    /// Compare BM25 vs SPLADE++ sparse vectors
-    Sparse {
-        /// Collection to sample from (default: projects)
-        #[arg(long, default_value = "projects")]
-        collection: String,
-
-        /// Number of documents to sample
-        #[arg(long, default_value_t = 100)]
-        sample_size: usize,
-
-        /// Number of queries to evaluate
-        #[arg(long, default_value_t = 20)]
-        query_count: usize,
-
-        /// Output JSON report to file
-        #[arg(long)]
-        output: Option<String>,
-    },
-}
-
-/// Execute benchmark command
-pub async fn execute(args: BenchmarkArgs) -> Result<()> {
-    match args.command {
-        BenchmarkCommand::Sparse {
-            collection,
-            sample_size,
-            query_count,
-            output: output_file,
-        } => {
-            execute_sparse_benchmark(&collection, sample_size, query_count, output_file).await
-        }
-    }
-}
-
-/// Sparse vector benchmark implementation.
-///
-/// Samples documents from SQLite tracked_files, generates both BM25 and SPLADE++
-/// sparse vectors, and reports comparative metrics.
-async fn execute_sparse_benchmark(
+/// Execute the sparse vector benchmark.
+pub async fn execute(
     collection: &str,
     sample_size: usize,
     _query_count: usize,
