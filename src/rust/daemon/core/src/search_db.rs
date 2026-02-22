@@ -13,7 +13,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 /// Current schema version for search.db
-pub const SEARCH_SCHEMA_VERSION: i32 = 5;
+pub const SEARCH_SCHEMA_VERSION: i32 = 6;
 
 /// Default search database filename
 pub const SEARCH_DB_FILENAME: &str = "search.db";
@@ -196,6 +196,7 @@ impl SearchDbManager {
             3 => self.migrate_v3().await,
             4 => self.migrate_v4().await,
             5 => self.migrate_v5().await,
+            6 => self.migrate_v6().await,
             _ => Err(SearchDbError::Migration(format!(
                 "Unknown search DB migration version: {}",
                 version
@@ -295,6 +296,38 @@ impl SearchDbManager {
         Ok(())
     }
 
+    /// Migration v6: Add materialized line_number column to code_lines.
+    ///
+    /// Eliminates the correlated subquery for line number computation in
+    /// FTS5 search queries, making line number lookups O(1) per row.
+    /// Idempotent: skips ALTER if column already exists (fresh databases
+    /// create the table with line_number in v2).
+    async fn migrate_v6(&self) -> SearchDbResult<()> {
+        use crate::code_lines_schema::{ALTER_CODE_LINES_V6_SQL, POPULATE_LINE_NUMBERS_V6_SQL};
+
+        info!("Search DB migration v6: adding materialized line_number column to code_lines");
+
+        // Check if line_number column already exists (fresh DBs include it in CREATE TABLE)
+        let has_column: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('code_lines') WHERE name = 'line_number'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_column {
+            sqlx::query(ALTER_CODE_LINES_V6_SQL)
+                .execute(&self.pool)
+                .await?;
+
+            // Populate line_number for existing rows from seq ordering
+            sqlx::query(POPULATE_LINE_NUMBERS_V6_SQL)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        Ok(())
+    }
+
     // ========================================================================
     // FTS5 operations
     // ========================================================================
@@ -344,7 +377,7 @@ impl SearchDbManager {
     // Code line insertion with gap management (Task 50)
     // ========================================================================
 
-    /// Insert a single code line with the given seq value.
+    /// Insert a single code line with the given seq value and line number.
     ///
     /// Returns the new `line_id`.
     async fn insert_code_line_raw(
@@ -352,13 +385,15 @@ impl SearchDbManager {
         file_id: i64,
         seq: f64,
         content: &str,
+        line_number: i64,
     ) -> SearchDbResult<i64> {
         let result = sqlx::query(
-            "INSERT INTO code_lines (file_id, seq, content) VALUES (?1, ?2, ?3)",
+            "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)",
         )
         .bind(file_id)
         .bind(seq)
         .bind(content)
+        .bind(line_number)
         .execute(&self.pool)
         .await?;
 
@@ -383,7 +418,8 @@ impl SearchDbManager {
         let new_seq = midpoint_seq(before_seq, after_seq);
         let gap = (after_seq - before_seq) / 2.0;
 
-        let line_id = self.insert_code_line_raw(file_id, new_seq, content).await?;
+        // Temporary line_number=0; renumber_file_line_numbers called below
+        let line_id = self.insert_code_line_raw(file_id, new_seq, content, 0).await?;
 
         // Check if rebalancing is needed
         let rebalanced = if gap < MIN_SEQ_GAP {
@@ -406,6 +442,9 @@ impl SearchDbManager {
         } else {
             new_seq
         };
+
+        // Renumber all line_numbers for this file after insertion
+        self.renumber_file_line_numbers(file_id).await?;
 
         Ok((InsertedLine { line_id, seq: final_seq }, rebalanced))
     }
@@ -435,7 +474,8 @@ impl SearchDbManager {
             None => INITIAL_SEQ_GAP,
         };
 
-        let line_id = self.insert_code_line_raw(file_id, new_seq, content).await?;
+        // Temporary line_number=0; renumber below
+        let line_id = self.insert_code_line_raw(file_id, new_seq, content, 0).await?;
 
         let rebalanced = if first_seq.is_some() && new_seq < MIN_SEQ_GAP {
             debug!(
@@ -457,6 +497,9 @@ impl SearchDbManager {
             new_seq
         };
 
+        // Renumber all line_numbers for this file after insertion
+        self.renumber_file_line_numbers(file_id).await?;
+
         Ok((InsertedLine { line_id, seq: final_seq }, rebalanced))
     }
 
@@ -472,20 +515,22 @@ impl SearchDbManager {
     ) -> SearchDbResult<InsertedLine> {
         use crate::code_lines_schema::INITIAL_SEQ_GAP;
 
-        let last_seq: Option<f64> = sqlx::query_scalar(
-            "SELECT MAX(seq) FROM code_lines WHERE file_id = ?1",
+        // Get max seq and current line count for this file
+        let row: Option<(f64, i32)> = sqlx::query_as(
+            "SELECT MAX(seq), COUNT(*) FROM code_lines WHERE file_id = ?1",
         )
         .bind(file_id)
         .fetch_optional(&self.pool)
-        .await?
-        .flatten();
+        .await?;
 
-        let new_seq = match last_seq {
-            Some(last) => last + INITIAL_SEQ_GAP,
-            None => INITIAL_SEQ_GAP,
+        let (new_seq, line_number) = match row {
+            Some((max_seq, count)) if count > 0 => {
+                (max_seq + INITIAL_SEQ_GAP, (count + 1) as i64)
+            }
+            _ => (INITIAL_SEQ_GAP, 1),
         };
 
-        let line_id = self.insert_code_line_raw(file_id, new_seq, content).await?;
+        let line_id = self.insert_code_line_raw(file_id, new_seq, content, line_number).await?;
 
         Ok(InsertedLine { line_id, seq: new_seq })
     }
@@ -553,6 +598,36 @@ impl SearchDbManager {
             lines_rebalanced: count,
             new_gap: INITIAL_SEQ_GAP,
         })
+    }
+
+    /// Renumber all `line_number` values for a file based on `seq` ordering.
+    ///
+    /// Assigns sequential 1-based line numbers by reading line_ids in seq order
+    /// and updating each row. Called after insert_line_between/insert_line_at_start
+    /// or after diff operations that change the line count.
+    pub async fn renumber_file_line_numbers(&self, file_id: i64) -> SearchDbResult<()> {
+        let line_ids: Vec<i64> = sqlx::query_scalar(
+            "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
+        )
+        .bind(file_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if line_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self.pool.begin().await?;
+        for (i, line_id) in line_ids.iter().enumerate() {
+            sqlx::query("UPDATE code_lines SET line_number = ?1 WHERE line_id = ?2")
+                .bind((i + 1) as i64)
+                .bind(*line_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+
+        Ok(())
     }
 
     /// Get the seq values of lines adjacent to a given seq in a file.

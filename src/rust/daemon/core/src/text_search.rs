@@ -8,7 +8,7 @@
 //! ### Exact search (`search_exact`)
 //! 1. **FTS5 trigram MATCH** — pre-filter using the trigram index (fast, ~O(1) per term)
 //! 2. **INSTR verification** — exact match filter on `code_lines.content`
-//! 3. **ROW_NUMBER()** — derives 1-based line numbers from gap-based `seq` ordering
+//! 3. **Materialized `line_number`** — reads pre-computed 1-based line numbers directly
 //! 4. **file_metadata JOIN** — scopes results by project/branch/path
 //!
 //! ### Regex search (`search_regex`)
@@ -390,19 +390,12 @@ async fn attach_context_lines(
         let range_start = (min_line - context_n).max(1);
         let range_end = max_line + context_n;
 
-        // Fetch the needed line range for this file
+        // Fetch the needed line range for this file using materialized line_number
         let rows = sqlx::query(
             r#"
-WITH numbered AS (
-    SELECT
-        ROW_NUMBER() OVER (ORDER BY seq) AS line_number,
-        content
-    FROM code_lines
-    WHERE file_id = ?1
-)
 SELECT line_number, content
-FROM numbered
-WHERE line_number BETWEEN ?2 AND ?3
+FROM code_lines
+WHERE file_id = ?1 AND line_number BETWEEN ?2 AND ?3
 ORDER BY line_number"#,
         )
         .bind(file_id)
@@ -448,68 +441,53 @@ ORDER BY line_number"#,
 ///
 /// ## Query structure
 ///
-/// Finds matching lines first (FTS5 + INSTR), then derives line numbers
-/// using a correlated subquery that counts `seq` values within each file.
-/// This avoids computing `ROW_NUMBER()` over the entire `code_lines` table
-/// (339K+ rows) — the correlated subquery only runs for matched rows.
+/// Finds matching lines first (FTS5 + INSTR), then reads the materialized
+/// `line_number` column directly from `code_lines` — no subquery needed.
 fn build_search_query(
     fts5_pattern: &Option<String>,
     options: &SearchOptions,
 ) -> (String, bool) {
     let use_fts = fts5_pattern.is_some();
 
-    // Line number via correlated subquery: count how many lines in the same
-    // file have a seq value <= this line's seq. Only evaluated per matched row.
-    let line_number_expr =
-        "(SELECT COUNT(*) FROM code_lines c2 WHERE c2.file_id = cl.file_id AND c2.seq <= cl.seq)";
-
     // Build the matching query — FTS5 pre-filter + INSTR verification
     let matching_cte = if use_fts {
         if options.case_insensitive {
-            format!(
-                r#"
+            r#"
 WITH matching AS (
-    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    SELECT cl.line_id, cl.file_id, cl.line_number, cl.content
     FROM code_lines cl
     JOIN code_lines_fts fts ON cl.line_id = fts.rowid
     WHERE fts.content MATCH ?1 AND INSTR(LOWER(cl.content), ?2) > 0
-)"#,
-                line_number_expr
-            )
+)"#
+            .to_string()
         } else {
-            format!(
-                r#"
+            r#"
 WITH matching AS (
-    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    SELECT cl.line_id, cl.file_id, cl.line_number, cl.content
     FROM code_lines cl
     JOIN code_lines_fts fts ON cl.line_id = fts.rowid
     WHERE fts.content MATCH ?1 AND INSTR(cl.content, ?2) > 0
-)"#,
-                line_number_expr
-            )
+)"#
+            .to_string()
         }
     } else {
         // INSTR-only fallback for short patterns (< 3 chars)
         if options.case_insensitive {
-            format!(
-                r#"
+            r#"
 WITH matching AS (
-    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    SELECT cl.line_id, cl.file_id, cl.line_number, cl.content
     FROM code_lines cl
     WHERE INSTR(LOWER(cl.content), ?1) > 0
-)"#,
-                line_number_expr
-            )
+)"#
+            .to_string()
         } else {
-            format!(
-                r#"
+            r#"
 WITH matching AS (
-    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    SELECT cl.line_id, cl.file_id, cl.line_number, cl.content
     FROM code_lines cl
     WHERE INSTR(cl.content, ?1) > 0
-)"#,
-                line_number_expr
-            )
+)"#
+            .to_string()
         }
     };
 
@@ -778,7 +756,7 @@ pub async fn search_regex(
 /// Build SQL query for regex search.
 ///
 /// When FTS5 literals are available, uses FTS5 MATCH as pre-filter then
-/// derives line numbers via correlated subquery (only for matched rows).
+/// reads the materialized `line_number` column directly.
 ///
 /// When no FTS5 literals are available, scans all lines with scope filters.
 /// Regex matching is always done in Rust after fetching candidates.
@@ -788,32 +766,24 @@ fn build_regex_search_query(
 ) -> (String, bool) {
     let use_fts = fts5_query.is_some();
 
-    // Line number via correlated subquery — only evaluated per matched row
-    let line_number_expr =
-        "(SELECT COUNT(*) FROM code_lines c2 WHERE c2.file_id = cl.file_id AND c2.seq <= cl.seq)";
-
     // Candidates CTE: FTS5 pre-filter or full scan
     let candidates_cte = if use_fts {
-        format!(
-            r#"
+        r#"
 WITH candidates AS (
-    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    SELECT cl.line_id, cl.file_id, cl.line_number, cl.content
     FROM code_lines cl
     JOIN code_lines_fts fts ON cl.line_id = fts.rowid
     WHERE fts.content MATCH ?1
-)"#,
-            line_number_expr
-        )
+)"#
+        .to_string()
     } else {
         // No FTS5 — return all lines (regex filtering in Rust)
-        format!(
-            r#"
+        r#"
 WITH candidates AS (
-    SELECT cl.line_id, cl.file_id, {} AS line_number, cl.content
+    SELECT cl.line_id, cl.file_id, cl.line_number, cl.content
     FROM code_lines cl
-)"#,
-            line_number_expr
-        )
+)"#
+        .to_string()
     };
 
     // Main query joins with file_metadata for scoping
@@ -873,13 +843,15 @@ mod tests {
     ) {
         let pool = db.pool();
 
-        // Insert lines
+        // Insert lines with 1-based line_number
         for (i, line) in lines.iter().enumerate() {
             let seq = initial_seq(i);
-            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (?1, ?2, ?3)")
+            let line_number = (i + 1) as i64;
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)")
                 .bind(file_id)
                 .bind(seq)
                 .bind(*line)
+                .bind(line_number)
                 .execute(pool)
                 .await
                 .unwrap();
@@ -954,9 +926,9 @@ mod tests {
         assert!(sql.contains("MATCH ?1"));
         assert!(sql.contains("INSTR(cl.content, ?2)"));
         assert!(sql.contains("matching"));
-        // Uses correlated subquery for line numbers, not ROW_NUMBER over all_lines
-        assert!(sql.contains("SELECT COUNT(*)"));
-        assert!(!sql.contains("all_lines"));
+        // Uses materialized line_number column, not correlated subquery
+        assert!(sql.contains("cl.line_number"));
+        assert!(!sql.contains("SELECT COUNT(*)"));
     }
 
     #[test]
@@ -1528,9 +1500,9 @@ mod tests {
         assert!(use_fts);
         assert!(sql.contains("MATCH ?1"));
         assert!(sql.contains("candidates"));
-        // Uses correlated subquery, not ROW_NUMBER over all_lines
-        assert!(sql.contains("SELECT COUNT(*)"));
-        assert!(!sql.contains("all_lines"));
+        // Uses materialized line_number column, not correlated subquery
+        assert!(sql.contains("cl.line_number"));
+        assert!(!sql.contains("SELECT COUNT(*)"));
     }
 
     #[test]

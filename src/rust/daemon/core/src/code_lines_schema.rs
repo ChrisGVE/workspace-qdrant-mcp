@@ -2,7 +2,7 @@
 //!
 //! Stores line-level content for code files using gap-based `seq` ordering
 //! (REAL type) to allow efficient insertions without cascading updates.
-//! Line numbers are derived at query time via `ROW_NUMBER() OVER (ORDER BY seq)`.
+//! Line numbers are materialized in the `line_number` column for O(1) lookups.
 //!
 //! `file_id` references `tracked_files.file_id` in state.db. Cross-database
 //! foreign keys are enforced at the application level (SQLite ATTACH does not
@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS code_lines (
     file_id INTEGER NOT NULL,
     seq REAL NOT NULL,
     content TEXT NOT NULL,
+    line_number INTEGER NOT NULL DEFAULT 0,
     UNIQUE(file_id, seq)
 )
 "#;
@@ -153,6 +154,25 @@ pub const ALTER_FILE_METADATA_V5_SQL: &[&str] = &[
 /// Index for base_point lookups (search.db v5).
 pub const CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL: &str =
     "CREATE INDEX IF NOT EXISTS idx_file_metadata_base_point ON file_metadata(base_point)";
+
+/// SQL to add line_number column to code_lines (search.db v6).
+///
+/// Materializes the line number so searches can read `cl.line_number` directly
+/// instead of computing it via a correlated subquery at query time.
+pub const ALTER_CODE_LINES_V6_SQL: &str =
+    "ALTER TABLE code_lines ADD COLUMN line_number INTEGER NOT NULL DEFAULT 0";
+
+/// SQL to populate line_number from seq ordering for existing rows (migration v6).
+///
+/// Uses a self-join COUNT to compute 1-based line numbers: for each row,
+/// count how many rows in the same file have seq <= this row's seq.
+pub const POPULATE_LINE_NUMBERS_V6_SQL: &str = r#"
+UPDATE code_lines SET line_number = (
+    SELECT COUNT(*) FROM code_lines c2
+    WHERE c2.file_id = code_lines.file_id AND c2.seq <= code_lines.seq
+)
+WHERE line_number = 0
+"#;
 
 /// Indexes for the file_metadata table.
 pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[

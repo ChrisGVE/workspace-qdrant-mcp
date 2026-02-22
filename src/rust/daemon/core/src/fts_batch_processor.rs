@@ -328,13 +328,15 @@ impl<'a> FtsBatchProcessor<'a> {
             .execute(&mut *tx)
             .await?;
 
-        // Insert all new lines with standard gaps
+        // Insert all new lines with standard gaps and 1-based line numbers
         for (i, line) in lines.iter().enumerate() {
             let seq = initial_seq(i);
-            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (?1, ?2, ?3)")
+            let line_number = (i + 1) as i64;
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)")
                 .bind(file_id)
                 .bind(seq)
                 .bind(*line)
+                .bind(line_number)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -472,10 +474,12 @@ async fn apply_diff_to_code_lines(
         let lines: Vec<&str> = new_content.split('\n').collect();
         for (i, line) in lines.iter().enumerate() {
             let seq = initial_seq(i);
-            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (?1, ?2, ?3)")
+            let line_number = (i + 1) as i64;
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)")
                 .bind(file_id)
                 .bind(seq)
                 .bind(*line)
+                .bind(line_number)
                 .execute(&mut **tx)
                 .await?;
             stats.lines_inserted += 1;
@@ -582,13 +586,32 @@ async fn apply_diff_to_code_lines(
             None => INITIAL_SEQ_GAP,
         };
 
-        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (?1, ?2, ?3)")
+        // line_number=0 as placeholder; renumbered below after all insertions
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)")
             .bind(file_id)
             .bind(new_seq)
             .bind(content.as_str())
             .execute(&mut **tx)
             .await?;
         stats.lines_inserted += 1;
+    }
+
+    // Renumber line_numbers for this file after diff operations if any insertions/deletions occurred
+    if stats.lines_inserted > 0 || stats.lines_deleted > 0 {
+        let line_ids: Vec<i64> = sqlx::query_scalar(
+            "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
+        )
+        .bind(file_id)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for (i, line_id) in line_ids.iter().enumerate() {
+            sqlx::query("UPDATE code_lines SET line_number = ?1 WHERE line_id = ?2")
+                .bind((i + 1) as i64)
+                .bind(*line_id)
+                .execute(&mut **tx)
+                .await?;
+        }
     }
 
     Ok(stats)
