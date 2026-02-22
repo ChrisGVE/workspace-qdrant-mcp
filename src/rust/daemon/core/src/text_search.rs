@@ -599,9 +599,20 @@ fn extract_literals_recursive(pattern: &str, result: &mut RegexLiterals) {
             }
             // Group start — extract group content, check for alternation
             '(' => {
-                flush_to_mandatory(&mut current, &mut result.mandatory);
+                // Keep the pending literal prefix — if too short for mandatory,
+                // it can still be prepended to alternation branch literals.
+                let prefix = std::mem::take(&mut current);
+                if prefix.len() >= 3 {
+                    result.mandatory.push(prefix.clone());
+                }
                 let group_content = extract_group_content(&mut chars);
-                process_group(&group_content, result);
+                // Collect any literal suffix immediately after the group close
+                let suffix = collect_literal_suffix(&mut chars);
+                process_group_with_affixes(&prefix, &suffix, &group_content, result);
+                // If suffix is long enough on its own, also add as mandatory
+                if suffix.len() >= 3 {
+                    result.mandatory.push(suffix);
+                }
             }
             // Alternation at top level — treat remaining pattern as alternate branch.
             // This handles patterns like `async|await` (no parens).
@@ -682,15 +693,62 @@ fn extract_group_content(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -
     content
 }
 
-/// Process a group's content. If it contains `|`, extract literals from each
-/// branch and create an alternation group. Otherwise, treat its literals as mandatory.
-fn process_group(content: &str, result: &mut RegexLiterals) {
+/// Collect literal characters immediately following a group close `)`.
+///
+/// Peeks ahead consuming literal characters until a metacharacter or end of
+/// input. This captures suffixes like `::` in `(std|tokio)::` so they can
+/// be appended to each alternation branch for better trigrams.
+fn collect_literal_suffix(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut suffix = String::new();
+    while let Some(&ch) = chars.peek() {
+        match ch {
+            '\\' => {
+                // Peek at what follows the backslash
+                let mut lookahead = chars.clone();
+                lookahead.next(); // consume '\'
+                if let Some(&next) = lookahead.peek() {
+                    match next {
+                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B'
+                        | 'A' | 'z' | 'Z' | 'G' => break,
+                        _ => {
+                            chars.next(); // consume '\'
+                            chars.next(); // consume the escaped char
+                            suffix.push(next);
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+            '.' | '*' | '+' | '?' | '[' | ']' | '(' | ')' | '{' | '}' | '|' | '^' | '$' => {
+                break;
+            }
+            _ => {
+                suffix.push(ch);
+                chars.next();
+            }
+        }
+    }
+    suffix
+}
+
+/// Process a group's content with optional prefix/suffix affixes.
+///
+/// When a short literal precedes or follows a group (e.g., `.` before
+/// `(await|unwrap|expect)`), the affix is prepended/appended to each branch's
+/// literals to form longer, more selective trigrams.
+fn process_group_with_affixes(
+    prefix: &str,
+    suffix: &str,
+    content: &str,
+    result: &mut RegexLiterals,
+) {
     let branches = split_alternation(content);
     if branches.len() <= 1 {
         // No alternation — extract as mandatory
         extract_literals_recursive(content, result);
     } else {
-        // Alternation — extract literals from each branch, create OR group
+        // Alternation — extract literals from each branch, prepend/append affixes
         let mut alt_group: Vec<String> = Vec::new();
         for branch in &branches {
             let mut branch_result = RegexLiterals {
@@ -698,8 +756,24 @@ fn process_group(content: &str, result: &mut RegexLiterals) {
                 alternations: Vec::new(),
             };
             extract_literals_recursive(branch, &mut branch_result);
-            alt_group.extend(branch_result.mandatory);
-            // Nested alternations from branches are merged up
+            if branch_result.mandatory.is_empty() {
+                // Branch had no ≥3-char literals on its own. If the branch
+                // text is all literal chars and prefix+branch+suffix ≥ 3,
+                // use that as a combined literal.
+                let combined = format!("{}{}{}", prefix, branch, suffix);
+                if combined.len() >= 3 && is_all_literal(branch) {
+                    alt_group.push(combined);
+                }
+            } else {
+                for lit in &branch_result.mandatory {
+                    let combined = format!("{}{}{}", prefix, lit, suffix);
+                    if combined.len() >= 3 {
+                        alt_group.push(combined);
+                    } else if lit.len() >= 3 {
+                        alt_group.push(lit.clone());
+                    }
+                }
+            }
             result.alternations.extend(branch_result.alternations);
         }
         if !alt_group.is_empty() {
@@ -739,6 +813,30 @@ fn split_alternation(content: &str) -> Vec<String> {
     }
     branches.push(current);
     branches
+}
+
+/// Check if a string contains only literal characters (no regex metacharacters).
+fn is_all_literal(s: &str) -> bool {
+    let mut chars = s.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => {
+                // Escaped char — check if it's a literal escape or a class
+                if let Some(next) = chars.next() {
+                    match next {
+                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B'
+                        | 'A' | 'z' | 'Z' | 'G' => return false,
+                        _ => {} // escaped literal, ok
+                    }
+                }
+            }
+            '.' | '*' | '+' | '?' | '[' | ']' | '(' | ')' | '{' | '}' | '|' | '^' | '$' => {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    true
 }
 
 /// Flush the current literal buffer into the mandatory list if ≥ 3 chars.
@@ -1630,24 +1728,30 @@ mod tests {
 
     #[test]
     fn test_extract_literals_group_alternation() {
-        // `use (std|tokio|serde)::\w+` → mandatory: ["use "], alternation: [["std","tokio","serde"]]
+        // `use (std|tokio|serde)::\w+`
+        // prefix "use " + suffix "::" are merged into each branch
         let lits = extract_literals_from_regex("use (std|tokio|serde)::\\w+");
         assert_eq!(lits.mandatory, vec!["use "]);
         assert_eq!(lits.alternations.len(), 1);
-        assert_eq!(lits.alternations[0], vec!["std", "tokio", "serde"]);
+        assert_eq!(
+            lits.alternations[0],
+            vec!["use std::", "use tokio::", "use serde::"]
+        );
     }
 
     #[test]
     fn test_extract_literals_pub_decls() {
         // `pub (fn|struct|enum|trait|type) \w+`
+        // prefix "pub " + suffix " " merged into branches
         let lits = extract_literals_from_regex("pub (fn|struct|enum|trait|type) \\w+");
         assert_eq!(lits.mandatory, vec!["pub "]);
         assert_eq!(lits.alternations.len(), 1);
-        // "fn" is < 3 chars, filtered out at query build time
-        assert!(lits.alternations[0].contains(&"struct".to_string()));
-        assert!(lits.alternations[0].contains(&"enum".to_string()));
-        assert!(lits.alternations[0].contains(&"trait".to_string()));
-        assert!(lits.alternations[0].contains(&"type".to_string()));
+        // "pub fn " (4 chars ≥ 3, kept), others all ≥ 3 with prefix
+        assert!(lits.alternations[0].contains(&"pub struct ".to_string()));
+        assert!(lits.alternations[0].contains(&"pub enum ".to_string()));
+        assert!(lits.alternations[0].contains(&"pub trait ".to_string()));
+        assert!(lits.alternations[0].contains(&"pub type ".to_string()));
+        assert!(lits.alternations[0].contains(&"pub fn ".to_string()));
     }
 
     #[test]
@@ -1741,9 +1845,12 @@ mod tests {
     fn test_build_fts5_query_end_to_end_std_imports() {
         let lits = extract_literals_from_regex("use (std|tokio|serde)::\\w+");
         let query = build_fts5_query(&lits);
+        // prefix "use " + suffix "::" merged into branches for tight trigrams
         assert_eq!(
             query,
-            Some("\"use \" AND (\"std\" OR \"tokio\" OR \"serde\")".to_string())
+            Some(
+                "\"use \" AND (\"use std::\" OR \"use tokio::\" OR \"use serde::\")".to_string()
+            )
         );
     }
 
@@ -1751,12 +1858,29 @@ mod tests {
     fn test_build_fts5_query_end_to_end_pub_decls() {
         let lits = extract_literals_from_regex("pub (fn|struct|enum|trait|type) \\w+");
         let query = build_fts5_query(&lits);
-        // "fn" filtered out (< 3 chars), remaining OR'd
+        // prefix "pub " + suffix " " merged into branches
         assert_eq!(
             query,
             Some(
-                "\"pub \" AND (\"struct\" OR \"enum\" OR \"trait\" OR \"type\")".to_string()
+                "\"pub \" AND (\"pub fn \" OR \"pub struct \" OR \"pub enum \" OR \"pub trait \" OR \"pub type \")".to_string()
             )
+        );
+    }
+
+    #[test]
+    fn test_build_fts5_query_end_to_end_method_chains() {
+        // `\.(await|unwrap|expect)\b`
+        // prefix "." is 1 char, merged into branches: ".await", ".unwrap", ".expect"
+        let lits = extract_literals_from_regex("\\.(await|unwrap|expect)\\b");
+        assert!(lits.mandatory.is_empty()); // "." alone is < 3 chars
+        assert_eq!(lits.alternations.len(), 1);
+        assert!(lits.alternations[0].contains(&".await".to_string()));
+        assert!(lits.alternations[0].contains(&".unwrap".to_string()));
+        assert!(lits.alternations[0].contains(&".expect".to_string()));
+        let query = build_fts5_query(&lits);
+        assert_eq!(
+            query,
+            Some("(\".await\" OR \".unwrap\" OR \".expect\")".to_string())
         );
     }
 
