@@ -60,6 +60,43 @@ pub mod item_type {
     pub const COLLECTION: &str = "collection";
 }
 
+/// Qdrant payload field name constants.
+///
+/// Single source of truth for field names used in Qdrant point payloads.
+/// Every consumer must import from here rather than using string literals.
+pub mod field {
+    /// Multi-tenant isolation key
+    pub const TENANT_ID: &str = "tenant_id";
+    /// Project scoping within memory collection
+    pub const PROJECT_ID: &str = "project_id";
+    /// Library scoping key
+    pub const LIBRARY_NAME: &str = "library_name";
+    /// Instance-aware filtering (base point IDs)
+    pub const BASE_POINT: &str = "base_point";
+    /// Git branch filter
+    pub const BRANCH: &str = "branch";
+    /// File extension discriminator
+    pub const FILE_TYPE: &str = "file_type";
+    /// File path for glob matching
+    pub const FILE_PATH: &str = "file_path";
+    /// Concept tags for tag-based filtering
+    pub const CONCEPT_TAGS: &str = "concept_tags";
+    /// Soft-delete flag
+    pub const DELETED: &str = "deleted";
+    /// Document text content
+    pub const CONTENT: &str = "content";
+    /// Document title
+    pub const TITLE: &str = "title";
+    /// Content source classification
+    pub const SOURCE_TYPE: &str = "source_type";
+    /// Document identifier
+    pub const DOCUMENT_ID: &str = "document_id";
+    /// File/content type discriminator
+    pub const ITEM_TYPE: &str = "item_type";
+    /// Parent unit link for chunked documents
+    pub const PARENT_UNIT_ID: &str = "parent_unit_id";
+}
+
 /// String constants for QueueOperation enum values.
 ///
 /// Every consumer must import from here rather than using string literals.
@@ -115,6 +152,25 @@ mod tests {
         assert_eq!(item_type::FOLDER, "folder");
         assert_eq!(item_type::TENANT, "tenant");
         assert_eq!(item_type::COLLECTION, "collection");
+    }
+
+    #[test]
+    fn test_field_constants() {
+        assert_eq!(field::TENANT_ID, "tenant_id");
+        assert_eq!(field::PROJECT_ID, "project_id");
+        assert_eq!(field::LIBRARY_NAME, "library_name");
+        assert_eq!(field::BASE_POINT, "base_point");
+        assert_eq!(field::BRANCH, "branch");
+        assert_eq!(field::FILE_TYPE, "file_type");
+        assert_eq!(field::FILE_PATH, "file_path");
+        assert_eq!(field::CONCEPT_TAGS, "concept_tags");
+        assert_eq!(field::DELETED, "deleted");
+        assert_eq!(field::CONTENT, "content");
+        assert_eq!(field::TITLE, "title");
+        assert_eq!(field::SOURCE_TYPE, "source_type");
+        assert_eq!(field::DOCUMENT_ID, "document_id");
+        assert_eq!(field::ITEM_TYPE, "item_type");
+        assert_eq!(field::PARENT_UNIT_ID, "parent_unit_id");
     }
 
     #[test]

@@ -19,7 +19,16 @@ import { createHash } from 'node:crypto';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 
 // Canonical collection name from native bridge (single source of truth)
-import { COLLECTION_LIBRARIES, PRIORITY_HIGH } from '../common/native-bridge.js';
+import {
+  COLLECTION_LIBRARIES,
+  PRIORITY_HIGH,
+  FIELD_SOURCE_TYPE,
+  FIELD_CONTENT,
+  FIELD_DOCUMENT_ID,
+  FIELD_LIBRARY_NAME,
+  FIELD_TITLE,
+  FIELD_FILE_PATH,
+} from '../common/native-bridge.js';
 const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 
 export type SourceType = 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
@@ -137,12 +146,12 @@ export class StoreTool {
     // Build metadata
     const fullMetadata: Record<string, string> = {
       ...metadata,
-      source_type: sourceType,
+      [FIELD_SOURCE_TYPE]: sourceType,
     };
 
-    if (title) fullMetadata['title'] = title;
+    if (title) fullMetadata[FIELD_TITLE] = title;
     if (url) fullMetadata['url'] = url;
-    if (filePath) fullMetadata['file_path'] = filePath;
+    if (filePath) fullMetadata[FIELD_FILE_PATH] = filePath;
 
     // Per ADR-002: ONLY queue the operation, never call daemon directly
     try {
@@ -199,11 +208,11 @@ export class StoreTool {
     sourceType: SourceType;
   }): Promise<{ queueId: string }> {
     const payload: Record<string, unknown> = {
-      content: params.content,
-      document_id: params.documentId,
-      source_type: params.sourceType,
+      [FIELD_CONTENT]: params.content,
+      [FIELD_DOCUMENT_ID]: params.documentId,
+      [FIELD_SOURCE_TYPE]: params.sourceType,
       metadata: params.metadata,
-      library_name: params.libraryName,
+      [FIELD_LIBRARY_NAME]: params.libraryName,
     };
 
     // Use state manager to enqueue to libraries collection

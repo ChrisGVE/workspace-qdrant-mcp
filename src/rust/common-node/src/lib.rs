@@ -183,6 +183,100 @@ pub fn priority_low() -> i32 {
 }
 
 // ============================================================================
+// Constants — Payload Fields
+// ============================================================================
+
+/// Get the "tenant_id" payload field name
+#[napi]
+pub fn field_tenant_id() -> String {
+    wqm_common::constants::field::TENANT_ID.to_string()
+}
+
+/// Get the "project_id" payload field name
+#[napi]
+pub fn field_project_id() -> String {
+    wqm_common::constants::field::PROJECT_ID.to_string()
+}
+
+/// Get the "library_name" payload field name
+#[napi]
+pub fn field_library_name() -> String {
+    wqm_common::constants::field::LIBRARY_NAME.to_string()
+}
+
+/// Get the "base_point" payload field name
+#[napi]
+pub fn field_base_point() -> String {
+    wqm_common::constants::field::BASE_POINT.to_string()
+}
+
+/// Get the "branch" payload field name
+#[napi]
+pub fn field_branch() -> String {
+    wqm_common::constants::field::BRANCH.to_string()
+}
+
+/// Get the "file_type" payload field name
+#[napi]
+pub fn field_file_type() -> String {
+    wqm_common::constants::field::FILE_TYPE.to_string()
+}
+
+/// Get the "file_path" payload field name
+#[napi]
+pub fn field_file_path() -> String {
+    wqm_common::constants::field::FILE_PATH.to_string()
+}
+
+/// Get the "concept_tags" payload field name
+#[napi]
+pub fn field_concept_tags() -> String {
+    wqm_common::constants::field::CONCEPT_TAGS.to_string()
+}
+
+/// Get the "deleted" payload field name
+#[napi]
+pub fn field_deleted() -> String {
+    wqm_common::constants::field::DELETED.to_string()
+}
+
+/// Get the "content" payload field name
+#[napi]
+pub fn field_content() -> String {
+    wqm_common::constants::field::CONTENT.to_string()
+}
+
+/// Get the "title" payload field name
+#[napi]
+pub fn field_title() -> String {
+    wqm_common::constants::field::TITLE.to_string()
+}
+
+/// Get the "source_type" payload field name
+#[napi]
+pub fn field_source_type() -> String {
+    wqm_common::constants::field::SOURCE_TYPE.to_string()
+}
+
+/// Get the "document_id" payload field name
+#[napi]
+pub fn field_document_id() -> String {
+    wqm_common::constants::field::DOCUMENT_ID.to_string()
+}
+
+/// Get the "item_type" payload field name
+#[napi]
+pub fn field_item_type() -> String {
+    wqm_common::constants::field::ITEM_TYPE.to_string()
+}
+
+/// Get the "parent_unit_id" payload field name
+#[napi]
+pub fn field_parent_unit_id() -> String {
+    wqm_common::constants::field::PARENT_UNIT_ID.to_string()
+}
+
+// ============================================================================
 // Constants — Item types
 // ============================================================================
 

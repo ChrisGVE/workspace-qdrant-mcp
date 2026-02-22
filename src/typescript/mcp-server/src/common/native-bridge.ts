@@ -36,6 +36,22 @@ interface NativeAddon {
   priorityHigh(): number;
   priorityNormal(): number;
   priorityLow(): number;
+  // Payload field constants
+  fieldTenantId(): string;
+  fieldProjectId(): string;
+  fieldLibraryName(): string;
+  fieldBasePoint(): string;
+  fieldBranch(): string;
+  fieldFileType(): string;
+  fieldFilePath(): string;
+  fieldConceptTags(): string;
+  fieldDeleted(): string;
+  fieldContent(): string;
+  fieldTitle(): string;
+  fieldSourceType(): string;
+  fieldDocumentId(): string;
+  fieldItemType(): string;
+  fieldParentUnitId(): string;
   // Item type constants
   itemTypeText(): string;
   itemTypeFile(): string;
@@ -148,6 +164,23 @@ export const DEFAULT_BRANCH = loadAddon().defaultBranch();
 export const PRIORITY_HIGH = loadAddon().priorityHigh();
 export const PRIORITY_NORMAL = loadAddon().priorityNormal();
 export const PRIORITY_LOW = loadAddon().priorityLow();
+
+// Payload field constants
+export const FIELD_TENANT_ID = loadAddon().fieldTenantId();
+export const FIELD_PROJECT_ID = loadAddon().fieldProjectId();
+export const FIELD_LIBRARY_NAME = loadAddon().fieldLibraryName();
+export const FIELD_BASE_POINT = loadAddon().fieldBasePoint();
+export const FIELD_BRANCH = loadAddon().fieldBranch();
+export const FIELD_FILE_TYPE = loadAddon().fieldFileType();
+export const FIELD_FILE_PATH = loadAddon().fieldFilePath();
+export const FIELD_CONCEPT_TAGS = loadAddon().fieldConceptTags();
+export const FIELD_DELETED = loadAddon().fieldDeleted();
+export const FIELD_CONTENT = loadAddon().fieldContent();
+export const FIELD_TITLE = loadAddon().fieldTitle();
+export const FIELD_SOURCE_TYPE = loadAddon().fieldSourceType();
+export const FIELD_DOCUMENT_ID = loadAddon().fieldDocumentId();
+export const FIELD_ITEM_TYPE = loadAddon().fieldItemType();
+export const FIELD_PARENT_UNIT_ID = loadAddon().fieldParentUnitId();
 
 // Item type constants
 export const ITEM_TYPE_TEXT = loadAddon().itemTypeText();

@@ -15,6 +15,7 @@ import {
   type SearchOptions,
   type SearchResponse,
 } from './search-types.js';
+import { FIELD_CONTENT, FIELD_TITLE, FIELD_PARENT_UNIT_ID } from '../common/native-bridge.js';
 
 /**
  * Search a single collection with dense and/or sparse vectors.
@@ -48,10 +49,10 @@ export async function searchCollection(
           id: String(hit.id),
           score: hit.score,
           collection: params.collection,
-          content: (hit.payload?.['content'] as string) ?? '',
+          content: (hit.payload?.[FIELD_CONTENT] as string) ?? '',
           metadata: { ...hit.payload, _search_type: 'semantic' },
         };
-        const title = hit.payload?.['title'] as string | undefined;
+        const title = hit.payload?.[FIELD_TITLE] as string | undefined;
         if (title) result.title = title;
         results.push(result);
       }
@@ -87,10 +88,10 @@ export async function searchCollection(
             id: String(hit.id),
             score: hit.score,
             collection: params.collection,
-            content: (hit.payload?.['content'] as string) ?? '',
+            content: (hit.payload?.[FIELD_CONTENT] as string) ?? '',
             metadata: { ...hit.payload, _search_type: 'keyword' },
           };
-          const title = hit.payload?.['title'] as string | undefined;
+          const title = hit.payload?.[FIELD_TITLE] as string | undefined;
           if (title) result.title = title;
           results.push(result);
         }
@@ -148,7 +149,7 @@ export async function expandParentContext(
   const parentsByCollection = new Map<string, Map<string, SearchResult[]>>();
 
   for (const result of results) {
-    const parentId = result.metadata['parent_unit_id'] as string | undefined;
+    const parentId = result.metadata[FIELD_PARENT_UNIT_ID] as string | undefined;
     if (!parentId) continue;
 
     let collMap = parentsByCollection.get(result.collection);
@@ -244,8 +245,8 @@ export async function fallbackSearch(
       });
 
       for (const point of scrollResult.points) {
-        const content = (point.payload?.['content'] as string) ?? '';
-        const titlePayload = (point.payload?.['title'] as string) ?? '';
+        const content = (point.payload?.[FIELD_CONTENT] as string) ?? '';
+        const titlePayload = (point.payload?.[FIELD_TITLE] as string) ?? '';
 
         if (
           content.toLowerCase().includes(queryLower) ||

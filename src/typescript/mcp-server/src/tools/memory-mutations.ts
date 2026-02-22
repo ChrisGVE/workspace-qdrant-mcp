@@ -7,7 +7,7 @@ import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 import { utcNow } from '../utils/timestamps.js';
-import { PRIORITY_HIGH } from '../common/native-bridge.js';
+import { PRIORITY_HIGH, FIELD_SOURCE_TYPE, FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
 import type { MemoryAction, MemoryOptions, MemoryResponse, MemoryScope } from './memory-types.js';
 import { MEMORY_BASENAME, MEMORY_COLLECTION } from './memory-types.js';
 
@@ -28,12 +28,12 @@ function queueMemoryOperation(
   const payload: Record<string, unknown> = {
     label: operation.label,
     action: operation.action,
-    source_type: 'memory_rule',
+    [FIELD_SOURCE_TYPE]: 'memory_rule',
   };
-  if (operation.content) payload['content'] = operation.content;
+  if (operation.content) payload[FIELD_CONTENT] = operation.content;
   if (operation.scope) payload['scope'] = operation.scope;
-  if (operation.projectId) payload['project_id'] = operation.projectId;
-  if (operation.title) payload['title'] = operation.title;
+  if (operation.projectId) payload[FIELD_PROJECT_ID] = operation.projectId;
+  if (operation.title) payload[FIELD_TITLE] = operation.title;
   if (operation.tags) payload['tags'] = operation.tags;
   if (operation.priority !== undefined) payload['priority'] = operation.priority;
 
@@ -85,8 +85,8 @@ export async function addRule(
 
   const label = options.label.trim();
   const metadata: Record<string, string> = { scope, rule_type: 'behavioral', label };
-  if (resolvedProjectId) metadata['project_id'] = resolvedProjectId;
-  if (title) metadata['title'] = title;
+  if (resolvedProjectId) metadata[FIELD_PROJECT_ID] = resolvedProjectId;
+  if (title) metadata[FIELD_TITLE] = title;
   if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
   if (priority !== undefined) metadata['priority'] = String(priority);
 
@@ -152,7 +152,7 @@ export async function updateRule(
   }
 
   const metadata: Record<string, string> = { label };
-  if (title) metadata['title'] = title;
+  if (title) metadata[FIELD_TITLE] = title;
   if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
   if (priority !== undefined) metadata['priority'] = String(priority);
 

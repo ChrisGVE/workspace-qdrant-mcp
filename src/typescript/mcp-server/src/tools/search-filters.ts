@@ -8,6 +8,16 @@ import {
   LIBRARIES_COLLECTION,
   SCRATCHPAD_COLLECTION,
 } from './search-types.js';
+import {
+  FIELD_TENANT_ID,
+  FIELD_BASE_POINT,
+  FIELD_BRANCH,
+  FIELD_FILE_TYPE,
+  FIELD_LIBRARY_NAME,
+  FIELD_CONCEPT_TAGS,
+  FIELD_FILE_PATH,
+  FIELD_DELETED,
+} from '../common/native-bridge.js';
 
 /**
  * Extract the deterministic path prefix from a glob pattern.
@@ -62,7 +72,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // Project filter for project scope
   if (params.scope === 'project' && params.projectId) {
     mustConditions.push({
-      key: 'tenant_id',
+      key: FIELD_TENANT_ID,
       match: { value: params.projectId },
     });
   }
@@ -70,7 +80,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // Task 15: Instance-aware base_point filter
   if (params.basePoints && params.basePoints.length > 0) {
     mustConditions.push({
-      key: 'base_point',
+      key: FIELD_BASE_POINT,
       match: { any: params.basePoints },
     });
   }
@@ -78,7 +88,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // Branch filter
   if (params.branch && params.branch !== '*') {
     mustConditions.push({
-      key: 'branch',
+      key: FIELD_BRANCH,
       match: { value: params.branch },
     });
   }
@@ -86,7 +96,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // File type filter
   if (params.fileType) {
     mustConditions.push({
-      key: 'file_type',
+      key: FIELD_FILE_TYPE,
       match: { value: params.fileType },
     });
   }
@@ -94,7 +104,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // Library name filter
   if (params.collection === LIBRARIES_COLLECTION && params.libraryName) {
     mustConditions.push({
-      key: 'library_name',
+      key: FIELD_LIBRARY_NAME,
       match: { value: params.libraryName },
     });
   }
@@ -102,7 +112,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // Tag filter — single tag (exact match on concept_tags payload field)
   if (params.tag) {
     mustConditions.push({
-      key: 'concept_tags',
+      key: FIELD_CONCEPT_TAGS,
       match: { value: params.tag },
     });
   }
@@ -110,7 +120,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // Multi-tag filter (OR logic)
   if (params.tags && params.tags.length > 0) {
     const tagShouldConditions = params.tags.map((t) => ({
-      key: 'concept_tags',
+      key: FIELD_CONCEPT_TAGS,
       match: { value: t },
     }));
     mustConditions.push({ should: tagShouldConditions });
@@ -121,7 +131,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
     const prefix = extractGlobPrefix(params.pathGlob);
     if (prefix) {
       mustConditions.push({
-        key: 'file_path',
+        key: FIELD_FILE_PATH,
         match: { text: prefix },
       });
     }
@@ -130,7 +140,7 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
   // Exclude deleted libraries unless explicitly included
   if (params.collection === LIBRARIES_COLLECTION && !params.includeDeleted) {
     mustNotConditions.push({
-      key: 'deleted',
+      key: FIELD_DELETED,
       match: { value: true },
     });
   }

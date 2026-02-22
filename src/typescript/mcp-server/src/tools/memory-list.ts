@@ -7,6 +7,7 @@ import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 import type { MemoryOptions, MemoryResponse, MemoryRule, MemoryScope } from './memory-types.js';
 import { MEMORY_COLLECTION } from './memory-types.js';
+import { FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
 
 /** Build Qdrant filter for list query based on scope. */
 function buildListFilter(
@@ -19,7 +20,7 @@ function buildListFilter(
     mustConditions.push({ key: 'scope', match: { value: 'global' } });
   } else if (scope === 'project' && projectId) {
     mustConditions.push({ key: 'scope', match: { value: 'project' } });
-    mustConditions.push({ key: 'project_id', match: { value: projectId } });
+    mustConditions.push({ key: FIELD_PROJECT_ID, match: { value: projectId } });
   }
 
   return mustConditions.length > 0 ? { must: mustConditions } : undefined;
@@ -55,17 +56,17 @@ export async function listRules(
     const rules: MemoryRule[] = scrollResult.points.map((point) => {
       const rule: MemoryRule = {
         id: String(point.id),
-        content: (point.payload?.['content'] as string) ?? '',
+        content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
         scope: (point.payload?.['scope'] as MemoryScope) ?? 'global',
       };
 
       const label = point.payload?.['label'] as string | undefined;
       if (label) rule.label = label;
 
-      const pid = point.payload?.['project_id'] as string | undefined;
+      const pid = point.payload?.[FIELD_PROJECT_ID] as string | undefined;
       if (pid) rule.projectId = pid;
 
-      const title = point.payload?.['title'] as string | undefined;
+      const title = point.payload?.[FIELD_TITLE] as string | undefined;
       if (title) rule.title = title;
 
       const tagsStr = point.payload?.['tags'] as string | undefined;

@@ -3,7 +3,7 @@
  */
 
 // Canonical collection names from native bridge (single source of truth)
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY } from '../common/native-bridge.js';
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, FIELD_CONTENT } from '../common/native-bridge.js';
 export const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
 export const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 export const MEMORY_COLLECTION = COLLECTION_MEMORY;
@@ -56,7 +56,7 @@ export function extractMetadata(payload: Record<string, unknown> | null | undefi
   if (!payload) return {};
   const metadata: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {
-    if (key === 'content' || key === 'dense_vector' || key === 'sparse_vector') continue;
+    if (key === FIELD_CONTENT || key === 'dense_vector' || key === 'sparse_vector') continue;
     metadata[key] = value;
   }
   return metadata;

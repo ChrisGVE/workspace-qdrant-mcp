@@ -7,6 +7,7 @@
 
 import { QdrantClient } from '@qdrant/js-client-rest';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { FIELD_CONTENT, FIELD_TENANT_ID } from '../common/native-bridge.js';
 
 // Re-export all types so existing imports from './retrieve.js' continue to work
 export type {
@@ -75,7 +76,7 @@ export class RetrieveTool {
 
       const document: RetrievedDocument = {
         id: String(point.id),
-        content: (point.payload?.['content'] as string) ?? '',
+        content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
         metadata: extractMetadata(point.payload),
       };
 
@@ -112,7 +113,7 @@ export class RetrieveTool {
 
       const documents: RetrievedDocument[] = points.map((point) => ({
         id: String(point.id),
-        content: (point.payload?.['content'] as string) ?? '',
+        content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
         metadata: extractMetadata(point.payload),
       }));
 
@@ -136,9 +137,9 @@ export class RetrieveTool {
 
     if (collection === 'projects') {
       const tenantId = projectId ?? (await this.resolveProjectId());
-      if (tenantId) mustConditions.push({ key: 'tenant_id', match: { value: tenantId } });
+      if (tenantId) mustConditions.push({ key: FIELD_TENANT_ID, match: { value: tenantId } });
     } else if (collection === 'libraries' && libraryName) {
-      mustConditions.push({ key: 'tenant_id', match: { value: libraryName } });
+      mustConditions.push({ key: FIELD_TENANT_ID, match: { value: libraryName } });
     }
 
     if (filter) {
