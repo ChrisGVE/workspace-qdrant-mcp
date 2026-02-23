@@ -25,7 +25,7 @@ use tracing::{debug, info, warn, error};
 // Note: tonic, hyper, and url imports removed as they're not currently used
 // They would be needed for advanced gRPC HTTP/2 configuration
 
-use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD};
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD, COLLECTION_IMAGES};
 
 /// Multi-tenant collection configuration
 #[derive(Debug, Clone)]
@@ -66,6 +66,8 @@ pub struct MultiTenantInitResult {
     pub memory_created: bool,
     /// Whether scratchpad collection was created
     pub scratchpad_created: bool,
+    /// Whether images collection was created (512-dim CLIP vectors)
+    pub images_created: bool,
 }
 
 impl MultiTenantInitResult {
@@ -77,6 +79,7 @@ impl MultiTenantInitResult {
             && self.libraries_indexed
             && self.memory_created
             && self.scratchpad_created
+            && self.images_created
     }
 }
 
@@ -1398,6 +1401,66 @@ impl StorageClient {
         Ok(())
     }
 
+    /// Create the images collection with CLIP 512-dim dense vectors only.
+    ///
+    /// Unlike other collections, the images collection uses:
+    /// - 512-dimensional dense vectors (CLIP ViT-B-32)
+    /// - No sparse vectors (images don't have keyword-searchable text)
+    /// - Cosine distance for cross-modal similarity
+    pub async fn create_image_collection(
+        &self,
+        config: &MultiTenantConfig,
+    ) -> Result<(), StorageError> {
+        info!(
+            "Creating images collection (CLIP 512-dim, dense-only, m={}, ef_construct={})",
+            config.hnsw_m, config.hnsw_ef_construct
+        );
+
+        if self.collection_exists(COLLECTION_IMAGES).await? {
+            info!("Collection {} already exists, skipping creation", COLLECTION_IMAGES);
+            return Ok(());
+        }
+
+        let hnsw_config = HnswConfigDiffBuilder::default()
+            .m(config.hnsw_m)
+            .ef_construct(config.hnsw_ef_construct);
+
+        // 512-dim CLIP vectors with cosine distance
+        let dense_vector_params: VectorParams =
+            VectorParamsBuilder::new(512, Distance::Cosine)
+                .hnsw_config(hnsw_config)
+                .on_disk(false)
+                .build();
+
+        let mut dense_vectors_map = HashMap::new();
+        dense_vectors_map.insert("dense".to_string(), dense_vector_params);
+
+        let named_vectors_config = VectorsConfig {
+            config: Some(vectors_config::Config::ParamsMap(VectorParamsMap {
+                map: dense_vectors_map,
+            })),
+        };
+
+        // No sparse vectors for images
+        let create_request = CreateCollectionBuilder::new(COLLECTION_IMAGES)
+            .vectors_config(named_vectors_config)
+            .on_disk_payload(config.on_disk_payload)
+            .shard_number(1)
+            .replication_factor(1)
+            .write_consistency_factor(1);
+
+        self.retry_operation(|| async {
+            self.client
+                .create_collection(create_request.clone())
+                .await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        })
+        .await?;
+
+        info!("Successfully created images collection (512-dim CLIP, dense-only)");
+        Ok(())
+    }
+
     /// Create a payload index for efficient filtering
     ///
     /// Creates a keyword index on the specified field for fast filtering in queries.
@@ -1522,6 +1585,31 @@ impl StorageClient {
             }
         }
         result.scratchpad_created = true;
+
+        // Create images collection (512-dim CLIP, dense-only)
+        match self.create_image_collection(&config).await {
+            Ok(()) => {
+                // Create tenant_id index for multi-tenant filtering
+                match self.create_payload_index(COLLECTION_IMAGES, "tenant_id").await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        warn!("Could not create tenant_id index on images (may already exist): {}", e);
+                    }
+                }
+                // Create source_document_id index for provenance lookups
+                match self.create_payload_index(COLLECTION_IMAGES, "source_document_id").await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        warn!("Could not create source_document_id index on images (may already exist): {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to create {} collection: {}", COLLECTION_IMAGES, e);
+                return Err(e);
+            }
+        }
+        result.images_created = true;
 
         info!("Multi-tenant collections initialized: {:?}", result);
         Ok(result)
@@ -2163,6 +2251,7 @@ mod tests {
         assert!(!result.libraries_created);
         assert!(!result.libraries_indexed);
         assert!(!result.memory_created);
+        assert!(!result.images_created);
         assert!(!result.is_complete());
     }
 
@@ -2175,6 +2264,7 @@ mod tests {
             libraries_indexed: true,
             memory_created: true,
             scratchpad_created: true,
+            images_created: true,
         };
         assert!(result.is_complete());
     }
@@ -2188,6 +2278,21 @@ mod tests {
             libraries_indexed: false, // Missing index
             memory_created: true,
             scratchpad_created: true,
+            images_created: true,
+        };
+        assert!(!result.is_complete());
+    }
+
+    #[test]
+    fn test_multi_tenant_init_result_missing_images() {
+        let result = MultiTenantInitResult {
+            projects_created: true,
+            projects_indexed: true,
+            libraries_created: true,
+            libraries_indexed: true,
+            memory_created: true,
+            scratchpad_created: true,
+            images_created: false,
         };
         assert!(!result.is_complete());
     }

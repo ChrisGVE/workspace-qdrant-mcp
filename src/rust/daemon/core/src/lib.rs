@@ -71,6 +71,7 @@ pub mod lexicon;
 pub mod line_diff;
 pub mod library_document;
 pub mod metadata_uplift;
+pub mod thumbnail;
 pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;

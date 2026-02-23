@@ -18,6 +18,10 @@ pub const COLLECTION_MEMORY: &str = "memory";
 /// Filtered by tenant_id payload field (_global_ or project_id)
 pub const COLLECTION_SCRATCHPAD: &str = "scratchpad";
 
+/// Images collection - stores CLIP-embedded images from documents
+/// 512-dimensional vectors (CLIP ViT-B-32), dense-only (no sparse)
+pub const COLLECTION_IMAGES: &str = "images";
+
 /// Default Qdrant server URL
 pub const DEFAULT_QDRANT_URL: &str = "http://localhost:6333";
 
@@ -95,6 +99,32 @@ pub mod field {
     pub const ITEM_TYPE: &str = "item_type";
     /// Parent unit link for chunked documents
     pub const PARENT_UNIT_ID: &str = "parent_unit_id";
+
+    // Image-specific fields (images collection)
+    /// Source document identifier for the image
+    pub const SOURCE_DOCUMENT_ID: &str = "source_document_id";
+    /// Source collection (projects or libraries)
+    pub const SOURCE_COLLECTION: &str = "source_collection";
+    /// Page number within document (PDFs)
+    pub const PAGE_NUMBER: &str = "page_number";
+    /// Section or chapter name (EPUBs)
+    pub const SECTION: &str = "section";
+    /// Image index within page/section
+    pub const IMAGE_INDEX: &str = "image_index";
+    /// Image width in pixels
+    pub const IMAGE_WIDTH: &str = "image_width";
+    /// Image height in pixels
+    pub const IMAGE_HEIGHT: &str = "image_height";
+    /// Image format (JPEG, PNG, etc.)
+    pub const IMAGE_FORMAT: &str = "image_format";
+    /// Base64-encoded 64x64 thumbnail
+    pub const THUMBNAIL_B64: &str = "thumbnail_b64";
+    /// OCR-extracted text from image
+    pub const OCR_TEXT: &str = "ocr_text";
+    /// Alt text from HTML/EPUB source
+    pub const ALT_TEXT: &str = "alt_text";
+    /// Ingestion timestamp
+    pub const INGESTION_TIMESTAMP: &str = "ingestion_timestamp";
 }
 
 /// String constants for QueueOperation enum values.
@@ -127,6 +157,7 @@ mod tests {
         assert_eq!(COLLECTION_LIBRARIES, "libraries");
         assert_eq!(COLLECTION_MEMORY, "memory");
         assert_eq!(COLLECTION_SCRATCHPAD, "scratchpad");
+        assert_eq!(COLLECTION_IMAGES, "images");
     }
 
     #[test]
@@ -171,6 +202,22 @@ mod tests {
         assert_eq!(field::DOCUMENT_ID, "document_id");
         assert_eq!(field::ITEM_TYPE, "item_type");
         assert_eq!(field::PARENT_UNIT_ID, "parent_unit_id");
+    }
+
+    #[test]
+    fn test_image_field_constants() {
+        assert_eq!(field::SOURCE_DOCUMENT_ID, "source_document_id");
+        assert_eq!(field::SOURCE_COLLECTION, "source_collection");
+        assert_eq!(field::PAGE_NUMBER, "page_number");
+        assert_eq!(field::SECTION, "section");
+        assert_eq!(field::IMAGE_INDEX, "image_index");
+        assert_eq!(field::IMAGE_WIDTH, "image_width");
+        assert_eq!(field::IMAGE_HEIGHT, "image_height");
+        assert_eq!(field::IMAGE_FORMAT, "image_format");
+        assert_eq!(field::THUMBNAIL_B64, "thumbnail_b64");
+        assert_eq!(field::OCR_TEXT, "ocr_text");
+        assert_eq!(field::ALT_TEXT, "alt_text");
+        assert_eq!(field::INGESTION_TIMESTAMP, "ingestion_timestamp");
     }
 
     #[test]

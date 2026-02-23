@@ -36,6 +36,10 @@ html2text = "0.12"
 calamine = "0.33"
 csv = "1.4"
 
+# Image processing (thumbnail generation for CLIP pipeline)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff"] }
+base64 = "0.22"
+
 # Git integration
 git2 = "0.19"
 
