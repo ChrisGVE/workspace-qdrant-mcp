@@ -59,8 +59,12 @@ export function buildServerComponents(config: ServerConfig): ServerComponents {
 
   const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector);
 
+  const rulesConfig: { qdrantUrl: string; qdrantApiKey?: string; duplicationThreshold?: number } = { ...qdrantConfig };
+  if (config.rules?.duplicationThreshold !== undefined) {
+    rulesConfig.duplicationThreshold = config.rules.duplicationThreshold;
+  }
   const rulesTool = new RulesTool(
-    qdrantConfig,
+    rulesConfig,
     daemonClient,
     stateManager,
     projectDetector

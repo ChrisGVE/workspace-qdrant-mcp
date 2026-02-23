@@ -40,6 +40,7 @@ export interface RuleResponse {
   action: RuleAction;
   label?: string;
   rules?: Rule[];
+  similar_rules?: Array<Rule & { similarity: number }>;
   message?: string;
   fallback_mode?: 'unified_queue';
   queue_id?: string;
@@ -49,4 +50,5 @@ export interface RuleToolConfig {
   qdrantUrl: string;
   qdrantApiKey?: string;
   qdrantTimeout?: number;
+  duplicationThreshold?: number;
 }

@@ -36,6 +36,7 @@ export interface RuleLimitsConfig {
 
 export interface RuleConfig {
   limits: RuleLimitsConfig;
+  duplicationThreshold?: number;
 }
 
 export interface EnvironmentConfig {
