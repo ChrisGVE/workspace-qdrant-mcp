@@ -1143,15 +1143,26 @@ impl SchemaManager {
     }
 
     async fn migrate_v24(&self) -> Result<(), SchemaError> {
-        info!("Migration v24: Creating project_groups table for cross-project search");
+        info!("Migration v24: Creating project_groups and project_dependencies tables");
 
         use super::project_groups_schema::{CREATE_PROJECT_GROUPS_SQL, CREATE_PROJECT_GROUPS_INDEXES_SQL};
+        use super::dependency_grouper::{CREATE_PROJECT_DEPENDENCIES_SQL, CREATE_PROJECT_DEPENDENCIES_INDEXES_SQL};
 
         sqlx::query(CREATE_PROJECT_GROUPS_SQL)
             .execute(&self.pool)
             .await?;
 
         for index_sql in CREATE_PROJECT_GROUPS_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        sqlx::query(CREATE_PROJECT_DEPENDENCIES_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_PROJECT_DEPENDENCIES_INDEXES_SQL {
             sqlx::query(index_sql)
                 .execute(&self.pool)
                 .await?;
