@@ -52,6 +52,7 @@ pub mod queue_types;
 // Note: queue_processor module removed per Task 21 - use unified_queue_processor
 pub mod queue_error_handler;
 pub mod service_discovery;
+pub mod source_diversity;
 pub mod storage;
 pub mod tool_monitor;
 pub mod type_aware_processor;
