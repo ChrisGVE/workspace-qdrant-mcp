@@ -7,7 +7,7 @@ This guide documents how to integrate workspace-qdrant-mcp with Claude Code's ho
 **Key architecture insight:** Claude Code hooks must be pre-configured in `.claude/settings.json` or shipped with the project. They cannot be programmatically created by MCP servers at runtime.
 
 **Separation of concerns:**
-- **MCP server** provides tools (`search`, `store`, `memory`, `retrieve`)
+- **MCP server** provides tools (`search`, `store`, `rules`, `retrieve`)
 - **Hooks** call `wqm` CLI commands for session lifecycle events
 - **Daemon** manages persistent state and file watching
 
@@ -135,9 +135,9 @@ wqm session start --json --lightweight
 **Full initialization flow:**
 1. Detect project from current working directory (git analysis)
 2. Send `RegisterProject` gRPC to daemon (sets `is_active = 1` for project group)
-3. Fetch global memories from the `memory` collection
-4. Fetch project-scoped memories (if any)
-5. Output JSON with `additionalContext` containing formatted memories
+3. Fetch global rules from the `memory` collection
+4. Fetch project-scoped rules (if any)
+5. Output JSON with `additionalContext` containing formatted rules
 
 **Lightweight refresh flow:**
 1. Send heartbeat to daemon (refresh `last_activity_at`)

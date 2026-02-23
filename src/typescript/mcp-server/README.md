@@ -4,7 +4,7 @@ MCP server providing project-scoped Qdrant vector database operations with hybri
 
 ## Features
 
-- **4 MCP Tools**: `search`, `retrieve`, `memory`, `store`
+- **4 MCP Tools**: `search`, `retrieve`, `rules`, `store`
 - **Hybrid Search**: Combines dense (semantic) and sparse (keyword) vectors using Reciprocal Rank Fusion
 - **Project-Scoped**: Automatic project detection with Git integration
 - **Behavioral Rules**: Persistent memory collection for AI guidance
@@ -181,7 +181,7 @@ Retrieve documents by ID or metadata filter.
 - `limit`: Maximum results (default: 10)
 - `offset`: Pagination offset (default: 0)
 
-### memory
+### rules
 
 Manage behavioral rules for AI guidance.
 

@@ -445,7 +445,7 @@ edited in a large file).
 
 **Purpose:** LLM behavioral rules that persist across sessions.
 
-**Writers:** MCP server (`memory` tool), CLI (`wqm memory add/update/remove`)
+**Writers:** MCP server (`rules` tool), CLI (`wqm memory add/update/remove`)
 
 **Target collection:** `memory`
 
@@ -1017,7 +1017,7 @@ WHERE updated_at > :last_poll_time OR enabled != :cached_enabled_state
 
 | item_type | Used By             | payload_json                                  |
 | --------- | ------------------- | --------------------------------------------- |
-| `memory`  | MCP `memory` tool   | `{label, content, scope, project_id}`         |
+| `memory`  | MCP `rules` tool    | `{label, content, scope, project_id}`         |
 | `library` | MCP `store` tool    | `{library_name, content, title, source, url}` |
 | `project` | MCP `store` tool    | `{path, name}` (registers via gRPC, not queue) |
 | `file`    | Daemon file watcher | `{file_path, ...}`                            |

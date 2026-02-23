@@ -80,7 +80,7 @@ The MCP SDK provides lifecycle callbacks via `Server`:
 - For HTTP transport: `onsessioninitialized` callback available
 
 **Note on Claude Code Hooks:** Claude Code's `SessionStart` and `SessionEnd` hooks are **external** to MCP servers. They are shell commands configured in `~/.claude/settings.json` or `.claude/settings.json`, not SDK callbacks. If memory injection at session start is needed, it could be implemented via:
-1. An external hook script that calls our MCP `memory` tool
+1. An external hook script that calls our MCP `rules` tool
 2. Server initialization logic that runs when the transport connects
 
 ### SQLite Database Ownership

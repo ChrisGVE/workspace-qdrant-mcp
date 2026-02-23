@@ -2,12 +2,12 @@
 
 ### MCP Tools
 
-The server provides exactly **4 tools**: `search`, `retrieve`, `memory`, and `store`.
+The server provides exactly **4 tools**: `search`, `retrieve`, `rules`, and `store`.
 
 **Important design principles:**
 
 - The MCP server does NOT store content to the `projects` collection. Project content is ingested by the daemon via file watching.
-- The MCP can store to `memory` (rules) and `libraries` (reference documentation), and can register new projects with the daemon via `store` with `type: "project"`.
+- The MCP can manage rules via the `rules` tool and store to `libraries` (reference documentation), and can register new projects with the daemon via `store` with `type: "project"`.
 - Session management (activate/deactivate) is automated, not exposed as a tool.
 - Health monitoring is server-internal and affects search response metadata.
 
@@ -129,9 +129,9 @@ retrieve({
 
 **Use case:** Retrieving large documents chunk by chunk without overwhelming context. Use `search` with `mode="retrieve"` for metadata-based retrieval, or `retrieve` for ID-based access.
 
-#### memory
+#### rules
 
-Manage memory rules (behavioral preferences).
+Manage behavioral rules (persistent preferences).
 
 ```typescript
 memory({
@@ -219,7 +219,7 @@ store({
 
 Registers a new project with the daemon for file watching and ingestion. Uses `register_if_new: true` so the daemon will create the project in `watch_folders` if it doesn't already exist. Returns `{ success, project_id, created, is_active, message }`.
 
-**Note:** `store` with `type: "library"` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or memory rules (use `memory` tool). Use `type: "project"` to register a new project directory with the daemon.
+**Note:** `store` with `type: "library"` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or behavioral rules (use `rules` tool). Use `type: "project"` to register a new project directory with the daemon.
 
 **Libraries definition:** Libraries are collections of reference information (books, documentation, papers, websites) - NOT programming libraries (use context7 MCP for those).
 
@@ -257,8 +257,8 @@ When the MCP server connects to the transport (stdio or HTTP):
 
 #### Memory Injection
 
-Memory injection is handled via the `memory` MCP tool:
-- Claude reads memory rules by calling the `memory` tool with `action: "list"`
+Rule injection is handled via the `rules` MCP tool:
+- Claude reads behavioral rules by calling the `rules` tool with `action: "list"`
 - Memory is NOT automatically injected at session start (that would require external hooks)
 
 **Optional Enhancement via Claude Code Hooks:** For automatic memory injection, users can configure a `SessionStart` hook in their `~/.claude/settings.json`:
@@ -330,7 +330,7 @@ The following are **not exposed as MCP tools**:
 | `restore_deleted_library`       | CLI only        | Use `wqm library` commands                    |
 | `list_deleted_libraries`        | CLI only        | Use `wqm library` commands                    |
 
-**The legacy `manage` tool is completely removed.** Memory operations use the dedicated `memory` tool.
+**The legacy `manage` tool is completely removed.** Rule operations use the dedicated `rules` tool.
 
 ### gRPC Services
 

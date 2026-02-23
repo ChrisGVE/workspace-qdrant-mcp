@@ -151,7 +151,7 @@ Use `retrieve` and `search` (on the `libraries` collection) to access stored ref
 
 ### Behavioral Rules
 
-The `memory` tool manages persistent rules that are injected into context across sessions. Rules are **user-initiated only** — add rules when the user explicitly instructs you to, never autonomously. Use `action="list"` at session start to load active rules.
+The `rules` tool manages persistent rules that are injected into context across sessions. Rules are **user-initiated only** — add rules when the user explicitly instructs you to, never autonomously. Use `action="list"` at session start to load active rules.
 
 ### Issue Reporting
 

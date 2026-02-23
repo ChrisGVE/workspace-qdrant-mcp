@@ -16,7 +16,7 @@ The system consists of three primary components that work together:
 ┌─────────────────────────────────────────────────────────────────┐
 │                     MCP Server (TypeScript)                     │
 │                  src/typescript/mcp-server/                     │
-│         Exposes: search, retrieve, memory, store tools          │
+│         Exposes: search, retrieve, rules, store tools           │
 └──────────┬──────────────────────────────────────────┬───────────┘
            │ gRPC (localhost:50051)                   │ HTTP REST
            ▼                                          ▼
