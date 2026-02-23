@@ -68,7 +68,16 @@ export class WorkspaceQdrantMcpServer {
 
     this.server = new Server(
       { name: SERVER_NAME, version: SERVER_VERSION },
-      { capabilities: { tools: {} } }
+      {
+        capabilities: { tools: {} },
+        instructions: [
+          'This server provides access to the user\'s indexed codebase and knowledge libraries.',
+          'ALWAYS use the `search` tool before answering questions about the user\'s code, project structure, or library documentation.',
+          'Use the `rules` tool to check for behavioral preferences before starting work.',
+          'Use `retrieve` to access specific documents when you know the document ID.',
+          'Collections: projects (indexed code), libraries (reference docs), memory (behavioral rules).',
+        ].join(' '),
+      }
     );
 
     this.setupHandlers();
