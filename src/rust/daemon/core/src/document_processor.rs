@@ -22,6 +22,10 @@ use encoding_rs::Encoding;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
+#[cfg(feature = "ocr")]
+use crate::image_extraction::extract_images;
+#[cfg(feature = "ocr")]
+use crate::ocr::OcrEngine;
 use crate::tree_sitter::{extract_chunks, is_language_supported, SemanticChunk};
 use crate::{ChunkingConfig, DocumentContent, DocumentResult, DocumentType, TextChunk};
 
@@ -52,6 +56,9 @@ pub enum DocumentProcessorError {
     #[error("Jupyter extraction error: {0}")]
     JupyterExtraction(String),
 
+    #[error("OCR extraction error: {0}")]
+    OcrError(String),
+
     #[error("Unsupported file format: {0}")]
     UnsupportedFormat(String),
 
@@ -70,6 +77,8 @@ pub type DocumentProcessorResult<T> = Result<T, DocumentProcessorError>;
 pub struct DocumentProcessor {
     chunking_config: ChunkingConfig,
     healthy: Arc<AtomicBool>,
+    #[cfg(feature = "ocr")]
+    ocr_engine: Option<Arc<OcrEngine>>,
 }
 
 impl Clone for DocumentProcessor {
@@ -77,6 +86,8 @@ impl Clone for DocumentProcessor {
         Self {
             chunking_config: self.chunking_config.clone(),
             healthy: Arc::clone(&self.healthy),
+            #[cfg(feature = "ocr")]
+            ocr_engine: self.ocr_engine.clone(),
         }
     }
 }
@@ -86,6 +97,8 @@ impl Default for DocumentProcessor {
         Self {
             chunking_config: ChunkingConfig::default(),
             healthy: Arc::new(AtomicBool::new(true)),
+            #[cfg(feature = "ocr")]
+            ocr_engine: None,
         }
     }
 }
@@ -101,12 +114,24 @@ impl DocumentProcessor {
         Self {
             chunking_config,
             healthy: Arc::new(AtomicBool::new(true)),
+            #[cfg(feature = "ocr")]
+            ocr_engine: None,
         }
     }
 
     /// Alias for with_config for compatibility with existing tests
     pub fn with_chunking_config(chunking_config: ChunkingConfig) -> Self {
         Self::with_config(chunking_config)
+    }
+
+    /// Create a DocumentProcessor with OCR support.
+    #[cfg(feature = "ocr")]
+    pub fn with_ocr(chunking_config: ChunkingConfig, ocr_engine: OcrEngine) -> Self {
+        Self {
+            chunking_config,
+            healthy: Arc::new(AtomicBool::new(true)),
+            ocr_engine: Some(Arc::new(ocr_engine)),
+        }
     }
 
     /// Check if the processor is healthy
@@ -127,9 +152,19 @@ impl DocumentProcessor {
         let collection_result = collection.to_string();
         let chunking_config = self.chunking_config.clone();
 
+        #[cfg(feature = "ocr")]
+        let ocr = self.ocr_engine.clone();
+
         // Run blocking file processing in a separate thread
         let content = tokio::task::spawn_blocking(move || {
-            process_file_sync(&path, &collection_str, &chunking_config)
+            #[cfg(feature = "ocr")]
+            {
+                process_file_sync(&path, &collection_str, &chunking_config, ocr.as_deref())
+            }
+            #[cfg(not(feature = "ocr"))]
+            {
+                process_file_sync(&path, &collection_str, &chunking_config)
+            }
         })
         .await
         .map_err(|e| DocumentProcessorError::TaskError(e.to_string()))??;
@@ -158,9 +193,19 @@ impl DocumentProcessor {
         let collection = collection.to_string();
         let chunking_config = self.chunking_config.clone();
 
+        #[cfg(feature = "ocr")]
+        let ocr = self.ocr_engine.clone();
+
         // Run blocking file processing in a separate thread
         let result = tokio::task::spawn_blocking(move || {
-            process_file_sync(&path, &collection, &chunking_config)
+            #[cfg(feature = "ocr")]
+            {
+                process_file_sync(&path, &collection, &chunking_config, ocr.as_deref())
+            }
+            #[cfg(not(feature = "ocr"))]
+            {
+                process_file_sync(&path, &collection, &chunking_config)
+            }
         })
         .await
         .map_err(|e| DocumentProcessorError::TaskError(e.to_string()))?;
@@ -185,10 +230,31 @@ impl DocumentProcessor {
 }
 
 /// Synchronous file processing implementation (standalone function for spawn_blocking)
+#[cfg(feature = "ocr")]
 fn process_file_sync(
     file_path: &Path,
     collection: &str,
     chunking_config: &ChunkingConfig,
+    ocr_engine: Option<&OcrEngine>,
+) -> DocumentProcessorResult<DocumentContent> {
+    process_file_sync_inner(file_path, collection, chunking_config, ocr_engine)
+}
+
+#[cfg(not(feature = "ocr"))]
+fn process_file_sync(
+    file_path: &Path,
+    collection: &str,
+    chunking_config: &ChunkingConfig,
+) -> DocumentProcessorResult<DocumentContent> {
+    process_file_sync_inner(file_path, collection, chunking_config)
+}
+
+/// Inner implementation of file processing, shared by OCR and non-OCR paths.
+fn process_file_sync_inner(
+    file_path: &Path,
+    collection: &str,
+    chunking_config: &ChunkingConfig,
+    #[cfg(feature = "ocr")] ocr_engine: Option<&OcrEngine>,
 ) -> DocumentProcessorResult<DocumentContent> {
     if !file_path.exists() {
         return Err(DocumentProcessorError::FileNotFound(
@@ -246,6 +312,10 @@ fn process_file_sync(
         DocumentType::Unknown => extract_text_with_encoding(file_path)?,
     };
 
+    // Run OCR on embedded images for supported document types
+    #[cfg(feature = "ocr")]
+    let raw_text = enrich_text_with_ocr(file_path, raw_text, &mut metadata, ocr_engine);
+
     // Add collection to metadata
     metadata.insert("collection".to_string(), collection.to_string());
 
@@ -284,6 +354,95 @@ fn process_file_sync(
         document_type,
         chunks,
     })
+}
+
+/// Enrich document text with OCR output from embedded images.
+///
+/// Extracts images from the document, runs OCR on each, and appends
+/// the recognized text to the document's raw text. Updates metadata
+/// with OCR-related fields. OCR failures are logged as warnings and
+/// do not block document processing.
+#[cfg(feature = "ocr")]
+fn enrich_text_with_ocr(
+    file_path: &Path,
+    mut raw_text: String,
+    metadata: &mut HashMap<String, String>,
+    ocr_engine: Option<&OcrEngine>,
+) -> String {
+    let engine = match ocr_engine {
+        Some(e) => e,
+        None => {
+            // No OCR engine configured — still record image count metadata
+            let images = extract_images(file_path);
+            if !images.is_empty() {
+                metadata.insert("images_detected".to_string(), images.len().to_string());
+            }
+            return raw_text;
+        }
+    };
+
+    let images = extract_images(file_path);
+    if images.is_empty() {
+        metadata.insert("images_detected".to_string(), "0".to_string());
+        return raw_text;
+    }
+
+    metadata.insert("images_detected".to_string(), images.len().to_string());
+
+    let mut ocr_texts: Vec<String> = Vec::new();
+    let mut total_confidence: f32 = 0.0;
+    let mut ocr_count: usize = 0;
+
+    for (idx, image) in images.iter().enumerate() {
+        match engine.extract_text(&image.bytes) {
+            Ok(result) if !result.text.is_empty() => {
+                debug!(
+                    image_idx = idx,
+                    confidence = result.confidence,
+                    text_len = result.text.len(),
+                    "OCR extracted text from image"
+                );
+                ocr_texts.push(result.text);
+                total_confidence += result.confidence;
+                ocr_count += 1;
+            }
+            Ok(_) => {
+                debug!(image_idx = idx, "OCR produced empty text, skipping");
+            }
+            Err(e) => {
+                warn!(
+                    image_idx = idx,
+                    error = %e,
+                    "OCR failed for image, continuing"
+                );
+            }
+        }
+    }
+
+    if !ocr_texts.is_empty() {
+        // Append OCR text after the main document text
+        raw_text.push_str("\n\n--- OCR Content ---\n\n");
+        for (idx, text) in ocr_texts.iter().enumerate() {
+            raw_text.push_str(&format!("[Image {}]\n{}\n\n", idx + 1, text));
+        }
+
+        metadata.insert("has_ocr_content".to_string(), "true".to_string());
+        metadata.insert("ocr_images_processed".to_string(), ocr_count.to_string());
+        let avg_confidence = total_confidence / ocr_count as f32;
+        metadata.insert(
+            "ocr_confidence".to_string(),
+            format!("{:.2}", avg_confidence),
+        );
+
+        debug!(
+            path = %file_path.display(),
+            images = images.len(),
+            ocr_successful = ocr_count,
+            "Enriched document with OCR text"
+        );
+    }
+
+    raw_text
 }
 
 /// Convert SemanticChunks to TextChunks with semantic metadata preserved
@@ -1891,5 +2050,74 @@ mod tests {
         let temp = NamedTempFile::with_suffix(".pdf").unwrap();
         std::fs::write(temp.path(), b"not a pdf").unwrap();
         assert_eq!(count_pdf_images(temp.path()), 0);
+    }
+
+    #[cfg(feature = "ocr")]
+    mod ocr_integration_tests {
+        use super::*;
+        use crate::ocr::{OcrConfig, OcrEngine};
+
+        #[test]
+        fn test_enrich_text_with_ocr_no_engine() {
+            let temp = NamedTempFile::with_suffix(".txt").unwrap();
+            std::fs::write(temp.path(), "hello").unwrap();
+            let mut metadata = HashMap::new();
+            let result = enrich_text_with_ocr(
+                temp.path(),
+                "original text".to_string(),
+                &mut metadata,
+                None,
+            );
+            assert_eq!(result, "original text");
+        }
+
+        #[test]
+        fn test_enrich_text_with_ocr_no_images() {
+            let temp = NamedTempFile::with_suffix(".txt").unwrap();
+            std::fs::write(temp.path(), "hello world").unwrap();
+
+            let config = OcrConfig::default();
+            if !config.tessdata_path.exists() {
+                return; // Skip without Tesseract
+            }
+            let engine = match OcrEngine::new(&config) {
+                Ok(e) => e,
+                Err(_) => return,
+            };
+
+            let mut metadata = HashMap::new();
+            let result = enrich_text_with_ocr(
+                temp.path(),
+                "original text".to_string(),
+                &mut metadata,
+                Some(&engine),
+            );
+            assert_eq!(result, "original text");
+            assert_eq!(metadata.get("images_detected").unwrap(), "0");
+        }
+
+        #[test]
+        fn test_with_ocr_constructor() {
+            let config = OcrConfig::default();
+            if !config.tessdata_path.exists() {
+                return;
+            }
+            let engine = match OcrEngine::new(&config) {
+                Ok(e) => e,
+                Err(_) => return,
+            };
+
+            let processor = DocumentProcessor::with_ocr(
+                ChunkingConfig::default(),
+                engine,
+            );
+            assert!(processor.ocr_engine.is_some());
+        }
+
+        #[test]
+        fn test_processor_without_ocr_has_none() {
+            let processor = DocumentProcessor::new();
+            assert!(processor.ocr_engine.is_none());
+        }
     }
 }

@@ -11,6 +11,6 @@ pub mod errors;
 mod engine;
 
 #[cfg(feature = "ocr")]
-pub use engine::{OcrEngine, OcrResult};
+pub use engine::{OcrConfig, OcrEngine, OcrResult};
 
 pub use errors::OcrError;
