@@ -26,6 +26,7 @@ pub mod git_watcher;
 pub mod graph;
 pub mod image_extraction;
 pub mod image_ingestion;
+pub mod image_search;
 pub mod metadata_enrichment;
 pub mod ocr;
 pub mod ipc;
