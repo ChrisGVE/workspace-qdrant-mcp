@@ -131,6 +131,9 @@ tree-sitter-json = { version = "0.23", optional = true }
 # OCR support (optional, requires Tesseract system library)
 leptess = { workspace = true, optional = true }
 
+# Graph database (optional, LadybugDB backend — requires C++ compiler)
+lbug = { workspace = true, optional = true }
+
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -165,6 +168,7 @@ static-grammars = [
 ]
 
 ocr = ["leptess"]
+ladybug = ["lbug"]
 macos-fsevents = []
 integration = []
 processing_engine = []

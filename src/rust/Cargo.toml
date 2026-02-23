@@ -107,6 +107,9 @@ sha2 = "0.10"
 # OCR (optional)
 leptess = "0.14"
 
+# Graph database (optional — LadybugDB backend)
+lbug = "0.14"
+
 # Testing dependencies (shared across workspace)
 filetime = "0.2"
 tokio-test = "0.4"

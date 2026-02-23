@@ -10,10 +10,15 @@ mod schema;
 mod shared;
 mod sqlite_store;
 
+#[cfg(feature = "ladybug")]
+pub mod ladybug_store;
+
 #[cfg(test)]
 mod tests;
 
 pub use schema::{GraphDbManager, GraphDbError, GraphDbResult, GRAPH_DB_FILENAME, GRAPH_SCHEMA_VERSION};
+#[cfg(feature = "ladybug")]
+pub use ladybug_store::{LadybugGraphStore, LadybugConfig};
 pub use shared::SharedGraphStore;
 pub use sqlite_store::SqliteGraphStore;
 
