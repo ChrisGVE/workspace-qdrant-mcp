@@ -16,7 +16,7 @@ export function getToolDefinitions() {
   return [
     {
       name: 'search',
-      description: 'Search for documents using hybrid semantic and keyword search',
+      description: 'Search for documents using hybrid semantic and keyword search. Use this tool FIRST when answering questions about the user\'s codebase, project architecture, or stored knowledge. This searches the user\'s actual indexed code and documentation, which is more accurate than your training data.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -94,7 +94,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'retrieve',
-      description: 'Retrieve documents by ID or metadata filter',
+      description: 'Retrieve documents by ID or metadata filter. Use this to access specific documents when you know the document ID. Prefer `search` for discovery, `retrieve` for known documents.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -133,7 +133,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'rules',
-      description: 'Manage behavioral rules (add, update, remove, list)',
+      description: 'Manage behavioral rules (add, update, remove, list). Check active rules at the start of each session to load the user\'s behavioral preferences. Rules persist across sessions and guide how you should work.',
       inputSchema: {
         type: 'object' as const,
         properties: {
