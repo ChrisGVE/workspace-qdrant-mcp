@@ -305,18 +305,24 @@ impl FileWatcherQueue {
 
         let file_absolute_path = event.path.to_string_lossy().to_string();
 
-        // Apply format-based routing (Task 567)
-        let (final_collection, metadata) = match allowed_extensions.route_file(&file_absolute_path, &collection, &tenant_id) {
+        // Apply format-based routing with enriched metadata
+        let (final_collection, final_tenant, metadata) = match allowed_extensions.route_file(&file_absolute_path, &collection, &tenant_id) {
             FileRoute::LibraryCollection { source_project_id } if collection != COLLECTION_LIBRARIES => {
-                let meta = source_project_id.as_ref().map(|pid| serde_json::json!({"source_project_id": pid}).to_string());
-                debug!("Format-based routing override: {} -> libraries (source_project={})", file_absolute_path, tenant_id);
-                (COLLECTION_LIBRARIES.to_string(), meta)
+                let meta = source_project_id.as_ref().map(|pid| {
+                    crate::format_routing::routing_metadata_json(pid)
+                });
+                let lib_name = source_project_id.as_ref()
+                    .map(|pid| crate::format_routing::generate_library_name(pid))
+                    .unwrap_or_else(|| tenant_id.clone());
+                debug!("Format-based routing override: {} -> libraries (source_project={}, library_name={})",
+                    file_absolute_path, tenant_id, lib_name);
+                (COLLECTION_LIBRARIES.to_string(), lib_name, meta)
             }
-            _ => (collection.clone(), None),
+            _ => (collection.clone(), tenant_id.clone(), None),
         };
 
         debug!("Multi-tenant routing: file={}, collection={}, tenant={}, file_type={}, branch={}",
-            file_absolute_path, final_collection, tenant_id, file_type.as_str(), branch);
+            file_absolute_path, final_collection, final_tenant, file_type.as_str(), branch);
 
         let file_payload = FilePayload {
             file_path: file_absolute_path.clone(),
@@ -332,7 +338,7 @@ impl FileWatcherQueue {
 
         for attempt in 0..MAX_RETRIES {
             match queue_manager.enqueue_unified(
-                ItemType::File, operation, &tenant_id, &final_collection,
+                ItemType::File, operation, &final_tenant, &final_collection,
                 &payload_json, Some(&branch), metadata.as_deref(),
             ).await {
                 Ok(_) => {
@@ -340,7 +346,7 @@ impl FileWatcherQueue {
                     *count += 1;
                     error_tracker.record_success(&watch_id).await;
                     debug!("Enqueued file to unified_queue: {} (operation={:?}, collection={}, tenant={}, branch={}, file_type={})",
-                        file_absolute_path, operation, final_collection, tenant_id, branch, file_type.as_str());
+                        file_absolute_path, operation, final_collection, final_tenant, branch, file_type.as_str());
                     return;
                 },
                 Err(QueueError::Database(ref e)) if attempt < MAX_RETRIES - 1 => {
