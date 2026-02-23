@@ -75,6 +75,12 @@ pub mod field {
     pub const PROJECT_ID: &str = "project_id";
     /// Library scoping key
     pub const LIBRARY_NAME: &str = "library_name";
+    /// Library hierarchical path (e.g., "cs/design_patterns")
+    pub const LIBRARY_PATH: &str = "library_path";
+    /// Source project ID for format-routed documents
+    pub const SOURCE_PROJECT_ID: &str = "source_project_id";
+    /// Routing reason (e.g., "format_based")
+    pub const ROUTING_REASON: &str = "routing_reason";
     /// Instance-aware filtering (base point IDs)
     pub const BASE_POINT: &str = "base_point";
     /// Git branch filter

@@ -1116,6 +1116,8 @@ async fn ingest(file: &PathBuf, library: &str, chunk_tokens: usize, overlap_toke
         source_format: source_format.to_string(),
         doc_id: doc_id.clone(),
         doc_fingerprint: Some(doc_fingerprint),
+        library_path: None,
+        source_project_id: None,
         chunking_config: Some(ChunkingConfigPayload {
             chunk_target_tokens: chunk_tokens,
             chunk_overlap_tokens: overlap_tokens,

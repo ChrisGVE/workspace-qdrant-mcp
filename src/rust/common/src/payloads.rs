@@ -151,6 +151,13 @@ pub struct LibraryDocumentPayload {
     /// SHA256 hash of file bytes for change detection and idempotency
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_fingerprint: Option<String>,
+    /// Relative path within the library (e.g., "cs/design_patterns").
+    /// Empty string for root-level documents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library_path: Option<String>,
+    /// Source project ID when routed from a project via format-based routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_project_id: Option<String>,
     /// Chunking configuration override
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunking_config: Option<ChunkingConfigPayload>,
@@ -523,6 +530,8 @@ mod tests {
             source_format: "pdf".to_string(),
             doc_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             doc_fingerprint: Some("abc123def456".to_string()),
+            library_path: None,
+            source_project_id: None,
             chunking_config: Some(ChunkingConfigPayload {
                 chunk_target_tokens: 105,
                 chunk_overlap_tokens: 12,
@@ -549,6 +558,8 @@ mod tests {
             source_format: "epub".to_string(),
             doc_id: "661e8400-e29b-41d4-a716-446655440001".to_string(),
             doc_fingerprint: None,
+            library_path: Some("fiction/classics".to_string()),
+            source_project_id: None,
             chunking_config: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
@@ -572,6 +583,8 @@ mod tests {
             source_format: "docx".to_string(),
             doc_id: "771e8400-e29b-41d4-a716-446655440002".to_string(),
             doc_fingerprint: Some("deadbeef".to_string()),
+            library_path: None,
+            source_project_id: Some("proj-abc".to_string()),
             chunking_config: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
