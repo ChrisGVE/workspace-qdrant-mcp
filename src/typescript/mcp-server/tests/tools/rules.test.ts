@@ -1,9 +1,9 @@
 /**
- * Tests for MemoryTool
+ * Tests for RulesTool
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MemoryTool, type MemoryOptions } from '../../src/tools/memory.js';
+import { RulesTool, type RuleOptions } from '../../src/tools/rules.js';
 import type { DaemonClient } from '../../src/clients/daemon-client.js';
 import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../src/utils/project-detector.js';
@@ -88,8 +88,8 @@ function createMockProjectDetector(): ProjectDetector {
   } as unknown as ProjectDetector;
 }
 
-describe('MemoryTool', () => {
-  let memoryTool: MemoryTool;
+describe('RulesTool', () => {
+  let rulesTool: RulesTool;
   let mockDaemonClient: DaemonClient;
   let mockStateManager: SqliteStateManager;
   let mockProjectDetector: ProjectDetector;
@@ -100,7 +100,7 @@ describe('MemoryTool', () => {
     mockStateManager = createMockStateManager();
     mockProjectDetector = createMockProjectDetector();
 
-    memoryTool = new MemoryTool(
+    rulesTool = new RulesTool(
       { qdrantUrl: 'http://localhost:6333' },
       mockDaemonClient,
       mockStateManager,
@@ -110,7 +110,7 @@ describe('MemoryTool', () => {
 
   describe('add action', () => {
     it('should add a global rule via daemon', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'add',
         label: 'write-tests',
         content: 'Always write tests',
@@ -118,7 +118,7 @@ describe('MemoryTool', () => {
         title: 'Testing Rule',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(result.action).toBe('add');
@@ -128,14 +128,14 @@ describe('MemoryTool', () => {
     });
 
     it('should add a project-scoped rule', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'add',
         label: 'proj-rule',
         content: 'Project-specific rule',
         scope: 'project',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(mockProjectDetector.getProjectInfo).toHaveBeenCalled();
@@ -146,14 +146,14 @@ describe('MemoryTool', () => {
         new Error('Daemon unavailable')
       );
 
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'add',
         label: 'test-rule',
         content: 'Test rule',
         scope: 'global',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(result.fallback_mode).toBe('unified_queue');
@@ -162,34 +162,34 @@ describe('MemoryTool', () => {
     });
 
     it('should reject empty content', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'add',
         label: 'empty-rule',
         content: '',
         scope: 'global',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Content is required');
     });
 
     it('should reject missing label', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'add',
         content: 'Some rule content',
         scope: 'global',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Label is required');
     });
 
     it('should include tags in metadata', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'add',
         label: 'tagged-rule',
         content: 'Rule with tags',
@@ -197,7 +197,7 @@ describe('MemoryTool', () => {
         tags: ['testing', 'quality'],
       };
 
-      await memoryTool.execute(options);
+      await rulesTool.execute(options);
 
       expect(mockDaemonClient.ingestText).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -209,7 +209,7 @@ describe('MemoryTool', () => {
     });
 
     it('should include priority in metadata', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'add',
         label: 'high-prio',
         content: 'High priority rule',
@@ -217,7 +217,7 @@ describe('MemoryTool', () => {
         priority: 10,
       };
 
-      await memoryTool.execute(options);
+      await rulesTool.execute(options);
 
       expect(mockDaemonClient.ingestText).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -231,13 +231,13 @@ describe('MemoryTool', () => {
 
   describe('update action', () => {
     it('should update an existing rule via daemon', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'update',
         label: 'existing-rule-id',
         content: 'Updated rule content',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(result.action).toBe('update');
@@ -249,38 +249,38 @@ describe('MemoryTool', () => {
         new Error('Daemon unavailable')
       );
 
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'update',
         label: 'existing-rule-id',
         content: 'Updated content',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(result.fallback_mode).toBe('unified_queue');
     });
 
     it('should reject missing label', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'update',
         content: 'Updated content',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Label is required');
     });
 
     it('should reject empty content', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'update',
         label: 'existing-rule-id',
         content: '',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Content is required for updating');
@@ -289,12 +289,12 @@ describe('MemoryTool', () => {
 
   describe('remove action', () => {
     it('should queue removal (always uses queue)', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'remove',
         label: 'rule-to-remove',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(result.action).toBe('remove');
@@ -315,11 +315,11 @@ describe('MemoryTool', () => {
     });
 
     it('should reject missing label', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'remove',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Label is required');
@@ -328,12 +328,12 @@ describe('MemoryTool', () => {
 
   describe('list action', () => {
     it('should list global rules', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'list',
         scope: 'global',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(result.action).toBe('list');
@@ -342,36 +342,36 @@ describe('MemoryTool', () => {
     });
 
     it('should list project-scoped rules', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'list',
         scope: 'project',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(mockProjectDetector.getProjectInfo).toHaveBeenCalled();
     });
 
     it('should parse tags from comma-separated string', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'list',
         scope: 'global',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       const ruleWithTags = result.rules?.find((r) => r.id === 'rule-2');
       expect(ruleWithTags?.tags).toEqual(['testing', 'quality']);
     });
 
     it('should parse priority from string', async () => {
-      const options: MemoryOptions = {
+      const options: RuleOptions = {
         action: 'list',
         scope: 'global',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       const ruleWithPriority = result.rules?.find((r) => r.id === 'rule-1');
       expect(ruleWithPriority?.priority).toBe(10);
@@ -386,7 +386,7 @@ describe('MemoryTool', () => {
           }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
       );
 
-      const newTool = new MemoryTool(
+      const newTool = new RulesTool(
         { qdrantUrl: 'http://localhost:6333' },
         mockDaemonClient,
         mockStateManager,
@@ -406,7 +406,7 @@ describe('MemoryTool', () => {
         action: 'unknown' as unknown as 'add',
       };
 
-      const result = await memoryTool.execute(options);
+      const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('Unknown action');
@@ -414,7 +414,7 @@ describe('MemoryTool', () => {
   });
 });
 
-describe('MemoryTool queue integration', () => {
+describe('RulesTool queue integration', () => {
   it('should call enqueueUnified with correct parameters', async () => {
     const mockDaemonClient = createMockDaemonClient();
     const mockStateManager = createMockStateManager();
@@ -425,14 +425,14 @@ describe('MemoryTool queue integration', () => {
       new Error('Daemon unavailable')
     );
 
-    const memoryTool = new MemoryTool(
+    const rulesTool = new RulesTool(
       { qdrantUrl: 'http://localhost:6333' },
       mockDaemonClient,
       mockStateManager,
       mockProjectDetector
     );
 
-    await memoryTool.execute({
+    await rulesTool.execute({
       action: 'add',
       label: 'test-rule',
       content: 'Test rule',
@@ -458,7 +458,7 @@ describe('MemoryTool queue integration', () => {
       }),
       1, // PRIORITY_HIGH
       'main',
-      expect.objectContaining({ source: 'mcp_memory_tool' })
+      expect.objectContaining({ source: 'mcp_rules_tool' })
     );
   });
 });

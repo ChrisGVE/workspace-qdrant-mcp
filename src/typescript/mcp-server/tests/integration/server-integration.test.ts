@@ -366,20 +366,20 @@ describe('Server Integration Tests', () => {
     });
   });
 
-  describe('Memory Tool Integration', () => {
+  describe('Rules Tool Integration', () => {
     beforeEach(async () => {
       server = new WorkspaceQdrantMcpServer({ config, stdio: false });
       await server.start();
     });
 
-    it('should add global memory rule', async () => {
+    it('should add global rule', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
       const result = await callHandler({
         method: 'tools/call',
         params: {
-          name: 'memory',
+          name: 'rules',
           arguments: {
             action: 'add',
             content: 'Always use TypeScript strict mode',
@@ -395,14 +395,14 @@ describe('Server Integration Tests', () => {
       expect(result.isError).toBeUndefined();
     });
 
-    it('should add project-scoped memory rule', async () => {
+    it('should add project-scoped rule', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
       const result = await callHandler({
         method: 'tools/call',
         params: {
-          name: 'memory',
+          name: 'rules',
           arguments: {
             action: 'add',
             content: 'Use Vitest for testing',
@@ -417,14 +417,14 @@ describe('Server Integration Tests', () => {
       expect(result.isError).toBeUndefined();
     });
 
-    it('should list memory rules', async () => {
+    it('should list rules', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
       const result = await callHandler({
         method: 'tools/call',
         params: {
-          name: 'memory',
+          name: 'rules',
           arguments: {
             action: 'list',
             limit: 20,
@@ -436,14 +436,14 @@ describe('Server Integration Tests', () => {
       expect(result.isError).toBeUndefined();
     });
 
-    it('should update memory rule', async () => {
+    it('should update rule', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
       const result = await callHandler({
         method: 'tools/call',
         params: {
-          name: 'memory',
+          name: 'rules',
           arguments: {
             action: 'update',
             ruleId: 'rule-123',
@@ -455,14 +455,14 @@ describe('Server Integration Tests', () => {
       expect(result.content).toBeDefined();
     });
 
-    it('should remove memory rule', async () => {
+    it('should remove rule', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
       const result = await callHandler({
         method: 'tools/call',
         params: {
-          name: 'memory',
+          name: 'rules',
           arguments: {
             action: 'remove',
             ruleId: 'rule-123',
@@ -473,14 +473,14 @@ describe('Server Integration Tests', () => {
       expect(result.content).toBeDefined();
     });
 
-    it('should reject invalid memory action', async () => {
+    it('should reject invalid rules action', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
       const result = await callHandler({
         method: 'tools/call',
         params: {
-          name: 'memory',
+          name: 'rules',
           arguments: {
             action: 'invalid',
           },
@@ -488,7 +488,7 @@ describe('Server Integration Tests', () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Invalid memory action');
+      expect(result.content[0].text).toContain('Invalid rules action');
     });
   });
 

@@ -20,11 +20,11 @@ describe('Generated DEFAULT_CONFIG', () => {
     expect(typeof DEFAULT_CONFIG.daemon.queuePollIntervalMs).toBe('number');
   });
 
-  it('should have memory limits matching canonical YAML', () => {
-    expect(DEFAULT_CONFIG.memory?.limits.maxLabelLength).toBe(15);
-    expect(DEFAULT_CONFIG.memory?.limits.maxTitleLength).toBe(50);
-    expect(DEFAULT_CONFIG.memory?.limits.maxTagLength).toBe(20);
-    expect(DEFAULT_CONFIG.memory?.limits.maxTagsPerRule).toBe(5);
+  it('should have rules limits matching canonical YAML', () => {
+    expect(DEFAULT_CONFIG.rules?.limits.maxLabelLength).toBe(15);
+    expect(DEFAULT_CONFIG.rules?.limits.maxTitleLength).toBe(50);
+    expect(DEFAULT_CONFIG.rules?.limits.maxTagLength).toBe(20);
+    expect(DEFAULT_CONFIG.rules?.limits.maxTagsPerRule).toBe(5);
   });
 
   it('should have collections defaults matching canonical YAML', () => {
