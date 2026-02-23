@@ -674,6 +674,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let grpc_watch_signal = Arc::clone(&watch_refresh_signal);
     let grpc_queue_health = Arc::clone(&queue_health);
     let grpc_search_db = Arc::clone(&search_db);
+    let grpc_graph_store = graph_store.clone();
 
     // Start periodic DB polling for CLI-driven pause state changes (Task 543.10)
     let poll_pause_pool = queue_pool.clone();
@@ -977,6 +978,11 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         // Enable LSP if manager was created successfully
         if let Some(lsp_manager) = grpc_lsp_manager {
             grpc_server = grpc_server.with_lsp_manager(lsp_manager);
+        }
+
+        // Enable GraphService if graph store was initialized
+        if let Some(gs) = grpc_graph_store {
+            grpc_server = grpc_server.with_graph_store(gs);
         }
 
         if let Err(e) = grpc_server.start().await {

@@ -19,7 +19,7 @@ use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
 pub mod proto {
     // Generated protobuf definitions from build.rs
     // Package: workspace_daemon - defines SystemService, CollectionService, DocumentService,
-    // EmbeddingService, ProjectService, TextSearchService
+    // EmbeddingService, ProjectService, TextSearchService, GraphService
     tonic::include_proto!("workspace_daemon");
 }
 
@@ -296,6 +296,8 @@ pub struct GrpcServer {
     adaptive_state: Option<Arc<AdaptiveResourceState>>,
     /// Search database manager for TextSearchService
     search_db: Option<Arc<SearchDbManager>>,
+    /// Graph store for GraphService (code relationship queries)
+    graph_store: Option<workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>>,
 }
 
 /// Server metrics for monitoring
@@ -375,6 +377,7 @@ impl GrpcServer {
             queue_health: None,
             adaptive_state: None,
             search_db: None,
+            graph_store: None,
         }
     }
 
@@ -446,6 +449,18 @@ impl GrpcServer {
     /// enabling FTS5-based code search via gRPC.
     pub fn with_search_db(mut self, search_db: Arc<SearchDbManager>) -> Self {
         self.search_db = Some(search_db);
+        self
+    }
+
+    /// Set the graph store for GraphService.
+    ///
+    /// If provided, GraphService will be registered with the gRPC server,
+    /// enabling code relationship queries via gRPC.
+    pub fn with_graph_store(
+        mut self,
+        graph_store: workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>,
+    ) -> Self {
+        self.graph_store = Some(graph_store);
         self
     }
 
@@ -635,6 +650,14 @@ impl GrpcServer {
             let text_search_svc = proto::text_search_service_server::TextSearchServiceServer::new(text_search_svc_impl);
             tracing::info!("Registering TextSearchService gRPC endpoint");
             router = router.add_service(text_search_svc);
+        }
+
+        // Conditionally add GraphService if graph_store was provided
+        if let Some(graph_store) = self.graph_store.take() {
+            let graph_svc_impl = crate::services::GraphServiceImpl::new(graph_store);
+            let graph_svc = proto::graph_service_server::GraphServiceServer::new(graph_svc_impl);
+            tracing::info!("Registering GraphService gRPC endpoint");
+            router = router.add_service(graph_svc);
         }
 
         let server = router;
