@@ -21,6 +21,7 @@ pub mod file_classification;
 pub mod fts_batch_processor;
 pub mod branch_switch;
 pub mod git_integration;
+pub mod clip;
 pub mod git_watcher;
 pub mod graph;
 pub mod image_extraction;
