@@ -89,6 +89,9 @@ pub struct UnifiedQueueProcessor {
     /// Search database manager for FTS5 code search index (Task 52)
     search_db: Option<Arc<SearchDbManager>>,
 
+    /// Graph store for code relationship extraction and storage (graph-rag)
+    graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+
     /// Signal to trigger WatchManager refresh after creating a new watch_folder (Task 12)
     watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
 }
@@ -148,6 +151,7 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            graph_store: None,
             watch_refresh_signal: None,
         }
     }
@@ -200,6 +204,7 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            graph_store: None,
             watch_refresh_signal: None,
         }
     }
@@ -213,6 +218,12 @@ impl UnifiedQueueProcessor {
     /// Set the search database manager for FTS5 code search integration (Task 52)
     pub fn with_search_db(mut self, search_db: Arc<SearchDbManager>) -> Self {
         self.search_db = Some(search_db);
+        self
+    }
+
+    /// Set the graph store for code relationship extraction (graph-rag)
+    pub fn with_graph_store(mut self, store: crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>) -> Self {
+        self.graph_store = Some(store);
         self
     }
 
@@ -301,6 +312,7 @@ impl UnifiedQueueProcessor {
         let resource_profile_rx = self.resource_profile_rx.clone();
         let queue_depth_counter = self.queue_depth_counter.clone();
         let search_db = self.search_db.clone();
+        let graph_store = self.graph_store.clone();
         let watch_refresh_signal = self.watch_refresh_signal.clone();
 
         // Mark as running in health state
@@ -332,6 +344,7 @@ impl UnifiedQueueProcessor {
                 resource_profile_rx,
                 queue_depth_counter,
                 search_db,
+                graph_store,
                 watch_refresh_signal,
             )
             .await

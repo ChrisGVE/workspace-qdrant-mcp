@@ -13,7 +13,7 @@ mod sqlite_store;
 #[cfg(test)]
 mod tests;
 
-pub use schema::{GraphDbManager, GraphDbError, GraphDbResult, GRAPH_SCHEMA_VERSION};
+pub use schema::{GraphDbManager, GraphDbError, GraphDbResult, GRAPH_DB_FILENAME, GRAPH_SCHEMA_VERSION};
 pub use shared::SharedGraphStore;
 pub use sqlite_store::SqliteGraphStore;
 

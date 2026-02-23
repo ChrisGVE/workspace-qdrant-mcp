@@ -135,6 +135,10 @@ pub(super) async fn process_file_delete(
                     );
                 }
             }
+            // Graph edge cleanup (graph-rag Task 3): non-blocking
+            super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path)
+                .await;
+
             info!(
                 "Deleted tracked file for: {} in {}ms (qdrant_delete={})",
                 relative_path,

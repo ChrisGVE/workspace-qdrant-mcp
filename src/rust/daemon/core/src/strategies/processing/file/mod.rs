@@ -16,6 +16,7 @@
 mod chunk_embed;
 mod delete;
 mod fts5_index;
+mod graph_ingest;
 mod keyword_extract;
 pub(crate) mod lsp_payload;
 mod store_track;
@@ -406,6 +407,18 @@ async fn ingest_file_content(
         )
         .await;
     }
+
+    // === GRAPH RELATIONSHIP EXTRACTION (graph-rag Task 3) ===
+    // Extract code relationships (CALLS, CONTAINS, IMPORTS, USES_TYPE) from
+    // semantic chunk metadata and store in graph.db. Non-blocking: failures
+    // are logged but never fail the ingestion pipeline.
+    graph_ingest::ingest_graph_edges(
+        ctx,
+        &item.tenant_id,
+        relative_path,
+        &document_content.chunks,
+    )
+    .await;
 
     // Upsert to Qdrant + record in tracked_files atomically
     let file_id = store_track::upsert_and_track(

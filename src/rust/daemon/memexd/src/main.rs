@@ -559,6 +559,29 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     info!("Search database initialized at version {:?}", search_db_version);
     let search_db = Arc::new(search_db);
 
+    // Initialize graph.db (graph-rag) — separate SQLite for code relationship graph
+    let graph_db_path = db_path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join(workspace_qdrant_core::graph::GRAPH_DB_FILENAME);
+    info!("Initializing graph database at: {}", graph_db_path.display());
+    let graph_store = match workspace_qdrant_core::graph::GraphDbManager::new(&graph_db_path).await
+    {
+        Ok(manager) => {
+            info!(
+                "Graph database initialized at version {}",
+                workspace_qdrant_core::graph::GRAPH_SCHEMA_VERSION
+            );
+            let store =
+                workspace_qdrant_core::graph::SqliteGraphStore::new(manager.pool().clone());
+            Some(workspace_qdrant_core::graph::SharedGraphStore::new(store))
+        }
+        Err(e) => {
+            warn!("Graph database initialization failed: {} (graph features disabled)", e);
+            None
+        }
+    };
+
     // Startup reconciliation: clean stale state and validate watch folders (Task 512)
     info!("Running startup reconciliation...");
     match workspace_qdrant_core::startup_reconciliation::clean_stale_state(&queue_pool).await {
@@ -919,6 +942,11 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Attach search database for FTS5 code search integration (Task 52)
     unified_queue_processor = unified_queue_processor.with_search_db(Arc::clone(&search_db));
+
+    // Attach graph store for code relationship extraction (graph-rag)
+    if let Some(ref gs) = graph_store {
+        unified_queue_processor = unified_queue_processor.with_graph_store(gs.clone());
+    }
 
     // Attach watch refresh signal so queue processor can trigger WatchManager refresh
     // after creating new watch_folders (Task 12: git watcher activation on project registration)

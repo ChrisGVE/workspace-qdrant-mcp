@@ -1181,6 +1181,28 @@ impl TenantStrategy {
             }
         }
 
+        // -- Step 6j: Graph cleanup (graph-rag Task 3) --
+        // Graph data is in a separate database (graph.db), not in the transaction above.
+        // Non-blocking: failures are logged but don't fail the tenant deletion.
+        if let Some(ref graph_store) = ctx.graph_store {
+            match graph_store.delete_tenant(&item.tenant_id).await {
+                Ok(deleted) => {
+                    if deleted > 0 {
+                        info!(
+                            "Step 6j: deleted {} graph items for tenant={}",
+                            deleted, item.tenant_id
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Step 6j: graph cleanup failed for tenant={}: {} (non-fatal)",
+                        item.tenant_id, e
+                    );
+                }
+            }
+        }
+
         // -- Step 7: Final verification --
         let canonical = [
             COLLECTION_PROJECTS,

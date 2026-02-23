@@ -58,6 +58,7 @@ impl UnifiedQueueProcessor {
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
         search_db: Option<Arc<SearchDbManager>>,
+        graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
         watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
@@ -221,6 +222,7 @@ impl UnifiedQueueProcessor {
                             &allowed_extensions,
                             &lexicon_manager,
                             &search_db,
+                            &graph_store,
                         )
                         .await
                         {
@@ -398,13 +400,14 @@ impl UnifiedQueueProcessor {
         allowed_extensions: &Arc<AllowedExtensions>,
         lexicon_manager: &Arc<LexiconManager>,
         search_db: &Option<Arc<SearchDbManager>>,
+        graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
             item.queue_id, item.item_type, item.op, item.collection
         );
 
-        let ctx = crate::context::ProcessingContext::new(
+        let mut ctx = crate::context::ProcessingContext::new(
             queue_manager.pool().clone(),
             Arc::new(queue_manager.clone()),
             Arc::clone(storage_client),
@@ -416,6 +419,9 @@ impl UnifiedQueueProcessor {
             search_db.clone(),
             Arc::clone(allowed_extensions),
         );
+        if let Some(gs) = graph_store {
+            ctx = ctx.with_graph_store(gs.clone());
+        }
 
         match item.item_type {
             ItemType::Text => {

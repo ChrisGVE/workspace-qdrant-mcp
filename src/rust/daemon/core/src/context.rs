@@ -10,6 +10,7 @@ use tokio::sync::{RwLock, Semaphore};
 use crate::allowed_extensions::AllowedExtensions;
 use crate::embedding::EmbeddingGenerator;
 use crate::document_processor::DocumentProcessor;
+use crate::graph::{SharedGraphStore, SqliteGraphStore};
 use crate::keyword_extraction::cooccurrence_graph::CentralityCache;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
@@ -55,6 +56,9 @@ pub struct ProcessingContext {
 
     /// TTL-based cache for symbol co-occurrence centrality scores.
     pub cooccurrence_cache: Arc<tokio::sync::Mutex<CentralityCache>>,
+
+    /// Graph store for code relationship storage (optional — initialized when graph.db available).
+    pub graph_store: Option<SharedGraphStore<SqliteGraphStore>>,
 }
 
 impl ProcessingContext {
@@ -83,7 +87,16 @@ impl ProcessingContext {
             search_db,
             allowed_extensions,
             cooccurrence_cache: Arc::new(tokio::sync::Mutex::new(CentralityCache::default())),
+            graph_store: None,
         }
+    }
+}
+
+impl ProcessingContext {
+    /// Attach a graph store to the processing context.
+    pub fn with_graph_store(mut self, store: SharedGraphStore<SqliteGraphStore>) -> Self {
+        self.graph_store = Some(store);
+        self
     }
 }
 
@@ -109,6 +122,7 @@ mod tests {
             let _ = &ctx.search_db;
             let _ = &ctx.allowed_extensions;
             let _ = &ctx.cooccurrence_cache;
+            let _ = &ctx.graph_store;
         }
     }
 }
