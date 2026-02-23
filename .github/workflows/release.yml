@@ -113,20 +113,20 @@ jobs:
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: |
-          brew install cmake protobuf
+          brew install cmake protobuf tesseract
 
       # Linux specific: Install dependencies
       - name: Install Linux dependencies
         if: runner.os == 'Linux' && !matrix.cross
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake tesseract-ocr libtesseract-dev
 
       # Windows specific: Install dependencies
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         run: |
-          choco install protoc cmake -y
+          choco install protoc cmake tesseract -y
 
       # Cache Rust dependencies
       - name: Cache cargo registry
