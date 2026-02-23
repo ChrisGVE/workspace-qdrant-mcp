@@ -25,6 +25,8 @@ export type {
   SearchToolConfig,
   FilterParams,
   SearchCollectionParams,
+  GraphContext,
+  GraphContextNode,
 } from './search-types.js';
 
 import type {
@@ -55,6 +57,7 @@ import {
 } from './search-qdrant.js';
 import { searchExact } from './search-exact.js';
 import { expandSparseWithTags } from './search-expansion.js';
+import { expandGraphContext } from './search-graph-context.js';
 
 /**
  * Search tool for hybrid semantic + keyword search
@@ -222,6 +225,10 @@ export class SearchTool {
 
     if (options.expandContext) {
       await expandParentContext(this.qdrantClient, finalResults);
+    }
+
+    if (options.includeGraphContext) {
+      await expandGraphContext(this.daemonClient, finalResults);
     }
 
     // Update search event with results

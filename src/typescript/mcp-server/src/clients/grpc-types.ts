@@ -56,6 +56,13 @@ export {
   type TextSearchResponse,
   type TextSearchCountResponse,
   type TextSearchMatch,
+  // GraphService
+  type QueryRelatedRequest,
+  type QueryRelatedResponse,
+  type TraversalNodeProto,
+  type ImpactAnalysisRequest,
+  type ImpactAnalysisResponse,
+  type ImpactNodeProto,
 } from './grpc-types-messages.js';
 
 export type {
@@ -65,4 +72,5 @@ export type {
   ProjectServiceClient,
   EmbeddingServiceClient,
   TextSearchServiceClient,
+  GraphServiceClient,
 } from './grpc-types-clients.js';

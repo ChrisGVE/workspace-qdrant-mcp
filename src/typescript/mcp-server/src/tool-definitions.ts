@@ -84,6 +84,10 @@ export function getToolDefinitions() {
             type: 'number',
             description: 'Lines of context before/after matches in exact mode (default: 0)',
           },
+          includeGraphContext: {
+            type: 'boolean',
+            description: 'Include code relationship graph context (callers/callees) for matched symbols (default: false)',
+          },
         },
         required: ['query'],
       },

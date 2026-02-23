@@ -22,6 +22,7 @@ export type SearchOptions = {
   pathGlob?: string;
   exact?: boolean;
   contextLines?: number;
+  includeGraphContext?: boolean;
 };
 
 export type RetrieveOptions = {
@@ -117,6 +118,9 @@ export function buildSearchOptions(args: Record<string, unknown> | undefined): S
 
   const contextLines = args?.['contextLines'] as number | undefined;
   if (contextLines !== undefined) options.contextLines = contextLines;
+
+  const includeGraphContext = args?.['includeGraphContext'] as boolean | undefined;
+  if (includeGraphContext !== undefined) options.includeGraphContext = includeGraphContext;
 
   return options;
 }

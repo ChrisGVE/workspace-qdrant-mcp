@@ -16,6 +16,7 @@ import type {
   DocumentServiceClient,
   EmbeddingServiceClient,
   TextSearchServiceClient,
+  GraphServiceClient,
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
@@ -36,6 +37,8 @@ import type {
   TextSearchRequest,
   TextSearchResponse,
   TextSearchCountResponse,
+  QueryRelatedRequest,
+  QueryRelatedResponse,
 } from './grpc-types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -70,6 +73,7 @@ interface ProtoGrpcType {
     DocumentService: GrpcServiceDefinition;
     EmbeddingService: GrpcServiceDefinition;
     TextSearchService: GrpcServiceDefinition;
+    GraphService: GrpcServiceDefinition;
   };
 }
 
@@ -104,6 +108,7 @@ export class DaemonClient {
   private documentClient?: DocumentServiceClient;
   private embeddingClient?: EmbeddingServiceClient;
   private textSearchClient?: TextSearchServiceClient;
+  private graphClient?: GraphServiceClient;
 
   private connectionState: ConnectionState = { connected: false };
 
@@ -133,6 +138,7 @@ export class DaemonClient {
     this.documentClient = new proto.workspace_daemon.DocumentService(address, credentials) as unknown as DocumentServiceClient;
     this.embeddingClient = new proto.workspace_daemon.EmbeddingService(address, credentials) as unknown as EmbeddingServiceClient;
     this.textSearchClient = new proto.workspace_daemon.TextSearchService(address, credentials) as unknown as TextSearchServiceClient;
+    this.graphClient = new proto.workspace_daemon.GraphService(address, credentials) as unknown as GraphServiceClient;
 
     try {
       await this.healthCheck();
@@ -145,7 +151,7 @@ export class DaemonClient {
 
   close(): void {
     const clients = [this.systemClient, this.projectClient, this.documentClient,
-                     this.embeddingClient, this.textSearchClient];
+                     this.embeddingClient, this.textSearchClient, this.graphClient];
     for (const c of clients) {
       if (c) grpc.closeClient(c as unknown as grpc.Client);
     }
@@ -224,6 +230,12 @@ export class DaemonClient {
     return this.callWithRetry(() => grpcUnary(this.textSearchClient, 'countMatches', request));
   }
 
+  // ── GraphService ──
+
+  async queryRelated(request: QueryRelatedRequest): Promise<QueryRelatedResponse> {
+    return this.callWithRetry(() => grpcUnary(this.graphClient, 'queryRelated', request));
+  }
+
   // ── Retry logic ──
 
   private async callWithRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -268,4 +280,5 @@ export type {
   EmbedTextRequest, EmbedTextResponse,
   SparseVectorRequest, SparseVectorResponse,
   TextSearchRequest, TextSearchResponse, TextSearchCountResponse, TextSearchMatch,
+  QueryRelatedRequest, QueryRelatedResponse, TraversalNodeProto,
 } from './grpc-types.js';

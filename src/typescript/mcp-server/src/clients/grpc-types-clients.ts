@@ -36,6 +36,8 @@ import type {
   TextSearchRequest,
   TextSearchResponse,
   TextSearchCountResponse,
+  QueryRelatedRequest,
+  QueryRelatedResponse,
 } from './grpc-types-messages.js';
 
 export interface SystemServiceClient {
@@ -149,5 +151,12 @@ export interface TextSearchServiceClient {
   countMatches(
     request: TextSearchRequest,
     callback: (error: Error | null, response: TextSearchCountResponse) => void
+  ): void;
+}
+
+export interface GraphServiceClient {
+  queryRelated(
+    request: QueryRelatedRequest,
+    callback: (error: Error | null, response: QueryRelatedResponse) => void
   ): void;
 }

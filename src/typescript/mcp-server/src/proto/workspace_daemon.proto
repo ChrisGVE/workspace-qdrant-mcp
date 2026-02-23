@@ -9,7 +9,7 @@ import "google/protobuf/empty.proto";
 // =============================================================================
 // SERVICE DEFINITIONS
 // =============================================================================
-// This protocol defines 5 services for communication between the Rust daemon
+// This protocol defines 7 services for communication between the Rust daemon
 // and TypeScript components (MCP server, CLI).
 //
 // Core Services (spec-defined):
@@ -563,6 +563,85 @@ message TextSearchMatch {
     optional string branch = 5;                   // Branch name
     repeated string context_before = 6;           // Lines before the match
     repeated string context_after = 7;            // Lines after the match
+}
+
+// -----------------------------------------------------------------------------
+// 7. GraphService (3 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Code relationship graph queries for traversal, impact analysis,
+//          and statistics. Backed by SQLite graph.db with recursive CTEs.
+
+service GraphService {
+    // Query nodes related to a given node within N hops
+    rpc QueryRelated(QueryRelatedRequest) returns (QueryRelatedResponse);
+
+    // Impact analysis: find all nodes affected by changing a symbol
+    rpc ImpactAnalysis(ImpactAnalysisRequest) returns (ImpactAnalysisResponse);
+
+    // Graph statistics (node/edge counts by type)
+    rpc GetGraphStats(GraphStatsRequest) returns (GraphStatsResponse);
+}
+
+// QueryRelated Request
+message QueryRelatedRequest {
+    string tenant_id = 1;                         // Project tenant_id
+    string node_id = 2;                           // Node ID to query from
+    uint32 max_hops = 3;                          // Max traversal depth (1-5)
+    repeated string edge_types = 4;               // Filter: ["CALLS", "IMPORTS"], empty = all
+}
+
+// QueryRelated Response
+message QueryRelatedResponse {
+    repeated TraversalNodeProto nodes = 1;        // Related nodes with path context
+    uint32 total = 2;                             // Total related nodes found
+    int64 query_time_ms = 3;                      // Query execution time in ms
+}
+
+// A node discovered during graph traversal
+message TraversalNodeProto {
+    string node_id = 1;
+    string symbol_name = 2;
+    string symbol_type = 3;                       // NodeType as string (e.g., "function")
+    string file_path = 4;
+    string edge_type = 5;                         // EdgeType as string (e.g., "CALLS")
+    uint32 depth = 6;                             // Hops from source node
+    string path = 7;                              // Traversal path description
+}
+
+// ImpactAnalysis Request
+message ImpactAnalysisRequest {
+    string tenant_id = 1;                         // Project tenant_id
+    string symbol_name = 2;                       // Symbol to analyze
+    optional string file_path = 3;                // Narrow to specific file
+}
+
+// ImpactAnalysis Response
+message ImpactAnalysisResponse {
+    repeated ImpactNodeProto impacted_nodes = 1;
+    uint32 total_impacted = 2;
+    int64 query_time_ms = 3;                      // Query execution time in ms
+}
+
+// A node impacted by a symbol change
+message ImpactNodeProto {
+    string node_id = 1;
+    string symbol_name = 2;
+    string file_path = 3;
+    string impact_type = 4;                       // "direct_caller", "indirect_caller", etc.
+    uint32 distance = 5;                          // Hops from changed symbol
+}
+
+// GraphStats Request
+message GraphStatsRequest {
+    optional string tenant_id = 1;                // Empty = all tenants
+}
+
+// GraphStats Response
+message GraphStatsResponse {
+    uint64 total_nodes = 1;
+    uint64 total_edges = 2;
+    map<string, uint64> nodes_by_type = 3;        // {"function": 1234, "class": 567}
+    map<string, uint64> edges_by_type = 4;        // {"CALLS": 5678, "IMPORTS": 234}
 }
 
 // =============================================================================

@@ -50,6 +50,8 @@ export interface SearchOptions {
   exact?: boolean;
   /** Lines of context before/after matches (only for exact mode, default: 0) */
   contextLines?: number;
+  /** When true, fetch 1-hop graph context for code symbol results */
+  includeGraphContext?: boolean;
 }
 
 export interface ParentContext {
@@ -57,6 +59,19 @@ export interface ParentContext {
   unit_type: string;
   unit_text: string;
   locator?: Record<string, unknown>;
+}
+
+export interface GraphContextNode {
+  symbol: string;
+  file_path: string;
+  line?: number;
+}
+
+export interface GraphContext {
+  symbol: string;
+  file_path: string;
+  callers: GraphContextNode[];
+  callees: GraphContextNode[];
 }
 
 export interface SearchResult {
@@ -67,6 +82,7 @@ export interface SearchResult {
   title?: string;
   metadata: Record<string, unknown>;
   parent_context?: ParentContext;
+  graph_context?: GraphContext;
 }
 
 export interface SearchResponse {
