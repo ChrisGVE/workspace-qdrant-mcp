@@ -123,6 +123,10 @@ enum Commands {
     #[command(display_order = 23)]
     Tags(commands::tags::TagsArgs),
 
+    /// Code graph queries (query, impact, stats)
+    #[command(display_order = 24)]
+    Graph(commands::graph::GraphArgs),
+
     // --- Queue & Analytics ---
     /// Unified queue inspector (list, show, stats)
     #[command(display_order = 30)]
@@ -236,6 +240,7 @@ async fn main() -> Result<()> {
         Commands::Library(args) => commands::library::execute(args).await,
         Commands::Watch(args) => commands::watch::execute(args).await,
         Commands::Tags(args) => commands::tags::execute(args).await,
+        Commands::Graph(args) => commands::graph::execute(args).await,
 
         // Queue & Analytics
         Commands::Queue(args) => commands::queue::execute(args).await,

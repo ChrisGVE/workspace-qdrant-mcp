@@ -22,6 +22,7 @@ pub mod workspace_daemon {
 use workspace_daemon::{
     collection_service_client::CollectionServiceClient,
     document_service_client::DocumentServiceClient,
+    graph_service_client::GraphServiceClient,
     project_service_client::ProjectServiceClient,
     system_service_client::SystemServiceClient,
 };
@@ -38,6 +39,7 @@ pub struct DaemonClient {
     collection: CollectionServiceClient<Channel>,
     document: DocumentServiceClient<Channel>,
     project: ProjectServiceClient<Channel>,
+    graph: GraphServiceClient<Channel>,
 }
 
 impl DaemonClient {
@@ -60,7 +62,8 @@ impl DaemonClient {
             system: SystemServiceClient::new(channel.clone()),
             collection: CollectionServiceClient::new(channel.clone()),
             document: DocumentServiceClient::new(channel.clone()),
-            project: ProjectServiceClient::new(channel),
+            project: ProjectServiceClient::new(channel.clone()),
+            graph: GraphServiceClient::new(channel),
         })
     }
 
@@ -115,6 +118,16 @@ impl DaemonClient {
     /// - Heartbeat
     pub fn project(&mut self) -> &mut ProjectServiceClient<Channel> {
         &mut self.project
+    }
+
+    /// Get mutable reference to GraphService client
+    ///
+    /// Provides access to:
+    /// - QueryRelated
+    /// - ImpactAnalysis
+    /// - GetGraphStats
+    pub fn graph(&mut self) -> &mut GraphServiceClient<Channel> {
+        &mut self.graph
     }
 }
 

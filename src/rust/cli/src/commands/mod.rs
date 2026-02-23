@@ -16,6 +16,7 @@ pub mod project;
 pub mod scratch;
 
 // Search & Queue
+pub mod graph;
 pub mod queue;
 pub mod search;
 pub mod stats;
