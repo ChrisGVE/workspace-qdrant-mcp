@@ -175,6 +175,9 @@ export class WorkspaceQdrantMcpServer {
       healthMonitor.start();
       logDebug('Health monitoring started');
 
+      // Seed default search-first rule on fresh installation
+      await this.seedDefaultRule();
+
       if (this.isStdioMode) {
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
@@ -200,6 +203,41 @@ export class WorkspaceQdrantMcpServer {
   private async cleanupSession(): Promise<void> {
     const { daemonClient, stateManager, healthMonitor } = this.components;
     await cleanup(this.sessionState, daemonClient, stateManager, healthMonitor);
+  }
+
+  /**
+   * Seed a default "search-first" rule if the rules collection is empty.
+   * Only runs once per fresh installation; skipped if any rule already exists.
+   */
+  private async seedDefaultRule(): Promise<void> {
+    const { rulesTool } = this.components;
+    try {
+      const listResult = await rulesTool.execute({ action: 'list', scope: 'global' });
+      if (!listResult.success || (listResult.rules && listResult.rules.length > 0)) {
+        return; // Rules exist or list failed — skip seeding
+      }
+
+      const addResult = await rulesTool.execute({
+        action: 'add',
+        label: 'search-first',
+        title: 'Always search before answering',
+        content: [
+          'When asked about the codebase, project structure, library documentation,',
+          'or any topic that might be covered in the indexed knowledge base,',
+          'ALWAYS use the workspace-qdrant search tool first.',
+          'Do not rely on training data for project-specific questions.',
+          'Use scope="project" for code questions and includeLibraries=true for broader knowledge queries.',
+        ].join(' '),
+        scope: 'global',
+        priority: 100,
+      });
+
+      if (addResult.success) {
+        logInfo('Created default search-first behavioral rule');
+      }
+    } catch (error) {
+      logDebug('Skipped default rule seeding', { reason: String(error) });
+    }
   }
 
   // ---- Accessors ----
