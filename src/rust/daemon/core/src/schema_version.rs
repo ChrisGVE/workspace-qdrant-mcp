@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 23;
+pub const CURRENT_SCHEMA_VERSION: i32 = 24;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -173,6 +173,7 @@ impl SchemaManager {
             21 => self.migrate_v21().await,
             22 => self.migrate_v22().await,
             23 => self.migrate_v23().await,
+            24 => self.migrate_v24().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -1138,6 +1139,25 @@ impl SchemaManager {
         }
 
         info!("Migration v23 complete");
+        Ok(())
+    }
+
+    async fn migrate_v24(&self) -> Result<(), SchemaError> {
+        info!("Migration v24: Creating project_groups table for cross-project search");
+
+        use super::project_groups_schema::{CREATE_PROJECT_GROUPS_SQL, CREATE_PROJECT_GROUPS_INDEXES_SQL};
+
+        sqlx::query(CREATE_PROJECT_GROUPS_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_PROJECT_GROUPS_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        info!("Migration v24 complete");
         Ok(())
     }
 }
