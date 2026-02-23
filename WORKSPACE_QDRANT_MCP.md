@@ -5606,56 +5606,143 @@ This section documents research findings and architectural ideas that may be pur
 - **[HelixDB](https://github.com/helixdb/helix-db)**: Rust-native graph+vector database with built-in embeddings. Active development (YC-backed, 165+ releases). Uses proprietary HelixQL query language (not Cypher). **AGPL-3.0 license** is a concern for our MIT-licensed project — would require careful evaluation of linking/embedding implications vs. using as a separate service.
 - **SQLite recursive CTEs**: Already available, no new dependency. Sufficient for shallow graph queries (1-2 hops) but expensive for deep traversals and graph algorithms.
 
-**Qdrant confirmed** as the right choice for vector search. No multi-model database matches Qdrant's vector performance. The graph database selection is deferred until Graph RAG work is scoped — the dedicated daemon architecture (`graphd` with gRPC) remains valid regardless of which graph engine is chosen.
+**Qdrant confirmed** as the right choice for vector search. No multi-model database matches Qdrant's vector performance.
 
-**Recommended approach: Dedicated graph daemon (graphd)**
+#### Architecture Decision: Single Daemon with Embedded Graph (2026-02-23)
 
-A separate Rust daemon (`graphd`) owns the graph database exclusively, serving both write and query operations via gRPC. This resolves concurrency limitations while providing full query capabilities at query time.
+After deep analysis of single-daemon (graph embedded in memexd) vs. dual-daemon (separate graphd) architectures, the **single-daemon** approach was chosen. The full analysis follows.
+
+##### Option A: Single Daemon (graph embedded in memexd) — CHOSEN
 
 ```
-MCP Server (TypeScript)
-    ├── Vector search    → Qdrant (direct HTTP/gRPC)
-    ├── Graph queries    → graphd (gRPC)
-    └── State/metadata   → SQLite state.db (direct read-only)
-
 memexd (Rust daemon)
-    ├── File watching    → filesystem (notify)
-    ├── Embedding        → ONNX Runtime (all-MiniLM-L6-v2)
-    ├── Vector writes    → Qdrant (direct)
-    ├── Graph edges      → graphd (gRPC)
-    └── State writes     → SQLite state.db (WAL mode)
-
-graphd (Rust daemon)
-    ├── Graph storage    → Graph database (exclusive access; engine TBD — see evaluation table)
-    ├── Write API        → gRPC (receives edges from memexd)
-    ├── Query API        → gRPC (serves MCP server, CLI, memexd)
-    └── Analytics        → Graph query language (community detection, centrality, impact analysis)
-
-CLI (Rust)
-    ├── Vector queries   → Qdrant (direct)
-    ├── Graph queries    → graphd (gRPC)
-    └── State queries    → SQLite state.db (direct read-only)
+    ├── File watching       → filesystem (notify)
+    ├── Embedding           → ONNX Runtime (all-MiniLM-L6-v2)
+    ├── Vector writes       → Qdrant (direct)
+    ├── FTS5 writes         → search.db (SQLite)
+    ├── Graph writes        → graph.db (embedded, in-process)
+    ├── Graph queries       → graph.db (in-process, zero-IPC)
+    ├── State writes        → state.db (SQLite WAL)
+    └── gRPC server         → serves MCP server, CLI
 ```
 
-**Why a separate daemon, not embedded:**
-- Eliminates graph engine concurrency limitations (single process = single owner)
-- Full Cypher available at query time (multi-hop traversal, path finding, graph algorithms)
-- Follows the established pattern (same launchd management, gRPC integration, binary distribution as memexd)
-- Future-proof: graph engine can be swapped behind the gRPC interface without consumer changes
-- Clean separation of concerns: each daemon does one thing well
+**Pros:**
 
-**Graph daemon storage:** `~/.workspace-qdrant/graph/` (graph database directory)
+1. **Zero-IPC graph access.** Graph writes during file ingestion are in-process function calls, not gRPC round-trips. At ~10 edges/file and thousands of files, this saves significant latency. The ingestion pipeline already runs `tree_sitter::extract_symbols()` and `cooccurrence_graph::update_graph()` in-process — adding graph edge insertion as another in-process step is natural.
 
-**Graph daemon management:** Same launchd plist pattern as memexd. Single-threaded with internal queue for write operations. Read queries served directly. Managed via CLI (`wqm service install --graph`, `wqm service start --graph`).
+2. **Atomic ingestion.** File ingestion currently writes to Qdrant + search.db + state.db. Adding graph.db as a fourth destination keeps all state mutations in the same transaction scope. With a separate daemon, a crash between "edge sent to graphd" and "queue item marked done" creates consistency gaps.
 
-**Query pattern:**
+3. **Single process management.** One launchd plist, one PID, one log stream, one health check. Users already manage memexd — adding graphd doubles the operational surface area (install, start, stop, status, logs, troubleshooting for two processes).
 
-1. Vector search finds semantically relevant chunks (Qdrant)
-2. Graph traversal expands results to structurally related code (graphd, full Cypher — no hop limit)
-3. Results re-ranked combining semantic similarity + graph proximity
-4. Advanced analytics (community detection, centrality, impact analysis) available as direct Cypher queries
+4. **Shared context.** memexd already holds the `ProcessingContext` with SQLite pool, Qdrant client, lexicon, embedding generator, LSP manager. Graph operations need all of this context. In a separate daemon, you'd replicate it or proxy it via gRPC.
 
-**Graph schema (property graph, engine-agnostic):**
+5. **LadybugDB embeds well.** The `lbug` crate is designed for in-process embedding (no server). Its MVCC model (concurrent readers, single writer) maps perfectly to memexd's pattern: the queue processor writes edges sequentially, while MCP/CLI queries read concurrently via the gRPC server.
+
+6. **Build pipeline is simpler.** One binary to build, test, deploy. The existing `ORT_LIB_LOCATION` + static linking story already handles ONNX Runtime (C++). Adding LadybugDB (also C++ underneath) is one more dependency in the same build.
+
+7. **No inter-daemon synchronization.** With two daemons, you need to handle: graphd startup before memexd tries to send edges, graphd crashes while memexd is running, version skew between the two binaries, shared file locking on state.db.
+
+**Cons:**
+
+1. **Binary size growth.** LadybugDB's C++ core adds significant weight to the memexd binary (likely 10-20MB). Already large due to ONNX Runtime.
+
+2. **Memory footprint.** Graph database keeps its own buffer pool, page cache, and index structures in-process. Combined with ONNX Runtime, Qdrant client, SQLite pools, and the embedding model, memory usage increases. On constrained systems this matters.
+
+3. **Crash blast radius.** A bug in graph traversal (e.g., infinite loop in Cypher evaluation, memory corruption in LadybugDB C++) takes down the entire daemon — file watching, embedding, everything. With a separate daemon, a graphd crash doesn't affect file ingestion.
+
+4. **Build complexity.** LadybugDB requires Clang/LLVM for C++ compilation. This adds to the already complex Intel Mac build story (ORT static linking). Cross-compilation for CI becomes harder.
+
+5. **Single-writer contention.** Both graph writes (during ingestion) and graph queries (from gRPC) go through the same instance. Heavy graph queries could block graph writes during ingestion, or vice versa. Managed via read-write coordination (see concurrency model below).
+
+6. **Testing surface.** Integration tests for graph features must spin up the full memexd environment. With a separate daemon, graph tests can run in isolation.
+
+##### Option B: Dual Daemon (separate graphd) — REJECTED
+
+```
+memexd (Rust daemon)                    graphd (Rust daemon)
+    ├── File watching → filesystem          ├── Graph storage → LadybugDB
+    ├── Embedding → ONNX Runtime            ├── Write API → gRPC
+    ├── Vector writes → Qdrant              ├── Query API → gRPC
+    ├── Graph edges → graphd (gRPC)         └── Analytics → Cypher
+    └── State writes → state.db
+```
+
+**Pros:** Fault isolation, independent scaling, clean API boundary, simpler per-binary builds, graph engine swappability, memory isolation.
+
+**Cons:** IPC overhead (~10x latency for edge writes), consistency gaps (partial writes on crash), operational complexity (two daemons to manage), startup ordering dependencies, version coupling via gRPC proto, network port consumption, tripled development surface (proto + graphd + memexd client).
+
+##### Decisive Factors for Single Daemon
+
+1. **Development velocity.** Pre-release project evolving rapidly. Every graph feature change would require proto changes + graphd updates + memexd client updates — tripling the development surface. In a single daemon, graph features are regular Rust modules alongside text_search, storage, and embedding.
+
+2. **LadybugDB embeds naturally.** The `lbug` crate is designed for exactly this use case. Its MVCC model matches memexd's access pattern. There's no technical reason to put it in a separate process — it's like how we embed SQLite (via sqlx) and ONNX Runtime (via fastembed) in the same process.
+
+3. **Atomicity matters.** The ingestion pipeline writes to Qdrant, search.db, and state.db in a coordinated flow. Adding graph.db as a fourth in-process destination is straightforward. With a separate daemon, every write requires IPC and explicit consistency handling.
+
+4. **Operational simplicity.** Users are developers using this for personal knowledge management. One daemon that "just works" is the right abstraction.
+
+5. **Trait abstraction replaces process boundary.** Define a `GraphStore` trait, implement it for SQLite CTEs (Phase 1) and LadybugDB (Phase 2). The trait boundary provides the same swappability as a gRPC API, without the IPC overhead.
+
+6. **Crash isolation is manageable.** LadybugDB runs in `tokio::task::spawn_blocking` context. Panics can be caught with `std::panic::catch_unwind`. For truly critical paths, the `catch_unwind` wrapper prevents C++ layer issues from bringing down the tokio runtime.
+
+##### Performance Comparison
+
+| Operation | Single Daemon | Dual Daemon |
+|-----------|--------------|-------------|
+| Edge write (per file) | ~50μs (in-process) | ~500μs-1ms (gRPC) |
+| Batch edge write (1000 files) | ~50ms | ~500ms-1s (with batching) |
+| Graph query (1-hop) | ~100μs (in-process) | ~1-2ms (gRPC) |
+| Graph query (3-hop) | ~1-5ms (in-process) | ~2-6ms (gRPC) |
+| Impact analysis (deep) | ~10-50ms (in-process) | ~12-52ms (gRPC) |
+| Community detection | ~100ms-1s (CPU-bound) | ~100ms-1s (own thread pool) |
+
+##### Graph Read-Write Concurrency Model
+
+Graph access uses a self-managed read-write coordination scheme that avoids blocking the ingestion pipeline:
+
+- **Multiple concurrent readers:** Graph read queries (from gRPC) run in parallel on a dedicated thread pool via `spawn_blocking`. Readers acquire a shared read token.
+- **Single writer:** The queue processor writes graph edges sequentially during file ingestion.
+- **Write-yields-to-reads:** When a write operation completes, if pending read queries are waiting, reads run first. The next write waits for all pending reads to complete before proceeding.
+- **Reads-yield-to-write:** When no reads are pending, writes proceed immediately without coordination overhead.
+
+This ensures that graph queries from MCP/CLI are never starved by sustained write bursts during project scans, while writes are only briefly delayed when queries are actively in flight. The pattern is similar to a fair read-write lock with writer starvation prevention.
+
+##### Implementation Roadmap
+
+**Phase 1 — SQLite CTEs (zero new dependencies):**
+- Graph schema as SQLite adjacency tables in `state.db` or dedicated `graph.db`
+- `GraphStore` trait with `SqliteGraphStore` implementation
+- Recursive CTE queries for 1-2 hop traversals (covers ~80% of use cases: call chains, imports, type usage)
+- Integration with existing ingestion pipeline (tree-sitter symbol extraction → graph edges)
+- gRPC service for graph queries
+
+**Phase 2 — LadybugDB upgrade (when deep queries needed):**
+- Add `lbug` crate dependency with `LadybugGraphStore` implementation of same `GraphStore` trait
+- Full Cypher support: multi-hop traversal, path finding, graph algorithms
+- Community detection, centrality analysis, impact analysis
+- Feature-flag or config toggle between SQLite and LadybugDB backends
+- Dedicated `~/.workspace-qdrant/graph/` storage directory for LadybugDB
+
+##### Graph Database Evaluation (2026-02-23 update)
+
+| DB | License | Embeddable | Query Language | Concurrent R/W | Status | Verdict |
+|----|---------|------------|----------------|----------------|--------|---------|
+| LadybugDB (lbug) | MIT | Yes (in-process) | Cypher | MVCC / single writer | Active (Jan 2026, v0.14.2) | **Phase 2 target** — best embeddable property graph |
+| HelixDB | AGPL-3.0 | No (server only) | Custom HelixQL | Yes (server) | Active (Feb 2026) | **Rejected** — AGPL incompatible with MIT, server-only |
+| CozoDB | MPL-2.0 | Yes (in-process) | Datalog | RocksDB: full | Stalled (Dec 2023) | **Rejected** — stalled development, Datalog not Cypher |
+| IndraDB | MPL-2.0 | Yes (in-process) | None (Rust API) | Backend-dependent | Low (Aug 2025) | **Rejected** — no query language, low maintenance |
+| Oxigraph | MIT/Apache-2.0 | Yes (in-process) | SPARQL (RDF) | Single writer + readers | Active (Feb 2026) | **Wrong data model** — RDF, not property graph |
+| SQLite + CTEs | Public domain | Yes | SQL + recursive CTE | WAL: 1W + NR | N/A | **Phase 1 backend** — zero deps, sufficient for shallow queries |
+
+**LadybugDB details (v0.14.2, January 2026):**
+- Fork of archived KuzuDB, under active maintenance by Ladybug Memory
+- Crate: `lbug` on crates.io (MIT license)
+- True in-process embedding via `Database::new()`, no server required
+- Builds C++ core from source (requires Clang/LLVM)
+- 61% API documented — Rust bindings are usable but edge cases may exist
+- Long-term sustainability depends on Ladybug Memory's continued investment
+
+##### Graph Schema (property graph, engine-agnostic)
 
 Node types: `File`, `Function`, `Class`, `Method`, `Struct`, `Trait`, `Module`, `Document`
 
@@ -5871,44 +5958,9 @@ Phase 3 (optional): Enable Tier 3 LLM-assisted tagging for users who want higher
 - **Source diversity in results**: When multiple chunks from different sources match a query, prefer diverse results (1 chunk from each of 3 books) over concentrated results (3 chunks from 1 book). This is a post-retrieval re-ranking step.
 - **Contradiction handling**: Not automatically resolved. Provenance metadata enables the LLM consumer to reason about conflicting sources. Academic research confirms this remains an unsolved problem for automated systems.
 
-### Graph Daemon (graphd) — Graph Database Service
+### Graph Storage — Embedded in memexd (Single Daemon)
 
-**Note (2026-02-10):** This section was originally written for Kuzu, which has since been [archived (Oct 2025)](https://github.com/kuzudb/kuzu). The dedicated daemon architecture described below remains valid regardless of which graph engine is chosen. When Graph RAG work is scoped, evaluate LadybugDB (Kuzu fork, MIT), HelixDB (Rust-native, AGPL-3.0), or SQLite CTEs as the backing engine. See the [Graph RAG evaluation table](#graph-rag-knowledge-graph-enhanced-retrieval) for details.
-
-**Original evaluation:** Kuzu (MIT, embeddable, Cypher, 188x faster than Neo4j for analytical queries) was the strongest candidate for graph storage and analytics with official Rust and Node.js bindings.
-
-**Concurrency constraint and daemon solution:** The dedicated daemon pattern (`graphd`) remains the recommended architecture regardless of graph engine choice. A separate Rust daemon owns the graph database exclusively, serving both write and query operations via gRPC. This resolves concurrency limitations while providing full query capabilities at query time — same architectural pattern as memexd with Qdrant.
-
-**graphd responsibilities:**
-- Own the graph database at `~/.workspace-qdrant/graph/` (exclusive access)
-- Accept graph edge writes from memexd via gRPC (during ingestion)
-- Serve graph queries from MCP server, CLI, and memexd via gRPC (full Cypher)
-- Run graph analytics (community detection, centrality, impact analysis) on demand or as background tasks
-- Internal write queue for serialized operations; read queries served directly
-- Managed via launchd (same pattern as memexd): `~/Library/LaunchAgents/com.workspace-qdrant.graphd.plist`
-
-**gRPC service definition (conceptual):**
-```protobuf
-service GraphService {
-    // Write operations (from memexd during ingestion)
-    rpc AddEdge(AddEdgeRequest) returns (AddEdgeResponse);
-    rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
-    rpc RemoveFileEdges(RemoveFileEdgesRequest) returns (RemoveFileEdgesResponse);
-
-    // Query operations (from MCP server, CLI)
-    rpc QueryCypher(CypherRequest) returns (CypherResponse);
-    rpc GetRelated(GetRelatedRequest) returns (GetRelatedResponse);
-    rpc GetCallChain(CallChainRequest) returns (CallChainResponse);
-    rpc GetImpactAnalysis(ImpactRequest) returns (ImpactResponse);
-
-    // Analytics (from CLI or daemon batch)
-    rpc RunCommunityDetection(AnalyticsRequest) returns (AnalyticsResponse);
-    rpc RunCentralityAnalysis(AnalyticsRequest) returns (AnalyticsResponse);
-
-    // Health
-    rpc Health(HealthRequest) returns (HealthResponse);
-}
-```
+**Note (2026-02-23):** The original graphd (separate daemon) architecture was replaced by an embedded single-daemon approach after thorough analysis. See [Architecture Decision: Single Daemon with Embedded Graph](#architecture-decision-single-daemon-with-embedded-graph-2026-02-23) for the full rationale, pros/cons comparison, and performance analysis.
 
 **Graph evolution — delete/re-ingest pattern (same as Qdrant):**
 
@@ -5916,7 +5968,7 @@ Graph data follows the same lifecycle as vector data. When a file changes, old g
 
 | Event | Graph action |
 |-------|-------------|
-| File created | Tree-sitter extracts symbols (nodes) → LSP resolves references (edges) → sent to graphd |
+| File created | Tree-sitter extracts symbols (nodes) → LSP resolves references (edges) → inserted in-process |
 | File modified | Delete edges WHERE `source_file = modified_file` → re-extract → re-insert. Nodes updated in place (symbol identity persists even if signature changes) |
 | File deleted | Delete edges WHERE `source_file = deleted_file` → orphan node cleanup (nodes with no remaining edges pruned) |
 | Project deleted | Delete all nodes/edges WHERE `tenant_id = project_id` |
@@ -5931,29 +5983,27 @@ File change detected (file watcher)
     → Queue item created (unified_queue)
         → memexd processes:
             1. Delete old Qdrant chunks for file       (existing)
-            2. Delete old graph edges for file          (NEW → gRPC to graphd)
+            2. Delete old graph edges for file          (NEW — in-process)
             3. Re-chunk (tree-sitter or fixed-size)     (existing)
             4. Re-embed chunks                          (existing)
             5. Extract relationships from AST/LSP       (NEW)
             6. Upsert chunks to Qdrant                  (existing)
-            7. Send edges to graphd                     (NEW → gRPC)
+            7. Insert graph edges                       (NEW — in-process)
             8. Update tags (per-chunk, aggregate)       (NEW)
 ```
 
-Steps 2, 5, 7, 8 are additions. The queue, file watching, debouncing, and processing loop remain unchanged.
+Steps 2, 5, 7, 8 are additions. The queue, file watching, debouncing, and processing loop remain unchanged. All graph operations are in-process function calls (no IPC).
 
 **Eventual consistency:** During batch operations (e.g., `git checkout` changing many files), the graph may have stale edges briefly while files are processed through the queue. This is the same trade-off accepted with Qdrant — the queue guarantees all files are eventually processed.
 
-**Future-proofing:** The gRPC interface is the stable contract. The graph engine behind `graphd` can be swapped (LadybugDB, HelixDB, SQLite CTEs, or any future candidate) without affecting consumers. This was the original intent even before Kuzu's archival — the daemon abstraction isolates the engine choice.
+**Future-proofing:** The `GraphStore` trait is the stable contract. The graph engine can be swapped (SQLite CTEs → LadybugDB, or any future candidate) by implementing the trait. The trait boundary provides the same swappability as a gRPC API, without IPC overhead.
 
-**CLI management:**
+**CLI commands:**
 ```bash
-wqm service install --graph     # Install graphd launchd plist
-wqm service start --graph       # Start graphd
-wqm service status --graph      # Check graphd health
 wqm graph query "MATCH (f:Function)-[:CALLS]->(g:Function) WHERE f.name = 'main' RETURN g"
 wqm graph impact --symbol parse --file document_processor.rs
 wqm graph communities           # List detected code communities
+wqm graph stats                 # Node/edge counts and storage size
 ```
 
 ### Knowledge Manager Product Potential
@@ -5969,7 +6019,7 @@ The capabilities being built form the foundation for a general-purpose knowledge
 - CLI for direct access and diagnostics
 
 **Planned capabilities (knowledge base):**
-- Graph relationship tracking (graphd — engine TBD, see evaluation table)
+- Graph relationship tracking (embedded in memexd — SQLite CTEs → LadybugDB, see architecture decision)
 - Automated tagging and classification (Tiers 1-3)
 - Cross-collection and cross-project search
 - Content-type routing (code vs. reference material)
@@ -5981,7 +6031,7 @@ The capabilities being built form the foundation for a general-purpose knowledge
 2. **Near-term**: Personal knowledge base — automated tagging, cross-library synthesis, background knowledge routing. The user's entire document collection (textbooks, research papers, notes, code) becomes a searchable, interconnected knowledge graph.
 3. **Long-term**: Team knowledge manager — multi-user access control, shared libraries, collaborative tagging, organizational knowledge graph
 
-**The MCP interface is the critical enabler.** It means the knowledge manager is accessible from any LLM-powered tool (Claude Desktop, Claude Code, Cursor, or any future MCP client) without building a custom UI. The LLM conversation itself becomes the interface. The underlying engine (memexd + graphd + Qdrant + SQLite) is domain-agnostic — it handles code, documents, research papers, and any text content through the same pipeline.
+**The MCP interface is the critical enabler.** It means the knowledge manager is accessible from any LLM-powered tool (Claude Desktop, Claude Code, Cursor, or any future MCP client) without building a custom UI. The LLM conversation itself becomes the interface. The underlying engine (memexd + Qdrant + SQLite + embedded graph) is domain-agnostic — it handles code, documents, research papers, and any text content through the same pipeline.
 
 ### Chunk Size Optimization Research
 
