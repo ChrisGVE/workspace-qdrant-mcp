@@ -14,6 +14,7 @@ use super::{
 ///
 /// Uses a dedicated `graph.db` with WAL mode. Recursive CTEs handle
 /// multi-hop traversal without requiring a graph database engine.
+#[derive(Clone)]
 pub struct SqliteGraphStore {
     pool: SqlitePool,
 }
