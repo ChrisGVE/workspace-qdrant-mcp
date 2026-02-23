@@ -22,6 +22,7 @@ pub mod fts_batch_processor;
 pub mod branch_switch;
 pub mod git_integration;
 pub mod git_watcher;
+pub mod graph;
 pub mod metadata_enrichment;
 pub mod ipc;
 pub mod log_pruner;
