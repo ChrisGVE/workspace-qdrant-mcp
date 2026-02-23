@@ -26,6 +26,7 @@ pub mod cross_project_search;
 pub mod dependency_grouper;
 pub mod git_org_grouper;
 pub mod project_groups_schema;
+pub mod workspace_grouper;
 pub mod git_watcher;
 pub mod graph;
 pub mod image_extraction;
