@@ -104,6 +104,9 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # Crypto
 sha2 = "0.10"
 
+# OCR (optional)
+leptess = "0.14"
+
 # Testing dependencies (shared across workspace)
 filetime = "0.2"
 tokio-test = "0.4"

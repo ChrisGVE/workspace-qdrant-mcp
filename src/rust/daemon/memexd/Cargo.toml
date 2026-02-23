@@ -40,3 +40,5 @@ windows-service = "0.7"
 default = ["static-grammars"]
 # Include bundled tree-sitter grammars as fallback (increases binary size ~5-10MB)
 static-grammars = ["workspace-qdrant-core/static-grammars"]
+# Enable OCR support (requires Tesseract system library)
+ocr = ["workspace-qdrant-core/ocr"]
