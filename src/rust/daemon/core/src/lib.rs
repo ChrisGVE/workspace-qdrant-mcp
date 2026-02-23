@@ -23,6 +23,7 @@ pub mod branch_switch;
 pub mod git_integration;
 pub mod git_watcher;
 pub mod graph;
+pub mod image_extraction;
 pub mod metadata_enrichment;
 pub mod ocr;
 pub mod ipc;
