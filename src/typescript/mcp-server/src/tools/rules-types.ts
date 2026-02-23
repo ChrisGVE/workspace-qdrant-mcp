@@ -1,5 +1,5 @@
 /**
- * Memory tool types, interfaces, and constants.
+ * Rules tool types, interfaces, and constants.
  */
 
 // Canonical memory collection name from native bridge (single source of truth)
@@ -7,14 +7,14 @@ import { COLLECTION_MEMORY } from '../common/native-bridge.js';
 export const MEMORY_COLLECTION = COLLECTION_MEMORY;
 export const MEMORY_BASENAME = 'memory';
 
-export type MemoryAction = 'add' | 'update' | 'remove' | 'list';
-export type MemoryScope = 'global' | 'project';
+export type RuleAction = 'add' | 'update' | 'remove' | 'list';
+export type RuleScope = 'global' | 'project';
 
-export interface MemoryRule {
+export interface Rule {
   id: string;
   label?: string;
   content: string;
-  scope: MemoryScope;
+  scope: RuleScope;
   projectId?: string;
   title?: string;
   tags?: string[];
@@ -23,11 +23,11 @@ export interface MemoryRule {
   updatedAt?: string;
 }
 
-export interface MemoryOptions {
-  action: MemoryAction;
+export interface RuleOptions {
+  action: RuleAction;
   content?: string;
   label?: string;
-  scope?: MemoryScope;
+  scope?: RuleScope;
   projectId?: string;
   title?: string;
   tags?: string[];
@@ -35,17 +35,17 @@ export interface MemoryOptions {
   limit?: number;
 }
 
-export interface MemoryResponse {
+export interface RuleResponse {
   success: boolean;
-  action: MemoryAction;
+  action: RuleAction;
   label?: string;
-  rules?: MemoryRule[];
+  rules?: Rule[];
   message?: string;
   fallback_mode?: 'unified_queue';
   queue_id?: string;
 }
 
-export interface MemoryToolConfig {
+export interface RuleToolConfig {
   qdrantUrl: string;
   qdrantApiKey?: string;
   qdrantTimeout?: number;

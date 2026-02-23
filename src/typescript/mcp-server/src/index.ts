@@ -3,7 +3,7 @@
  * workspace-qdrant-mcp - MCP Server Entry Point
  *
  * Provides project-scoped Qdrant vector database operations with hybrid search.
- * Exactly 4 tools: search, retrieve, memory, store
+ * Exactly 4 tools: search, retrieve, rules, store
  *
  * Architecture:
  * - TypeScript MCP server using @modelcontextprotocol/sdk

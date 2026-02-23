@@ -94,7 +94,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
     memoryCollectionName: "memory",
   },
   environment: {},
-  memory: {
+  rules: {
     limits: {
       maxLabelLength: 15,
       maxTitleLength: 50,

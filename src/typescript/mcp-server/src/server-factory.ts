@@ -8,7 +8,7 @@ import { ProjectDetector } from './utils/project-detector.js';
 import { HealthMonitor } from './utils/health-monitor.js';
 import { SearchTool } from './tools/search.js';
 import { RetrieveTool } from './tools/retrieve.js';
-import { MemoryTool } from './tools/memory.js';
+import { RulesTool } from './tools/rules.js';
 import { StoreTool } from './tools/store.js';
 import { GrepTool } from './tools/grep.js';
 import type { ServerConfig } from './types/index.js';
@@ -20,7 +20,7 @@ export interface ServerComponents {
   healthMonitor: HealthMonitor;
   searchTool: SearchTool;
   retrieveTool: RetrieveTool;
-  memoryTool: MemoryTool;
+  rulesTool: RulesTool;
   storeTool: StoreTool;
   grepTool: GrepTool;
   qdrantConfig: { qdrantUrl: string; qdrantApiKey?: string };
@@ -59,7 +59,7 @@ export function buildServerComponents(config: ServerConfig): ServerComponents {
 
   const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector);
 
-  const memoryTool = new MemoryTool(
+  const rulesTool = new RulesTool(
     qdrantConfig,
     daemonClient,
     stateManager,
@@ -78,7 +78,7 @@ export function buildServerComponents(config: ServerConfig): ServerComponents {
     healthMonitor,
     searchTool,
     retrieveTool,
-    memoryTool,
+    rulesTool,
     storeTool,
     grepTool,
     qdrantConfig,

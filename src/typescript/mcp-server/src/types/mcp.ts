@@ -1,6 +1,6 @@
 /**
  * MCP tool input/output types for workspace-qdrant-mcp
- * Exactly 4 tools: search, retrieve, memory, store
+ * Exactly 4 tools: search, retrieve, rules, store
  */
 
 import { z } from 'zod';
@@ -68,36 +68,36 @@ export interface RetrieveOutput {
 }
 
 // ============================================================================
-// Memory Tool Types
+// Rules Tool Types
 // ============================================================================
 
-export const MemoryActionSchema = z.enum(['add', 'update', 'remove', 'list']);
-export type MemoryAction = z.infer<typeof MemoryActionSchema>;
+export const RuleActionSchema = z.enum(['add', 'update', 'remove', 'list']);
+export type RuleAction = z.infer<typeof RuleActionSchema>;
 
-export const MemoryScopeSchema = z.enum(['global', 'project']);
-export type MemoryScope = z.infer<typeof MemoryScopeSchema>;
+export const RuleScopeSchema = z.enum(['global', 'project']);
+export type RuleScope = z.infer<typeof RuleScopeSchema>;
 
-export const MemoryInputSchema = z.object({
-  action: MemoryActionSchema.describe('Memory operation'),
+export const RuleInputSchema = z.object({
+  action: RuleActionSchema.describe('Rules operation'),
   label: z.string().optional().describe('Rule label (unique per scope)'),
   content: z.string().optional().describe('Rule content'),
-  scope: MemoryScopeSchema.default('project').describe('Rule scope (default: project)'),
+  scope: RuleScopeSchema.default('project').describe('Rule scope (default: project)'),
   project_id: z.string().optional().describe('Project ID for project-scoped rules'),
 });
 
-export type MemoryInput = z.infer<typeof MemoryInputSchema>;
+export type RuleInput = z.infer<typeof RuleInputSchema>;
 
-export interface MemoryRule {
+export interface RuleEntry {
   label: string;
   content: string;
-  scope: MemoryScope;
+  scope: RuleScope;
   project_id: string | null;
   created_at: string;
 }
 
-export interface MemoryOutput {
+export interface RuleOutput {
   success: boolean;
-  rules?: MemoryRule[];
+  rules?: RuleEntry[];
   status?: 'queued' | 'completed';
   queue_id?: string;
   fallback_mode?: 'unified_queue';

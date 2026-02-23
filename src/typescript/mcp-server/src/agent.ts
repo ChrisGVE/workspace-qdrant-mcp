@@ -17,18 +17,18 @@ import type {
 
 import { loadConfig } from './config.js';
 import { ProjectDetector } from './utils/project-detector.js';
-import { type MemoryRule, fetchMemoryRules, formatMemoryRulesForPrompt } from './agent-memory.js';
+import { type Rule, fetchRules, formatRulesForPrompt } from './agent-rules.js';
 
 // Session state for agent lifecycle
 interface AgentSessionState {
   sessionId: string | null;
   projectId: string | null;
   projectPath: string | null;
-  memoryRules: MemoryRule[];
+  rules: Rule[];
 }
 
 const sessionState: AgentSessionState = {
-  sessionId: null, projectId: null, projectPath: null, memoryRules: [],
+  sessionId: null, projectId: null, projectPath: null, rules: [],
 };
 
 /** SessionStart hook — fetch memory rules and inject into system prompt. */
@@ -54,10 +54,10 @@ const sessionStartHook: HookCallback = async (
       console.log(`[Agent] Project detected: ${projectInfo.projectPath} (tenant_id: ${projectInfo.projectId})`);
     }
 
-    sessionState.memoryRules = await fetchMemoryRules(sessionState.projectId, config);
+    sessionState.rules = await fetchRules(sessionState.projectId, config);
 
-    if (sessionState.memoryRules.length > 0) {
-      return { systemMessage: formatMemoryRulesForPrompt(sessionState.memoryRules) };
+    if (sessionState.rules.length > 0) {
+      return { systemMessage: formatRulesForPrompt(sessionState.rules) };
     }
     return {};
   } catch (error) {
@@ -81,7 +81,7 @@ const sessionEndHook: HookCallback = async (
     sessionState.sessionId = null;
     sessionState.projectId = null;
     sessionState.projectPath = null;
-    sessionState.memoryRules = [];
+    sessionState.rules = [];
     return {};
   } catch (error) {
     console.error('[Agent] Error in SessionEnd hook:', error);
@@ -113,7 +113,7 @@ function buildAgentOptions(): ClaudeAgentOptions {
     allowedTools: [
       'mcp__workspace-qdrant__search',
       'mcp__workspace-qdrant__retrieve',
-      'mcp__workspace-qdrant__memory',
+      'mcp__workspace-qdrant__rules',
       'mcp__workspace-qdrant__store',
     ],
   };
@@ -124,11 +124,11 @@ export async function runAgent(prompt?: string): Promise<void> {
   console.log('[Agent] Starting workspace-qdrant agent...');
   const options = buildAgentOptions();
 
-  if (sessionState.memoryRules.length > 0) {
+  if (sessionState.rules.length > 0) {
     options.systemPrompt = {
       type: 'preset',
       preset: 'claude_code',
-      append: formatMemoryRulesForPrompt(sessionState.memoryRules),
+      append: formatRulesForPrompt(sessionState.rules),
     };
   }
 

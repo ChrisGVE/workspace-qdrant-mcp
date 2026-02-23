@@ -1,9 +1,9 @@
 /**
- * Memory tool facade — delegates to domain-specific modules.
+ * Rules tool facade — delegates to domain-specific modules.
  *
- * - memory-types.ts: Types, interfaces, constants
- * - memory-mutations.ts: Add, update, remove operations
- * - memory-list.ts: List/query operations with mirror fallback
+ * - rules-types.ts: Types, interfaces, constants
+ * - rules-mutations.ts: Add, update, remove operations
+ * - rules-list.ts: List/query operations with mirror fallback
  */
 
 import { QdrantClient } from '@qdrant/js-client-rest';
@@ -11,31 +11,31 @@ import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 
-// Re-export all types so existing imports from './memory.js' continue to work
+// Re-export all types
 export type {
-  MemoryAction,
-  MemoryScope,
-  MemoryRule,
-  MemoryOptions,
-  MemoryResponse,
-  MemoryToolConfig,
-} from './memory-types.js';
+  RuleAction,
+  RuleScope,
+  Rule,
+  RuleOptions,
+  RuleResponse,
+  RuleToolConfig,
+} from './rules-types.js';
 
-import type { MemoryOptions, MemoryResponse, MemoryToolConfig } from './memory-types.js';
-import { addRule, updateRule, removeRule } from './memory-mutations.js';
-import { listRules } from './memory-list.js';
+import type { RuleOptions, RuleResponse, RuleToolConfig } from './rules-types.js';
+import { addRule, updateRule, removeRule } from './rules-mutations.js';
+import { listRules } from './rules-list.js';
 
 /**
- * Memory tool for behavioral rules management
+ * Rules tool for behavioral rules management
  */
-export class MemoryTool {
+export class RulesTool {
   private readonly qdrantClient: QdrantClient;
   private readonly daemonClient: DaemonClient;
   private readonly stateManager: SqliteStateManager;
   private readonly projectDetector: ProjectDetector;
 
   constructor(
-    config: MemoryToolConfig,
+    config: RuleToolConfig,
     daemonClient: DaemonClient,
     stateManager: SqliteStateManager,
     projectDetector: ProjectDetector,
@@ -53,7 +53,7 @@ export class MemoryTool {
     this.projectDetector = projectDetector;
   }
 
-  async execute(options: MemoryOptions): Promise<MemoryResponse> {
+  async execute(options: RuleOptions): Promise<RuleResponse> {
     switch (options.action) {
       case 'add':
         return addRule(this.daemonClient, this.stateManager, this.projectDetector, options);

@@ -1,17 +1,17 @@
 /**
- * Memory list operation — query rules by scope from Qdrant with mirror fallback.
+ * Rules list operation — query rules by scope from Qdrant with mirror fallback.
  */
 
 import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import type { MemoryOptions, MemoryResponse, MemoryRule, MemoryScope } from './memory-types.js';
-import { MEMORY_COLLECTION } from './memory-types.js';
+import type { RuleOptions, RuleResponse, Rule, RuleScope } from './rules-types.js';
+import { MEMORY_COLLECTION } from './rules-types.js';
 import { FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
 
 /** Build Qdrant filter for list query based on scope. */
 function buildListFilter(
-  scope: MemoryScope,
+  scope: RuleScope,
   projectId?: string,
 ): Record<string, unknown> | undefined {
   const mustConditions: Record<string, unknown>[] = [];
@@ -31,8 +31,8 @@ export async function listRules(
   qdrantClient: QdrantClient,
   stateManager: SqliteStateManager,
   projectDetector: ProjectDetector,
-  options: MemoryOptions,
-): Promise<MemoryResponse> {
+  options: RuleOptions,
+): Promise<RuleResponse> {
   const { scope = 'project', projectId, limit = 50 } = options;
 
   let resolvedProjectId = projectId;
@@ -53,11 +53,11 @@ export async function listRules(
 
     const scrollResult = await qdrantClient.scroll(MEMORY_COLLECTION, scrollRequest);
 
-    const rules: MemoryRule[] = scrollResult.points.map((point) => {
-      const rule: MemoryRule = {
+    const rules: Rule[] = scrollResult.points.map((point) => {
+      const rule: Rule = {
         id: String(point.id),
         content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
-        scope: (point.payload?.['scope'] as MemoryScope) ?? 'global',
+        scope: (point.payload?.['scope'] as RuleScope) ?? 'global',
       };
 
       const label = point.payload?.['label'] as string | undefined;
@@ -97,11 +97,11 @@ export async function listRules(
     try {
       const mirrorRows = stateManager.listMemoryMirror(scope, resolvedProjectId, limit);
       if (mirrorRows.length > 0) {
-        const rules: MemoryRule[] = mirrorRows.map((row) => {
-          const rule: MemoryRule = {
+        const rules: Rule[] = mirrorRows.map((row) => {
+          const rule: Rule = {
             id: row.memoryId,
             content: row.ruleText,
-            scope: (row.scope as MemoryScope) ?? 'global',
+            scope: (row.scope as RuleScope) ?? 'global',
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
           };

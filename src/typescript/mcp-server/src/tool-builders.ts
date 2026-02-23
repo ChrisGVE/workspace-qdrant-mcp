@@ -35,7 +35,7 @@ export type RetrieveOptions = {
   libraryName?: string;
 };
 
-export type MemoryOptions = {
+export type RuleOptions = {
   action: 'add' | 'update' | 'remove' | 'list';
   content?: string;
   label?: string;
@@ -155,14 +155,14 @@ export function buildRetrieveOptions(args: Record<string, unknown> | undefined):
   return options;
 }
 
-/** Build memory options from raw tool arguments */
-export function buildMemoryOptions(args: Record<string, unknown> | undefined): MemoryOptions {
+/** Build rule options from raw tool arguments */
+export function buildRuleOptions(args: Record<string, unknown> | undefined): RuleOptions {
   const action = args?.['action'] as string;
   if (action !== 'add' && action !== 'update' && action !== 'remove' && action !== 'list') {
-    throw new Error(`Invalid memory action: ${action}`);
+    throw new Error(`Invalid rules action: ${action}`);
   }
 
-  const options: MemoryOptions = { action };
+  const options: RuleOptions = { action };
 
   const content = args?.['content'] as string | undefined;
   if (content) options.content = content;

@@ -1,25 +1,25 @@
 /**
- * Memory rule fetching and formatting for Claude Agent SDK integration.
+ * Rule fetching and formatting for Claude Agent SDK integration.
  */
 
 import { loadConfig } from './config.js';
 import { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import { DaemonClient } from './clients/daemon-client.js';
 import { ProjectDetector } from './utils/project-detector.js';
-import { MemoryTool, type MemoryRule } from './tools/memory.js';
+import { RulesTool, type Rule } from './tools/rules.js';
 
-export type { MemoryRule };
+export type { Rule };
 
 /**
- * Fetch memory rules from Qdrant via MemoryTool.
+ * Fetch rules from Qdrant via RulesTool.
  * Fetches both global and project-specific rules (if project detected).
  * Rules are sorted by priority (highest first) then by creation date (newest first).
  */
-export async function fetchMemoryRules(
+export async function fetchRules(
   projectId: string | null,
   config: ReturnType<typeof loadConfig>,
-): Promise<MemoryRule[]> {
-  const rules: MemoryRule[] = [];
+): Promise<Rule[]> {
+  const rules: Rule[] = [];
 
   try {
     const daemonClient = new DaemonClient({
@@ -33,18 +33,18 @@ export async function fetchMemoryRules(
     stateManager.initialize();
 
     const projectDetector = new ProjectDetector();
-    const memoryToolConfig = {
+    const rulesToolConfig = {
       qdrantUrl: config.qdrant?.url ?? 'http://localhost:6333',
       qdrantTimeout: 5000,
     } as { qdrantUrl: string; qdrantApiKey?: string; qdrantTimeout?: number };
     if (config.qdrant?.apiKey) {
-      memoryToolConfig.qdrantApiKey = config.qdrant.apiKey;
+      rulesToolConfig.qdrantApiKey = config.qdrant.apiKey;
     }
 
-    const memoryTool = new MemoryTool(memoryToolConfig, daemonClient, stateManager, projectDetector);
+    const rulesTool = new RulesTool(rulesToolConfig, daemonClient, stateManager, projectDetector);
 
     // Fetch global rules
-    const globalResponse = await memoryTool.execute({ action: 'list', scope: 'global', limit: 50 });
+    const globalResponse = await rulesTool.execute({ action: 'list', scope: 'global', limit: 50 });
     if (globalResponse.success && globalResponse.rules) {
       rules.push(...globalResponse.rules);
       console.log(`[Agent] Fetched ${globalResponse.rules.length} global rule(s)`);
@@ -52,7 +52,7 @@ export async function fetchMemoryRules(
 
     // Fetch project-specific rules
     if (projectId) {
-      const projectResponse = await memoryTool.execute({
+      const projectResponse = await rulesTool.execute({
         action: 'list', scope: 'project', projectId, limit: 50,
       });
       if (projectResponse.success && projectResponse.rules) {
@@ -70,21 +70,21 @@ export async function fetchMemoryRules(
       return bDate - aDate;
     });
 
-    console.log(`[Agent] Total memory rules fetched: ${rules.length}`);
+    console.log(`[Agent] Total rules fetched: ${rules.length}`);
     return rules;
   } catch (error) {
-    console.error('[Agent] Error fetching memory rules:', error);
+    console.error('[Agent] Error fetching rules:', error);
     return rules;
   }
 }
 
-/** Format memory rules for system prompt injection. */
-export function formatMemoryRulesForPrompt(rules: MemoryRule[]): string {
+/** Format rules for system prompt injection. */
+export function formatRulesForPrompt(rules: Rule[]): string {
   if (rules.length === 0) return '';
 
-  const lines: string[] = ['# Memory Rules', '', 'The following behavioral rules have been configured and should be followed:', ''];
+  const lines: string[] = ['# Behavioral Rules', '', 'The following behavioral rules have been configured and should be followed:', ''];
 
-  const formatSection = (title: string, sectionRules: MemoryRule[]) => {
+  const formatSection = (title: string, sectionRules: Rule[]) => {
     if (sectionRules.length === 0) return;
     lines.push(`## ${title}`, '');
     sectionRules.forEach((rule, index) => {

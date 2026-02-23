@@ -1,5 +1,5 @@
 /**
- * Memory mutation operations: add, update, remove rules.
+ * Rules mutation operations: add, update, remove rules.
  * Uses daemon gRPC with unified_queue fallback.
  */
 
@@ -8,17 +8,17 @@ import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 import { utcNow } from '../utils/timestamps.js';
 import { PRIORITY_HIGH, FIELD_SOURCE_TYPE, FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
-import type { MemoryAction, MemoryOptions, MemoryResponse, MemoryScope } from './memory-types.js';
-import { MEMORY_BASENAME, MEMORY_COLLECTION } from './memory-types.js';
+import type { RuleAction, RuleOptions, RuleResponse, RuleScope } from './rules-types.js';
+import { MEMORY_BASENAME, MEMORY_COLLECTION } from './rules-types.js';
 
-/** Queue a memory operation for daemon processing via unified_queue. */
-function queueMemoryOperation(
+/** Queue a rule operation for daemon processing via unified_queue. */
+function queueRuleOperation(
   stateManager: SqliteStateManager,
   operation: {
-    action: MemoryAction;
+    action: RuleAction;
     label?: string;
     content?: string;
-    scope?: MemoryScope;
+    scope?: RuleScope;
     projectId?: string;
     title?: string;
     tags?: string[];
@@ -48,7 +48,7 @@ function queueMemoryOperation(
   const result = stateManager.enqueueUnified(
     'text', op, operation.projectId ?? 'global',
     MEMORY_COLLECTION, payload, PRIORITY_HIGH, 'main',
-    { source: 'mcp_memory_tool' },
+    { source: 'mcp_rules_tool' },
   );
 
   if (result.status !== 'ok' || !result.data) {
@@ -57,13 +57,13 @@ function queueMemoryOperation(
   return { queueId: result.data.queueId };
 }
 
-/** Add a new memory rule. */
+/** Add a new rule. */
 export async function addRule(
   daemonClient: DaemonClient,
   stateManager: SqliteStateManager,
   projectDetector: ProjectDetector,
-  options: MemoryOptions,
-): Promise<MemoryResponse> {
+  options: RuleOptions,
+): Promise<RuleResponse> {
   const { content, scope = 'project', projectId, title, tags, priority } = options;
 
   if (!content?.trim()) {
@@ -112,7 +112,7 @@ export async function addRule(
 
   // Fallback: queue the operation
   const queueOp: {
-    action: MemoryAction; label: string; content: string; scope: MemoryScope;
+    action: RuleAction; label: string; content: string; scope: RuleScope;
     projectId?: string; title?: string; tags?: string[]; priority?: number;
   } = { action: 'add', label, content, scope };
   if (resolvedProjectId) queueOp.projectId = resolvedProjectId;
@@ -120,7 +120,7 @@ export async function addRule(
   if (tags) queueOp.tags = tags;
   if (priority !== undefined) queueOp.priority = priority;
 
-  const queueResult = queueMemoryOperation(stateManager, queueOp);
+  const queueResult = queueRuleOperation(stateManager, queueOp);
 
   const now = utcNow();
   stateManager.upsertMemoryMirror({
@@ -136,12 +136,12 @@ export async function addRule(
   };
 }
 
-/** Update an existing memory rule. */
+/** Update an existing rule. */
 export async function updateRule(
   daemonClient: DaemonClient,
   stateManager: SqliteStateManager,
-  options: MemoryOptions,
-): Promise<MemoryResponse> {
+  options: RuleOptions,
+): Promise<RuleResponse> {
   const { label, content, title, tags, priority } = options;
 
   if (!label) {
@@ -174,14 +174,14 @@ export async function updateRule(
   }
 
   const updateOp: {
-    action: MemoryAction; label: string; content: string;
+    action: RuleAction; label: string; content: string;
     title?: string; tags?: string[]; priority?: number;
   } = { action: 'update', label, content };
   if (title) updateOp.title = title;
   if (tags) updateOp.tags = tags;
   if (priority !== undefined) updateOp.priority = priority;
 
-  const queueResult = queueMemoryOperation(stateManager, updateOp);
+  const queueResult = queueRuleOperation(stateManager, updateOp);
 
   stateManager.upsertMemoryMirror({
     memoryId: label, ruleText: content, scope: null, tenantId: null,
@@ -195,17 +195,17 @@ export async function updateRule(
   };
 }
 
-/** Remove a memory rule. */
+/** Remove a rule. */
 export function removeRule(
   stateManager: SqliteStateManager,
-  options: MemoryOptions,
-): MemoryResponse {
+  options: RuleOptions,
+): RuleResponse {
   const { label } = options;
   if (!label) {
     return { success: false, action: 'remove', message: 'Label is required for removal' };
   }
 
-  const queueResult = queueMemoryOperation(stateManager, { action: 'remove', label });
+  const queueResult = queueRuleOperation(stateManager, { action: 'remove', label });
   stateManager.deleteMemoryMirror(label);
 
   return {

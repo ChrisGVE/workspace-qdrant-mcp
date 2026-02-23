@@ -132,7 +132,7 @@ export function getToolDefinitions() {
       },
     },
     {
-      name: 'memory',
+      name: 'rules',
       description: 'Manage behavioral rules (add, update, remove, list)',
       inputSchema: {
         type: 'object' as const,

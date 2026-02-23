@@ -138,7 +138,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
     memoryCollectionName: ${JSON.stringify(memoryCollName)},
   },
   environment: {},
-  memory: {
+  rules: {
     limits: {
       maxLabelLength: ${maxLabelLen},
       maxTitleLength: ${maxTitleLen},

@@ -28,7 +28,7 @@ import { getToolDefinitions } from './tool-definitions.js';
 import {
   buildSearchOptions,
   buildRetrieveOptions,
-  buildMemoryOptions,
+  buildRuleOptions,
   buildStoreOptions,
   buildGrepOptions,
 } from './tool-builders.js';
@@ -98,7 +98,7 @@ export class WorkspaceQdrantMcpServer {
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
     const startTime = Date.now();
-    const { searchTool, retrieveTool, memoryTool, storeTool, grepTool, healthMonitor, daemonClient, stateManager } = this.components;
+    const { searchTool, retrieveTool, rulesTool, storeTool, grepTool, healthMonitor, daemonClient, stateManager } = this.components;
 
     // Implicit heartbeat — fire-and-forget to avoid latency
     sendHeartbeat(this.sessionState, daemonClient);
@@ -115,8 +115,8 @@ export class WorkspaceQdrantMcpServer {
         case 'retrieve':
           result = await retrieveTool.retrieve(buildRetrieveOptions(args));
           break;
-        case 'memory':
-          result = await memoryTool.execute(buildMemoryOptions(args));
+        case 'rules':
+          result = await rulesTool.execute(buildRuleOptions(args));
           break;
         case 'store': {
           const storeType = (args?.['type'] as string) ?? 'library';

@@ -27,15 +27,15 @@ export interface CollectionsConfig {
   memoryCollectionName: string;
 }
 
-export interface MemoryLimitsConfig {
+export interface RuleLimitsConfig {
   maxLabelLength: number;
   maxTitleLength: number;
   maxTagLength: number;
   maxTagsPerRule: number;
 }
 
-export interface MemoryConfig {
-  limits: MemoryLimitsConfig;
+export interface RuleConfig {
+  limits: RuleLimitsConfig;
 }
 
 export interface EnvironmentConfig {
@@ -49,7 +49,7 @@ export interface ServerConfig {
   watching: WatchingConfig;
   collections: CollectionsConfig;
   environment: EnvironmentConfig;
-  memory?: MemoryConfig;
+  rules?: RuleConfig;
 }
 
 // DEFAULT_CONFIG is generated from assets/default_configuration.yaml
