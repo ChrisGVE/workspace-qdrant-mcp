@@ -5667,9 +5667,58 @@ memexd (Rust daemon)                    graphd (Rust daemon)
     └── State writes → state.db
 ```
 
-**Pros:** Fault isolation, independent scaling, clean API boundary, simpler per-binary builds, graph engine swappability, memory isolation.
+**Pros:**
 
-**Cons:** IPC overhead (~10x latency for edge writes), consistency gaps (partial writes on crash), operational complexity (two daemons to manage), startup ordering dependencies, version coupling via gRPC proto, network port consumption, tripled development surface (proto + graphd + memexd client).
+1. **Fault isolation.** graphd crash doesn't affect file watching or embedding. memexd crash doesn't corrupt the graph. Each daemon can be restarted independently.
+
+2. **Independent scaling.** Graph queries (impact analysis, community detection) are CPU-intensive. In a separate process, they run on their own thread pool without competing with embedding generation or queue processing.
+
+3. **Clean API boundary.** The gRPC interface forces a well-defined contract between ingestion and graph operations. This is good for testing, documentation, and future extensibility (e.g., swapping graph engines behind the same gRPC API).
+
+4. **Simpler builds per binary.** memexd doesn't need Clang for LadybugDB. graphd doesn't need ORT. Each binary has a smaller dependency closure.
+
+5. **Graph engine swappability.** The gRPC API is engine-agnostic. If LadybugDB stalls (post-Kuzu risk), you can swap to CozoDB or SQLite CTEs without touching memexd.
+
+6. **Memory isolation.** Each process has its own address space. LadybugDB's buffer pool doesn't compete with ONNX Runtime's memory allocator. OS can page out graphd memory when it's idle.
+
+**Cons:**
+
+1. **IPC overhead.** Every graph edge write during file ingestion is a gRPC call. At 10 edges/file x 1000 files/scan = 10K gRPC calls. Even with connection pooling and batching, this is ~10x slower than in-process writes. Batching mitigates but adds buffering complexity.
+
+2. **Consistency gaps.** If memexd sends edges to graphd and then crashes before marking the queue item done, the graph has partial data for a file version. Need retry logic, idempotency keys, and graph-side deduplication.
+
+3. **Operational complexity.** Two daemons = two launchd plists, two PIDs, two log streams, two health checks, two versions to keep in sync. Users must install/update/troubleshoot both. The CLI needs `wqm service install --graph`, `wqm service status --graph`, etc.
+
+4. **Startup ordering.** memexd sends edges during ingestion. If graphd isn't running, those writes fail. Need retry/queue-and-replay logic in memexd, or startup dependency management (memexd waits for graphd).
+
+5. **Version coupling.** The gRPC proto between memexd and graphd creates a tight coupling. Any schema change requires coordinated releases. Proto backward compatibility must be maintained.
+
+6. **Network port consumption.** graphd needs its own port (e.g., 50052). Firewall rules, port conflicts, and service discovery add friction.
+
+7. **Development velocity impact.** Every graph feature requires changes to at least three packages: the proto definition, graphd's implementation, and memexd's client code. With a single daemon, it's one crate.
+
+##### Debugging Complexity Comparison
+
+**Single daemon:** One process, one log stream, one debugger attachment point. All state is in-process — you can inspect graph, SQLite, and Qdrant state from the same debugging session. Stack traces show the full call chain from file watcher to queue to graph write.
+
+**Dual daemon:** Distributed tracing needed (OpenTelemetry spans across gRPC boundaries). Debugging "why is this graph edge missing?" requires correlating logs from two processes. Race conditions between the two daemons are harder to reproduce and diagnose.
+
+##### Roadblocks and Risks
+
+**LadybugDB (both architectures):**
+- C++ build dependency (Clang/LLVM required)
+- Only 61% of API documented
+- Fork from archived project — long-term sustainability uncertain
+- Some bindings (Go, WASM) were broken in early releases; Rust bindings may have edge cases
+
+**Dual daemon specific:**
+- No existing graphd binary, gRPC proto, or service management code — entirely new infrastructure
+- launchd dependency ordering between memexd and graphd isn't natively supported (would need health-check polling)
+- Cross-daemon integration testing requires both processes running
+
+**Single daemon specific:**
+- LadybugDB C++ linking may conflict with ONNX Runtime's C++ requirements (both use C++ standard library, potentially different versions)
+- Memory pressure on machines with limited RAM (8GB systems running Docker + Qdrant + memexd)
 
 ##### Decisive Factors for Single Daemon
 
