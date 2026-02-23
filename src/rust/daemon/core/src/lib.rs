@@ -24,6 +24,7 @@ pub mod git_integration;
 pub mod clip;
 pub mod cross_project_search;
 pub mod dependency_grouper;
+pub mod git_org_grouper;
 pub mod project_groups_schema;
 pub mod git_watcher;
 pub mod graph;
