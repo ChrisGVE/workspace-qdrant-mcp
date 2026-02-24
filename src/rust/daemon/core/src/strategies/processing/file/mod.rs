@@ -23,12 +23,14 @@ mod store_track;
 mod update_preamble;
 
 use std::path::Path;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, error, info};
 
 use crate::context::ProcessingContext;
+use crate::processing_timings::{self, PhaseTiming};
 use crate::strategies::ProcessingStrategy;
 use crate::tracked_files_schema;
 use crate::specs::parse_payload;
@@ -349,11 +351,15 @@ async fn ingest_file_content(
         .await;
 
     // === INGEST / UPDATE: process file content ===
+    let mut timings: Vec<PhaseTiming> = Vec::new();
+
+    let t0 = Instant::now();
     let document_content = ctx
         .document_processor
         .process_file_content(file_path, &item.collection)
         .await
         .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
+    timings.push(PhaseTiming { phase: "parse", duration_ms: t0.elapsed().as_millis() as u64 });
 
     info!(
         "Extracted {} chunks from {}",
@@ -376,6 +382,7 @@ async fn ingest_file_content(
     );
 
     // Embed all chunks
+    let t0 = Instant::now();
     let embed_result = chunk_embed::embed_chunks(
         ctx,
         item,
@@ -388,6 +395,7 @@ async fn ingest_file_content(
         payload.file_type.as_deref(),
     )
     .await?;
+    timings.push(PhaseTiming { phase: "embed", duration_ms: t0.elapsed().as_millis() as u64 });
 
     let mut points = embed_result.points;
     let chunk_records = embed_result.chunk_records;
@@ -398,6 +406,7 @@ async fn ingest_file_content(
     // Run extraction pipeline after chunk embeddings, before Qdrant upsert.
     // Results are injected into point payloads. Failures are non-fatal.
     if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
+        let t0 = Instant::now();
         keyword_extract::run_keyword_extraction(
             ctx,
             item,
@@ -406,12 +415,14 @@ async fn ingest_file_content(
             &mut points,
         )
         .await;
+        timings.push(PhaseTiming { phase: "extract", duration_ms: t0.elapsed().as_millis() as u64 });
     }
 
     // === GRAPH RELATIONSHIP EXTRACTION (graph-rag Task 3) ===
     // Extract code relationships (CALLS, CONTAINS, IMPORTS, USES_TYPE) from
     // semantic chunk metadata and store in graph.db. Non-blocking: failures
     // are logged but never fail the ingestion pipeline.
+    let t0 = Instant::now();
     graph_ingest::ingest_graph_edges(
         ctx,
         &item.tenant_id,
@@ -419,8 +430,10 @@ async fn ingest_file_content(
         &document_content.chunks,
     )
     .await;
+    timings.push(PhaseTiming { phase: "graph", duration_ms: t0.elapsed().as_millis() as u64 });
 
     // Upsert to Qdrant + record in tracked_files atomically
+    let t0 = Instant::now();
     let file_id = store_track::upsert_and_track(
         ctx,
         item,
@@ -438,6 +451,7 @@ async fn ingest_file_content(
         payload.file_type.as_deref(),
     )
     .await?;
+    timings.push(PhaseTiming { phase: "upsert", duration_ms: t0.elapsed().as_millis() as u64 });
 
     // Mark qdrant destination as done (Task 6: per-destination state machine)
     let _ = ctx
@@ -454,6 +468,7 @@ async fn ingest_file_content(
             DestinationStatus::InProgress,
         )
         .await;
+    let t0 = Instant::now();
     if let Some(sdb) = &ctx.search_db {
         fts5_index::update_fts5_for_file(
             sdb,
@@ -468,10 +483,23 @@ async fn ingest_file_content(
         )
         .await;
     }
+    timings.push(PhaseTiming { phase: "fts5", duration_ms: t0.elapsed().as_millis() as u64 });
     let _ = ctx
         .queue_manager
         .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
         .await;
+
+    // Record per-phase timings (non-fatal: errors are logged, never propagated)
+    processing_timings::record_timings(
+        pool,
+        &item.queue_id,
+        &item.item_type.as_str(),
+        &item.op.as_str(),
+        &item.tenant_id,
+        &item.collection,
+        &timings,
+    )
+    .await;
 
     info!(
         "Successfully processed file item {} ({})",

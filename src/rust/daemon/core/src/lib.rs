@@ -46,6 +46,7 @@ pub mod tracing_otel;
 pub mod patterns;
 pub mod priority_manager;
 pub mod processing;
+pub mod processing_timings;
 pub mod queue_config;
 pub mod queue_health;
 pub mod queue_operations;

@@ -38,6 +38,8 @@ use workspace_qdrant_core::{
     poll_pause_state,
     // Metrics history collection (Task 544)
     metrics_history,
+    // Processing timing instrumentation (Task 42)
+    processing_timings,
     // Remote URL change detection (Task 584)
     check_remote_url_changes,
     // Git state change detection (transitions 1-5)
@@ -727,6 +729,16 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
             if let Err(e) = metrics_history::run_maintenance_now(&metrics_maint_pool).await {
                 warn!("Metrics maintenance failed: {}", e);
             }
+        }
+    });
+
+    // Start hourly processing timings cleanup (Task 42)
+    let timings_pool = queue_pool.clone();
+    let _timings_cleanup_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            processing_timings::cleanup_old_timings(&timings_pool, 30).await;
         }
     });
 
