@@ -10,7 +10,7 @@ import type {
   QueueItemType,
   QueueOperation,
   ContentPayload,
-  MemoryPayload,
+  RulesPayload,
   LibraryPayload,
 } from '../types/state.js';
 
@@ -80,17 +80,17 @@ export function buildContentPayload(
 }
 
 /**
- * Build memory payload for queue
+ * Build rules payload for queue
  */
-export function buildMemoryPayload(
+export function buildRulesPayload(
   label: string,
   content: string,
   scope: 'global' | 'project',
   projectId?: string
-): MemoryPayload {
+): RulesPayload {
   return {
     content,
-    source_type: 'memory_rule',
+    source_type: 'rule',
     label,
     scope,
     project_id: projectId,

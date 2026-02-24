@@ -26,7 +26,7 @@ use crate::unified_queue_schema::{
     FilePayload, ItemType, LibraryPayload, ProjectPayload, QueueOperation, UnifiedQueueItem,
 };
 use wqm_common::constants::{
-    COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD,
+    COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD,
 };
 
 /// Strategy for processing tenant and document queue items.
@@ -1086,13 +1086,13 @@ impl TenantStrategy {
         // -- Step 4: Handle memory collection --
         if ctx
             .storage_client
-            .collection_exists(COLLECTION_MEMORY)
+            .collection_exists(COLLECTION_RULES)
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
             let memory_ids = ctx
                 .storage_client
-                .scroll_point_ids_by_tenant(COLLECTION_MEMORY, &item.tenant_id)
+                .scroll_point_ids_by_tenant(COLLECTION_RULES, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
@@ -1100,7 +1100,7 @@ impl TenantStrategy {
                 for batch in memory_ids.chunks(QDRANT_BATCH_SIZE) {
                     let batch_vec: Vec<String> = batch.to_vec();
                     ctx.storage_client
-                        .delete_points_by_ids(COLLECTION_MEMORY, &batch_vec)
+                        .delete_points_by_ids(COLLECTION_RULES, &batch_vec)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
@@ -1207,7 +1207,7 @@ impl TenantStrategy {
         let canonical = [
             COLLECTION_PROJECTS,
             COLLECTION_LIBRARIES,
-            COLLECTION_MEMORY,
+            COLLECTION_RULES,
             COLLECTION_SCRATCHPAD,
         ];
 

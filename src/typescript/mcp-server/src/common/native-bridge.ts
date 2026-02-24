@@ -28,7 +28,7 @@ interface NativeAddon {
   tokenize(text: string): string[];
   collectionProjects(): string;
   collectionLibraries(): string;
-  collectionMemory(): string;
+  collectionRules(): string;
   collectionScratchpad(): string;
   defaultQdrantUrl(): string;
   defaultGrpcPort(): number;
@@ -156,7 +156,7 @@ export function isValidOperationForType(itemType: string, op: string): boolean {
 // Eagerly resolve constants (called once on import)
 export const COLLECTION_PROJECTS = loadAddon().collectionProjects();
 export const COLLECTION_LIBRARIES = loadAddon().collectionLibraries();
-export const COLLECTION_MEMORY = loadAddon().collectionMemory();
+export const COLLECTION_RULES = loadAddon().collectionRules();
 export const COLLECTION_SCRATCHPAD = loadAddon().collectionScratchpad();
 export const DEFAULT_QDRANT_URL = loadAddon().defaultQdrantUrl();
 export const DEFAULT_GRPC_PORT = loadAddon().defaultGrpcPort();

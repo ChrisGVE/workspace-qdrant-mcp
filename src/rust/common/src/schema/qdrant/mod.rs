@@ -4,5 +4,5 @@
 
 pub mod images;
 pub mod libraries;
-pub mod memory;
+pub mod rules;
 pub mod projects;

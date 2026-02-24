@@ -12,7 +12,7 @@ import { z } from 'zod';
 export const SearchModeSchema = z.enum(['hybrid', 'semantic', 'keyword', 'retrieve']);
 export type SearchMode = z.infer<typeof SearchModeSchema>;
 
-export const CollectionSchema = z.enum(['projects', 'libraries', 'memory']);
+export const CollectionSchema = z.enum(['projects', 'libraries', 'rules']);
 export type Collection = z.infer<typeof CollectionSchema>;
 
 export const SearchScopeSchema = z.enum(['all', 'global', 'project', 'current', 'other']);
@@ -20,7 +20,7 @@ export type SearchScope = z.infer<typeof SearchScopeSchema>;
 
 export const SearchInputSchema = z.object({
   query: z.string().min(1).describe('Search query'),
-  collection: CollectionSchema.describe('Target collection: projects, libraries, or memory'),
+  collection: CollectionSchema.describe('Target collection: projects, libraries, or rules'),
   mode: SearchModeSchema.default('hybrid').describe('Search mode'),
   limit: z.number().int().min(1).max(100).default(10).describe('Maximum results'),
   score_threshold: z.number().min(0).max(1).default(0.3).describe('Minimum similarity score'),

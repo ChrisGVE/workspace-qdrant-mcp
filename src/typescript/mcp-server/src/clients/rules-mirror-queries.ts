@@ -1,14 +1,14 @@
 /**
- * Memory mirror read/write operations for SqliteStateManager.
+ * Rules mirror read/write operations for SqliteStateManager.
  *
- * Provides write-through caching for memory rules (Task 16).
+ * Provides write-through caching for rules (Task 16).
  * The mirror enables fallback when Qdrant is unavailable.
  */
 
 import type { Database as DatabaseType } from 'better-sqlite3';
 
-export interface MemoryMirrorEntry {
-  memoryId: string;
+export interface RulesMirrorEntry {
+  ruleId: string;
   ruleText: string;
   scope: string | null;
   tenantId: string | null;
@@ -17,26 +17,26 @@ export interface MemoryMirrorEntry {
 }
 
 /**
- * Upsert a memory rule into the memory_mirror table.
+ * Upsert a rule into the rules_mirror table.
  * Called after successful Qdrant writes to enable rebuild recovery.
  */
-export function upsertMemoryMirror(
+export function upsertRulesMirror(
   db: DatabaseType | null,
-  entry: MemoryMirrorEntry,
+  entry: RulesMirrorEntry,
 ): void {
   if (!db) return;
 
   try {
     db.prepare(
-      `INSERT INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+      `INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(memory_id) DO UPDATE SET
+       ON CONFLICT(rule_id) DO UPDATE SET
            rule_text = excluded.rule_text,
            scope = excluded.scope,
            tenant_id = excluded.tenant_id,
            updated_at = excluded.updated_at`
     ).run(
-      entry.memoryId,
+      entry.ruleId,
       entry.ruleText,
       entry.scope,
       entry.tenantId,
@@ -44,46 +44,46 @@ export function upsertMemoryMirror(
       entry.updatedAt
     );
   } catch {
-    // memory_mirror table may not exist yet (daemon not initialized)
+    // rules_mirror table may not exist yet (daemon not initialized)
   }
 }
 
 /**
- * Delete a memory rule from the memory_mirror table.
+ * Delete a rule from the rules_mirror table.
  * Called after successful Qdrant deletes.
  */
-export function deleteMemoryMirror(
+export function deleteRulesMirror(
   db: DatabaseType | null,
-  memoryId: string,
+  ruleId: string,
 ): void {
   if (!db) return;
 
   try {
     db.prepare(
-      'DELETE FROM memory_mirror WHERE memory_id = ?'
-    ).run(memoryId);
+      'DELETE FROM rules_mirror WHERE rule_id = ?'
+    ).run(ruleId);
   } catch {
-    // memory_mirror table may not exist yet
+    // rules_mirror table may not exist yet
   }
 }
 
 /**
- * List memory rules from the memory_mirror table.
+ * List rules from the rules_mirror table.
  * Used as fallback when Qdrant is unavailable.
  */
-export function listMemoryMirror(
+export function listRulesMirror(
   db: DatabaseType | null,
   scope?: string,
   tenantId?: string,
   limit = 50,
-): MemoryMirrorEntry[] {
+): RulesMirrorEntry[] {
   if (!db) return [];
 
   try {
-    let sql = `SELECT memory_id AS memoryId, rule_text AS ruleText,
+    let sql = `SELECT rule_id AS ruleId, rule_text AS ruleText,
                       scope, tenant_id AS tenantId,
                       created_at AS createdAt, updated_at AS updatedAt
-               FROM memory_mirror`;
+               FROM rules_mirror`;
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
@@ -102,7 +102,7 @@ export function listMemoryMirror(
     sql += ' ORDER BY updatedAt DESC LIMIT ?';
     params.push(limit);
 
-    return db.prepare(sql).all(...params) as MemoryMirrorEntry[];
+    return db.prepare(sql).all(...params) as RulesMirrorEntry[];
   } catch {
     return [];
   }

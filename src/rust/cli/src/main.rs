@@ -22,9 +22,9 @@ const HELP_TEMPLATE: &str = "\
 Options:
 {options}
 Search & Content:
-  search       Search collections (project, library, memory, global)
+  search       Search collections (project, library, rules, global)
   ingest       Ingest documents (file, folder, web)
-  memory       Memory rules management
+  rules        Behavioral rules management
   scratch      Scratchpad entries
 
 Project & Library:
@@ -93,7 +93,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     // --- Search & Content ---
-    /// Search collections (project, library, memory, global)
+    /// Search collections (project, library, rules, global)
     #[command(display_order = 10)]
     Search(commands::search::SearchArgs),
 
@@ -101,9 +101,9 @@ enum Commands {
     #[command(display_order = 11)]
     Ingest(commands::ingest::IngestArgs),
 
-    /// Memory rules management (list, add, remove, update, search, scope)
+    /// Behavioral rules management (list, add, remove, search, scope)
     #[command(display_order = 12)]
-    Memory(commands::memory::MemoryArgs),
+    Rules(commands::rules::RulesArgs),
 
     /// Scratchpad entries (add, list)
     #[command(display_order = 13)]
@@ -235,7 +235,7 @@ async fn main() -> Result<()> {
         // Search & Content
         Commands::Search(args) => commands::search::execute(args).await,
         Commands::Ingest(args) => commands::ingest::execute(args).await,
-        Commands::Memory(args) => commands::memory::execute(args).await,
+        Commands::Rules(args) => commands::rules::execute(args).await,
         Commands::Scratch(args) => commands::scratch::execute(args).await,
 
         // Project & Library

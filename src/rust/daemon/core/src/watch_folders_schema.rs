@@ -231,10 +231,10 @@ pub const MIGRATE_V21_WATCH_FOLDERS_SQL: &[&str] = &[
     "ALTER TABLE watch_folders ADD COLUMN is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1))",
 ];
 
-/// SQL to create memory_mirror table (migration v21)
-pub const CREATE_MEMORY_MIRROR_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS memory_mirror (
-    memory_id TEXT PRIMARY KEY,
+/// SQL to create rules_mirror table (migration v21)
+pub const CREATE_RULES_MIRROR_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS rules_mirror (
+    rule_id TEXT PRIMARY KEY,
     rule_text TEXT NOT NULL,
     scope TEXT,
     tenant_id TEXT,

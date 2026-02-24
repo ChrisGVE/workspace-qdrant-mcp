@@ -134,10 +134,10 @@ pub fn collection_libraries() -> String {
     wqm_common::constants::COLLECTION_LIBRARIES.to_string()
 }
 
-/// Get the canonical memory collection name ("memory")
+/// Get the canonical rules collection name ("rules")
 #[napi]
-pub fn collection_memory() -> String {
-    wqm_common::constants::COLLECTION_MEMORY.to_string()
+pub fn collection_rules() -> String {
+    wqm_common::constants::COLLECTION_RULES.to_string()
 }
 
 /// Get the canonical scratchpad collection name ("scratchpad")

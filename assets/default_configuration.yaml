@@ -534,21 +534,20 @@ workspace:
   # Format: Boolean
   auto_create_collections: true
 
-  # memory_collection_name: Cross-session persistent storage identifier
-  # Purpose: Defines collection name for storing persistent context and learning data
+  # rules_collection_name: Cross-session persistent storage identifier
+  # Purpose: Defines collection name for storing behavioral rules and preferences
   # Session continuity: Maintains context across multiple work sessions
   # Learning persistence: Stores user preferences, project insights, and interaction patterns
   # System reserved: This collection is managed by the system, not user content
-  # Naming convention: Underscore prefix indicates system collection
   # Backup importance: Contains valuable learned context that should be preserved
   # Format: String collection name
-  memory_collection_name: "memory"
+  rules_collection_name: "rules"
 
-  # memory_limits: Constraints for memory rule metadata fields
-  # Purpose: Defines maximum lengths for LLM-generated memory rule metadata
+  # rules_limits: Constraints for rule metadata fields
+  # Purpose: Defines maximum lengths for LLM-generated rule metadata
   # LLM guidance: These limits guide the LLM when generating rule labels, titles, and tags
-  # Validation: Enforced by the memory tool when creating/updating rules
-  memory_limits:
+  # Validation: Enforced by the rules tool when creating/updating rules
+  rules_limits:
     # max_label_length: Maximum characters for rule label
     # Format: word-word-word (lowercase, hyphen-separated)
     # Examples: "prefer-uv", "use-pytest", "strict-types"

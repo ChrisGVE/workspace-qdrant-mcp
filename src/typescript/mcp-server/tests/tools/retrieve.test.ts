@@ -439,9 +439,9 @@ describe('RetrieveTool', () => {
         mockProjectDetector
       );
 
-      await newTool.retrieve({ collection: 'memory' });
+      await newTool.retrieve({ collection: 'rules' });
 
-      expect(scrollMock).toHaveBeenCalledWith('memory', expect.any(Object));
+      expect(scrollMock).toHaveBeenCalledWith('rules', expect.any(Object));
     });
   });
 

@@ -89,7 +89,7 @@ export interface ContentPayload {
   full_tag?: string | undefined;
 }
 
-export interface MemoryPayload {
+export interface RulesPayload {
   content: string;
   source_type: string;
   label?: string | undefined;

@@ -36,8 +36,8 @@ fn test_priority_constants_are_distinct() {
 
 #[test]
 fn test_priority_high_is_one() {
-    // Memory operations must use priority::HIGH = 1
-    assert_eq!(priority::HIGH, 1, "HIGH priority must be 1 for memory operations");
+    // Rules operations must use priority::HIGH = 1
+    assert_eq!(priority::HIGH, 1, "HIGH priority must be 1 for rules operations");
 }
 
 // =========================================================================
@@ -305,11 +305,11 @@ fn test_item_types_are_distinct() {
 
 #[test]
 fn test_collection_constants_are_lowercase() {
-    use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY};
+    use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES};
 
     assert_eq!(COLLECTION_PROJECTS, "projects");
     assert_eq!(COLLECTION_LIBRARIES, "libraries");
-    assert_eq!(COLLECTION_MEMORY, "memory");
+    assert_eq!(COLLECTION_RULES, "rules");
 }
 
 // =========================================================================

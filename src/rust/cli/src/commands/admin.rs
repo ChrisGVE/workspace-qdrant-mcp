@@ -14,21 +14,21 @@ use crate::output;
 use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
 use super::qdrant_helpers;
 use wqm_common::constants::{
-    COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD,
+    COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
 };
 
 /// Canonical collection names (validated against wqm-common constants)
 const VALID_COLLECTIONS: &[&str] = &[
     COLLECTION_PROJECTS,
     COLLECTION_LIBRARIES,
-    COLLECTION_MEMORY,
+    COLLECTION_RULES,
 ];
 
 /// All 4 canonical collections for orphan scanning
 const ALL_COLLECTIONS: &[&str] = &[
     COLLECTION_PROJECTS,
     COLLECTION_LIBRARIES,
-    COLLECTION_MEMORY,
+    COLLECTION_RULES,
     COLLECTION_SCRATCHPAD,
 ];
 
@@ -86,7 +86,7 @@ enum AdminCommand {
     /// Rebuild state.db from Qdrant collections
     ///
     /// Scrolls all Qdrant collections and reconstructs watch_folders, tracked_files,
-    /// qdrant_chunks, and memory_mirror. Existing state.db is backed up first.
+    /// qdrant_chunks, and rules_mirror. Existing state.db is backed up first.
     RecoverState {
         /// Actually perform recovery (default: dry-run description)
         #[arg(long)]

@@ -22,7 +22,7 @@ export type {
 } from './rules-types.js';
 
 import type { RuleOptions, RuleResponse, RuleToolConfig, Rule, RuleScope } from './rules-types.js';
-import { MEMORY_COLLECTION } from './rules-types.js';
+import { RULES_COLLECTION } from './rules-types.js';
 import { FIELD_CONTENT } from '../common/native-bridge.js';
 import { addRule, updateRule, removeRule } from './rules-mutations.js';
 import { listRules } from './rules-list.js';
@@ -96,7 +96,7 @@ export class RulesTool {
       const embedResponse = await this.daemonClient.embedText({ text: content });
       if (!embedResponse.embedding?.length) return [];
 
-      const searchResult = await this.qdrantClient.search(MEMORY_COLLECTION, {
+      const searchResult = await this.qdrantClient.search(RULES_COLLECTION, {
         vector: embedResponse.embedding,
         limit: 5,
         score_threshold: this.duplicationThreshold,

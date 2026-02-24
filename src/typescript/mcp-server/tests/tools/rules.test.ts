@@ -72,9 +72,9 @@ function createMockStateManager(): SqliteStateManager {
         idempotencyKey: 'test-key',
       },
     }),
-    upsertMemoryMirror: vi.fn(),
-    deleteMemoryMirror: vi.fn(),
-    listMemoryMirror: vi.fn().mockReturnValue([]),
+    upsertRulesMirror: vi.fn(),
+    deleteRulesMirror: vi.fn(),
+    listRulesMirror: vi.fn().mockReturnValue([]),
   } as unknown as SqliteStateManager;
 }
 
@@ -304,7 +304,7 @@ describe('RulesTool', () => {
         'text',
         'delete',
         'global',
-        'memory',
+        'rules',
         expect.objectContaining({
           label: 'rule-to-remove',
           action: 'remove',
@@ -638,7 +638,7 @@ describe('RulesTool queue integration', () => {
       'text',
       'add',
       'my-project',
-      'memory',
+      'rules',
       expect.objectContaining({
         content: 'Test rule',
         scope: 'project',

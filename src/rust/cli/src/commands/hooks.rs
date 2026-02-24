@@ -1,7 +1,7 @@
 //! Hooks command - Claude Code integration hook management
 //!
 //! Installs/uninstalls a SessionStart hook into Claude Code's settings.json
-//! that injects workspace-qdrant memory rules into context at session start,
+//! that injects workspace-qdrant rules into context at session start,
 //! `/clear`, and compaction.
 //!
 //! Subcommands: install, uninstall, status
@@ -23,7 +23,7 @@ pub struct HooksArgs {
 /// Hooks subcommands
 #[derive(Subcommand)]
 enum HooksCommand {
-    /// Install Claude Code SessionStart hook for memory rule injection
+    /// Install Claude Code SessionStart hook for rule injection
     Install,
 
     /// Remove wqm hooks from Claude Code settings
@@ -90,7 +90,7 @@ fn write_settings(path: &Path, config: &serde_json::Value) -> Result<()> {
 fn build_wqm_hook_command() -> serde_json::Value {
     json!({
         "type": "command",
-        "command": "wqm memory inject"
+        "command": "wqm rules inject"
     })
 }
 
@@ -120,7 +120,7 @@ fn group_has_wqm_command(entry: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Install Claude Code SessionStart hook for memory rule injection
+/// Install Claude Code SessionStart hook for rule injection
 async fn install_hooks() -> Result<()> {
     let settings_path = get_claude_settings_path()?;
     output::kv("Settings path", settings_path.display());
@@ -171,7 +171,7 @@ async fn install_hooks() -> Result<()> {
     output::success("Claude Code SessionStart hook installed");
     output::kv("Hook event", "SessionStart");
     output::kv("Matcher", SESSION_START_MATCHER);
-    output::kv("Command", "wqm memory inject");
+    output::kv("Command", "wqm rules inject");
 
     Ok(())
 }
@@ -265,10 +265,10 @@ async fn status_hooks() -> Result<()> {
         output::success("wqm hooks are installed");
         output::kv("Hook event", "SessionStart");
         output::kv("Matcher", SESSION_START_MATCHER);
-        output::kv("Command", "wqm memory inject");
+        output::kv("Command", "wqm rules inject");
     } else {
         output::kv("Status", "Not installed");
-        output::info("Run 'wqm hooks install' to set up memory rule injection");
+        output::info("Run 'wqm hooks install' to set up rule injection");
     }
 
     Ok(())
@@ -291,12 +291,12 @@ mod tests {
     fn test_build_wqm_hook_command() {
         let cmd = build_wqm_hook_command();
         assert_eq!(cmd["type"].as_str().unwrap(), "command");
-        assert_eq!(cmd["command"].as_str().unwrap(), "wqm memory inject");
+        assert_eq!(cmd["command"].as_str().unwrap(), "wqm rules inject");
     }
 
     #[test]
     fn test_is_wqm_hook_command_true() {
-        let cmd = json!({"type": "command", "command": "wqm memory inject"});
+        let cmd = json!({"type": "command", "command": "wqm rules inject"});
         assert!(is_wqm_hook_command(&cmd));
     }
 
@@ -440,7 +440,7 @@ mod tests {
         let hooks = ss[0]["hooks"].as_array().unwrap();
         assert_eq!(hooks.len(), 2);
         assert_eq!(hooks[0]["command"].as_str().unwrap(), "other-tool init");
-        assert_eq!(hooks[1]["command"].as_str().unwrap(), "wqm memory inject");
+        assert_eq!(hooks[1]["command"].as_str().unwrap(), "wqm rules inject");
     }
 
     #[test]

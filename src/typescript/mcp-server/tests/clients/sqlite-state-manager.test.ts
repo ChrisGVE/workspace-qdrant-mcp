@@ -12,7 +12,7 @@ import {
   SqliteStateManager,
   generateIdempotencyKey,
   buildContentPayload,
-  buildMemoryPayload,
+  buildRulesPayload,
   buildLibraryPayload,
 } from '../../src/clients/sqlite-state-manager.js';
 
@@ -139,25 +139,25 @@ describe('payload builders', () => {
     });
   });
 
-  describe('buildMemoryPayload', () => {
-    it('should build memory payload for global scope', () => {
-      const payload = buildMemoryPayload('prefer-uv', 'Use uv for Python packages', 'global');
+  describe('buildRulesPayload', () => {
+    it('should build rules payload for global scope', () => {
+      const payload = buildRulesPayload('prefer-uv', 'Use uv for Python packages', 'global');
 
       expect(payload).toEqual({
         content: 'Use uv for Python packages',
-        source_type: 'memory_rule',
+        source_type: 'rule',
         label: 'prefer-uv',
         scope: 'global',
         project_id: undefined,
       });
     });
 
-    it('should build memory payload for project scope', () => {
-      const payload = buildMemoryPayload('use-pytest', 'Use pytest', 'project', 'abc123');
+    it('should build rules payload for project scope', () => {
+      const payload = buildRulesPayload('use-pytest', 'Use pytest', 'project', 'abc123');
 
       expect(payload).toEqual({
         content: 'Use pytest',
-        source_type: 'memory_rule',
+        source_type: 'rule',
         label: 'use-pytest',
         scope: 'project',
         project_id: 'abc123',

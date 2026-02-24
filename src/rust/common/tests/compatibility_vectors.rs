@@ -14,7 +14,7 @@ use wqm_common::queue_types::{ItemType, QueueOperation, QueueStatus};
 fn test_constants_match_expected() {
     assert_eq!(COLLECTION_PROJECTS, "projects");
     assert_eq!(COLLECTION_LIBRARIES, "libraries");
-    assert_eq!(COLLECTION_MEMORY, "memory");
+    assert_eq!(COLLECTION_RULES, "rules");
     assert_eq!(DEFAULT_QDRANT_URL, "http://localhost:6333");
     assert_eq!(DEFAULT_GRPC_PORT, 50051);
     assert_eq!(DEFAULT_BRANCH, "main");

@@ -3,12 +3,12 @@
  */
 
 // Canonical collection names from native bridge (single source of truth)
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, FIELD_CONTENT } from '../common/native-bridge.js';
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, FIELD_CONTENT } from '../common/native-bridge.js';
 export const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
 export const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
-export const MEMORY_COLLECTION = COLLECTION_MEMORY;
+export const RULES_COLLECTION = COLLECTION_RULES;
 
-export type RetrieveCollectionType = 'projects' | 'libraries' | 'memory';
+export type RetrieveCollectionType = 'projects' | 'libraries' | 'rules';
 
 export interface RetrieveOptions {
   documentId?: string;
@@ -46,7 +46,7 @@ export function getCollectionName(collection: RetrieveCollectionType): string {
   switch (collection) {
     case 'projects': return PROJECTS_COLLECTION;
     case 'libraries': return LIBRARIES_COLLECTION;
-    case 'memory': return MEMORY_COLLECTION;
+    case 'rules': return RULES_COLLECTION;
     default: return PROJECTS_COLLECTION;
   }
 }

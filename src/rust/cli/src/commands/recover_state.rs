@@ -4,7 +4,7 @@
 //! - watch_folders: inferred from unique tenant_id + absolute_path prefixes
 //! - tracked_files: one row per unique (tenant_id, file_path, branch)
 //! - qdrant_chunks: one row per Qdrant point (for file-type points)
-//! - memory_mirror: reconstructed from memory collection points
+//! - rules_mirror: reconstructed from rules collection points
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,14 +16,14 @@ use uuid::Uuid;
 use crate::output;
 use super::qdrant_helpers;
 use wqm_common::constants::{
-    COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD,
+    COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
 };
 
 /// All 4 canonical collections
 const ALL_COLLECTIONS: &[&str] = &[
     COLLECTION_PROJECTS,
     COLLECTION_LIBRARIES,
-    COLLECTION_MEMORY,
+    COLLECTION_RULES,
     COLLECTION_SCRATCHPAD,
 ];
 
@@ -69,7 +69,7 @@ pub async fn execute(confirm: bool) -> Result<()> {
     let mut total_watch_folders = 0u64;
     let mut total_tracked_files = 0u64;
     let mut total_chunks = 0u64;
-    let mut total_memory = 0u64;
+    let mut total_rules = 0u64;
 
     for collection in ALL_COLLECTIONS {
         output::info(format!("Scrolling {}...", collection));
@@ -98,8 +98,8 @@ pub async fn execute(confirm: bool) -> Result<()> {
                 total_tracked_files += stats.tracked_files;
                 total_chunks += stats.chunks;
             }
-            c if c == COLLECTION_MEMORY => {
-                total_memory += reconstruct_memory_state(&conn, &points)?;
+            c if c == COLLECTION_RULES => {
+                total_rules += reconstruct_rules_state(&conn, &points)?;
             }
             _ => {
                 // Scratchpad: no SQLite state needed, points exist only in Qdrant
@@ -114,7 +114,7 @@ pub async fn execute(confirm: bool) -> Result<()> {
     output::kv("Watch folders created", &total_watch_folders.to_string());
     output::kv("Tracked files created", &total_tracked_files.to_string());
     output::kv("Qdrant chunks mapped", &total_chunks.to_string());
-    output::kv("Memory rules mirrored", &total_memory.to_string());
+    output::kv("Rules mirrored", &total_rules.to_string());
     output::separator();
     output::success("Recovery complete. Restart daemon to rebuild vocabulary and tags.");
     output::info("Verify with: wqm admin health");
@@ -243,17 +243,17 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create qdrant_chunks")?;
 
-    // Memory mirror
+    // Rules mirror
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS memory_mirror (
-            memory_id TEXT PRIMARY KEY,
+        "CREATE TABLE IF NOT EXISTS rules_mirror (
+            rule_id TEXT PRIMARY KEY,
             rule_text TEXT NOT NULL,
             scope TEXT,
             tenant_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )"
-    ).context("Failed to create memory_mirror")?;
+    ).context("Failed to create rules_mirror")?;
 
     // Unified queue (empty but needed for daemon startup)
     conn.execute_batch(
@@ -499,7 +499,7 @@ fn reconstruct_library_state(
     for (library_name, points) in &library_groups {
         let watch_id = Uuid::new_v4().to_string();
 
-        // Libraries don't have file paths — use a placeholder directory
+        // Libraries don't have file paths -- use a placeholder directory
         let lib_path = format!("/recovered-libraries/{}", library_name);
 
         tx.execute(
@@ -588,8 +588,8 @@ fn reconstruct_library_state(
     })
 }
 
-/// Reconstruct memory_mirror from memory collection points.
-fn reconstruct_memory_state(
+/// Reconstruct rules_mirror from rules collection points.
+fn reconstruct_rules_state(
     conn: &rusqlite::Connection,
     points: &[serde_json::Value],
 ) -> Result<u64> {
@@ -633,19 +633,19 @@ fn reconstruct_memory_state(
             .unwrap_or(&created_at)
             .to_string();
 
-        // Use label as memory_id if available, otherwise point_id
-        let memory_id = label.as_deref().unwrap_or(&point_id);
+        // Use label as rule_id if available, otherwise point_id
+        let rule_id = label.as_deref().unwrap_or(&point_id);
 
         tx.execute(
-            "INSERT OR IGNORE INTO memory_mirror
-             (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+            "INSERT OR IGNORE INTO rules_mirror
+             (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![memory_id, content, scope, tenant_id, created_at, updated_at],
-        ).context("Failed to insert memory_mirror")?;
+            params![rule_id, content, scope, tenant_id, created_at, updated_at],
+        ).context("Failed to insert rules_mirror")?;
         count += 1;
     }
 
-    tx.commit().context("Failed to commit memory reconstruction")?;
+    tx.commit().context("Failed to commit rules reconstruction")?;
 
     Ok(count)
 }

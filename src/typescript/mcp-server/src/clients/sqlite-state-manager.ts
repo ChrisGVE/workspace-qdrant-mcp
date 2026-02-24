@@ -21,7 +21,7 @@ import type {
   QueueStats,
   RegisteredProject,
   ContentPayload,
-  MemoryPayload,
+  RulesPayload,
   LibraryPayload,
 } from '../types/state.js';
 import { PRIORITY_LOW } from '../common/native-bridge.js';
@@ -35,7 +35,7 @@ export type {
   QueueStats,
   RegisteredProject,
   ContentPayload,
-  MemoryPayload,
+  RulesPayload,
   LibraryPayload,
 };
 
@@ -43,7 +43,7 @@ export type {
 export {
   generateIdempotencyKey,
   buildContentPayload,
-  buildMemoryPayload,
+  buildRulesPayload,
   buildLibraryPayload,
   VALID_ITEM_TYPES,
   VALID_OPERATIONS,
@@ -55,11 +55,11 @@ import * as projectQueries from './project-queries.js';
 import * as searchEventQueries from './search-event-queries.js';
 import * as tagQueries from './tag-queries.js';
 import * as instanceQueries from './instance-queries.js';
-import * as memoryMirrorQueries from './memory-mirror-queries.js';
+import * as rulesMirrorQueries from './rules-mirror-queries.js';
 
 // Re-export delegate types
 export type { SearchEventInput, SearchEventUpdate } from './search-event-queries.js';
-export type { MemoryMirrorEntry } from './memory-mirror-queries.js';
+export type { RulesMirrorEntry } from './rules-mirror-queries.js';
 
 // Default database path
 const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');
@@ -214,17 +214,17 @@ export class SqliteStateManager {
     return instanceQueries.getActiveBasePoints(this.db, watchFolderId, includeSubmodules);
   }
 
-  // ── Memory mirror (delegated) ─────────────────────────────────────────
+  // ── Rules mirror (delegated) ──────────────────────────────────────────
 
-  upsertMemoryMirror(entry: memoryMirrorQueries.MemoryMirrorEntry): void {
-    memoryMirrorQueries.upsertMemoryMirror(this.db, entry);
+  upsertRulesMirror(entry: rulesMirrorQueries.RulesMirrorEntry): void {
+    rulesMirrorQueries.upsertRulesMirror(this.db, entry);
   }
 
-  deleteMemoryMirror(memoryId: string): void {
-    memoryMirrorQueries.deleteMemoryMirror(this.db, memoryId);
+  deleteRulesMirror(ruleId: string): void {
+    rulesMirrorQueries.deleteRulesMirror(this.db, ruleId);
   }
 
-  listMemoryMirror(scope?: string, tenantId?: string, limit = 50) {
-    return memoryMirrorQueries.listMemoryMirror(this.db, scope, tenantId, limit);
+  listRulesMirror(scope?: string, tenantId?: string, limit = 50) {
+    return rulesMirrorQueries.listRulesMirror(this.db, scope, tenantId, limit);
   }
 }

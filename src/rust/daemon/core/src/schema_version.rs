@@ -1015,11 +1015,11 @@ impl SchemaManager {
     }
 
     async fn migrate_v21(&self) -> Result<(), SchemaError> {
-        info!("Migration v21: Adding git-tracking columns, memory_mirror, and submodule junction table");
+        info!("Migration v21: Adding git-tracking columns, rules_mirror, and submodule junction table");
 
         use super::watch_folders_schema::{
             MIGRATE_V21_WATCH_FOLDERS_SQL,
-            CREATE_MEMORY_MIRROR_SQL,
+            CREATE_RULES_MIRROR_SQL,
             CREATE_WATCH_FOLDER_SUBMODULES_SQL,
             CREATE_WATCH_FOLDER_SUBMODULES_INDEXES_SQL,
             MIGRATE_V21_SUBMODULE_DATA_SQL,
@@ -1055,8 +1055,8 @@ impl SchemaManager {
             debug!("last_commit_hash column already exists, skipping ALTER TABLE");
         }
 
-        // 2. Create memory_mirror table
-        sqlx::query(CREATE_MEMORY_MIRROR_SQL)
+        // 2. Create rules_mirror table
+        sqlx::query(CREATE_RULES_MIRROR_SQL)
             .execute(&self.pool)
             .await?;
 
@@ -2101,25 +2101,25 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn test_migration_v21_memory_mirror_table() {
+    async fn test_migration_v21_rules_mirror_table() {
         let pool = create_test_pool().await;
         let manager = SchemaManager::new(pool.clone());
         manager.run_migrations().await.expect("Failed to run migrations");
 
-        // Verify memory_mirror table exists
+        // Verify rules_mirror table exists
         let exists: bool = sqlx::query_scalar(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='memory_mirror'"
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='rules_mirror'"
         ).fetch_one(&pool).await.unwrap();
-        assert!(exists, "memory_mirror table should exist");
+        assert!(exists, "rules_mirror table should exist");
 
         // Test CRUD operations
         sqlx::query(
-            "INSERT INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+            "INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
              VALUES ('m1', 'Always use snake_case', 'global', NULL, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
         ).execute(&pool).await.unwrap();
 
         let rule: String = sqlx::query_scalar(
-            "SELECT rule_text FROM memory_mirror WHERE memory_id = 'm1'"
+            "SELECT rule_text FROM rules_mirror WHERE rule_id = 'm1'"
         ).fetch_one(&pool).await.unwrap();
         assert_eq!(rule, "Always use snake_case");
     }

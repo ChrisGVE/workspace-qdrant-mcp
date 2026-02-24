@@ -6,7 +6,7 @@ import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 import type { RuleOptions, RuleResponse, Rule, RuleScope } from './rules-types.js';
-import { MEMORY_COLLECTION } from './rules-types.js';
+import { RULES_COLLECTION } from './rules-types.js';
 import { FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
 
 /** Build Qdrant filter for list query based on scope. */
@@ -26,7 +26,7 @@ function buildListFilter(
   return mustConditions.length > 0 ? { must: mustConditions } : undefined;
 }
 
-/** List rules by scope from Qdrant, with memory_mirror fallback. */
+/** List rules by scope from Qdrant, with rules_mirror fallback. */
 export async function listRules(
   qdrantClient: QdrantClient,
   stateManager: SqliteStateManager,
@@ -51,7 +51,7 @@ export async function listRules(
     } = { limit, with_payload: true };
     if (filter) scrollRequest.filter = filter;
 
-    const scrollResult = await qdrantClient.scroll(MEMORY_COLLECTION, scrollRequest);
+    const scrollResult = await qdrantClient.scroll(RULES_COLLECTION, scrollRequest);
 
     const rules: Rule[] = scrollResult.points.map((point) => {
       const rule: Rule = {
@@ -93,13 +93,13 @@ export async function listRules(
       message: `Found ${rules.length} rule(s)`,
     };
   } catch (error) {
-    // Qdrant unavailable — fall back to memory_mirror
+    // Qdrant unavailable — fall back to rules_mirror
     try {
-      const mirrorRows = stateManager.listMemoryMirror(scope, resolvedProjectId, limit);
+      const mirrorRows = stateManager.listRulesMirror(scope, resolvedProjectId, limit);
       if (mirrorRows.length > 0) {
         const rules: Rule[] = mirrorRows.map((row) => {
           const rule: Rule = {
-            id: row.memoryId,
+            id: row.ruleId,
             content: row.ruleText,
             scope: (row.scope as RuleScope) ?? 'global',
             createdAt: row.createdAt,
@@ -117,7 +117,7 @@ export async function listRules(
         };
       }
     } catch {
-      // memory_mirror also unavailable
+      // rules_mirror also unavailable
     }
 
     return {

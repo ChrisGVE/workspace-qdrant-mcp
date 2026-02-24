@@ -66,12 +66,12 @@ const qdrantTimeout   = get(yaml, 'qdrant.timeout') as string | number | undefin
 const grpcPort        = get(yaml, 'grpc.port') as number | undefined;
 const pollIntervalMs  = get(yaml, 'queue_processor.poll_interval_ms') as number | undefined;
 const batchSize       = get(yaml, 'queue_processor.batch_size') as number | undefined;
-const memoryCollName  = get(yaml, 'workspace.memory_collection_name') as string | undefined;
+const rulesCollName   = get(yaml, 'workspace.rules_collection_name') as string | undefined;
 
-const maxLabelLen     = get(yaml, 'workspace.memory_limits.max_label_length') as number | undefined;
-const maxTitleLen     = get(yaml, 'workspace.memory_limits.max_title_length') as number | undefined;
-const maxTagLen       = get(yaml, 'workspace.memory_limits.max_tag_length') as number | undefined;
-const maxTagsPerRule  = get(yaml, 'workspace.memory_limits.max_tags_per_rule') as number | undefined;
+const maxLabelLen     = get(yaml, 'workspace.rules_limits.max_label_length') as number | undefined;
+const maxTitleLen     = get(yaml, 'workspace.rules_limits.max_title_length') as number | undefined;
+const maxTagLen       = get(yaml, 'workspace.rules_limits.max_tag_length') as number | undefined;
+const maxTagsPerRule  = get(yaml, 'workspace.rules_limits.max_tags_per_rule') as number | undefined;
 
 const excludeDirs     = get(yaml, 'watching.exclude_directories') as string[] | undefined;
 const excludePatterns = get(yaml, 'watching.exclude_patterns') as string[] | undefined;
@@ -89,11 +89,11 @@ if (qdrantTimeout === undefined)  errors.push('qdrant.timeout');
 if (grpcPort === undefined)       errors.push('grpc.port');
 if (pollIntervalMs === undefined) errors.push('queue_processor.poll_interval_ms');
 if (batchSize === undefined)      errors.push('queue_processor.batch_size');
-if (memoryCollName === undefined) errors.push('workspace.memory_collection_name');
-if (maxLabelLen === undefined)    errors.push('workspace.memory_limits.max_label_length');
-if (maxTitleLen === undefined)    errors.push('workspace.memory_limits.max_title_length');
-if (maxTagLen === undefined)      errors.push('workspace.memory_limits.max_tag_length');
-if (maxTagsPerRule === undefined) errors.push('workspace.memory_limits.max_tags_per_rule');
+if (rulesCollName === undefined)  errors.push('workspace.rules_collection_name');
+if (maxLabelLen === undefined)    errors.push('workspace.rules_limits.max_label_length');
+if (maxTitleLen === undefined)    errors.push('workspace.rules_limits.max_title_length');
+if (maxTagLen === undefined)      errors.push('workspace.rules_limits.max_tag_length');
+if (maxTagsPerRule === undefined) errors.push('workspace.rules_limits.max_tags_per_rule');
 
 if (errors.length > 0) {
   console.error(`Missing required YAML fields: ${errors.join(', ')}`);
@@ -135,7 +135,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
     ignorePatterns: ${JSON.stringify(ignorePatterns, null, 4).replace(/\n/g, '\n    ')},
   },
   collections: {
-    memoryCollectionName: ${JSON.stringify(memoryCollName)},
+    rulesCollectionName: ${JSON.stringify(rulesCollName)},
   },
   environment: {},
   rules: {

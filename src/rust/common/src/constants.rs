@@ -11,8 +11,8 @@ pub const COLLECTION_PROJECTS: &str = "projects";
 /// Filtered by library_name payload field
 pub const COLLECTION_LIBRARIES: &str = "libraries";
 
-/// Memory collection - stores agent memory and cross-project notes
-pub const COLLECTION_MEMORY: &str = "memory";
+/// Rules collection - stores behavioral rules and cross-project notes
+pub const COLLECTION_RULES: &str = "rules";
 
 /// Scratchpad collection - persistent LLM scratch space
 /// Filtered by tenant_id payload field (_global_ or project_id)
@@ -46,7 +46,7 @@ pub mod priority {
 ///
 /// Every consumer must import from here rather than using string literals.
 pub mod item_type {
-    /// Direct text content (scratchbook, notes, memory rules)
+    /// Direct text content (scratchbook, notes, rules)
     pub const TEXT: &str = "text";
     /// Single file with path reference
     pub const FILE: &str = "file";
@@ -71,7 +71,7 @@ pub mod item_type {
 pub mod field {
     /// Multi-tenant isolation key
     pub const TENANT_ID: &str = "tenant_id";
-    /// Project scoping within memory collection
+    /// Project scoping within rules collection
     pub const PROJECT_ID: &str = "project_id";
     /// Library scoping key
     pub const LIBRARY_NAME: &str = "library_name";
@@ -161,7 +161,7 @@ mod tests {
     fn test_collection_names() {
         assert_eq!(COLLECTION_PROJECTS, "projects");
         assert_eq!(COLLECTION_LIBRARIES, "libraries");
-        assert_eq!(COLLECTION_MEMORY, "memory");
+        assert_eq!(COLLECTION_RULES, "rules");
         assert_eq!(COLLECTION_SCRATCHPAD, "scratchpad");
         assert_eq!(COLLECTION_IMAGES, "images");
     }

@@ -1,10 +1,10 @@
 /**
- * Claude Agent SDK integration for session hooks and memory rule injection.
+ * Claude Agent SDK integration for session hooks and rule injection.
  *
  * Wraps the MCP server with Agent SDK to enable:
- * - SessionStart hook for memory rule fetching and injection
+ * - SessionStart hook for rule fetching and injection
  * - SessionEnd hook for cleanup
- * - systemPrompt injection for memory rules
+ * - systemPrompt injection for rules
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -31,7 +31,7 @@ const sessionState: AgentSessionState = {
   sessionId: null, projectId: null, projectPath: null, rules: [],
 };
 
-/** SessionStart hook — fetch memory rules and inject into system prompt. */
+/** SessionStart hook — fetch rules and inject into system prompt. */
 const sessionStartHook: HookCallback = async (
   input: BaseHookInput,
   _toolUseId: string | undefined,
@@ -155,7 +155,7 @@ export async function main(): Promise<void> {
 
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
-workspace-qdrant-agent - Claude Agent with memory rule injection
+workspace-qdrant-agent - Claude Agent with rule injection
 
 Usage:
   workspace-qdrant-agent [options] [prompt]

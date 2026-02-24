@@ -5,7 +5,7 @@
 import {
   COLLECTION_PROJECTS,
   COLLECTION_LIBRARIES,
-  COLLECTION_MEMORY,
+  COLLECTION_RULES,
   COLLECTION_SCRATCHPAD,
 } from './common/native-bridge.js';
 
@@ -26,7 +26,7 @@ export function getToolDefinitions() {
           },
           collection: {
             type: 'string',
-            enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD],
+            enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_SCRATCHPAD],
             description: 'Specific collection to search',
           },
           mode: {
@@ -104,7 +104,7 @@ export function getToolDefinitions() {
           },
           collection: {
             type: 'string',
-            enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD],
+            enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_SCRATCHPAD],
             description: 'Collection to retrieve from (default: projects)',
           },
           filter: {

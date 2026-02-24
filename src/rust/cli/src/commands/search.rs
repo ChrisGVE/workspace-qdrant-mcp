@@ -1,7 +1,7 @@
 //! Search command - semantic and hybrid search
 //!
 //! Phase 2 MEDIUM priority command for search operations.
-//! Subcommands: project, collection, global, memory
+//! Subcommands: project, collection, global, rules
 //!
 //! Note: Search operations primarily go through the MCP server which handles
 //! embedding generation and Qdrant queries. The CLI provides guidance.
@@ -67,8 +67,8 @@ enum SearchCommand {
         exclude: Vec<String>,
     },
 
-    /// Search memory rules
-    Memory {
+    /// Search behavioral rules
+    Rules {
         /// Search query
         query: String,
 
@@ -93,7 +93,7 @@ pub async fn execute(args: SearchArgs) -> Result<()> {
             search_collection(&name, &query, limit, filter).await
         }
         SearchCommand::Global { query, exclude } => search_global(&query, limit, &exclude).await,
-        SearchCommand::Memory { query, scope } => search_memory(&query, limit, scope).await,
+        SearchCommand::Rules { query, scope } => search_rules(&query, limit, scope).await,
     }
 }
 
@@ -188,8 +188,8 @@ async fn search_global(query: &str, limit: usize, exclude: &[String]) -> Result<
     Ok(())
 }
 
-async fn search_memory(query: &str, limit: usize, scope: Option<String>) -> Result<()> {
-    output::section("Memory Search");
+async fn search_rules(query: &str, limit: usize, scope: Option<String>) -> Result<()> {
+    output::section("Rules Search");
 
     output::kv("Query", query);
     output::kv("Limit", &limit.to_string());
@@ -198,11 +198,11 @@ async fn search_memory(query: &str, limit: usize, scope: Option<String>) -> Resu
     }
     output::separator();
 
-    output::info("Memory search queries the _memory collection for LLM rules.");
+    output::info("Rules search queries the rules collection for behavioral rules.");
     output::info("Use the MCP search tool:");
     output::info("  mcp__workspace_qdrant__search(");
     output::info(&format!("    query=\"{}\",", query));
-    output::info("    scope=\"memory\",");
+    output::info("    scope=\"rules\",");
     output::info(&format!("    limit={}", limit));
     output::info("  )");
 

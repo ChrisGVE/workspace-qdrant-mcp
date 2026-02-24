@@ -4,7 +4,7 @@ use chrono::Duration as ChronoDuration;
 use chrono::Utc;
 use sqlx::Row;
 use tracing::{debug, info};
-use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_PROJECTS};
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_PROJECTS};
 use wqm_common::timestamps;
 
 use crate::unified_queue_schema::{
@@ -140,7 +140,7 @@ impl QueueManager {
             "#,
             coll_projects = COLLECTION_PROJECTS,
             coll_libraries = COLLECTION_LIBRARIES,
-            coll_memory = COLLECTION_MEMORY,
+            coll_memory = COLLECTION_RULES,
             tenant_filter = tenant_filter,
             priority_order = priority_order,
             created_at_order = created_at_order,

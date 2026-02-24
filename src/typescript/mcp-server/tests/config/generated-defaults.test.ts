@@ -28,7 +28,7 @@ describe('Generated DEFAULT_CONFIG', () => {
   });
 
   it('should have collections defaults matching canonical YAML', () => {
-    expect(DEFAULT_CONFIG.collections.memoryCollectionName).toBe('memory');
+    expect(DEFAULT_CONFIG.collections.rulesCollectionName).toBe('rules');
   });
 
   it('should have database path as platform-specific default', () => {

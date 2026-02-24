@@ -24,7 +24,7 @@ export interface WatchingConfig {
 }
 
 export interface CollectionsConfig {
-  memoryCollectionName: string;
+  rulesCollectionName: string;
 }
 
 export interface RuleLimitsConfig {

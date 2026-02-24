@@ -93,7 +93,7 @@ function createTestConfig(tempDir: string): ServerConfig {
       ignorePatterns: ['node_modules/*'],
     },
     collections: {
-      memoryCollectionName: 'memory',
+      rulesCollectionName: 'rules',
     },
     environment: {},
   };

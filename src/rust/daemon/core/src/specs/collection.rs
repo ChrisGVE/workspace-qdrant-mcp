@@ -5,7 +5,7 @@
 //! enum instead of ad-hoc string constants.
 
 use wqm_common::constants::{
-    COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD,
+    COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD,
 };
 
 use crate::storage::MultiTenantConfig;
@@ -17,8 +17,8 @@ pub enum Collection {
     Projects,
     /// Library documentation, isolated by `library_name`.
     Libraries,
-    /// Behavioral rules and agent memory (global).
-    Memory,
+    /// Behavioral rules (global).
+    Rules,
     /// Persistent LLM scratch space, isolated by `tenant_id`.
     Scratchpad,
 }
@@ -29,7 +29,7 @@ impl Collection {
         match self {
             Self::Projects => COLLECTION_PROJECTS,
             Self::Libraries => COLLECTION_LIBRARIES,
-            Self::Memory => COLLECTION_MEMORY,
+            Self::Rules => COLLECTION_RULES,
             Self::Scratchpad => COLLECTION_SCRATCHPAD,
         }
     }
@@ -49,7 +49,7 @@ impl Collection {
         match name {
             COLLECTION_PROJECTS => Some(Self::Projects),
             COLLECTION_LIBRARIES => Some(Self::Libraries),
-            COLLECTION_MEMORY => Some(Self::Memory),
+            COLLECTION_RULES => Some(Self::Rules),
             COLLECTION_SCRATCHPAD => Some(Self::Scratchpad),
             _ => None,
         }
@@ -60,7 +60,7 @@ impl Collection {
         match self {
             Self::Projects => "project_id",
             Self::Libraries => "library_name",
-            Self::Memory => "tenant_id",
+            Self::Rules => "tenant_id",
             Self::Scratchpad => "tenant_id",
         }
     }
@@ -74,7 +74,7 @@ mod tests {
     fn test_collection_names() {
         assert_eq!(Collection::Projects.name(), "projects");
         assert_eq!(Collection::Libraries.name(), "libraries");
-        assert_eq!(Collection::Memory.name(), "memory");
+        assert_eq!(Collection::Rules.name(), "rules");
         assert_eq!(Collection::Scratchpad.name(), "scratchpad");
     }
 
@@ -82,7 +82,7 @@ mod tests {
     fn test_from_name_valid() {
         assert_eq!(Collection::from_name("projects"), Some(Collection::Projects));
         assert_eq!(Collection::from_name("libraries"), Some(Collection::Libraries));
-        assert_eq!(Collection::from_name("memory"), Some(Collection::Memory));
+        assert_eq!(Collection::from_name("rules"), Some(Collection::Rules));
         assert_eq!(Collection::from_name("scratchpad"), Some(Collection::Scratchpad));
     }
 
@@ -98,7 +98,7 @@ mod tests {
         for collection in [
             Collection::Projects,
             Collection::Libraries,
-            Collection::Memory,
+            Collection::Rules,
             Collection::Scratchpad,
         ] {
             let config = collection.creation_config();
@@ -112,7 +112,7 @@ mod tests {
     fn test_tenant_field_per_collection() {
         assert_eq!(Collection::Projects.tenant_field(), "project_id");
         assert_eq!(Collection::Libraries.tenant_field(), "library_name");
-        assert_eq!(Collection::Memory.tenant_field(), "tenant_id");
+        assert_eq!(Collection::Rules.tenant_field(), "tenant_id");
         assert_eq!(Collection::Scratchpad.tenant_field(), "tenant_id");
     }
 }

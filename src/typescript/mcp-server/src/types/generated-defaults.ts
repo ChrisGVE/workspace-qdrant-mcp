@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
     ],
   },
   collections: {
-    memoryCollectionName: "memory",
+    rulesCollectionName: "rules",
   },
   environment: {},
   rules: {

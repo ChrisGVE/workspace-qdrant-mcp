@@ -372,7 +372,7 @@ async fn recover_watch_folder(
     stats.progressive_scans_enqueued += 1;
 
     // Phase 2: Detect deleted/excluded files from tracked_files.
-    // Files in tracked_files but no longer on disk or now excluded → queue delete.
+    // Files in tracked_files but no longer on disk or now excluded -> queue delete.
     // This is bounded by tracked_files count (SQLite query + stat per file),
     // much cheaper than recursive directory enumeration.
     let tracked = tracked_files_schema::get_tracked_file_paths(pool, watch_folder_id)
@@ -387,7 +387,7 @@ async fn recover_watch_folder(
         let abs_path = root.join(file_path);
 
         if !abs_path.exists() {
-            // File deleted from disk → queue delete
+            // File deleted from disk -> queue delete
             if let Err(e) = enqueue_file_op(
                 queue_manager, tenant_id, collection,
                 &abs_path.to_string_lossy(), QueueOperation::Delete, None,
@@ -399,7 +399,7 @@ async fn recover_watch_folder(
                 enqueued_in_batch += 1;
             }
         } else if should_exclude_file(file_path) {
-            // File now excluded → queue delete
+            // File now excluded -> queue delete
             if let Err(e) = enqueue_file_op(
                 queue_manager, tenant_id, collection,
                 &abs_path.to_string_lossy(), QueueOperation::Delete, None,
@@ -411,7 +411,7 @@ async fn recover_watch_folder(
                 enqueued_in_batch += 1;
             }
         }
-        // else: file exists and not excluded — the progressive scan will
+        // else: file exists and not excluded -- the progressive scan will
         // re-discover it, and the pipeline's hash check will skip if unchanged.
 
         if batch_size > 0 && enqueued_in_batch >= batch_size {
@@ -470,46 +470,46 @@ async fn enqueue_file_op(
     .map_err(|e| format!("Failed to enqueue: {}", e))
 }
 
-/// Backfill `memory_mirror` table from Qdrant memory collection.
+/// Backfill `rules_mirror` table from the Qdrant rules collection.
 ///
-/// Scrolls all points in the `memory` collection and inserts any missing
-/// rows into `memory_mirror` using INSERT OR IGNORE (idempotent).
+/// Scrolls all points in the `rules` collection and inserts any missing
+/// rows into `rules_mirror` using INSERT OR IGNORE (idempotent).
 /// This ensures the SQLite mirror stays in sync after a fresh install,
 /// database reset, or if the mirror was added after points already existed.
-pub async fn backfill_memory_mirror(
+pub async fn backfill_rules_mirror(
     pool: &SqlitePool,
     storage_client: &Arc<StorageClient>,
-) -> Result<MemoryBackfillStats, String> {
+) -> Result<RulesBackfillStats, String> {
     use qdrant_client::qdrant::{Filter, PointId};
 
-    info!("Starting memory_mirror backfill from Qdrant...");
+    info!("Starting rules_mirror backfill from Qdrant...");
     let start = std::time::Instant::now();
 
-    // Check if memory collection exists before scrolling
+    // Check if rules collection exists before scrolling
     let exists = storage_client
-        .collection_exists(wqm_common::constants::COLLECTION_MEMORY)
+        .collection_exists(wqm_common::constants::COLLECTION_RULES)
         .await
-        .map_err(|e| format!("Failed to check memory collection: {}", e))?;
+        .map_err(|e| format!("Failed to check rules collection: {}", e))?;
 
     if !exists {
-        info!("Memory collection does not exist, skipping backfill");
-        return Ok(MemoryBackfillStats::default());
+        info!("Rules collection does not exist, skipping backfill");
+        return Ok(RulesBackfillStats::default());
     }
 
-    let mut stats = MemoryBackfillStats::default();
+    let mut stats = RulesBackfillStats::default();
     let mut offset: Option<PointId> = None;
     let batch_size: u32 = 100;
 
     loop {
         let points = storage_client
             .scroll_with_filter(
-                wqm_common::constants::COLLECTION_MEMORY,
+                wqm_common::constants::COLLECTION_RULES,
                 Filter::default(),
                 batch_size,
                 offset.clone(),
             )
             .await
-            .map_err(|e| format!("Failed to scroll memory collection: {}", e))?;
+            .map_err(|e| format!("Failed to scroll rules collection: {}", e))?;
 
         if points.is_empty() {
             break;
@@ -523,11 +523,11 @@ pub async fn backfill_memory_mirror(
         }
 
         for point in &points {
-            // Extract label as memory_id (required — skip points without label)
+            // Extract label as rule_id (required -- skip points without label)
             let label = match point.payload.get("label").and_then(|v| v.as_str()) {
                 Some(l) => l,
                 None => {
-                    debug!("Skipping memory point without label");
+                    debug!("Skipping rules point without label");
                     stats.skipped_no_label += 1;
                     continue;
                 }
@@ -542,7 +542,7 @@ pub async fn backfill_memory_mirror(
             let ts = created_at.unwrap_or(&now);
 
             let result = sqlx::query(
-                "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+                "INSERT OR IGNORE INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
             )
             .bind(label)
@@ -563,7 +563,7 @@ pub async fn backfill_memory_mirror(
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to insert memory_mirror row for label={}: {}", label, e);
+                    warn!("Failed to insert rules_mirror row for label={}: {}", label, e);
                     stats.errors += 1;
                 }
             }
@@ -581,19 +581,19 @@ pub async fn backfill_memory_mirror(
 
     let elapsed = start.elapsed();
     info!(
-        "Memory mirror backfill complete: {} scanned, {} inserted, {} existed, {} skipped (no label), {} errors in {:?}",
+        "Rules mirror backfill complete: {} scanned, {} inserted, {} existed, {} skipped (no label), {} errors in {:?}",
         stats.points_scanned, stats.inserted, stats.already_exists, stats.skipped_no_label, stats.errors, elapsed
     );
 
     Ok(stats)
 }
 
-/// Statistics from memory mirror backfill
+/// Statistics from rules mirror backfill
 #[derive(Debug, Clone, Default)]
-pub struct MemoryBackfillStats {
+pub struct RulesBackfillStats {
     /// Total Qdrant points scanned
     pub points_scanned: u64,
-    /// New rows inserted into memory_mirror
+    /// New rows inserted into rules_mirror
     pub inserted: u64,
     /// Rows already present (INSERT OR IGNORE)
     pub already_exists: u64,
@@ -775,8 +775,8 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_backfill_stats_default() {
-        let stats = MemoryBackfillStats::default();
+    fn test_rules_backfill_stats_default() {
+        let stats = RulesBackfillStats::default();
         assert_eq!(stats.points_scanned, 0);
         assert_eq!(stats.inserted, 0);
         assert_eq!(stats.already_exists, 0);
@@ -784,19 +784,19 @@ mod tests {
         assert_eq!(stats.errors, 0);
     }
 
-    /// Test that memory_mirror INSERT OR IGNORE is idempotent
+    /// Test that rules_mirror INSERT OR IGNORE is idempotent
     #[tokio::test]
-    async fn test_memory_mirror_insert_idempotent() {
+    async fn test_rules_mirror_insert_idempotent() {
         let pool = create_test_pool().await;
-        // Create memory_mirror table
-        sqlx::query(crate::watch_folders_schema::CREATE_MEMORY_MIRROR_SQL)
+        // Create rules_mirror table
+        sqlx::query(crate::watch_folders_schema::CREATE_RULES_MIRROR_SQL)
             .execute(&pool).await.unwrap();
 
         let now = timestamps::now_utc();
 
         // First insert succeeds
         let r1 = sqlx::query(
-            "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+            "INSERT OR IGNORE INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
         )
         .bind("rule-1")
@@ -810,7 +810,7 @@ mod tests {
 
         // Duplicate insert is silently ignored
         let r2 = sqlx::query(
-            "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+            "INSERT OR IGNORE INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
         )
         .bind("rule-1")
@@ -824,13 +824,13 @@ mod tests {
 
         // Original text preserved
         let text: String = sqlx::query_scalar(
-            "SELECT rule_text FROM memory_mirror WHERE memory_id = 'rule-1'"
+            "SELECT rule_text FROM rules_mirror WHERE rule_id = 'rule-1'"
         ).fetch_one(&pool).await.unwrap();
         assert_eq!(text, "Always use snake_case");
 
         // Different key inserts fine
         let r3 = sqlx::query(
-            "INSERT OR IGNORE INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+            "INSERT OR IGNORE INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
         )
         .bind("rule-2")
@@ -843,7 +843,7 @@ mod tests {
         assert_eq!(r3.rows_affected(), 1);
 
         // Total count is 2
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM memory_mirror")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rules_mirror")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(count, 2);
     }

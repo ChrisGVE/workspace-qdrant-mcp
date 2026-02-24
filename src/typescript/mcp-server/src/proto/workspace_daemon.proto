@@ -326,7 +326,7 @@ message GetCollectionResponse {
 // IngestText Request/Response
 message IngestTextRequest {
     string content = 1;                           // The text to ingest
-    string collection_basename = 2;               // e.g., "memory", "scratchbook"
+    string collection_basename = 2;               // e.g., "rules", "scratchbook"
     string tenant_id = 3;                         // Multi-tenant identifier
     optional string document_id = 4;              // Custom ID (generated if omitted)
     map<string, string> metadata = 5;             // Additional metadata
@@ -703,7 +703,7 @@ enum ProcessingStatus {
 // MULTI-TENANT COLLECTION PAYLOAD SCHEMAS (v2.0)
 // =============================================================================
 // These messages define the payload structure for the unified 3-collection
-// architecture: projects, libraries, memory.
+// architecture: projects, libraries, rules.
 
 // File type classification for project content
 enum FileType {
@@ -742,7 +742,7 @@ enum ContentSource {
     CONTENT_SOURCE_GENERATED = 5;
 }
 
-// Rule type for memory collection
+// Rule type for rules collection
 enum RuleType {
     RULE_TYPE_UNSPECIFIED = 0;
     RULE_TYPE_PREFERENCE = 1;
@@ -751,7 +751,7 @@ enum RuleType {
     RULE_TYPE_PATTERN = 4;
 }
 
-// Rule scope for memory collection
+// Rule scope for rules collection
 enum RuleScope {
     RULE_SCOPE_UNSPECIFIED = 0;
     RULE_SCOPE_GLOBAL = 1;
@@ -833,11 +833,11 @@ message LibraryPayload {
 }
 
 // -----------------------------------------------------------------------------
-// Memory Collection Payload
+// Rules Collection Payload
 // -----------------------------------------------------------------------------
 // Behavioral rules and user preferences (unchanged structure)
 
-message MemoryPayload {
+message RulesPayload {
     string rule_id = 1;                           // Unique rule identifier
     RuleType rule_type = 2;                       // Rule classification
     string content = 3;                           // Rule text

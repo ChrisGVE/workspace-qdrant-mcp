@@ -9,7 +9,7 @@ import type { ProjectDetector } from '../utils/project-detector.js';
 import { utcNow } from '../utils/timestamps.js';
 import { PRIORITY_HIGH, FIELD_SOURCE_TYPE, FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
 import type { RuleAction, RuleOptions, RuleResponse, RuleScope } from './rules-types.js';
-import { MEMORY_BASENAME, MEMORY_COLLECTION } from './rules-types.js';
+import { RULES_BASENAME, RULES_COLLECTION } from './rules-types.js';
 
 /** Queue a rule operation for daemon processing via unified_queue. */
 function queueRuleOperation(
@@ -28,7 +28,7 @@ function queueRuleOperation(
   const payload: Record<string, unknown> = {
     label: operation.label,
     action: operation.action,
-    [FIELD_SOURCE_TYPE]: 'memory_rule',
+    [FIELD_SOURCE_TYPE]: 'rule',
   };
   if (operation.content) payload[FIELD_CONTENT] = operation.content;
   if (operation.scope) payload['scope'] = operation.scope;
@@ -47,7 +47,7 @@ function queueRuleOperation(
 
   const result = stateManager.enqueueUnified(
     'text', op, operation.projectId ?? 'global',
-    MEMORY_COLLECTION, payload, PRIORITY_HIGH, 'main',
+    RULES_COLLECTION, payload, PRIORITY_HIGH, 'main',
     { source: 'mcp_rules_tool' },
   );
 
@@ -93,14 +93,14 @@ export async function addRule(
   // Try daemon first
   try {
     const response = await daemonClient.ingestText({
-      content, collection_basename: MEMORY_BASENAME,
+      content, collection_basename: RULES_BASENAME,
       tenant_id: resolvedProjectId ?? 'global', document_id: label, metadata,
     });
 
     if (response.success) {
       const now = utcNow();
-      stateManager.upsertMemoryMirror({
-        memoryId: response.document_id ?? label, ruleText: content,
+      stateManager.upsertRulesMirror({
+        ruleId: response.document_id ?? label, ruleText: content,
         scope: scope ?? null, tenantId: resolvedProjectId ?? null,
         createdAt: now, updatedAt: now,
       });
@@ -123,8 +123,8 @@ export async function addRule(
   const queueResult = queueRuleOperation(stateManager, queueOp);
 
   const now = utcNow();
-  stateManager.upsertMemoryMirror({
-    memoryId: label, ruleText: content,
+  stateManager.upsertRulesMirror({
+    ruleId: label, ruleText: content,
     scope: scope ?? null, tenantId: resolvedProjectId ?? null,
     createdAt: now, updatedAt: now,
   });
@@ -158,13 +158,13 @@ export async function updateRule(
 
   try {
     const response = await daemonClient.ingestText({
-      content, collection_basename: MEMORY_BASENAME,
+      content, collection_basename: RULES_BASENAME,
       tenant_id: 'global', document_id: label, metadata,
     });
 
     if (response.success) {
-      stateManager.upsertMemoryMirror({
-        memoryId: label, ruleText: content, scope: null, tenantId: null,
+      stateManager.upsertRulesMirror({
+        ruleId: label, ruleText: content, scope: null, tenantId: null,
         createdAt: utcNow(), updatedAt: utcNow(),
       });
       return { success: true, action: 'update', label, message: 'Rule updated successfully' };
@@ -183,8 +183,8 @@ export async function updateRule(
 
   const queueResult = queueRuleOperation(stateManager, updateOp);
 
-  stateManager.upsertMemoryMirror({
-    memoryId: label, ruleText: content, scope: null, tenantId: null,
+  stateManager.upsertRulesMirror({
+    ruleId: label, ruleText: content, scope: null, tenantId: null,
     createdAt: utcNow(), updatedAt: utcNow(),
   });
 
@@ -206,7 +206,7 @@ export function removeRule(
   }
 
   const queueResult = queueRuleOperation(stateManager, { action: 'remove', label });
-  stateManager.deleteMemoryMirror(label);
+  stateManager.deleteRulesMirror(label);
 
   return {
     success: true, action: 'remove', label,

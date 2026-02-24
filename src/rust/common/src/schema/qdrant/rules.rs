@@ -1,6 +1,6 @@
-//! Payload field definitions for the `memory` Qdrant collection.
+//! Payload field definitions for the `rules` Qdrant collection.
 //!
-//! The memory collection stores behavioral rules and LLM memory entries.
+//! The rules collection stores behavioral rules and LLM preferences.
 
 use crate::schema::FieldDef;
 

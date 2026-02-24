@@ -20,7 +20,7 @@ import {
   isValidOperationForType,
   COLLECTION_PROJECTS,
   COLLECTION_LIBRARIES,
-  COLLECTION_MEMORY,
+  COLLECTION_RULES,
   DEFAULT_QDRANT_URL,
   DEFAULT_GRPC_PORT,
   DEFAULT_BRANCH,
@@ -30,7 +30,7 @@ describe('native-bridge: constants', () => {
   it('should return canonical collection names', () => {
     expect(COLLECTION_PROJECTS).toBe('projects');
     expect(COLLECTION_LIBRARIES).toBe('libraries');
-    expect(COLLECTION_MEMORY).toBe('memory');
+    expect(COLLECTION_RULES).toBe('rules');
   });
 
   it('should return default config values', () => {

@@ -19,7 +19,7 @@ use super::qdrant_helpers;
 const VALID_COLLECTIONS: &[&str] = &[
     wqm_common::constants::COLLECTION_PROJECTS,
     wqm_common::constants::COLLECTION_LIBRARIES,
-    wqm_common::constants::COLLECTION_MEMORY,
+    wqm_common::constants::COLLECTION_RULES,
     wqm_common::constants::COLLECTION_SCRATCHPAD,
 ];
 

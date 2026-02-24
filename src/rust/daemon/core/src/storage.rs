@@ -25,7 +25,7 @@ use tracing::{debug, info, warn, error};
 // Note: tonic, hyper, and url imports removed as they're not currently used
 // They would be needed for advanced gRPC HTTP/2 configuration
 
-use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD, COLLECTION_IMAGES};
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_SCRATCHPAD, COLLECTION_IMAGES};
 
 /// Multi-tenant collection configuration
 #[derive(Debug, Clone)]
@@ -62,8 +62,8 @@ pub struct MultiTenantInitResult {
     pub libraries_created: bool,
     /// Whether library_name index was created
     pub libraries_indexed: bool,
-    /// Whether _memory collection was created
-    pub memory_created: bool,
+    /// Whether `rules` collection was created
+    pub rules_created: bool,
     /// Whether scratchpad collection was created
     pub scratchpad_created: bool,
     /// Whether images collection was created (512-dim CLIP vectors)
@@ -77,7 +77,7 @@ impl MultiTenantInitResult {
             && self.projects_indexed
             && self.libraries_created
             && self.libraries_indexed
-            && self.memory_created
+            && self.rules_created
             && self.scratchpad_created
             && self.images_created
     }
@@ -1504,7 +1504,7 @@ impl StorageClient {
     /// Creates the three unified collections:
     /// - _projects: project code/documents, indexed by project_id
     /// - _libraries: library documentation, indexed by library_name
-    /// - _memory: agent memory and cross-project notes
+    /// - rules: behavioral rules and cross-project notes
     ///
     /// This method is idempotent - existing collections are skipped.
     pub async fn initialize_multi_tenant_collections(
@@ -1559,15 +1559,15 @@ impl StorageClient {
         }
         result.libraries_created = true;
 
-        // Create _memory collection (no additional index needed)
-        match self.create_multi_tenant_collection(COLLECTION_MEMORY, &config).await {
+        // Create rules collection (no additional index needed)
+        match self.create_multi_tenant_collection(COLLECTION_RULES, &config).await {
             Ok(()) => {}
             Err(e) => {
-                error!("Failed to create {} collection: {}", COLLECTION_MEMORY, e);
+                error!("Failed to create {} collection: {}", COLLECTION_RULES, e);
                 return Err(e);
             }
         }
-        result.memory_created = true;
+        result.rules_created = true;
 
         // Create scratchpad collection with tenant_id index
         match self.create_multi_tenant_collection(COLLECTION_SCRATCHPAD, &config).await {
@@ -2216,7 +2216,7 @@ mod tests {
         // Canonical collection names (without underscore prefix)
         assert_eq!(COLLECTION_PROJECTS, "projects");
         assert_eq!(COLLECTION_LIBRARIES, "libraries");
-        assert_eq!(COLLECTION_MEMORY, "memory");
+        assert_eq!(COLLECTION_RULES, "rules");
         assert_eq!(COLLECTION_SCRATCHPAD, "scratchpad");
     }
 
@@ -2250,7 +2250,7 @@ mod tests {
         assert!(!result.projects_indexed);
         assert!(!result.libraries_created);
         assert!(!result.libraries_indexed);
-        assert!(!result.memory_created);
+        assert!(!result.rules_created);
         assert!(!result.images_created);
         assert!(!result.is_complete());
     }
@@ -2262,7 +2262,7 @@ mod tests {
             projects_indexed: true,
             libraries_created: true,
             libraries_indexed: true,
-            memory_created: true,
+            rules_created: true,
             scratchpad_created: true,
             images_created: true,
         };
@@ -2276,7 +2276,7 @@ mod tests {
             projects_indexed: true,
             libraries_created: true,
             libraries_indexed: false, // Missing index
-            memory_created: true,
+            rules_created: true,
             scratchpad_created: true,
             images_created: true,
         };
@@ -2290,7 +2290,7 @@ mod tests {
             projects_indexed: true,
             libraries_created: true,
             libraries_indexed: true,
-            memory_created: true,
+            rules_created: true,
             scratchpad_created: true,
             images_created: false,
         };

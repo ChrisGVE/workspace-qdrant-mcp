@@ -11,7 +11,7 @@ pub mod debug;
 
 // Content Management
 pub mod library;
-pub mod memory;
+pub mod rules;
 pub mod project;
 pub mod scratch;
 

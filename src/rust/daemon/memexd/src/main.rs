@@ -897,14 +897,14 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let storage_config = StorageConfig::daemon_mode();
     let storage_client = Arc::new(StorageClient::with_config(storage_config));
 
-    // Initialize multi-tenant Qdrant collections (projects, libraries, memory)
+    // Initialize multi-tenant Qdrant collections (projects, libraries, rules)
     // This is idempotent - existing collections are skipped
     info!("Initializing Qdrant collections...");
     match storage_client.initialize_multi_tenant_collections(None).await {
         Ok(result) => {
             info!(
-                "Qdrant collections initialized: projects={}, libraries={}, memory={}",
-                result.projects_created, result.libraries_created, result.memory_created
+                "Qdrant collections initialized: projects={}, libraries={}, rules={}",
+                result.projects_created, result.libraries_created, result.rules_created
             );
             if result.is_complete() {
                 info!("All multi-tenant collections ready with dense+sparse vector support");
@@ -1099,27 +1099,27 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         });
     }
 
-    // Memory mirror backfill: sync Qdrant memory points to SQLite (Task 24)
+    // Rules mirror backfill: sync Qdrant rules points to SQLite (Task 24)
     // Runs as background task after schema migration has created the table.
     {
         let mirror_pool = unified_queue_processor.pool().clone();
         tokio::spawn(async move {
-            match workspace_qdrant_core::startup_recovery::backfill_memory_mirror(
+            match workspace_qdrant_core::startup_recovery::backfill_rules_mirror(
                 &mirror_pool,
                 &mirror_storage,
             ).await {
                 Ok(stats) => {
                     if stats.inserted > 0 {
                         info!(
-                            "Memory mirror backfill: {} inserted, {} already existed",
+                            "Rules mirror backfill: {} inserted, {} already existed",
                             stats.inserted, stats.already_exists
                         );
                     } else {
-                        debug!("Memory mirror backfill: no new entries ({} existed)", stats.already_exists);
+                        debug!("Rules mirror backfill: no new entries ({} existed)", stats.already_exists);
                     }
                 }
                 Err(e) => {
-                    warn!("Memory mirror backfill failed (non-fatal): {}", e);
+                    warn!("Rules mirror backfill failed (non-fatal): {}", e);
                 }
             }
         });

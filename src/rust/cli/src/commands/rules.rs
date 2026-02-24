@@ -1,6 +1,6 @@
-//! Memory command - LLM rules management
+//! Rules command - behavioral rules management
 //!
-//! Manages LLM memory rules stored in the `memory` collection.
+//! Manages behavioral rules stored in the `rules` collection.
 //! Subcommands: list, add, remove, search, scope
 
 use std::collections::HashMap;
@@ -11,7 +11,7 @@ use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use wqm_common::schema::qdrant::memory as mem_schema;
+use wqm_common::schema::qdrant::rules as rules_schema;
 use wqm_common::schema::sqlite::watch_folders as wf_schema;
 
 use crate::config::get_database_path_checked;
@@ -20,17 +20,17 @@ use crate::grpc::proto::{DeleteDocumentRequest, IngestTextRequest};
 use crate::output::{self, ColumnHints, ServiceStatus};
 use crate::queue::{ContentPayload as QueueContentPayload, UnifiedQueueClient};
 
-/// Memory command arguments
+/// Rules command arguments
 #[derive(Args)]
-pub struct MemoryArgs {
+pub struct RulesArgs {
     #[command(subcommand)]
-    command: MemoryCommand,
+    command: RulesCommand,
 }
 
-/// Memory subcommands
+/// Rules subcommands
 #[derive(Subcommand)]
-enum MemoryCommand {
-    /// List memory rules
+enum RulesCommand {
+    /// List behavioral rules
     List {
         /// Show only global rules
         #[arg(long, conflicts_with = "project")]
@@ -53,7 +53,7 @@ enum MemoryCommand {
         format: String,
     },
 
-    /// Add a new memory rule
+    /// Add a new rule
     Add {
         /// Rule label (identifier for the rule)
         #[arg(long)]
@@ -80,7 +80,7 @@ enum MemoryCommand {
         priority: u32,
     },
 
-    /// Remove a memory rule
+    /// Remove a rule
     Remove {
         /// Rule label to remove
         #[arg(long)]
@@ -95,7 +95,7 @@ enum MemoryCommand {
         project: Option<String>,
     },
 
-    /// Search memory rules
+    /// Search rules
     Search {
         /// Search query
         query: String,
@@ -113,7 +113,7 @@ enum MemoryCommand {
         limit: usize,
     },
 
-    /// Inject memory rules into Claude Code context (SessionStart hook)
+    /// Inject rules into Claude Code context (SessionStart hook)
     #[command(hide = true)]
     Inject,
 
@@ -133,10 +133,10 @@ enum MemoryCommand {
     },
 }
 
-/// Execute memory command
-pub async fn execute(args: MemoryArgs) -> Result<()> {
+/// Execute rules command
+pub async fn execute(args: RulesArgs) -> Result<()> {
     match args.command {
-        MemoryCommand::List {
+        RulesCommand::List {
             global,
             project,
             rule_type,
@@ -146,7 +146,7 @@ pub async fn execute(args: MemoryArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             list_rules(scope, rule_type, verbose, &format).await
         }
-        MemoryCommand::Add {
+        RulesCommand::Add {
             label,
             content,
             global,
@@ -157,7 +157,7 @@ pub async fn execute(args: MemoryArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             add_rule(&label, &content, &rule_type, &scope, priority).await
         }
-        MemoryCommand::Remove {
+        RulesCommand::Remove {
             label,
             global,
             project,
@@ -165,7 +165,7 @@ pub async fn execute(args: MemoryArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             remove_rule(&label, &scope).await
         }
-        MemoryCommand::Search {
+        RulesCommand::Search {
             query,
             global,
             project,
@@ -174,8 +174,8 @@ pub async fn execute(args: MemoryArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             search_rules(&query, scope, limit).await
         }
-        MemoryCommand::Inject => inject_rules().await,
-        MemoryCommand::Scope {
+        RulesCommand::Inject => inject_rules().await,
+        RulesCommand::Scope {
             list,
             show,
             verbose,
@@ -240,7 +240,7 @@ struct QdrantPoint {
 
 /// Compact table row for default display
 #[derive(Tabled)]
-struct MemoryRuleRow {
+struct RuleRow {
     #[tabled(rename = "Label")]
     label: String,
     #[tabled(rename = "Title")]
@@ -253,14 +253,14 @@ struct MemoryRuleRow {
     created_at: String,
 }
 
-impl ColumnHints for MemoryRuleRow {
+impl ColumnHints for RuleRow {
     // Title(1) is content
     fn content_columns() -> &'static [usize] { &[1] }
 }
 
 /// Verbose table row with content
 #[derive(Tabled)]
-struct MemoryRuleRowVerbose {
+struct RuleRowVerbose {
     #[tabled(rename = "Label")]
     label: String,
     #[tabled(rename = "Title")]
@@ -277,14 +277,14 @@ struct MemoryRuleRowVerbose {
     created_at: String,
 }
 
-impl ColumnHints for MemoryRuleRowVerbose {
+impl ColumnHints for RuleRowVerbose {
     // Title(1), Content(5) are content
     fn content_columns() -> &'static [usize] { &[1, 5] }
 }
 
 /// Full rule data for JSON output
 #[derive(Serialize)]
-struct MemoryRuleJson {
+struct RuleJson {
     label: String,
     title: String,
     content: String,
@@ -323,10 +323,10 @@ fn format_title_with_project(
     project_names: &HashMap<String, String>,
     verbose: bool,
 ) -> String {
-    let title = payload_str(payload, mem_schema::TITLE.name);
-    let scope = payload_str(payload, mem_schema::SCOPE.name);
+    let title = payload_str(payload, rules_schema::TITLE.name);
+    let scope = payload_str(payload, rules_schema::SCOPE.name);
     if scope == "project" {
-        if let Some(pid) = payload.get(mem_schema::PROJECT_ID.name).and_then(|v| v.as_str()) {
+        if let Some(pid) = payload.get(rules_schema::PROJECT_ID.name).and_then(|v| v.as_str()) {
             let name = project_names.get(pid);
             return match (name, verbose) {
                 (Some(name), false) => format!("{} (project: {})", title, name),
@@ -412,7 +412,7 @@ async fn list_rules(
     format: &str,
 ) -> Result<()> {
     let client = build_qdrant_client()?;
-    let collection = wqm_common::constants::COLLECTION_MEMORY;
+    let collection = wqm_common::constants::COLLECTION_RULES;
     let url = format!("{}/collections/{}/points/scroll", qdrant_url(), collection);
 
     // Build scroll request with optional scope filter
@@ -437,7 +437,7 @@ async fn list_rules(
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
         if status.as_u16() == 404 {
-            output::info("Memory collection does not exist yet. No rules stored.");
+            output::info("Rules collection does not exist yet. No rules stored.");
             return Ok(());
         }
         anyhow::bail!("Qdrant scroll failed ({}): {}", status, text);
@@ -451,29 +451,29 @@ async fn list_rules(
     let points = &scroll.result.points;
 
     if points.is_empty() {
-        output::info("No memory rules found.");
+        output::info("No rules found.");
         return Ok(());
     }
 
     // JSON output
     if format == "json" {
-        let rules: Vec<MemoryRuleJson> = points
+        let rules: Vec<RuleJson> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
-            .map(|payload| MemoryRuleJson {
-                label: payload_str(payload, mem_schema::LABEL.name),
-                title: payload_str(payload, mem_schema::TITLE.name),
-                content: payload_str(payload, mem_schema::CONTENT.name),
-                scope: payload_str(payload, mem_schema::SCOPE.name),
-                project_id: payload.get(mem_schema::PROJECT_ID.name).and_then(|v| v.as_str()).map(String::from),
-                source_type: payload_str(payload, mem_schema::SOURCE_TYPE.name),
-                priority: payload_u32(payload, mem_schema::PRIORITY.name),
-                tags: payload.get(mem_schema::TAGS.name)
+            .map(|payload| RuleJson {
+                label: payload_str(payload, rules_schema::LABEL.name),
+                title: payload_str(payload, rules_schema::TITLE.name),
+                content: payload_str(payload, rules_schema::CONTENT.name),
+                scope: payload_str(payload, rules_schema::SCOPE.name),
+                project_id: payload.get(rules_schema::PROJECT_ID.name).and_then(|v| v.as_str()).map(String::from),
+                source_type: payload_str(payload, rules_schema::SOURCE_TYPE.name),
+                priority: payload_u32(payload, rules_schema::PRIORITY.name),
+                tags: payload.get(rules_schema::TAGS.name)
                     .and_then(|v| v.as_str())
                     .map(|s| s.split(',').map(String::from).collect())
                     .unwrap_or_default(),
-                created_at: payload_str(payload, mem_schema::CREATED_AT.name),
-                updated_at: payload_str(payload, mem_schema::UPDATED_AT.name),
+                created_at: payload_str(payload, rules_schema::CREATED_AT.name),
+                updated_at: payload_str(payload, rules_schema::UPDATED_AT.name),
             })
             .collect();
         output::print_json(&rules);
@@ -481,7 +481,7 @@ async fn list_rules(
     }
 
     // Table output
-    output::section("Memory Rules");
+    output::section("Rules");
     output::kv("Total", &points.len().to_string());
     if let Some(s) = &scope {
         output::kv("Filter", s);
@@ -494,36 +494,36 @@ async fn list_rules(
         // Verbose columns: Label(0), Title(1), Scope(2), Priority(3),
         //                   Tags(4), Content(5), Created(6)
         // Content columns: Title(1), Content(5)
-        let rows: Vec<MemoryRuleRowVerbose> = points
+        let rows: Vec<RuleRowVerbose> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
-            .map(|payload| MemoryRuleRowVerbose {
-                label: payload_str(payload, mem_schema::LABEL.name),
+            .map(|payload| RuleRowVerbose {
+                label: payload_str(payload, rules_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, true),
-                scope: payload_str(payload, mem_schema::SCOPE.name),
-                priority: payload_u32(payload, mem_schema::PRIORITY.name)
+                scope: payload_str(payload, rules_schema::SCOPE.name),
+                priority: payload_u32(payload, rules_schema::PRIORITY.name)
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                tags: normalize_commas(&payload_str(payload, mem_schema::TAGS.name)),
-                content: payload_str(payload, mem_schema::CONTENT.name),
-                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, mem_schema::CREATED_AT.name)),
+                tags: normalize_commas(&payload_str(payload, rules_schema::TAGS.name)),
+                content: payload_str(payload, rules_schema::CONTENT.name),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, rules_schema::CREATED_AT.name)),
             })
             .collect();
         output::print_table_auto(&rows);
     } else {
         // Columns: Label(0), Title(1), Scope(2), Priority(3), Created(4)
         // Content columns: Title(1)
-        let rows: Vec<MemoryRuleRow> = points
+        let rows: Vec<RuleRow> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
-            .map(|payload| MemoryRuleRow {
-                label: payload_str(payload, mem_schema::LABEL.name),
+            .map(|payload| RuleRow {
+                label: payload_str(payload, rules_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, false),
-                scope: payload_str(payload, mem_schema::SCOPE.name),
-                priority: payload_u32(payload, mem_schema::PRIORITY.name)
+                scope: payload_str(payload, rules_schema::SCOPE.name),
+                priority: payload_u32(payload, rules_schema::PRIORITY.name)
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, mem_schema::CREATED_AT.name)),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, rules_schema::CREATED_AT.name)),
             })
             .collect();
         output::print_table_auto(&rows);
@@ -538,16 +538,16 @@ fn build_scope_filter(scope_str: &str) -> serde_json::Value {
 
     if scope_str == "global" {
         must.push(serde_json::json!({
-            "key": mem_schema::SCOPE.name,
+            "key": rules_schema::SCOPE.name,
             "match": { "value": "global" }
         }));
     } else if let Some(project_id) = scope_str.strip_prefix("project:") {
         must.push(serde_json::json!({
-            "key": mem_schema::SCOPE.name,
+            "key": rules_schema::SCOPE.name,
             "match": { "value": "project" }
         }));
         must.push(serde_json::json!({
-            "key": mem_schema::PROJECT_ID.name,
+            "key": rules_schema::PROJECT_ID.name,
             "match": { "value": project_id }
         }));
     }
@@ -558,7 +558,7 @@ fn build_scope_filter(scope_str: &str) -> serde_json::Value {
 // ─── Add rule ──────────────────────────────────────────────────────────────
 
 async fn add_rule(label: &str, content: &str, rule_type: &str, scope: &Option<String>, priority: u32) -> Result<()> {
-    output::section("Add Memory Rule");
+    output::section("Add Rule");
 
     let scope_str = scope.as_deref().unwrap_or("global");
 
@@ -580,7 +580,7 @@ async fn add_rule(label: &str, content: &str, rule_type: &str, scope: &Option<St
 
             let request = IngestTextRequest {
                 content: content.to_string(),
-                collection_basename: "memory".to_string(),
+                collection_basename: "rules".to_string(),
                 tenant_id: String::new(),
                 document_id: Some(label.to_string()), // Use label as document ID
                 metadata,
@@ -591,26 +591,26 @@ async fn add_rule(label: &str, content: &str, rule_type: &str, scope: &Option<St
                 Ok(response) => {
                     let result = response.into_inner();
                     if result.success {
-                        output::success("Memory rule added");
+                        output::success("Rule added");
                         output::kv("Label", label);
                         output::kv("Rule ID", &result.document_id);
                     } else {
                         output::error(format!("Failed to add rule: {}", result.error_message));
                         // Try unified queue fallback
-                        try_queue_fallback_memory(label, content, rule_type, scope_str, priority)?;
+                        try_queue_fallback_rules(label, content, rule_type, scope_str, priority)?;
                     }
                 }
                 Err(e) => {
                     output::error(format!("Failed to add rule via daemon: {}", e));
                     // Try unified queue fallback
-                    try_queue_fallback_memory(label, content, rule_type, scope_str, priority)?;
+                    try_queue_fallback_rules(label, content, rule_type, scope_str, priority)?;
                 }
             }
         }
         Err(_) => {
             // Daemon not running - use unified queue fallback (Task 37.12)
             output::warning("Daemon not running, using unified queue fallback");
-            try_queue_fallback_memory(label, content, rule_type, scope_str, priority)?;
+            try_queue_fallback_rules(label, content, rule_type, scope_str, priority)?;
         }
     }
 
@@ -618,43 +618,43 @@ async fn add_rule(label: &str, content: &str, rule_type: &str, scope: &Option<St
 }
 
 /// Fallback to unified queue when daemon is unavailable (Task 37.12)
-fn try_queue_fallback_memory(
+fn try_queue_fallback_rules(
     label: &str,
     content: &str,
     rule_type: &str,
     scope: &str,
     priority: u32,
 ) -> Result<()> {
-    output::info("Enqueueing memory rule to unified_queue for later processing...");
+    output::info("Enqueueing rule to unified_queue for later processing...");
 
     match UnifiedQueueClient::connect() {
         Ok(queue_client) => {
-            // Create content payload with memory rule metadata in the content
+            // Create content payload with rule metadata in the content
             let full_content = format!(
-                "MEMORY_RULE\nlabel:{}\ntype:{}\nscope:{}\npriority:{}\n---\n{}",
+                "RULE\nlabel:{}\ntype:{}\nscope:{}\npriority:{}\n---\n{}",
                 label, rule_type, scope, priority, content
             );
 
             let payload = QueueContentPayload {
                 content: full_content,
-                source_type: "cli_memory".to_string(),
-                main_tag: Some(format!("memory_{}", rule_type)),
-                full_tag: Some(format!("memory_{}_{}", rule_type, scope)),
+                source_type: "cli_rules".to_string(),
+                main_tag: Some(format!("rules_{}", rule_type)),
+                full_tag: Some(format!("rules_{}_{}", rule_type, scope)),
             };
 
-            // Memory rules use "memory" collection
+            // Rules use "rules" collection
             match queue_client.enqueue_content(
-                "_global", // Memory is global
-                "memory",
+                "_global", // Rules are global
+                "rules",
                 &payload,
-                "main", // Memory rules are branch-agnostic
+                "main", // Rules are branch-agnostic
             ) {
                 Ok(result) => {
                     if result.was_duplicate {
-                        output::warning("Memory rule already queued (duplicate)");
+                        output::warning("Rule already queued (duplicate)");
                         output::kv("Idempotency Key", &result.idempotency_key);
                     } else {
-                        output::success("Memory rule queued for processing");
+                        output::success("Rule queued for processing");
                         output::kv("Label", label);
                         output::kv("Queue ID", &result.queue_id);
                         output::kv("Status", "pending");
@@ -665,7 +665,7 @@ fn try_queue_fallback_memory(
                     output::info("Check status with: wqm status queue");
                 }
                 Err(e) => {
-                    output::error(format!("Failed to enqueue memory rule: {}", e));
+                    output::error(format!("Failed to enqueue rule: {}", e));
                 }
             }
         }
@@ -681,7 +681,7 @@ fn try_queue_fallback_memory(
 // ─── Remove rule ───────────────────────────────────────────────────────────
 
 async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
-    output::section("Remove Memory Rule");
+    output::section("Remove Rule");
 
     let scope_str = scope.as_deref().unwrap_or("all");
 
@@ -694,12 +694,12 @@ async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
             // Use label as document_id since we store rules with label as ID
             let request = DeleteDocumentRequest {
                 document_id: label.to_string(),
-                collection_name: "memory".to_string(),
+                collection_name: "rules".to_string(),
             };
 
             match client.document().delete_document(request).await {
                 Ok(_) => {
-                    output::success("Memory rule removed");
+                    output::success("Rule removed");
                     output::kv("Label", label);
                 }
                 Err(e) => {
@@ -718,7 +718,7 @@ async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
 // ─── Search rules ──────────────────────────────────────────────────────────
 
 async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Result<()> {
-    output::section("Search Memory Rules");
+    output::section("Search Rules");
 
     output::kv("Query", query);
     if let Some(s) = &scope {
@@ -729,8 +729,8 @@ async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Resul
     output::kv("Limit", &limit.to_string());
     output::separator();
 
-    output::info("Memory search via MCP:");
-    output::info("  mcp__workspace_qdrant__memory(");
+    output::info("Rules search via MCP:");
+    output::info("  mcp__workspace_qdrant__rules(");
     output::info("    action=\"search\",");
     output::info(&format!("    query=\"{}\",", query));
     if let Some(s) = &scope {
@@ -752,7 +752,7 @@ async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Resul
 // ─── Scope management ─────────────────────────────────────────────────────
 
 async fn manage_scopes(list: bool, show: Option<String>, verbose: bool) -> Result<()> {
-    output::section("Memory Rule Scopes");
+    output::section("Rule Scopes");
 
     if list || show.is_none() {
         // List available scopes
@@ -813,16 +813,16 @@ async fn manage_scopes(list: bool, show: Option<String>, verbose: bool) -> Resul
 
         output::info("MCP command to list rules for this scope:");
         if scope_name == "global" {
-            output::info("  mcp__workspace_qdrant__memory(action=\"list\", scope=\"global\")");
+            output::info("  mcp__workspace_qdrant__rules(action=\"list\", scope=\"global\")");
         } else if scope_name.starts_with("project:") {
             let project = scope_name.strip_prefix("project:").unwrap_or(&scope_name);
             output::info(&format!(
-                "  mcp__workspace_qdrant__memory(action=\"list\", project=\"{}\")",
+                "  mcp__workspace_qdrant__rules(action=\"list\", project=\"{}\")",
                 project
             ));
         } else {
             output::info(&format!(
-                "  mcp__workspace_qdrant__memory(action=\"list\", scope=\"{}\")",
+                "  mcp__workspace_qdrant__rules(action=\"list\", scope=\"{}\")",
                 scope_name
             ));
         }
@@ -833,7 +833,7 @@ async fn manage_scopes(list: bool, show: Option<String>, verbose: bool) -> Resul
 
 // ─── Inject (SessionStart hook) ────────────────────────────────────────────
 
-/// Fetch memory rules from Qdrant via scroll API with a scope filter.
+/// Fetch rules from Qdrant via scroll API with a scope filter.
 /// Returns payload values for matching points. Empty vec on any failure.
 async fn fetch_rules_by_scope(
     client: &reqwest::Client,
@@ -843,7 +843,7 @@ async fn fetch_rules_by_scope(
     let url = format!(
         "{}/collections/{}/points/scroll",
         base_url,
-        wqm_common::constants::COLLECTION_MEMORY,
+        wqm_common::constants::COLLECTION_RULES,
     );
     let body = serde_json::json!({
         "limit": 100,
@@ -879,13 +879,13 @@ fn format_inject_output(
         return String::new();
     }
 
-    let mut out = String::from("<workspace-qdrant-memory>\n");
+    let mut out = String::from("<workspace-qdrant-rules>\n");
 
     if !global_rules.is_empty() {
         out.push_str("## Global Rules\n");
         for payload in global_rules {
-            let label = payload_str(payload, mem_schema::LABEL.name);
-            let content = payload_str(payload, mem_schema::CONTENT.name);
+            let label = payload_str(payload, rules_schema::LABEL.name);
+            let content = payload_str(payload, rules_schema::CONTENT.name);
             out.push_str(&format!("- **{}**: {}\n", label, content));
         }
     }
@@ -900,13 +900,13 @@ fn format_inject_output(
         };
         out.push_str(&header);
         for payload in project_rules {
-            let label = payload_str(payload, mem_schema::LABEL.name);
-            let content = payload_str(payload, mem_schema::CONTENT.name);
+            let label = payload_str(payload, rules_schema::LABEL.name);
+            let content = payload_str(payload, rules_schema::CONTENT.name);
             out.push_str(&format!("- **{}**: {}\n", label, content));
         }
     }
 
-    out.push_str("</workspace-qdrant-memory>");
+    out.push_str("</workspace-qdrant-rules>");
     out
 }
 
@@ -1072,7 +1072,7 @@ mod tests {
                             "label": "test-label",
                             "scope": "global",
                             "priority": 5,
-                            "source_type": "memory_rule",
+                            "source_type": "rule",
                             "created_at": "2026-02-12T10:00:00.000Z"
                         }
                     }
@@ -1093,14 +1093,14 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_rule_json_serialization() {
-        let rule = MemoryRuleJson {
+    fn test_rule_json_serialization() {
+        let rule = RuleJson {
             label: "test".to_string(),
             title: "Test Rule".to_string(),
             content: "test content".to_string(),
             scope: "global".to_string(),
             project_id: None,
-            source_type: "memory_rule".to_string(),
+            source_type: "rule".to_string(),
             priority: Some(5),
             tags: vec!["tag1".to_string(), "tag2".to_string()],
             created_at: "2026-02-12T10:00:00.000Z".to_string(),
@@ -1194,8 +1194,8 @@ mod tests {
         })];
 
         let output = format_inject_output(&global, &project, Some("my-project"));
-        assert!(output.starts_with("<workspace-qdrant-memory>"));
-        assert!(output.ends_with("</workspace-qdrant-memory>"));
+        assert!(output.starts_with("<workspace-qdrant-rules>"));
+        assert!(output.ends_with("</workspace-qdrant-rules>"));
         assert!(output.contains("## Global Rules"));
         assert!(output.contains("- **always-test**: Always run tests before committing"));
         assert!(output.contains("## Project Rules (my-project)"));

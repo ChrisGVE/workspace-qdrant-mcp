@@ -1,7 +1,7 @@
 //! Text/content processing strategy.
 //!
 //! Handles `ItemType::Text` queue items, routing to collection-specific
-//! processing for memory rules, scratchpad items, or generic content.
+//! processing for rules, scratchpad items, or generic content.
 
 use std::collections::HashMap;
 
@@ -19,7 +19,7 @@ use crate::unified_queue_schema::{
 
 /// Strategy for processing text/content queue items.
 ///
-/// Routes to memory, scratchpad, or generic content processing based on
+/// Routes to rules, scratchpad, or generic content processing based on
 /// the target collection.
 pub struct TextStrategy;
 
@@ -61,8 +61,8 @@ impl TextStrategy {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         // Route to collection-specific or generic content processing
-        if item.collection == wqm_common::constants::COLLECTION_MEMORY {
-            Self::process_memory_item(ctx, item).await
+        if item.collection == wqm_common::constants::COLLECTION_RULES {
+            Self::process_rules_item(ctx, item).await
         } else if item.collection == wqm_common::constants::COLLECTION_SCRATCHPAD {
             Self::process_scratchpad_item(ctx, item).await
         } else {
@@ -70,8 +70,8 @@ impl TextStrategy {
         }
     }
 
-    /// Process a memory rule item -- preserves all memory-specific metadata.
-    async fn process_memory_item(
+    /// Process a rule item -- preserves all rule-specific metadata.
+    async fn process_rules_item(
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
@@ -80,28 +80,28 @@ impl TextStrategy {
         let action = payload.action.as_deref().unwrap_or("add");
         let now = wqm_common::timestamps::now_utc();
 
-        // For remove action, delete by label filter and clean memory_mirror
+        // For remove action, delete by label filter and clean rules_mirror
         if action == "remove" {
             if let Some(label) = &payload.label {
-                info!("Removing memory rule with label: {}", label);
+                info!("Removing rule with label: {}", label);
                 ctx.storage_client
                     .delete_points_by_payload_field(
-                        wqm_common::constants::COLLECTION_MEMORY,
+                        wqm_common::constants::COLLECTION_RULES,
                         "label",
                         label,
                     )
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
-                // Also remove from memory_mirror (best-effort -- Qdrant delete already succeeded)
+                // Also remove from rules_mirror (best-effort -- Qdrant delete already succeeded)
                 let pool = ctx.queue_manager.pool();
-                if let Err(e) = sqlx::query("DELETE FROM memory_mirror WHERE memory_id = ?1")
+                if let Err(e) = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
                     .bind(label)
                     .execute(pool)
                     .await
                 {
                     warn!(
-                        "Failed to delete memory_mirror row for label={}: {}",
+                        "Failed to delete rules_mirror row for label={}: {}",
                         label, e
                     );
                 }
@@ -122,13 +122,13 @@ impl TextStrategy {
         if action == "update" {
             if let Some(label) = &payload.label {
                 info!(
-                    "Updating memory rule with label: {} (delete + re-insert)",
+                    "Updating rule with label: {} (delete + re-insert)",
                     label
                 );
                 let _ = ctx
                     .storage_client
                     .delete_points_by_payload_field(
-                        wqm_common::constants::COLLECTION_MEMORY,
+                        wqm_common::constants::COLLECTION_RULES,
                         "label",
                         label,
                     )
@@ -139,7 +139,7 @@ impl TextStrategy {
         let content_doc_id =
             crate::generate_content_document_id(&item.tenant_id, &payload.content);
 
-        // Build point payload with ALL memory-specific fields
+        // Build point payload with ALL rule-specific fields
         let mut point_payload = HashMap::new();
         point_payload.insert("content".to_string(), serde_json::json!(payload.content));
         point_payload.insert(
@@ -157,7 +157,7 @@ impl TextStrategy {
             serde_json::json!(payload.source_type.to_lowercase()),
         );
 
-        // Memory-specific fields
+        // Rule-specific fields
         if let Some(label) = &payload.label {
             point_payload.insert("label".to_string(), serde_json::json!(label));
         }
@@ -197,7 +197,7 @@ impl TextStrategy {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         info!(
-            "Successfully processed memory item {} (action={}, label={:?}) -> {}",
+            "Successfully processed rules item {} (action={}, label={:?}) -> {}",
             item.queue_id, action, payload.label, item.collection
         );
 
@@ -273,7 +273,7 @@ impl TextStrategy {
         Ok(())
     }
 
-    /// Process a generic content item (non-memory, non-scratchpad).
+    /// Process a generic content item (non-rules, non-scratchpad).
     async fn process_generic_content_item(
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
