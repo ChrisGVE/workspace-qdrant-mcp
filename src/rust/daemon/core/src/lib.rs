@@ -71,6 +71,7 @@ pub mod search_db;
 pub mod text_search;
 pub mod tier1_tagging;
 pub mod tier2_tagging;
+pub mod tier3_tagging;
 pub mod grep_search;
 pub mod tokenizer;
 pub mod parent_unit;

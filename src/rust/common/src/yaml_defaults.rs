@@ -132,6 +132,7 @@ pub struct YamlConfig {
     pub watching: YamlWatchingConfig,
     pub observability: YamlObservabilityConfig,
     pub resource_limits: YamlResourceLimitsConfig,
+    pub tagging: YamlTaggingConfig,
 }
 
 impl Default for YamlConfig {
@@ -153,6 +154,7 @@ impl Default for YamlConfig {
             watching: YamlWatchingConfig::default(),
             observability: YamlObservabilityConfig::default(),
             resource_limits: YamlResourceLimitsConfig::default(),
+            tagging: YamlTaggingConfig::default(),
         }
     }
 }
@@ -637,6 +639,77 @@ impl Default for YamlResourceLimitsConfig {
 }
 
 // =============================================================================
+// Tagging configuration
+// =============================================================================
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlTaggingConfig {
+    pub tier3: YamlTier3Config,
+}
+
+impl Default for YamlTaggingConfig {
+    fn default() -> Self {
+        Self {
+            tier3: YamlTier3Config::default(),
+        }
+    }
+}
+
+/// Provider slot config (reused for primary and fallback).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlProviderSlot {
+    pub provider: String,
+    pub access_mode: String,
+    pub model: String,
+    pub api_key_env: String,
+    pub base_url: Option<String>,
+}
+
+impl Default for YamlProviderSlot {
+    fn default() -> Self {
+        Self {
+            provider: "anthropic".to_string(),
+            access_mode: "cli".to_string(),
+            model: "claude-haiku-4-5-20251001".to_string(),
+            api_key_env: "ANTHROPIC_API_KEY".to_string(),
+            base_url: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlTier3Config {
+    pub enabled: bool,
+    pub primary: YamlProviderSlot,
+    pub fallback: Option<YamlProviderSlot>,
+    pub max_chunks_per_doc: usize,
+    pub max_tags_per_chunk: usize,
+    pub timeout_secs: u64,
+    pub max_retries: u32,
+    pub rate_limit_rps: u32,
+    pub temperature: f64,
+}
+
+impl Default for YamlTier3Config {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            primary: YamlProviderSlot::default(),
+            fallback: None,
+            max_chunks_per_doc: 10,
+            max_tags_per_chunk: 5,
+            timeout_secs: 15,
+            max_retries: 2,
+            rate_limit_rps: 10,
+            temperature: 0.3,
+        }
+    }
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -827,5 +900,23 @@ mod tests {
         assert!(defaults.download_base_url.contains("{version}"), "Missing {{version}} placeholder");
         assert!(defaults.download_base_url.contains("{platform}"), "Missing {{platform}} placeholder");
         assert!(defaults.download_base_url.contains("{ext}"), "Missing {{ext}} placeholder");
+    }
+
+    #[test]
+    fn test_tagging_tier3_defaults() {
+        let config = &*DEFAULT_YAML_CONFIG;
+        assert!(!config.tagging.tier3.enabled);
+        assert_eq!(config.tagging.tier3.primary.provider, "anthropic");
+        assert_eq!(config.tagging.tier3.primary.access_mode, "cli");
+        assert_eq!(config.tagging.tier3.primary.model, "claude-haiku-4-5-20251001");
+        assert_eq!(config.tagging.tier3.primary.api_key_env, "ANTHROPIC_API_KEY");
+        assert!(config.tagging.tier3.primary.base_url.is_none());
+        assert!(config.tagging.tier3.fallback.is_none());
+        assert_eq!(config.tagging.tier3.max_chunks_per_doc, 10);
+        assert_eq!(config.tagging.tier3.max_tags_per_chunk, 5);
+        assert_eq!(config.tagging.tier3.timeout_secs, 15);
+        assert_eq!(config.tagging.tier3.max_retries, 2);
+        assert_eq!(config.tagging.tier3.rate_limit_rps, 10);
+        assert!((config.tagging.tier3.temperature - 0.3).abs() < 1e-6);
     }
 }

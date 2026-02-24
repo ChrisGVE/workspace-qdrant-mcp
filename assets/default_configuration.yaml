@@ -3291,3 +3291,74 @@ updates:
   # Format: Integer (hours)
   # Default reasoning: 24 (daily) balances awareness with network traffic
   check_interval_hours: 24
+
+# =============================================================================
+# TAGGING CONFIGURATION
+# =============================================================================
+# Purpose: Controls LLM-assisted tag extraction (Tier 3). This is the
+# highest-quality but most expensive tagging tier — disabled by default.
+# When enabled, document chunks are sent to an AI provider to extract
+# structured concept tags.
+tagging:
+  tier3:
+    # enabled: Master switch for LLM-assisted tagging
+    # Purpose: When false, no LLM calls are made and no tags are extracted
+    # Cost: Each document processes up to max_chunks_per_doc LLM calls
+    # Format: Boolean
+    # Default reasoning: false — opt-in only when a provider is configured
+    enabled: false
+
+    # primary: Main LLM provider configuration
+    primary:
+      # provider: LLM provider name
+      # Options: "anthropic", "openai", "google", "ollama"
+      provider: "anthropic"
+
+      # access_mode: How to access the provider
+      # "cli" — shell out to provider CLI tool (uses existing subscription, no API key)
+      # "api" — direct HTTP with API key (pay-per-token)
+      # Note: ollama always uses HTTP regardless of this setting
+      access_mode: "cli"
+
+      # model: Provider-specific model identifier
+      model: "claude-haiku-4-5-20251001"
+
+      # api_key_env: Environment variable name for the API key (api mode only)
+      api_key_env: "ANTHROPIC_API_KEY"
+
+      # base_url: Custom endpoint override (optional)
+      # Use for Azure OpenAI, self-hosted proxies, or compatible endpoints
+      # When null, uses the provider's default URL
+      # base_url: "https://custom-endpoint.example.com"
+
+    # fallback: Backup provider when primary fails (optional)
+    # Uncomment to enable fallback:
+    # fallback:
+    #   provider: "ollama"
+    #   access_mode: "api"
+    #   model: "llama3.2"
+
+    # max_chunks_per_doc: Maximum chunks per document to send to the LLM
+    # Higher values improve tag quality but increase cost
+    # Format: Integer
+    max_chunks_per_doc: 10
+
+    # max_tags_per_chunk: Maximum tags to request per chunk
+    # Format: Integer
+    max_tags_per_chunk: 5
+
+    # timeout_secs: Per-request timeout in seconds
+    # Format: Integer
+    timeout_secs: 15
+
+    # max_retries: Retries per provider before switching to fallback
+    # Format: Integer
+    max_retries: 2
+
+    # rate_limit_rps: Maximum requests per second across all chunks
+    # Format: Integer
+    rate_limit_rps: 10
+
+    # temperature: LLM sampling temperature (lower = more deterministic)
+    # Format: Float 0.0–1.0
+    temperature: 0.3
