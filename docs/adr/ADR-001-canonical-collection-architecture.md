@@ -27,7 +27,7 @@ Adopt **canonical collection names without underscore prefix**:
 |------------|---------------|---------|
 | Projects | `projects` | All project code, docs, tests, configs |
 | Libraries | `libraries` | External library/framework documentation |
-| Memory | `memory` | LLM behavioral rules and preferences |
+| Rules | `rules` | LLM behavioral rules and preferences |
 | Scratchpad | `scratchpad` | Temporary working storage |
 
 ### Key Architectural Decisions
@@ -45,7 +45,7 @@ Adopt **canonical collection names without underscore prefix**:
 **Migration:**
 - `_projects` → `projects`
 - `_libraries` → `libraries`
-- `_memory` → `memory`
+- `_memory` → `rules`
 
 #### 2. Multi-Tenant Isolation via Metadata
 
@@ -68,7 +68,7 @@ search(collection="libraries", filter={"library_name": "numpy"})
 #### 3. Daemon-Only Writes (First Principle 10)
 
 > **NOTE:** This section has been SUPERSEDED by ADR-002 (Daemon-Only Write Policy).
-> ADR-002 removes ALL direct Qdrant write exceptions, including for memory collection.
+> ADR-002 removes ALL direct Qdrant write exceptions, including for rules collection.
 > See ADR-002 for the current write architecture.
 
 **Decision:** ALL Qdrant write operations MUST route through the Rust daemon.
@@ -144,7 +144,7 @@ manage(action="deactivate_project")
 CANONICAL_COLLECTIONS = {
     "projects": "projects",    # All project content
     "libraries": "libraries",  # Library documentation
-    "memory": "memory",        # LLM rules and preferences
+    "rules": "rules",          # LLM rules and preferences
 }
 
 def get_canonical_collection(collection_type: str) -> str:
@@ -155,7 +155,7 @@ def get_canonical_collection(collection_type: str) -> str:
 
 def validate_collection_name(name: str) -> bool:
     """Validate collection name is canonical (not deprecated)."""
-    deprecated_patterns = ["_projects", "_libraries", "_memory", "_agent_memory"]
+    deprecated_patterns = ["_projects", "_libraries", "_rules", "_memory", "_agent_memory"]
     if name in deprecated_patterns or name.startswith("__"):
         return False
     return True
@@ -167,11 +167,11 @@ def validate_collection_name(name: str) -> bool:
 /// Canonical collection names (ADR-001)
 pub const CANONICAL_PROJECTS: &str = "projects";
 pub const CANONICAL_LIBRARIES: &str = "libraries";
-pub const CANONICAL_MEMORY: &str = "memory";
+pub const CANONICAL_RULES: &str = "rules";
 
 /// Validate collection name is not deprecated
 pub fn validate_collection_name(name: &str) -> Result<(), ValidationError> {
-    let deprecated = ["_projects", "_libraries", "_memory", "_agent_memory"];
+    let deprecated = ["_projects", "_libraries", "_rules", "_memory", "_agent_memory"];
     if deprecated.contains(&name) || name.starts_with("__") {
         return Err(ValidationError::DeprecatedCollectionName(name.to_string()));
     }
@@ -187,8 +187,8 @@ The following patterns are **DEPRECATED** and should be rejected with helpful er
 |-------------------|----------------------|------------------|
 | `_projects` | `projects` | Rename collection |
 | `_libraries` | `libraries` | Rename collection |
-| `_memory` | `memory` | Rename collection |
-| `_agent_memory` | `memory` | Merge into `memory` |
+| `_memory` | `rules` | Rename collection |
+| `_agent_memory` | `rules` | Merge into `rules` |
 | `_{project_id}` | `projects` + metadata | Migrate data with `project_id` field |
 | `{basename}-{type}` | `projects` + metadata | Migrate data with `source` field |
 

@@ -15,7 +15,7 @@ workspace-qdrant-mcp (v0.1.0-beta1) is a Model Context Protocol (MCP) server pro
 - 4 MCP tools: store, search, rules, retrieve
 - Hybrid search combining dense (semantic) and sparse (keyword) vectors
 - Automatic project detection with Git integration
-- Behavioral rules via persistent memory collection
+- Behavioral rules via persistent rules collection
 - Rust daemon for high-performance file watching and processing
 
 **v0.1.0-beta1 Features:**
@@ -76,7 +76,7 @@ When modifying files that exceed the code size guidance (see global CLAUDE.md), 
 | `cli/src/commands/library.rs` | 1,404 |
 | `daemon/grpc/src/services/document_service.rs` | 1,276 |
 | `daemon/core/src/tree_sitter/grammar_manager.rs` | 1,236 |
-| `cli/src/commands/memory.rs` | 1,228 |
+| `cli/src/commands/rules.rs` | 1,228 |
 | `daemon/core/src/git_integration.rs` | 1,212 |
 | `daemon/memexd/src/main.rs` | 1,178 |
 | `cli/src/commands/project.rs` | 1,159 |
@@ -368,13 +368,13 @@ src/
   - Set `is_active = 0` in watch_folders
   - Keep notify registration active (file changes still tracked)
   - Continue processing any queued items
-- **CLI/MCP Server can only add**: Library folders for ingestion, memory entries
+- **CLI/MCP Server can only add**: Library folders for ingestion, rules entries
 - **Daemon polling**: Periodically checks watch_folders table and unified_queue
 - **Startup recovery**: Progressive enqueue-first approach — enqueues `(Tenant, Scan)` items for each watch folder instead of WalkDir full-tree scan. Checks tracked_files for stale entries.
 
 **Queue Priority (Computed at Dequeue):**
 - Op-based priority: delete(10) > reset(8) > scan(5) > update(3) > add(1) — always DESC
-- Collection/activity: memory=1(high), active projects=1(high), libraries=0(low), inactive=0(low) — configurable DESC/ASC
+- Collection/activity: rules=1(high), active projects=1(high), libraries=0(low), inactive=0(low) — configurable DESC/ASC
 - Anti-starvation: Fairness scheduler alternates between high-priority DESC batches (10 items) and low-priority ASC batches (3 items)
 
 **Write Path Architecture (First Principle 10):**
@@ -384,7 +384,7 @@ src/
 - **Canonical Collections (4 only)** (per ADR-001):
   * `projects`: Multi-tenant, all project content isolated by `tenant_id`
   * `libraries`: Multi-tenant, all libraries isolated by `library_name`
-  * `memory`: Memory/rules collection
+  * `rules`: Behavioral rules collection
   * `scratchpad`: Temporary working storage
 - **Write Priority**: Daemon (gRPC) → Unified Queue (SQLite) → No direct Qdrant writes
 - **Idempotency**: SHA256-based deduplication prevents duplicate processing
@@ -571,7 +571,7 @@ At end of session: leave a summary of Serena usage findings (what worked well, w
 ## Future Enhancements / Parking Lot
 
 ### Memory Rule Duplication Detection
-Use embeddings to detect similar memory rules on insert. When a new rule has cosine similarity ≥ 0.7 with existing rules, surface candidates to user for review.
+Use embeddings to detect similar rules on insert. When a new rule has cosine similarity ≥ 0.7 with existing rules, surface candidates to user for review.
 
 ### Claude Code Integration Hook
 HTTP POST endpoint on MCP server for file change notifications, enabling real-time ingestion during active coding sessions.
