@@ -164,12 +164,13 @@ impl WatchManager {
             let id: String = row.get("watch_id");
             let path: String = row.get("path");
             let collection: String = row.get("collection");
-            let _tenant_id: String = row.get("tenant_id");
+            let tenant_id: String = row.get("tenant_id");
             let is_git_tracked: bool = row.get::<i32, _>("is_git_tracked") != 0;
 
             let config = WatchConfig {
                 id: id.clone(),
                 path: PathBuf::from(&path),
+                tenant_id,
                 collection,
                 patterns: vec!["*".to_string()],
                 ignore_patterns: vec![],
@@ -219,6 +220,7 @@ impl WatchManager {
             let config = WatchConfig {
                 id: id.clone(),
                 path: PathBuf::from(path),
+                tenant_id: tenant_id.clone(),
                 collection,
                 patterns: vec!["*".to_string()],
                 ignore_patterns: vec![],

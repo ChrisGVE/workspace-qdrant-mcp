@@ -199,9 +199,10 @@ pub use crate::fairness_scheduler::{
 pub use crate::type_aware_processor::{
     CollectionTypeSettings, ConcurrentOperationTracker, get_settings_for_type
 };
+pub use wqm_common::project_id::calculate_tenant_id;
 pub use crate::watching_queue::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError,
-    calculate_tenant_id, get_current_branch,
+    get_current_branch,
     // Multi-tenant routing types
     WatchType,
     // Queue depth monitoring types (Task 461.8)
@@ -274,7 +275,7 @@ pub use crate::startup_reconciliation::{
     clean_stale_state, validate_watch_folders,
     StaleCleanupStats, WatchValidationStats,
 };
-pub use crate::remote_monitor::check_remote_url_changes;
+pub use crate::remote_monitor::{check_remote_url_changes, check_git_state_changes};
 pub use crate::keyword_extraction::hierarchy_builder::{
     HierarchyBuilder, HierarchyRebuildConfig, HierarchyError,
 };

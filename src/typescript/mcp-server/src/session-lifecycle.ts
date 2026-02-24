@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { DaemonClient } from './clients/daemon-client.js';
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { ProjectDetector } from './utils/project-detector.js';
+import { getGitRemoteUrl } from './utils/project-detector.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
 import {
   logInfo,
@@ -82,12 +83,15 @@ export async function registerProject(
   }
 
   try {
+    const gitRemote = getGitRemoteUrl(sessionState.projectPath);
+
     const response = await daemonClient.registerProject({
       path: sessionState.projectPath,
       project_id: sessionState.projectId ?? '',
       name: sessionState.projectPath.split('/').pop() ?? 'unknown',
       register_if_new: false,
       priority: 'high',
+      ...(gitRemote ? { git_remote: gitRemote } : {}),
     });
 
     if (!response.is_active && !response.created) {
@@ -146,12 +150,15 @@ export async function registerProjectFromTool(
 
   const name = (args?.['name'] as string) ?? path.split('/').pop() ?? 'unknown';
 
+  const gitRemote = getGitRemoteUrl(path);
+
   const response = await daemonClient.registerProject({
     path,
     project_id: '',
     name,
     register_if_new: true,
     priority: 'high',
+    ...(gitRemote ? { git_remote: gitRemote } : {}),
   });
 
   logSessionEvent('register', {

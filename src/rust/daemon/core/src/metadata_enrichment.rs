@@ -22,7 +22,7 @@ use git2::Repository;
 use tracing::{debug, warn};
 
 use crate::file_classification::{classify_file_type, get_extension_for_storage, is_test_file};
-use crate::watching_queue::{calculate_tenant_id, get_current_branch};
+use crate::watching_queue::get_current_branch;
 
 /// Collection type enumeration for metadata enrichment
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +165,8 @@ fn find_project_root(file_path: &Path) -> PathBuf {
 /// * `file_path` - Path to the file being processed
 /// * `base_metadata` - Base metadata to enrich (optional)
 /// * `task_source` - Optional task source info for MCP vs CLI distinction
+/// * `tenant_id` - Pre-computed tenant_id from watch_folders (single source of truth).
+///   When provided, used directly as `project_id` instead of re-deriving from filesystem.
 ///
 /// # Returns
 /// HashMap<String, String> with enriched metadata
@@ -180,6 +182,7 @@ fn find_project_root(file_path: &Path) -> PathBuf {
 ///     Path::new("/project/src/main.rs"),
 ///     None,
 ///     None,
+///     Some("0f72d776622e"),
 /// );
 /// assert!(metadata.contains_key("project_id"));
 /// assert!(metadata.contains_key("branch"));
@@ -190,6 +193,7 @@ pub fn enrich_metadata(
     file_path: &Path,
     base_metadata: Option<HashMap<String, String>>,
     task_source: Option<&str>,
+    tenant_id: Option<&str>,
 ) -> HashMap<String, String> {
     let mut metadata = base_metadata.unwrap_or_default();
     let collection_type = CollectionType::from_name(collection_name);
@@ -244,9 +248,14 @@ pub fn enrich_metadata(
                 .unwrap_or(true); // Default to auto-detect if source unknown
 
             if should_auto_detect {
-                // Auto-detect project_id from file path
-                let project_root = find_project_root(file_path);
-                let project_id = calculate_tenant_id(&project_root);
+                // Use pre-computed tenant_id if available (single source of truth),
+                // otherwise fall back to filesystem detection
+                let project_id = if let Some(tid) = tenant_id {
+                    tid.to_string()
+                } else {
+                    let project_root = find_project_root(file_path);
+                    wqm_common::project_id::calculate_tenant_id(&project_root)
+                };
                 metadata.insert("project_id".to_string(), project_id);
 
                 debug!(
@@ -389,6 +398,7 @@ mod tests {
             &test_file,
             None,
             None,
+            None,
         );
 
         assert_eq!(metadata.get("project_id"), Some(&"0f72d776622e".to_string()));
@@ -411,6 +421,7 @@ mod tests {
             &test_file,
             None,
             Some("McpServer"),
+            None,
         );
 
         assert!(metadata.contains_key("project_id"));
@@ -432,6 +443,7 @@ mod tests {
             &test_file,
             Some(base),
             Some("CliCommand"),
+            None,
         );
 
         assert_eq!(metadata.get("project_id"), Some(&"abc123".to_string()));
@@ -450,6 +462,7 @@ mod tests {
             &test_file,
             None,
             Some("CliCommand"),
+            None,
         );
 
         assert!(!metadata.contains_key("project_id"));
@@ -465,6 +478,7 @@ mod tests {
         let metadata = enrich_metadata(
             "_fastapi",
             &test_file,
+            None,
             None,
             None,
         );
@@ -486,6 +500,7 @@ mod tests {
             &test_file,
             None,
             None,
+            None,
         );
 
         assert_eq!(metadata.get("scope"), Some(&"global".to_string()));
@@ -500,7 +515,7 @@ mod tests {
         // Test code file
         let py_file = temp_dir.path().join("main.py");
         fs::write(&py_file, "").unwrap();
-        let metadata = enrich_metadata("_abc123def456", &py_file, None, None);
+        let metadata = enrich_metadata("_abc123def456", &py_file, None, None, None);
         assert_eq!(metadata.get("file_type"), Some(&"code".to_string()));
         assert_eq!(metadata.get("extension"), Some(&"py".to_string()));
         assert_eq!(metadata.get("is_test"), Some(&"false".to_string()));
@@ -508,14 +523,14 @@ mod tests {
         // Test file is still classified as "code" (test detection is separate)
         let test_file = temp_dir.path().join("test_main.py");
         fs::write(&test_file, "").unwrap();
-        let metadata = enrich_metadata("_abc123def456", &test_file, None, None);
+        let metadata = enrich_metadata("_abc123def456", &test_file, None, None, None);
         assert_eq!(metadata.get("file_type"), Some(&"code".to_string()));
         assert_eq!(metadata.get("is_test"), Some(&"true".to_string()));
 
         // Test text file (was "docs", now "text" for lightweight markup)
         let md_file = temp_dir.path().join("README.md");
         fs::write(&md_file, "").unwrap();
-        let metadata = enrich_metadata("_abc123def456", &md_file, None, None);
+        let metadata = enrich_metadata("_abc123def456", &md_file, None, None, None);
         assert_eq!(metadata.get("file_type"), Some(&"text".to_string()));
         assert_eq!(metadata.get("extension"), Some(&"md".to_string()));
         assert_eq!(metadata.get("is_test"), Some(&"false".to_string()));
@@ -534,6 +549,7 @@ mod tests {
             "memory",
             &test_file,
             Some(base),
+            None,
             None,
         );
 

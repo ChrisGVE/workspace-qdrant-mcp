@@ -39,69 +39,6 @@ fn test_unified_collection_constants() {
     assert_eq!(COLLECTION_LIBRARIES, "libraries");
 }
 
-#[test]
-fn test_determine_collection_and_tenant_project() {
-    let temp_dir = tempdir().unwrap();
-    let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
-        WatchType::Project,
-        temp_dir.path(),
-        None,
-        "_old_collection",
-    );
-
-    use wqm_common::constants::COLLECTION_PROJECTS;
-    assert_eq!(collection, COLLECTION_PROJECTS);
-    // Tenant ID should be local_ prefixed since temp_dir is not a git repo
-    assert!(tenant_id.starts_with("local_"));
-}
-
-#[test]
-fn test_determine_collection_and_tenant_library_with_name() {
-    let temp_dir = tempdir().unwrap();
-    let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
-        WatchType::Library,
-        temp_dir.path(),
-        Some("my_library"),
-        "_old_collection",
-    );
-
-    use wqm_common::constants::COLLECTION_LIBRARIES;
-    assert_eq!(collection, COLLECTION_LIBRARIES);
-    assert_eq!(tenant_id, "my_library");
-}
-
-#[test]
-fn test_determine_collection_and_tenant_library_fallback_from_collection() {
-    let temp_dir = tempdir().unwrap();
-    let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
-        WatchType::Library,
-        temp_dir.path(),
-        None, // No library_name provided
-        "_langchain", // Legacy collection
-    );
-
-    use wqm_common::constants::COLLECTION_LIBRARIES;
-    assert_eq!(collection, COLLECTION_LIBRARIES);
-    // Should extract "langchain" from "_langchain"
-    assert_eq!(tenant_id, "langchain");
-}
-
-#[test]
-fn test_determine_collection_and_tenant_library_fallback_from_path() {
-    let temp_dir = tempdir().unwrap();
-    let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
-        WatchType::Library,
-        temp_dir.path(),
-        None, // No library_name
-        "some_collection", // No underscore prefix
-    );
-
-    use wqm_common::constants::COLLECTION_LIBRARIES;
-    assert_eq!(collection, COLLECTION_LIBRARIES);
-    // Should use directory name from path
-    assert!(!tenant_id.is_empty());
-}
-
 // Library watch ID format tests
 #[test]
 fn test_library_watch_id_format() {
@@ -125,6 +62,7 @@ fn test_library_watch_config_creation() {
     let config = WatchConfig {
         id: id.clone(),
         path: PathBuf::from("/path/to/docs"),
+        tenant_id: library_name.to_string(),
         collection: format!("_{}", library_name),
         patterns: vec!["*.pdf".to_string(), "*.md".to_string()],
         ignore_patterns: vec![".git/*".to_string()],
@@ -138,41 +76,6 @@ fn test_library_watch_config_creation() {
     assert_eq!(config.watch_type, WatchType::Library);
     assert_eq!(config.library_name, Some("my_docs".to_string()));
     assert_eq!(config.collection, "_my_docs");
-}
-
-#[test]
-fn test_watch_type_routing_for_library() {
-    let temp_dir = tempdir().unwrap();
-
-    // Test library routing
-    let (collection, tenant) = FileWatcherQueue::determine_collection_and_tenant(
-        WatchType::Library,
-        temp_dir.path(),
-        Some("langchain"),
-        "_legacy",
-    );
-
-    // Now routes to canonical `libraries` collection
-    assert_eq!(collection, "libraries");
-    assert_eq!(tenant, "langchain");
-}
-
-#[test]
-fn test_watch_type_routing_for_project() {
-    let temp_dir = tempdir().unwrap();
-
-    // Test project routing (should use tenant ID calculation)
-    let (collection, tenant) = FileWatcherQueue::determine_collection_and_tenant(
-        WatchType::Project,
-        temp_dir.path(),
-        None,
-        "_legacy",
-    );
-
-    // Now routes to canonical `projects` collection
-    assert_eq!(collection, "projects");
-    // Tenant should be local_ prefixed hash since temp_dir is not a git repo
-    assert!(tenant.starts_with("local_"));
 }
 
 // ========== Task 461: Watch Error State Tests ==========

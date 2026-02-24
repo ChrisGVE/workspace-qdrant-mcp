@@ -727,6 +727,7 @@ mod tests {
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing: false,
+            tenant_id: None,
         };
 
         crate::processing::TaskResultHandle::new_for_test(id, ctx, rx)

@@ -1,6 +1,6 @@
 //! FileWatcherQueue event processing operations - loop, filtering, enqueuing.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,7 +20,7 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use super::types::{
     WatchConfig, CompiledPatterns, FileEvent, EventDebouncer, WatchType,
-    get_current_branch, determine_collection_and_tenant,
+    get_current_branch,
 };
 use super::error_types::ErrorCategory;
 use super::error_state::WatchErrorTracker;
@@ -216,24 +216,6 @@ impl FileWatcherQueue {
         }
     }
 
-    /// Find project root by looking for .git directory
-    fn find_project_root(file_path: &Path) -> PathBuf {
-        let mut current = file_path.parent().unwrap_or(file_path);
-        while current != current.parent().unwrap_or(Path::new("/")) {
-            if current.join(".git").exists() { return current.to_path_buf(); }
-            current = current.parent().unwrap_or(Path::new("/"));
-        }
-        file_path.parent().unwrap_or(file_path).to_path_buf()
-    }
-
-    /// Determine collection and tenant_id based on watch type (delegates to types module)
-    pub(super) fn determine_collection_and_tenant(
-        watch_type: WatchType, project_root: &Path,
-        library_name: Option<&str>, legacy_collection: &str,
-    ) -> (String, String) {
-        determine_collection_and_tenant(watch_type, project_root, library_name, legacy_collection)
-    }
-
     /// Enqueue file operation with retry logic, multi-tenant routing, error tracking,
     /// and queue depth throttling
     #[allow(clippy::too_many_arguments)]
@@ -291,16 +273,19 @@ impl FileWatcherQueue {
             }
         }
 
-        let project_root = Self::find_project_root(&event.path);
-        let branch = get_current_branch(&project_root);
         let file_type = classify_file_type(&event.path);
 
-        let (collection, tenant_id) = {
+        // Use authoritative tenant_id from WatchConfig (sourced from watch_folders table)
+        // instead of re-deriving from the file path, which fails for non-git projects
+        let (collection, tenant_id, branch) = {
             let config_lock = config.read().await;
-            Self::determine_collection_and_tenant(
-                config_lock.watch_type, &project_root,
-                config_lock.library_name.as_deref(), &config_lock.collection,
-            )
+            let coll = match config_lock.watch_type {
+                WatchType::Project => wqm_common::constants::COLLECTION_PROJECTS.to_string(),
+                WatchType::Library => COLLECTION_LIBRARIES.to_string(),
+            };
+            let tid = config_lock.tenant_id.clone();
+            let br = get_current_branch(&config_lock.path);
+            (coll, tid, br)
         };
 
         let file_absolute_path = event.path.to_string_lossy().to_string();

@@ -12,9 +12,6 @@ use thiserror::Error;
 use tracing::{debug, warn};
 
 use crate::queue_operations::QueueError;
-use crate::project_disambiguation::ProjectIdCalculator;
-
-use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
 
 /// Watch type distinguishing project vs library watches
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +75,9 @@ pub type WatchingQueueResult<T> = Result<T, WatchingQueueError>;
 pub struct WatchConfig {
     pub id: String,
     pub path: PathBuf,
+    /// Authoritative tenant_id from the watch_folders table.
+    /// File events MUST use this instead of re-deriving from the file path.
+    pub tenant_id: String,
     /// Legacy collection field - used as fallback if watch_type not set
     pub collection: String,
     pub patterns: Vec<String>,
@@ -218,77 +218,6 @@ pub struct WatchingQueueStats {
     pub events_throttled: u64,  // Task 461.8: Events skipped due to queue depth
 }
 
-/// Calculate a unique tenant ID for a project root directory
-///
-/// This function implements the tenant ID calculation algorithm:
-/// 1. Try to get git remote URL (prefer origin, fallback to upstream)
-/// 2. If remote exists: Sanitize URL to create tenant ID
-///    - Remove protocol (https://, git@, ssh://)
-///    - Replace separators (/, ., :, @) with underscores
-///    - Example: github.com/user/repo -> github_com_user_repo
-/// 3. If no remote: Use SHA256 hash of absolute path
-///    - Hash first 16 chars: abc123def456789a
-///    - Add prefix: path_abc123def456789a
-///
-/// # Arguments
-/// * `project_root` - Path to the project root directory
-///
-/// # Returns
-/// Unique tenant ID (project ID) string
-///
-/// Uses `ProjectIdCalculator` to generate consistent, unique project IDs:
-/// - For git repositories: SHA256 hash of normalized remote URL (12 characters)
-/// - For local projects: "local_" prefix + SHA256 hash of path (18 characters total)
-///
-/// # Disambiguation
-///
-/// When multiple clones of the same repository exist, they will get the same
-/// project ID unless disambiguation is explicitly provided. For full disambiguation
-/// support, use `ProjectIdCalculator` directly with disambiguation paths obtained
-/// from the project registry.
-///
-/// # Examples
-/// ```
-/// use std::path::Path;
-/// use workspace_qdrant_core::calculate_tenant_id;
-///
-/// let tenant_id = calculate_tenant_id(Path::new("/path/to/repo"));
-/// // Returns: "abc123def456" (12-char hash if git remote exists)
-/// // Or: "local_abc123def456" (if no git remote)
-/// ```
-pub fn calculate_tenant_id(project_root: &Path) -> String {
-    let calculator = ProjectIdCalculator::new();
-
-    // Try to get git remote URL using git2
-    let remote_url = if let Ok(repo) = Repository::open(project_root) {
-        // Try origin first, then upstream, then any remote
-        repo.find_remote("origin")
-            .or_else(|_| repo.find_remote("upstream"))
-            .ok()
-            .and_then(|remote| remote.url().map(|url| url.to_string()))
-    } else {
-        None
-    };
-
-    // Calculate project ID using ProjectIdCalculator
-    // Note: Disambiguation path is None here - full disambiguation requires
-    // database lookup to find existing clones with same remote
-    let project_id = calculator.calculate(
-        project_root,
-        remote_url.as_deref(),
-        None, // No disambiguation path in basic calculation
-    );
-
-    debug!(
-        "Generated project ID for {}: {} (remote: {:?})",
-        project_root.display(),
-        project_id,
-        remote_url.as_ref().map(|u| ProjectIdCalculator::normalize_git_url(u))
-    );
-
-    project_id
-}
-
 /// Get the current Git branch name for a repository
 ///
 /// This function detects the current Git branch for a directory within a Git repository.
@@ -385,37 +314,3 @@ pub fn get_current_branch(repo_path: &Path) -> String {
     }
 }
 
-/// Determine collection and tenant_id based on watch type
-///
-/// Multi-tenant routing logic:
-/// - Project watches: route to _projects collection with project_id as tenant
-/// - Library watches: route to _libraries collection with library_name as tenant
-pub(super) fn determine_collection_and_tenant(
-    watch_type: WatchType,
-    project_root: &Path,
-    library_name: Option<&str>,
-    legacy_collection: &str,
-) -> (String, String) {
-    match watch_type {
-        WatchType::Project => {
-            let project_id = calculate_tenant_id(project_root);
-            (COLLECTION_PROJECTS.to_string(), project_id)
-        }
-        WatchType::Library => {
-            let tenant = library_name
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| {
-                    // Fallback: extract library name from legacy collection or path
-                    if legacy_collection.starts_with('_') {
-                        legacy_collection[1..].to_string()
-                    } else {
-                        project_root.file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("unknown")
-                            .to_string()
-                    }
-                });
-            (COLLECTION_LIBRARIES.to_string(), tenant)
-        }
-    }
-}

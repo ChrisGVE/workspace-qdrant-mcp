@@ -40,6 +40,8 @@ use workspace_qdrant_core::{
     metrics_history,
     // Remote URL change detection (Task 584)
     check_remote_url_changes,
+    // Git state change detection (transitions 1-5)
+    check_git_state_changes,
     // Adaptive resource management (idle/burst mode)
     adaptive_resources::{AdaptiveResourceManager, AdaptiveResourceConfig},
     // Nightly canonical tag hierarchy rebuild (Task 35)
@@ -807,6 +809,34 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     });
     info!("Remote URL monitoring started (30s interval)");
+
+    // Start periodic git state change detection (transitions 1-5)
+    // Detects: git init, git remote add/remove, rm -rf .git
+    let git_state_pool = queue_pool.clone();
+    let _git_state_handle = tokio::spawn(async move {
+        let queue_manager = workspace_qdrant_core::queue_operations::QueueManager::new(
+            git_state_pool.clone(),
+        );
+        // Check every 60 seconds (rare user-initiated transitions)
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            match check_git_state_changes(&git_state_pool, &queue_manager).await {
+                Ok(result) => {
+                    if result.transitions_detected > 0 {
+                        info!(
+                            "Git state monitoring: {} transition(s) detected, {} checked, {} error(s)",
+                            result.transitions_detected, result.projects_checked, result.errors
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("Git state monitoring failed: {}", e);
+                }
+            }
+        }
+    });
+    info!("Git state monitoring started (60s interval)");
 
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);

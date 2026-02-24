@@ -262,6 +262,196 @@ async fn update_watch_folders_remote(
     Ok(())
 }
 
+// ========== Git State Change Detection (Transitions 1-5) ==========
+
+/// Result of a git state change detection cycle
+#[derive(Debug, Default)]
+pub struct GitStateCheckResult {
+    /// Number of projects checked
+    pub projects_checked: u32,
+    /// Number of state transitions detected and processed
+    pub transitions_detected: u32,
+    /// Number of errors encountered
+    pub errors: u32,
+}
+
+/// Check all active projects for git state changes (transitions 1-5).
+///
+/// Detects transitions between three states:
+/// - **Local**: no `.git/` directory (`is_git_tracked=0, git_remote_url=NULL`)
+/// - **Local Git**: `.git/` exists but no remote (`is_git_tracked=1, git_remote_url=NULL`)
+/// - **Remote Git**: `.git/` with remote (`is_git_tracked=1, git_remote_url=URL`)
+///
+/// Transition 6 (remote URL change) is already handled by `check_remote_url_changes`.
+///
+/// For each detected transition, updates `watch_folders` and enqueues cascade renames
+/// when tenant_id changes.
+pub async fn check_git_state_changes(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+) -> Result<GitStateCheckResult, String> {
+    let mut result = GitStateCheckResult::default();
+
+    // Query ALL active, non-archived, top-level project watch_folders
+    let watches: Vec<(String, String, String, i32, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            r#"
+            SELECT watch_id, path, tenant_id,
+                   COALESCE(is_git_tracked, 0) AS is_git_tracked,
+                   git_remote_url, disambiguation_path
+            FROM watch_folders
+            WHERE is_active = 1
+              AND COALESCE(is_archived, 0) = 0
+              AND collection = ?1
+              AND parent_watch_id IS NULL
+            "#,
+        )
+        .bind(COLLECTION_PROJECTS)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to query watch_folders for git state check: {}", e))?;
+
+    let calculator = ProjectIdCalculator::new();
+
+    for (watch_id, path, old_tenant_id, stored_git_tracked, stored_remote, disambiguation_path)
+        in &watches
+    {
+        result.projects_checked += 1;
+        let project_path = std::path::Path::new(path.as_str());
+
+        // Detect current filesystem git state
+        let git_status = crate::git_integration::detect_git_status(project_path);
+        let current_remote = if git_status.is_git {
+            get_git_remote_url(path).ok()
+        } else {
+            None
+        };
+
+        let was_git = *stored_git_tracked != 0;
+        let is_now_git = git_status.is_git;
+        let had_remote = stored_remote.is_some();
+        let has_remote_now = current_remote.is_some();
+
+        // Determine which transition, if any, occurred
+        let transition = match (was_git, had_remote, is_now_git, has_remote_now) {
+            // No change
+            (false, false, false, false) => continue,          // local → local
+            (true, false, true, false) => continue,            // local-git → local-git
+            (true, true, true, true) => continue,              // remote-git → remote-git (URL change handled by check_remote_url_changes)
+
+            // Transition 1: local → local-git (git init)
+            (false, _, true, false) => "local → local-git",
+
+            // Transition 2: local → remote-git (git init + remote add)
+            (false, _, true, true) => "local → remote-git",
+
+            // Transition 3: local-git → remote-git (remote add)
+            (true, false, true, true) => "local-git → remote-git",
+
+            // Transition 4: git → local (rm -rf .git)
+            (true, _, false, _) => "git → local",
+
+            // Transition 5: remote-git → local-git (remote remove)
+            (true, true, true, false) => "remote-git → local-git",
+
+            // Unexpected states — skip
+            _ => {
+                debug!(
+                    "Unexpected git state for {}: was_git={}, had_remote={}, is_git={}, has_remote={}",
+                    watch_id, was_git, had_remote, is_now_git, has_remote_now
+                );
+                continue;
+            }
+        };
+
+        info!(
+            "Git state transition detected for {}: {} (path={})",
+            watch_id, transition, path
+        );
+
+        // Compute new tenant_id based on new state
+        let new_tenant_id = match &current_remote {
+            Some(url) => calculator.calculate(
+                project_path,
+                Some(url.as_str()),
+                disambiguation_path.as_deref(),
+            ),
+            None => calculator.calculate(project_path, None, None),
+        };
+
+        let new_remote_hash = current_remote.as_ref().map(|url| calculator.calculate_remote_hash(url));
+
+        // Determine what to update in SQLite
+        let new_is_git_tracked: i32 = if is_now_git { 1 } else { 0 };
+
+        // Update watch_folders atomically
+        let now = wqm_common::timestamps::now_utc();
+        let update_result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET is_git_tracked = ?1,
+                git_remote_url = ?2,
+                remote_hash = ?3,
+                tenant_id = ?4,
+                updated_at = ?5
+            WHERE watch_id = ?6
+            "#,
+        )
+        .bind(new_is_git_tracked)
+        .bind(current_remote.as_deref())
+        .bind(new_remote_hash.as_deref())
+        .bind(&new_tenant_id)
+        .bind(&now)
+        .bind(watch_id)
+        .execute(pool)
+        .await;
+
+        if let Err(e) = update_result {
+            warn!(
+                "Failed to update watch_folders for git state transition {}: {}",
+                watch_id, e
+            );
+            result.errors += 1;
+            continue;
+        }
+
+        // Enqueue cascade rename if tenant_id changed
+        if new_tenant_id != *old_tenant_id {
+            let reason = format!("Git state transition: {}", transition);
+            match queue_manager
+                .enqueue_cascade_rename(
+                    old_tenant_id,
+                    &new_tenant_id,
+                    &["projects", "memory"],
+                    &reason,
+                )
+                .await
+            {
+                Ok(queue_ids) => {
+                    info!(
+                        "Enqueued {} cascade rename(s) for tenant {} -> {} ({})",
+                        queue_ids.len(),
+                        old_tenant_id,
+                        new_tenant_id,
+                        transition
+                    );
+                }
+                Err(e) => {
+                    // SQLite already updated — log but don't fail
+                    warn!(
+                        "Failed to enqueue cascade rename for {} -> {}: {}",
+                        old_tenant_id, new_tenant_id, e
+                    );
+                }
+            }
+        }
+
+        result.transitions_detected += 1;
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,6 +474,7 @@ mod tests {
                 parent_watch_id TEXT,
                 is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
                 is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
+                is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
                 git_remote_url TEXT,
                 remote_hash TEXT,
                 disambiguation_path TEXT,
@@ -640,5 +831,258 @@ mod tests {
             Some("work/clone1"),
         );
         assert_eq!(tid, expected_tid);
+    }
+
+    // ========== Git State Change Detection Tests ==========
+
+    #[tokio::test]
+    async fn test_git_state_check_no_change_local() {
+        let pool = create_test_database().await;
+        let queue_manager = QueueManager::new(pool.clone());
+
+        // Create a local (non-git) temp directory
+        let temp = TempDir::new().unwrap();
+
+        // Insert watch_folder as local (is_git_tracked=0, no remote)
+        sqlx::query(
+            r#"
+            INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
+                is_git_tracked, git_remote_url)
+            VALUES ('proj-local', ?1, 'projects', 'local_abc123', 1, 0, NULL)
+            "#,
+        )
+        .bind(temp.path().to_str().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let result = check_git_state_changes(&pool, &queue_manager)
+            .await
+            .unwrap();
+
+        assert_eq!(result.projects_checked, 1);
+        assert_eq!(result.transitions_detected, 0);
+    }
+
+    #[tokio::test]
+    async fn test_git_state_check_local_to_local_git() {
+        // Transition 1: local → local-git (git init, no remote)
+        let pool = create_test_database().await;
+        let queue_manager = QueueManager::new(pool.clone());
+
+        let temp = TempDir::new().unwrap();
+        // Create git repo WITHOUT remote
+        Repository::init(temp.path()).expect("Failed to init git repo");
+
+        // Insert as local project (stored: is_git_tracked=0)
+        let calculator = ProjectIdCalculator::new();
+        let local_tid = calculator.calculate(temp.path(), None, None);
+
+        sqlx::query(
+            r#"
+            INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
+                is_git_tracked, git_remote_url)
+            VALUES ('proj-1', ?1, 'projects', ?2, 1, 0, NULL)
+            "#,
+        )
+        .bind(temp.path().to_str().unwrap())
+        .bind(&local_tid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let result = check_git_state_changes(&pool, &queue_manager)
+            .await
+            .unwrap();
+
+        assert_eq!(result.projects_checked, 1);
+        assert_eq!(result.transitions_detected, 1);
+
+        // Verify is_git_tracked updated to 1
+        let is_git: i32 = sqlx::query_scalar(
+            "SELECT is_git_tracked FROM watch_folders WHERE watch_id = 'proj-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(is_git, 1);
+
+        // tenant_id should NOT change (still local_ prefix, same path)
+        let tid: String = sqlx::query_scalar(
+            "SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(tid, local_tid, "Transition 1 should not change tenant_id");
+    }
+
+    #[tokio::test]
+    async fn test_git_state_check_local_git_to_remote_git() {
+        // Transition 3: local-git → remote-git (remote add)
+        let pool = create_test_database().await;
+        let queue_manager = QueueManager::new(pool.clone());
+
+        let temp = TempDir::new().unwrap();
+        // Create git repo WITH remote
+        create_git_repo_with_remote(
+            temp.path(),
+            "https://github.com/user/repo.git",
+        );
+
+        // Insert as local-git (stored: is_git_tracked=1, no remote)
+        let calculator = ProjectIdCalculator::new();
+        let local_tid = calculator.calculate(temp.path(), None, None);
+
+        sqlx::query(
+            r#"
+            INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
+                is_git_tracked, git_remote_url)
+            VALUES ('proj-2', ?1, 'projects', ?2, 1, 1, NULL)
+            "#,
+        )
+        .bind(temp.path().to_str().unwrap())
+        .bind(&local_tid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let result = check_git_state_changes(&pool, &queue_manager)
+            .await
+            .unwrap();
+
+        assert_eq!(result.projects_checked, 1);
+        assert_eq!(result.transitions_detected, 1);
+
+        // Verify remote was stored
+        let remote: Option<String> = sqlx::query_scalar(
+            "SELECT git_remote_url FROM watch_folders WHERE watch_id = 'proj-2'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remote, Some("https://github.com/user/repo.git".to_string()));
+
+        // tenant_id should have changed from local_ to remote-based
+        let tid: String = sqlx::query_scalar(
+            "SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-2'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_ne!(tid, local_tid, "Transition 3 should change tenant_id");
+        assert!(!tid.starts_with("local_"), "Should be remote-based tenant_id");
+
+        // Verify cascade rename was enqueued
+        let rename_count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM unified_queue WHERE item_type = 'tenant' AND op = 'rename'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(rename_count >= 1, "Should have enqueued cascade rename");
+    }
+
+    #[tokio::test]
+    async fn test_git_state_check_git_to_local() {
+        // Transition 4: git → local (rm -rf .git simulated by non-git temp dir)
+        let pool = create_test_database().await;
+        let queue_manager = QueueManager::new(pool.clone());
+
+        // Plain temp dir (no .git) — simulates .git removal
+        let temp = TempDir::new().unwrap();
+
+        let calculator = ProjectIdCalculator::new();
+        let remote_tid = calculator.calculate(
+            temp.path(),
+            Some("https://github.com/user/repo.git"),
+            None,
+        );
+
+        // Insert as remote-git project
+        sqlx::query(
+            r#"
+            INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
+                is_git_tracked, git_remote_url, remote_hash)
+            VALUES ('proj-3', ?1, 'projects', ?2, 1, 1,
+                'https://github.com/user/repo.git', 'somehash')
+            "#,
+        )
+        .bind(temp.path().to_str().unwrap())
+        .bind(&remote_tid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let result = check_git_state_changes(&pool, &queue_manager)
+            .await
+            .unwrap();
+
+        assert_eq!(result.projects_checked, 1);
+        assert_eq!(result.transitions_detected, 1);
+
+        // Verify is_git_tracked set to 0
+        let is_git: i32 = sqlx::query_scalar(
+            "SELECT is_git_tracked FROM watch_folders WHERE watch_id = 'proj-3'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(is_git, 0);
+
+        // Verify git_remote_url cleared
+        let remote: Option<String> = sqlx::query_scalar(
+            "SELECT git_remote_url FROM watch_folders WHERE watch_id = 'proj-3'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(remote.is_none(), "Remote URL should be cleared");
+
+        // tenant_id should have changed to local_
+        let tid: String = sqlx::query_scalar(
+            "SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-3'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(tid.starts_with("local_"), "Should be local-based tenant_id after .git removal");
+
+        // Verify cascade rename was enqueued
+        let rename_count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM unified_queue WHERE item_type = 'tenant' AND op = 'rename'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(rename_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_git_state_check_skips_inactive() {
+        let pool = create_test_database().await;
+        let queue_manager = QueueManager::new(pool.clone());
+
+        let temp = TempDir::new().unwrap();
+
+        // Insert as inactive project
+        sqlx::query(
+            r#"
+            INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
+                is_git_tracked)
+            VALUES ('proj-inactive', ?1, 'projects', 'local_abc', 0, 0)
+            "#,
+        )
+        .bind(temp.path().to_str().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let result = check_git_state_changes(&pool, &queue_manager)
+            .await
+            .unwrap();
+
+        assert_eq!(result.projects_checked, 0);
+        assert_eq!(result.transitions_detected, 0);
     }
 }

@@ -20,7 +20,7 @@ async fn create_test_database() -> SqlitePool {
         .await
         .expect("Failed to create in-memory database");
 
-    // Create unified_queue table (spec-compliant)
+    // Create unified_queue table (matches production schema without priority column)
     sqlx::query(
         r#"
         CREATE TABLE unified_queue (
@@ -31,7 +31,6 @@ async fn create_test_database() -> SqlitePool {
             op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
             tenant_id TEXT NOT NULL,
             collection TEXT NOT NULL,
-            priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
             status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
                 'pending', 'in_progress', 'done', 'failed'
             )),
@@ -47,7 +46,10 @@ async fn create_test_database() -> SqlitePool {
             last_error_at TEXT,
             branch TEXT DEFAULT 'main',
             metadata TEXT DEFAULT '{}',
-            file_path TEXT UNIQUE
+            file_path TEXT UNIQUE,
+            qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN ('pending', 'in_progress', 'done', 'failed')),
+            search_status TEXT DEFAULT 'pending' CHECK (search_status IN ('pending', 'in_progress', 'done', 'failed')),
+            decision_json TEXT
         )
         "#
     )
@@ -55,7 +57,7 @@ async fn create_test_database() -> SqlitePool {
     .await
     .expect("Failed to create unified_queue table");
 
-    // Create watch_folders table (includes tenant_id and is_active for priority calculation JOIN)
+    // Create watch_folders table (includes all columns referenced by production code)
     sqlx::query(
         r#"
         CREATE TABLE watch_folders (
@@ -65,6 +67,11 @@ async fn create_test_database() -> SqlitePool {
             tenant_id TEXT NOT NULL,
             parent_watch_id TEXT,
             is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
+            is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
+            git_remote_url TEXT,
+            remote_hash TEXT,
+            last_commit_hash TEXT,
+            disambiguation_path TEXT,
             patterns TEXT NOT NULL,
             ignore_patterns TEXT NOT NULL,
             auto_ingest BOOLEAN NOT NULL DEFAULT 1,
@@ -76,6 +83,13 @@ async fn create_test_database() -> SqlitePool {
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_activity_at TEXT,
             is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
+            consecutive_errors INTEGER DEFAULT 0,
+            total_errors INTEGER DEFAULT 0,
+            last_error_at TEXT,
+            last_error_message TEXT,
+            backoff_until TEXT,
+            last_success_at TEXT,
+            health_status TEXT DEFAULT 'healthy',
             FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
         )
         "#
@@ -95,6 +109,7 @@ async fn test_file_watcher_queue_creation() {
     let config = WatchConfig {
         id: "test-watch".to_string(),
         path: PathBuf::from("/tmp"),
+        tenant_id: "test-tenant".to_string(),
         collection: "test-collection".to_string(),
         patterns: vec!["*.txt".to_string()],
         ignore_patterns: vec!["*.tmp".to_string()],
@@ -227,19 +242,18 @@ async fn test_unified_queue_enqueue_operation() {
 
     let item_type: String = row.try_get("item_type").expect("Failed to get item_type");
     let op: String = row.try_get("op").expect("Failed to get op");
-    let priority: i32 = row.try_get("priority").expect("Failed to get priority");
     let tenant_id: String = row.try_get("tenant_id").expect("Failed to get tenant_id");
 
     assert_eq!(item_type, "file");
     assert_eq!(op, "add");
-    assert_eq!(priority, 0);  // Priority is always 0 (computed dynamically at dequeue time)
+    // Priority column removed — computed dynamically at dequeue time via CASE/JOIN
     assert_eq!(tenant_id, "test-tenant");
 }
 
 #[tokio::test]
-async fn test_unified_queue_priority_always_zero() {
-    // Priority is computed dynamically at dequeue time via CASE/JOIN, not stored.
-    // All enqueued items should have priority=0 regardless of operation type.
+async fn test_unified_queue_multiple_operations() {
+    // Priority is computed dynamically at dequeue time via CASE/JOIN — no priority column stored.
+    // Verify that multiple operations can be enqueued with correct op types.
     let pool = create_test_database().await;
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
@@ -294,18 +308,18 @@ async fn test_unified_queue_priority_always_zero() {
         None,
     ).await.expect("Failed to enqueue delete");
 
-    // Verify all priorities are 0 in database
-    let rows = sqlx::query("SELECT file_path, priority FROM unified_queue ORDER BY file_path")
+    // Verify all three items were enqueued with correct ops
+    let rows = sqlx::query("SELECT file_path, op FROM unified_queue ORDER BY file_path")
         .fetch_all(&pool)
         .await
         .expect("Failed to fetch queue items");
 
     assert_eq!(rows.len(), 3);
 
-    for row in &rows {
-        let priority: i32 = row.try_get("priority").unwrap();
-        assert_eq!(priority, 0, "All stored priorities should be 0 (dynamic at dequeue time)");
-    }
+    let ops: Vec<String> = rows.iter().map(|r| r.try_get::<String, _>("op").unwrap()).collect();
+    assert!(ops.contains(&"delete".to_string()));
+    assert!(ops.contains(&"add".to_string()));
+    assert!(ops.contains(&"update".to_string()));
 }
 
 #[tokio::test]

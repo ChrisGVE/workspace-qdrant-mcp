@@ -71,6 +71,11 @@ pub struct TaskContext {
     pub checkpoint_id: Option<String>,
     /// Whether task supports checkpointing
     pub supports_checkpointing: bool,
+    /// Pre-computed tenant_id from watch_folders (single source of truth).
+    /// Populated from the queue item's tenant_id at task creation time.
+    /// Used in spill_to_sqlite() to avoid re-deriving from filesystem.
+    #[serde(default)]
+    pub tenant_id: Option<String>,
 }
 
 /// Source of the task for tracking and debugging
@@ -873,8 +878,9 @@ impl Pipeline {
             },
             checkpoint_id: Some(checkpoint_id.to_string()),
             supports_checkpointing: true,
+            tenant_id: None,
         };
-        
+
         let task = PriorityTask {
             context: context.clone(),
             payload,
@@ -1622,8 +1628,9 @@ impl TaskSubmitter {
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing,
+            tenant_id: None,
         };
-        
+
         let task = PriorityTask {
             context: context.clone(),
             payload: payload.clone(),
@@ -1793,8 +1800,9 @@ impl TaskSubmitter {
             },
             checkpoint_id: None,
             supports_checkpointing: false, // Urgent tasks don't support checkpointing for speed
+            tenant_id: None,
         };
-        
+
         let task = PriorityTask {
             context: context.clone(),
             payload,
@@ -1840,23 +1848,28 @@ impl TaskSubmitter {
 
         match payload {
             TaskPayload::ProcessDocument { file_path, collection, branch } => {
-                // Derive tenant_id from TaskSource
-                let tenant_id = match &context.source {
-                    TaskSource::ProjectWatcher { project_path } => {
-                        crate::watching_queue::calculate_tenant_id(
-                            std::path::Path::new(project_path),
-                        )
-                    }
-                    TaskSource::BackgroundWatcher { folder_path } => {
-                        crate::watching_queue::calculate_tenant_id(
-                            std::path::Path::new(folder_path),
-                        )
-                    }
-                    _ => {
-                        // Fallback: hash the file's parent directory
-                        let parent = file_path.parent()
-                            .unwrap_or_else(|| std::path::Path::new("/"));
-                        crate::watching_queue::calculate_tenant_id(parent)
+                // Use pre-computed tenant_id from TaskContext (single source of truth
+                // from watch_folders), falling back to filesystem derivation only
+                // when tenant_id wasn't populated (e.g., legacy code paths)
+                let tenant_id = if let Some(ref tid) = context.tenant_id {
+                    tid.clone()
+                } else {
+                    match &context.source {
+                        TaskSource::ProjectWatcher { project_path } => {
+                            wqm_common::project_id::calculate_tenant_id(
+                                std::path::Path::new(project_path),
+                            )
+                        }
+                        TaskSource::BackgroundWatcher { folder_path } => {
+                            wqm_common::project_id::calculate_tenant_id(
+                                std::path::Path::new(folder_path),
+                            )
+                        }
+                        _ => {
+                            let parent = file_path.parent()
+                                .unwrap_or_else(|| std::path::Path::new("/"));
+                            wqm_common::project_id::calculate_tenant_id(parent)
+                        }
                     }
                 };
 
@@ -3564,6 +3577,7 @@ mod tests {
                 metadata: HashMap::new(),
                 checkpoint_id: None,
                 supports_checkpointing: false,
+                tenant_id: None,
             },
             result_receiver: rx,
         };
@@ -3589,6 +3603,7 @@ mod tests {
                 metadata: HashMap::new(),
                 checkpoint_id: None,
                 supports_checkpointing: false,
+                tenant_id: None,
             },
             result_receiver: rx,
         };
@@ -3613,6 +3628,7 @@ mod tests {
                 metadata: HashMap::new(),
                 checkpoint_id: None,
                 supports_checkpointing: false,
+                tenant_id: None,
             },
             result_receiver: rx,
         };
@@ -3662,6 +3678,7 @@ mod tests {
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing: true,
+            tenant_id: None,
         };
         let payload = TaskPayload::ProcessDocument {
             file_path: std::path::PathBuf::from("/tmp/test_project/src/main.rs"),
@@ -3743,6 +3760,7 @@ mod tests {
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing: false,
+            tenant_id: None,
         };
 
         // Generic task should NOT be spillable
@@ -3794,6 +3812,7 @@ mod tests {
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing: true,
+            tenant_id: None,
         };
         let payload = TaskPayload::ProcessDocument {
             file_path: std::path::PathBuf::from("/home/user/docs/readme.md"),
