@@ -1,11 +1,16 @@
 //! Graph database module for code relationship storage and querying.
 //!
-//! Provides a `GraphStore` trait abstracting graph operations, with a
-//! `SqliteGraphStore` implementation using recursive CTEs for traversal.
+//! Provides a `GraphStore` trait abstracting graph operations, with
+//! `SqliteGraphStore` (recursive CTEs) and `LadybugGraphStore` (Kuzu
+//! fork, behind `ladybug` feature flag) implementations.
+//!
+//! Use `factory::create_sqlite_graph_store` or the LadybugDB variant
+//! to instantiate the appropriate backend based on configuration.
 //! The graph is stored in a dedicated `graph.db` file separate from
 //! `state.db` to avoid lock contention with queue processing.
 
 pub mod extractor;
+pub mod factory;
 mod schema;
 mod shared;
 mod sqlite_store;
@@ -16,6 +21,9 @@ pub mod ladybug_store;
 #[cfg(test)]
 mod tests;
 
+pub use factory::{GraphBackend, GraphConfig, create_sqlite_graph_store};
+#[cfg(feature = "ladybug")]
+pub use factory::create_ladybug_graph_store;
 pub use schema::{GraphDbManager, GraphDbError, GraphDbResult, GRAPH_DB_FILENAME, GRAPH_SCHEMA_VERSION};
 #[cfg(feature = "ladybug")]
 pub use ladybug_store::{LadybugGraphStore, LadybugConfig};
@@ -286,8 +294,9 @@ pub struct GraphStats {
 
 /// Trait abstracting graph storage operations.
 ///
-/// Phase 1 implementation uses SQLite recursive CTEs.
-/// Phase 2 will add a LadybugDB implementation behind a feature flag.
+/// Implementations:
+/// - `SqliteGraphStore`: SQLite with recursive CTEs (default)
+/// - `LadybugGraphStore`: Kuzu fork with Cypher queries (`ladybug` feature)
 #[async_trait]
 pub trait GraphStore: Send + Sync {
     /// Insert or update a node. If the node_id already exists, update metadata.
