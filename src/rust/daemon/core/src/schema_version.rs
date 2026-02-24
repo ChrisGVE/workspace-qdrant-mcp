@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 24;
+pub const CURRENT_SCHEMA_VERSION: i32 = 25;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -174,6 +174,7 @@ impl SchemaManager {
             22 => self.migrate_v22().await,
             23 => self.migrate_v23().await,
             24 => self.migrate_v24().await,
+            25 => self.migrate_v25().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -1169,6 +1170,23 @@ impl SchemaManager {
         }
 
         info!("Migration v24 complete");
+        Ok(())
+    }
+
+    async fn migrate_v25(&self) -> Result<(), SchemaError> {
+        info!("Migration v25: Creating project_embeddings and affinity_labels tables");
+
+        use super::affinity_grouper::{CREATE_PROJECT_EMBEDDINGS_SQL, CREATE_AFFINITY_LABELS_SQL};
+
+        sqlx::query(CREATE_PROJECT_EMBEDDINGS_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query(CREATE_AFFINITY_LABELS_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        info!("Migration v25 complete");
         Ok(())
     }
 }
