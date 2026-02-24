@@ -3362,3 +3362,17 @@ tagging:
     # temperature: LLM sampling temperature (lower = more deterministic)
     # Format: Float 0.0–1.0
     temperature: 0.3
+
+    # total_budget_secs: Hard wall-clock ceiling for the entire extract_tags() call
+    # Purpose: Prevents a slow/down provider from blocking the ingestion pipeline
+    # When exceeded: Remaining chunks are skipped, partial results returned
+    # Format: Integer (seconds)
+    # Default reasoning: 60s is generous for 10 chunks but prevents multi-minute stalls
+    total_budget_secs: 60
+
+    # max_consecutive_failures: Circuit breaker — abort after N consecutive chunk failures
+    # Purpose: If the provider is down, stop wasting time on subsequent chunks
+    # When triggered: Remaining chunks skipped, partial results returned
+    # Format: Integer
+    # Default reasoning: 2 consecutive failures strongly suggests provider is unreachable
+    max_consecutive_failures: 2

@@ -120,6 +120,13 @@ pub struct Tier3Config {
     pub max_retries: u32,
     pub rate_limit_rps: u32,
     pub temperature: f64,
+    /// Hard ceiling for the entire `extract_tags()` call (seconds).
+    /// Prevents a slow/down provider from blocking the ingestion pipeline.
+    pub total_budget_secs: u64,
+    /// Abort remaining chunks after this many consecutive per-chunk failures.
+    /// Acts as a circuit breaker — if the provider is consistently down, stop
+    /// wasting time on subsequent chunks.
+    pub max_consecutive_failures: u32,
 }
 
 impl Default for Tier3Config {
@@ -140,6 +147,8 @@ impl Default for Tier3Config {
             max_retries: 2,
             rate_limit_rps: 10,
             temperature: 0.3,
+            total_budget_secs: 60,
+            max_consecutive_failures: 2,
         }
     }
 }
@@ -261,17 +270,62 @@ impl Tier3Tagger {
     ///
     /// Returns `Vec<SelectedTag>` with `TagType::Concept` and `"llm:"` prefix.
     /// Gracefully returns empty vec on all failure modes.
+    ///
+    /// Two safety mechanisms prevent blocking the ingestion pipeline:
+    /// - **Total budget**: hard wall-clock ceiling (`total_budget_secs`).
+    /// - **Circuit breaker**: aborts after `max_consecutive_failures` chunks
+    ///   fail in a row (provider is likely down/unreachable).
     pub async fn extract_tags(&self, chunks: &[&str]) -> Vec<SelectedTag> {
         if !self.config.enabled || chunks.is_empty() {
             return Vec::new();
         }
 
         let limited_chunks = &chunks[..chunks.len().min(self.config.max_chunks_per_doc)];
+        let deadline = tokio::time::Instant::now()
+            + Duration::from_secs(self.config.total_budget_secs);
+        let mut consecutive_failures: u32 = 0;
         let mut all_chunk_tags: Vec<Vec<String>> = Vec::new();
 
-        for chunk in limited_chunks {
-            let tags = self.extract_single_chunk(chunk).await;
-            all_chunk_tags.push(tags);
+        for (i, chunk) in limited_chunks.iter().enumerate() {
+            // Budget check: stop if we've exceeded the total time budget
+            if tokio::time::Instant::now() >= deadline {
+                warn!(
+                    "Tier3 total budget ({}s) exceeded after {}/{} chunks",
+                    self.config.total_budget_secs, i, limited_chunks.len()
+                );
+                break;
+            }
+
+            // Circuit breaker: stop if too many consecutive chunks failed
+            if consecutive_failures >= self.config.max_consecutive_failures {
+                warn!(
+                    "Tier3 circuit breaker: {} consecutive failures, \
+                     aborting remaining {}/{} chunks",
+                    consecutive_failures, i, limited_chunks.len()
+                );
+                break;
+            }
+
+            // Apply budget as a per-chunk timeout so we can't overshoot
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, self.extract_single_chunk(chunk)).await {
+                Ok(tags) => {
+                    if tags.is_empty() {
+                        consecutive_failures += 1;
+                    } else {
+                        consecutive_failures = 0;
+                    }
+                    all_chunk_tags.push(tags);
+                }
+                Err(_) => {
+                    warn!(
+                        "Tier3 chunk {}/{} timed out (budget exhausted)",
+                        i + 1,
+                        limited_chunks.len()
+                    );
+                    break;
+                }
+            }
         }
 
         aggregate_tags(&all_chunk_tags, 10)
@@ -1002,6 +1056,8 @@ mod tests {
         assert_eq!(config.max_retries, 2);
         assert_eq!(config.rate_limit_rps, 10);
         assert!((config.temperature - 0.3).abs() < 1e-6);
+        assert_eq!(config.total_budget_secs, 60);
+        assert_eq!(config.max_consecutive_failures, 2);
     }
 
     #[test]

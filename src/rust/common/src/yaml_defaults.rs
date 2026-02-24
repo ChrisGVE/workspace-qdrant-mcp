@@ -691,6 +691,8 @@ pub struct YamlTier3Config {
     pub max_retries: u32,
     pub rate_limit_rps: u32,
     pub temperature: f64,
+    pub total_budget_secs: u64,
+    pub max_consecutive_failures: u32,
 }
 
 impl Default for YamlTier3Config {
@@ -705,6 +707,8 @@ impl Default for YamlTier3Config {
             max_retries: 2,
             rate_limit_rps: 10,
             temperature: 0.3,
+            total_budget_secs: 60,
+            max_consecutive_failures: 2,
         }
     }
 }
@@ -918,5 +922,7 @@ mod tests {
         assert_eq!(config.tagging.tier3.max_retries, 2);
         assert_eq!(config.tagging.tier3.rate_limit_rps, 10);
         assert!((config.tagging.tier3.temperature - 0.3).abs() < 1e-6);
+        assert_eq!(config.tagging.tier3.total_budget_secs, 60);
+        assert_eq!(config.tagging.tier3.max_consecutive_failures, 2);
     }
 }
