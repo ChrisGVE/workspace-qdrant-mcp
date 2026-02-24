@@ -12,7 +12,7 @@ workspace-qdrant-mcp (v0.1.0-beta1) is a Model Context Protocol (MCP) server pro
 - **CLI**: Rust (high-performance command-line interface)
 
 **Core Features:**
-- 4 MCP tools: store, search, rules, retrieve
+- 6 MCP tools: store, search, rules, retrieve, grep, list
 - Hybrid search combining dense (semantic) and sparse (keyword) vectors
 - Automatic project detection with Git integration
 - Behavioral rules via persistent rules collection
@@ -302,11 +302,13 @@ src/
 ### Key Design Patterns
 
 **MCP Server (TypeScript):**
-- 4 tools (no more, no less)
+- 6 tools:
 - `store` - Content storage to libraries collection
 - `search` - Hybrid semantic + keyword search
 - `rules` - Behavioral rules management
 - `retrieve` - Direct document access
+- `grep` - Exact substring/regex code search via FTS5
+- `list` - Project file/folder structure listing (tree, summary, flat)
 
 **MCP SDK Session Lifecycle (Verified Task 2):**
 - Using `@modelcontextprotocol/sdk` ^1.0.0

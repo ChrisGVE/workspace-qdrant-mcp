@@ -1,7 +1,7 @@
 /**
  * Integration tests for WorkspaceQdrantMcpServer
  *
- * Tests all 4 MCP tools and session lifecycle through the server's
+ * Tests all 6 MCP tools and session lifecycle through the server's
  * request handlers, verifying end-to-end behavior.
  */
 
@@ -120,6 +120,31 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_scan TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tracked_files (
+    file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    watch_folder_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    branch TEXT,
+    file_type TEXT,
+    language TEXT,
+    file_mtime TEXT NOT NULL,
+    file_hash TEXT NOT NULL,
+    chunk_count INTEGER DEFAULT 0,
+    chunking_method TEXT,
+    lsp_status TEXT DEFAULT 'none',
+    treesitter_status TEXT DEFAULT 'none',
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    collection TEXT NOT NULL DEFAULT 'projects',
+    extension TEXT,
+    is_test INTEGER DEFAULT 0,
+    base_point TEXT,
+    relative_path TEXT,
+    FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
+    UNIQUE(watch_folder_id, file_path, branch)
 );
 
 CREATE TABLE IF NOT EXISTS unified_queue (
@@ -625,6 +650,255 @@ describe('Server Integration Tests', () => {
       // Result should be a structured response (success or error)
       expect(result.content).toBeDefined();
       expect(result.content[0].text).toBeDefined();
+    });
+  });
+
+  describe('List Tool Integration', () => {
+    const NOW = '2026-02-24T12:00:00Z';
+    const WATCH_ID = 'watch-list';
+    const SUBMOD_WATCH_ID = 'watch-submod';
+
+    function seedListData(dbPath: string): void {
+      const db = new Database(dbPath);
+
+      // Insert parent project watch folder
+      db.prepare(
+        `INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+         VALUES (?, '/tmp/list-project', 'projects', 'list-tenant', 1, ?, ?)`,
+      ).run(WATCH_ID, NOW, NOW);
+
+      // Insert submodule watch folder
+      db.prepare(
+        `INSERT INTO watch_folders (watch_id, path, collection, tenant_id, parent_watch_id, submodule_path,
+         git_remote_url, is_active, created_at, updated_at)
+         VALUES (?, '/tmp/list-project/vendor/lib-x', 'projects', 'list-tenant', ?, 'vendor/lib-x',
+         'https://github.com/acme/lib-x.git', 1, ?, ?)`,
+      ).run(SUBMOD_WATCH_ID, WATCH_ID, NOW, NOW);
+
+      // Seed tracked files
+      const insertFile = db.prepare(
+        `INSERT INTO tracked_files
+         (watch_folder_id, file_path, relative_path, branch, file_type, language,
+          extension, is_test, file_mtime, file_hash, created_at, updated_at)
+         VALUES (?, ?, ?, 'main', ?, ?, ?, ?, ?, 'abc123', ?, ?)`,
+      );
+
+      const files = [
+        [WATCH_ID, '/tmp/list-project/src/main.rs', 'src/main.rs', 'code', 'rust', 'rs', 0],
+        [WATCH_ID, '/tmp/list-project/src/lib.rs', 'src/lib.rs', 'code', 'rust', 'rs', 0],
+        [WATCH_ID, '/tmp/list-project/src/utils/helpers.rs', 'src/utils/helpers.rs', 'code', 'rust', 'rs', 0],
+        [WATCH_ID, '/tmp/list-project/tests/test_main.rs', 'tests/test_main.rs', 'code', 'rust', 'rs', 1],
+        [WATCH_ID, '/tmp/list-project/README.md', 'README.md', 'text', null, 'md', 0],
+        [WATCH_ID, '/tmp/list-project/Cargo.toml', 'Cargo.toml', 'config', null, 'toml', 0],
+        [WATCH_ID, '/tmp/list-project/vendor/lib-x/src/lib.rs', 'vendor/lib-x/src/lib.rs', 'code', 'rust', 'rs', 0],
+      ];
+
+      for (const f of files) {
+        insertFile.run(f[0], f[1], f[2], f[3], f[4], f[5], f[6], NOW, NOW, NOW);
+      }
+
+      db.close();
+    }
+
+    beforeEach(async () => {
+      seedListData(join(tempDir, 'state.db'));
+
+      // Create project directory with .git marker
+      const projectPath = join(tempDir, 'list-project');
+      mkdirSync(projectPath, { recursive: true });
+      mkdirSync(join(projectPath, '.git'));
+
+      // Update watch folder to use real path
+      const db = new Database(join(tempDir, 'state.db'));
+      const realPath = realpathSync(projectPath);
+      db.prepare('UPDATE watch_folders SET path = ? WHERE watch_id = ?').run(realPath, WATCH_ID);
+      db.close();
+
+      const originalCwd = process.cwd();
+      process.chdir(projectPath);
+
+      server = new WorkspaceQdrantMcpServer({ config, stdio: false });
+      await server.start();
+
+      process.chdir(originalCwd);
+    });
+
+    // All list calls pass projectId explicitly (simulating real session state)
+    const LIST_TENANT = 'list-tenant';
+
+    it('should list files in tree format', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'tree', projectId: LIST_TENANT },
+        },
+      });
+
+      expect(result.content).toBeDefined();
+      expect(result.isError).toBeUndefined();
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.format).toBe('tree');
+      expect(data.stats.files).toBeGreaterThan(0);
+      expect(data.listing).toContain('src/');
+    });
+
+    it('should list files in summary format', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'summary', projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.format).toBe('summary');
+      expect(data.listing).toContain('files');
+    });
+
+    it('should list files in flat format', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'flat', projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.format).toBe('flat');
+      expect(data.listing).toContain('src/main.rs');
+    });
+
+    it('should filter by file extension', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'flat', extension: 'toml', projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.listing).toContain('Cargo.toml');
+      expect(data.listing).not.toContain('main.rs');
+    });
+
+    it('should exclude test files when includeTests is false', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'flat', includeTests: false, projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.listing).not.toContain('test_main.rs');
+      expect(data.listing).toContain('main.rs');
+    });
+
+    it('should show submodule markers in tree view', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'tree', projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.listing).toContain('[submodule: lib-x]');
+    });
+
+    it('should respect depth limit', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'tree', depth: 1, projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      // At depth 1, nested folders should be collapsed
+      expect(data.listing).not.toContain('helpers.rs');
+    });
+
+    it('should respect result limit', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'flat', limit: 2, projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.stats.truncated).toBe(true);
+    });
+
+    it('should handle empty project gracefully', async () => {
+      // Wipe tracked files
+      const db = new Database(join(tempDir, 'state.db'));
+      db.prepare('DELETE FROM tracked_files').run();
+      db.close();
+
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.stats.files).toBe(0);
+    });
+
+    it('should default to tree format when no format specified', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.format).toBe('tree');
     });
   });
 

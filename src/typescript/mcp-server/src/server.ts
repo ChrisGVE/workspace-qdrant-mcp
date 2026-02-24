@@ -76,6 +76,7 @@ export class WorkspaceQdrantMcpServer {
           'ALWAYS use the `search` tool before answering questions about the user\'s code, project structure, or library documentation.',
           'Use the `rules` tool to check for behavioral preferences before starting work.',
           'Use `retrieve` to access specific documents when you know the document ID.',
+          'Use `list` to browse project file/folder structure — start with format "summary" to get an overview.',
           'Collections: projects (indexed code), libraries (reference docs), rules (behavioral rules).',
         ].join(' '),
       }
