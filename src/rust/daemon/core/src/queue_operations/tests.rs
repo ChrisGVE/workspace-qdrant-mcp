@@ -229,7 +229,7 @@ async fn test_unified_queue_mark_failed_retry() {
 
     // First failure (transient) - should retry with backoff
     let will_retry = manager
-        .mark_unified_failed(&queue_id, "Test error 1", false)
+        .mark_unified_failed(&queue_id, "Test error 1", false, 3)
         .await
         .unwrap();
     assert!(will_retry);
@@ -252,7 +252,7 @@ async fn test_unified_queue_mark_failed_retry() {
             .await
             .unwrap();
         let will_retry = manager
-            .mark_unified_failed(&queue_id, &format!("Test error {}", i), false)
+            .mark_unified_failed(&queue_id, &format!("Test error {}", i), false, 3)
             .await
             .unwrap();
 
@@ -316,7 +316,7 @@ async fn test_unified_queue_mark_failed_permanent() {
 
     // Permanent failure - should NOT retry even though retries remain
     let will_retry = manager
-        .mark_unified_failed(&queue_id, "File not found: /test/file.rs", true)
+        .mark_unified_failed(&queue_id, "File not found: /test/file.rs", true, 3)
         .await
         .unwrap();
     assert!(!will_retry, "Permanent errors should not retry");
@@ -368,7 +368,7 @@ async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
 
     // Transient failure with backoff
     let will_retry = manager
-        .mark_unified_failed(&queue_id, "Connection refused", false)
+        .mark_unified_failed(&queue_id, "Connection refused", false, 3)
         .await
         .unwrap();
     assert!(will_retry);

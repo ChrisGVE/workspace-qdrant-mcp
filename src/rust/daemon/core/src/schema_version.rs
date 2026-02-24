@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 26;
+pub const CURRENT_SCHEMA_VERSION: i32 = 27;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -176,6 +176,7 @@ impl SchemaManager {
             24 => self.migrate_v24().await,
             25 => self.migrate_v25().await,
             26 => self.migrate_v26().await,
+            27 => self.migrate_v27().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -1232,6 +1233,28 @@ impl SchemaManager {
         .await?;
 
         info!("Migration v26 complete");
+        Ok(())
+    }
+
+    async fn migrate_v27(&self) -> Result<(), SchemaError> {
+        info!("Migration v27: Drop max_retries column from unified_queue (centralized in config)");
+
+        // SQLite 3.35.0+ supports ALTER TABLE DROP COLUMN.
+        // For older SQLite, the column will remain but is unused.
+        let result = sqlx::query("ALTER TABLE unified_queue DROP COLUMN max_retries")
+            .execute(&self.pool)
+            .await;
+
+        match result {
+            Ok(_) => {
+                info!("Migration v27 complete: max_retries column dropped");
+            }
+            Err(e) => {
+                // Column may not exist (fresh schema) or SQLite too old — either is fine
+                debug!("Migration v27: max_retries column not dropped ({}), continuing", e);
+            }
+        }
+
         Ok(())
     }
 }

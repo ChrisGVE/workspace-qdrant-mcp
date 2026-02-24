@@ -185,8 +185,8 @@ impl UnifiedQueueClient {
             INSERT OR IGNORE INTO unified_queue (
                 queue_id, idempotency_key, item_type, op, tenant_id, collection,
                 status, branch, payload_json, metadata,
-                created_at, updated_at, retry_count, max_retries
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?10, 0, 3)
+                created_at, updated_at, retry_count
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?10, 0)
             "#,
             rusqlite::params![
                 &queue_id,

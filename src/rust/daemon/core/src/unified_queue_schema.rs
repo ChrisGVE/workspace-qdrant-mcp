@@ -57,9 +57,6 @@ pub struct UnifiedQueueItem {
     /// Number of retry attempts
     #[serde(default)]
     pub retry_count: i32,
-    /// Maximum allowed retries
-    #[serde(default = "default_max_retries")]
-    pub max_retries: i32,
     /// Last error message if failed
     #[serde(default)]
     pub error_message: Option<String>,
@@ -80,8 +77,6 @@ pub struct UnifiedQueueItem {
     #[serde(default)]
     pub decision_json: Option<String>,
 }
-
-fn default_max_retries() -> i32 { 3 }
 
 impl UnifiedQueueItem {
     /// Parse the payload JSON into a typed payload struct
@@ -156,11 +151,6 @@ impl UnifiedQueueItem {
             | (DestinationStatus::Failed, DestinationStatus::Failed) => QueueStatus::Failed,
             _ => QueueStatus::InProgress,
         }
-    }
-
-    /// Check if the item can be retried
-    pub fn can_retry(&self) -> bool {
-        self.retry_count < self.max_retries
     }
 
     /// Check if the lease has expired
@@ -528,7 +518,6 @@ mod tests {
             lease_until: None,
             worker_id: None,
             retry_count: 0,
-            max_retries: 3,
             error_message: None,
             last_error_at: None,
             file_path: None,
@@ -557,7 +546,6 @@ mod tests {
             lease_until: None,
             worker_id: None,
             retry_count: 0,
-            max_retries: 3,
             error_message: None,
             last_error_at: None,
             file_path: None,
@@ -586,7 +574,6 @@ mod tests {
             lease_until: None,
             worker_id: None,
             retry_count: 0,
-            max_retries: 3,
             error_message: None,
             last_error_at: None,
             file_path: None,
@@ -615,7 +602,6 @@ mod tests {
             lease_until: None,
             worker_id: None,
             retry_count: 0,
-            max_retries: 3,
             error_message: None,
             last_error_at: None,
             file_path: None,

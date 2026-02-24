@@ -167,7 +167,6 @@ mod tests {
             lease_until: None,
             worker_id: None,
             retry_count: 0,
-            max_retries: 3,
             error_message: None,
             last_error_at: None,
             file_path: None,

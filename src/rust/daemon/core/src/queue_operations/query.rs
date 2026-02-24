@@ -162,7 +162,6 @@ impl QueueManager {
                     lease_until: row.try_get("lease_until")?,
                     worker_id: row.try_get("worker_id")?,
                     retry_count: row.try_get("retry_count")?,
-                    max_retries: row.try_get("max_retries")?,
                     error_message: row.try_get("error_message")?,
                     last_error_at: row.try_get("last_error_at")?,
                     file_path: row.try_get("file_path")?, // Task 22

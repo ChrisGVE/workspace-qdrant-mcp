@@ -194,7 +194,6 @@ pub struct QueueDetailItem {
     pub lease_until: Option<String>,
     pub worker_id: Option<String>,
     pub retry_count: i32,
-    pub max_retries: i32,
     pub error_message: Option<String>,
     pub last_error_at: Option<String>,
 }
@@ -437,7 +436,7 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
     let query = r#"
         SELECT queue_id, idempotency_key, item_type, op, tenant_id, collection,
                status, branch, payload_json, metadata, created_at,
-               updated_at, lease_until, worker_id, retry_count, max_retries,
+               updated_at, lease_until, worker_id, retry_count,
                error_message, last_error_at
         FROM unified_queue
         WHERE queue_id = ? OR queue_id LIKE ? OR idempotency_key LIKE ?
@@ -463,9 +462,8 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
             lease_until: row.get(12)?,
             worker_id: row.get(13)?,
             retry_count: row.get(14)?,
-            max_retries: row.get(15)?,
-            error_message: row.get(16)?,
-            last_error_at: row.get(17)?,
+            error_message: row.get(15)?,
+            last_error_at: row.get(16)?,
         })
     });
 
@@ -485,7 +483,7 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
                 output::kv("Branch", &item.branch);
                 output::separator();
                 output::kv("Status", &format_status(&item.status));
-                output::kv("Retry Count", &format!("{}/{}", item.retry_count, item.max_retries));
+                output::kv("Retry Count", &item.retry_count.to_string());
                 output::separator();
                 output::kv("Created At", &wqm_common::timestamp_fmt::format_local(&item.created_at));
                 output::kv("Updated At", &wqm_common::timestamp_fmt::format_local(&item.updated_at));
@@ -777,14 +775,14 @@ async fn retry(queue_id: Option<String>, all: bool) -> Result<()> {
         let prefix = format!("{}%", id);
 
         // Find the item first
-        let result: Result<(String, String, i32, i32), _> = conn.query_row(
-            "SELECT queue_id, status, retry_count, max_retries FROM unified_queue WHERE queue_id = ?1 OR queue_id LIKE ?2 LIMIT 1",
+        let result: Result<(String, String, i32), _> = conn.query_row(
+            "SELECT queue_id, status, retry_count FROM unified_queue WHERE queue_id = ?1 OR queue_id LIKE ?2 LIMIT 1",
             params![&id, &prefix],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         );
 
         match result {
-            Ok((found_id, status, retry_count, max_retries)) => {
+            Ok((found_id, status, retry_count)) => {
                 if status != "failed" {
                     output::warning(format!(
                         "Item {} has status '{}', not 'failed'. Use --status filter with list to find failed items.",
@@ -809,8 +807,8 @@ async fn retry(queue_id: Option<String>, all: bool) -> Result<()> {
                 )?;
 
                 output::success(format!(
-                    "Reset item {} to pending (was retry {}/{})",
-                    found_id, retry_count, max_retries
+                    "Reset item {} to pending (was retry {})",
+                    found_id, retry_count
                 ));
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
@@ -987,7 +985,6 @@ mod tests {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 retry_count INTEGER DEFAULT 0,
-                max_retries INTEGER DEFAULT 3,
                 last_error TEXT,
                 leased_by TEXT,
                 lease_expires_at TEXT,

@@ -316,7 +316,7 @@ impl UnifiedQueueProcessor {
                                     // Prefix error message with category for observability
                                     let categorized_msg = format!("[{}] {}", error_category, e);
                                     if let Err(mark_err) = queue_manager
-                                        .mark_unified_failed(&item.queue_id, &categorized_msg, is_permanent)
+                                        .mark_unified_failed(&item.queue_id, &categorized_msg, is_permanent, config.max_retries)
                                         .await
                                     {
                                         error!("Failed to mark item {} as failed: {}", item.queue_id, mark_err);

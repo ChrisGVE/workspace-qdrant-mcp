@@ -84,10 +84,11 @@ impl QueueManager {
         queue_id: &str,
         error_message: &str,
         permanent: bool,
+        max_retries: i32,
     ) -> QueueResult<bool> {
-        // Get current retry state
+        // Get current retry count
         let row = sqlx::query(
-            "SELECT retry_count, max_retries FROM unified_queue WHERE queue_id = ?1"
+            "SELECT retry_count FROM unified_queue WHERE queue_id = ?1"
         )
             .bind(queue_id)
             .fetch_optional(&self.pool)
@@ -95,7 +96,6 @@ impl QueueManager {
 
         if let Some(row) = row {
             let retry_count: i32 = row.try_get("retry_count")?;
-            let max_retries: i32 = row.try_get("max_retries")?;
             let new_retry_count = retry_count + 1;
 
             if !permanent && new_retry_count < max_retries {

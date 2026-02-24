@@ -272,7 +272,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             retry_count INTEGER DEFAULT 0,
-            max_retries INTEGER DEFAULT 3,
             last_error TEXT,
             leased_by TEXT,
             lease_expires_at TEXT

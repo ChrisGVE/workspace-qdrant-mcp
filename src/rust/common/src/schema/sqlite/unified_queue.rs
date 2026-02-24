@@ -17,7 +17,6 @@ pub const WORKER_ID: FieldDef = FieldDef::categorical("worker_id");
 pub const IDEMPOTENCY_KEY: FieldDef = FieldDef::categorical("idempotency_key");
 pub const PAYLOAD_JSON: FieldDef = FieldDef::content("payload_json");
 pub const RETRY_COUNT: FieldDef = FieldDef::categorical("retry_count");
-pub const MAX_RETRIES: FieldDef = FieldDef::categorical("max_retries");
 pub const ERROR_MESSAGE: FieldDef = FieldDef::content("error_message");
 pub const LAST_ERROR_AT: FieldDef = FieldDef::categorical("last_error_at");
 pub const BRANCH: FieldDef = FieldDef::categorical("branch");
@@ -29,7 +28,7 @@ pub const ALL_COLUMNS: &[FieldDef] = &[
     QUEUE_ID, ITEM_TYPE, OP, TENANT_ID, COLLECTION,
     STATUS, CREATED_AT, UPDATED_AT,
     LEASE_UNTIL, WORKER_ID, IDEMPOTENCY_KEY,
-    PAYLOAD_JSON, RETRY_COUNT, MAX_RETRIES,
+    PAYLOAD_JSON, RETRY_COUNT,
     ERROR_MESSAGE, LAST_ERROR_AT, BRANCH, METADATA, FILE_PATH,
 ];
 
@@ -45,7 +44,7 @@ mod tests {
 
     #[test]
     fn column_count() {
-        assert_eq!(ALL_COLUMNS.len(), 19);
+        assert_eq!(ALL_COLUMNS.len(), 18);
     }
 
     #[test]

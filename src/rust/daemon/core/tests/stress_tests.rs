@@ -180,7 +180,6 @@ async fn setup_test_db() -> (sqlx::SqlitePool, TempDir) {
             idempotency_key TEXT NOT NULL UNIQUE,
             payload_json TEXT NOT NULL DEFAULT '{}',
             retry_count INTEGER NOT NULL DEFAULT 0,
-            max_retries INTEGER NOT NULL DEFAULT 3,
             error_message TEXT,
             last_error_at TEXT,
             branch TEXT DEFAULT 'main',
