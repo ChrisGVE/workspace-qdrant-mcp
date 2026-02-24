@@ -125,7 +125,7 @@ Marked locations:
 - `test_project_collection_routing` - PROJECT collection compliance
 - `test_user_collection_routing` - USER collection compliance
 - `test_library_collection_routing` - LIBRARY collection compliance
-- `test_memory_collection_exception_documented` - MEMORY exception documentation
+- `test_rules_collection_exception_documented` - RULES exception documentation
 
 #### TestFallbackBehaviorCompliance (3 tests)
 - `test_fallback_includes_warning_log` - Logging requirements

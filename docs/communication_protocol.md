@@ -605,7 +605,7 @@ service DocumentService {
 ```protobuf
 message IngestTextRequest {
     string content = 1;                           // The text to ingest
-    string collection_basename = 2;               // e.g., "memory", "scratchbook"
+    string collection_basename = 2;               // e.g., "rules", "scratchbook"
     string tenant_id = 3;                         // Multi-tenant identifier
     optional string document_id = 4;              // Custom ID (generated if omitted)
     map<string, string> metadata = 5;             // Additional metadata
@@ -1276,7 +1276,7 @@ Response 200 OK:
 **Potential use cases:**
 - Save session state before compaction
 - Archive conversation history
-- Update memory collections
+- Update rules collections
 
 ---
 
@@ -1295,7 +1295,7 @@ Request:
 Response 200 OK:
 {
   "success": true,
-  "message": "Session started, memory collection ingestion triggered"
+  "message": "Session started, rules collection ingestion triggered"
 }
 ```
 
@@ -1304,7 +1304,7 @@ Response 200 OK:
 **Behavior:**
 
 When `source` is one of `["startup", "clear", "compact"]`:
-1. Trigger memory collection ingestion for the project
+1. Trigger rules collection ingestion for the project
 2. Begin tracking session for file changes
 3. Return immediately (ingestion is asynchronous)
 

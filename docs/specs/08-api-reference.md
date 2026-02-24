@@ -18,7 +18,7 @@ Semantic search with optional direct retrieval mode.
 ```typescript
 search({
     query: string,                      // Required: search query
-    collection?: "projects" | "libraries" | "memory", // default: "projects"
+    collection?: "projects" | "libraries" | "rules", // default: "projects"
     mode?: "hybrid" | "semantic" | "keyword" | "retrieve", // default: "hybrid"
     limit?: number,                     // default: 10
     score_threshold?: number,           // default: 0.3 (ignored in retrieve mode)
@@ -120,7 +120,7 @@ Direct document access for chunk-by-chunk retrieval.
 ```typescript
 retrieve({
     document_id?: string,              // Specific document ID
-    collection?: "projects" | "libraries" | "memory", // default: "projects"
+    collection?: "projects" | "libraries" | "rules", // default: "projects"
     metadata?: Record<string, unknown>, // Metadata filters
     limit?: number,                    // default: 10
     offset?: number,                   // default: 0, for pagination
@@ -148,7 +148,7 @@ memory({
 - `add`: Create new rule (queued for daemon)
 - `update`: Update existing rule (queued for daemon)
 - `remove`: Remove rule (queued for daemon)
-- `list`: List rules (implemented as a search query against the memory collection)
+- `list`: List rules (implemented as a search query against the rules collection)
 
 **Implementation note:** The `list` action is internally a semantic search with scope filtering. This allows consistent behavior with other collection queries while providing a simpler interface for rule management.
 

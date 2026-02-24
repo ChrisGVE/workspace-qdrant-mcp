@@ -48,7 +48,7 @@ This replaces the HTTP-based approach documented in `docs/claude_code_integratio
 1. **memexd daemon** running (`wqm service status`)
 2. **wqm CLI** installed and in PATH
 3. **Claude Code** with hooks support
-4. **Qdrant** running (for memory collection access)
+4. **Qdrant** running (for rules collection access)
 
 ## Hook Configuration
 
@@ -135,7 +135,7 @@ wqm session start --json --lightweight
 **Full initialization flow:**
 1. Detect project from current working directory (git analysis)
 2. Send `RegisterProject` gRPC to daemon (sets `is_active = 1` for project group)
-3. Fetch global rules from the `memory` collection
+3. Fetch global rules from the `rules` collection
 4. Fetch project-scoped rules (if any)
 5. Output JSON with `additionalContext` containing formatted rules
 

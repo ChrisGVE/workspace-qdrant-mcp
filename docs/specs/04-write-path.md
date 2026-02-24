@@ -60,7 +60,7 @@ Only session lifecycle messages go directly to daemon via gRPC:
 ### Collection Ownership
 
 - **Daemon owns all collections**: Creates the 4 canonical collections on startup
-- **No collection creation via MCP/CLI**: Only `projects`, `libraries`, `memory`, `scratchpad` exist
+- **No collection creation via MCP/CLI**: Only `projects`, `libraries`, `rules`, `scratchpad` exist
 - **No user-created collections**: The 4-collection model is fixed
 
 ### gRPC Methods (Reserved)
@@ -79,7 +79,7 @@ Priority is **calculated at query time**, not stored in the queue:
 
 | Item Type                            | Priority | Calculation                            |
 | ------------------------------------ | -------- | -------------------------------------- |
-| `memory` (any scope)                 | 1 (high) | Always high priority                   |
+| `rules` (any scope)                  | 1 (high) | Always high priority                   |
 | `file`/`folder` for active project   | 1 (high) | JOIN with `watch_folders.is_active`    |
 | `file`/`folder` for inactive project | 0 (low)  | JOIN with `watch_folders.is_active`    |
 | `library`                            | 0 (low)  | Background processing                  |
@@ -125,7 +125,7 @@ CREATE TABLE unified_queue (
     )),
     op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
     tenant_id TEXT NOT NULL,
-    collection TEXT NOT NULL,            -- projects|libraries|memory
+    collection TEXT NOT NULL,            -- projects|libraries|rules
 
     -- Processing control
     priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
@@ -441,13 +441,13 @@ edited in a large file).
 
 #### Item Types
 
-##### `memory` - Behavioral Rules
+##### `rules` - Behavioral Rules
 
 **Purpose:** LLM behavioral rules that persist across sessions.
 
-**Writers:** MCP server (`rules` tool), CLI (`wqm memory add/update/remove`)
+**Writers:** MCP server (`rules` tool), CLI (`wqm rules add/update/remove`)
 
-**Target collection:** `memory`
+**Target collection:** `rules`
 
 **Priority:** 1 (high) - always processed with active project priority
 
@@ -462,7 +462,7 @@ edited in a large file).
 **Queue fields:**
 
 - `tenant_id`: `"global"` for global scope, or `<project_id>` for project scope
-- `collection`: `"memory"`
+- `collection`: `"rules"`
 
 **Payload structure:**
 
@@ -489,7 +489,7 @@ edited in a large file).
 }
 ```
 
-**Idempotency key:** `SHA256(memory|<op>|<tenant_id>|memory|<payload_json>)[:32]`
+**Idempotency key:** `SHA256(rules|<op>|<tenant_id>|rules|<payload_json>)[:32]`
 
 ##### `library` - Reference Documentation
 
@@ -894,7 +894,7 @@ Step 2: Configuration Change Reconciliation
    - NOTE: Newly-allowed files are discovered during Step 5 filesystem walk
 
 Step 3: Qdrant Collection Verification
-   - Ensure 4 canonical collections exist: projects, libraries, memory, scratchpad
+   - Ensure 4 canonical collections exist: projects, libraries, rules, scratchpad
    - Create any missing collections with correct vector configuration
    - Verify named vector configuration (dense + sparse) matches expectations
 
@@ -1017,7 +1017,7 @@ WHERE updated_at > :last_poll_time OR enabled != :cached_enabled_state
 
 | item_type | Used By             | payload_json                                  |
 | --------- | ------------------- | --------------------------------------------- |
-| `memory`  | MCP `rules` tool    | `{label, content, scope, project_id}`         |
+| `rules`   | MCP `rules` tool    | `{label, content, scope, project_id}`         |
 | `library` | MCP `store` tool    | `{library_name, content, title, source, url}` |
 | `project` | MCP `store` tool    | `{path, name}` (registers via gRPC, not queue) |
 | `file`    | Daemon file watcher | `{file_path, ...}`                            |

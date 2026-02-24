@@ -24,9 +24,9 @@ The system optimizes for:
 See [FIRST-PRINCIPLES.md](../../FIRST-PRINCIPLES.md) for the complete architectural philosophy. Key principles:
 
 - **Test Driven Development**: Unit tests written immediately after code
-- **Memory-Driven Behavioral Persistence**: Rules stored in memory collection
+- **Rules-Driven Behavioral Persistence**: Rules stored in rules collection
 - **Project-Scoped Semantic Context**: Automatic project detection and filtering
 - **Daemon-Only Writes**: Single writer to Qdrant for consistency (see [ADR-002](../adr/ADR-002-daemon-only-write-policy.md))
-- **Four Collections Only**: Exactly `projects`, `libraries`, `memory`, `scratchpad` (see [ADR-001](../adr/ADR-001-canonical-collection-architecture.md))
+- **Four Collections Only**: Exactly `projects`, `libraries`, `rules`, `scratchpad` (see [ADR-001](../adr/ADR-001-canonical-collection-architecture.md))
 
 ---

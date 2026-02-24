@@ -464,7 +464,7 @@ For multi-tenant collection payload structures, see the proto file:
 
 - `ProjectPayload`: Documents in `_projects` collection (tenant_id, file_path, branch, symbols, etc.)
 - `LibraryPayload`: Documents in `_libraries` collection (library_name, source_file, topics, etc.)
-- `MemoryPayload`: Documents in `_memory` collections (rule_id, rule_type, priority, scope, etc.)
+- `RulesPayload`: Documents in `rules` collection (rule_id, rule_type, priority, scope, etc.)
 
 ---
 

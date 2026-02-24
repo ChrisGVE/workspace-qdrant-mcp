@@ -95,7 +95,7 @@ This document defines the data flow patterns and isolation boundaries for the wo
 
 **Flow Details**:
 1. Session initialization or system events trigger Context Injector
-2. Injector queries memory collection for applicable rules
+2. Injector queries rules collection for applicable rules
 3. Rules processed for conflicts and authority levels
 4. Formatted context data injected into Claude Code session
 5. Hook system monitors for updates and re-injection triggers
@@ -120,7 +120,7 @@ This document defines the data flow patterns and isolation boundaries for the wo
 **Consistency Rules**:
 - **Single Writer**: Only Rust Daemon writes operational state
 - **Administrative Override**: CLI can update configuration and force state changes
-- **Read-Only Access**: Context Injector only reads memory collection data
+- **Read-Only Access**: Context Injector only reads rules collection data
 - **Atomic Updates**: All state changes use SQLite transactions
 - **Event Notification**: State changes trigger appropriate component notifications
 
@@ -218,10 +218,10 @@ This document defines the data flow patterns and isolation boundaries for the wo
 - Memory: Minimal footprint with rule caching
 - CPU: Low utilization with event-driven operation
 - File access: None (configuration through environment/parameters)
-- Network access: Read-only Qdrant access for memory collection only
+- Network access: Read-only Qdrant access for rules collection only
 
 **Security Boundaries**:
-- Read-only access to memory collection
+- Read-only access to rules collection
 - No administrative privileges or system access
 - Session-specific context isolation
 - No persistent data storage or state management

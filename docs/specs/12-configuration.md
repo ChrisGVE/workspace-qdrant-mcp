@@ -264,7 +264,7 @@ watching:
 
 # Collections configuration
 collections:
-  memory_collection_name: "memory"
+  rules_collection_name: "rules"
 
 # User environment (written by CLI, read by daemon)
 environment:
@@ -310,7 +310,7 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 | `watch_folder_submodules` | Many-to-many junction table for submodule relationships | Daemon, CLI      |
 | `tracked_files`  | Authoritative file inventory with base_point identity             | Daemon (write), CLI (read) |
 | `qdrant_chunks`  | Qdrant point tracking per file chunk (child of tracked_files)     | Daemon only      |
-| `memory_mirror`  | Write-through copy of memory collection (for reverse recovery)    | Daemon           |
+| `rules_mirror`   | Write-through copy of rules collection (for reverse recovery)     | Daemon           |
 | `search_events`  | Search instrumentation logs (all tools)                           | MCP, CLI, External |
 | `resolution_events` | Document open/expand events after search                       | External (future) |
 | `sparse_vocabulary` | BM25 IDF term-to-document-count mapping (schema v15)           | Daemon only      |
@@ -423,13 +423,13 @@ Within search.db, the delete-old + insert-new is **atomic** (SQLite transaction)
 
 The per-destination state machine in the unified queue (`qdrant_status`, `search_status`) tracks completion independently. Both destinations execute in **parallel** with no ordering dependency. See [Per-destination processing flow](04-write-path.md#queue-schema) for details.
 
-##### Memory Mirror Table
+##### Rules Mirror Table
 
-Stores a copy of memory collection entries for reverse recovery (Qdrant rebuild from state.db):
+Stores a copy of rules collection entries for reverse recovery (Qdrant rebuild from state.db):
 
 ```sql
-CREATE TABLE IF NOT EXISTS memory_mirror (
-    memory_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS rules_mirror (
+    rule_id TEXT PRIMARY KEY,
     rule_text TEXT NOT NULL,
     scope TEXT,
     tenant_id TEXT,
@@ -438,7 +438,7 @@ CREATE TABLE IF NOT EXISTS memory_mirror (
 );
 ```
 
-Write-through on every memory upsert ensures memory rules survive total Qdrant loss and can be used to rebuild the memory collection.
+Write-through on every rules upsert ensures rules survive total Qdrant loss and can be used to rebuild the rules collection.
 
 ### Cross-Instance Deduplication
 
@@ -505,7 +505,7 @@ The system provides two recovery directions: Qdrant-first (primary) and state.db
 
 **Recovery process:**
 
-1. Scroll all Qdrant collections (`projects`, `libraries`, `memory`, `scratchpad`)
+1. Scroll all Qdrant collections (`projects`, `libraries`, `rules`, `scratchpad`)
 2. Extract payload metadata from all points
 3. Reconstruct tables:
    - `watch_folders`: infer from `tenant_id` + `collection` + common ancestor of absolute file paths per tenant
@@ -515,7 +515,7 @@ The system provides two recovery directions: Qdrant-first (primary) and state.db
    - `sparse_vocabulary` / `corpus_statistics`: re-tokenize content from Qdrant payloads
    - `keywords` / `tags`: re-run extraction pipeline
    - LSP enrichment: daemon re-enriches automatically on startup
-5. Restore `memory_mirror` from memory collection points
+5. Restore `rules_mirror` from rules collection points
 
 **Qdrant payloads contain sufficient data for recovery:**
 
@@ -536,11 +536,11 @@ The system provides two recovery directions: Qdrant-first (primary) and state.db
 
 The `absolute_path` enables inferring `watch_folders.path` (common ancestor of all absolute paths for a tenant). The `relative_path` + `branch` + `file_hash` enable reconstructing `tracked_files`.
 
-#### Reverse Recovery: Memory Mirror
+#### Reverse Recovery: Rules Mirror
 
-The `memory_mirror` table in state.db stores a write-through copy of all memory collection entries. If Qdrant is lost entirely, memory rules can be restored from this mirror.
+The `rules_mirror` table in state.db stores a write-through copy of all rules collection entries. If Qdrant is lost entirely, rules can be restored from this mirror.
 
-**Usage:** `wqm admin recover-qdrant --memory-only` (rebuilds memory collection from `memory_mirror` table)
+**Usage:** `wqm admin recover-qdrant --rules-only` (rebuilds rules collection from `rules_mirror` table)
 
 #### Qdrant Snapshot Management
 

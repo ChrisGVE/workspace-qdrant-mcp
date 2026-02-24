@@ -104,7 +104,7 @@ This document establishes the formal component boundaries and responsibilities f
 
 **Core Responsibilities**:
 - **Rule Injection**: Fetch and inject behavioral rules into LLM context
-- **Memory Integration**: Access dedicated memory collection for rules
+- **Memory Integration**: Access dedicated rules collection for rules
 - **Hook System**: Respond to system events and triggers for context updates
 - **Session Context**: Manage session-specific context and rule application
 - **Conflict Resolution**: Handle conflicting rules and authority levels
@@ -119,7 +119,7 @@ This document establishes the formal component boundaries and responsibilities f
 
 **Isolation Boundaries**:
 - Lightweight component with minimal dependencies
-- Read-only access to memory collection
+- Read-only access to rules collection
 - Event-driven activation only
 - No direct user interface or administrative functions
 
@@ -169,7 +169,7 @@ Session Init/Hook → Context Injector → Memory Collection → Rule Retrieval 
 
 ### Qdrant Vector Database
 - **Primary Access**: Rust Daemon (all vector operations)
-- **Read-Only Access**: Context Injector (memory collection only)
+- **Read-Only Access**: Context Injector (rules collection only)
 - **Coordination**: Collection-based isolation, no shared collections
 - **Authentication**: Shared credentials, component-specific collections
 
@@ -212,7 +212,7 @@ Session Init/Hook → Context Injector → Memory Collection → Rule Retrieval 
 **Trigger Events**:
 - Session initialization
 - Project context changes
-- Rule updates in memory collection
+- Rule updates in rules collection
 - Configuration changes
 
 **Response Interface**:

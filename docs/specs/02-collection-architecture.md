@@ -10,10 +10,10 @@ The system uses exactly **4 collections**:
 | ------------- | ----------------------- | ----------------------- | ---------------------------- |
 | `projects`    | All project content     | `project_id`            | Code, docs, tests, configs   |
 | `libraries`   | Reference documentation | `library_name`          | Books, papers, API docs      |
-| `memory`      | Behavioral rules        | `project_id` (nullable) | LLM preferences, constraints |
+| `rules`       | Behavioral rules        | `project_id` (nullable) | LLM preferences, constraints |
 | `scratchpad`  | Temporary working storage | `project_id`          | Scratch notes, intermediate results |
 
-**Memory collection multi-tenancy:** Rules with `scope="global"` have `project_id=null` and apply to all projects. Rules with `scope="project"` have a specific `project_id` and apply only to that project.
+**Rules collection multi-tenancy:** Rules with `scope="global"` have `project_id=null` and apply to all projects. Rules with `scope="project"` have a specific `project_id` and apply only to that project.
 
 **No other collections are permitted.** No underscore prefixes, no per-project collections, no `{basename}-{type}` patterns.
 
@@ -37,15 +37,15 @@ search({
     filter: { must: [{ key: "library_name", match: { value: "numpy" } }] },
 });
 
-// Memory search (global rules only)
+// Rules search (global rules only)
 search({
-    collection: "memory",
+    collection: "rules",
     filter: { must: [{ key: "scope", match: { value: "global" } }] },
 });
 
-// Memory search (project-specific rules)
+// Rules search (project-specific rules)
 search({
-    collection: "memory",
+    collection: "rules",
     filter: { must: [{ key: "project_id", match: { value: "a1b2c3d4e5f6" } }] },
 });
 ```
@@ -293,7 +293,7 @@ When `tenant_id` must change (local project gains remote, remote URL renamed, pr
 
 3. **On Qdrant failure**: Queue retries with existing backoff/retry logic. SQLite is already consistent (source of truth). Qdrant is eventually consistent.
 
-**This mechanism applies to all tenant_id changes:** local-gains-remote, remote rename, project move. It also cascades to the `memory` collection for project-scoped rules.
+**This mechanism applies to all tenant_id changes:** local-gains-remote, remote rename, project move. It also cascades to the `rules` collection for project-scoped rules.
 
 #### Operation Timing
 

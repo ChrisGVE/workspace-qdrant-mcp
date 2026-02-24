@@ -537,13 +537,13 @@ graph TB
         QueueClient[Unified Queue<br/>SQLite enqueue]
     end
 
-    subgraph "MEMORY: Daemon Routed"
-        MemoryNote[✅ ADR-002<br/>Routes through daemon]
-        MemoryDaemon[Daemon Write Path<br/>memory collection]
+    subgraph "RULES: Daemon Routed"
+        RulesNote[✅ ADR-002<br/>Routes through daemon]
+        RulesDaemon[Daemon Write Path<br/>rules collection]
     end
 
     subgraph "Qdrant Vector DB"
-        Collections[(Collections<br/>projects<br/>libraries<br/>memory)]
+        Collections[(Collections<br/>projects<br/>libraries<br/>rules)]
     end
 
     MCP_Store --> Check
@@ -578,7 +578,7 @@ graph TB
 
 **Collection Operations (Daemon Internal):**
 - `create_collection_v2`, `delete_collection_v2` are daemon internal operations
-- Daemon creates the 4 canonical collections (`projects`, `libraries`, `memory`, `scratchpad`) on startup
+- Daemon creates the 4 canonical collections (`projects`, `libraries`, `rules`, `scratchpad`) on startup
 - MCP/CLI cannot create or delete collections (ADR-001: fixed 4-collection model)
 
 **Validation (Task 375.6):**

@@ -20,7 +20,7 @@ The LLM Context Injection System provides automatic, intelligent context injecti
 
 ### Key Capabilities
 
-- **Automatic Rule Injection**: Pre-session context injection from memory collection
+- **Automatic Rule Injection**: Pre-session context injection from rules collection
 - **Multi-Tool Support**: Adapters for Claude Code, GitHub Codex, Google Gemini
 - **Intelligent Formatting**: LLM-specific prompt formatting and token management
 - **Rule Management**: Hierarchical rule system with authority levels and scope matching
@@ -82,13 +82,12 @@ The LLM Context Injection System provides automatic, intelligent context injecti
          └─────────────┘  └───────────┘  └─────────────┘
 ```
 
-### Memory Layer
+### Rules Layer
 
 **Components:**
-- **Memory Collection** (`_memory`): Qdrant collection storing context rules
-- **Agent Memory Collection** (`_agent_memory`): Agent-specific rule storage
+- **Rules Collection** (`rules`): Qdrant collection storing context rules
 - **Daemon Client**: gRPC interface to Rust daemon for rule retrieval
-- **Rule Schema**: MemoryRule dataclass with metadata
+- **Rule Schema**: Rule dataclass with metadata
 
 **Responsibilities:**
 - Store context rules with metadata (category, authority, scope)
@@ -291,7 +290,7 @@ class LLMToolAdapter(ABC):
          ▼
 ┌─────────────────────────┐
 │  Qdrant Collection      │
-│   _memory               │
+│   rules                 │
 │   - Dense vectors       │
 │   - Sparse vectors      │
 │   - Metadata/payload    │
@@ -300,13 +299,13 @@ class LLMToolAdapter(ABC):
 
 ## Integration Points
 
-### 1. Memory Infrastructure Integration
+### 1. Rules Infrastructure Integration
 
-**Integration with existing memory system:**
-- Uses `_memory` collection for rule storage
-- Leverages MemoryRule dataclass from `src/python/common/core/memory.py`
+**Integration with existing rules system:**
+- Uses `rules` collection for rule storage
+- Leverages Rule dataclass for structured rule data
 - Integrates with daemon client for rule retrieval
-- Shares memory category and authority level enums
+- Shares rule category and authority level enums
 
 **Files affected:**
 - `src/python/common/core/memory.py` - MemoryRule schema
@@ -438,7 +437,7 @@ context_injection:
 
 ### In Scope
 
-1. **Rule Retrieval**: Fetching rules from memory collection via daemon
+1. **Rule Retrieval**: Fetching rules from rules collection via daemon
 2. **Rule Selection**: Filtering and prioritizing rules by scope/project
 3. **LLM Formatting**: Converting rules to LLM-specific formats
 4. **Token Management**: Managing token budgets with intelligent truncation
@@ -475,7 +474,7 @@ context_injection:
 
 ## Next Steps
 
-1. **Subtask 295.2**: Design rule fetching mechanism from memory collection
+1. **Subtask 295.2**: Design rule fetching mechanism from rules collection
 2. **Subtask 295.3**: Design LLM-specific formatting strategies
 3. **Subtask 295.4**: Design token budget management architecture
 4. **Subtask 295.5**: Design hook and trigger integration points

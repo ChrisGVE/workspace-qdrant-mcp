@@ -1,8 +1,8 @@
-## Memory System
+## Rules System
 
 ### Purpose
 
-The memory collection stores LLM behavioral rules that persist across sessions. Rules are injected into Claude's context at session start.
+The rules collection stores LLM behavioral rules that persist across sessions. Rules are injected into Claude's context at session start.
 
 ### Rule Schema
 
@@ -29,7 +29,7 @@ The memory collection stores LLM behavioral rules that persist across sessions. 
 
 At session start:
 
-1. MCP server queries `memory` collection
+1. MCP server queries `rules` collection
 2. Filters: all global rules + current project's rules
 3. Orders: global rules first (by creation date), then project rules (by creation date)
 4. Formatted and injected into system context
@@ -39,20 +39,20 @@ At session start:
 **Via CLI:**
 
 ```bash
-wqm memory list                      # List all rules (global + all projects)
-wqm memory list --global             # List global rules only
-wqm memory list --project <path>     # List rules for specific project
-wqm memory add --label "prefer-uv" --content "Use uv instead of pip" --global
-wqm memory add --label "use-pytest" --content "Use pytest for testing" --project .
-wqm memory remove --label "prefer-uv" --global
+wqm rules list                      # List all rules (global + all projects)
+wqm rules list --global             # List global rules only
+wqm rules list --project <path>     # List rules for specific project
+wqm rules add --label "prefer-uv" --content "Use uv instead of pip" --global
+wqm rules add --label "use-pytest" --content "Use pytest for testing" --project .
+wqm rules remove --label "prefer-uv" --global
 ```
 
 **Via MCP:**
 
 ```typescript
-memory({ action: "list" });                // List global + current project rules
-memory({ action: "add", label: "...", content: "...", scope: "project" });
-memory({ action: "remove", label: "...", scope: "global" });
+rules({ action: "list" });                // List global + current project rules
+rules({ action: "add", label: "...", content: "...", scope: "project" });
+rules({ action: "remove", label: "...", scope: "global" });
 ```
 
 ### Conversational Updates
@@ -61,8 +61,7 @@ Rules can be added conversationally:
 
 ```
 User: "For future reference, always use uv instead of pip"
-→ Creates memory rule: {label: "prefer-uv", content: "Use uv for Python packages", scope: "global"}
+→ Creates rule: {label: "prefer-uv", content: "Use uv for Python packages", scope: "global"}
 ```
 
 ---
-

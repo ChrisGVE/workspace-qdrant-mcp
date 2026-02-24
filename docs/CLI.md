@@ -195,7 +195,7 @@ wqm admin status
 # Health check
 wqm admin health
 
-# List all collections (unified model: _projects, _libraries, user, memory)
+# List all collections (canonical: projects, libraries, rules, scratchpad)
 wqm admin collections
 
 # Collection statistics

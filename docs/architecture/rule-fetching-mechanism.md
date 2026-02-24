@@ -2,12 +2,12 @@
 
 **Version:** 0.2.1dev1
 **Date:** 2025-10-04
-**Task:** 295.2 - Design rule fetching mechanism from memory collection
+**Task:** 295.2 - Design rule fetching mechanism from rules collection
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Memory Collection Schema](#memory-collection-schema)
+2. [Rules Collection Schema](#memory-collection-schema)
 3. [Daemon API Interface](#daemon-api-interface)
 4. [Rule Categorization and Tagging](#rule-categorization-and-tagging)
 5. [Query Mechanisms](#query-mechanisms)
@@ -17,7 +17,7 @@
 
 ## Overview
 
-The rule fetching mechanism provides the interface between the memory collection (Qdrant) and the context injection system. It retrieves context rules via the daemon, applies filtering based on scope and project context, and delivers formatted rules for LLM injection.
+The rule fetching mechanism provides the interface between the rules collection (Qdrant) and the context injection system. It retrieves context rules via the daemon, applies filtering based on scope and project context, and delivers formatted rules for LLM injection.
 
 ### Design Goals
 
@@ -35,11 +35,11 @@ Context Injector → Rule Selector → Daemon Client → gRPC → Rust Daemon �
                    Rule Cache
 ```
 
-## Memory Collection Schema
+## Rules Collection Schema
 
 ### Collection Structure
 
-**Collection Name:** `_memory` (reserved system collection)
+**Collection Name:** `rules` (reserved system collection)
 
 **Vector Configuration:**
 ```python
@@ -187,7 +187,7 @@ message UpdateRuleUsageResponse {
 class AsyncIngestClient:
     # ... existing methods ...
 
-    async def get_memory_rules(
+    async def getrules_rules(
         self,
         scope: Optional[List[str]] = None,
         project_id: Optional[str] = None,
@@ -235,7 +235,7 @@ class AsyncIngestClient:
 
         return await self.connection_manager.with_retry(_get_rules)
 
-    async def search_memory_rules(
+    async def searchrules_rules(
         self,
         query: str,
         scope: Optional[List[str]] = None,
@@ -286,7 +286,7 @@ class AsyncIngestClient:
 
         return await self.connection_manager.with_retry(_search_rules)
 
-    async def get_memory_rule_by_id(
+    async def getrules_rule_by_id(
         self,
         rule_id: str,
         timeout: float = 5.0,
@@ -427,7 +427,7 @@ def scope_matches(rule_scope: List[str], current_context: List[str]) -> bool:
 
 ```python
 # Example: Get all absolute rules for Claude Code in current project
-rules = await daemon_client.get_memory_rules(
+rules = await daemon_client.getrules_rules(
     project_id=current_project,
     tool_targets=["claude"],
     authority="absolute",
@@ -450,7 +450,7 @@ filter = Filter(
 
 # Scroll through results
 points, _ = qdrant_client.scroll(
-    collection_name="_memory",
+    collection_name="rules",
     scroll_filter=filter,
     limit=limit,
     with_payload=True,
@@ -464,7 +464,7 @@ points, _ = qdrant_client.scroll(
 
 ```python
 # Example: Find rules relevant to "testing Python code"
-rules = await daemon_client.search_memory_rules(
+rules = await daemon_client.searchrules_rules(
     query="testing Python code with pytest",
     project_id=current_project,
     search_mode="hybrid",
@@ -481,7 +481,7 @@ sparse_vector = bm25_encoder.encode(query)
 
 # Hybrid search
 search_result = qdrant_client.search(
-    collection_name="_memory",
+    collection_name="rules",
     query_vector=("dense", dense_vector),
     query_filter=filter,  # Apply scope/project filters
     limit=limit,
@@ -496,13 +496,13 @@ search_result = qdrant_client.search(
 
 ```python
 # Get all absolute rules + top 5 relevant default rules
-absolute_rules = await daemon_client.get_memory_rules(
+absolute_rules = await daemon_client.getrules_rules(
     project_id=project_id,
     authority="absolute",
     tool_targets=["claude"],
 )
 
-default_rules = await daemon_client.search_memory_rules(
+default_rules = await daemon_client.searchrules_rules(
     query=task_context,
     project_id=project_id,
     authority="default",
@@ -683,7 +683,7 @@ class RuleFetcherWithCache:
 
         # Cache miss - fetch from daemon
         logger.debug(f"Cache miss for key: {cache_key}")
-        rules = await self.daemon.get_memory_rules(
+        rules = await self.daemon.getrules_rules(
             project_id=project_id,
             scope=scope,
             category=category,
@@ -823,9 +823,9 @@ async def warmup_cache(
 2. `src/python/common/grpc/types.py` - Add MemoryRule type wrappers
 
 **Tasks:**
-- [ ] Add `get_memory_rules()` method to AsyncIngestClient
-- [ ] Add `search_memory_rules()` method
-- [ ] Add `get_memory_rule_by_id()` method
+- [ ] Add `getrules_rules()` method to AsyncIngestClient
+- [ ] Add `searchrules_rules()` method
+- [ ] Add `getrules_rule_by_id()` method
 - [ ] Add `update_rule_usage()` method
 - [ ] Add MemoryRule type wrapper with from_pb/to_pb methods
 
@@ -845,7 +845,7 @@ async def warmup_cache(
 
 **Files to Create:**
 1. `tests/unit/test_rule_fetching.py` - Unit tests
-2. `tests/integration/test_daemon_memory_api.py` - Integration tests
+2. `tests/integration/test_daemonrules_api.py` - Integration tests
 
 **Tasks:**
 - [ ] Unit tests for cache logic

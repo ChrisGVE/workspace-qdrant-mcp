@@ -26,7 +26,7 @@ workspace-qdrant-mcp provides 4 comprehensive MCP tools that enable natural lang
 - Retrieve documents by ID or metadata with filtering
 
 **Architecture Features:**
-- **Unified Multi-Tenant Model**: Only 4 collections total (`_projects`, `_libraries`, user, memory)
+- **Unified Multi-Tenant Model**: Only 4 collections total (`projects`, `libraries`, `rules`, `scratchpad`)
 - **Tenant Isolation**: `tenant_id` for projects, `library_name` for libraries (payload-indexed)
 - **Cross-Project Search**: Search all projects with `scope="all"`
 - **Library Inclusion**: Include documentation with `include_libraries=true`
@@ -326,7 +326,7 @@ Manage collections, system status, and configuration with comprehensive administ
 
 | Action | Description | Required Parameters |
 |--------|-------------|-------------------|
-| `list_collections` | List all collections with statistics (unified model: `_projects`, `_libraries`, user, memory) | None |
+| `list_collections` | List all collections with statistics (unified model: `projects`, `libraries`, `rules`, `scratchpad`) | None |
 | `create_collection` | Create a new collection | `name` |
 | `delete_collection` | Delete a collection | `name` or `collection` |
 | `collection_info` | Get detailed info about a collection (shows tenant counts for unified collections) | `name` or `collection` |

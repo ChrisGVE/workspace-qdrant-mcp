@@ -78,7 +78,7 @@ Only session lifecycle messages bypass the queue and go directly to daemon:
 
 ### Collection Ownership
 
-- **Daemon owns all collections**: Creates `projects`, `libraries`, `memory`, `scratchpad` on startup
+- **Daemon owns all collections**: Creates `projects`, `libraries`, `rules`, `scratchpad` on startup
 - **Fixed 4-collection model**: No collection creation/deletion via MCP or CLI
 - **No user collections**: Only the 4 canonical collections exist (per ADR-001)
 
@@ -112,9 +112,9 @@ This policy applies to ALL collections:
 |------------|-----------|-------|
 | `projects` | Daemon only | Project code, docs, configs |
 | `libraries` | Daemon only | External documentation |
-| `memory` | Daemon only | LLM rules (previously had exception) |
+| `rules` | Daemon only | LLM rules (previously had exception) |
 
-**Removed Exception:** ADR-001 noted "Memory collection allows direct writes (meta-level data)." This exception is REMOVED. All writes, including memory rules, route through the daemon.
+**Removed Exception:** ADR-001 noted "Rules collection allows direct writes (meta-level data)." This exception is REMOVED. All writes, including rules, route through the daemon.
 
 ### Error Handling
 

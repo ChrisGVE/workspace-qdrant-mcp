@@ -123,7 +123,7 @@ validation:
     - "context"
     - "documents"
     - "knowledge"
-    - "memory"
+    - "rules"
     - "projects"
     - "workspace"
 

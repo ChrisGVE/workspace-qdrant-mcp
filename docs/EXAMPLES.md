@@ -25,7 +25,7 @@ The unified multi-tenant architecture uses 4 collection types:
 
 **Search scopes:**
 - `"project"` (default): Current project only via `tenant_id` filter
-- `"global"`: Global collections (user collections, memory)
+- `"global"`: Global collections (user collections, rules)
 - `"all"`: All projects in `_projects` collection
 
 ## Basic Search Scenarios
@@ -70,7 +70,7 @@ wqm search "FastAPI dependency injection" --include-libraries
 
 ### 3. Search Global Collections
 
-Search user notes and memory collections, not project content.
+Search user notes and rules collections, not project content.
 
 ```python
 # MCP Tool

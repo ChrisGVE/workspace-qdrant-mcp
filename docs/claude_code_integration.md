@@ -2,10 +2,10 @@
 
 ## Overview
 
-This guide explains how to integrate workspace-qdrant-mcp with Claude Code's hook system for automatic session management and memory collection tracking.
+This guide explains how to integrate workspace-qdrant-mcp with Claude Code's hook system for automatic session management and rules collection tracking.
 
 The integration enables:
-- Automatic memory collection ingestion when sessions start
+- Automatic rules collection ingestion when sessions start
 - Session lifecycle tracking and daemon notification
 - Project-aware context management
 - Seamless integration with Claude Code workflows
@@ -201,7 +201,7 @@ tail -5 ~/.claude/hooks.log
 **Behavior:**
 1. Tracks session in HTTP server memory
 2. Notifies daemon of `SERVER_STATE_UP`
-3. Triggers memory collection ingestion for project
+3. Triggers rules collection ingestion for project
 4. Returns immediately (async execution)
 
 **Parameters:**

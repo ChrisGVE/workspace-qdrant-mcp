@@ -631,7 +631,7 @@ daemon_client.ingest_text(
 | PROJECT | `_{project_id}` | `"code"` |
 | USER | `{basename}-{type}` | `"notes"` (default) |
 | LIBRARY | `_{library_name}` | `"lib"` |
-| MEMORY | `_memory`, `_agent_memory` | `"memory"` |
+| RULES | `_memory`, `_agent_memory` | `"rules"` |
 
 **Reference:** See `docs/COLLECTION_NAMING.md` for complete naming guide.
 
@@ -996,7 +996,7 @@ search(query="auth", scope="project")
 # scope="all" - All projects
 search(query="auth", scope="all")
 
-# scope="global" - Global collections (user notes, memory)
+# scope="global" - Global collections (user notes, rules)
 search(query="auth", scope="global")
 ```
 

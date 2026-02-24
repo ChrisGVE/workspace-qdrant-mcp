@@ -115,7 +115,7 @@ src/python/context_injector/
 │   ├── injector.py      # Main injection logic
 │   ├── rules.py         # Rule processing and conflict resolution
 │   ├── session.py       # Session context management
-│   └── memory.py        # Memory collection interface
+│   └── rules_client.py  # Rules collection interface
 ├── hooks/
 │   ├── registry.py      # Hook registration and management
 │   ├── events.py        # Event type definitions
