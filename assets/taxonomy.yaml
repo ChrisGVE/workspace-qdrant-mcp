@@ -1,0 +1,248 @@
+# Taxonomy for zero-shot document classification (Tier 2 tagging).
+#
+# ~180 concept terms organized by category.
+# Each term is embedded once at startup and compared to document
+# embeddings via cosine similarity for automatic tag assignment.
+#
+# Terms should be short, descriptive phrases — the embedding model
+# (all-MiniLM-L6-v2) captures semantic meaning best with natural
+# language phrases rather than single words.
+
+categories:
+  programming-languages:
+    - rust programming
+    - python programming
+    - javascript programming
+    - typescript programming
+    - go programming
+    - java programming
+    - c programming language
+    - cpp programming
+    - swift programming
+    - kotlin programming
+    - ruby programming
+    - php programming
+    - scala programming
+    - haskell programming
+    - lua scripting
+    - shell scripting
+    - sql database queries
+
+  web-development:
+    - web application development
+    - frontend user interface
+    - backend server development
+    - single page application
+    - server side rendering
+    - progressive web app
+    - responsive web design
+    - web accessibility
+    - web performance optimization
+    - static site generation
+    - content management system
+
+  api-and-protocols:
+    - rest api design
+    - graphql api
+    - grpc remote procedure call
+    - websocket real-time communication
+    - http protocol
+    - oauth authentication protocol
+    - json web token authentication
+
+  databases:
+    - relational database management
+    - nosql database
+    - vector database search
+    - graph database
+    - key value store
+    - time series database
+    - database indexing
+    - query optimization
+    - database migration
+    - object relational mapping
+
+  cloud-and-infrastructure:
+    - cloud computing infrastructure
+    - kubernetes container orchestration
+    - docker containerization
+    - serverless computing
+    - infrastructure as code
+    - continuous integration deployment
+    - load balancing
+    - service mesh
+    - cloud native architecture
+    - microservices architecture
+
+  machine-learning:
+    - machine learning algorithms
+    - deep learning neural networks
+    - natural language processing
+    - computer vision image recognition
+    - reinforcement learning
+    - model training and evaluation
+    - feature engineering
+    - transfer learning
+    - large language model
+    - embedding vector representation
+    - recommendation system
+    - anomaly detection
+
+  data-engineering:
+    - data pipeline processing
+    - etl extract transform load
+    - data warehouse
+    - stream processing real-time
+    - batch data processing
+    - data lake storage
+    - data quality validation
+    - schema management
+
+  security:
+    - application security
+    - encryption and cryptography
+    - access control authorization
+    - vulnerability scanning
+    - penetration testing
+    - security audit compliance
+    - input validation sanitization
+    - cross site scripting prevention
+    - sql injection prevention
+
+  testing:
+    - unit testing
+    - integration testing
+    - end to end testing
+    - test driven development
+    - property based testing
+    - performance benchmarking
+    - load testing
+    - mocking and stubbing
+    - code coverage analysis
+
+  architecture-patterns:
+    - event driven architecture
+    - domain driven design
+    - clean architecture
+    - hexagonal architecture
+    - cqrs command query separation
+    - saga pattern distributed transactions
+    - circuit breaker pattern
+    - observer pattern
+    - factory pattern
+    - dependency injection
+    - plugin architecture
+
+  concurrency:
+    - async await programming
+    - multi-threaded programming
+    - concurrent data structures
+    - message passing concurrency
+    - actor model
+    - lock free programming
+    - parallel computing
+    - task scheduling
+
+  networking:
+    - network programming
+    - tcp ip networking
+    - dns domain name system
+    - proxy and reverse proxy
+    - vpn virtual private network
+    - network security firewall
+
+  devops:
+    - monitoring and observability
+    - logging and tracing
+    - alerting system
+    - deployment automation
+    - configuration management
+    - incident response
+    - site reliability engineering
+    - chaos engineering
+
+  mobile-development:
+    - ios application development
+    - android application development
+    - cross platform mobile
+    - react native mobile
+    - flutter mobile development
+    - mobile ui design
+
+  systems-programming:
+    - operating system development
+    - memory management
+    - file system operations
+    - process management
+    - system call interface
+    - embedded systems programming
+    - device driver development
+    - real-time operating system
+
+  build-and-tooling:
+    - build system automation
+    - package management
+    - code generation
+    - linting and formatting
+    - refactoring tools
+    - ide integration
+    - version control git
+    - monorepo management
+
+  documentation:
+    - api documentation
+    - technical writing
+    - code documentation
+    - user guide manual
+    - architecture decision record
+    - changelog release notes
+
+  functional-programming:
+    - functional programming patterns
+    - immutable data structures
+    - higher order functions
+    - monads and functors
+    - pattern matching
+    - type inference
+
+  game-development:
+    - game engine development
+    - game physics simulation
+    - rendering graphics pipeline
+    - game audio programming
+    - game networking multiplayer
+
+  blockchain:
+    - smart contract development
+    - decentralized application
+    - consensus algorithm
+    - cryptocurrency token
+
+  performance:
+    - performance optimization
+    - memory optimization
+    - cache optimization strategy
+    - profiling and benchmarking
+    - algorithmic complexity
+    - resource management
+
+  serialization:
+    - json serialization
+    - protocol buffers
+    - yaml configuration
+    - binary serialization
+    - xml processing
+
+  search:
+    - full text search
+    - semantic search
+    - search ranking algorithm
+    - information retrieval
+    - inverted index
+
+  compiler:
+    - compiler design
+    - parser and lexer
+    - abstract syntax tree
+    - code optimization passes
+    - intermediate representation
