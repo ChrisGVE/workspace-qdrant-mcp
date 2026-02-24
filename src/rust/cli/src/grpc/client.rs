@@ -126,6 +126,10 @@ impl DaemonClient {
     /// - QueryRelated
     /// - ImpactAnalysis
     /// - GetGraphStats
+    /// - ComputePageRank
+    /// - DetectCommunities
+    /// - ComputeBetweenness
+    /// - MigrateGraph
     pub fn graph(&mut self) -> &mut GraphServiceClient<Channel> {
         &mut self.graph
     }

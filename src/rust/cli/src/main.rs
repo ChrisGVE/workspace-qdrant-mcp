@@ -50,6 +50,9 @@ Data Management:
   backup       Backup Qdrant collections (create snapshots)
   restore      Restore Qdrant collections from snapshots
 
+Code Graph:
+  graph        Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
+
 Setup & Diagnostics:
   init         Shell completion setup (bash, zsh, fish)
   man          Man page generation and installation
@@ -123,7 +126,7 @@ enum Commands {
     #[command(display_order = 23)]
     Tags(commands::tags::TagsArgs),
 
-    /// Code graph queries (query, impact, stats)
+    /// Code graph queries and algorithms (query, impact, stats, pagerank, communities, betweenness, migrate)
     #[command(display_order = 24)]
     Graph(commands::graph::GraphArgs),
 
