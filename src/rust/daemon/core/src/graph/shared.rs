@@ -34,6 +34,11 @@ impl<S: GraphStore> SharedGraphStore<S> {
         }
     }
 
+    /// Access the inner store under a read lock for advanced operations.
+    pub async fn read(&self) -> tokio::sync::RwLockReadGuard<'_, S> {
+        self.inner.read().await
+    }
+
     // ── Read operations (shared lock) ────────────────────────────────
 
     /// Query nodes related to a given node within N hops.

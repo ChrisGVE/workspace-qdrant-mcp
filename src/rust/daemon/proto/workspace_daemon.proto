@@ -580,6 +580,18 @@ service GraphService {
 
     // Graph statistics (node/edge counts by type)
     rpc GetGraphStats(GraphStatsRequest) returns (GraphStatsResponse);
+
+    // Compute PageRank scores for graph nodes
+    rpc ComputePageRank(PageRankRequest) returns (PageRankResponse);
+
+    // Detect communities using label propagation
+    rpc DetectCommunities(CommunityRequest) returns (CommunityResponse);
+
+    // Compute betweenness centrality scores
+    rpc ComputeBetweenness(BetweennessRequest) returns (BetweennessResponse);
+
+    // Migrate graph data between backends (SQLite ↔ LadybugDB)
+    rpc MigrateGraph(GraphMigrateRequest) returns (GraphMigrateResponse);
 }
 
 // QueryRelated Request
@@ -642,6 +654,105 @@ message GraphStatsResponse {
     uint64 total_edges = 2;
     map<string, uint64> nodes_by_type = 3;        // {"function": 1234, "class": 567}
     map<string, uint64> edges_by_type = 4;        // {"CALLS": 5678, "IMPORTS": 234}
+}
+
+// PageRank Request
+message PageRankRequest {
+    string tenant_id = 1;                         // Project tenant_id
+    optional double damping = 2;                  // Damping factor (default: 0.85)
+    optional uint32 max_iterations = 3;           // Max iterations (default: 100)
+    optional double tolerance = 4;                // Convergence threshold (default: 1e-6)
+    repeated string edge_types = 5;               // Filter edges; empty = all
+    optional uint32 top_k = 6;                    // Return only top K results (0 = all)
+}
+
+// PageRank Response
+message PageRankResponse {
+    repeated PageRankNodeProto entries = 1;
+    uint32 total = 2;
+    int64 query_time_ms = 3;
+}
+
+// A PageRank score for a node
+message PageRankNodeProto {
+    string node_id = 1;
+    string symbol_name = 2;
+    string symbol_type = 3;
+    string file_path = 4;
+    double score = 5;
+}
+
+// Community Detection Request
+message CommunityRequest {
+    string tenant_id = 1;
+    optional uint32 max_iterations = 2;           // Label propagation iterations (default: 50)
+    optional uint32 min_community_size = 3;       // Min members to include (default: 2)
+    repeated string edge_types = 4;               // Filter edges; empty = all
+}
+
+// Community Detection Response
+message CommunityResponse {
+    repeated CommunityProto communities = 1;
+    uint32 total_communities = 2;
+    int64 query_time_ms = 3;
+}
+
+// A detected community
+message CommunityProto {
+    uint32 community_id = 1;
+    repeated CommunityMemberProto members = 2;
+}
+
+// A member of a community
+message CommunityMemberProto {
+    string node_id = 1;
+    string symbol_name = 2;
+    string symbol_type = 3;
+    string file_path = 4;
+}
+
+// Betweenness Centrality Request
+message BetweennessRequest {
+    string tenant_id = 1;
+    repeated string edge_types = 2;               // Filter edges; empty = all
+    optional uint32 max_samples = 3;              // Sample sources for large graphs (0 = all)
+    optional uint32 top_k = 4;                    // Return only top K results (0 = all)
+}
+
+// Betweenness Centrality Response
+message BetweennessResponse {
+    repeated BetweennessNodeProto entries = 1;
+    uint32 total = 2;
+    int64 query_time_ms = 3;
+}
+
+// A betweenness centrality score for a node
+message BetweennessNodeProto {
+    string node_id = 1;
+    string symbol_name = 2;
+    string symbol_type = 3;
+    string file_path = 4;
+    double score = 5;
+}
+
+// Graph Migration Request
+message GraphMigrateRequest {
+    string from_backend = 1;                      // "sqlite" or "ladybug"
+    string to_backend = 2;                        // "sqlite" or "ladybug"
+    optional string tenant_id = 3;                // Migrate specific tenant (empty = all)
+    optional uint32 batch_size = 4;               // Import batch size (default: 500)
+}
+
+// Graph Migration Response
+message GraphMigrateResponse {
+    bool success = 1;
+    uint64 nodes_exported = 2;
+    uint64 edges_exported = 3;
+    uint64 nodes_imported = 4;
+    uint64 edges_imported = 5;
+    bool nodes_match = 6;
+    bool edges_match = 7;
+    repeated string warnings = 8;
 }
 
 // =============================================================================
