@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 25;
+pub const CURRENT_SCHEMA_VERSION: i32 = 26;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -175,6 +175,7 @@ impl SchemaManager {
             23 => self.migrate_v23().await,
             24 => self.migrate_v24().await,
             25 => self.migrate_v25().await,
+            26 => self.migrate_v26().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -1187,6 +1188,50 @@ impl SchemaManager {
             .await?;
 
         info!("Migration v25 complete");
+        Ok(())
+    }
+
+    async fn migrate_v26(&self) -> Result<(), SchemaError> {
+        info!("Migration v26: Creating processing_timings table for queue instrumentation");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS processing_timings (
+                timing_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                queue_id TEXT,
+                item_type TEXT NOT NULL,
+                op TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                tenant_id TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // Indexes for common query patterns
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_processing_timings_op_phase ON processing_timings (op, phase)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_processing_timings_created ON processing_timings (created_at)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_processing_timings_tenant ON processing_timings (tenant_id)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        info!("Migration v26 complete");
         Ok(())
     }
 }
