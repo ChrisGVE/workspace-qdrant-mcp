@@ -12,6 +12,7 @@
 pub mod algorithms;
 pub mod extractor;
 pub mod factory;
+pub mod migrator;
 mod schema;
 mod shared;
 mod sqlite_store;
