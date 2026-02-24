@@ -9,6 +9,7 @@
 //! The graph is stored in a dedicated `graph.db` file separate from
 //! `state.db` to avoid lock contention with queue processing.
 
+pub mod algorithms;
 pub mod extractor;
 pub mod factory;
 mod schema;
