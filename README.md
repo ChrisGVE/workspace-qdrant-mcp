@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue.svg)](https://www.typescriptlang.org/)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech)
 
@@ -11,7 +11,9 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
 
 - **Hybrid Search** - Combines semantic similarity with keyword matching using Reciprocal Rank Fusion
 - **Project Detection** - Automatic Git repository awareness and project-scoped collections
-- **4 MCP Tools** - store, search, manage, retrieve for complete vector operations
+- **4 MCP Tools** - store, search, rules, retrieve for complete vector operations
+- **Code Intelligence** - Tree-sitter semantic chunking + LSP integration for active projects
+- **Code Graph** - Relationship graph with algorithms (PageRank, community detection, betweenness centrality)
 - **High-Performance CLI** - Rust-based `wqm` command-line tool
 - **Background Daemon** - `memexd` for continuous file monitoring and processing
 
@@ -22,7 +24,7 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
 - **Qdrant server** - `docker run -p 6333:6333 qdrant/qdrant`
 
 For MCP server only:
-- **Python 3.10+** with [uv](https://github.com/astral-sh/uv)
+- **Node.js 18+** with npm
 
 For CLI + daemon (from source):
 - **Rust 1.75+** - [rustup.rs](https://rustup.rs)
@@ -47,17 +49,7 @@ Options (run script locally):
 - `--version v0.4.0` - Specific version (default: latest)
 - `--cli-only` - Skip daemon
 
-**Option 2: MCP Server Only (Python)**
-
-```bash
-git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
-cd workspace-qdrant-mcp
-uv tool install .
-```
-
-This installs the `workspace-qdrant-mcp` command globally. No Rust toolchain required.
-
-**Option 3: Build from Source**
+**Option 2: Build from Source**
 
 ```bash
 git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
@@ -65,7 +57,7 @@ cd workspace-qdrant-mcp
 ./install.sh
 ```
 
-The installer builds Rust binaries (`wqm`, `memexd`) to `~/.local/bin` and installs Python dependencies.
+The installer builds Rust binaries (`wqm`, `memexd`) to `~/.local/bin` and installs TypeScript MCP server dependencies.
 
 Options:
 - `--prefix /path` - Custom installation directory
@@ -78,27 +70,12 @@ For Windows: `.\install.ps1`
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
-If installed via `uv tool install`:
 ```json
 {
   "mcpServers": {
     "workspace-qdrant-mcp": {
-      "command": "workspace-qdrant-mcp",
-      "env": {
-        "QDRANT_URL": "http://localhost:6333"
-      }
-    }
-  }
-}
-```
-
-If using from source directory:
-```json
-{
-  "mcpServers": {
-    "workspace-qdrant-mcp": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/workspace-qdrant-mcp", "run", "workspace-qdrant-mcp"],
+      "command": "node",
+      "args": ["/path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"],
       "env": {
         "QDRANT_URL": "http://localhost:6333"
       }
@@ -110,11 +87,7 @@ If using from source directory:
 **Claude Code**:
 
 ```bash
-# If installed via uv tool install
-claude mcp add workspace-qdrant-mcp -- workspace-qdrant-mcp
-
-# If using from source directory
-claude mcp add workspace-qdrant-mcp -- uv --directory /path/to/workspace-qdrant-mcp run workspace-qdrant-mcp
+claude mcp add workspace-qdrant-mcp -- node /path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js
 ```
 
 ### Verify
@@ -162,10 +135,11 @@ workspace-qdrant is under active development. If you encounter errors, unexpecte
 
 ### store
 
-Store content in the vector database with automatic embedding generation.
+Store content in the libraries collection or register a project with the daemon.
 
 ```
-store(content="Your text here", collection="myapp-notes")
+store(type="library", content="Your text here", library_name="reference-docs")
+store(type="project", path="/path/to/project")
 ```
 
 ### search
@@ -179,19 +153,21 @@ search(query="JWT tokens", scope="all", include_libraries=true)
 
 Parameters:
 - `query` - Search text (required)
-- `mode` - `"hybrid"` (default), `"semantic"`, or `"exact"`
-- `scope` - `"project"` (default), `"global"`, or `"all"`
+- `collection` - `"projects"` (default), `"libraries"`, or `"memory"`
+- `mode` - `"hybrid"` (default), `"semantic"`, `"keyword"`, or `"retrieve"`
+- `scope` - Collection-specific scope filter
 - `include_libraries` - Include library docs (default: false)
+- `tag` / `tags` - Filter by concept tags
 - `limit` - Max results (default: 10)
 
-### manage
+### rules
 
-Collection and system management.
+Behavioral rules management (persistent preferences).
 
 ```
-manage(action="list_collections")
-manage(action="get_status")
-manage(action="create_collection", collection_name="myproject-notes")
+rules(action="list", scope="project")
+rules(action="add", label="prefer-uv", content="Always use uv instead of pip")
+rules(action="remove", label="prefer-uv")
 ```
 
 ### retrieve
@@ -199,30 +175,46 @@ manage(action="create_collection", collection_name="myproject-notes")
 Direct document access by ID or metadata.
 
 ```
-retrieve(document_id="abc123", collection="myapp-notes")
+retrieve(document_id="abc123", collection="libraries")
 ```
 
-## Collection Types
+## Collections
 
-| Type | Pattern | Example | Purpose |
-|------|---------|---------|---------|
-| PROJECT | `_{project_id}` | `_a1b2c3d4e5f6` | Auto-created for file watching |
-| USER | `{name}-{type}` | `myapp-notes` | User notes and scratchbooks |
-| LIBRARY | `_{library_name}` | `_numpy` | External documentation |
-| MEMORY | `_memory` | `_memory` | Agent behavioral rules |
-
-See [Collection Naming Guide](docs/COLLECTION_NAMING.md) for details.
+| Collection | Purpose | Tenancy |
+|------------|---------|---------|
+| `projects` | Project code and documentation | Multi-tenant by `tenant_id` |
+| `libraries` | Reference documentation (books, papers, docs) | Multi-tenant by `library_name` |
+| `memory` | Behavioral rules and preferences | Multi-tenant by `project_id` |
+| `scratchpad` | Temporary working storage | Per-session |
 
 ## CLI Reference
 
 ```bash
-wqm service start          # Start background daemon
-wqm service status         # Check daemon status
-wqm admin collections      # List all collections
-wqm admin health           # System health check
-wqm queue stats            # Queue statistics
-wqm search "query"         # Search collections
-wqm ingest file path.py    # Ingest a file
+# Service management
+wqm service start              # Start background daemon
+wqm service status             # Check daemon status
+
+# Search and content
+wqm search "query"             # Search collections
+wqm ingest file path.py        # Ingest a file
+wqm memory list                # List behavioral rules
+
+# Project and library
+wqm project list               # List registered projects
+wqm library list               # List libraries
+wqm tags list                  # List tags with counts
+
+# Code graph
+wqm graph stats --tenant <t>   # Node/edge counts
+wqm graph query --node-id <id> --tenant <t> --hops 2   # Related nodes
+wqm graph impact --symbol <name> --tenant <t>           # Impact analysis
+wqm graph pagerank --tenant <t> --top-k 20              # PageRank centrality
+wqm graph communities --tenant <t>                      # Community detection
+wqm graph betweenness --tenant <t> --top-k 20           # Betweenness centrality
+
+# Queue and monitoring
+wqm queue stats                # Queue statistics
+wqm status health              # System health check
 ```
 
 See [CLI Reference](docs/CLI.md) for complete documentation.
@@ -245,7 +237,7 @@ See [CLI Reference](docs/CLI.md) for complete documentation.
                     +--------+--------+
                              |
                     +--------v--------+
-                    |   MCP Server    |  (Python - FastMCP)
+                    |   MCP Server    |  (TypeScript)
                     +--------+--------+
                              |
               +--------------+--------------+
@@ -256,28 +248,34 @@ See [CLI Reference](docs/CLI.md) for complete documentation.
      +--------+--------+           +-----------------+
               |
      +--------v--------+
-     |   File Watcher  |
+     |  File Watcher   |
+     |  Code Graph     |
+     |  Embeddings     |
      +-----------------+
 ```
 
-The Rust daemon handles file watching, embedding generation, and queue processing. All writes route through the daemon for consistency.
+The Rust daemon handles file watching, embedding generation, code graph extraction, and queue processing. All writes route through the daemon for consistency.
 
 ## Documentation
 
-- [API Reference](docs/API.md) - MCP tools documentation
-- [CLI Reference](docs/CLI.md) - Command-line interface
-- [Architecture](docs/ARCHITECTURE.md) - System design
-- [Collection Naming](docs/COLLECTION_NAMING.md) - Naming conventions
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues
+- [API Reference](docs/specs/08-api-reference.md) - MCP tools and gRPC services
+- [Architecture](docs/specs/01-architecture.md) - System design
+- [Code Intelligence](docs/specs/07-code-intelligence.md) - Tree-sitter + LSP + Graph
+- [Configuration](docs/specs/12-configuration.md) - System configuration
+- [Deployment](docs/specs/13-deployment.md) - Installation and deployment
 
 ## Development
 
 ```bash
-# Python tests
-uv run pytest
+# TypeScript MCP server
+cd src/typescript/mcp-server && npm install && npm run build && npm test
 
-# Rust build (from src/rust/)
+# Rust daemon and CLI (from src/rust/)
 cargo build --release
+cargo test
+
+# Graph benchmarks
+cargo bench --package workspace-qdrant-core --bench graph_bench
 
 # Binaries output to:
 # - target/release/wqm

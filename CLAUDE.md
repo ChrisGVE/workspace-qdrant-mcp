@@ -25,6 +25,8 @@ workspace-qdrant-mcp (v0.1.0-beta1) is a Model Context Protocol (MCP) server pro
 - Project ID disambiguation for multi-clone repositories
 - Enhanced folder move detection with notify-debouncer-full
 - Path validation for orphaned project cleanup
+- Code relationship graph (SQLite CTEs) with algorithms: PageRank, community detection, betweenness centrality
+- Graph CLI (`wqm graph`) with 7 subcommands: query, impact, stats, pagerank, communities, betweenness, migrate
 
 **Critical Design Files:**
 1. **FIRST-PRINCIPLES.md** - Core architectural principles (in project root)
@@ -210,6 +212,10 @@ cargo test --package workspace-qdrant-core -- schema_version        # Schema ver
 cargo test --package workspace-qdrant-core -- watch_folder          # Watch folder tests
 cargo test --package workspace-qdrant-core -- keyword               # Keyword extraction tests
 cargo test --package workspace-qdrant-core -- tag                   # Tag extraction tests
+cargo test --package workspace-qdrant-core -- graph                 # Graph subsystem tests
+
+# Graph benchmarks (criterion)
+cargo bench --package workspace-qdrant-core --bench graph_bench     # Run graph benchmarks
 ```
 
 ### Server Operations
@@ -232,6 +238,12 @@ wqm tags list                   # List tags with document counts
 wqm tags show <tag>             # Show tag details and keyword basket
 wqm tags rebuild-hierarchy      # Trigger hierarchy rebuild
 wqm tags stats                  # Tag extraction statistics
+wqm graph stats --tenant <t>    # Graph node/edge counts
+wqm graph query --node-id <id> --tenant <t> --hops 2  # Traverse related nodes
+wqm graph impact --symbol <name> --tenant <t>          # Impact analysis
+wqm graph pagerank --tenant <t> --top-k 20             # PageRank centrality
+wqm graph communities --tenant <t>                     # Community detection
+wqm graph betweenness --tenant <t> --top-k 20          # Betweenness centrality
 
 # Build Rust CLI from source
 cd src/rust/cli && cargo build --release
@@ -271,9 +283,18 @@ src/
         │       ├── metadata_uplift.rs   # Idle-time metadata re-enrichment
         │       ├── fairness_scheduler.rs  # Anti-starvation queue scheduler
         │       ├── keywords_schema.rs     # Keyword/tag SQLite schema (v16)
-        │       └── keyword_extraction/    # Extraction pipeline
-        │           ├── pipeline.rs        # 8-stage extraction pipeline
-        │           └── collection_config.rs  # Per-collection tuning
+        │       ├── keyword_extraction/    # Extraction pipeline
+        │       │   ├── pipeline.rs        # 8-stage extraction pipeline
+        │       │   └── collection_config.rs  # Per-collection tuning
+        │       └── graph/               # Code relationship graph
+        │           ├── mod.rs           # GraphStore trait, node/edge types
+        │           ├── sqlite_store.rs  # SQLite CTE implementation
+        │           ├── algorithms.rs    # PageRank, communities, betweenness
+        │           ├── extractor.rs     # Tree-sitter → graph edge extraction
+        │           ├── migrator.rs      # Backend migration utility
+        │           ├── factory.rs       # Backend instantiation
+        │           ├── schema.rs        # Graph DB schema management
+        │           └── shared.rs        # Arc<dyn GraphStore> wrapper
         ├── grpc/                # gRPC service
         └── memexd/              # Daemon binary
 ```
@@ -485,6 +506,9 @@ See https://ort.pyke.io/setup/linking for detailed instructions.
 1. **SystemService** - Health checks, metrics, lifecycle management
 2. **CollectionService** - Collection CRUD, alias management
 3. **DocumentService** - Text ingestion, updates, deletion
+4. **EmbeddingService** - Dense/sparse vector generation for MCP server
+5. **ProjectService** - Project lifecycle, session management
+6. **GraphService** - Code relationship graph queries and algorithms (7 RPCs)
 
 ### Testing gRPC Connectivity
 

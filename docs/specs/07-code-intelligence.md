@@ -210,6 +210,15 @@ wqm library ingest <file> --library <tag>          # Ingest single document
 wqm library ingest <file> --library <tag> \
     --chunk-tokens 105 --overlap-tokens 12         # With custom chunking
 
+# Code Graph
+wqm graph query --node-id <id> --tenant <t> --hops 2   # Traverse related nodes
+wqm graph impact --symbol <name> --tenant <t>           # Impact analysis
+wqm graph stats --tenant <t>                            # Node/edge counts by type
+wqm graph pagerank --tenant <t> --top-k 20              # PageRank centrality
+wqm graph communities --tenant <t> --min-size 3         # Community detection
+wqm graph betweenness --tenant <t> --top-k 20           # Betweenness centrality
+wqm graph migrate --from sqlite --to ladybug            # Backend migration
+
 # Search Instrumentation
 wqm stats overview [--period day|week|month|all]   # View search analytics
 wqm stats log-search --tool=rg --query="pattern"   # Log search event

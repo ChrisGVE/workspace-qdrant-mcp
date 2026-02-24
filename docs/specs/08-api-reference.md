@@ -334,7 +334,7 @@ The following are **not exposed as MCP tools**:
 
 ### gRPC Services
 
-The daemon exposes 5 gRPC services on port 50051.
+The daemon exposes 6 gRPC services on port 50051.
 
 #### SystemService (7 RPCs)
 
@@ -426,6 +426,52 @@ Multi-tenant project lifecycle and session management.
 **Session Management:**
 - `Heartbeat` must be called periodically (within 60s timeout) to maintain session
 - `DeprioritizeProject` is called when MCP server stops
+
+#### GraphService (7 RPCs)
+
+Code relationship graph queries and algorithms. Operates on the embedded graph database (`graph.db`).
+
+| Method               | Used By | Purpose                                    | Status     |
+| -------------------- | ------- | ------------------------------------------ | ---------- |
+| `QueryRelated`       | CLI     | Traverse related nodes within N hops       | Production |
+| `ImpactAnalysis`     | CLI     | Find nodes affected by changing a symbol   | Production |
+| `GetGraphStats`      | CLI     | Node/edge counts by type                   | Production |
+| `ComputePageRank`    | CLI     | Rank nodes by structural importance        | Production |
+| `DetectCommunities`  | CLI     | Label propagation community detection      | Production |
+| `ComputeBetweenness` | CLI     | Betweenness centrality scores              | Production |
+| `MigrateGraph`       | CLI     | Migrate data between graph backends        | Production |
+
+**QueryRelated:**
+- Traverses the graph from a starting node up to `max_hops` depth (1-5)
+- Optional `edge_types` filter (CALLS, IMPORTS, CONTAINS, USES_TYPE, EXTENDS, IMPLEMENTS)
+- Returns `TraversalNode` entries with symbol name, type, file path, edge type, and depth
+- Uses recursive CTEs (SQLite backend) for efficient multi-hop traversal
+
+**ImpactAnalysis:**
+- Finds all nodes that would be affected by modifying a symbol
+- Searches by `symbol_name` with optional `file_path` to narrow scope
+- Returns nodes grouped by distance (direct callers at distance 1, indirect at 2+)
+
+**ComputePageRank:**
+- Configurable damping factor (default 0.85), max iterations (default 100), convergence tolerance (default 1e-6)
+- Optional `top_k` to limit results and `edge_types` filter
+- Returns ranked entries with score, symbol name, type, and file path
+
+**DetectCommunities:**
+- Label propagation algorithm for detecting code communities
+- Configurable max iterations (default 50) and minimum community size (default 2)
+- Returns community groups with member lists
+
+**ComputeBetweenness:**
+- Betweenness centrality identifies bottleneck/bridge nodes in the graph
+- Sampled BFS for large graphs (`max_samples` parameter, 0 = all nodes)
+- Optional `top_k` and `edge_types` filters
+
+**MigrateGraph:**
+- Exports nodes/edges from one backend, imports into another
+- Supports `sqlite` and `ladybug` backend identifiers
+- Optional `tenant_id` for per-tenant migration, `batch_size` for import batching
+- Returns export/import counts and validation (nodes_match, edges_match)
 
 ---
 

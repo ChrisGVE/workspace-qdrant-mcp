@@ -200,12 +200,28 @@ This ensures that graph queries from MCP/CLI are never starved by sustained writ
 
 ##### Implementation Roadmap
 
-**Phase 1 — SQLite CTEs (zero new dependencies):**
-- Graph schema as SQLite adjacency tables in `state.db` or dedicated `graph.db`
-- `GraphStore` trait with `SqliteGraphStore` implementation
-- Recursive CTE queries for 1-2 hop traversals (covers ~80% of use cases: call chains, imports, type usage)
-- Integration with existing ingestion pipeline (tree-sitter symbol extraction → graph edges)
-- gRPC service for graph queries
+**Phase 1 — SQLite CTEs (zero new dependencies): COMPLETE (2026-02-24)**
+- Dedicated `graph.db` SQLite database with adjacency tables (separate from `state.db` to avoid lock contention)
+- `GraphStore` trait with `SqliteGraphStore` implementation (recursive CTEs for multi-hop traversal)
+- `LadybugGraphStore` stub implementation behind `ladybug` feature flag
+- `SharedGraphStore` wrapper providing `Arc<dyn GraphStore>` for concurrent access
+- `GraphDbManager` for schema creation, migrations, and WAL mode configuration
+- Edge extractor (`graph::extractor`) deriving relationships from tree-sitter semantic chunks (CALLS, CONTAINS, IMPORTS, USES_TYPE, EXTENDS, IMPLEMENTS)
+- Graph algorithms module (`graph::algorithms`): PageRank (power iteration), community detection (label propagation), betweenness centrality (sampled BFS)
+- Backend migration utility (`graph::migrator`) for moving data between SQLite and LadybugDB
+- Factory pattern (`graph::factory`) for backend instantiation based on `GraphConfig`
+- gRPC `GraphService` with 7 RPCs: QueryRelated, ImpactAnalysis, GetGraphStats, ComputePageRank, DetectCommunities, ComputeBetweenness, MigrateGraph
+- CLI `wqm graph` with 7 subcommands: query, impact, stats, pagerank, communities, betweenness, migrate
+- Criterion benchmarks (`graph_bench.rs`) validating PRD R10 performance targets
+- CI workflow (`.github/workflows/graph-benchmarks.yml`) for automated benchmark runs
+- Integration tests for end-to-end graph operations
+
+**Measured performance (Phase 1, Intel Mac):**
+- Edge insertion: ~67K edges/sec (target: ≥10K) ✓
+- 1-hop query (200 nodes): ~93μs (target: <1ms) ✓
+- 2-hop query (10K nodes): ~3.7ms (target: <10ms) ✓
+- Impact analysis: ~821μs (target: <100ms) ✓
+- Community detection (4K nodes): ~76ms (target: <5s) ✓
 
 **Phase 2 — LadybugDB upgrade (when deep queries needed):**
 - Add `lbug` crate dependency with `LadybugGraphStore` implementation of same `GraphStore` trait
@@ -489,12 +505,24 @@ Steps 2, 5, 7, 8 are additions. The queue, file watching, debouncing, and proces
 
 **Future-proofing:** The `GraphStore` trait is the stable contract. The graph engine can be swapped (SQLite CTEs → LadybugDB, or any future candidate) by implementing the trait. The trait boundary provides the same swappability as a gRPC API, without IPC overhead.
 
-**CLI commands:**
+**CLI commands (implemented):**
 ```bash
-wqm graph query "MATCH (f:Function)-[:CALLS]->(g:Function) WHERE f.name = 'main' RETURN g"
-wqm graph impact --symbol parse --file document_processor.rs
-wqm graph communities           # List detected code communities
-wqm graph stats                 # Node/edge counts and storage size
+# Relationship traversal
+wqm graph query --node-id <id> --tenant <tenant> --hops 2 --edge-types CALLS,IMPORTS
+
+# Impact analysis
+wqm graph impact --symbol parse --tenant <tenant> --file document_processor.rs
+
+# Graph statistics
+wqm graph stats --tenant <tenant>
+
+# Graph algorithms
+wqm graph pagerank --tenant <tenant> --top-k 20 --damping 0.85
+wqm graph communities --tenant <tenant> --min-size 3
+wqm graph betweenness --tenant <tenant> --top-k 20 --max-samples 100
+
+# Backend migration
+wqm graph migrate --from sqlite --to ladybug --tenant <tenant>
 ```
 
 ### Knowledge Manager Product Potential
@@ -560,9 +588,11 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 
 ---
 
-**Version:** 1.9.0
-**Last Updated:** 2026-02-18
+**Version:** 1.10.0
+**Last Updated:** 2026-02-24
 **Changes:**
+
+- v1.10.0: Marked Phase 1 (SQLite CTEs) as COMPLETE — documented all implemented graph subsystem components (GraphStore trait, SqliteGraphStore, algorithms, extractor, migrator, factory, SharedGraphStore, gRPC GraphService with 7 RPCs, CLI `wqm graph` with 7 subcommands, criterion benchmarks, CI workflow); added measured performance results; updated CLI command examples to reflect actual implemented syntax
 
 - v1.9.0: State integrity redesign — base point identity model (`hash(tenant_id, branch, relative_path, file_hash)`) replacing simple `SHA256(tenant_id | branch | file_path | chunk_index)` formula; two-layer watching architecture (Layer 1: file watcher for all projects, Layer 2: git watcher for `.git/HEAD` + `.git/refs/heads/` with reflog parsing and `git diff-tree` for precise change detection); branch switch protocol with selective re-ingestion; `watch_folder_submodules` junction table replacing single-FK `parent_watch_id` for many-to-many submodule relationships with commit pin detection via `git ls-tree`; per-destination queue state machine (`qdrant_status`, `search_status`, `decision_json`) enabling parallel Qdrant + search DB execution with retry on failed destination only; search.db (FTS5) documentation (`file_metadata` + `code_lines` tables); cross-instance deduplication via reference-counting across watch folders sharing same tenant_id; disaster recovery (`wqm admin recover-state` from Qdrant payloads, `memory_mirror` table for reverse recovery, `wqm admin qdrant-snapshot` commands); tenant ID precedence (remote-based takes precedence over path-based, `path_` prefix for local projects, cascade rename on gaining remote); `is_git_tracked` and `last_commit_hash` columns on `watch_folders`; `base_point`, `relative_path`, `incremental` columns on `tracked_files`; updated Qdrant payload schema with `base_point`, `relative_path`, `absolute_path`, `file_hash`, `commit_hash` fields for recovery
 - v1.8.1: Queue taxonomy expansion — added `tenant`, `collection`, `website`, `url`, `doc` item types and `add`, `rename`, `uplift`, `reset` operations; enqueue-only gRPC pattern for RegisterProject and DeleteProject (no direct SQLite mutations, all routed through unified queue); progressive single-level directory scanning replacing recursive WalkDir; BM25 IDF weighting with per-collection vocabulary persistence (schema v15: `sparse_vocabulary` + `corpus_statistics` tables); adaptive resource management with Active Processing mode (+50% resources when queue has work during user activity); collection-level uplift and reset cascade handlers; website progressive crawl with link extraction; heartbeat logging for adaptive resources
