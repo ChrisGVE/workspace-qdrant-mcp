@@ -56,10 +56,12 @@ import * as searchEventQueries from './search-event-queries.js';
 import * as tagQueries from './tag-queries.js';
 import * as instanceQueries from './instance-queries.js';
 import * as rulesMirrorQueries from './rules-mirror-queries.js';
+import * as trackedFilesQueries from './tracked-files-queries.js';
 
 // Re-export delegate types
 export type { SearchEventInput, SearchEventUpdate } from './search-event-queries.js';
 export type { RulesMirrorEntry } from './rules-mirror-queries.js';
+export type { TrackedFileEntry, SubmoduleEntry, ListTrackedFilesOptions } from './tracked-files-queries.js';
 
 // Default database path
 const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');
@@ -226,5 +228,19 @@ export class SqliteStateManager {
 
   listRulesMirror(scope?: string, tenantId?: string, limit = 50) {
     return rulesMirrorQueries.listRulesMirror(this.db, scope, tenantId, limit);
+  }
+
+  // ── Tracked files (delegated) ──────────────────────────────────────────
+
+  listTrackedFiles(options: trackedFilesQueries.ListTrackedFilesOptions) {
+    return trackedFilesQueries.listTrackedFiles(this.db, options);
+  }
+
+  countTrackedFiles(options: Omit<trackedFilesQueries.ListTrackedFilesOptions, 'limit'>) {
+    return trackedFilesQueries.countTrackedFiles(this.db, options);
+  }
+
+  listSubmodules(watchFolderId: string) {
+    return trackedFilesQueries.listSubmodules(this.db, watchFolderId);
   }
 }
