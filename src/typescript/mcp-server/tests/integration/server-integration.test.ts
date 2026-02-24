@@ -195,7 +195,7 @@ describe('Server Integration Tests', () => {
   });
 
   describe('Tool Registration', () => {
-    it('should register all 4 tools with MCP server', async () => {
+    it('should register all 6 tools with MCP server', async () => {
       server = new WorkspaceQdrantMcpServer({ config, stdio: false });
       await server.start();
 

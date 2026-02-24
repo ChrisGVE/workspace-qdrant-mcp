@@ -11,6 +11,7 @@ import { RetrieveTool } from './tools/retrieve.js';
 import { RulesTool } from './tools/rules.js';
 import { StoreTool } from './tools/store.js';
 import { GrepTool } from './tools/grep.js';
+import { ListFilesTool } from './tools/list-files.js';
 import type { ServerConfig } from './types/index.js';
 
 export interface ServerComponents {
@@ -23,6 +24,7 @@ export interface ServerComponents {
   rulesTool: RulesTool;
   storeTool: StoreTool;
   grepTool: GrepTool;
+  listTool: ListFilesTool;
   qdrantConfig: { qdrantUrl: string; qdrantApiKey?: string };
 }
 
@@ -75,6 +77,8 @@ export function buildServerComponents(config: ServerConfig): ServerComponents {
   // StoreTool is for libraries collection ONLY per spec
   const storeTool = new StoreTool({}, stateManager);
 
+  const listTool = new ListFilesTool(stateManager, projectDetector);
+
   return {
     daemonClient,
     stateManager,
@@ -85,6 +89,7 @@ export function buildServerComponents(config: ServerConfig): ServerComponents {
     rulesTool,
     storeTool,
     grepTool,
+    listTool,
     qdrantConfig,
   };
 }

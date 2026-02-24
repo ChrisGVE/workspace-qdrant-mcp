@@ -31,6 +31,7 @@ import {
   buildRuleOptions,
   buildStoreOptions,
   buildGrepOptions,
+  buildListOptions,
 } from './tool-builders.js';
 import { storeUrl, storeScratchpad } from './store-handlers.js';
 import {
@@ -107,7 +108,7 @@ export class WorkspaceQdrantMcpServer {
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
     const startTime = Date.now();
-    const { searchTool, retrieveTool, rulesTool, storeTool, grepTool, healthMonitor, daemonClient, stateManager } = this.components;
+    const { searchTool, retrieveTool, rulesTool, storeTool, grepTool, listTool, healthMonitor, daemonClient, stateManager } = this.components;
 
     // Implicit heartbeat — fire-and-forget to avoid latency
     sendHeartbeat(this.sessionState, daemonClient);
@@ -142,6 +143,9 @@ export class WorkspaceQdrantMcpServer {
         }
         case 'grep':
           result = await grepTool.grep(buildGrepOptions(args));
+          break;
+        case 'list':
+          result = await listTool.list(buildListOptions(args));
           break;
         default:
           logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });
