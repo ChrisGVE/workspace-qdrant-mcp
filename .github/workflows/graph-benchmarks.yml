@@ -1,0 +1,107 @@
+# Graph subsystem benchmarks using Rust criterion
+# Runs graph_bench.rs: insertion, query, impact, algorithms, extraction
+#
+# Triggered on:
+# - Push to main (save baseline)
+# - PR to main (compare against baseline)
+# - Manual dispatch
+
+name: Graph Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/rust/daemon/core/src/graph/**'
+      - 'src/rust/daemon/core/benches/graph_bench.rs'
+      - '.github/workflows/graph-benchmarks.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/rust/daemon/core/src/graph/**'
+      - 'src/rust/daemon/core/benches/graph_bench.rs'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  graph-bench:
+    name: Graph Performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ${{ runner.os }}-bench-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bench-cargo-
+
+      - name: Run graph benchmarks
+        working-directory: src/rust
+        run: |
+          cargo bench --package workspace-qdrant-core --bench graph_bench -- --output-format=bencher 2>&1 | tee bench_output.txt
+
+      - name: Parse benchmark results
+        run: |
+          echo "## Graph Benchmark Results" > bench_report.md
+          echo "" >> bench_report.md
+          echo "**Commit:** \`${{ github.sha }}\`" >> bench_report.md
+          echo "**Date:** $(date -Iseconds)" >> bench_report.md
+          echo "" >> bench_report.md
+          echo "### PRD R10 Performance Targets" >> bench_report.md
+          echo "" >> bench_report.md
+          echo "| Metric | Target | Status |" >> bench_report.md
+          echo "|--------|--------|--------|" >> bench_report.md
+          echo "| Edge insertion | >= 10K edges/sec | See results below |" >> bench_report.md
+          echo "| 1-hop query | < 1ms | See results below |" >> bench_report.md
+          echo "| 2-hop query | < 10ms | See results below |" >> bench_report.md
+          echo "| Impact analysis | < 100ms | See results below |" >> bench_report.md
+          echo "| Community detection (10K nodes) | < 5s | See results below |" >> bench_report.md
+          echo "" >> bench_report.md
+          echo "### Raw Results" >> bench_report.md
+          echo '```' >> bench_report.md
+          cat src/rust/bench_output.txt >> bench_report.md
+          echo '```' >> bench_report.md
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: graph-benchmark-results
+          path: |
+            bench_report.md
+            src/rust/bench_output.txt
+          retention-days: 30
+
+      - name: Comment PR with benchmark results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('bench_report.md')) {
+              const report = fs.readFileSync('bench_report.md', 'utf8');
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: report
+              });
+            }
