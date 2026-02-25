@@ -6,10 +6,10 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use rusqlite::Connection;
-use sha2::{Digest, Sha256};
 use tabled::Tabled;
 
 use crate::config::get_database_path;
+use crate::grpc::client::DaemonClient;
 use crate::output;
 
 /// Tags command arguments
@@ -487,51 +487,35 @@ fn compute_stats_for_tenant(
     })
 }
 
-async fn rebuild(tenant_id: &str, _collection: &str) -> Result<()> {
-    // Enqueue a rebuild via the unified queue
-    // The daemon's hierarchy_builder will pick it up
-    let conn = open_db()?;
-    if !table_exists(&conn, "tags") {
-        anyhow::bail!("Tags table not found. Ensure daemon schema v16+ is applied.");
+async fn rebuild(tenant_id: &str, collection: &str) -> Result<()> {
+    use crate::grpc::client::workspace_daemon::RebuildIndexRequest;
+
+    let mut client = DaemonClient::connect_default()
+        .await
+        .context("Failed to connect to daemon. Is memexd running?")?;
+
+    output::info(format!("Rebuilding tag hierarchy for tenant {}...", tenant_id));
+
+    let mut request = tonic::Request::new(RebuildIndexRequest {
+        target: "tags".into(),
+        tenant_id: Some(tenant_id.into()),
+        collection: Some(collection.into()),
+    });
+    request.set_timeout(std::time::Duration::from_secs(300));
+
+    let response = client
+        .system()
+        .rebuild_index(request)
+        .await
+        .context("RebuildIndex RPC failed")?;
+
+    let resp = response.into_inner();
+    if resp.success {
+        output::success(resp.message);
+        output::info("Check daemon logs for rebuild progress and results.");
+    } else {
+        anyhow::bail!("Rebuild failed: {}", resp.message);
     }
-
-    // Check if tenant has any tags
-    let tag_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(DISTINCT tag) FROM tags WHERE tenant_id = ? AND tag_type = 'concept'",
-            [tenant_id],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-
-    if tag_count == 0 {
-        anyhow::bail!("No concept tags found for tenant {}. Ingest documents first.", tenant_id);
-    }
-
-    // Insert a rebuild request into the unified queue
-    let queue_id = uuid::Uuid::new_v4().to_string();
-    let now = wqm_common::timestamps::now_utc();
-
-    // Build idempotency key for dedup: SHA256(item_type|op|tenant_id|collection|payload_json)[:32]
-    let payload = format!("{{\"action\":\"rebuild_hierarchy\",\"tenant_id\":\"{}\"}}", tenant_id);
-    let idem_input = format!("tenant|rebuild|{}|projects|{}", tenant_id, payload);
-    let hash = Sha256::digest(idem_input.as_bytes());
-    let idem_key = format!("{:x}", hash);
-    let idem_key = &idem_key[..32];
-
-    conn.execute(
-        "INSERT OR IGNORE INTO unified_queue \
-         (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
-          priority, status, payload_json, created_at, updated_at) \
-         VALUES (?1, ?2, 'tenant', 'rebuild', ?3, 'projects', 3, 'pending', ?4, ?5, ?5)",
-        rusqlite::params![queue_id, idem_key, tenant_id, payload, now],
-    )?;
-
-    output::success(format!(
-        "Hierarchy rebuild queued for tenant {} ({} concept tags)",
-        tenant_id, tag_count
-    ));
-    output::info("The daemon will process this at next queue poll cycle.");
 
     Ok(())
 }

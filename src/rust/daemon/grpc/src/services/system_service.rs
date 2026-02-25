@@ -21,6 +21,7 @@ use crate::proto::{
     system_service_server::SystemService,
     HealthResponse, SystemStatusResponse, MetricsResponse, QueueStatsResponse,
     RefreshSignalRequest, ServerStatusNotification,
+    RebuildIndexRequest, RebuildIndexResponse,
     ComponentHealth, SystemMetrics, Metric,
     ServiceStatus, QueueType, ServerState,
 };
@@ -62,6 +63,8 @@ pub struct SystemServiceImpl {
     watch_refresh_signal: Option<Arc<Notify>>,
     /// Adaptive resource state for idle/burst mode reporting
     adaptive_state: Option<Arc<AdaptiveResourceState>>,
+    /// Hierarchy builder for tag hierarchy rebuild via RebuildIndex RPC
+    hierarchy_builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
 }
 
 impl SystemServiceImpl {
@@ -75,6 +78,7 @@ impl SystemServiceImpl {
             pause_flag: Arc::new(AtomicBool::new(false)),
             watch_refresh_signal: None,
             adaptive_state: None,
+            hierarchy_builder: None,
         }
     }
 
@@ -107,6 +111,12 @@ impl SystemServiceImpl {
     /// Set the adaptive resource state for idle/burst mode reporting
     pub fn with_adaptive_state(mut self, state: Arc<AdaptiveResourceState>) -> Self {
         self.adaptive_state = Some(state);
+        self
+    }
+
+    /// Set the hierarchy builder for tag hierarchy rebuild
+    pub fn with_hierarchy_builder(mut self, builder: Arc<workspace_qdrant_core::HierarchyBuilder>) -> Self {
+        self.hierarchy_builder = Some(builder);
         self
     }
 
@@ -754,6 +764,105 @@ impl SystemService for SystemServiceImpl {
         .await;
 
         Ok(Response::new(()))
+    }
+
+    async fn rebuild_index(
+        &self,
+        request: Request<RebuildIndexRequest>,
+    ) -> Result<Response<RebuildIndexResponse>, Status> {
+        let req = request.into_inner();
+        let target = req.target.to_lowercase();
+
+        info!(target = %target, tenant = ?req.tenant_id, "RebuildIndex requested");
+
+        // Validate target before spawning background work
+        if !matches!(target.as_str(), "tags" | "all") {
+            return Err(Status::invalid_argument(format!(
+                "Unknown rebuild target '{}'. Valid targets: tags, all", target
+            )));
+        }
+
+        // Validate that hierarchy builder is available for tag-related targets
+        let builder = self.hierarchy_builder.as_ref().ok_or_else(|| {
+            Status::unavailable("Hierarchy builder not configured")
+        })?.clone();
+
+        let tenant_id = req.tenant_id.clone();
+
+        // Spawn rebuild as a background task to avoid gRPC timeout
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+            match target.as_str() {
+                "tags" => {
+                    if let Some(tid) = &tenant_id {
+                        match builder.rebuild_tenant(tid).await {
+                            Ok(Some(r)) => {
+                                let total = r.level1_count + r.level2_count + r.level3_count;
+                                info!(
+                                    tenant = %tid,
+                                    canonical_tags = total,
+                                    edges = r.edges_created,
+                                    duration_ms = start.elapsed().as_millis() as u64,
+                                    "Tag hierarchy rebuild complete"
+                                );
+                            }
+                            Ok(None) => {
+                                info!(tenant = %tid, "Tag hierarchy rebuild skipped (too few tags)");
+                            }
+                            Err(e) => {
+                                tracing::error!(tenant = %tid, error = %e, "Tag hierarchy rebuild failed");
+                            }
+                        }
+                    } else {
+                        match builder.rebuild_all().await {
+                            Ok(r) => {
+                                info!(
+                                    tenants = r.tenants_processed,
+                                    canonical_tags = r.total_canonical_tags,
+                                    edges = r.total_edges,
+                                    duration_ms = start.elapsed().as_millis() as u64,
+                                    "Tag hierarchy rebuild complete (all tenants)"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "Tag hierarchy rebuild failed (all tenants)");
+                            }
+                        }
+                    }
+                }
+                "all" => {
+                    match builder.rebuild_all().await {
+                        Ok(r) => {
+                            info!(
+                                tenants = r.tenants_processed,
+                                canonical_tags = r.total_canonical_tags,
+                                edges = r.total_edges,
+                                duration_ms = start.elapsed().as_millis() as u64,
+                                "Full rebuild complete (all targets)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Full rebuild failed");
+                        }
+                    }
+                }
+                _ => {} // Already validated above
+            }
+        });
+
+        // Return immediately — rebuild runs in background
+        let mut details = std::collections::HashMap::new();
+        if let Some(tid) = &req.tenant_id {
+            details.insert("tenant_id".into(), tid.clone());
+        }
+        details.insert("target".into(), req.target);
+
+        Ok(Response::new(RebuildIndexResponse {
+            success: true,
+            message: "Rebuild started in background".into(),
+            duration_ms: 0,
+            details,
+        }))
     }
 }
 

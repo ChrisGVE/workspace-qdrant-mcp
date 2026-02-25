@@ -959,9 +959,12 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Clone pool for WatchManager before it's moved into the queue processor
     let watch_pool = queue_pool.clone();
 
-    // Clone pool and embedding generator for hierarchy builder (Task 35)
-    let hierarchy_pool = queue_pool.clone();
-    let hierarchy_embedding = Arc::clone(&embedding_generator);
+    // Create hierarchy builder early so it can be shared with gRPC
+    let hierarchy_builder = Arc::new(HierarchyBuilder::new(
+        queue_pool.clone(),
+        Arc::clone(&embedding_generator),
+        HierarchyRebuildConfig::default(),
+    ));
 
     // Clone storage_client before it's moved into the queue processor (Task 24)
     let mirror_storage = Arc::clone(&storage_client);
@@ -1008,6 +1011,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Start gRPC server (deferred until adaptive state is available)
     info!("Starting gRPC server on port {}", grpc_port);
     let grpc_adaptive_state = Arc::clone(&adaptive_state);
+    let grpc_hierarchy_builder = Arc::clone(&hierarchy_builder);
     let grpc_handle = tokio::spawn(async move {
         let mut grpc_server = GrpcServer::new(grpc_config)
             .with_database_pool(grpc_db_pool)
@@ -1015,7 +1019,8 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
             .with_watch_refresh_signal(grpc_watch_signal)
             .with_queue_health(grpc_queue_health)
             .with_adaptive_state(grpc_adaptive_state)
-            .with_search_db(grpc_search_db);
+            .with_search_db(grpc_search_db)
+            .with_hierarchy_builder(grpc_hierarchy_builder);
 
         // Enable LSP if manager was created successfully
         if let Some(lsp_manager) = grpc_lsp_manager {
@@ -1192,11 +1197,6 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Start nightly canonical tag hierarchy rebuild (Task 35)
     let hierarchy_cancel = tokio_util::sync::CancellationToken::new();
-    let hierarchy_builder = Arc::new(HierarchyBuilder::new(
-        hierarchy_pool,
-        hierarchy_embedding,
-        HierarchyRebuildConfig::default(),
-    ));
     let _hierarchy_handle = Arc::clone(&hierarchy_builder).start_scheduled(hierarchy_cancel.clone());
     info!("Canonical tag hierarchy rebuild scheduled (nightly at 2 AM)");
 

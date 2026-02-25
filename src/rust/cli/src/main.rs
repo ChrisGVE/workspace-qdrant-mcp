@@ -139,6 +139,11 @@ enum Commands {
     #[command(display_order = 31)]
     Stats(commands::stats::StatsArgs),
 
+    // --- Maintenance ---
+    /// Rebuild computed indexes (tags, all)
+    #[command(display_order = 35)]
+    Rebuild(commands::rebuild::RebuildArgs),
+
     // --- Service & Admin ---
     /// Daemon service management (start, stop, restart, status)
     #[command(display_order = 40)]
@@ -248,6 +253,9 @@ async fn main() -> Result<()> {
         // Queue & Analytics
         Commands::Queue(args) => commands::queue::execute(args).await,
         Commands::Stats(args) => commands::stats::execute(args).await,
+
+        // Maintenance
+        Commands::Rebuild(args) => commands::rebuild::execute(args).await,
 
         // Service & Admin
         Commands::Service(args) => {

@@ -62,6 +62,9 @@ service SystemService {
 
     // Resume all file watchers (master switch)
     rpc ResumeAllWatchers(google.protobuf.Empty) returns (google.protobuf.Empty);
+
+    // Rebuild computed indexes (tag hierarchy, FTS, sparse vectors, etc.)
+    rpc RebuildIndex(RebuildIndexRequest) returns (RebuildIndexResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -228,6 +231,21 @@ message Metric {
     map<string, string> labels = 3;               // Metric dimensions
     double value = 4;
     google.protobuf.Timestamp timestamp = 5;
+}
+
+// RebuildIndex Request
+message RebuildIndexRequest {
+    string target = 1;                            // "tags", "fts", "sparse", "all"
+    optional string tenant_id = 2;                // Scope to tenant (empty = all tenants)
+    optional string collection = 3;               // Collection (default: "projects")
+}
+
+// RebuildIndex Response
+message RebuildIndexResponse {
+    bool success = 1;
+    string message = 2;                           // Human-readable result summary
+    int64 duration_ms = 3;                        // Total rebuild time
+    map<string, string> details = 4;              // Target-specific result details
 }
 
 // SendRefreshSignal Request

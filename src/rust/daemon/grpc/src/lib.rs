@@ -298,6 +298,8 @@ pub struct GrpcServer {
     search_db: Option<Arc<SearchDbManager>>,
     /// Graph store for GraphService (code relationship queries)
     graph_store: Option<workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>>,
+    /// Hierarchy builder for tag hierarchy rebuild via gRPC
+    hierarchy_builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
 }
 
 /// Server metrics for monitoring
@@ -378,6 +380,7 @@ impl GrpcServer {
             adaptive_state: None,
             search_db: None,
             graph_store: None,
+            hierarchy_builder: None,
         }
     }
 
@@ -464,6 +467,15 @@ impl GrpcServer {
         self
     }
 
+    /// Set the hierarchy builder for tag hierarchy rebuild via RebuildIndex RPC.
+    pub fn with_hierarchy_builder(
+        mut self,
+        builder: Arc<workspace_qdrant_core::HierarchyBuilder>,
+    ) -> Self {
+        self.hierarchy_builder = Some(builder);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -510,6 +522,9 @@ impl GrpcServer {
         }
         if let Some(ref adaptive_state) = self.adaptive_state {
             system_service = system_service.with_adaptive_state(Arc::clone(adaptive_state));
+        }
+        if let Some(ref hierarchy_builder) = self.hierarchy_builder {
+            system_service = system_service.with_hierarchy_builder(Arc::clone(hierarchy_builder));
         }
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
