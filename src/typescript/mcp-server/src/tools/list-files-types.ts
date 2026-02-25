@@ -24,6 +24,8 @@ export interface ListOptions {
   includeTests?: boolean;
   limit?: number;
   projectId?: string;
+  /** Filter by component (dot-separated ID or prefix, e.g. "daemon" or "daemon.core") */
+  component?: string;
 }
 
 // ── Internal tree types ──────────────────────────────────────────────────
@@ -51,12 +53,20 @@ export interface SubmoduleMarker {
 
 // ── Output types ─────────────────────────────────────────────────────────
 
+export interface ComponentSummary {
+  id: string;
+  basePath: string;
+  source: 'cargo' | 'npm' | 'directory';
+}
+
 export interface ListStats {
   files: number;
   folders: number;
   languages: string[];
   truncated: boolean;
   totalMatching: number;
+  /** Detected project components (when available) */
+  components?: ComponentSummary[];
 }
 
 export interface ListResponse {

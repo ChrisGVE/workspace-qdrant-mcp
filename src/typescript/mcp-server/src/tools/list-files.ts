@@ -14,6 +14,7 @@ import type {
   ListFormat,
   ListResponse,
   ListStats,
+  ComponentSummary,
   FolderNode,
 } from './list-files-types.js';
 import {
@@ -22,6 +23,12 @@ import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
 } from './list-files-types.js';
+import {
+  detectComponents,
+  assignComponent,
+  componentMatchesFilter,
+  type ComponentMap,
+} from '../utils/component-detector.js';
 
 // Re-export types for consumers
 export type { ListOptions, ListResponse } from './list-files-types.js';
@@ -84,6 +91,29 @@ export class ListFilesTool {
       files = filterByGlob(files, options.pattern);
     }
 
+    // Detect project components if we have a project path
+    let components: ComponentMap | undefined;
+    let componentSummaries: ComponentSummary[] | undefined;
+    if (projectPath) {
+      components = detectComponents(projectPath);
+      if (components.size > 0) {
+        componentSummaries = Array.from(components.values()).map(c => ({
+          id: c.id,
+          basePath: c.basePath,
+          source: c.source,
+        }));
+      }
+    }
+
+    // Filter by component if requested
+    if (options.component && components && components.size > 0) {
+      files = files.filter(f => {
+        const assigned = assignComponent(f.relativePath, components!);
+        if (!assigned) return false;
+        return componentMatchesFilter(assigned.id, options.component!);
+      });
+    }
+
     // Query submodules
     const submodulesResult = this.stateManager.listSubmodules(watchFolderId);
     const submodules = submodulesResult.data;
@@ -123,6 +153,7 @@ export class ListFilesTool {
       truncated,
       totalMatching,
     };
+    if (componentSummaries) stats.components = componentSummaries;
 
     return {
       success: true,

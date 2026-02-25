@@ -900,6 +900,60 @@ describe('Server Integration Tests', () => {
       const data = JSON.parse(result.content[0].text);
       expect(data.format).toBe('tree');
     });
+
+    it('should include component summaries when workspace file exists', async () => {
+      // Create a Cargo.toml with workspace members in the project directory
+      const projectPath = realpathSync(join(tempDir, 'list-project'));
+      writeFileSync(
+        join(projectPath, 'Cargo.toml'),
+        '[workspace]\nresolver = "2"\nmembers = [\n    "src",\n    "tests",\n]\n',
+      );
+
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'summary', projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.stats.components).toBeDefined();
+      expect(data.stats.components.length).toBeGreaterThan(0);
+
+      const componentIds = data.stats.components.map((c: { id: string }) => c.id);
+      expect(componentIds).toContain('src');
+      expect(componentIds).toContain('tests');
+    });
+
+    it('should filter files by component', async () => {
+      // Create a Cargo.toml with workspace members
+      const projectPath = realpathSync(join(tempDir, 'list-project'));
+      writeFileSync(
+        join(projectPath, 'Cargo.toml'),
+        '[workspace]\nmembers = ["src", "tests"]\n',
+      );
+
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'flat', component: 'tests', projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      // Should only include files under tests/
+      expect(data.listing).toContain('test_main.rs');
+      expect(data.listing).not.toContain('src/main.rs');
+      expect(data.listing).not.toContain('README.md');
+    });
   });
 
   describe('Tool Error Handling', () => {

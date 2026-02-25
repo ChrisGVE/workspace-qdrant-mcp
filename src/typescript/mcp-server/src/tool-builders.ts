@@ -320,5 +320,8 @@ export function buildListOptions(args: Record<string, unknown> | undefined): imp
   const projectId = args?.['projectId'] as string | undefined;
   if (projectId) options.projectId = projectId;
 
+  const component = args?.['component'] as string | undefined;
+  if (component) options.component = component;
+
   return options;
 }

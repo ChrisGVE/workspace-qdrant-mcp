@@ -335,6 +335,10 @@ export function getToolDefinitions() {
             type: 'string',
             description: 'Specific project ID (default: current project)',
           },
+          component: {
+            type: 'string',
+            description: 'Filter by component (dot-separated ID or prefix, e.g. "daemon" or "daemon.core"). Auto-detected from Cargo.toml/package.json workspaces.',
+          },
         },
       },
     },
