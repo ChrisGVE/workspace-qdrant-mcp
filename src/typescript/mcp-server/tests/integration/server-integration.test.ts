@@ -143,8 +143,22 @@ CREATE TABLE IF NOT EXISTS tracked_files (
     is_test INTEGER DEFAULT 0,
     base_point TEXT,
     relative_path TEXT,
+    component TEXT,
     FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
     UNIQUE(watch_folder_id, file_path, branch)
+);
+
+CREATE TABLE IF NOT EXISTS project_components (
+    component_id TEXT PRIMARY KEY,
+    watch_folder_id TEXT NOT NULL,
+    component_name TEXT NOT NULL,
+    base_path TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'auto',
+    patterns TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
+    UNIQUE(watch_folder_id, component_name)
 );
 
 CREATE TABLE IF NOT EXISTS unified_queue (

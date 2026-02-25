@@ -463,6 +463,7 @@ async fn ingest_file_content(
         lsp_status,
         treesitter_status,
         payload.file_type.as_deref(),
+        None, // component — assigned by Task 2 (component detection)
     )
     .await?;
     timings.push(PhaseTiming { phase: "upsert", duration_ms: t0.elapsed().as_millis() as u64 });

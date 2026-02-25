@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 27;
+pub const CURRENT_SCHEMA_VERSION: i32 = 28;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -177,6 +177,7 @@ impl SchemaManager {
             25 => self.migrate_v25().await,
             26 => self.migrate_v26().await,
             27 => self.migrate_v27().await,
+            28 => self.migrate_v28().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -1255,6 +1256,66 @@ impl SchemaManager {
             }
         }
 
+        Ok(())
+    }
+
+    /// Migration v28: Add component column to tracked_files, create project_components table
+    async fn migrate_v28(&self) -> Result<(), SchemaError> {
+        info!("Migration v28: Adding component column to tracked_files and creating project_components table");
+
+        use super::tracked_files_schema::MIGRATE_V28_ADD_COMPONENT_SQL;
+
+        // Add component column to tracked_files (idempotent check)
+        let has_component: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'component'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_component {
+            debug!("Adding component column to tracked_files");
+            sqlx::query(MIGRATE_V28_ADD_COMPONENT_SQL)
+                .execute(&self.pool)
+                .await?;
+        } else {
+            debug!("component column already exists, skipping ALTER TABLE");
+        }
+
+        // Create project_components table
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS project_components (
+                component_id TEXT PRIMARY KEY,
+                watch_folder_id TEXT NOT NULL,
+                component_name TEXT NOT NULL,
+                base_path TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'auto',
+                patterns TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
+                UNIQUE(watch_folder_id, component_name)
+            )"
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // Create index on watch_folder_id for fast lookup
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_project_components_watch_folder
+             ON project_components(watch_folder_id)"
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // Create index on component column in tracked_files for filtering
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_tracked_files_component
+             ON tracked_files(component)"
+        )
+        .execute(&self.pool)
+        .await?;
+
+        info!("Migration v28 complete");
         Ok(())
     }
 }

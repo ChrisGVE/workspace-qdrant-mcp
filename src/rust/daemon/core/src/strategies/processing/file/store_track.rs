@@ -39,6 +39,7 @@ pub(super) async fn upsert_and_track(
     lsp_status: ProcessingStatus,
     treesitter_status: ProcessingStatus,
     payload_file_type: Option<&str>,
+    component: Option<String>,
 ) -> Result<i64, UnifiedProcessorError> {
     // Upsert points to Qdrant
     // Task 555: If insert fails after old points were deleted (update path),
@@ -164,6 +165,7 @@ pub(super) async fn upsert_and_track(
                     lsp_status,
                     treesitter_status,
                     Some(base_point),
+                    component.as_deref(),
                 )
                 .await
                 .map_err(|e| {
@@ -206,6 +208,7 @@ pub(super) async fn upsert_and_track(
                     is_test,
                     Some(base_point),
                     Some(relative_path),
+                    component.as_deref(),
                 )
                 .await
                 .map_err(|e| {
