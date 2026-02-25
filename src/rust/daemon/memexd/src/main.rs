@@ -1147,6 +1147,31 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         });
     }
 
+    // Component backfill: assign component to tracked_files with NULL component
+    // Runs as a background task after schema migration has created the column.
+    {
+        let component_pool = unified_queue_processor.pool().clone();
+        tokio::spawn(async move {
+            match workspace_qdrant_core::component_detection::backfill_components(
+                &component_pool, 100,
+            ).await {
+                Ok(stats) => {
+                    if stats.files_updated > 0 {
+                        info!(
+                            "Component backfill: {} files updated, {} unmatched across {} folders",
+                            stats.files_updated, stats.files_unmatched, stats.folders_processed
+                        );
+                    } else {
+                        debug!("Component backfill: no NULL components to backfill");
+                    }
+                }
+                Err(e) => {
+                    warn!("Component backfill failed (non-fatal): {}", e);
+                }
+            }
+        });
+    }
+
     // Start file watching for all enabled watch folders
     let watch_manager = Arc::new(
         WatchManager::new(watch_pool, Arc::clone(&allowed_extensions))

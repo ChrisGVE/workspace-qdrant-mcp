@@ -460,6 +460,130 @@ pub async fn load_components(
     Ok(components)
 }
 
+// ── Backfill ─────────────────────────────────────────────────────────────
+
+/// Stats from a component backfill run.
+#[derive(Debug, Clone, Default)]
+pub struct BackfillStats {
+    /// Watch folders processed
+    pub folders_processed: u64,
+    /// Files updated with component assignment
+    pub files_updated: u64,
+    /// Files that couldn't be assigned (no matching component)
+    pub files_unmatched: u64,
+    /// Errors during processing
+    pub errors: u64,
+}
+
+/// Backfill NULL component assignments for all active watch folders.
+///
+/// For each enabled watch folder, detects components from the workspace
+/// definition files, then assigns components to tracked_files that have
+/// `component IS NULL`. Batches updates in transactions of `batch_size`.
+pub async fn backfill_components(
+    pool: &sqlx::SqlitePool,
+    batch_size: usize,
+) -> Result<BackfillStats, String> {
+    use sqlx::Row;
+
+    let mut stats = BackfillStats::default();
+
+    // Get all enabled, non-archived watch folders with their paths
+    let folders: Vec<(String, String)> = sqlx::query_as(
+        "SELECT watch_id, path FROM watch_folders WHERE enabled = 1 AND is_archived = 0",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to query watch_folders: {e}"))?;
+
+    for (watch_id, path) in &folders {
+        let project_path = Path::new(path.as_str());
+        if !project_path.is_dir() {
+            debug!("Skipping backfill for {}: path does not exist", watch_id);
+            continue;
+        }
+
+        // Detect components for this project
+        let components = detect_components(project_path);
+        if components.is_empty() {
+            debug!("No components detected for {}, skipping backfill", watch_id);
+            stats.folders_processed += 1;
+            continue;
+        }
+
+        // Persist the detected components (idempotent)
+        if let Err(e) = persist_components(pool, watch_id, &components).await {
+            debug!("Failed to persist components for {}: {}", watch_id, e);
+            stats.errors += 1;
+        }
+
+        // Find all tracked files with NULL component in this watch folder
+        let null_files: Vec<(i64, String)> = sqlx::query(
+            "SELECT file_id, relative_path FROM tracked_files
+             WHERE watch_folder_id = ?1 AND component IS NULL AND relative_path IS NOT NULL",
+        )
+        .bind(watch_id)
+        .map(|row: sqlx::sqlite::SqliteRow| {
+            let file_id: i64 = row.get("file_id");
+            let rel_path: String = row.get("relative_path");
+            (file_id, rel_path)
+        })
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to query tracked_files for {}: {e}", watch_id))?;
+
+        if null_files.is_empty() {
+            stats.folders_processed += 1;
+            continue;
+        }
+
+        debug!(
+            "Backfilling components for {}: {} files with NULL component",
+            watch_id,
+            null_files.len()
+        );
+
+        // Batch update in transactions
+        for chunk in null_files.chunks(batch_size) {
+            let mut tx = pool
+                .begin()
+                .await
+                .map_err(|e| format!("Failed to begin transaction: {e}"))?;
+
+            for (file_id, rel_path) in chunk {
+                match assign_component(rel_path, &components) {
+                    Some(comp) => {
+                        if let Err(e) = sqlx::query(
+                            "UPDATE tracked_files SET component = ?1 WHERE file_id = ?2",
+                        )
+                        .bind(&comp.id)
+                        .bind(file_id)
+                        .execute(&mut *tx)
+                        .await
+                        {
+                            debug!("Failed to update file_id {}: {}", file_id, e);
+                            stats.errors += 1;
+                        } else {
+                            stats.files_updated += 1;
+                        }
+                    }
+                    None => {
+                        stats.files_unmatched += 1;
+                    }
+                }
+            }
+
+            tx.commit()
+                .await
+                .map_err(|e| format!("Failed to commit batch: {e}"))?;
+        }
+
+        stats.folders_processed += 1;
+    }
+
+    Ok(stats)
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -710,5 +834,130 @@ members = ["shared"]
         // "web" should be npm (no conflict)
         assert!(components.contains_key("web"));
         assert_eq!(components["web"].source, ComponentSource::Npm);
+    }
+
+    #[tokio::test]
+    async fn test_backfill_components() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[workspace]
+members = ["alpha", "beta"]
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("alpha")).unwrap();
+        fs::create_dir_all(dir.path().join("beta")).unwrap();
+
+        // Create in-memory SQLite with required schema
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE watch_folders (
+                watch_id TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                collection TEXT NOT NULL DEFAULT 'projects',
+                tenant_id TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                is_archived INTEGER NOT NULL DEFAULT 0
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE tracked_files (
+                file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_folder_id TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                relative_path TEXT,
+                component TEXT,
+                UNIQUE(watch_folder_id, file_path)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE project_components (
+                component_id TEXT PRIMARY KEY,
+                watch_folder_id TEXT NOT NULL,
+                component_name TEXT NOT NULL,
+                base_path TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'auto',
+                patterns TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(watch_folder_id, component_name)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a watch folder pointing to our temp dir
+        let path_str = dir.path().to_string_lossy().to_string();
+        sqlx::query("INSERT INTO watch_folders (watch_id, path) VALUES ('wf1', ?1)")
+            .bind(&path_str)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Insert tracked files with NULL component
+        for rel in &["alpha/src/lib.rs", "beta/src/main.rs", "README.md"] {
+            let abs = format!("{}/{}", path_str, rel);
+            sqlx::query(
+                "INSERT INTO tracked_files (watch_folder_id, file_path, relative_path)
+                 VALUES ('wf1', ?1, ?2)",
+            )
+            .bind(&abs)
+            .bind(rel)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let stats = backfill_components(&pool, 100).await.unwrap();
+        assert_eq!(stats.folders_processed, 1);
+        assert_eq!(stats.files_updated, 2); // alpha/src/lib.rs + beta/src/main.rs
+        assert_eq!(stats.files_unmatched, 1); // README.md at root
+
+        // Verify the component column was set
+        let row: (Option<String>,) = sqlx::query_as(
+            "SELECT component FROM tracked_files WHERE relative_path = 'alpha/src/lib.rs'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.0.as_deref(), Some("alpha"));
+
+        let row: (Option<String>,) = sqlx::query_as(
+            "SELECT component FROM tracked_files WHERE relative_path = 'beta/src/main.rs'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.0.as_deref(), Some("beta"));
+
+        // README.md should still be NULL
+        let row: (Option<String>,) = sqlx::query_as(
+            "SELECT component FROM tracked_files WHERE relative_path = 'README.md'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(row.0.is_none());
+
+        // Components should be persisted
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM project_components WHERE watch_folder_id = 'wf1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 2); // alpha + beta
     }
 }

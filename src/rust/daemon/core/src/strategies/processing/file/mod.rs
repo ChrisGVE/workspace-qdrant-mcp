@@ -260,6 +260,12 @@ async fn resolve_watch_folder(
     }
 }
 
+/// Check if a file is a workspace definition file that triggers component re-detection.
+fn is_workspace_definition_file(relative_path: &str) -> bool {
+    let filename = relative_path.rsplit('/').next().unwrap_or(relative_path);
+    filename == "Cargo.toml" || filename == "package.json"
+}
+
 /// Resolve the component for a file, using the per-watch-folder cache.
 ///
 /// On cache miss: detects components from the project's workspace files,
@@ -494,6 +500,12 @@ async fn ingest_file_content(
     timings.push(PhaseTiming { phase: "graph", duration_ms: t0.elapsed().as_millis() as u64 });
 
     // === COMPONENT DETECTION (Phase 2) ===
+    // Invalidate component cache if a workspace definition file changed.
+    if is_workspace_definition_file(relative_path) {
+        let mut cache = ctx.component_cache.write().await;
+        cache.remove(watch_folder_id);
+        debug!("Invalidated component cache for {} (workspace file changed: {})", watch_folder_id, relative_path);
+    }
     // Resolve the component for this file based on workspace structure.
     // Uses a per-watch-folder cache to avoid re-parsing workspace files.
     let component = resolve_component(ctx, pool, watch_folder_id, &base_path, relative_path).await;
