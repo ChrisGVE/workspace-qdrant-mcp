@@ -297,6 +297,18 @@ impl LexiconManager {
         Ok(removed)
     }
 
+    /// Clear all in-memory BM25 instances and dirty counts.
+    ///
+    /// Call after deleting vocabulary data from SQLite to ensure
+    /// the in-memory state is consistent. New instances will be lazy-loaded
+    /// from SQLite on next `load_collection()` call.
+    pub async fn clear_all(&self) {
+        let mut instances = self.instances.write().await;
+        instances.clear();
+        let mut dirty = self.dirty_counts.write().await;
+        dirty.clear();
+    }
+
     /// Persist all loaded collections (call on shutdown or periodically).
     pub async fn persist_all(&self) -> Result<(), sqlx::Error> {
         let collections: Vec<String> = {

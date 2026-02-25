@@ -1,7 +1,7 @@
 //! Rebuild command - trigger index rebuilds via the daemon.
 //!
 //! Sends RebuildIndex gRPC requests to the daemon for computed indexes
-//! (tag hierarchy, FTS, sparse vectors, etc.).
+//! (tag hierarchy, FTS5, sparse vectors, etc.).
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
@@ -31,7 +31,49 @@ enum RebuildCommand {
         collection: String,
     },
 
-    /// Rebuild all computed indexes
+    /// Rebuild FTS5 code search index
+    Search,
+
+    /// Rebuild BM25 sparse vocabulary (cleanup + reset)
+    Vocabulary {
+        /// Collection (default: projects)
+        #[arg(long, default_value = "projects")]
+        collection: String,
+    },
+
+    /// Re-extract keywords/tags for all documents
+    Keywords {
+        /// Tenant ID (optional, all tenants if omitted)
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Collection (default: projects)
+        #[arg(long, default_value = "projects")]
+        collection: String,
+    },
+
+    /// Sync rules between Qdrant and SQLite
+    Rules {
+        /// Sync direction (default: qdrant-to-db)
+        #[arg(long, value_parser = ["qdrant-to-db", "db-to-qdrant"], default_value = "qdrant-to-db")]
+        direction: String,
+    },
+
+    /// Rescan all project watch folders
+    Projects {
+        /// Tenant ID (optional, all tenants if omitted)
+        #[arg(long)]
+        tenant: Option<String>,
+    },
+
+    /// Rescan all library watch folders
+    Libraries {
+        /// Tenant ID (optional, all tenants if omitted)
+        #[arg(long)]
+        tenant: Option<String>,
+    },
+
+    /// Rebuild all computed indexes in sequence
     All {
         /// Tenant ID (optional, all tenants if omitted)
         #[arg(long)]
@@ -46,8 +88,14 @@ enum RebuildCommand {
 /// Execute rebuild command
 pub async fn execute(args: RebuildArgs) -> Result<()> {
     let (target, tenant, collection) = match args.command {
-        RebuildCommand::Tags { tenant, collection } => ("tags", tenant, collection),
-        RebuildCommand::All { tenant, collection } => ("all", tenant, collection),
+        RebuildCommand::Tags { tenant, collection } => ("tags".to_string(), tenant, Some(collection)),
+        RebuildCommand::Search => ("search".to_string(), None, None),
+        RebuildCommand::Vocabulary { collection } => ("vocabulary".to_string(), None, Some(collection)),
+        RebuildCommand::Keywords { tenant, collection } => ("keywords".to_string(), tenant, Some(collection)),
+        RebuildCommand::Rules { direction } => (format!("rules:{}", direction), None, None),
+        RebuildCommand::Projects { tenant } => ("projects".to_string(), tenant, None),
+        RebuildCommand::Libraries { tenant } => ("libraries".to_string(), tenant, None),
+        RebuildCommand::All { tenant, collection } => ("all".to_string(), tenant, Some(collection)),
     };
 
     let mut client = DaemonClient::connect_default()
@@ -64,9 +112,9 @@ pub async fn execute(args: RebuildArgs) -> Result<()> {
     ));
 
     let mut request = tonic::Request::new(RebuildIndexRequest {
-        target: target.into(),
+        target,
         tenant_id: tenant,
-        collection: Some(collection),
+        collection,
     });
     request.set_timeout(std::time::Duration::from_secs(300));
 

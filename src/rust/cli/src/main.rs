@@ -46,6 +46,9 @@ Service & Admin:
   language     Language tools (LSP, Tree-sitter)
   update       Update system from GitHub releases
 
+Maintenance & Recovery:
+  rebuild      Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
+
 Data Management:
   backup       Backup Qdrant collections (create snapshots)
   restore      Restore Qdrant collections from snapshots
@@ -122,7 +125,7 @@ enum Commands {
     #[command(display_order = 22)]
     Watch(commands::watch::WatchArgs),
 
-    /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, rebuild, search, baskets)
+    /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, search, baskets)
     #[command(display_order = 23)]
     Tags(commands::tags::TagsArgs),
 
@@ -140,7 +143,7 @@ enum Commands {
     Stats(commands::stats::StatsArgs),
 
     // --- Maintenance ---
-    /// Rebuild computed indexes (tags, all)
+    /// Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
     #[command(display_order = 35)]
     Rebuild(commands::rebuild::RebuildArgs),
 

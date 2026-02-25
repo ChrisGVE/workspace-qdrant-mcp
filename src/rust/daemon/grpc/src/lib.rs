@@ -300,6 +300,8 @@ pub struct GrpcServer {
     graph_store: Option<workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>>,
     /// Hierarchy builder for tag hierarchy rebuild via gRPC
     hierarchy_builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
+    /// Lexicon manager for vocabulary rebuild via gRPC
+    lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
 }
 
 /// Server metrics for monitoring
@@ -381,6 +383,7 @@ impl GrpcServer {
             search_db: None,
             graph_store: None,
             hierarchy_builder: None,
+            lexicon_manager: None,
         }
     }
 
@@ -476,6 +479,15 @@ impl GrpcServer {
         self
     }
 
+    /// Set the lexicon manager for vocabulary rebuild via RebuildIndex RPC.
+    pub fn with_lexicon_manager(
+        mut self,
+        lexicon: Arc<workspace_qdrant_core::LexiconManager>,
+    ) -> Self {
+        self.lexicon_manager = Some(lexicon);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -525,6 +537,12 @@ impl GrpcServer {
         }
         if let Some(ref hierarchy_builder) = self.hierarchy_builder {
             system_service = system_service.with_hierarchy_builder(Arc::clone(hierarchy_builder));
+        }
+        if let Some(ref search_db) = self.search_db {
+            system_service = system_service.with_search_db(Arc::clone(search_db));
+        }
+        if let Some(ref lexicon_manager) = self.lexicon_manager {
+            system_service = system_service.with_lexicon_manager(Arc::clone(lexicon_manager));
         }
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));

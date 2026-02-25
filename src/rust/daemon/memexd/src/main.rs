@@ -679,6 +679,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let grpc_queue_health = Arc::clone(&queue_health);
     let grpc_search_db = Arc::clone(&search_db);
     let grpc_graph_store = graph_store.clone();
+    let grpc_lexicon_manager = Arc::new(workspace_qdrant_core::LexiconManager::new(
+        queue_pool.clone(),
+        workspace_qdrant_core::EmbeddingConfig::default().bm25_k1,
+    ));
 
     // Start periodic DB polling for CLI-driven pause state changes (Task 543.10)
     let poll_pause_pool = queue_pool.clone();
@@ -1020,7 +1024,8 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
             .with_queue_health(grpc_queue_health)
             .with_adaptive_state(grpc_adaptive_state)
             .with_search_db(grpc_search_db)
-            .with_hierarchy_builder(grpc_hierarchy_builder);
+            .with_hierarchy_builder(grpc_hierarchy_builder)
+            .with_lexicon_manager(grpc_lexicon_manager);
 
         // Enable LSP if manager was created successfully
         if let Some(lsp_manager) = grpc_lsp_manager {

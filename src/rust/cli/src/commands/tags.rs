@@ -9,7 +9,6 @@ use rusqlite::Connection;
 use tabled::Tabled;
 
 use crate::config::get_database_path;
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 /// Tags command arguments
@@ -70,17 +69,6 @@ enum TagsCommand {
         collection: String,
     },
 
-    /// Trigger canonical tag hierarchy rebuild for a tenant
-    Rebuild {
-        /// Tenant ID
-        #[arg(long)]
-        tenant: String,
-
-        /// Collection (default: projects)
-        #[arg(long, default_value = "projects")]
-        collection: String,
-    },
-
     /// Search tags by name across all tenants
     Search {
         /// Tag name pattern (SQL LIKE)
@@ -114,7 +102,6 @@ pub async fn execute(args: TagsArgs) -> Result<()> {
         TagsCommand::Keywords { doc, json } => list_keywords(&doc, json),
         TagsCommand::Tree { tenant, collection } => show_tree(&tenant, &collection),
         TagsCommand::Stats { tenant, collection } => show_stats(tenant.as_deref(), &collection),
-        TagsCommand::Rebuild { tenant, collection } => rebuild(&tenant, &collection).await,
         TagsCommand::Search { query, collection, json } => search_tags(&query, &collection, json),
         TagsCommand::Baskets { doc, json } => show_baskets(&doc, json),
     }
@@ -485,39 +472,6 @@ fn compute_stats_for_tenant(
         avg_tags: format!("{:.1}", avg_tags),
         canonical_count,
     })
-}
-
-async fn rebuild(tenant_id: &str, collection: &str) -> Result<()> {
-    use crate::grpc::client::workspace_daemon::RebuildIndexRequest;
-
-    let mut client = DaemonClient::connect_default()
-        .await
-        .context("Failed to connect to daemon. Is memexd running?")?;
-
-    output::info(format!("Rebuilding tag hierarchy for tenant {}...", tenant_id));
-
-    let mut request = tonic::Request::new(RebuildIndexRequest {
-        target: "tags".into(),
-        tenant_id: Some(tenant_id.into()),
-        collection: Some(collection.into()),
-    });
-    request.set_timeout(std::time::Duration::from_secs(300));
-
-    let response = client
-        .system()
-        .rebuild_index(request)
-        .await
-        .context("RebuildIndex RPC failed")?;
-
-    let resp = response.into_inner();
-    if resp.success {
-        output::success(resp.message);
-        output::info("Check daemon logs for rebuild progress and results.");
-    } else {
-        anyhow::bail!("Rebuild failed: {}", resp.message);
-    }
-
-    Ok(())
 }
 
 #[derive(Tabled, serde::Serialize)]

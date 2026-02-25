@@ -280,6 +280,7 @@ pub use crate::remote_monitor::{check_remote_url_changes, check_git_state_change
 pub use crate::keyword_extraction::hierarchy_builder::{
     HierarchyBuilder, HierarchyRebuildConfig, HierarchyError,
 };
+pub use crate::lexicon::LexiconManager;
 pub use crate::lifecycle::{
     WatchFolderLifecycle, WatchFolderLifecycleError,
 };

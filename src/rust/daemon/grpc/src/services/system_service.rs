@@ -46,7 +46,6 @@ type ServerStatusStore = Arc<RwLock<HashMap<String, ServerStatusEntry>>>;
 ///
 /// Provides health monitoring, status reporting, and lifecycle management.
 /// Can be connected to actual queue processor health state for real metrics.
-#[derive(Debug)]
 pub struct SystemServiceImpl {
     start_time: SystemTime,
     /// Optional queue processor health state
@@ -65,6 +64,23 @@ pub struct SystemServiceImpl {
     adaptive_state: Option<Arc<AdaptiveResourceState>>,
     /// Hierarchy builder for tag hierarchy rebuild via RebuildIndex RPC
     hierarchy_builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
+    /// Search database manager for FTS5 rebuild
+    search_db: Option<Arc<workspace_qdrant_core::SearchDbManager>>,
+    /// Lexicon manager for vocabulary rebuild
+    lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
+}
+
+impl std::fmt::Debug for SystemServiceImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SystemServiceImpl")
+            .field("start_time", &self.start_time)
+            .field("queue_health", &self.queue_health.is_some())
+            .field("db_pool", &self.db_pool.is_some())
+            .field("hierarchy_builder", &self.hierarchy_builder.is_some())
+            .field("search_db", &self.search_db.is_some())
+            .field("lexicon_manager", &self.lexicon_manager.is_some())
+            .finish()
+    }
 }
 
 impl SystemServiceImpl {
@@ -79,6 +95,8 @@ impl SystemServiceImpl {
             watch_refresh_signal: None,
             adaptive_state: None,
             hierarchy_builder: None,
+            search_db: None,
+            lexicon_manager: None,
         }
     }
 
@@ -117,6 +135,18 @@ impl SystemServiceImpl {
     /// Set the hierarchy builder for tag hierarchy rebuild
     pub fn with_hierarchy_builder(mut self, builder: Arc<workspace_qdrant_core::HierarchyBuilder>) -> Self {
         self.hierarchy_builder = Some(builder);
+        self
+    }
+
+    /// Set the search database manager for FTS5 rebuild
+    pub fn with_search_db(mut self, search_db: Arc<workspace_qdrant_core::SearchDbManager>) -> Self {
+        self.search_db = Some(search_db);
+        self
+    }
+
+    /// Set the lexicon manager for vocabulary rebuild
+    pub fn with_lexicon_manager(mut self, lexicon: Arc<workspace_qdrant_core::LexiconManager>) -> Self {
+        self.lexicon_manager = Some(lexicon);
         self
     }
 
@@ -775,78 +805,56 @@ impl SystemService for SystemServiceImpl {
 
         info!(target = %target, tenant = ?req.tenant_id, "RebuildIndex requested");
 
-        // Validate target before spawning background work
-        if !matches!(target.as_str(), "tags" | "all") {
+        // Parse target — rules supports directional suffix (rules:qdrant-to-db)
+        let (base_target, direction) = if target.starts_with("rules:") {
+            ("rules", Some(target.strip_prefix("rules:").unwrap_or("").to_string()))
+        } else {
+            (target.as_str(), None)
+        };
+
+        const VALID_TARGETS: &[&str] = &[
+            "tags", "search", "vocabulary", "keywords", "rules",
+            "projects", "libraries", "all",
+        ];
+        if !VALID_TARGETS.contains(&base_target) {
             return Err(Status::invalid_argument(format!(
-                "Unknown rebuild target '{}'. Valid targets: tags, all", target
+                "Unknown rebuild target '{}'. Valid targets: {}",
+                target,
+                VALID_TARGETS.join(", ")
             )));
         }
 
-        // Validate that hierarchy builder is available for tag-related targets
-        let builder = self.hierarchy_builder.as_ref().ok_or_else(|| {
-            Status::unavailable("Hierarchy builder not configured")
-        })?.clone();
-
+        // Clone shared resources for the background task
+        let hierarchy_builder = self.hierarchy_builder.clone();
+        let search_db = self.search_db.clone();
+        let lexicon_manager = self.lexicon_manager.clone();
+        let db_pool = self.db_pool.clone();
         let tenant_id = req.tenant_id.clone();
+        let collection = req.collection.clone().unwrap_or_else(|| "projects".into());
+        let target_owned = base_target.to_string();
 
         // Spawn rebuild as a background task to avoid gRPC timeout
         tokio::spawn(async move {
-            let start = std::time::Instant::now();
-            match target.as_str() {
-                "tags" => {
-                    if let Some(tid) = &tenant_id {
-                        match builder.rebuild_tenant(tid).await {
-                            Ok(Some(r)) => {
-                                let total = r.level1_count + r.level2_count + r.level3_count;
-                                info!(
-                                    tenant = %tid,
-                                    canonical_tags = total,
-                                    edges = r.edges_created,
-                                    duration_ms = start.elapsed().as_millis() as u64,
-                                    "Tag hierarchy rebuild complete"
-                                );
-                            }
-                            Ok(None) => {
-                                info!(tenant = %tid, "Tag hierarchy rebuild skipped (too few tags)");
-                            }
-                            Err(e) => {
-                                tracing::error!(tenant = %tid, error = %e, "Tag hierarchy rebuild failed");
-                            }
-                        }
-                    } else {
-                        match builder.rebuild_all().await {
-                            Ok(r) => {
-                                info!(
-                                    tenants = r.tenants_processed,
-                                    canonical_tags = r.total_canonical_tags,
-                                    edges = r.total_edges,
-                                    duration_ms = start.elapsed().as_millis() as u64,
-                                    "Tag hierarchy rebuild complete (all tenants)"
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!(error = %e, "Tag hierarchy rebuild failed (all tenants)");
-                            }
-                        }
-                    }
-                }
+            match target_owned.as_str() {
+                "tags" => rebuild_tags(hierarchy_builder, tenant_id.as_deref()).await,
+                "search" => rebuild_search(search_db).await,
+                "vocabulary" => rebuild_vocabulary(lexicon_manager, db_pool.as_ref(), &collection).await,
+                "keywords" => rebuild_keywords(db_pool.as_ref(), tenant_id.as_deref(), &collection).await,
+                "rules" => rebuild_rules(db_pool.as_ref(), direction.as_deref()).await,
+                "projects" => rebuild_watch_folders(db_pool.as_ref(), "projects", tenant_id.as_deref()).await,
+                "libraries" => rebuild_watch_folders(db_pool.as_ref(), "libraries", tenant_id.as_deref()).await,
                 "all" => {
-                    match builder.rebuild_all().await {
-                        Ok(r) => {
-                            info!(
-                                tenants = r.tenants_processed,
-                                canonical_tags = r.total_canonical_tags,
-                                edges = r.total_edges,
-                                duration_ms = start.elapsed().as_millis() as u64,
-                                "Full rebuild complete (all targets)"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "Full rebuild failed");
-                        }
-                    }
+                    info!("Starting full rebuild (all targets)");
+                    rebuild_vocabulary(lexicon_manager, db_pool.as_ref(), &collection).await;
+                    rebuild_search(search_db).await;
+                    rebuild_tags(hierarchy_builder, tenant_id.as_deref()).await;
+                    rebuild_keywords(db_pool.as_ref(), tenant_id.as_deref(), &collection).await;
+                    rebuild_rules(db_pool.as_ref(), None).await;
+                    rebuild_watch_folders(db_pool.as_ref(), "projects", tenant_id.as_deref()).await;
+                    rebuild_watch_folders(db_pool.as_ref(), "libraries", tenant_id.as_deref()).await;
+                    info!("Full rebuild complete (all targets)");
                 }
-                _ => {} // Already validated above
+                _ => {} // Validated above
             }
         });
 
@@ -864,6 +872,440 @@ impl SystemService for SystemServiceImpl {
             details,
         }))
     }
+}
+
+// ============================================================================
+// Rebuild target helper functions
+// ============================================================================
+
+/// Rebuild canonical tag hierarchy.
+async fn rebuild_tags(
+    builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
+    tenant_id: Option<&str>,
+) {
+    let Some(builder) = builder else {
+        error!(target = "tags", "Hierarchy builder not configured");
+        return;
+    };
+    let start = std::time::Instant::now();
+    if let Some(tid) = tenant_id {
+        match builder.rebuild_tenant(tid).await {
+            Ok(Some(r)) => {
+                let total = r.level1_count + r.level2_count + r.level3_count;
+                info!(target = "tags", tenant = tid, canonical_tags = total,
+                    edges = r.edges_created, duration_ms = start.elapsed().as_millis() as u64,
+                    "Tag hierarchy rebuild complete");
+            }
+            Ok(None) => info!(target = "tags", tenant = tid, "Skipped (too few tags)"),
+            Err(e) => error!(target = "tags", tenant = tid, error = %e, "Tag hierarchy rebuild failed"),
+        }
+    } else {
+        match builder.rebuild_all().await {
+            Ok(r) => info!(target = "tags", tenants = r.tenants_processed,
+                canonical_tags = r.total_canonical_tags, edges = r.total_edges,
+                duration_ms = start.elapsed().as_millis() as u64,
+                "Tag hierarchy rebuild complete (all tenants)"),
+            Err(e) => error!(target = "tags", error = %e, "Tag hierarchy rebuild failed (all tenants)"),
+        }
+    }
+}
+
+/// Rebuild FTS5 search index.
+async fn rebuild_search(
+    search_db: Option<Arc<workspace_qdrant_core::SearchDbManager>>,
+) {
+    let Some(sdb) = search_db else {
+        error!(target = "search", "SearchDbManager not configured");
+        return;
+    };
+    let start = std::time::Instant::now();
+    match sdb.rebuild_fts().await {
+        Ok(()) => {
+            if let Err(e) = sdb.optimize_fts().await {
+                warn!(target = "search", error = %e, "FTS5 rebuilt but optimize failed");
+            } else {
+                info!(target = "search", duration_ms = start.elapsed().as_millis() as u64,
+                    "FTS5 search index rebuilt and optimized");
+            }
+        }
+        Err(e) => error!(target = "search", error = %e, "FTS5 rebuild failed"),
+    }
+}
+
+/// Rebuild BM25 sparse vocabulary.
+async fn rebuild_vocabulary(
+    lexicon: Option<Arc<workspace_qdrant_core::LexiconManager>>,
+    db_pool: Option<&sqlx::SqlitePool>,
+    collection: &str,
+) {
+    let Some(lexicon) = lexicon else {
+        error!(target = "vocabulary", "LexiconManager not configured");
+        return;
+    };
+    let Some(pool) = db_pool else {
+        error!(target = "vocabulary", "Database pool not configured");
+        return;
+    };
+
+    let start = std::time::Instant::now();
+
+    // Step 1: Cleanup junk terms
+    let junk_removed = match lexicon.cleanup_junk_terms().await {
+        Ok(n) => n,
+        Err(e) => {
+            error!(target = "vocabulary", error = %e, "Junk cleanup failed");
+            return;
+        }
+    };
+
+    // Step 2: Delete vocabulary for the collection and reset corpus stats
+    let vocab_deleted = match sqlx::query(
+        "DELETE FROM sparse_vocabulary WHERE collection = ?1",
+    )
+    .bind(collection)
+    .execute(pool)
+    .await
+    {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            error!(target = "vocabulary", error = %e, "Vocabulary delete failed");
+            return;
+        }
+    };
+
+    if let Err(e) = sqlx::query(
+        "DELETE FROM corpus_statistics WHERE collection = ?1",
+    )
+    .bind(collection)
+    .execute(pool)
+    .await
+    {
+        error!(target = "vocabulary", error = %e, "Corpus stats delete failed");
+        return;
+    }
+
+    // Step 3: Clear in-memory BM25 state
+    lexicon.clear_all().await;
+
+    info!(target = "vocabulary", vocab_deleted, junk_removed, collection,
+        duration_ms = start.elapsed().as_millis() as u64,
+        "Vocabulary cleared. Will rebuild incrementally on next processing.");
+}
+
+/// Re-extract keywords/tags by enqueuing uplift operations.
+async fn rebuild_keywords(
+    db_pool: Option<&sqlx::SqlitePool>,
+    tenant_id: Option<&str>,
+    collection: &str,
+) {
+    let Some(pool) = db_pool else {
+        error!(target = "keywords", "Database pool not configured");
+        return;
+    };
+
+    let start = std::time::Instant::now();
+
+    // Fetch all files for the scope
+    let files: Vec<(i64, String, String)> = if let Some(tid) = tenant_id {
+        match sqlx::query_as::<_, (i64, String, String)>(
+            "SELECT tf.file_id, tf.file_path, wf.tenant_id \
+             FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.tenant_id = ?1 AND wf.collection = ?2",
+        )
+        .bind(tid)
+        .bind(collection)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!(target = "keywords", error = %e, "Failed to fetch files");
+                return;
+            }
+        }
+    } else {
+        match sqlx::query_as::<_, (i64, String, String)>(
+            "SELECT tf.file_id, tf.file_path, wf.tenant_id \
+             FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.collection = ?1",
+        )
+        .bind(collection)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!(target = "keywords", error = %e, "Failed to fetch files");
+                return;
+            }
+        }
+    };
+
+    if files.is_empty() {
+        info!(target = "keywords", collection, "No files found");
+        return;
+    }
+
+    // Delete existing keyword/tag data for the scope
+    if tenant_id.is_some() {
+        // Tenant-scoped: delete by file IDs
+        for (file_id, _, _) in &files {
+            let _ = sqlx::query("DELETE FROM keywords WHERE file_id = ?1")
+                .bind(file_id).execute(pool).await;
+            let _ = sqlx::query("DELETE FROM tags WHERE file_id = ?1")
+                .bind(file_id).execute(pool).await;
+        }
+    } else {
+        // Collection-wide: bulk delete
+        let _ = sqlx::query("DELETE FROM keywords WHERE collection = ?1")
+            .bind(collection).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM tags WHERE collection = ?1")
+            .bind(collection).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM keyword_baskets WHERE collection = ?1")
+            .bind(collection).execute(pool).await;
+    }
+
+    // Enqueue uplift operations for all files
+    let now = wqm_common::timestamps::now_utc();
+    let mut enqueued = 0u64;
+    for (_file_id, file_path, tid) in &files {
+        let payload = serde_json::json!({ "file_path": file_path, "rebuild": true });
+        let payload_str = payload.to_string();
+        let idem_key = wqm_common::hashing::compute_content_hash(
+            &format!("file|uplift|{}|{}|{}", tid, collection, payload_str),
+        );
+
+        let _ = sqlx::query(
+            "INSERT OR IGNORE INTO unified_queue \
+             (queue_id, idempotency_key, item_type, op, tenant_id, collection, priority, status, payload_json, created_at, updated_at) \
+             VALUES (?1, ?2, 'file', 'uplift', ?3, ?4, 3, 'pending', ?5, ?6, ?7)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&idem_key[..32])
+        .bind(tid)
+        .bind(collection)
+        .bind(&payload_str)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await;
+        enqueued += 1;
+    }
+
+    info!(target = "keywords", enqueued, collection,
+        duration_ms = start.elapsed().as_millis() as u64,
+        "Cleared keyword/tag data and enqueued uplift operations");
+}
+
+/// Sync rules between Qdrant and SQLite.
+async fn rebuild_rules(
+    db_pool: Option<&sqlx::SqlitePool>,
+    direction: Option<&str>,
+) {
+    let Some(pool) = db_pool else {
+        error!("[rebuild:rules] Database pool not configured");
+        return;
+    };
+
+    use qdrant_client::qdrant::{Filter, value::Kind};
+    use workspace_qdrant_core::storage::{StorageClient, StorageConfig};
+
+    let storage = StorageClient::with_config(StorageConfig::daemon_mode());
+    let dir = direction.unwrap_or("qdrant-to-db");
+
+    match dir {
+        "qdrant-to-db" => {
+            // Scroll all rules from Qdrant using paginated scroll_with_filter
+            let mut all_points = Vec::new();
+            let mut offset = None;
+
+            loop {
+                match storage.scroll_with_filter("rules", Filter::default(), 100, offset.clone()).await {
+                    Ok(points) => {
+                        if points.is_empty() {
+                            break;
+                        }
+                        offset = points.last().and_then(|p| p.id.clone());
+                        all_points.extend(points);
+                    }
+                    Err(e) => {
+                        error!("[rebuild:rules] Failed to scroll rules from Qdrant: {}", e);
+                        return;
+                    }
+                }
+            }
+
+            let now = wqm_common::timestamps::now_utc();
+            let mut synced = 0u64;
+            for point in &all_points {
+                let extract_str = |key: &str| -> Option<String> {
+                    point.payload.get(key).and_then(|v| {
+                        v.kind.as_ref().and_then(|k| match k {
+                            Kind::StringValue(s) => Some(s.clone()),
+                            _ => None,
+                        })
+                    })
+                };
+
+                let content = extract_str("content").unwrap_or_default();
+                let scope = extract_str("scope");
+                let tenant = extract_str("tenant_id");
+                let point_id = point.id.as_ref()
+                    .map(|id| format!("{:?}", id))
+                    .unwrap_or_else(|| "unknown".into());
+
+                let _ = sqlx::query(
+                    "INSERT OR REPLACE INTO rules_mirror \
+                     (rule_id, rule_text, scope, tenant_id, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                )
+                .bind(&point_id)
+                .bind(&content)
+                .bind(&scope)
+                .bind(&tenant)
+                .bind(&now)
+                .bind(&now)
+                .execute(pool)
+                .await;
+                synced += 1;
+            }
+            info!("[rebuild:rules] Synced {} rules from Qdrant to SQLite (qdrant-to-db)", synced);
+        }
+        "db-to-qdrant" => {
+            // Read all rules_mirror rows, enqueue to Qdrant via unified_queue
+            let rules: Vec<(String, String, Option<String>, Option<String>)> =
+                match sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+                    "SELECT rule_id, rule_text, scope, tenant_id FROM rules_mirror",
+                )
+                .fetch_all(pool)
+                .await
+                {
+                    Ok(rows) => rows,
+                    Err(e) => {
+                        error!("[rebuild:rules] Failed to read rules_mirror: {}", e);
+                        return;
+                    }
+                };
+
+            let now = wqm_common::timestamps::now_utc();
+            let mut enqueued = 0u64;
+            for (rule_id, rule_text, scope, tenant_id) in &rules {
+                let tid = tenant_id.as_deref().unwrap_or("global");
+                let payload = serde_json::json!({
+                    "content": rule_text,
+                    "scope": scope,
+                    "label": rule_id,
+                });
+                let payload_str = payload.to_string();
+                let idem_key = wqm_common::hashing::compute_content_hash(
+                    &format!("text|add|{}|rules|{}", tid, payload_str),
+                );
+
+                let _ = sqlx::query(
+                    "INSERT OR IGNORE INTO unified_queue \
+                     (queue_id, idempotency_key, item_type, op, tenant_id, collection, priority, status, payload_json, created_at, updated_at) \
+                     VALUES (?1, ?2, 'text', 'add', ?3, 'rules', 8, 'pending', ?4, ?5, ?6)",
+                )
+                .bind(uuid::Uuid::new_v4().to_string())
+                .bind(&idem_key[..32])
+                .bind(tid)
+                .bind(&payload_str)
+                .bind(&now)
+                .bind(&now)
+                .execute(pool)
+                .await;
+                enqueued += 1;
+            }
+            info!("[rebuild:rules] Enqueued {} rules from SQLite to Qdrant (db-to-qdrant)", enqueued);
+        }
+        other => {
+            error!("[rebuild:rules] Unknown direction '{}'. Use 'qdrant-to-db' or 'db-to-qdrant'", other);
+        }
+    }
+}
+
+/// Rescan watch folders by enqueuing scan operations.
+async fn rebuild_watch_folders(
+    db_pool: Option<&sqlx::SqlitePool>,
+    collection: &str,
+    tenant_id: Option<&str>,
+) {
+    let Some(pool) = db_pool else {
+        error!("[rebuild:{}] Database pool not configured", collection);
+        return;
+    };
+
+    // Fetch watch folders for the given collection (and optional tenant)
+    let folders: Vec<(String, String, String)> = if let Some(tid) = tenant_id {
+        match sqlx::query_as::<_, (String, String, String)>(
+            "SELECT watch_id, tenant_id, path FROM watch_folders \
+             WHERE collection = ?1 AND tenant_id = ?2 AND enabled = 1",
+        )
+        .bind(collection)
+        .bind(tid)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("[rebuild:{}] Failed to fetch watch folders: {}", collection, e);
+                return;
+            }
+        }
+    } else {
+        match sqlx::query_as::<_, (String, String, String)>(
+            "SELECT watch_id, tenant_id, path FROM watch_folders \
+             WHERE collection = ?1 AND enabled = 1",
+        )
+        .bind(collection)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("[rebuild:{}] Failed to fetch watch folders: {}", collection, e);
+                return;
+            }
+        }
+    };
+
+    if folders.is_empty() {
+        info!("[rebuild:{}] No enabled watch folders found", collection);
+        return;
+    }
+
+    // Enqueue scan operations for each watch folder
+    let now = wqm_common::timestamps::now_utc();
+    let mut enqueued = 0u64;
+    for (watch_id, tid, path) in &folders {
+        let payload = serde_json::json!({
+            "path": path,
+            "watch_id": watch_id,
+            "rebuild": true,
+        });
+        let payload_str = payload.to_string();
+        let idem_key = wqm_common::hashing::compute_content_hash(
+            &format!("tenant|scan|{}|{}|{}", tid, collection, payload_str),
+        );
+
+        let _ = sqlx::query(
+            "INSERT OR IGNORE INTO unified_queue \
+             (queue_id, idempotency_key, item_type, op, tenant_id, collection, priority, status, payload_json, created_at, updated_at) \
+             VALUES (?1, ?2, 'tenant', 'scan', ?3, ?4, 5, 'pending', ?5, ?6, ?7)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&idem_key[..32])
+        .bind(tid)
+        .bind(collection)
+        .bind(&payload_str)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await;
+        enqueued += 1;
+    }
+
+    info!("[rebuild:{}] Enqueued {} scan operations for watch folders", collection, enqueued);
 }
 
 #[cfg(test)]
