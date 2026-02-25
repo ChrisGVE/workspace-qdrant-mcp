@@ -627,4 +627,101 @@ describe('Parent context expansion', () => {
       expect(shouldCondition.should).toHaveLength(2);
     });
   });
+
+  // ── Component filtering tests ──
+
+  describe('component filtering', () => {
+    it('should pass component to filter builder with exact + prefix match', async () => {
+      const QdrantClientMock = await import('@qdrant/js-client-rest');
+      const searchFn = vi.fn().mockResolvedValue([]);
+      vi.mocked(QdrantClientMock.QdrantClient).mockImplementationOnce(
+        () =>
+          ({
+            search: searchFn,
+            getCollection: vi.fn().mockResolvedValue({}),
+          }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
+      );
+
+      const daemon = createMockDaemonClient();
+      const state = createMockStateManager();
+      const detector = createMockProjectDetector();
+      const tool = new SearchTool(
+        { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
+        daemon, state, detector,
+      );
+
+      await tool.search({
+        query: 'test',
+        component: 'daemon.core',
+        mode: 'semantic',
+        projectId: 'test-project-123',
+      });
+
+      expect(searchFn).toHaveBeenCalled();
+      const callArgs = searchFn.mock.calls[0];
+      const searchRequest = callArgs[1];
+      const filter = searchRequest.filter;
+
+      expect(filter).toBeDefined();
+      expect(filter.must).toBeDefined();
+
+      // Find the component condition (it uses a should sub-condition)
+      const componentCondition = filter.must.find(
+        (c: Record<string, unknown>) =>
+          Array.isArray(c.should) &&
+          c.should.some((s: Record<string, unknown>) => s.key === 'component_id')
+      );
+      expect(componentCondition).toBeDefined();
+      expect(componentCondition.should).toHaveLength(2);
+      expect(componentCondition.should[0]).toEqual({
+        key: 'component_id',
+        match: { value: 'daemon.core' },
+      });
+      expect(componentCondition.should[1]).toEqual({
+        key: 'component_id',
+        match: { text: 'daemon.core.' },
+      });
+    });
+
+    it('should not add component filter when not specified', async () => {
+      const QdrantClientMock = await import('@qdrant/js-client-rest');
+      const searchFn = vi.fn().mockResolvedValue([]);
+      vi.mocked(QdrantClientMock.QdrantClient).mockImplementationOnce(
+        () =>
+          ({
+            search: searchFn,
+            getCollection: vi.fn().mockResolvedValue({}),
+          }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
+      );
+
+      const daemon = createMockDaemonClient();
+      const state = createMockStateManager();
+      const detector = createMockProjectDetector();
+      const tool = new SearchTool(
+        { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
+        daemon, state, detector,
+      );
+
+      await tool.search({
+        query: 'test',
+        mode: 'semantic',
+        projectId: 'test-project-123',
+      });
+
+      expect(searchFn).toHaveBeenCalled();
+      const callArgs = searchFn.mock.calls[0];
+      const searchRequest = callArgs[1];
+      const filter = searchRequest.filter;
+
+      // Should not have a component_id condition
+      if (filter && filter.must) {
+        const componentCondition = filter.must.find(
+          (c: Record<string, unknown>) =>
+            Array.isArray(c.should) &&
+            c.should.some((s: Record<string, unknown>) => s.key === 'component_id')
+        );
+        expect(componentCondition).toBeUndefined();
+      }
+    });
+  });
 });

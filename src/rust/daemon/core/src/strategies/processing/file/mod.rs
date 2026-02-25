@@ -498,6 +498,15 @@ async fn ingest_file_content(
     // Uses a per-watch-folder cache to avoid re-parsing workspace files.
     let component = resolve_component(ctx, pool, watch_folder_id, &base_path, relative_path).await;
 
+    // Inject component_id into every point's payload for Qdrant filter support
+    if let Some(ref comp) = component {
+        for point in &mut points {
+            point
+                .payload
+                .insert("component_id".to_string(), serde_json::json!(comp));
+        }
+    }
+
     // Upsert to Qdrant + record in tracked_files atomically
     let t0 = Instant::now();
     let file_id = store_track::upsert_and_track(

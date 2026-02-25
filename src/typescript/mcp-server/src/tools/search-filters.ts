@@ -126,6 +126,17 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
     mustConditions.push({ should: tagShouldConditions });
   }
 
+  // Component filter — prefix matching on component_id payload field
+  if (params.component) {
+    // Use "should" for OR: exact match OR prefix match (component + ".")
+    mustConditions.push({
+      should: [
+        { key: 'component_id', match: { value: params.component } },
+        { key: 'component_id', match: { text: `${params.component}.` } },
+      ],
+    });
+  }
+
   // Path glob filter — extract deterministic prefix for Qdrant text match
   if (params.pathGlob) {
     const prefix = extractGlobPrefix(params.pathGlob);

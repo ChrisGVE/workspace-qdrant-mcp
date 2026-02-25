@@ -20,6 +20,7 @@ export type SearchOptions = {
   tag?: string;
   tags?: string[];
   pathGlob?: string;
+  component?: string;
   exact?: boolean;
   contextLines?: number;
   includeGraphContext?: boolean;
@@ -114,6 +115,9 @@ export function buildSearchOptions(args: Record<string, unknown> | undefined): S
 
   const pathGlob = args?.['pathGlob'] as string | undefined;
   if (pathGlob) options.pathGlob = pathGlob;
+
+  const component = args?.['component'] as string | undefined;
+  if (component) options.component = component;
 
   const exact = args?.['exact'] as boolean | undefined;
   if (exact !== undefined) options.exact = exact;

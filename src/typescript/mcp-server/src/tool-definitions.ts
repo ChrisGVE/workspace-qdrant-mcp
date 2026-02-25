@@ -76,6 +76,10 @@ export function getToolDefinitions() {
             type: 'string',
             description: 'File path glob filter (e.g., "**/*.rs", "src/**/*.ts")',
           },
+          component: {
+            type: 'string',
+            description: 'Filter by project component (e.g., "daemon", "daemon.core"). Supports prefix matching.',
+          },
           exact: {
             type: 'boolean',
             description: 'Use exact substring search instead of semantic search (default: false)',

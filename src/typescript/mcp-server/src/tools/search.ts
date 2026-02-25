@@ -203,6 +203,7 @@ export class SearchTool {
           collection: coll, scope, projectId: currentProjectId,
           branch, fileType, libraryName, includeDeleted, tag, tags,
           pathGlob: options.pathGlob,
+          component: options.component,
           basePoints: coll === PROJECTS_COLLECTION ? basePoints : undefined,
         };
         const filter = buildFilter(filterParams);

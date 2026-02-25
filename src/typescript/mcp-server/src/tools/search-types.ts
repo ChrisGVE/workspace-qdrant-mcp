@@ -46,6 +46,8 @@ export interface SearchOptions {
   expandContext?: boolean;
   /** File path glob filter (e.g., "**\/*.rs") — applies in both exact and semantic modes */
   pathGlob?: string;
+  /** Filter by project component (e.g., "daemon", "daemon.core"). Supports prefix matching. */
+  component?: string;
   /** When true, use FTS5 exact/substring search instead of semantic search */
   exact?: boolean;
   /** Lines of context before/after matches (only for exact mode, default: 0) */
@@ -119,6 +121,8 @@ export interface FilterParams {
   tag: string | undefined;
   tags: string[] | undefined;
   pathGlob: string | undefined;
+  /** Filter by component_id in Qdrant payload (prefix matching) */
+  component: string | undefined;
   /** Task 15: base_point values for instance-aware filtering */
   basePoints: string[] | undefined;
 }
