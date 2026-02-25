@@ -246,6 +246,29 @@ impl HierarchyBuilder {
         })
     }
 
+    /// Check if a rebuild is needed (tags exist but no canonical hierarchy).
+    pub async fn needs_rebuild(&self) -> bool {
+        let has_tags: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM tags WHERE tag_type = 'concept' LIMIT 1)",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(false);
+
+        if !has_tags {
+            return false;
+        }
+
+        let has_canonical: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM canonical_tags LIMIT 1)",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(true); // default true to skip rebuild on error
+
+        !has_canonical
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────
 
     /// Collect distinct concept tags with their doc counts for a tenant.

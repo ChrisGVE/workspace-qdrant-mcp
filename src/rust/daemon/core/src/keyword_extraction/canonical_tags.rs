@@ -81,13 +81,13 @@ pub fn build_hierarchy(
     }
 
     // Step 1: Merge near-duplicates into canonical tags (level 3)
-    let level3 = merge_duplicates(tags, config.merge_threshold);
+    let mut level3 = merge_duplicates(tags, config.merge_threshold);
 
-    // Step 2: Cluster level 3 into level 2
-    let level2 = cluster_tags(&level3, config.level_thresholds[1], 2);
+    // Step 2: Cluster level 3 into level 2 (sets parent_index on level3 tags)
+    let mut level2 = cluster_tags(&mut level3, config.level_thresholds[1], 2);
 
-    // Step 3: Cluster level 2 into level 1
-    let level1 = cluster_tags(&level2, config.level_thresholds[0], 1);
+    // Step 3: Cluster level 2 into level 1 (sets parent_index on level2 tags)
+    let level1 = cluster_tags(&mut level2, config.level_thresholds[0], 1);
 
     CanonicalHierarchy {
         level3,
@@ -169,7 +169,10 @@ fn merge_duplicates(tags: &[TagWithVector], threshold: f64) -> Vec<CanonicalTag>
 }
 
 /// Cluster canonical tags into higher-level groups using average-linkage.
-fn cluster_tags(tags: &[CanonicalTag], threshold: f64, level: u8) -> Vec<CanonicalTag> {
+///
+/// Sets `parent_index` on each input tag to point to the index of its
+/// parent cluster in the returned output vector.
+fn cluster_tags(tags: &mut [CanonicalTag], threshold: f64, level: u8) -> Vec<CanonicalTag> {
     let n = tags.len();
     if n == 0 {
         return Vec::new();
@@ -277,8 +280,11 @@ fn cluster_tags(tags: &[CanonicalTag], threshold: f64, level: u8) -> Vec<Canonic
             .collect();
 
         let parent_idx = result.len();
-        // Set parent_index on child tags
-        let child_indices: Vec<usize> = members.clone();
+
+        // Set parent_index on each input tag that belongs to this cluster
+        for &m in members {
+            tags[m].parent_index = Some(parent_idx);
+        }
 
         result.push(CanonicalTag {
             label,
@@ -288,9 +294,6 @@ fn cluster_tags(tags: &[CanonicalTag], threshold: f64, level: u8) -> Vec<Canonic
             level,
             parent_index: None,
         });
-
-        // Record parent mapping: child_indices map to this parent
-        let _ = (parent_idx, child_indices); // Used by caller to build edges
     }
 
     result
@@ -500,6 +503,91 @@ mod tests {
         assert!((config.merge_threshold - 0.85).abs() < 1e-6);
         assert!((config.level_thresholds[0] - 0.50).abs() < 1e-6);
         assert!((config.level_thresholds[1] - 0.70).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_parent_index_set_on_children() {
+        // 4 tags: 2 similar pairs that should cluster together at level 2
+        let tags = vec![
+            make_tag("rust async", vec![0.95, 0.1, 0.0], 3),
+            make_tag("tokio runtime", vec![0.9, 0.15, 0.0], 2),
+            make_tag("grpc protocol", vec![0.0, 0.0, 0.95], 2),
+            make_tag("protobuf wire", vec![0.0, 0.05, 0.9], 1),
+        ];
+
+        let config = CanonicalConfig {
+            merge_threshold: 0.95, // high threshold: no dedup at level 3
+            level_thresholds: [0.30, 0.70],
+        };
+        let hierarchy = build_hierarchy(&tags, &config);
+
+        // Level 3 tags should all have parent_index pointing into level 2
+        for (i, tag) in hierarchy.level3.iter().enumerate() {
+            assert!(
+                tag.parent_index.is_some(),
+                "Level 3 tag {} ('{}') should have parent_index set",
+                i,
+                tag.label
+            );
+            let pidx = tag.parent_index.unwrap();
+            assert!(
+                pidx < hierarchy.level2.len(),
+                "parent_index {} out of range for level 2 (len={})",
+                pidx,
+                hierarchy.level2.len()
+            );
+        }
+
+        // Level 2 tags should all have parent_index pointing into level 1
+        for (i, tag) in hierarchy.level2.iter().enumerate() {
+            assert!(
+                tag.parent_index.is_some(),
+                "Level 2 tag {} ('{}') should have parent_index set",
+                i,
+                tag.label
+            );
+            let pidx = tag.parent_index.unwrap();
+            assert!(
+                pidx < hierarchy.level1.len(),
+                "parent_index {} out of range for level 1 (len={})",
+                pidx,
+                hierarchy.level1.len()
+            );
+        }
+
+        // Level 1 tags should NOT have parent_index (top-level)
+        for tag in &hierarchy.level1 {
+            assert!(
+                tag.parent_index.is_none(),
+                "Level 1 tag '{}' should not have parent_index",
+                tag.label
+            );
+        }
+    }
+
+    #[test]
+    fn test_parent_index_singleton_clusters() {
+        // 3 orthogonal tags: each forms its own cluster at every level
+        let tags = vec![
+            make_tag("alpha", vec![1.0, 0.0, 0.0], 1),
+            make_tag("beta", vec![0.0, 1.0, 0.0], 1),
+            make_tag("gamma", vec![0.0, 0.0, 1.0], 1),
+        ];
+
+        let config = CanonicalConfig {
+            merge_threshold: 0.95,
+            level_thresholds: [0.30, 0.60],
+        };
+        let hierarchy = build_hierarchy(&tags, &config);
+
+        // Every level 3 tag should still have a parent_index
+        for tag in &hierarchy.level3 {
+            assert!(
+                tag.parent_index.is_some(),
+                "Level 3 singleton '{}' should have parent_index",
+                tag.label
+            );
+        }
     }
 
     #[test]

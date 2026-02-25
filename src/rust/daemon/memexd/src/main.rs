@@ -1200,6 +1200,32 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let _hierarchy_handle = Arc::clone(&hierarchy_builder).start_scheduled(hierarchy_cancel.clone());
     info!("Canonical tag hierarchy rebuild scheduled (nightly at 2 AM)");
 
+    // Bootstrap: if tags exist but canonical_tags is empty, run an immediate rebuild
+    {
+        let bootstrap_builder = Arc::clone(&hierarchy_builder);
+        tokio::spawn(async move {
+            // Wait for startup processing to settle
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+            if bootstrap_builder.needs_rebuild().await {
+                info!("Bootstrap: tags exist but no canonical hierarchy — running initial rebuild");
+                match bootstrap_builder.rebuild_all().await {
+                    Ok(result) => {
+                        info!(
+                            "Bootstrap hierarchy rebuild complete: {} tenants, {} canonical tags, {} edges",
+                            result.tenants_processed,
+                            result.total_canonical_tags,
+                            result.total_edges
+                        );
+                    }
+                    Err(e) => {
+                        error!("Bootstrap hierarchy rebuild failed: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
     info!("memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.", grpc_port);
 
     let shutdown_future = setup_signal_handlers();
