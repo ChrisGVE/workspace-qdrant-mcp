@@ -918,18 +918,20 @@ fn format_inject_output(
 async fn inject_rules() -> Result<()> {
     use std::io::{IsTerminal, Read};
 
+    // When run interactively from a terminal, exit silently.
+    if std::io::stdin().is_terminal() {
+        return Ok(());
+    }
+
     // Initialize tracing to stderr (visible in Claude Code verbose mode)
     let _ = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_target(false)
         .try_init();
 
-    // Read stdin only when piped (not a TTY). When run interactively
-    // from a terminal, stdin.read_to_string blocks waiting for EOF.
+    // Read piped stdin
     let mut raw_input = String::new();
-    if !std::io::stdin().is_terminal() {
-        let _ = std::io::stdin().read_to_string(&mut raw_input);
-    }
+    let _ = std::io::stdin().read_to_string(&mut raw_input);
 
     tracing::info!("inject input: {}", raw_input.trim());
 
