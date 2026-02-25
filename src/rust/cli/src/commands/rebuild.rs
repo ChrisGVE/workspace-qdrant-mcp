@@ -52,12 +52,8 @@ enum RebuildCommand {
         collection: String,
     },
 
-    /// Sync rules between Qdrant and SQLite
-    Rules {
-        /// Sync direction (default: qdrant-to-db)
-        #[arg(long, value_parser = ["qdrant-to-db", "db-to-qdrant"], default_value = "qdrant-to-db")]
-        direction: String,
-    },
+    /// Diagnose and reconcile rules between Qdrant and SQLite
+    Rules,
 
     /// Rescan all project watch folders
     Projects {
@@ -92,7 +88,7 @@ pub async fn execute(args: RebuildArgs) -> Result<()> {
         RebuildCommand::Search => ("search".to_string(), None, None),
         RebuildCommand::Vocabulary { collection } => ("vocabulary".to_string(), None, Some(collection)),
         RebuildCommand::Keywords { tenant, collection } => ("keywords".to_string(), tenant, Some(collection)),
-        RebuildCommand::Rules { direction } => (format!("rules:{}", direction), None, None),
+        RebuildCommand::Rules => ("rules".to_string(), None, None),
         RebuildCommand::Projects { tenant } => ("projects".to_string(), tenant, None),
         RebuildCommand::Libraries { tenant } => ("libraries".to_string(), tenant, None),
         RebuildCommand::All { tenant, collection } => ("all".to_string(), tenant, Some(collection)),

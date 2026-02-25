@@ -68,6 +68,8 @@ pub struct SystemServiceImpl {
     search_db: Option<Arc<workspace_qdrant_core::SearchDbManager>>,
     /// Lexicon manager for vocabulary rebuild
     lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
+    /// Storage client for Qdrant operations (rules rebuild)
+    storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
 }
 
 impl std::fmt::Debug for SystemServiceImpl {
@@ -79,6 +81,7 @@ impl std::fmt::Debug for SystemServiceImpl {
             .field("hierarchy_builder", &self.hierarchy_builder.is_some())
             .field("search_db", &self.search_db.is_some())
             .field("lexicon_manager", &self.lexicon_manager.is_some())
+            .field("storage_client", &self.storage_client.is_some())
             .finish()
     }
 }
@@ -97,6 +100,7 @@ impl SystemServiceImpl {
             hierarchy_builder: None,
             search_db: None,
             lexicon_manager: None,
+            storage_client: None,
         }
     }
 
@@ -147,6 +151,12 @@ impl SystemServiceImpl {
     /// Set the lexicon manager for vocabulary rebuild
     pub fn with_lexicon_manager(mut self, lexicon: Arc<workspace_qdrant_core::LexiconManager>) -> Self {
         self.lexicon_manager = Some(lexicon);
+        self
+    }
+
+    /// Set the storage client for Qdrant operations (rules rebuild)
+    pub fn with_storage_client(mut self, client: Arc<workspace_qdrant_core::StorageClient>) -> Self {
+        self.storage_client = Some(client);
         self
     }
 
@@ -805,12 +815,7 @@ impl SystemService for SystemServiceImpl {
 
         info!(target = %target, tenant = ?req.tenant_id, "RebuildIndex requested");
 
-        // Parse target — rules supports directional suffix (rules:qdrant-to-db)
-        let (base_target, direction) = if target.starts_with("rules:") {
-            ("rules", Some(target.strip_prefix("rules:").unwrap_or("").to_string()))
-        } else {
-            (target.as_str(), None)
-        };
+        let base_target = target.as_str();
 
         const VALID_TARGETS: &[&str] = &[
             "tags", "search", "vocabulary", "keywords", "rules",
@@ -828,6 +833,7 @@ impl SystemService for SystemServiceImpl {
         let hierarchy_builder = self.hierarchy_builder.clone();
         let search_db = self.search_db.clone();
         let lexicon_manager = self.lexicon_manager.clone();
+        let storage_client = self.storage_client.clone();
         let db_pool = self.db_pool.clone();
         let tenant_id = req.tenant_id.clone();
         let collection = req.collection.clone().unwrap_or_else(|| "projects".into());
@@ -840,7 +846,7 @@ impl SystemService for SystemServiceImpl {
                 "search" => rebuild_search(search_db).await,
                 "vocabulary" => rebuild_vocabulary(lexicon_manager, db_pool.as_ref(), &collection).await,
                 "keywords" => rebuild_keywords(db_pool.as_ref(), tenant_id.as_deref(), &collection).await,
-                "rules" => rebuild_rules(db_pool.as_ref(), direction.as_deref()).await,
+                "rules" => rebuild_rules(storage_client, db_pool.as_ref()).await,
                 "projects" => rebuild_watch_folders(db_pool.as_ref(), "projects", tenant_id.as_deref()).await,
                 "libraries" => rebuild_watch_folders(db_pool.as_ref(), "libraries", tenant_id.as_deref()).await,
                 "all" => {
@@ -849,7 +855,7 @@ impl SystemService for SystemServiceImpl {
                     rebuild_search(search_db).await;
                     rebuild_tags(hierarchy_builder, tenant_id.as_deref()).await;
                     rebuild_keywords(db_pool.as_ref(), tenant_id.as_deref(), &collection).await;
-                    rebuild_rules(db_pool.as_ref(), None).await;
+                    rebuild_rules(storage_client, db_pool.as_ref()).await;
                     rebuild_watch_folders(db_pool.as_ref(), "projects", tenant_id.as_deref()).await;
                     rebuild_watch_folders(db_pool.as_ref(), "libraries", tenant_id.as_deref()).await;
                     info!("Full rebuild complete (all targets)");
@@ -1097,131 +1103,295 @@ async fn rebuild_keywords(
         "Cleared keyword/tag data and enqueued uplift operations");
 }
 
-/// Sync rules between Qdrant and SQLite.
+/// Self-diagnosing rules reconciliation.
+///
+/// Compares Qdrant `rules` collection against SQLite `rules_mirror` and fixes
+/// discrepancies in both directions without user-specified direction. Also
+/// detects and removes duplicate labels and duplicate content in Qdrant.
+///
+/// Reconciliation steps:
+/// 1. Scroll all Qdrant rules, index by label
+/// 2. Read all SQLite rules_mirror rows, index by rule_id (= label)
+/// 3. Detect duplicate labels in Qdrant → keep newest, delete older points
+/// 4. Detect duplicate content in Qdrant → keep one, delete duplicates
+/// 5. Rules in Qdrant but not SQLite → insert into rules_mirror
+/// 6. Rules in SQLite but not Qdrant → enqueue re-ingestion via unified_queue
+/// 7. Rules in both but content differs → Qdrant is authoritative, update SQLite
 async fn rebuild_rules(
+    storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
     db_pool: Option<&sqlx::SqlitePool>,
-    direction: Option<&str>,
 ) {
+    let start = std::time::Instant::now();
     let Some(pool) = db_pool else {
         error!("[rebuild:rules] Database pool not configured");
         return;
     };
+    let Some(storage) = storage_client else {
+        error!("[rebuild:rules] Storage client not configured");
+        return;
+    };
 
     use qdrant_client::qdrant::{Filter, value::Kind};
-    use workspace_qdrant_core::storage::{StorageClient, StorageConfig};
 
-    let storage = StorageClient::with_config(StorageConfig::daemon_mode());
-    let dir = direction.unwrap_or("qdrant-to-db");
+    // --- Step 1: Scroll all Qdrant rules ---
+    // Verify collection exists before scrolling
+    match storage.collection_exists("rules").await {
+        Ok(false) => {
+            info!("[rebuild:rules] Rules collection does not exist — nothing to reconcile");
+            return;
+        }
+        Err(e) => {
+            error!("[rebuild:rules] Failed to check rules collection: {}", e);
+            return;
+        }
+        Ok(true) => {}
+    }
 
-    match dir {
-        "qdrant-to-db" => {
-            // Scroll all rules from Qdrant using paginated scroll_with_filter
-            let mut all_points = Vec::new();
-            let mut offset = None;
+    // Rules collections are small — single scroll avoids pagination offset issues
+    let all_points = match storage.scroll_with_filter("rules", Filter::default(), 10000, None).await {
+        Ok(points) => points,
+        Err(e) => {
+            error!("[rebuild:rules] Failed to scroll rules from Qdrant: {}", e);
+            return;
+        }
+    };
 
-            loop {
-                match storage.scroll_with_filter("rules", Filter::default(), 100, offset.clone()).await {
-                    Ok(points) => {
-                        if points.is_empty() {
-                            break;
-                        }
-                        offset = points.last().and_then(|p| p.id.clone());
-                        all_points.extend(points);
-                    }
-                    Err(e) => {
-                        error!("[rebuild:rules] Failed to scroll rules from Qdrant: {}", e);
-                        return;
-                    }
-                }
+    let extract_str = |point: &qdrant_client::qdrant::RetrievedPoint, key: &str| -> Option<String> {
+        point.payload.get(key).and_then(|v| {
+            v.kind.as_ref().and_then(|k| match k {
+                Kind::StringValue(s) => Some(s.clone()),
+                _ => None,
+            })
+        })
+    };
+
+    let extract_point_id_str = |point: &qdrant_client::qdrant::RetrievedPoint| -> Option<String> {
+        point.id.as_ref().and_then(|pid| {
+            pid.point_id_options.as_ref().map(|opts| match opts {
+                qdrant_client::qdrant::point_id::PointIdOptions::Uuid(u) => u.clone(),
+                qdrant_client::qdrant::point_id::PointIdOptions::Num(n) => n.to_string(),
+            })
+        })
+    };
+
+    // Build lookup: label → Vec<(point_id, content, scope, tenant, updated_at)>
+    let mut qdrant_by_label: std::collections::HashMap<String, Vec<(String, String, Option<String>, Option<String>, String)>> =
+        std::collections::HashMap::new();
+    let mut qdrant_unlabeled = Vec::new();
+
+    for point in &all_points {
+        let point_id = match extract_point_id_str(point) {
+            Some(id) => id,
+            None => continue,
+        };
+        let content = extract_str(point, "content").unwrap_or_default();
+        let scope = extract_str(point, "scope");
+        let tenant = extract_str(point, "tenant_id");
+        let updated_at = extract_str(point, "updated_at").unwrap_or_default();
+        let label = extract_str(point, "label");
+
+        match label {
+            Some(l) if !l.is_empty() => {
+                qdrant_by_label.entry(l).or_default()
+                    .push((point_id, content, scope, tenant, updated_at));
             }
+            _ => {
+                qdrant_unlabeled.push(point_id.clone());
+                warn!("[rebuild:rules] Qdrant rule point {} has no label — skipping", point_id);
+            }
+        }
+    }
 
-            let now = wqm_common::timestamps::now_utc();
-            let mut synced = 0u64;
-            for point in &all_points {
-                let extract_str = |key: &str| -> Option<String> {
-                    point.payload.get(key).and_then(|v| {
-                        v.kind.as_ref().and_then(|k| match k {
-                            Kind::StringValue(s) => Some(s.clone()),
-                            _ => None,
-                        })
-                    })
-                };
+    info!("[rebuild:rules] Found {} Qdrant rules ({} unique labels, {} unlabeled)",
+        all_points.len(), qdrant_by_label.len(), qdrant_unlabeled.len());
 
-                let content = extract_str("content").unwrap_or_default();
-                let scope = extract_str("scope");
-                let tenant = extract_str("tenant_id");
-                let point_id = point.id.as_ref()
-                    .map(|id| format!("{:?}", id))
-                    .unwrap_or_else(|| "unknown".into());
+    // --- Step 2: Read all SQLite rules_mirror ---
+    let db_rules: Vec<(String, String, Option<String>, Option<String>)> =
+        match sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+            "SELECT rule_id, rule_text, scope, tenant_id FROM rules_mirror",
+        )
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("[rebuild:rules] Failed to read rules_mirror: {}", e);
+                return;
+            }
+        };
 
+    let db_by_label: std::collections::HashMap<String, (String, Option<String>, Option<String>)> =
+        db_rules.into_iter()
+            .map(|(label, text, scope, tenant)| (label, (text, scope, tenant)))
+            .collect();
+
+    info!("[rebuild:rules] Found {} rules in SQLite rules_mirror", db_by_label.len());
+
+    // --- Step 3: Deduplicate labels in Qdrant ---
+    let mut duplicate_ids_to_delete = Vec::new();
+    let mut dedup_label_count = 0u64;
+
+    for (label, entries) in &qdrant_by_label {
+        if entries.len() > 1 {
+            dedup_label_count += 1;
+            // Keep the entry with the latest updated_at, delete the rest
+            let mut sorted = entries.clone();
+            sorted.sort_by(|a, b| b.4.cmp(&a.4)); // DESC by updated_at
+            let kept = &sorted[0];
+            info!("[rebuild:rules] Label '{}' has {} duplicates — keeping point {}", label, entries.len(), kept.0);
+            for stale in &sorted[1..] {
+                duplicate_ids_to_delete.push(stale.0.clone());
+            }
+        }
+    }
+
+    // --- Step 4: Deduplicate content in Qdrant ---
+    // Build content → Vec<(label, point_id)> to find same content under different labels
+    let mut content_map: std::collections::HashMap<String, Vec<(String, String)>> =
+        std::collections::HashMap::new();
+    let mut dedup_content_count = 0u64;
+
+    for (label, entries) in &qdrant_by_label {
+        // Use only the first (winning) entry for each label after Step 3 dedup
+        if let Some(entry) = entries.first() {
+            // Skip if this point is already marked for deletion from Step 3
+            if !duplicate_ids_to_delete.contains(&entry.0) {
+                content_map.entry(entry.1.clone()).or_default()
+                    .push((label.clone(), entry.0.clone()));
+            }
+        }
+    }
+
+    for (content_preview, entries) in &content_map {
+        if entries.len() > 1 {
+            dedup_content_count += 1;
+            let preview = if content_preview.len() > 60 {
+                format!("{}...", &content_preview[..60])
+            } else {
+                content_preview.clone()
+            };
+            info!("[rebuild:rules] Duplicate content across {} labels: {:?} — keeping '{}'",
+                entries.len(),
+                entries.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
+                entries[0].0);
+            for dup in &entries[1..] {
+                duplicate_ids_to_delete.push(dup.1.clone());
+                // Also remove the stale label from rules_mirror
+                let _ = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
+                    .bind(&dup.0)
+                    .execute(pool)
+                    .await;
+            }
+            let _ = preview; // suppress unused warning
+        }
+    }
+
+    // Execute Qdrant deletions
+    let deleted_count = duplicate_ids_to_delete.len() as u64;
+    if !duplicate_ids_to_delete.is_empty() {
+        match storage.delete_points_by_ids("rules", &duplicate_ids_to_delete).await {
+            Ok(_) => info!("[rebuild:rules] Deleted {} duplicate Qdrant points", deleted_count),
+            Err(e) => error!("[rebuild:rules] Failed to delete duplicate points: {}", e),
+        }
+    }
+
+    // --- Build the deduplicated Qdrant state (label → single winning entry) ---
+    let mut qdrant_deduped: std::collections::HashMap<String, (String, Option<String>, Option<String>)> =
+        std::collections::HashMap::new();
+
+    for (label, entries) in &qdrant_by_label {
+        // After dedup, pick the first entry not in the deletion list
+        if let Some(winner) = entries.iter().find(|e| !duplicate_ids_to_delete.contains(&e.0)) {
+            qdrant_deduped.insert(label.clone(), (winner.1.clone(), winner.2.clone(), winner.3.clone()));
+        }
+    }
+
+    // --- Step 5 & 6 & 7: Bidirectional reconciliation ---
+    let now = wqm_common::timestamps::now_utc();
+    let mut mirror_inserted = 0u64;
+    let mut mirror_updated = 0u64;
+    let mut enqueued_to_qdrant = 0u64;
+
+    // 5. Rules in Qdrant but not SQLite → insert into rules_mirror
+    // 7. Rules in both but content differs → Qdrant authoritative, update SQLite
+    for (label, (q_content, q_scope, q_tenant)) in &qdrant_deduped {
+        match db_by_label.get(label) {
+            None => {
+                // Missing from SQLite — insert
                 let _ = sqlx::query(
-                    "INSERT OR REPLACE INTO rules_mirror \
+                    "INSERT OR IGNORE INTO rules_mirror \
                      (rule_id, rule_text, scope, tenant_id, created_at, updated_at) \
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 )
-                .bind(&point_id)
-                .bind(&content)
-                .bind(&scope)
-                .bind(&tenant)
+                .bind(label)
+                .bind(q_content)
+                .bind(q_scope)
+                .bind(q_tenant)
                 .bind(&now)
                 .bind(&now)
                 .execute(pool)
                 .await;
-                synced += 1;
+                mirror_inserted += 1;
             }
-            info!("[rebuild:rules] Synced {} rules from Qdrant to SQLite (qdrant-to-db)", synced);
-        }
-        "db-to-qdrant" => {
-            // Read all rules_mirror rows, enqueue to Qdrant via unified_queue
-            let rules: Vec<(String, String, Option<String>, Option<String>)> =
-                match sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
-                    "SELECT rule_id, rule_text, scope, tenant_id FROM rules_mirror",
-                )
-                .fetch_all(pool)
-                .await
-                {
-                    Ok(rows) => rows,
-                    Err(e) => {
-                        error!("[rebuild:rules] Failed to read rules_mirror: {}", e);
-                        return;
-                    }
-                };
-
-            let now = wqm_common::timestamps::now_utc();
-            let mut enqueued = 0u64;
-            for (rule_id, rule_text, scope, tenant_id) in &rules {
-                let tid = tenant_id.as_deref().unwrap_or("global");
-                let payload = serde_json::json!({
-                    "content": rule_text,
-                    "scope": scope,
-                    "label": rule_id,
-                });
-                let payload_str = payload.to_string();
-                let idem_key = wqm_common::hashing::compute_content_hash(
-                    &format!("text|add|{}|rules|{}", tid, payload_str),
-                );
-
+            Some((db_content, _, _)) if db_content != q_content => {
+                // Content mismatch — Qdrant is authoritative
                 let _ = sqlx::query(
-                    "INSERT OR IGNORE INTO unified_queue \
-                     (queue_id, idempotency_key, item_type, op, tenant_id, collection, priority, status, payload_json, created_at, updated_at) \
-                     VALUES (?1, ?2, 'text', 'add', ?3, 'rules', 8, 'pending', ?4, ?5, ?6)",
+                    "UPDATE rules_mirror SET rule_text = ?1, scope = ?2, tenant_id = ?3, updated_at = ?4 \
+                     WHERE rule_id = ?5",
                 )
-                .bind(uuid::Uuid::new_v4().to_string())
-                .bind(&idem_key[..32])
-                .bind(tid)
-                .bind(&payload_str)
+                .bind(q_content)
+                .bind(q_scope)
+                .bind(q_tenant)
                 .bind(&now)
-                .bind(&now)
+                .bind(label)
                 .execute(pool)
                 .await;
-                enqueued += 1;
+                mirror_updated += 1;
             }
-            info!("[rebuild:rules] Enqueued {} rules from SQLite to Qdrant (db-to-qdrant)", enqueued);
-        }
-        other => {
-            error!("[rebuild:rules] Unknown direction '{}'. Use 'qdrant-to-db' or 'db-to-qdrant'", other);
+            _ => {} // In sync — nothing to do
         }
     }
+
+    // 6. Rules in SQLite but not Qdrant → enqueue re-ingestion
+    for (label, (db_content, db_scope, db_tenant)) in &db_by_label {
+        if !qdrant_deduped.contains_key(label) {
+            let tid = db_tenant.as_deref().unwrap_or("global");
+            let payload = serde_json::json!({
+                "content": db_content,
+                "scope": db_scope,
+                "label": label,
+            });
+            let payload_str = payload.to_string();
+            let idem_key = wqm_common::hashing::compute_content_hash(
+                &format!("text|add|{}|rules|{}", tid, payload_str),
+            );
+
+            let _ = sqlx::query(
+                "INSERT OR IGNORE INTO unified_queue \
+                 (queue_id, idempotency_key, item_type, op, tenant_id, collection, priority, status, payload_json, created_at, updated_at) \
+                 VALUES (?1, ?2, 'text', 'add', ?3, 'rules', 8, 'pending', ?4, ?5, ?6)",
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&idem_key[..32])
+            .bind(tid)
+            .bind(&payload_str)
+            .bind(&now)
+            .bind(&now)
+            .execute(pool)
+            .await;
+            enqueued_to_qdrant += 1;
+        }
+    }
+
+    // --- Summary ---
+    info!("[rebuild:rules] Reconciliation complete in {}ms: \
+        qdrant_total={}, db_total={}, \
+        label_dups_removed={}, content_dups_removed={}, qdrant_points_deleted={}, \
+        mirror_inserted={}, mirror_updated={}, enqueued_to_qdrant={}",
+        start.elapsed().as_millis(),
+        all_points.len(), db_by_label.len(),
+        dedup_label_count, dedup_content_count, deleted_count,
+        mirror_inserted, mirror_updated, enqueued_to_qdrant);
 }
 
 /// Rescan watch folders by enqueuing scan operations.

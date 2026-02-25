@@ -302,6 +302,8 @@ pub struct GrpcServer {
     hierarchy_builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
     /// Lexicon manager for vocabulary rebuild via gRPC
     lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
+    /// Storage client for Qdrant operations (rules rebuild)
+    storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
 }
 
 /// Server metrics for monitoring
@@ -384,6 +386,7 @@ impl GrpcServer {
             graph_store: None,
             hierarchy_builder: None,
             lexicon_manager: None,
+            storage_client: None,
         }
     }
 
@@ -488,6 +491,15 @@ impl GrpcServer {
         self
     }
 
+    /// Set the storage client for Qdrant operations (rules rebuild).
+    pub fn with_storage_client(
+        mut self,
+        client: Arc<workspace_qdrant_core::StorageClient>,
+    ) -> Self {
+        self.storage_client = Some(client);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -543,6 +555,12 @@ impl GrpcServer {
         }
         if let Some(ref lexicon_manager) = self.lexicon_manager {
             system_service = system_service.with_lexicon_manager(Arc::clone(lexicon_manager));
+        }
+        // Use the externally provided storage client or fall back to the local one
+        if let Some(ref sc) = self.storage_client {
+            system_service = system_service.with_storage_client(Arc::clone(sc));
+        } else {
+            system_service = system_service.with_storage_client(Arc::clone(&storage_client));
         }
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
