@@ -139,6 +139,10 @@ pub(super) async fn process_file_delete(
             super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path)
                 .await;
 
+            // Keyword/tag cleanup: remove SQLite keyword/tag records
+            let doc_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
+            super::keyword_persist::delete_extraction(pool, &doc_id).await;
+
             info!(
                 "Deleted tracked file for: {} in {}ms (qdrant_delete={})",
                 relative_path,

@@ -11,18 +11,20 @@ use tracing::{info, warn};
 use crate::context::ProcessingContext;
 use crate::keyword_extraction::collection_config;
 use crate::keyword_extraction::cooccurrence_graph;
-use crate::keyword_extraction::pipeline::PipelineInput;
+use crate::keyword_extraction::pipeline::{ExtractionResult, PipelineInput};
 use crate::storage::DocumentPoint;
 use crate::unified_queue_schema::UnifiedQueueItem;
 
 /// Run keyword/tag extraction pipeline and inject results into point payloads.
+///
+/// Returns the `ExtractionResult` for SQLite persistence by the caller.
 pub(super) async fn run_keyword_extraction(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     file_path: &Path,
     document_content: &crate::DocumentContent,
     points: &mut [DocumentPoint],
-) {
+) -> Option<ExtractionResult> {
     let chunk_vectors: Vec<Vec<f32>> =
         points.iter().map(|p| p.dense_vector.clone()).collect();
     let chunk_texts: Vec<String> = document_content
@@ -174,4 +176,6 @@ pub(super) async fn run_keyword_extraction(
             );
         }
     }
+
+    Some(extraction)
 }

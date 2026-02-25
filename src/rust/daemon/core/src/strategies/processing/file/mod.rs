@@ -18,6 +18,7 @@ mod delete;
 mod fts5_index;
 mod graph_ingest;
 mod keyword_extract;
+mod keyword_persist;
 pub(crate) mod lsp_payload;
 mod store_track;
 mod update_preamble;
@@ -404,10 +405,11 @@ async fn ingest_file_content(
 
     // === KEYWORD/TAG EXTRACTION (Task 33) ===
     // Run extraction pipeline after chunk embeddings, before Qdrant upsert.
-    // Results are injected into point payloads. Failures are non-fatal.
+    // Results are injected into point payloads AND persisted to SQLite.
+    // Failures are non-fatal.
     if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
         let t0 = Instant::now();
-        keyword_extract::run_keyword_extraction(
+        let extraction = keyword_extract::run_keyword_extraction(
             ctx,
             item,
             file_path,
@@ -416,6 +418,18 @@ async fn ingest_file_content(
         )
         .await;
         timings.push(PhaseTiming { phase: "extract", duration_ms: t0.elapsed().as_millis() as u64 });
+
+        // Persist keywords/tags to SQLite for CLI queries and hierarchy building
+        if let Some(ref extraction) = extraction {
+            keyword_persist::persist_extraction(
+                pool,
+                &file_document_id,
+                &item.tenant_id,
+                &item.collection,
+                extraction,
+            )
+            .await;
+        }
     }
 
     // === GRAPH RELATIONSHIP EXTRACTION (graph-rag Task 3) ===
