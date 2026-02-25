@@ -25,6 +25,12 @@ export interface SubmoduleEntry {
   repoName: string;
 }
 
+export interface ComponentEntry {
+  componentName: string;
+  basePath: string;
+  source: string;
+}
+
 export interface ListTrackedFilesOptions {
   watchFolderId: string;
   path?: string;
@@ -238,6 +244,52 @@ export function listSubmodules(
     return { data: entries, status: 'ok' };
   } catch (error) {
     return handleTableNotFound(error, [], 'watch_folders');
+  }
+}
+
+/**
+ * List project components from the daemon's project_components table.
+ *
+ * Returns detected workspace components (Cargo, npm, directory fallback)
+ * that the daemon persists during file processing.
+ */
+export function listProjectComponents(
+  db: DatabaseType | null,
+  watchFolderId: string,
+): DegradedQueryResult<ComponentEntry[]> {
+  if (!db) {
+    return {
+      data: [],
+      status: 'degraded',
+      reason: 'database_not_found',
+      message: 'Database not initialized',
+    };
+  }
+
+  try {
+    const rows = db
+      .prepare(
+        `SELECT component_name, base_path, source
+         FROM project_components
+         WHERE watch_folder_id = ?
+         ORDER BY component_name ASC`,
+      )
+      .all(watchFolderId) as Array<{
+      component_name: string;
+      base_path: string;
+      source: string;
+    }>;
+
+    return {
+      data: rows.map(row => ({
+        componentName: row.component_name,
+        basePath: row.base_path,
+        source: row.source,
+      })),
+      status: 'ok',
+    };
+  } catch (error) {
+    return handleTableNotFound(error, [], 'project_components');
   }
 }
 

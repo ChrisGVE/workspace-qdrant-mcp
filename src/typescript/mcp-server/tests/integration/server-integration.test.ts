@@ -968,6 +968,41 @@ describe('Server Integration Tests', () => {
       expect(data.listing).not.toContain('src/main.rs');
       expect(data.listing).not.toContain('README.md');
     });
+
+    it('should read components from SQLite project_components table', async () => {
+      // Insert components into SQLite (simulating daemon behavior)
+      const db = new Database(join(tempDir, 'state.db'));
+      db.prepare(
+        `INSERT INTO project_components (component_id, watch_folder_id, component_name, base_path, source, patterns, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run('watch-list:daemon', WATCH_ID, 'daemon', 'src', 'cargo', '["src/**"]', NOW, NOW);
+      db.prepare(
+        `INSERT INTO project_components (component_id, watch_folder_id, component_name, base_path, source, patterns, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run('watch-list:test-suite', WATCH_ID, 'test-suite', 'tests', 'cargo', '["tests/**"]', NOW, NOW);
+      db.close();
+
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'list',
+          arguments: { format: 'summary', projectId: LIST_TENANT },
+        },
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.stats.components).toBeDefined();
+      const componentIds = data.stats.components.map((c: { id: string }) => c.id);
+      // Should have the SQLite-persisted components
+      expect(componentIds).toContain('daemon');
+      expect(componentIds).toContain('test-suite');
+      // Source should be from SQLite, not filesystem
+      const daemon = data.stats.components.find((c: { id: string }) => c.id === 'daemon');
+      expect(daemon.source).toBe('cargo');
+    });
   });
 
   describe('Tool Error Handling', () => {

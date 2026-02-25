@@ -91,10 +91,28 @@ export class ListFilesTool {
       files = filterByGlob(files, options.pattern);
     }
 
-    // Detect project components if we have a project path
+    // Load components from daemon's SQLite table (populated during file processing).
+    // Falls back to filesystem detection if the table is empty or unavailable.
     let components: ComponentMap | undefined;
     let componentSummaries: ComponentSummary[] | undefined;
-    if (projectPath) {
+    const dbComponents = this.stateManager.listProjectComponents(watchFolderId);
+    if (dbComponents.status === 'ok' && dbComponents.data.length > 0) {
+      components = new Map();
+      for (const entry of dbComponents.data) {
+        components.set(entry.componentName, {
+          id: entry.componentName,
+          basePath: entry.basePath,
+          patterns: [`${entry.basePath}/**`],
+          source: entry.source as 'cargo' | 'npm' | 'directory',
+        });
+      }
+      componentSummaries = dbComponents.data.map(c => ({
+        id: c.componentName,
+        basePath: c.basePath,
+        source: c.source as ComponentSummary['source'],
+      }));
+    } else if (projectPath) {
+      // Fallback: detect from filesystem (daemon hasn't indexed yet)
       components = detectComponents(projectPath);
       if (components.size > 0) {
         componentSummaries = Array.from(components.values()).map(c => ({

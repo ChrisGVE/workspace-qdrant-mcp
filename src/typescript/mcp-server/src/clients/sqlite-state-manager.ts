@@ -61,7 +61,7 @@ import * as trackedFilesQueries from './tracked-files-queries.js';
 // Re-export delegate types
 export type { SearchEventInput, SearchEventUpdate } from './search-event-queries.js';
 export type { RulesMirrorEntry } from './rules-mirror-queries.js';
-export type { TrackedFileEntry, SubmoduleEntry, ListTrackedFilesOptions } from './tracked-files-queries.js';
+export type { TrackedFileEntry, SubmoduleEntry, ComponentEntry, ListTrackedFilesOptions } from './tracked-files-queries.js';
 
 // Default database path
 const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');
@@ -242,5 +242,9 @@ export class SqliteStateManager {
 
   listSubmodules(watchFolderId: string) {
     return trackedFilesQueries.listSubmodules(this.db, watchFolderId);
+  }
+
+  listProjectComponents(watchFolderId: string) {
+    return trackedFilesQueries.listProjectComponents(this.db, watchFolderId);
   }
 }
