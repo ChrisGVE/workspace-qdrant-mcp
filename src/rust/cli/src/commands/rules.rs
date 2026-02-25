@@ -916,7 +916,7 @@ fn format_inject_output(
 /// fetches global + project rules from Qdrant, prints formatted output.
 /// Always exits 0 — failures produce no output.
 async fn inject_rules() -> Result<()> {
-    use std::io::Read;
+    use std::io::{IsTerminal, Read};
 
     // Initialize tracing to stderr (visible in Claude Code verbose mode)
     let _ = tracing_subscriber::fmt()
@@ -924,9 +924,12 @@ async fn inject_rules() -> Result<()> {
         .with_target(false)
         .try_init();
 
-    // Read stdin (non-blocking: if empty/closed, we get "")
+    // Read stdin only when piped (not a TTY). When run interactively
+    // from a terminal, stdin.read_to_string blocks waiting for EOF.
     let mut raw_input = String::new();
-    let _ = std::io::stdin().read_to_string(&mut raw_input);
+    if !std::io::stdin().is_terminal() {
+        let _ = std::io::stdin().read_to_string(&mut raw_input);
+    }
 
     tracing::info!("inject input: {}", raw_input.trim());
 
