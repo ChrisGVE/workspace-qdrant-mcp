@@ -31,6 +31,8 @@ pub struct CanonicalTag {
     pub level: u8,
     /// Index of parent cluster (None for top-level)
     pub parent_index: Option<usize>,
+    /// Cosine similarity to parent cluster centroid (None for top-level)
+    pub parent_similarity: Option<f64>,
 }
 
 /// Configuration for canonical tag building.
@@ -163,6 +165,7 @@ fn merge_duplicates(tags: &[TagWithVector], threshold: f64) -> Vec<CanonicalTag>
                 doc_count: total_docs,
                 level: 3,
                 parent_index: None,
+                parent_similarity: None,
             }
         })
         .collect()
@@ -281,9 +284,11 @@ fn cluster_tags(tags: &mut [CanonicalTag], threshold: f64, level: u8) -> Vec<Can
 
         let parent_idx = result.len();
 
-        // Set parent_index on each input tag that belongs to this cluster
+        // Set parent_index and parent_similarity on each input tag
         for &m in members {
             tags[m].parent_index = Some(parent_idx);
+            tags[m].parent_similarity =
+                Some(cosine_similarity(&tags[m].centroid, &centroid));
         }
 
         result.push(CanonicalTag {
@@ -293,6 +298,7 @@ fn cluster_tags(tags: &mut [CanonicalTag], threshold: f64, level: u8) -> Vec<Can
             doc_count: total_docs,
             level,
             parent_index: None,
+            parent_similarity: None,
         });
     }
 
@@ -562,6 +568,85 @@ mod tests {
                 "Level 1 tag '{}' should not have parent_index",
                 tag.label
             );
+        }
+    }
+
+    #[test]
+    fn test_parent_similarity_computed() {
+        // 4 tags in 2 pairs — similarity within pairs should be high
+        let tags = vec![
+            make_tag("rust async", vec![0.95, 0.1, 0.0], 3),
+            make_tag("tokio runtime", vec![0.9, 0.15, 0.0], 2),
+            make_tag("grpc protocol", vec![0.0, 0.0, 0.95], 2),
+            make_tag("protobuf wire", vec![0.0, 0.05, 0.9], 1),
+        ];
+
+        let config = CanonicalConfig {
+            merge_threshold: 0.95,
+            level_thresholds: [0.30, 0.70],
+        };
+        let hierarchy = build_hierarchy(&tags, &config);
+
+        // All level 3 tags should have parent_similarity set
+        for tag in &hierarchy.level3 {
+            let sim = tag.parent_similarity.expect(
+                &format!("Level 3 tag '{}' should have parent_similarity", tag.label),
+            );
+            assert!(
+                sim > 0.0 && sim <= 1.0,
+                "Similarity {} should be in (0, 1] for '{}'",
+                sim,
+                tag.label
+            );
+        }
+
+        // All level 2 tags should have parent_similarity set
+        for tag in &hierarchy.level2 {
+            let sim = tag.parent_similarity.expect(
+                &format!("Level 2 tag '{}' should have parent_similarity", tag.label),
+            );
+            assert!(
+                sim > 0.0 && sim <= 1.0,
+                "Similarity {} should be in (0, 1] for '{}'",
+                sim,
+                tag.label
+            );
+        }
+
+        // Level 1 tags should NOT have parent_similarity
+        for tag in &hierarchy.level1 {
+            assert!(
+                tag.parent_similarity.is_none(),
+                "Level 1 tag '{}' should not have parent_similarity",
+                tag.label
+            );
+        }
+    }
+
+    #[test]
+    fn test_singleton_parent_similarity_is_one() {
+        // A singleton cluster: the child IS the parent centroid, so similarity = 1.0
+        let tags = vec![
+            make_tag("alpha", vec![1.0, 0.0, 0.0], 1),
+            make_tag("beta", vec![0.0, 1.0, 0.0], 1),
+        ];
+
+        let config = CanonicalConfig {
+            merge_threshold: 0.95,
+            level_thresholds: [0.10, 0.50],
+        };
+        let hierarchy = build_hierarchy(&tags, &config);
+
+        // When each tag forms its own cluster, its centroid IS the child centroid
+        // so similarity should be exactly 1.0
+        for tag in &hierarchy.level3 {
+            if let Some(sim) = tag.parent_similarity {
+                assert!(
+                    (sim - 1.0).abs() < 1e-5,
+                    "Singleton parent_similarity should be ~1.0, got {}",
+                    sim
+                );
+            }
         }
     }
 

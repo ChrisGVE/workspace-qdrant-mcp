@@ -397,7 +397,7 @@ impl HierarchyBuilder {
                 )
                 .bind(pid)
                 .bind(l2_id)
-                .bind(0.0) // similarity computed during clustering
+                .bind(tag.parent_similarity.unwrap_or(0.0))
                 .bind(tenant_id)
                 .execute(&mut *tx)
                 .await
@@ -435,7 +435,7 @@ impl HierarchyBuilder {
                 )
                 .bind(pid)
                 .bind(l3_id)
-                .bind(0.0)
+                .bind(tag.parent_similarity.unwrap_or(0.0))
                 .bind(tenant_id)
                 .execute(&mut *tx)
                 .await
