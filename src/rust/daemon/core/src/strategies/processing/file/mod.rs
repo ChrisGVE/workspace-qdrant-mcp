@@ -182,7 +182,7 @@ impl FileStrategy {
         }
 
         ingest_file_content(
-            ctx, item, pool, file_path, &payload, &watch_folder_id, &relative_path,
+            ctx, item, pool, file_path, &payload, &watch_folder_id, &base_path, &relative_path,
         )
         .await
     }
@@ -260,6 +260,52 @@ async fn resolve_watch_folder(
     }
 }
 
+/// Resolve the component for a file, using the per-watch-folder cache.
+///
+/// On cache miss: detects components from the project's workspace files,
+/// persists them to `project_components`, and caches the result.
+async fn resolve_component(
+    ctx: &ProcessingContext,
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    base_path: &str,
+    relative_path: &str,
+) -> Option<String> {
+    use crate::component_detection;
+
+    // Fast path: check cache
+    {
+        let cache = ctx.component_cache.read().await;
+        if let Some(components) = cache.get(watch_folder_id) {
+            return component_detection::assign_component(relative_path, components)
+                .map(|c| c.id.clone());
+        }
+    }
+
+    // Slow path: detect from filesystem, persist, and cache
+    let project_path = Path::new(base_path);
+    let components = component_detection::detect_components(project_path);
+
+    if !components.is_empty() {
+        if let Err(e) =
+            component_detection::persist_components(pool, watch_folder_id, &components).await
+        {
+            debug!("Failed to persist components for {}: {}", watch_folder_id, e);
+        }
+    }
+
+    let result = component_detection::assign_component(relative_path, &components)
+        .map(|c| c.id.clone());
+
+    // Cache even if empty (avoids re-detecting for projects with no workspace)
+    {
+        let mut cache = ctx.component_cache.write().await;
+        cache.insert(watch_folder_id.to_string(), components);
+    }
+
+    result
+}
+
 /// Ingest file content: embedding, Qdrant upsert, tracked_files, FTS5.
 ///
 /// Shared by both add and update paths (after update preamble completes).
@@ -271,6 +317,7 @@ async fn ingest_file_content(
     file_path: &Path,
     payload: &FilePayload,
     watch_folder_id: &str,
+    base_path: &str,
     relative_path: &str,
 ) -> UnifiedProcessorResult<()> {
     // === PER-DESTINATION RETRY SKIP (Task 6) ===
@@ -446,6 +493,11 @@ async fn ingest_file_content(
     .await;
     timings.push(PhaseTiming { phase: "graph", duration_ms: t0.elapsed().as_millis() as u64 });
 
+    // === COMPONENT DETECTION (Phase 2) ===
+    // Resolve the component for this file based on workspace structure.
+    // Uses a per-watch-folder cache to avoid re-parsing workspace files.
+    let component = resolve_component(ctx, pool, watch_folder_id, &base_path, relative_path).await;
+
     // Upsert to Qdrant + record in tracked_files atomically
     let t0 = Instant::now();
     let file_id = store_track::upsert_and_track(
@@ -463,7 +515,7 @@ async fn ingest_file_content(
         lsp_status,
         treesitter_status,
         payload.file_type.as_deref(),
-        None, // component — assigned by Task 2 (component detection)
+        component,
     )
     .await?;
     timings.push(PhaseTiming { phase: "upsert", duration_ms: t0.elapsed().as_millis() as u64 });

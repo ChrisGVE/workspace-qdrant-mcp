@@ -7,7 +7,10 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::{RwLock, Semaphore};
 
+use std::collections::HashMap;
+
 use crate::allowed_extensions::AllowedExtensions;
+use crate::component_detection::ComponentMap;
 use crate::embedding::EmbeddingGenerator;
 use crate::document_processor::DocumentProcessor;
 use crate::graph::{SharedGraphStore, SqliteGraphStore};
@@ -59,6 +62,10 @@ pub struct ProcessingContext {
 
     /// Graph store for code relationship storage (optional — initialized when graph.db available).
     pub graph_store: Option<SharedGraphStore<SqliteGraphStore>>,
+
+    /// Cache of detected project components, keyed by watch_folder_id.
+    /// Lazily populated on first file processed per watch folder.
+    pub component_cache: Arc<RwLock<HashMap<String, ComponentMap>>>,
 }
 
 impl ProcessingContext {
@@ -88,6 +95,7 @@ impl ProcessingContext {
             allowed_extensions,
             cooccurrence_cache: Arc::new(tokio::sync::Mutex::new(CentralityCache::default())),
             graph_store: None,
+            component_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -123,6 +131,7 @@ mod tests {
             let _ = &ctx.allowed_extensions;
             let _ = &ctx.cooccurrence_cache;
             let _ = &ctx.graph_store;
+            let _ = &ctx.component_cache;
         }
     }
 }

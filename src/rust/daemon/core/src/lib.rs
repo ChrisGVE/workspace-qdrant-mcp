@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub mod adaptive_resources;
 pub mod affinity_grouper;
+pub mod component_detection;
 pub mod allowed_extensions;
 pub mod idle_history;
 pub mod config;
