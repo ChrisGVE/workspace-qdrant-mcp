@@ -64,9 +64,7 @@ pub mod code_lines_schema;
 pub mod schema_version;
 pub mod search_db;
 pub mod text_search;
-pub mod tier1_tagging;
-pub mod tier2_tagging;
-pub mod tier3_tagging;
+pub mod tagging;
 pub mod grep_search;
 pub mod tokenizer;
 pub mod parent_unit;
@@ -96,6 +94,13 @@ pub use grouping::affinity as affinity_grouper;
 pub use grouping::dependency as dependency_grouper;
 pub use grouping::workspace as workspace_grouper;
 pub use grouping::git_org as git_org_grouper;
+
+// ── Backward-compatible module aliases for tagging/ ─────────────────────
+// These allow `crate::tier1_tagging`, `crate::tier2_tagging`, `crate::tier3_tagging`
+// to continue resolving without updating every consumer file immediately.
+pub use tagging as tier1_tagging;
+pub use tagging as tier2_tagging;
+pub use tagging as tier3_tagging;
 
 // ── Architectural refactoring modules (Phase 0+) ────────────────────────
 pub mod context;

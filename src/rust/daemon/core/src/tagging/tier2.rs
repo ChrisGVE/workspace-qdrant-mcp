@@ -1,20 +1,21 @@
-/// Tier 2 automated tagging — embedding-based classification.
-///
-/// Uses FastEmbed cosine similarity for zero-shot taxonomy matching:
-/// 1. Load a taxonomy of ~180 concept terms from YAML
-/// 2. Embed each term once (cached in memory)
-/// 3. For each document, compute aggregate embedding from chunk embeddings
-/// 4. Cosine similarity against all taxonomy embeddings
-/// 5. Top-N matches above threshold become concept tags
+//! Tier 2 automated tagging -- embedding-based classification.
+//!
+//! Uses FastEmbed cosine similarity for zero-shot taxonomy matching:
+//! 1. Load a taxonomy of ~180 concept terms from YAML
+//! 2. Embed each term once (cached in memory)
+//! 3. For each document, compute aggregate embedding from chunk embeddings
+//! 4. Cosine similarity against all taxonomy embeddings
+//! 5. Top-N matches above threshold become concept tags
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use crate::embedding::{EmbeddingGenerator, EmbeddingError};
-use crate::keyword_extraction::semantic_rerank::{cosine_similarity, weighted_mean_vector};
+use crate::keyword_extraction::semantic_rerank::cosine_similarity;
 use crate::keyword_extraction::tag_selector::{SelectedTag, TagType};
 
-// ─── Configuration ──────────────────────────────────────────────────────
+use super::taxonomy::TaxonomyEntry;
+
+// ── Configuration ────────────────────────────────────────────────────────
 
 /// Configuration for Tier 2 tagging.
 #[derive(Debug, Clone)]
@@ -38,70 +39,7 @@ impl Default for Tier2Config {
     }
 }
 
-// ─── Taxonomy ───────────────────────────────────────────────────────────
-
-/// A single taxonomy entry: a concept term with its category.
-#[derive(Debug, Clone)]
-pub struct TaxonomyEntry {
-    /// The concept term (e.g. "machine learning algorithms").
-    pub term: String,
-    /// The category this term belongs to (e.g. "machine-learning").
-    pub category: String,
-}
-
-/// Load taxonomy entries from a YAML file.
-///
-/// Expected format:
-/// ```yaml
-/// categories:
-///   category-name:
-///     - "term one"
-///     - "term two"
-/// ```
-pub fn load_taxonomy(yaml_content: &str) -> Result<Vec<TaxonomyEntry>, String> {
-    let doc: serde_yml::Value = serde_yml::from_str(yaml_content)
-        .map_err(|e| format!("taxonomy YAML parse error: {}", e))?;
-
-    let categories = doc
-        .get("categories")
-        .and_then(|c| c.as_mapping())
-        .ok_or("taxonomy YAML missing 'categories' mapping")?;
-
-    let mut entries = Vec::new();
-
-    for (key, value) in categories {
-        let category = key
-            .as_str()
-            .ok_or("taxonomy category key must be a string")?
-            .to_string();
-
-        let terms = value
-            .as_sequence()
-            .ok_or_else(|| format!("category '{}' must be a sequence", category))?;
-
-        for term_val in terms {
-            let term = term_val
-                .as_str()
-                .ok_or_else(|| format!("term in '{}' must be a string", category))?
-                .to_string();
-            entries.push(TaxonomyEntry {
-                term,
-                category: category.clone(),
-            });
-        }
-    }
-
-    Ok(entries)
-}
-
-/// Load taxonomy from the bundled asset file.
-pub fn load_taxonomy_from_file(path: &Path) -> Result<Vec<TaxonomyEntry>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("failed to read taxonomy file: {}", e))?;
-    load_taxonomy(&content)
-}
-
-// ─── Tagger ─────────────────────────────────────────────────────────────
+// ── Tagger ───────────────────────────────────────────────────────────────
 
 /// A taxonomy match result before final selection.
 #[derive(Debug, Clone)]
@@ -200,11 +138,7 @@ impl Tier2Tagger {
             match seen_categories.get(&m.category) {
                 Some(&best) => {
                     // Allow second term from same category only if gap is large
-                    if best - m.score > self.config.min_score_gap * 3.0 {
-                        true
-                    } else {
-                        false
-                    }
+                    best - m.score > self.config.min_score_gap * 3.0
                 }
                 None => {
                     seen_categories.insert(m.category.clone(), m.score);
@@ -246,51 +180,6 @@ impl Tier2Tagger {
     }
 }
 
-// ─── Document embedding aggregation ─────────────────────────────────────
-
-/// Compute an aggregate embedding for a document from its chunk embeddings.
-///
-/// Uses weighted mean: each chunk is weighted equally (weight = 1.0).
-/// Returns `None` if no embeddings are provided.
-pub fn aggregate_document_embedding(chunk_embeddings: &[Vec<f32>]) -> Option<Vec<f32>> {
-    if chunk_embeddings.is_empty() {
-        return None;
-    }
-
-    let weighted: Vec<(Vec<f32>, f64)> = chunk_embeddings
-        .iter()
-        .map(|e| (e.clone(), 1.0))
-        .collect();
-
-    weighted_mean_vector(&weighted)
-}
-
-/// Compute a weighted aggregate embedding for a document.
-///
-/// Weights allow emphasizing certain chunks (e.g. title, first paragraph).
-/// `chunk_weights` must have the same length as `chunk_embeddings`.
-pub fn aggregate_document_embedding_weighted(
-    chunk_embeddings: &[Vec<f32>],
-    chunk_weights: &[f64],
-) -> Option<Vec<f32>> {
-    if chunk_embeddings.is_empty()
-        || chunk_weights.is_empty()
-        || chunk_embeddings.len() != chunk_weights.len()
-    {
-        return None;
-    }
-
-    let weighted: Vec<(Vec<f32>, f64)> = chunk_embeddings
-        .iter()
-        .cloned()
-        .zip(chunk_weights.iter().copied())
-        .collect();
-
-    weighted_mean_vector(&weighted)
-}
-
-// ─── Tests ──────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,46 +220,6 @@ mod tests {
             .collect()
     }
 
-    // ─── load_taxonomy ──────────────────────────────────────────────
-
-    #[test]
-    fn test_load_taxonomy_basic() {
-        let yaml = r#"
-categories:
-  programming-languages:
-    - rust programming
-    - python programming
-  databases:
-    - relational database
-"#;
-        let entries = load_taxonomy(yaml).unwrap();
-        assert_eq!(entries.len(), 3);
-        assert_eq!(entries[0].category, "programming-languages");
-        assert_eq!(entries[0].term, "rust programming");
-        assert_eq!(entries[2].category, "databases");
-    }
-
-    #[test]
-    fn test_load_taxonomy_empty() {
-        let yaml = "categories: {}";
-        let entries = load_taxonomy(yaml).unwrap();
-        assert!(entries.is_empty());
-    }
-
-    #[test]
-    fn test_load_taxonomy_invalid() {
-        let result = load_taxonomy("not valid yaml: [");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_load_taxonomy_missing_categories() {
-        let result = load_taxonomy("other_key: value");
-        assert!(result.is_err());
-    }
-
-    // ─── classify ───────────────────────────────────────────────────
-
     #[test]
     fn test_classify_exact_match() {
         let entries = sample_taxonomy();
@@ -382,7 +231,6 @@ categories:
         };
         let tagger = Tier2Tagger::from_precomputed(entries, embeddings, config);
 
-        // Query embedding matches "machine learning" (index 0 → unit vec at dim 0)
         let mut query = vec![0.0f32; 10];
         query[0] = 1.0;
 
@@ -403,18 +251,15 @@ categories:
         };
         let tagger = Tier2Tagger::from_precomputed(entries, embeddings, config);
 
-        // Query embedding overlaps with indices 0 and 1
         let mut query = vec![0.0f32; 10];
         query[0] = 0.7;
         query[1] = 0.7;
-        // Normalize
         let norm = (0.7f32 * 0.7 + 0.7 * 0.7).sqrt();
         query[0] /= norm;
         query[1] /= norm;
 
         let matches = tagger.classify(&query);
         assert_eq!(matches.len(), 2);
-        // Both should match with roughly equal score
         assert!(matches[0].score > 0.5);
         assert!(matches[1].score > 0.5);
     }
@@ -430,12 +275,10 @@ categories:
         };
         let tagger = Tier2Tagger::from_precomputed(entries, embeddings, config);
 
-        // Query with weak overlap
         let mut query = vec![0.1f32; 10];
         query[0] = 0.5;
 
         let matches = tagger.classify(&query);
-        // With high threshold, weak overlaps should be filtered
         assert!(matches.is_empty() || matches[0].score >= 0.9);
     }
 
@@ -462,14 +305,12 @@ categories:
 
     #[test]
     fn test_classify_max_tags_limit() {
-        // Create many entries that all match
         let entries: Vec<TaxonomyEntry> = (0..20)
             .map(|i| TaxonomyEntry {
                 term: format!("term {}", i),
                 category: format!("category-{}", i),
             })
             .collect();
-        // All embeddings similar to query
         let embeddings: Vec<Vec<f32>> = (0..20)
             .map(|_| vec![1.0, 0.0, 0.0])
             .collect();
@@ -487,7 +328,6 @@ categories:
 
     #[test]
     fn test_classify_category_dedup() {
-        // Two terms in the same category
         let entries = vec![
             TaxonomyEntry {
                 term: "rust programming".into(),
@@ -502,7 +342,6 @@ categories:
                 category: "web-development".into(),
             },
         ];
-        // All similar embeddings
         let embeddings = vec![
             vec![0.9, 0.1, 0.0],
             vec![0.85, 0.15, 0.0],
@@ -518,15 +357,12 @@ categories:
         let query = vec![1.0, 0.0, 0.0];
         let matches = tagger.classify(&query);
 
-        // Should keep only best per category (unless gap is large)
         let lang_count = matches
             .iter()
             .filter(|m| m.category == "programming-languages")
             .count();
         assert!(lang_count <= 1, "Should deduplicate within category");
     }
-
-    // ─── matches_to_tags ────────────────────────────────────────────
 
     #[test]
     fn test_matches_to_tags() {
@@ -557,48 +393,6 @@ categories:
         assert!(tags.is_empty());
     }
 
-    // ─── aggregate_document_embedding ───────────────────────────────
-
-    #[test]
-    fn test_aggregate_single_chunk() {
-        let chunks = vec![vec![1.0, 0.0, 0.0]];
-        let agg = aggregate_document_embedding(&chunks).unwrap();
-        assert_eq!(agg, vec![1.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn test_aggregate_two_chunks() {
-        let chunks = vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]];
-        let agg = aggregate_document_embedding(&chunks).unwrap();
-        assert!((agg[0] - 0.5).abs() < 1e-5);
-        assert!((agg[1] - 0.5).abs() < 1e-5);
-        assert!((agg[2] - 0.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_aggregate_empty() {
-        let chunks: Vec<Vec<f32>> = Vec::new();
-        assert!(aggregate_document_embedding(&chunks).is_none());
-    }
-
-    #[test]
-    fn test_aggregate_weighted() {
-        let chunks = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
-        let weights = vec![3.0, 1.0];
-        let agg = aggregate_document_embedding_weighted(&chunks, &weights).unwrap();
-        assert!((agg[0] - 0.75).abs() < 1e-5);
-        assert!((agg[1] - 0.25).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_aggregate_weighted_mismatch() {
-        let chunks = vec![vec![1.0, 0.0]];
-        let weights = vec![1.0, 2.0]; // length mismatch
-        assert!(aggregate_document_embedding_weighted(&chunks, &weights).is_none());
-    }
-
-    // ─── Tier2Config ────────────────────────────────────────────────
-
     #[test]
     fn test_tier2_config_defaults() {
         let config = Tier2Config::default();
@@ -606,8 +400,6 @@ categories:
         assert_eq!(config.max_tags, 10);
         assert!((config.min_score_gap - 0.02).abs() < 1e-6);
     }
-
-    // ─── taxonomy_size ──────────────────────────────────────────────
 
     #[test]
     fn test_taxonomy_size() {
@@ -617,29 +409,5 @@ categories:
         let tagger =
             Tier2Tagger::from_precomputed(entries, embeddings, Tier2Config::default());
         assert_eq!(tagger.taxonomy_size(), 5);
-    }
-
-    // ─── Integration with real taxonomy YAML ────────────────────────
-
-    #[test]
-    fn test_load_bundled_taxonomy() {
-        let yaml = include_str!("../../../../../assets/taxonomy.yaml");
-        let entries = load_taxonomy(yaml).unwrap();
-        // Should have ~180 entries
-        assert!(
-            entries.len() >= 150,
-            "Bundled taxonomy should have ~150+ entries, got {}",
-            entries.len()
-        );
-        // Check a known entry exists
-        assert!(
-            entries.iter().any(|e| e.term == "rust programming"),
-            "Should contain 'rust programming'"
-        );
-        // Verify all entries have non-empty term and category
-        for entry in &entries {
-            assert!(!entry.term.is_empty(), "Term should not be empty");
-            assert!(!entry.category.is_empty(), "Category should not be empty");
-        }
     }
 }

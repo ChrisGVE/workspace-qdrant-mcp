@@ -6,14 +6,14 @@
 /// `group_type = "affinity"`.
 ///
 /// Group labels are derived from zero-shot taxonomy classification
-/// (see `tier2_tagging`).
+/// (see `tagging::tier2`).
 
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, info, warn};
 
 use crate::keyword_extraction::semantic_rerank::cosine_similarity;
 use super::schema;
-use crate::tier2_tagging::{Tier2Tagger, aggregate_document_embedding};
+use crate::tagging::{Tier2Tagger, aggregate_document_embedding};
 
 // ---- Configuration ---------------------------------------------------------
 
