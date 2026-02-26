@@ -167,6 +167,18 @@ static-grammars = [
     "tree-sitter-json",
 ]
 
+# Granular telemetry levels (L0-L4). Each level implies the previous ones.
+# L0: module entry/exit (negligible overhead)
+# L1: function durations (low overhead)
+# L2: data flow metrics (moderate overhead)
+# L3: per-item tracing (higher overhead)
+# L4: debug diagnostics (full overhead)
+telemetry-l0 = []
+telemetry-l1 = ["telemetry-l0"]
+telemetry-l2 = ["telemetry-l1"]
+telemetry-l3 = ["telemetry-l2"]
+telemetry-l4 = ["telemetry-l3"]
+
 ocr = ["leptess"]
 ladybug = ["lbug"]
 macos-fsevents = []

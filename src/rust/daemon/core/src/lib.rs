@@ -42,6 +42,7 @@ pub mod log_pruner;
 pub mod logging;
 pub mod metrics;
 pub mod daemon_state;
+pub mod telemetry;
 pub mod tracing_otel;
 pub mod patterns;
 pub mod priority_manager;
