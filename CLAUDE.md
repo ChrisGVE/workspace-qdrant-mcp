@@ -43,24 +43,12 @@ Backward compatibility is not necessary as this project is a work in progress an
 
 When modifying files that exceed the code size guidance (see global CLAUDE.md), refactor gradually by extracting the section being changed into its own module. When files are addressed, update this CLAUDE.md file by removing the files addressed.
 
-### Rust source files exceeding 500-line limit (81 files)
+### Rust source files exceeding 500-line limit
 
 **Critical (>2000 lines):**
 
 | File | Lines | Action |
 |------|------:|--------|
-| `daemon/core/src/unified_queue_processor.rs` | 4,929 | Split into `queue_processor/` module tree |
-| `daemon/core/src/watching_queue.rs` | 4,210 | Split into `watching/` module tree |
-| `daemon/core/src/queue_operations.rs` | 3,771 | Split by operation category |
-| `daemon/core/src/daemon_state.rs` | 3,014 | Split by domain (watches, queue, config) |
-| `daemon/core/src/lsp/project_manager.rs` | 2,889 | Split by lifecycle phase |
-| `daemon/core/src/text_search.rs` | 2,476 | Split search vs indexing |
-| `daemon/core/src/search_db.rs` | 2,415 | Split schema vs queries |
-| `daemon/core/src/storage.rs` | 2,252 | Split by collection/operation |
-| `daemon/core/src/schema_version.rs` | 2,061 | Split migrations into per-version files |
-| `daemon/core/src/config.rs` | 2,030 | Split by config domain |
-| `daemon/grpc/src/services/project_service.rs` | 1,969 | Split by operation type |
-| `daemon/core/src/document_processor.rs` | 1,895 | Split extraction vs chunking |
 | `daemon/core/src/watching.rs` | 1,888 | Split event handling vs lifecycle |
 | `daemon/core/src/tracked_files_schema.rs` | 1,882 | Split schema vs operations |
 
@@ -69,52 +57,31 @@ When modifying files that exceed the code size guidance (see global CLAUDE.md), 
 | File | Lines |
 |------|------:|
 | `daemon/core/src/library_document.rs` | 1,462 |
-| `cli/src/commands/debug.rs` | 1,458 |
-| `daemon/core/src/metrics.rs` | 1,434 |
-| `daemon/core/src/logging.rs` | 1,428 |
-| `cli/src/commands/library.rs` | 1,404 |
-| `daemon/grpc/src/services/document_service.rs` | 1,276 |
-| `daemon/core/src/tree_sitter/grammar_manager.rs` | 1,236 |
-| `cli/src/commands/rules.rs` | 1,228 |
-| `daemon/core/src/git_integration.rs` | 1,212 |
-| `cli/src/commands/project.rs` | 1,159 |
 | `daemon/core/src/git_watcher.rs` | 1,131 |
 | `daemon/core/src/watching/platform.rs` | 1,124 |
-| `daemon/grpc/src/services/system_service.rs` | 1,114 |
-| `daemon/core/src/lsp/lifecycle.rs` | 1,092 |
 | `daemon/core/src/adaptive_resources.rs` | 1,090 |
 | `daemon/core/src/fts_batch_processor.rs` | 1,044 |
 | `daemon/core/src/priority_manager.rs` | 1,031 |
-| `daemon/core/src/lsp/detection.rs` | 1,014 |
 
-**Moderate (550–1000 lines, 48 files):**
+**Moderate (550–1000 lines):**
 
 | File | Lines |
 |------|------:|
 | `daemon/core/src/error.rs` | 947 |
-| `cli/src/commands/service.rs` | 936 |
-| `cli/src/commands/queue.rs` | 914 |
-| `cli/src/commands/status.rs` | 879 |
 | `daemon/core/src/lib.rs` | 863 |
-| `cli/src/commands/watch.rs` | 847 |
 | `common/src/yaml_defaults.rs` | 831 |
 | `daemon/core/src/ipc.rs` | 826 |
 | `daemon/core/src/metrics_history.rs` | 822 |
 | `cli/src/config.rs` | 798 |
 | `daemon/core/src/patterns/project.rs` | 793 |
-| `daemon/core/src/lsp/config.rs` | 783 |
 | `daemon/core/src/patterns/exclusion.rs` | 758 |
-| `daemon/grpc/src/lib.rs` | 730 |
 | `cli/src/commands/tags.rs` | 710 |
 | `daemon/core/src/patterns/manager.rs` | 700 |
 | `cli/src/commands/hooks.rs` | 695 |
 | `daemon/core/src/watching/file_watcher.rs` | 685 |
-| `daemon/core/src/tree_sitter/languages/rust.rs` | 674 |
-| `daemon/core/src/tree_sitter/parser.rs` | 667 |
 | `daemon/shared-test-utils/src/test_helpers.rs` | 661 |
 | `daemon/core/src/lsp/tests.rs` | 659 |
 | `daemon/core/src/unified_queue_schema.rs` | 652 |
-| `daemon/core/src/startup_reconciliation.rs` | 647 |
 | `daemon/core/src/parent_unit.rs` | 637 |
 | `daemon/core/src/title_extraction.rs` | 629 |
 | `cli/src/commands/config_cmd.rs` | 624 |
@@ -130,21 +97,18 @@ When modifying files that exceed the code size guidance (see global CLAUDE.md), 
 | `daemon/core/src/tool_monitor.rs` | 582 |
 | `daemon/core/src/service_discovery/manager.rs` | 575 |
 | `daemon/core/src/processing/request_queue.rs` | 573 |
-| `daemon/core/src/startup_recovery.rs` | 574 |
 | `daemon/core/src/unified_config.rs` | 567 |
 | `daemon/core/src/patterns/detection.rs` | 566 |
 | `common/src/payloads.rs` | 565 |
 | `cli/src/commands/restore.rs` | 565 |
-| `daemon/core/src/tree_sitter/chunker.rs` | 561 |
 | `daemon/core/src/keyword_extraction/lsp_candidates.rs` | 560 |
 | `cli/src/commands/ingest.rs` | 559 |
-| `daemon/core/src/lsp/communication.rs` | 555 |
 | `daemon/core/src/embedding.rs` | 554 |
 | `daemon/core/src/lexicon.rs` | 552 |
 
 ### TypeScript source files exceeding 300-line limit
 
-All 8 oversized TypeScript source files have been split (arch-refactor Task 18, done).
+All 8 oversized TypeScript source files have been split (arch-refactor Task 18, done). Additionally, during arch-refactor-2, tool-definitions.ts, tool-builders.ts, list-files.ts, tracked-files-queries.ts, and component-detector.ts were also split. Only 2 marginally oversized files remain: grpc-types-messages.ts (344 lines) and project-detector.ts (321 lines).
 
 **Test files exceeding limits (tracked but lower priority):**
 
