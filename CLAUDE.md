@@ -43,7 +43,7 @@ Backward compatibility is not necessary as this project is a work in progress an
 
 When modifying files that exceed the code size guidance (see global CLAUDE.md), refactor gradually by extracting the section being changed into its own module. When files are addressed, update this CLAUDE.md file by removing the files addressed.
 
-### Rust source files exceeding 500-line limit (82 files)
+### Rust source files exceeding 500-line limit (83 files)
 
 **Critical (>2000 lines):**
 
@@ -51,7 +51,6 @@ When modifying files that exceed the code size guidance (see global CLAUDE.md), 
 |------|------:|--------|
 | `daemon/core/src/unified_queue_processor.rs` | 4,929 | Split into `queue_processor/` module tree |
 | `daemon/core/src/watching_queue.rs` | 4,210 | Split into `watching/` module tree |
-| `daemon/core/src/processing.rs` | 4,152 | Split by processing type |
 | `daemon/core/src/queue_operations.rs` | 3,771 | Split by operation category |
 | `daemon/core/src/daemon_state.rs` | 3,014 | Split by domain (watches, queue, config) |
 | `daemon/core/src/lsp/project_manager.rs` | 2,889 | Split by lifecycle phase |
@@ -120,6 +119,7 @@ When modifying files that exceed the code size guidance (see global CLAUDE.md), 
 | `daemon/core/src/parent_unit.rs` | 637 |
 | `daemon/core/src/title_extraction.rs` | 629 |
 | `cli/src/commands/config_cmd.rs` | 624 |
+| `daemon/core/src/processing/executor.rs` | 622 |
 | `common/src/queue_types.rs` | 617 |
 | `daemon/core/src/remote_monitor.rs` | 615 |
 | `daemon/core/src/queue_error_handler.rs` | 604 |
@@ -130,6 +130,7 @@ When modifying files that exceed the code size guidance (see global CLAUDE.md), 
 | `daemon/core/src/allowed_extensions.rs` | 585 |
 | `daemon/core/src/tool_monitor.rs` | 582 |
 | `daemon/core/src/service_discovery/manager.rs` | 575 |
+| `daemon/core/src/processing/request_queue.rs` | 573 |
 | `daemon/core/src/startup_recovery.rs` | 574 |
 | `daemon/core/src/unified_config.rs` | 567 |
 | `daemon/core/src/patterns/detection.rs` | 566 |
