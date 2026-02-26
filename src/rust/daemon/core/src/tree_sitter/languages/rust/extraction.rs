@@ -1,48 +1,20 @@
-//! Rust language chunk extractor.
+//! Node extraction and symbol resolution for Rust source code.
 
-use std::path::Path;
+use tree_sitter::Node;
 
-use tree_sitter::{Language, Node};
-
-use crate::error::DaemonError;
 use crate::tree_sitter::chunker::{extract_function_calls, find_child_by_kind, node_text};
-use crate::tree_sitter::parser::TreeSitterParser;
-use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
+use crate::tree_sitter::types::{ChunkType, SemanticChunk};
 
-/// Extractor for Rust source code.
-///
-/// Supports both static and dynamically loaded tree-sitter grammars.
-pub struct RustExtractor {
-    /// Optional pre-loaded language for dynamic grammar support.
-    language: Option<Language>,
-}
+use super::RustExtractor;
 
 impl RustExtractor {
-    /// Create a new extractor using the static Rust grammar.
-    pub fn new() -> Self {
-        Self { language: None }
-    }
-
-    /// Create an extractor with a pre-loaded Language.
-    ///
-    /// Use this when you have a dynamically loaded grammar from
-    /// the GrammarManager.
-    pub fn with_language(language: Language) -> Self {
-        Self {
-            language: Some(language),
-        }
-    }
-
-    /// Create a parser, using the pre-loaded language if available.
-    fn create_parser(&self) -> Result<TreeSitterParser, DaemonError> {
-        match &self.language {
-            Some(lang) => TreeSitterParser::with_language("rust", lang.clone()),
-            None => TreeSitterParser::new("rust"),
-        }
-    }
-
     /// Extract preamble (use statements, extern crates, mod declarations at top).
-    fn extract_preamble(&self, root: &Node, source: &str, file_path: &str) -> Option<SemanticChunk> {
+    pub(crate) fn extract_preamble(
+        &self,
+        root: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Option<SemanticChunk> {
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
         let mut cursor = root.walk();
@@ -91,7 +63,7 @@ impl RustExtractor {
     }
 
     /// Extract a function definition.
-    fn extract_function(
+    pub(crate) fn extract_function(
         &self,
         node: &Node,
         source: &str,
@@ -111,7 +83,10 @@ impl RustExtractor {
         let is_async = node_text(node, source).trim_start().starts_with("async ")
             || node
                 .children(&mut node.walk())
-                .any(|c| c.kind() == "function_modifiers" && node_text(&c, source).contains("async"));
+                .any(|c| {
+                    c.kind() == "function_modifiers"
+                        && node_text(&c, source).contains("async")
+                });
 
         let chunk_type = if is_async {
             ChunkType::AsyncFunction
@@ -165,7 +140,12 @@ impl RustExtractor {
     }
 
     /// Extract a struct definition.
-    fn extract_struct(&self, node: &Node, source: &str, file_path: &str) -> SemanticChunk {
+    pub(crate) fn extract_struct(
+        &self,
+        node: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> SemanticChunk {
         let name = find_child_by_kind(node, "type_identifier")
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
@@ -194,7 +174,12 @@ impl RustExtractor {
     }
 
     /// Extract a trait definition.
-    fn extract_trait(&self, node: &Node, source: &str, file_path: &str) -> SemanticChunk {
+    pub(crate) fn extract_trait(
+        &self,
+        node: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> SemanticChunk {
         let name = find_child_by_kind(node, "type_identifier")
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
@@ -222,8 +207,13 @@ impl RustExtractor {
         chunk
     }
 
-    /// Extract an impl block.
-    fn extract_impl(&self, node: &Node, source: &str, file_path: &str) -> Vec<SemanticChunk> {
+    /// Extract an impl block with its individual methods.
+    pub(crate) fn extract_impl(
+        &self,
+        node: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Vec<SemanticChunk> {
         let mut chunks = Vec::new();
 
         // Get the type being implemented
@@ -278,7 +268,12 @@ impl RustExtractor {
             let mut cursor = body.walk();
             for child in body.children(&mut cursor) {
                 if child.kind() == "function_item" {
-                    chunks.push(self.extract_function(&child, source, file_path, Some(&parent_name)));
+                    chunks.push(self.extract_function(
+                        &child,
+                        source,
+                        file_path,
+                        Some(&parent_name),
+                    ));
                 }
             }
         }
@@ -287,7 +282,12 @@ impl RustExtractor {
     }
 
     /// Extract an enum definition.
-    fn extract_enum(&self, node: &Node, source: &str, file_path: &str) -> SemanticChunk {
+    pub(crate) fn extract_enum(
+        &self,
+        node: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> SemanticChunk {
         let name = find_child_by_kind(node, "type_identifier")
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
@@ -316,7 +316,12 @@ impl RustExtractor {
     }
 
     /// Extract a macro definition.
-    fn extract_macro(&self, node: &Node, source: &str, file_path: &str) -> SemanticChunk {
+    pub(crate) fn extract_macro(
+        &self,
+        node: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> SemanticChunk {
         let name = find_child_by_kind(node, "identifier")
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
@@ -345,7 +350,12 @@ impl RustExtractor {
     }
 
     /// Extract const or static item.
-    fn extract_const(&self, node: &Node, source: &str, file_path: &str) -> SemanticChunk {
+    pub(crate) fn extract_const(
+        &self,
+        node: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> SemanticChunk {
         let name = find_child_by_kind(node, "identifier")
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
@@ -374,7 +384,12 @@ impl RustExtractor {
     }
 
     /// Extract type alias.
-    fn extract_type_alias(&self, node: &Node, source: &str, file_path: &str) -> SemanticChunk {
+    pub(crate) fn extract_type_alias(
+        &self,
+        node: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> SemanticChunk {
         let name = find_child_by_kind(node, "type_identifier")
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
@@ -402,8 +417,12 @@ impl RustExtractor {
         chunk
     }
 
-    /// Extract preceding doc comments (/// or /** */).
-    fn extract_preceding_docstring(&self, node: &Node, source: &str) -> Option<String> {
+    /// Extract preceding doc comments (`///` or `/** */`).
+    pub(crate) fn extract_preceding_docstring(
+        &self,
+        node: &Node,
+        source: &str,
+    ) -> Option<String> {
         let mut prev = node.prev_sibling();
         let mut doc_lines = Vec::new();
 
@@ -412,7 +431,12 @@ impl RustExtractor {
                 "line_comment" => {
                     let text = node_text(&sibling, source);
                     if text.starts_with("///") || text.starts_with("//!") {
-                        doc_lines.push(text.trim_start_matches("///").trim_start_matches("//!").trim().to_string());
+                        doc_lines.push(
+                            text.trim_start_matches("///")
+                                .trim_start_matches("//!")
+                                .trim()
+                                .to_string(),
+                        );
                     } else {
                         break;
                     }
@@ -444,231 +468,5 @@ impl RustExtractor {
             doc_lines.reverse();
             Some(doc_lines.join("\n"))
         }
-    }
-}
-
-impl ChunkExtractor for RustExtractor {
-    fn extract_chunks(
-        &self,
-        source: &str,
-        file_path: &Path,
-    ) -> Result<Vec<SemanticChunk>, DaemonError> {
-        let mut parser = self.create_parser()?;
-        let tree = parser.parse(source)?;
-        let root = tree.root_node();
-        let file_path_str = file_path.to_string_lossy().to_string();
-
-        let mut chunks = Vec::new();
-
-        // Extract preamble
-        if let Some(preamble) = self.extract_preamble(&root, source, &file_path_str) {
-            chunks.push(preamble);
-        }
-
-        // Walk the AST and extract top-level items
-        let mut cursor = root.walk();
-        for child in root.children(&mut cursor) {
-            match child.kind() {
-                "function_item" => {
-                    chunks.push(self.extract_function(&child, source, &file_path_str, None));
-                }
-                "struct_item" => {
-                    chunks.push(self.extract_struct(&child, source, &file_path_str));
-                }
-                "trait_item" => {
-                    chunks.push(self.extract_trait(&child, source, &file_path_str));
-                }
-                "impl_item" => {
-                    chunks.extend(self.extract_impl(&child, source, &file_path_str));
-                }
-                "enum_item" => {
-                    chunks.push(self.extract_enum(&child, source, &file_path_str));
-                }
-                "macro_definition" => {
-                    chunks.push(self.extract_macro(&child, source, &file_path_str));
-                }
-                "const_item" | "static_item" => {
-                    chunks.push(self.extract_const(&child, source, &file_path_str));
-                }
-                "type_item" => {
-                    chunks.push(self.extract_type_alias(&child, source, &file_path_str));
-                }
-                "mod_item" => {
-                    // For mod with body, extract as module
-                    if find_child_by_kind(&child, "declaration_list").is_some() {
-                        let name = find_child_by_kind(&child, "identifier")
-                            .map(|n| node_text(&n, source))
-                            .unwrap_or("anonymous");
-                        let content = node_text(&child, source);
-                        let start_line = child.start_position().row + 1;
-                        let end_line = child.end_position().row + 1;
-
-                        chunks.push(SemanticChunk::new(
-                            ChunkType::Module,
-                            name,
-                            content,
-                            start_line,
-                            end_line,
-                            "rust",
-                            &file_path_str,
-                        ));
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        Ok(chunks)
-    }
-
-    fn language(&self) -> &'static str {
-        "rust"
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn test_extract_function() {
-        let source = r#"
-/// A simple function.
-fn hello() {
-    println!("Hello!");
-}
-"#;
-        let path = PathBuf::from("test.rs");
-        let extractor = RustExtractor::new();
-        let chunks = extractor.extract_chunks(source, &path).unwrap();
-
-        assert!(!chunks.is_empty());
-        let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
-        assert!(fn_chunk.is_some());
-        let fn_chunk = fn_chunk.unwrap();
-        assert_eq!(fn_chunk.symbol_name, "hello");
-        assert!(fn_chunk.docstring.is_some());
-        assert!(fn_chunk.docstring.as_ref().unwrap().contains("simple function"));
-    }
-
-    #[test]
-    fn test_extract_struct() {
-        let source = r#"
-/// A person struct.
-pub struct Person {
-    name: String,
-    age: u32,
-}
-"#;
-        let path = PathBuf::from("test.rs");
-        let extractor = RustExtractor::new();
-        let chunks = extractor.extract_chunks(source, &path).unwrap();
-
-        let struct_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Struct);
-        assert!(struct_chunk.is_some());
-        let struct_chunk = struct_chunk.unwrap();
-        assert_eq!(struct_chunk.symbol_name, "Person");
-    }
-
-    #[test]
-    fn test_extract_impl() {
-        let source = r#"
-impl Person {
-    fn new(name: String) -> Self {
-        Self { name, age: 0 }
-    }
-
-    fn greet(&self) {
-        println!("Hello, {}!", self.name);
-    }
-}
-"#;
-        let path = PathBuf::from("test.rs");
-        let extractor = RustExtractor::new();
-        let chunks = extractor.extract_chunks(source, &path).unwrap();
-
-        // Should have impl block + methods
-        assert!(chunks.len() >= 3);
-        let impl_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Impl);
-        assert!(impl_chunk.is_some());
-
-        let methods: Vec<_> = chunks.iter().filter(|c| c.chunk_type == ChunkType::Method).collect();
-        assert_eq!(methods.len(), 2);
-    }
-
-    #[test]
-    fn test_extract_trait() {
-        let source = r#"
-/// A greeter trait.
-pub trait Greeter {
-    fn greet(&self);
-}
-"#;
-        let path = PathBuf::from("test.rs");
-        let extractor = RustExtractor::new();
-        let chunks = extractor.extract_chunks(source, &path).unwrap();
-
-        let trait_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Trait);
-        assert!(trait_chunk.is_some());
-        assert_eq!(trait_chunk.unwrap().symbol_name, "Greeter");
-    }
-
-    #[test]
-    fn test_extract_preamble() {
-        let source = r#"
-use std::collections::HashMap;
-use std::io::Result;
-
-mod utils;
-
-fn main() {}
-"#;
-        let path = PathBuf::from("test.rs");
-        let extractor = RustExtractor::new();
-        let chunks = extractor.extract_chunks(source, &path).unwrap();
-
-        let preamble = chunks.iter().find(|c| c.chunk_type == ChunkType::Preamble);
-        assert!(preamble.is_some());
-        let preamble = preamble.unwrap();
-        assert!(preamble.content.contains("use std::collections::HashMap"));
-        assert!(preamble.content.contains("mod utils"));
-    }
-
-    #[test]
-    fn test_extract_async_function() {
-        let source = r#"
-async fn fetch_data() -> Result<String> {
-    Ok("data".to_string())
-}
-"#;
-        let path = PathBuf::from("test.rs");
-        let extractor = RustExtractor::new();
-        let chunks = extractor.extract_chunks(source, &path).unwrap();
-
-        let async_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::AsyncFunction);
-        assert!(async_chunk.is_some());
-        assert_eq!(async_chunk.unwrap().symbol_name, "fetch_data");
-    }
-
-    #[test]
-    fn test_extract_function_calls() {
-        let source = r#"
-fn process() {
-    helper();
-    validate(data);
-    transform();
-}
-"#;
-        let path = PathBuf::from("test.rs");
-        let extractor = RustExtractor::new();
-        let chunks = extractor.extract_chunks(source, &path).unwrap();
-
-        let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
-        assert!(fn_chunk.is_some());
-        let calls = &fn_chunk.unwrap().calls;
-        assert!(calls.contains(&"helper".to_string()));
-        assert!(calls.contains(&"validate".to_string()));
-        assert!(calls.contains(&"transform".to_string()));
     }
 }
