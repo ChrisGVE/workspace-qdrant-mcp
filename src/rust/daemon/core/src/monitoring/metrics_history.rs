@@ -56,7 +56,7 @@ pub async fn write_metrics_batch(
 
 /// Write a snapshot from current Prometheus metrics to history
 pub async fn write_snapshot(pool: &SqlitePool) -> MetricsHistoryResult<usize> {
-    let snapshot = crate::metrics::MetricsSnapshot::capture();
+    let snapshot = super::metrics_server::MetricsSnapshot::capture();
     let now = Utc::now();
     let mut entries = Vec::new();
 

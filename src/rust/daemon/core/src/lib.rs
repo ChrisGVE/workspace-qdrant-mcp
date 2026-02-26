@@ -35,8 +35,7 @@ pub mod metadata_enrichment;
 pub mod ocr;
 pub mod ipc;
 pub mod log_pruner;
-pub mod logging;
-pub mod metrics;
+pub mod monitoring;
 pub mod daemon_state;
 pub mod telemetry;
 pub mod tracing_otel;
@@ -53,7 +52,6 @@ pub mod queue_error_handler;
 pub mod service_discovery;
 pub mod source_diversity;
 pub mod storage;
-pub mod tool_monitor;
 pub mod type_aware_processor;
 pub mod unified_config;
 pub mod unified_queue_processor;
@@ -61,7 +59,6 @@ pub mod unified_queue_schema;
 pub mod watch_folders_schema;
 pub mod tracked_files_schema;
 pub mod metrics_history_schema;
-pub mod metrics_history;
 pub mod search_events_schema;
 pub mod code_lines_schema;
 pub mod schema_version;
@@ -89,7 +86,6 @@ pub mod watching;
 pub mod watching_queue;
 pub mod lsp;
 pub mod project_disambiguation;
-pub mod remote_monitor;
 pub mod startup;
 
 // ── Backward-compatible module aliases for grouping/ ────────────────────
@@ -108,6 +104,15 @@ pub mod specs;
 pub mod strategies;
 pub mod pipeline;
 pub mod lifecycle;
+
+// ── Backward-compatible aliases for old module paths ────────────────────
+// These allow `crate::logging::*` and `crate::metrics::*` to continue resolving
+// without updating every consumer file in one shot.
+pub use monitoring as logging;
+pub use monitoring as metrics;
+pub use monitoring as metrics_history;
+pub use monitoring as remote_monitor;
+pub use monitoring as tool_monitor;
 
 use crate::config::Config;
 pub use crate::allowed_extensions::{AllowedExtensions, FileRoute};
@@ -133,7 +138,8 @@ pub use crate::git::{
     BranchEvent, BranchLifecycleDetector, BranchLifecycleConfig, BranchLifecycleStats,
     BranchEventHandler, branch_schema
 };
-pub use crate::logging::{
+pub use crate::monitoring::{
+    // Logging (previously crate::logging::*)
     LoggingConfig, PerformanceMetrics, initialize_logging, initialize_daemon_silence,
     track_async_operation, log_error_with_context, LoggingErrorMonitor,
     // Multi-tenant structured logging (Task 412.8)
@@ -142,12 +148,13 @@ pub use crate::logging::{
     log_session_cleanup, log_priority_change, log_queue_depth_change,
     log_queue_enqueue, log_queue_processed, log_slow_query,
     log_search_request, log_search_result, log_ingestion_error,
-};
-pub use crate::metrics::{
+    // Metrics (previously crate::metrics::*)
     DaemonMetrics, MetricsServer, MetricsSnapshot, METRICS,
     // Alerting (Task 412.15-18)
     Alert, AlertChecker, AlertConfig, AlertSeverity, AlertType,
-    create_orphaned_session_alert, create_slow_search_alert
+    create_orphaned_session_alert, create_slow_search_alert,
+    // Tool monitor (previously crate::tool_monitor::*)
+    ToolMonitor, MonitoringError, MonitoringResult, RequeueStats,
 };
 pub use crate::tracing_otel::{
     OtelConfig, init_tracer_provider, otel_layer, shutdown_tracer,
@@ -220,9 +227,6 @@ pub use crate::watching_queue::{
     // Processing error feedback types (Task 461.13)
     ProcessingErrorType, ProcessingErrorFeedback, ErrorFeedbackManager, ProcessingErrorSummary
 };
-pub use crate::tool_monitor::{
-    ToolMonitor, MonitoringError, MonitoringResult, RequeueStats
-};
 pub use crate::file_classification::{
     classify_file_type, is_test_file, is_test_directory, get_extension_for_storage, FileType
 };
@@ -280,7 +284,7 @@ pub use crate::startup::{
     clean_stale_state, validate_watch_folders,
     StaleCleanupStats, WatchValidationStats,
 };
-pub use crate::remote_monitor::{check_remote_url_changes, check_git_state_changes};
+pub use crate::monitoring::{check_remote_url_changes, check_git_state_changes};
 pub use crate::keyword_extraction::hierarchy_builder::{
     HierarchyBuilder, HierarchyRebuildConfig, HierarchyError,
 };
