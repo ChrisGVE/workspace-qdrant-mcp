@@ -18,7 +18,7 @@ use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 use wqm_common::timestamps;
 
-use crate::git_watcher::{diff_tree, FileChange, FileChangeStatus, GitEvent, GitEventType};
+use crate::git::{diff_tree, FileChange, FileChangeStatus, GitEvent, GitEventType};
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
 use crate::watching_queue::get_current_branch;

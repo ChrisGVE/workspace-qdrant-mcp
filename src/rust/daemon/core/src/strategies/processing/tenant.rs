@@ -141,7 +141,7 @@ impl TenantStrategy {
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
                 // 2. Detect git status (Task 11)
-                let git_status = crate::git_integration::detect_git_status(
+                let git_status = crate::git::detect_git_status(
                     std::path::Path::new(&payload.project_root),
                 );
 

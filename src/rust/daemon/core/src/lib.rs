@@ -23,14 +23,13 @@ pub mod file_classification;
 pub mod format_routing;
 pub mod fts_batch_processor;
 pub mod branch_switch;
-pub mod git_integration;
+pub mod git;
 pub mod clip;
 pub mod cross_project_search;
 pub mod dependency_grouper;
 pub mod git_org_grouper;
 pub mod project_groups_schema;
 pub mod workspace_grouper;
-pub mod git_watcher;
 pub mod graph;
 pub mod image_extraction;
 pub mod library_hierarchy;
@@ -123,7 +122,7 @@ pub use crate::error::{
     CircuitBreaker, ErrorMonitor, ErrorRecovery, Result,
     DaemonError
 };
-pub use crate::git_integration::{
+pub use crate::git::{
     GitBranchDetector, GitError, GitResult, CacheStats,
     // Branch lifecycle management (Task 501)
     BranchEvent, BranchLifecycleDetector, BranchLifecycleConfig, BranchLifecycleStats,

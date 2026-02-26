@@ -20,9 +20,9 @@ use super::error_types::{WatchErrorSummary, WatchHealthStatus};
 pub struct WatchManager {
     pub(super) pool: SqlitePool,
     pub(super) watchers: Arc<RwLock<HashMap<String, Arc<FileWatcherQueue>>>>,
-    pub(super) git_watchers: Arc<Mutex<HashMap<String, crate::git_watcher::GitWatcher>>>,
-    pub(super) git_event_tx: mpsc::UnboundedSender<crate::git_watcher::GitEvent>,
-    pub(super) git_event_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<crate::git_watcher::GitEvent>>>>,
+    pub(super) git_watchers: Arc<Mutex<HashMap<String, crate::git::GitWatcher>>>,
+    pub(super) git_event_tx: mpsc::UnboundedSender<crate::git::GitEvent>,
+    pub(super) git_event_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<crate::git::GitEvent>>>>,
     pub(super) allowed_extensions: Arc<AllowedExtensions>,
     pub(super) refresh_signal: Option<Arc<Notify>>,
 }
@@ -43,7 +43,7 @@ impl WatchManager {
     }
 
     /// Take the git event receiver (can only be called once).
-    pub async fn take_git_event_rx(&self) -> Option<mpsc::UnboundedReceiver<crate::git_watcher::GitEvent>> {
+    pub async fn take_git_event_rx(&self) -> Option<mpsc::UnboundedReceiver<crate::git::GitEvent>> {
         let mut rx_lock = self.git_event_rx.lock().await;
         rx_lock.take()
     }
@@ -115,7 +115,7 @@ impl WatchManager {
 
     /// Start a git watcher for a git-tracked project
     pub(super) async fn start_git_watcher(&self, watch_id: &str, project_path: &str) {
-        use crate::git_watcher::GitWatcher;
+        use crate::git::GitWatcher;
 
         let project_root = PathBuf::from(project_path);
         match GitWatcher::new(

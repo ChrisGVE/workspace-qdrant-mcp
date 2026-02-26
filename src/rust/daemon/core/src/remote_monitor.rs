@@ -320,7 +320,7 @@ pub async fn check_git_state_changes(
         let project_path = std::path::Path::new(path.as_str());
 
         // Detect current filesystem git state
-        let git_status = crate::git_integration::detect_git_status(project_path);
+        let git_status = crate::git::detect_git_status(project_path);
         let current_remote = if git_status.is_git {
             get_git_remote_url(path).ok()
         } else {

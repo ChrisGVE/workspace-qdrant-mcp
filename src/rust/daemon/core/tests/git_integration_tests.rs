@@ -11,7 +11,7 @@ use tempfile::TempDir;
 use git2::{Repository, Signature};
 use tokio::time::Duration;
 
-use workspace_qdrant_core::git_integration::{
+use workspace_qdrant_core::git::{
     GitBranchDetector, BranchLifecycleDetector, BranchLifecycleConfig,
     BranchEvent,
 };
