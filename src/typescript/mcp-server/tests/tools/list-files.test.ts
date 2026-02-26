@@ -12,7 +12,7 @@ import {
   renderSummary,
   renderFlat,
   globToRegex,
-} from '../../src/tools/list-files.js';
+} from '../../src/tools/list-files/index.js';
 
 // ── Test helpers ─────────────────────────────────────────────────────────
 

@@ -11,7 +11,7 @@ import { RetrieveTool } from './tools/retrieve.js';
 import { RulesTool } from './tools/rules.js';
 import { StoreTool } from './tools/store.js';
 import { GrepTool } from './tools/grep.js';
-import { ListFilesTool } from './tools/list-files.js';
+import { ListFilesTool } from './tools/list-files/index.js';
 import type { ServerConfig } from './types/index.js';
 
 export interface ServerComponents {
