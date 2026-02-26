@@ -32,7 +32,7 @@ import {
   buildStoreOptions,
   buildGrepOptions,
   buildListOptions,
-} from './tool-builders.js';
+} from './tool-builders/index.js';
 import { storeUrl, storeScratchpad } from './store-handlers.js';
 import {
   initializeSession,
