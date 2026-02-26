@@ -93,8 +93,7 @@ pub mod watching_queue;
 pub mod lsp;
 pub mod project_disambiguation;
 pub mod remote_monitor;
-pub mod startup_recovery;
-pub mod startup_reconciliation;
+pub mod startup;
 
 // ── Architectural refactoring modules (Phase 0+) ────────────────────────
 pub mod context;
@@ -269,10 +268,9 @@ pub use crate::lsp::{
     // Project language detection (Task 1.3)
     ProjectLanguageDetector, ProjectLanguageResult, LanguageMarker,
 };
-pub use crate::startup_recovery::{
+pub use crate::startup::{
     run_startup_recovery, RecoveryStats, FullRecoveryStats,
-};
-pub use crate::startup_reconciliation::{
+    backfill_rules_mirror, RulesBackfillStats,
     clean_stale_state, validate_watch_folders,
     StaleCleanupStats, WatchValidationStats,
 };

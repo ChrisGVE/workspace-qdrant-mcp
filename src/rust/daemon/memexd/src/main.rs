@@ -588,7 +588,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Startup reconciliation: clean stale state and validate watch folders (Task 512)
     info!("Running startup reconciliation...");
-    match workspace_qdrant_core::startup_reconciliation::clean_stale_state(&queue_pool).await {
+    match workspace_qdrant_core::startup::clean_stale_state(&queue_pool).await {
         Ok(stats) => {
             if stats.has_changes() {
                 info!(
@@ -602,7 +602,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         Err(e) => warn!("Stale state cleanup failed (non-fatal): {}", e),
     }
 
-    match workspace_qdrant_core::startup_reconciliation::validate_watch_folders(&queue_pool).await {
+    match workspace_qdrant_core::startup::validate_watch_folders(&queue_pool).await {
         Ok(stats) => {
             if stats.folders_deactivated > 0 {
                 warn!(
@@ -1078,7 +1078,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         let migration_pool = unified_queue_processor.pool().clone();
         let migration_qm = unified_queue_processor.queue_manager().clone();
         tokio::spawn(async move {
-            match workspace_qdrant_core::startup_recovery::check_base_point_migration(
+            match workspace_qdrant_core::startup::check_base_point_migration(
                 &migration_pool, &migration_qm,
             ).await {
                 Ok(true) => info!("base_point migration triggered"),
@@ -1097,7 +1097,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         let recovery_ext = Arc::clone(&allowed_extensions);
         let recovery_startup_config = daemon_config.startup.clone();
         tokio::spawn(async move {
-            match workspace_qdrant_core::startup_recovery::run_startup_recovery(
+            match workspace_qdrant_core::startup::run_startup_recovery(
                 &recovery_pool,
                 &recovery_qm,
                 &recovery_ext,
@@ -1126,7 +1126,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     {
         let mirror_pool = unified_queue_processor.pool().clone();
         tokio::spawn(async move {
-            match workspace_qdrant_core::startup_recovery::backfill_rules_mirror(
+            match workspace_qdrant_core::startup::backfill_rules_mirror(
                 &mirror_pool,
                 &mirror_storage,
             ).await {

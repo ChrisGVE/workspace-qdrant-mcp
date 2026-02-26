@@ -16,7 +16,7 @@
 //! | PriorityManager         | `set_priority`                  |
 //! | PriorityManager         | `cleanup_orphaned_sessions`     |
 //! | SystemService (gRPC)    | `set_server_state`              |
-//! | startup_reconciliation  | `validate_watch_folders`        |
+//! | startup::reconciliation  | `validate_watch_folders`        |
 
 use sqlx::SqlitePool;
 use tracing::info;
@@ -264,7 +264,7 @@ impl WatchFolderLifecycle {
 
     /// Deactivate a single watch folder by `watch_id`.
     ///
-    /// Used by `startup_reconciliation::validate_watch_folders` when a
+    /// Used by `startup::reconciliation::validate_watch_folders` when a
     /// path no longer exists on disk.
     pub async fn deactivate_by_watch_id(
         &self,

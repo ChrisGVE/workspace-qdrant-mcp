@@ -2,7 +2,7 @@
 //!
 //! Centralizes all `watch_folders.is_active` mutations to fix the split-brain
 //! where `DaemonStateManager`, `PriorityManager`, `SystemService`, and
-//! `startup_reconciliation` previously mutated the column independently.
+//! `startup::reconciliation` previously mutated the column independently.
 //!
 //! # Submodules
 //! - [`watch_folder`] — `WatchFolderLifecycle` state machine (all `is_active` writes)
