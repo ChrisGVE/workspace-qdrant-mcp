@@ -16,7 +16,7 @@ import {
   assignComponent,
   type ComponentInfo,
   type ComponentMap,
-} from '../../src/utils/component-detector.js';
+} from '../../src/utils/component-detector/index.js';
 
 // ── pathToComponentId ────────────────────────────────────────────────────
 

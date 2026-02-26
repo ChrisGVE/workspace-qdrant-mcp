@@ -26,7 +26,7 @@ import {
   assignComponent,
   componentMatchesFilter,
   type ComponentMap,
-} from '../../utils/component-detector.js';
+} from '../../utils/component-detector/index.js';
 import { buildTree } from './tree-builder.js';
 import { renderTree, renderSummary, renderFlat } from './renderers.js';
 import { filterByGlob, countFolders } from './filters.js';
