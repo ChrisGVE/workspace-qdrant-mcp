@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod adaptive_resources;
-pub mod affinity_grouper;
+pub mod grouping;
 pub mod component_detection;
 pub mod allowed_extensions;
 pub mod idle_history;
@@ -26,10 +26,6 @@ pub mod branch_switch;
 pub mod git;
 pub mod clip;
 pub mod cross_project_search;
-pub mod dependency_grouper;
-pub mod git_org_grouper;
-pub mod project_groups_schema;
-pub mod workspace_grouper;
 pub mod graph;
 pub mod image_extraction;
 pub mod library_hierarchy;
@@ -95,6 +91,15 @@ pub mod lsp;
 pub mod project_disambiguation;
 pub mod remote_monitor;
 pub mod startup;
+
+// ── Backward-compatible module aliases for grouping/ ────────────────────
+// These allow `crate::project_groups_schema`, `crate::affinity_grouper`, etc.
+// to continue working without updating every consumer file immediately.
+pub use grouping::schema as project_groups_schema;
+pub use grouping::affinity as affinity_grouper;
+pub use grouping::dependency as dependency_grouper;
+pub use grouping::workspace as workspace_grouper;
+pub use grouping::git_org as git_org_grouper;
 
 // ── Architectural refactoring modules (Phase 0+) ────────────────────────
 pub mod context;

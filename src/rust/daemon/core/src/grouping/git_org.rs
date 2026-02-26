@@ -7,10 +7,10 @@
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, info};
 
-use crate::project_groups_schema;
+use super::schema;
 use wqm_common::project_id::ProjectIdCalculator;
 
-// ─── Org extraction ────────────────────────────────────────────────────
+// ---- Org extraction --------------------------------------------------------
 
 /// Extract the organization/user component from a git remote URL.
 ///
@@ -20,10 +20,10 @@ use wqm_common::project_id::ProjectIdCalculator;
 ///
 /// # Examples
 /// ```text
-/// "https://github.com/ChrisGVE/my-repo.git" → Some("github.com/chrisgve")
-/// "git@gitlab.com:my-org/my-repo.git"        → Some("gitlab.com/my-org")
-/// "https://bitbucket.org/team/repo"           → Some("bitbucket.org/team")
-/// "https://github.com/solo-repo"              → None (no org component)
+/// "https://github.com/ChrisGVE/my-repo.git" -> Some("github.com/chrisgve")
+/// "git@gitlab.com:my-org/my-repo.git"        -> Some("gitlab.com/my-org")
+/// "https://bitbucket.org/team/repo"           -> Some("bitbucket.org/team")
+/// "https://github.com/solo-repo"              -> None (no org component)
 /// ```
 pub fn extract_git_org(remote_url: &str) -> Option<String> {
     if remote_url.is_empty() {
@@ -54,12 +54,12 @@ pub fn extract_git_org(remote_url: &str) -> Option<String> {
 
 /// Generate a deterministic group_id from a git org key.
 ///
-/// Format: `git_org:<host>/<org>` — human-readable and deterministic.
+/// Format: `git_org:<host>/<org>` -- human-readable and deterministic.
 pub fn org_to_group_id(org_key: &str) -> String {
     format!("git_org:{}", org_key)
 }
 
-// ─── Grouping logic ────────────────────────────────────────────────────
+// ---- Grouping logic --------------------------------------------------------
 
 /// Recompute git-org-based groups for all registered projects.
 ///
@@ -116,7 +116,7 @@ pub async fn compute_git_org_groups(pool: &SqlitePool) -> Result<usize, sqlx::Er
         let group_id = org_to_group_id(org_key);
 
         for tenant_id in tenants {
-            project_groups_schema::add_to_group(pool, &group_id, tenant_id, "git_org", 1.0)
+            schema::add_to_group(pool, &group_id, tenant_id, "git_org", 1.0)
                 .await?;
         }
 
@@ -180,13 +180,13 @@ pub async fn update_project_org_group(
 
     let count: i64 = existing.get("cnt");
 
-    // Always add to the group (even if we're the first — others may join later)
-    project_groups_schema::add_to_group(pool, &group_id, tenant_id, "git_org", 1.0).await?;
+    // Always add to the group (even if we're the first -- others may join later)
+    schema::add_to_group(pool, &group_id, tenant_id, "git_org", 1.0).await?;
 
     // If there are already members, also ensure any single-member that was
     // previously skipped during compute_git_org_groups is now included
     if count == 0 {
-        // We're first — check if any other projects share this org
+        // We're first -- check if any other projects share this org
         let peers = sqlx::query(
             r#"
             SELECT tenant_id, git_remote_url
@@ -206,7 +206,7 @@ pub async fn update_project_org_group(
 
             if let Some(peer_org) = extract_git_org(&peer_url) {
                 if peer_org == org_key {
-                    project_groups_schema::add_to_group(
+                    schema::add_to_group(
                         pool,
                         &group_id,
                         &peer_tenant,
@@ -239,7 +239,7 @@ mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
 
-    // ─── URL parsing tests ──────────────────────────────────────────────
+    // ---- URL parsing tests -------------------------------------------------
 
     #[test]
     fn test_extract_github_https() {
@@ -292,8 +292,7 @@ mod tests {
 
     #[test]
     fn test_extract_no_org() {
-        // URL with only host/repo (no org level) — shouldn't happen in practice
-        // normalize_git_url("https://example.com/repo") → "example.com/repo" (2 parts)
+        // URL with only host/repo (no org level)
         assert_eq!(extract_git_org("https://example.com/repo"), None);
     }
 
@@ -312,7 +311,7 @@ mod tests {
         );
     }
 
-    // ─── SQLite integration tests ───────────────────────────────────────
+    // ---- SQLite integration tests ------------------------------------------
 
     async fn setup_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -340,11 +339,11 @@ mod tests {
         .unwrap();
 
         // Create project_groups tables
-        sqlx::query(crate::project_groups_schema::CREATE_PROJECT_GROUPS_SQL)
+        sqlx::query(schema::CREATE_PROJECT_GROUPS_SQL)
             .execute(&pool)
             .await
             .unwrap();
-        for idx in crate::project_groups_schema::CREATE_PROJECT_GROUPS_INDEXES_SQL {
+        for idx in schema::CREATE_PROJECT_GROUPS_INDEXES_SQL {
             sqlx::query(idx).execute(&pool).await.unwrap();
         }
 
@@ -378,7 +377,7 @@ mod tests {
         let groups = compute_git_org_groups(&pool).await.unwrap();
         assert_eq!(groups, 1, "All three share the same org");
 
-        let members = project_groups_schema::get_group_members(&pool, "proj-a")
+        let members = schema::get_group_members(&pool, "proj-a")
             .await
             .unwrap();
         assert_eq!(members.len(), 3);
@@ -406,7 +405,7 @@ mod tests {
         insert_watch_folder(&pool, "proj-b", "https://gitlab.com/myorg/repo-b.git").await;
 
         let groups = compute_git_org_groups(&pool).await.unwrap();
-        assert_eq!(groups, 0, "Same org name but different hosts → different groups");
+        assert_eq!(groups, 0, "Same org name but different hosts -> different groups");
     }
 
     #[tokio::test]
@@ -446,7 +445,7 @@ mod tests {
         assert!(added);
 
         // Both should be in the same group
-        let members = project_groups_schema::get_group_members(&pool, "proj-a")
+        let members = schema::get_group_members(&pool, "proj-a")
             .await
             .unwrap();
         assert_eq!(members.len(), 2);
@@ -472,7 +471,7 @@ mod tests {
         insert_watch_folder(&pool, "proj-b", "https://github.com/OrgX/repo2.git").await;
         compute_git_org_groups(&pool).await.unwrap();
 
-        let members = project_groups_schema::get_group_members(&pool, "proj-a")
+        let members = schema::get_group_members(&pool, "proj-a")
             .await
             .unwrap();
         assert_eq!(members.len(), 2);
@@ -485,11 +484,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Recompute — should clear old group
+        // Recompute -- should clear old group
         let groups = compute_git_org_groups(&pool).await.unwrap();
         assert_eq!(groups, 0, "No org has 2+ projects now");
 
-        let members = project_groups_schema::get_group_members(&pool, "proj-a")
+        let members = schema::get_group_members(&pool, "proj-a")
             .await
             .unwrap();
         assert_eq!(members.len(), 0, "proj-a has no group members after recompute");
