@@ -43,7 +43,7 @@ Backward compatibility is not necessary as this project is a work in progress an
 
 When modifying files that exceed the code size guidance (see global CLAUDE.md), refactor gradually by extracting the section being changed into its own module. When files are addressed, update this CLAUDE.md file by removing the files addressed.
 
-### Rust source files exceeding 500-line limit (83 files)
+### Rust source files exceeding 500-line limit (81 files)
 
 **Critical (>2000 lines):**
 
@@ -77,7 +77,6 @@ When modifying files that exceed the code size guidance (see global CLAUDE.md), 
 | `daemon/core/src/tree_sitter/grammar_manager.rs` | 1,236 |
 | `cli/src/commands/rules.rs` | 1,228 |
 | `daemon/core/src/git_integration.rs` | 1,212 |
-| `daemon/memexd/src/main.rs` | 1,178 |
 | `cli/src/commands/project.rs` | 1,159 |
 | `daemon/core/src/git_watcher.rs` | 1,131 |
 | `daemon/core/src/watching/platform.rs` | 1,124 |
