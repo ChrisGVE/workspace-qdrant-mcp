@@ -180,7 +180,7 @@ fn spawn_git_event_consumer(
 
 /// Process a single git event and log the outcome.
 async fn handle_single_git_event(
-    event: &workspace_qdrant_core::git_watcher::GitEvent,
+    event: &workspace_qdrant_core::git::GitEvent,
     pool: &sqlx::SqlitePool,
     qm: &workspace_qdrant_core::queue_operations::QueueManager,
 ) {

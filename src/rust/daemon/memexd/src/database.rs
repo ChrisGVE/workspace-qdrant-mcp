@@ -132,7 +132,7 @@ pub async fn init_graph_db(queue_pool: &SqlitePool) -> Option<ConcreteGraphStore
 pub async fn run_reconciliation(queue_pool: &SqlitePool) {
     info!("Running startup reconciliation...");
 
-    match workspace_qdrant_core::startup_reconciliation::clean_stale_state(queue_pool).await {
+    match workspace_qdrant_core::startup::clean_stale_state(queue_pool).await {
         Ok(stats) => {
             if stats.has_changes() {
                 info!(
@@ -150,7 +150,7 @@ pub async fn run_reconciliation(queue_pool: &SqlitePool) {
         Err(e) => warn!("Stale state cleanup failed (non-fatal): {}", e),
     }
 
-    match workspace_qdrant_core::startup_reconciliation::validate_watch_folders(queue_pool).await {
+    match workspace_qdrant_core::startup::validate_watch_folders(queue_pool).await {
         Ok(stats) => {
             if stats.folders_deactivated > 0 {
                 warn!(

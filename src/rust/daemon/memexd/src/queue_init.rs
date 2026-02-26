@@ -270,8 +270,7 @@ fn spawn_base_point_migration(uqp: &UnifiedQueueProcessor) {
     let pool = uqp.pool().clone();
     let qm = uqp.queue_manager().clone();
     tokio::spawn(async move {
-        match workspace_qdrant_core::startup_recovery::check_base_point_migration(&pool, &qm).await
-        {
+        match workspace_qdrant_core::startup::check_base_point_migration(&pool, &qm).await {
             Ok(true) => info!("base_point migration triggered"),
             Ok(false) => {}
             Err(e) => warn!("base_point migration check failed (non-fatal): {}", e),
@@ -289,7 +288,7 @@ fn spawn_startup_recovery(
     let ext = Arc::clone(allowed_extensions);
     let startup_config = daemon_config.startup.clone();
     tokio::spawn(async move {
-        match workspace_qdrant_core::startup_recovery::run_startup_recovery(
+        match workspace_qdrant_core::startup::run_startup_recovery(
             &pool, &qm, &ext, &startup_config,
         )
         .await
@@ -317,8 +316,7 @@ fn spawn_rules_mirror_backfill(
     let pool = uqp.pool().clone();
     let storage = Arc::clone(mirror_storage);
     tokio::spawn(async move {
-        match workspace_qdrant_core::startup_recovery::backfill_rules_mirror(&pool, &storage).await
-        {
+        match workspace_qdrant_core::startup::backfill_rules_mirror(&pool, &storage).await {
             Ok(stats) => {
                 if stats.inserted > 0 {
                     info!(
