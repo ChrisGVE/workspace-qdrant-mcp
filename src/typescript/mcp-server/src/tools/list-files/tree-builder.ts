@@ -5,7 +5,7 @@
  * basePath stripping and submodule detection.
  */
 
-import type { TrackedFileEntry, SubmoduleEntry } from '../../clients/tracked-files-queries.js';
+import type { TrackedFileEntry, SubmoduleEntry } from '../../clients/tracked-files-queries/index.js';
 import type { FolderNode } from '../list-files-types.js';
 
 /**

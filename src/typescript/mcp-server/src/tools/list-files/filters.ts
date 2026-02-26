@@ -4,7 +4,7 @@
  * Provides glob-based filtering and folder counting helpers.
  */
 
-import type { TrackedFileEntry } from '../../clients/tracked-files-queries.js';
+import type { TrackedFileEntry } from '../../clients/tracked-files-queries/index.js';
 import type { FolderNode } from '../list-files-types.js';
 
 // ── Folder counting ───────────────────────────────────────────────────────

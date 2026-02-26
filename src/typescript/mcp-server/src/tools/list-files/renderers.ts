@@ -5,7 +5,7 @@
  * tree (or flat file list) into a human-readable string representation.
  */
 
-import type { TrackedFileEntry } from '../../clients/tracked-files-queries.js';
+import type { TrackedFileEntry } from '../../clients/tracked-files-queries/index.js';
 import type { FolderNode } from '../list-files-types.js';
 
 // ── Shared types ─────────────────────────────────────────────────────────
