@@ -24,7 +24,7 @@ export type { SessionState, ServerOptions } from './server-types.js';
 
 import { buildServerComponents } from './server-factory.js';
 import type { ServerComponents } from './server-factory.js';
-import { getToolDefinitions } from './tool-definitions.js';
+import { getToolDefinitions } from './tool-definitions/index.js';
 import {
   buildSearchOptions,
   buildRetrieveOptions,
