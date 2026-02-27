@@ -15,8 +15,6 @@ mod resolver;
 mod show;
 mod types;
 
-pub use types::{WatchDetailItem, WatchListItem, WatchListItemVerbose};
-
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
