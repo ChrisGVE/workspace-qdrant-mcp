@@ -36,7 +36,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::MonitoringConfig;
-use crate::queue_operations::{QueueManager, QueueError};
+use crate::queue_operations::{MissingMetadataItem, QueueError, QueueManager};
 use crate::queue_types::MissingTool;
 
 /// Tool monitoring errors
@@ -94,6 +94,62 @@ struct _ToolAvailability {
     tool_path: Option<String>,
     last_checked_at: i64,
     is_available: bool,
+}
+
+/// Group missing metadata items by their required (tool_type, language) pair.
+///
+/// Returns a map from `(tool_type, language)` to the list of queue IDs that
+/// depend on that tool. Non-tool missing entries are skipped.
+fn group_items_by_tool(
+    items: &[MissingMetadataItem],
+) -> HashMap<(String, String), Vec<String>> {
+    let mut tools_to_check: HashMap<(String, String), Vec<String>> = HashMap::new();
+
+    for item in items {
+        for missing_tool in &item.missing_tools {
+            let (tool_type, language) = match missing_tool {
+                MissingTool::TreeSitterParser { language } => {
+                    ("tree-sitter".to_string(), language.clone())
+                }
+                MissingTool::LspServer { language } => ("lsp".to_string(), language.clone()),
+                _ => continue,
+            };
+
+            tools_to_check
+                .entry((tool_type, language))
+                .or_default()
+                .push(item.queue_id.clone());
+        }
+    }
+
+    tools_to_check
+}
+
+/// Requeue all items waiting on a tool that is now available.
+///
+/// Iterates over the given queue IDs, calling `retry_missing_metadata_item` for
+/// each one, and accumulates the count of successfully requeued items.
+async fn requeue_items_for_tool(
+    queue_manager: &QueueManager,
+    queue_ids: Vec<String>,
+    stats: &mut RequeueStats,
+) {
+    for queue_id in queue_ids {
+        match queue_manager
+            .retry_missing_metadata_item(&queue_id)
+            .await
+        {
+            Ok(true) => {
+                stats.items_requeued += 1;
+            }
+            Ok(false) => {
+                warn!("Item {} not found in missing_metadata_queue", queue_id);
+            }
+            Err(e) => {
+                error!("Failed to requeue item {}: {}", queue_id, e);
+            }
+        }
+    }
 }
 
 /// Tool monitor for tracking tool availability and requeuing files
@@ -276,7 +332,6 @@ impl ToolMonitor {
             ..Default::default()
         };
 
-        // Get all items from missing_metadata_queue
         let missing_items = queue_manager.get_missing_metadata_items(1000).await?;
 
         if missing_items.is_empty() {
@@ -285,71 +340,24 @@ impl ToolMonitor {
             return Ok(stats);
         }
 
-        info!(
-            "Checking {} items from missing_metadata_queue",
-            missing_items.len()
-        );
+        info!("Checking {} items from missing_metadata_queue", missing_items.len());
 
-        // Extract unique tools to check
-        let mut tools_to_check: HashMap<(String, String), Vec<String>> = HashMap::new();
-
-        for item in &missing_items {
-            for missing_tool in &item.missing_tools {
-                let (tool_type, language) = match missing_tool {
-                    MissingTool::TreeSitterParser { language } => {
-                        ("tree-sitter".to_string(), language.clone())
-                    }
-                    MissingTool::LspServer { language } => ("lsp".to_string(), language.clone()),
-                    _ => continue, // Skip non-tool errors
-                };
-
-                tools_to_check
-                    .entry((tool_type, language))
-                    .or_default()
-                    .push(item.queue_id.clone());
-            }
-        }
-
+        let tools_to_check = group_items_by_tool(&missing_items);
         stats.tools_checked = tools_to_check.len();
         info!("Checking {} unique tools", stats.tools_checked);
 
-        // Check each tool's availability
         for ((tool_type, language), queue_ids) in tools_to_check {
             match Self::check_tool_availability(db_pool, &tool_type, &language).await {
                 Ok(Some(tool_path)) => {
                     info!(
                         "Tool now available: {} for {} ({}), requeuing {} items",
-                        tool_type,
-                        language,
-                        tool_path,
-                        queue_ids.len()
+                        tool_type, language, tool_path, queue_ids.len()
                     );
-
                     stats.tools_now_available += 1;
-
-                    // Requeue all items that were waiting for this tool
-                    for queue_id in queue_ids {
-                        match queue_manager
-                            .retry_missing_metadata_item(&queue_id)
-                            .await
-                        {
-                            Ok(true) => {
-                                stats.items_requeued += 1;
-                            }
-                            Ok(false) => {
-                                warn!("Item {} not found in missing_metadata_queue", queue_id);
-                            }
-                            Err(e) => {
-                                error!("Failed to requeue item {}: {}", queue_id, e);
-                            }
-                        }
-                    }
+                    requeue_items_for_tool(queue_manager, queue_ids, &mut stats).await;
                 }
                 Ok(None) => {
-                    debug!(
-                        "Tool still unavailable: {} for {}",
-                        tool_type, language
-                    );
+                    debug!("Tool still unavailable: {} for {}", tool_type, language);
                 }
                 Err(e) => {
                     warn!(
@@ -361,7 +369,6 @@ impl ToolMonitor {
         }
 
         stats.check_duration_ms = start_time.elapsed().as_millis() as u64;
-
         Ok(stats)
     }
 
