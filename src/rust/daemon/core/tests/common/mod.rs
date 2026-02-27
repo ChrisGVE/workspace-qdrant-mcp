@@ -5,5 +5,7 @@
 //! own crate, so this `common/mod.rs` pattern is the canonical way to share
 //! helpers between them.
 
+pub mod file_monitoring;
 pub mod graph_helpers;
+pub mod proptest_generators;
 pub mod stress;
