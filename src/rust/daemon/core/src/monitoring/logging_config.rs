@@ -8,10 +8,11 @@ use std::path::PathBuf;
 use atty::Stream;
 
 use logroller::{LogRollerBuilder, Rotation, RotationSize, Compression};
-use tracing::{info, Level};
+use tracing::{info, Level, Subscriber};
 use tracing_subscriber::{
     fmt::{self, time::ChronoUtc},
     layer::{SubscriberExt, Layer},
+    registry::LookupSpan,
     util::SubscriberInitExt,
     EnvFilter, Registry,
     filter::LevelFilter,
@@ -248,6 +249,77 @@ fn build_log_roller(
     })
 }
 
+/// Determine whether ANSI escape codes should be disabled for console output.
+///
+/// Uses the explicit `force_disable_ansi` override when set, otherwise auto-detects
+/// based on environment variables, TTY status, and daemon/service indicators.
+fn determine_disable_ansi(daemon_mode: bool, force_disable_ansi: Option<bool>) -> bool {
+    force_disable_ansi.unwrap_or_else(|| {
+        if env::var("NO_COLOR").is_ok() {
+            return true;
+        }
+        if env::var("TTY_DETECTION_SILENT").is_ok()
+            || env::var("WQM_TTY_DEBUG") == Ok("0".to_string())
+        {
+            return true;
+        }
+        let tty_check = !atty::is(Stream::Stdout);
+        let xpc_is_service = env::var("XPC_SERVICE_NAME")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false);
+        let service_check = daemon_mode
+            || xpc_is_service
+            || env::var("_").map(|v| v.contains("launchd")).unwrap_or(false)
+            || env::var("INVOCATION_ID").is_ok()
+            || env::var("UPSTART_JOB").is_ok()
+            || env::var("SYSTEMD_EXEC_PID").is_ok()
+            || env::var("XPC_FLAGS").map(|v| v == "1").unwrap_or(false);
+        tty_check || service_check
+    })
+}
+
+/// Build a console tracing layer, choosing JSON or pretty format.
+fn build_console_layer<S>(
+    json_format: bool,
+    disable_ansi: bool,
+) -> Box<dyn Layer<S> + Send + Sync>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    if json_format {
+        fmt::layer()
+            .json()
+            .with_timer(ChronoUtc::rfc_3339())
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_thread_names(true)
+            .with_ansi(!disable_ansi)
+            .boxed()
+    } else {
+        fmt::layer()
+            .with_timer(ChronoUtc::rfc_3339())
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_thread_names(false)
+            .with_ansi(!disable_ansi)
+            .boxed()
+    }
+}
+
+/// Build a non-blocking rotating file writer from config.
+///
+/// The non-blocking guard is intentionally leaked via `std::mem::forget` so the
+/// writer stays alive for the process lifetime.
+fn build_non_blocking_writer(
+    log_file_path: &PathBuf,
+    config: &LoggingConfig,
+) -> Result<tracing_appender::non_blocking::NonBlocking, WorkspaceError> {
+    let roller = build_log_roller(log_file_path, config)?;
+    let (non_blocking, _guard) = tracing_appender::non_blocking(roller);
+    std::mem::forget(_guard);
+    Ok(non_blocking)
+}
+
 /// Initialize comprehensive logging system with daemon mode silence support
 pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     let daemon_mode = is_daemon_mode();
@@ -265,89 +337,33 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
 
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()));
-
-    let disable_ansi = config.force_disable_ansi.unwrap_or_else(|| {
-        if env::var("NO_COLOR").is_ok() {
-            return true;
-        }
-        if env::var("TTY_DETECTION_SILENT").is_ok() || env::var("WQM_TTY_DEBUG") == Ok("0".to_string()) {
-            return true;
-        }
-        let tty_check = !atty::is(Stream::Stdout);
-        let xpc_is_service = env::var("XPC_SERVICE_NAME")
-            .map(|v| !v.is_empty() && v != "0")
-            .unwrap_or(false);
-        let service_check = daemon_mode ||
-            xpc_is_service ||
-            env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
-            env::var("INVOCATION_ID").is_ok() ||
-            env::var("UPSTART_JOB").is_ok() ||
-            env::var("SYSTEMD_EXEC_PID").is_ok() ||
-            env::var("XPC_FLAGS").map(|v| v == "1").unwrap_or(false);
-        tty_check || service_check
-    });
-
+    let disable_ansi = determine_disable_ansi(daemon_mode, config.force_disable_ansi);
     let registry = Registry::default();
 
     if config.console_output && config.file_logging {
-        if let Some(ref log_file_path) = config.log_file_path {
-            let roller = build_log_roller(log_file_path, &config)?;
-            let (non_blocking, _guard) = tracing_appender::non_blocking(roller);
-            std::mem::forget(_guard);
-
-            let console_layer = if config.json_format {
-                fmt::layer().json()
-                    .with_timer(ChronoUtc::rfc_3339())
-                    .with_target(true).with_thread_ids(true).with_thread_names(true)
-                    .with_ansi(!disable_ansi).boxed()
-            } else {
-                fmt::layer()
-                    .with_timer(ChronoUtc::rfc_3339())
-                    .with_target(true).with_thread_ids(false).with_thread_names(false)
-                    .with_ansi(!disable_ansi).boxed()
-            };
-
-            let file_layer = fmt::layer().json()
-                .with_writer(non_blocking)
-                .with_timer(ChronoUtc::rfc_3339())
-                .with_target(true).with_thread_ids(true).with_thread_names(true);
-
-            registry.with(env_filter).with(console_layer).with(file_layer).init();
-        } else {
-            return Err(WorkspaceError::configuration(
-                "File logging enabled but no log file path specified",
-            ));
-        }
+        let log_file_path = config.log_file_path.as_ref().ok_or_else(|| {
+            WorkspaceError::configuration("File logging enabled but no log file path specified")
+        })?;
+        let non_blocking = build_non_blocking_writer(log_file_path, &config)?;
+        let console_layer = build_console_layer(config.json_format, disable_ansi);
+        let file_layer = fmt::layer().json()
+            .with_writer(non_blocking)
+            .with_timer(ChronoUtc::rfc_3339())
+            .with_target(true).with_thread_ids(true).with_thread_names(true);
+        registry.with(env_filter).with(console_layer).with(file_layer).init();
     } else if config.console_output {
-        let console_layer = if config.json_format {
-            fmt::layer().json()
-                .with_timer(ChronoUtc::rfc_3339())
-                .with_target(true).with_thread_ids(true).with_thread_names(true)
-                .with_ansi(!disable_ansi).boxed()
-        } else {
-            fmt::layer()
-                .with_timer(ChronoUtc::rfc_3339())
-                .with_target(true).with_thread_ids(false).with_thread_names(false)
-                .with_ansi(!disable_ansi).boxed()
-        };
+        let console_layer = build_console_layer(config.json_format, disable_ansi);
         registry.with(env_filter).with(console_layer).init();
     } else if config.file_logging {
-        if let Some(ref log_file_path) = config.log_file_path {
-            let roller = build_log_roller(log_file_path, &config)?;
-            let (non_blocking, _guard) = tracing_appender::non_blocking(roller);
-            std::mem::forget(_guard);
-
-            let file_layer = fmt::layer().json()
-                .with_writer(non_blocking)
-                .with_timer(ChronoUtc::rfc_3339())
-                .with_target(true).with_thread_ids(true).with_thread_names(true);
-
-            registry.with(env_filter).with(file_layer).init();
-        } else {
-            return Err(WorkspaceError::configuration(
-                "File logging enabled but no log file path specified",
-            ));
-        }
+        let log_file_path = config.log_file_path.as_ref().ok_or_else(|| {
+            WorkspaceError::configuration("File logging enabled but no log file path specified")
+        })?;
+        let non_blocking = build_non_blocking_writer(log_file_path, &config)?;
+        let file_layer = fmt::layer().json()
+            .with_writer(non_blocking)
+            .with_timer(ChronoUtc::rfc_3339())
+            .with_target(true).with_thread_ids(true).with_thread_names(true);
+        registry.with(env_filter).with(file_layer).init();
     } else if daemon_mode {
         let null_writer = || std::io::sink();
         let null_layer = fmt::layer().with_writer(null_writer).with_ansi(false);
@@ -359,13 +375,6 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     info!(config = ?config, "Logging system initialized");
     for (key, value) in &config.global_fields {
         tracing::Span::current().record(key.as_str(), value.as_str());
-    }
-
-    if !daemon_mode {
-        info!(config = ?config, "Logging system initialized");
-        for (key, value) in &config.global_fields {
-            tracing::Span::current().record(key.as_str(), value.as_str());
-        }
     }
 
     Ok(())
