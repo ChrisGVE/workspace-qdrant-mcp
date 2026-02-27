@@ -8,6 +8,56 @@
 import type { TrackedFileEntry, SubmoduleEntry } from '../../clients/tracked-files-queries/index.js';
 import type { FolderNode } from '../list-files-types.js';
 
+/** Create a submodule lookup map keyed by path. */
+function buildSubmoduleMap(submodules: SubmoduleEntry[]): Map<string, SubmoduleEntry> {
+  const map = new Map<string, SubmoduleEntry>();
+  for (const sm of submodules) {
+    map.set(sm.submodulePath, sm);
+  }
+  return map;
+}
+
+/** Insert a single file entry into the folder tree. */
+function insertFile(
+  root: FolderNode,
+  file: TrackedFileEntry,
+  basePath: string,
+  submoduleMap: Map<string, SubmoduleEntry>,
+): void {
+  let relPath = file.relativePath;
+  if (basePath && relPath.startsWith(basePath + '/')) {
+    relPath = relPath.slice(basePath.length + 1);
+  }
+
+  const segments = relPath.split('/');
+  const fileName = segments.pop()!;
+  let current = root;
+  let pathSoFar = basePath;
+
+  for (const segment of segments) {
+    pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+
+    if (!current.children.has(segment)) {
+      const node: FolderNode = { name: segment, children: new Map(), files: [], totalFiles: 0 };
+      const sm = submoduleMap.get(pathSoFar);
+      if (sm) node.submodule = { repoName: sm.repoName };
+      current.children.set(segment, node);
+    }
+
+    current = current.children.get(segment)!;
+    if (current.submodule) break;
+  }
+
+  if (!current.submodule) {
+    current.files.push({
+      name: fileName,
+      extension: file.extension,
+      language: file.language,
+      isTest: file.isTest,
+    });
+  }
+}
+
 /**
  * Build a folder tree from flat file paths.
  *
@@ -18,73 +68,14 @@ export function buildTree(
   submodules: SubmoduleEntry[],
   basePath: string,
 ): FolderNode {
-  const root: FolderNode = {
-    name: basePath || '.',
-    children: new Map(),
-    files: [],
-    totalFiles: 0,
-  };
-
-  // Build set of submodule paths for fast lookup
-  const submoduleMap = new Map<string, SubmoduleEntry>();
-  for (const sm of submodules) {
-    submoduleMap.set(sm.submodulePath, sm);
-  }
+  const root: FolderNode = { name: basePath || '.', children: new Map(), files: [], totalFiles: 0 };
+  const submoduleMap = buildSubmoduleMap(submodules);
 
   for (const file of files) {
-    let relPath = file.relativePath;
-
-    // Strip basePath prefix
-    if (basePath && relPath.startsWith(basePath + '/')) {
-      relPath = relPath.slice(basePath.length + 1);
-    }
-
-    const segments = relPath.split('/');
-    const fileName = segments.pop()!;
-    let current = root;
-
-    // Walk/create folder path
-    let pathSoFar = basePath;
-    for (const segment of segments) {
-      pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
-
-      if (!current.children.has(segment)) {
-        const node: FolderNode = {
-          name: segment,
-          children: new Map(),
-          files: [],
-          totalFiles: 0,
-        };
-
-        // Check if this folder is a submodule root
-        const sm = submoduleMap.get(pathSoFar);
-        if (sm) {
-          node.submodule = { repoName: sm.repoName };
-        }
-
-        current.children.set(segment, node);
-      }
-
-      current = current.children.get(segment)!;
-
-      // If we hit a submodule, don't go deeper
-      if (current.submodule) break;
-    }
-
-    // Only add the file if we didn't stop at a submodule
-    if (!current.submodule) {
-      current.files.push({
-        name: fileName,
-        extension: file.extension,
-        language: file.language,
-        isTest: file.isTest,
-      });
-    }
+    insertFile(root, file, basePath, submoduleMap);
   }
 
-  // Compute totalFiles bottom-up
   computeTotalFiles(root);
-
   return root;
 }
 
