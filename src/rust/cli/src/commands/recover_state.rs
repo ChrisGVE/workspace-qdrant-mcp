@@ -129,42 +129,8 @@ struct ReconstructStats {
     chunks: u64,
 }
 
-/// Create a fresh SQLite database with all required tables.
-///
-/// We create only the tables needed for recovery. The daemon will
-/// handle any remaining migrations on its next startup.
-fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
-    // Ensure parent directory exists
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("Failed to create database directory")?;
-    }
-
-    let conn = rusqlite::Connection::open(db_path)
-        .context("Failed to create state database")?;
-
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-         PRAGMA foreign_keys=ON;"
-    ).context("Failed to set SQLite pragmas")?;
-
-    // Schema version table
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER NOT NULL,
-            applied_at TEXT NOT NULL
-        )"
-    ).context("Failed to create schema_version")?;
-
-    // Insert current schema version (21) so daemon doesn't re-run migrations
-    let now = wqm_common::timestamps::now_utc();
-    conn.execute(
-        "INSERT INTO schema_version (version, applied_at) VALUES (?1, ?2)",
-        params![21, now],
-    ).context("Failed to insert schema version")?;
-
-    // Watch folders
+/// Create core tables: watch_folders, tracked_files, qdrant_chunks.
+fn create_core_tables(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS watch_folders (
             watch_id TEXT PRIMARY KEY,
@@ -194,7 +160,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create watch_folders")?;
 
-    // Tracked files
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS tracked_files (
             file_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,7 +190,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create tracked_files")?;
 
-    // Qdrant chunks
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS qdrant_chunks (
             chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -241,9 +205,11 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
             FOREIGN KEY (file_id) REFERENCES tracked_files(file_id) ON DELETE CASCADE,
             UNIQUE(file_id, chunk_index)
         )"
-    ).context("Failed to create qdrant_chunks")?;
+    ).context("Failed to create qdrant_chunks")
+}
 
-    // Rules mirror
+/// Create auxiliary tables: rules_mirror, unified_queue, submodules, operational_state.
+fn create_auxiliary_tables(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS rules_mirror (
             rule_id TEXT PRIMARY KEY,
@@ -255,7 +221,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create rules_mirror")?;
 
-    // Unified queue (empty but needed for daemon startup)
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS unified_queue (
             queue_id TEXT PRIMARY KEY,
@@ -278,7 +243,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create unified_queue")?;
 
-    // Watch folder submodules junction table
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS watch_folder_submodules (
             parent_watch_id TEXT NOT NULL,
@@ -291,22 +255,17 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create watch_folder_submodules")?;
 
-    // Operational state (for migration flags)
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS operational_state (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )"
-    ).context("Failed to create operational_state")?;
+    ).context("Failed to create operational_state")
+}
 
-    // Mark recovery as done so daemon doesn't re-scan everything
-    conn.execute(
-        "INSERT INTO operational_state (key, value, updated_at) VALUES ('recovery_done', 'true', ?1)",
-        params![now],
-    ).context("Failed to set recovery flag")?;
-
-    // Basic indexes
+/// Create indexes for recovery tables.
+fn create_recovery_indexes(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_watch_collection_tenant ON watch_folders(collection, tenant_id);
          CREATE INDEX IF NOT EXISTS idx_watch_path ON watch_folders(path);
@@ -315,7 +274,50 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
          CREATE INDEX IF NOT EXISTS idx_tracked_files_base_point ON tracked_files(base_point);
          CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_point ON qdrant_chunks(point_id);
          CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_file ON qdrant_chunks(file_id);"
-    ).context("Failed to create indexes")?;
+    ).context("Failed to create indexes")
+}
+
+/// Create a fresh SQLite database with all required tables.
+///
+/// We create only the tables needed for recovery. The daemon will
+/// handle any remaining migrations on its next startup.
+fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)
+            .context("Failed to create database directory")?;
+    }
+
+    let conn = rusqlite::Connection::open(db_path)
+        .context("Failed to create state database")?;
+
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA foreign_keys=ON;"
+    ).context("Failed to set SQLite pragmas")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER NOT NULL,
+            applied_at TEXT NOT NULL
+        )"
+    ).context("Failed to create schema_version")?;
+
+    let now = wqm_common::timestamps::now_utc();
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?1, ?2)",
+        params![21, now],
+    ).context("Failed to insert schema version")?;
+
+    create_core_tables(&conn)?;
+    create_auxiliary_tables(&conn)?;
+
+    conn.execute(
+        "INSERT INTO operational_state (key, value, updated_at) VALUES ('recovery_done', 'true', ?1)",
+        params![now],
+    ).context("Failed to set recovery flag")?;
+
+    create_recovery_indexes(&conn)?;
 
     Ok(conn)
 }
