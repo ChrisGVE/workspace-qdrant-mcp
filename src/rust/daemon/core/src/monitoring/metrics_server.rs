@@ -3,6 +3,8 @@
 //! Provides the Prometheus /metrics endpoint via axum and a MetricsSnapshot
 //! for CLI/API consumption.
 
+use std::collections::HashMap;
+
 use prometheus::core::Collector;
 
 use super::metrics_core::METRICS;
@@ -85,6 +87,59 @@ async fn health_handler() -> impl axum::response::IntoResponse {
     (axum::http::StatusCode::OK, "OK")
 }
 
+/// Sum all gauge values across labels for an `IntGaugeVec`
+fn sum_int_gauge(metric: &impl Collector) -> i64 {
+    metric
+        .collect()
+        .iter()
+        .flat_map(|m| m.get_metric())
+        .map(|m| m.get_gauge().get_value() as i64)
+        .sum()
+}
+
+/// Sum all counter values across labels for an `IntCounterVec`
+fn sum_int_counter(metric: &impl Collector) -> u64 {
+    metric
+        .collect()
+        .iter()
+        .flat_map(|m| m.get_metric())
+        .map(|m| m.get_counter().get_value() as u64)
+        .sum()
+}
+
+/// Collect a labeled gauge into a map keyed by the first label value
+fn labeled_gauge_map(metric: &impl Collector) -> HashMap<String, i64> {
+    metric
+        .collect()
+        .iter()
+        .flat_map(|m| m.get_metric())
+        .map(|m| {
+            let key = first_label(m);
+            (key, m.get_gauge().get_value() as i64)
+        })
+        .collect()
+}
+
+/// Collect a labeled counter into a map keyed by the first label value
+fn labeled_counter_map(metric: &impl Collector) -> HashMap<String, u64> {
+    metric
+        .collect()
+        .iter()
+        .flat_map(|m| m.get_metric())
+        .map(|m| {
+            let key = first_label(m);
+            (key, m.get_counter().get_value() as u64)
+        })
+        .collect()
+}
+
+/// Extract the first label value from a metric, or an empty string if none
+fn first_label(m: &prometheus::proto::Metric) -> String {
+    m.get_label()
+        .first()
+        .map_or_else(String::new, |l| l.get_value().to_string())
+}
+
 /// Metrics snapshot for CLI/API consumption
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MetricsSnapshot {
@@ -95,13 +150,13 @@ pub struct MetricsSnapshot {
     /// Total sessions lifetime
     pub total_sessions_lifetime: u64,
     /// Queue depths by priority
-    pub queue_depths: std::collections::HashMap<String, i64>,
+    pub queue_depths: HashMap<String, i64>,
     /// Total items processed
     pub total_items_processed: u64,
     /// Error counts by type
-    pub error_counts: std::collections::HashMap<String, u64>,
+    pub error_counts: HashMap<String, u64>,
     /// Per-tenant document counts
-    pub tenant_documents: std::collections::HashMap<String, i64>,
+    pub tenant_documents: HashMap<String, i64>,
 }
 
 impl MetricsSnapshot {
@@ -109,73 +164,6 @@ impl MetricsSnapshot {
     pub fn capture() -> Self {
         let metrics = &*METRICS;
 
-        // Sum active sessions across all labels
-        let active_sessions = metrics
-            .active_sessions
-            .collect()
-            .iter()
-            .flat_map(|m| m.get_metric())
-            .map(|m| m.get_gauge().get_value() as i64)
-            .sum();
-
-        // Sum total sessions across all labels
-        let total_sessions_lifetime = metrics
-            .total_sessions
-            .collect()
-            .iter()
-            .flat_map(|m| m.get_metric())
-            .map(|m| m.get_counter().get_value() as u64)
-            .sum();
-
-        // Get queue depths by priority
-        let queue_depths: std::collections::HashMap<String, i64> = metrics
-            .queue_depth
-            .collect()
-            .iter()
-            .flat_map(|m| m.get_metric())
-            .map(|m| {
-                let labels: Vec<_> = m.get_label().iter().map(|l| l.get_value()).collect();
-                let key = labels.first().cloned().unwrap_or_default().to_string();
-                (key, m.get_gauge().get_value() as i64)
-            })
-            .collect();
-
-        // Sum total items processed
-        let total_items_processed = metrics
-            .queue_items_processed_total
-            .collect()
-            .iter()
-            .flat_map(|m| m.get_metric())
-            .map(|m| m.get_counter().get_value() as u64)
-            .sum();
-
-        // Get error counts by type
-        let error_counts: std::collections::HashMap<String, u64> = metrics
-            .ingestion_errors_total
-            .collect()
-            .iter()
-            .flat_map(|m| m.get_metric())
-            .map(|m| {
-                let labels: Vec<_> = m.get_label().iter().map(|l| l.get_value()).collect();
-                let key = labels.first().cloned().unwrap_or_default().to_string();
-                (key, m.get_counter().get_value() as u64)
-            })
-            .collect();
-
-        // Get tenant document counts
-        let tenant_documents: std::collections::HashMap<String, i64> = metrics
-            .tenant_documents_total
-            .collect()
-            .iter()
-            .flat_map(|m| m.get_metric())
-            .map(|m| {
-                let labels: Vec<_> = m.get_label().iter().map(|l| l.get_value()).collect();
-                let key = labels.first().cloned().unwrap_or_default().to_string();
-                (key, m.get_gauge().get_value() as i64)
-            })
-            .collect();
-
-        // Get uptime
         let uptime_seconds = metrics
             .uptime_seconds
             .collect()
@@ -186,12 +174,12 @@ impl MetricsSnapshot {
 
         Self {
             uptime_seconds,
-            active_sessions,
-            total_sessions_lifetime,
-            queue_depths,
-            total_items_processed,
-            error_counts,
-            tenant_documents,
+            active_sessions: sum_int_gauge(&metrics.active_sessions),
+            total_sessions_lifetime: sum_int_counter(&metrics.total_sessions),
+            queue_depths: labeled_gauge_map(&metrics.queue_depth),
+            total_items_processed: sum_int_counter(&metrics.queue_items_processed_total),
+            error_counts: labeled_counter_map(&metrics.ingestion_errors_total),
+            tenant_documents: labeled_gauge_map(&metrics.tenant_documents_total),
         }
     }
 }
