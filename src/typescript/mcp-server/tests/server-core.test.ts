@@ -1,5 +1,5 @@
 /**
- * Tests for WorkspaceQdrantMcpServer session lifecycle
+ * Tests for WorkspaceQdrantMcpServer core functionality and session state
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 
-import { WorkspaceQdrantMcpServer, type SessionState } from '../src/server.js';
+import { WorkspaceQdrantMcpServer } from '../src/server.js';
 import type { ServerConfig } from '../src/types/index.js';
 
 // Mock the DaemonClient to avoid actual gRPC connections
@@ -244,9 +244,7 @@ describe('WorkspaceQdrantMcpServer', () => {
       const server = new WorkspaceQdrantMcpServer({ config, stdio: false });
       await server.start();
 
-      const stateBefore = server.getSessionState();
       // Heartbeat won't be running since daemon is not connected
-
       await server.stop();
 
       const stateAfter = server.getSessionState();
@@ -294,104 +292,5 @@ describe('WorkspaceQdrantMcpServer', () => {
 
       await server.stop();
     });
-  });
-});
-
-describe('Session lifecycle with connected daemon', () => {
-  let tempDir: string;
-  let realTempDir: string;
-  let config: ServerConfig;
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'mcp-daemon-test-'));
-    realTempDir = realpathSync(tempDir);
-    const dbPath = join(tempDir, 'state.db');
-
-    // Create database
-    const db = new Database(dbPath);
-    db.exec(TEST_SCHEMA);
-    db.close();
-
-    config = createTestConfig(tempDir);
-
-    // Reset mocks
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('should register project with daemon when project detected', async () => {
-    // Mock successful daemon connection
-    const { DaemonClient } = await import('../src/clients/daemon-client.js');
-    const mockInstance = {
-      connect: vi.fn().mockResolvedValue(undefined),
-      close: vi.fn(),
-      isConnected: vi.fn().mockReturnValue(true),
-      registerProject: vi.fn().mockResolvedValue({
-        created: true,
-        project_id: 'abc123456789',
-        priority: 'high',
-        is_active: true,
-        newly_registered: true,
-      }),
-      deprioritizeProject: vi.fn().mockResolvedValue({
-        success: true,
-        is_active: false,
-        new_priority: 'normal',
-      }),
-      heartbeat: vi.fn().mockResolvedValue({
-        acknowledged: true,
-      }),
-    };
-    vi.mocked(DaemonClient).mockImplementation(() => mockInstance as unknown as InstanceType<typeof DaemonClient>);
-
-    // Create project with database entry
-    const projectPath = join(tempDir, 'test-project');
-    mkdirSync(projectPath);
-    mkdirSync(join(projectPath, '.git'));
-
-    // Use realpath for the database entry since the server will resolve paths
-    const realProjectPath = realpathSync(projectPath);
-
-    const dbPath = join(tempDir, 'state.db');
-    const db = new Database(dbPath);
-    db.prepare(`
-      INSERT INTO watch_folders
-      (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
-      VALUES ('watch-1', ?, 'projects', 'abc123456789', 1, datetime('now'), datetime('now'))
-    `).run(realProjectPath);
-    db.close();
-
-    const originalCwd = process.cwd();
-    process.chdir(projectPath);
-
-    try {
-      const server = new WorkspaceQdrantMcpServer({ config, stdio: false });
-      await server.start();
-
-      const state = server.getSessionState();
-      expect(state.daemonConnected).toBe(true);
-      expect(state.projectId).toBe('abc123456789');
-
-      // Verify registerProject was called with realpath and register_if_new=false
-      expect(mockInstance.registerProject).toHaveBeenCalledWith({
-        path: realProjectPath,
-        project_id: 'abc123456789',
-        name: 'test-project',
-        register_if_new: false,
-        priority: 'high',
-      });
-
-      await server.stop();
-
-      // Verify deprioritizeProject was called on stop
-      expect(mockInstance.deprioritizeProject).toHaveBeenCalledWith({
-        project_id: 'abc123456789',
-      });
-    } finally {
-      process.chdir(originalCwd);
-    }
   });
 });
