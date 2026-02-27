@@ -1,5 +1,5 @@
 /**
- * Tests for tracked-files-queries module
+ * Tests for tracked-files-queries: listTrackedFiles
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -7,9 +7,6 @@ import Database, { type Database as DatabaseType } from 'better-sqlite3';
 
 import {
   listTrackedFiles,
-  countTrackedFiles,
-  listSubmodules,
-  extractRepoName,
 } from '../../src/clients/tracked-files-queries/index.js';
 
 const TRACKED_FILES_SCHEMA = `
@@ -214,131 +211,5 @@ describe('listTrackedFiles', () => {
     expect(file.language).toBe('typescript');
     expect(file.extension).toBe('ts');
     expect(file.isTest).toBe(false);
-  });
-});
-
-describe('countTrackedFiles', () => {
-  let db: DatabaseType;
-
-  beforeEach(() => {
-    db = new Database(':memory:');
-    db.exec(TRACKED_FILES_SCHEMA);
-    seedProject(db);
-    seedFile(db, 'src/main.rs', { language: 'rust', fileType: 'code' });
-    seedFile(db, 'src/lib.rs', { language: 'rust', fileType: 'code' });
-    seedFile(db, 'README.md', { fileType: 'text' });
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  it('should count all files', () => {
-    expect(countTrackedFiles(db, { watchFolderId: WATCH_ID })).toBe(3);
-  });
-
-  it('should count with path filter', () => {
-    expect(countTrackedFiles(db, { watchFolderId: WATCH_ID, path: 'src' })).toBe(2);
-  });
-
-  it('should return 0 for null db', () => {
-    expect(countTrackedFiles(null, { watchFolderId: WATCH_ID })).toBe(0);
-  });
-});
-
-describe('listSubmodules', () => {
-  let db: DatabaseType;
-
-  beforeEach(() => {
-    db = new Database(':memory:');
-    db.exec(TRACKED_FILES_SCHEMA);
-    seedProject(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  it('should list submodules with repo names', () => {
-    db.prepare(
-      `INSERT INTO watch_folders (watch_id, path, collection, tenant_id, parent_watch_id, submodule_path, git_remote_url, created_at, updated_at)
-       VALUES (?, ?, 'projects', 'tenant-sub1', ?, ?, ?, ?, ?)`,
-    ).run(
-      'watch-sub1',
-      '/home/user/project/vendor/lib-a',
-      WATCH_ID,
-      'vendor/lib-a',
-      'https://github.com/org/lib-a.git',
-      NOW,
-      NOW,
-    );
-
-    db.prepare(
-      `INSERT INTO watch_folders (watch_id, path, collection, tenant_id, parent_watch_id, submodule_path, git_remote_url, created_at, updated_at)
-       VALUES (?, ?, 'projects', 'tenant-sub2', ?, ?, ?, ?, ?)`,
-    ).run(
-      'watch-sub2',
-      '/home/user/project/vendor/lib-b',
-      WATCH_ID,
-      'vendor/lib-b',
-      'git@github.com:org/lib-b.git',
-      NOW,
-      NOW,
-    );
-
-    const result = listSubmodules(db, WATCH_ID);
-    expect(result.status).toBe('ok');
-    expect(result.data).toHaveLength(2);
-    expect(result.data[0]).toEqual({ submodulePath: 'vendor/lib-a', repoName: 'lib-a' });
-    expect(result.data[1]).toEqual({ submodulePath: 'vendor/lib-b', repoName: 'lib-b' });
-  });
-
-  it('should return empty when no submodules', () => {
-    const result = listSubmodules(db, WATCH_ID);
-    expect(result.status).toBe('ok');
-    expect(result.data).toHaveLength(0);
-  });
-
-  it('should skip entries without submodule_path', () => {
-    db.prepare(
-      `INSERT INTO watch_folders (watch_id, path, collection, tenant_id, parent_watch_id, created_at, updated_at)
-       VALUES (?, ?, 'projects', 'tenant-sub3', ?, ?, ?)`,
-    ).run('watch-sub3', '/home/user/project/other', WATCH_ID, NOW, NOW);
-
-    const result = listSubmodules(db, WATCH_ID);
-    expect(result.status).toBe('ok');
-    expect(result.data).toHaveLength(0);
-  });
-
-  it('should return degraded when db is null', () => {
-    const result = listSubmodules(null, WATCH_ID);
-    expect(result.status).toBe('degraded');
-    expect(result.data).toEqual([]);
-  });
-});
-
-describe('extractRepoName', () => {
-  it('should extract from HTTPS URL with .git', () => {
-    expect(extractRepoName('https://github.com/user/my-repo.git', 'vendor/x')).toBe('my-repo');
-  });
-
-  it('should extract from HTTPS URL without .git', () => {
-    expect(extractRepoName('https://github.com/user/my-repo', 'vendor/x')).toBe('my-repo');
-  });
-
-  it('should extract from SSH URL', () => {
-    expect(extractRepoName('git@github.com:user/my-repo.git', 'vendor/x')).toBe('my-repo');
-  });
-
-  it('should extract from URL with trailing slash', () => {
-    expect(extractRepoName('https://github.com/user/my-repo/', 'vendor/x')).toBe('my-repo');
-  });
-
-  it('should fall back to submodule path when URL is null', () => {
-    expect(extractRepoName(null, 'vendor/some-lib')).toBe('some-lib');
-  });
-
-  it('should fall back to submodule path when URL is empty', () => {
-    expect(extractRepoName('', 'deps/toolkit')).toBe('toolkit');
   });
 });
