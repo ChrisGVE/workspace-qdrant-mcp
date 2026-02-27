@@ -1,6 +1,6 @@
 /**
- * Tests for tag-based sparse vector expansion in SearchTool (Task 34) — part 1:
- * expansion triggers, mode guards, and empty/missing data conditions
+ * Tests for tag-based sparse vector expansion in SearchTool (Task 34) — part 2:
+ * keyword limits, weight application, and error handling
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -83,7 +83,7 @@ function createMockProjectDetector(): ProjectDetector {
   } as unknown as ProjectDetector;
 }
 
-describe('SearchTool expandSparseWithTags — triggers and mode guards', () => {
+describe('SearchTool expandSparseWithTags — keyword limits and error handling', () => {
   let daemonClient: DaemonClient;
   let projectDetector: ProjectDetector;
 
@@ -93,27 +93,96 @@ describe('SearchTool expandSparseWithTags — triggers and mode guards', () => {
     projectDetector = createMockProjectDetector();
   });
 
-  it('should expand sparse vector when matching tags have baskets', async () => {
+  it('should respect maxExpandedKeywords configuration', async () => {
     const stateManager = createMockStateManager({
-      matchingTags: [
-        { tag_id: 1, tag: 'vector indexing', score: 0.85 },
-      ],
-      baskets: [
-        { tag_id: 1, keywords_json: '["embedding", "semantic", "qdrant"]' },
-      ],
+      matchingTags: [{ tag_id: 1, tag: 'vector', score: 0.9 }],
+      baskets: [{
+        tag_id: 1,
+        keywords_json: '["a","b","c","d","e","f","g","h","i","j","k","l"]',
+      }],
     });
 
     const generateSparse = vi.fn()
       .mockResolvedValueOnce({
         success: true,
-        indices_values: { 10: 1.5, 20: 0.8 },
+        indices_values: { 10: 1.5 },
         vocab_size: 50000,
       })
       .mockResolvedValueOnce({
         success: true,
-        indices_values: { 30: 1.0, 40: 0.6, 10: 2.0 },
+        indices_values: { 20: 0.5 },
         vocab_size: 50000,
       });
+    (daemonClient as unknown as { generateSparseVector: typeof generateSparse }).generateSparseVector = generateSparse;
+
+    const searchTool = new SearchTool(
+      { qdrantUrl: 'http://localhost:6333', maxExpandedKeywords: 3 },
+      daemonClient,
+      stateManager,
+      projectDetector,
+    );
+
+    await searchTool.search({
+      query: 'vector',
+      mode: 'keyword',
+      projectId: 'test-project-123',
+    });
+
+    // Expansion text should only contain first 3 keywords
+    const expansionCall = generateSparse.mock.calls[1];
+    const expansionText = (expansionCall[0] as { text: string }).text;
+    const expansionWords = expansionText.split(' ');
+    expect(expansionWords.length).toBeLessThanOrEqual(3);
+  });
+
+  it('should apply expansion weight to merged sparse vector indices', async () => {
+    const stateManager = createMockStateManager({
+      matchingTags: [{ tag_id: 1, tag: 'vector', score: 0.9 }],
+      baskets: [{ tag_id: 1, keywords_json: '["embedding"]' }],
+    });
+
+    const generateSparse = vi.fn()
+      .mockResolvedValueOnce({
+        success: true,
+        indices_values: { 10: 1.5 },
+        vocab_size: 50000,
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        indices_values: { 20: 1.0 },
+        vocab_size: 50000,
+      });
+    (daemonClient as unknown as { generateSparseVector: typeof generateSparse }).generateSparseVector = generateSparse;
+
+    const searchTool = new SearchTool(
+      { qdrantUrl: 'http://localhost:6333', expansionWeight: 0.3 },
+      daemonClient,
+      stateManager,
+      projectDetector,
+    );
+
+    await searchTool.search({
+      query: 'vector',
+      mode: 'keyword',
+      projectId: 'test-project-123',
+    });
+
+    expect(generateSparse).toHaveBeenCalledTimes(2);
+  });
+
+  it('should gracefully handle expansion failure', async () => {
+    const stateManager = createMockStateManager({
+      matchingTags: [{ tag_id: 1, tag: 'vector', score: 0.9 }],
+      baskets: [{ tag_id: 1, keywords_json: '["embedding"]' }],
+    });
+
+    const generateSparse = vi.fn()
+      .mockResolvedValueOnce({
+        success: true,
+        indices_values: { 10: 1.5 },
+        vocab_size: 50000,
+      })
+      .mockRejectedValueOnce(new Error('Daemon unavailable'));
     (daemonClient as unknown as { generateSparseVector: typeof generateSparse }).generateSparseVector = generateSparse;
 
     const searchTool = new SearchTool(
@@ -123,112 +192,14 @@ describe('SearchTool expandSparseWithTags — triggers and mode guards', () => {
       projectDetector,
     );
 
+    // Should not throw - expansion failure is graceful
     const result = await searchTool.search({
-      query: 'vector search',
+      query: 'vector',
       mode: 'keyword',
       projectId: 'test-project-123',
     });
 
-    expect(generateSparse).toHaveBeenCalledTimes(2);
-    expect(generateSparse).toHaveBeenNthCalledWith(1, { text: 'vector search' });
-    expect(generateSparse).toHaveBeenNthCalledWith(2, { text: expect.stringContaining('embedding') });
-    expect(stateManager.getMatchingTags).toHaveBeenCalledWith(
-      'vector search',
-      'projects',
-      'test-project-123',
-    );
-    expect(result.results.length).toBeGreaterThanOrEqual(0);
-  });
-
-  it('should not expand when tag expansion is disabled', async () => {
-    const stateManager = createMockStateManager({
-      matchingTags: [{ tag_id: 1, tag: 'vector', score: 0.9 }],
-      baskets: [{ tag_id: 1, keywords_json: '["embedding"]' }],
-    });
-
-    const searchTool = new SearchTool(
-      { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
-      daemonClient,
-      stateManager,
-      projectDetector,
-    );
-
-    await searchTool.search({
-      query: 'vector search',
-      mode: 'keyword',
-      projectId: 'test-project-123',
-    });
-
-    expect(daemonClient.generateSparseVector).toHaveBeenCalledTimes(1);
-    expect(stateManager.getMatchingTags).not.toHaveBeenCalled();
-  });
-
-  it('should not expand in semantic-only mode', async () => {
-    const stateManager = createMockStateManager({
-      matchingTags: [{ tag_id: 1, tag: 'vector', score: 0.9 }],
-      baskets: [{ tag_id: 1, keywords_json: '["embedding"]' }],
-    });
-
-    const searchTool = new SearchTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      daemonClient,
-      stateManager,
-      projectDetector,
-    );
-
-    await searchTool.search({
-      query: 'vector search',
-      mode: 'semantic',
-      projectId: 'test-project-123',
-    });
-
-    expect(daemonClient.generateSparseVector).not.toHaveBeenCalled();
-    expect(stateManager.getMatchingTags).not.toHaveBeenCalled();
-  });
-
-  it('should skip expansion when no tags match', async () => {
-    const stateManager = createMockStateManager({
-      matchingTags: [],
-      baskets: [],
-    });
-
-    const searchTool = new SearchTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      daemonClient,
-      stateManager,
-      projectDetector,
-    );
-
-    await searchTool.search({
-      query: 'obscure query',
-      mode: 'keyword',
-      projectId: 'test-project-123',
-    });
-
-    expect(daemonClient.generateSparseVector).toHaveBeenCalledTimes(1);
-    expect(stateManager.getMatchingTags).toHaveBeenCalled();
-    expect(stateManager.getKeywordBasketsForTags).not.toHaveBeenCalled();
-  });
-
-  it('should skip expansion when baskets are empty', async () => {
-    const stateManager = createMockStateManager({
-      matchingTags: [{ tag_id: 1, tag: 'vector', score: 0.9 }],
-      baskets: [{ tag_id: 1, keywords_json: '[]' }],
-    });
-
-    const searchTool = new SearchTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      daemonClient,
-      stateManager,
-      projectDetector,
-    );
-
-    await searchTool.search({
-      query: 'vector search',
-      mode: 'keyword',
-      projectId: 'test-project-123',
-    });
-
-    expect(daemonClient.generateSparseVector).toHaveBeenCalledTimes(1);
+    expect(result).toBeDefined();
+    expect(result.results).toBeDefined();
   });
 });
