@@ -1106,21 +1106,16 @@ async fn rebuild_keywords(
 /// Self-diagnosing rules reconciliation.
 ///
 /// Compares Qdrant `rules` collection against SQLite `rules_mirror` and fixes
-/// discrepancies in both directions without user-specified direction. Also
-/// detects and removes duplicate labels and duplicate content in Qdrant.
+/// discrepancies in both directions. Deduplicates labels and content in Qdrant.
 ///
-/// Reconciliation steps:
-/// 1. Scroll all Qdrant rules, index by label
-/// 2. Read all SQLite rules_mirror rows, index by rule_id (= label)
-/// 3. Detect duplicate labels in Qdrant → keep newest, delete older points
-/// 4. Detect duplicate content in Qdrant → keep one, delete duplicates
-/// 5. Rules in Qdrant but not SQLite → insert into rules_mirror
-/// 6. Rules in SQLite but not Qdrant → enqueue re-ingestion via unified_queue
-/// 7. Rules in both but content differs → Qdrant is authoritative, update SQLite
+/// Steps: scroll Qdrant → read SQLite → dedup labels → dedup content →
+/// bidirectional sync (Qdrant↔SQLite).
 async fn rebuild_rules(
     storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
     db_pool: Option<&sqlx::SqlitePool>,
 ) {
+    use super::rules_rebuild;
+
     let start = std::time::Instant::now();
     let Some(pool) = db_pool else {
         error!("[rebuild:rules] Database pool not configured");
@@ -1131,267 +1126,51 @@ async fn rebuild_rules(
         return;
     };
 
-    use qdrant_client::qdrant::{Filter, value::Kind};
-
-    // --- Step 1: Scroll all Qdrant rules ---
-    // Verify collection exists before scrolling
-    match storage.collection_exists("rules").await {
-        Ok(false) => {
-            info!("[rebuild:rules] Rules collection does not exist — nothing to reconcile");
-            return;
-        }
+    // Step 1: Scroll Qdrant rules
+    let (qdrant_by_label, all_points) = match rules_rebuild::scroll_qdrant_rules(&storage).await {
+        Ok(result) => result,
         Err(e) => {
-            error!("[rebuild:rules] Failed to check rules collection: {}", e);
+            if e != "no_collection" {
+                error!("[rebuild:rules] {}", e);
+            }
             return;
         }
-        Ok(true) => {}
-    }
+    };
+    info!("[rebuild:rules] Found {} Qdrant rules ({} unique labels)",
+        all_points.len(), qdrant_by_label.len());
 
-    // Rules collections are small — single scroll avoids pagination offset issues
-    let all_points = match storage.scroll_with_filter("rules", Filter::default(), 10000, None).await {
-        Ok(points) => points,
+    // Step 2: Read SQLite rules_mirror
+    let db_by_label = match rules_rebuild::read_sqlite_rules(pool).await {
+        Ok(rules) => rules,
         Err(e) => {
-            error!("[rebuild:rules] Failed to scroll rules from Qdrant: {}", e);
+            error!("[rebuild:rules] {}", e);
             return;
         }
     };
-
-    let extract_str = |point: &qdrant_client::qdrant::RetrievedPoint, key: &str| -> Option<String> {
-        point.payload.get(key).and_then(|v| {
-            v.kind.as_ref().and_then(|k| match k {
-                Kind::StringValue(s) => Some(s.clone()),
-                _ => None,
-            })
-        })
-    };
-
-    let extract_point_id_str = |point: &qdrant_client::qdrant::RetrievedPoint| -> Option<String> {
-        point.id.as_ref().and_then(|pid| {
-            pid.point_id_options.as_ref().map(|opts| match opts {
-                qdrant_client::qdrant::point_id::PointIdOptions::Uuid(u) => u.clone(),
-                qdrant_client::qdrant::point_id::PointIdOptions::Num(n) => n.to_string(),
-            })
-        })
-    };
-
-    // Build lookup: label → Vec<(point_id, content, scope, tenant, updated_at)>
-    let mut qdrant_by_label: std::collections::HashMap<String, Vec<(String, String, Option<String>, Option<String>, String)>> =
-        std::collections::HashMap::new();
-    let mut qdrant_unlabeled = Vec::new();
-
-    for point in &all_points {
-        let point_id = match extract_point_id_str(point) {
-            Some(id) => id,
-            None => continue,
-        };
-        let content = extract_str(point, "content").unwrap_or_default();
-        let scope = extract_str(point, "scope");
-        let tenant = extract_str(point, "tenant_id");
-        let updated_at = extract_str(point, "updated_at").unwrap_or_default();
-        let label = extract_str(point, "label");
-
-        match label {
-            Some(l) if !l.is_empty() => {
-                qdrant_by_label.entry(l).or_default()
-                    .push((point_id, content, scope, tenant, updated_at));
-            }
-            _ => {
-                qdrant_unlabeled.push(point_id.clone());
-                warn!("[rebuild:rules] Qdrant rule point {} has no label — skipping", point_id);
-            }
-        }
-    }
-
-    info!("[rebuild:rules] Found {} Qdrant rules ({} unique labels, {} unlabeled)",
-        all_points.len(), qdrant_by_label.len(), qdrant_unlabeled.len());
-
-    // --- Step 2: Read all SQLite rules_mirror ---
-    let db_rules: Vec<(String, String, Option<String>, Option<String>)> =
-        match sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
-            "SELECT rule_id, rule_text, scope, tenant_id FROM rules_mirror",
-        )
-        .fetch_all(pool)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!("[rebuild:rules] Failed to read rules_mirror: {}", e);
-                return;
-            }
-        };
-
-    let db_by_label: std::collections::HashMap<String, (String, Option<String>, Option<String>)> =
-        db_rules.into_iter()
-            .map(|(label, text, scope, tenant)| (label, (text, scope, tenant)))
-            .collect();
-
     info!("[rebuild:rules] Found {} rules in SQLite rules_mirror", db_by_label.len());
 
-    // --- Step 3: Deduplicate labels in Qdrant ---
-    let mut duplicate_ids_to_delete = Vec::new();
-    let mut dedup_label_count = 0u64;
+    // Steps 3-4: Deduplicate labels and content
+    let (ids_to_delete, label_dups, content_dups) =
+        rules_rebuild::deduplicate_rules(&qdrant_by_label, pool).await;
 
-    for (label, entries) in &qdrant_by_label {
-        if entries.len() > 1 {
-            dedup_label_count += 1;
-            // Keep the entry with the latest updated_at, delete the rest
-            let mut sorted = entries.clone();
-            sorted.sort_by(|a, b| b.4.cmp(&a.4)); // DESC by updated_at
-            let kept = &sorted[0];
-            info!("[rebuild:rules] Label '{}' has {} duplicates — keeping point {}", label, entries.len(), kept.0);
-            for stale in &sorted[1..] {
-                duplicate_ids_to_delete.push(stale.0.clone());
-            }
-        }
-    }
-
-    // --- Step 4: Deduplicate content in Qdrant ---
-    // Build content → Vec<(label, point_id)> to find same content under different labels
-    let mut content_map: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
-    let mut dedup_content_count = 0u64;
-
-    for (label, entries) in &qdrant_by_label {
-        // Use only the first (winning) entry for each label after Step 3 dedup
-        if let Some(entry) = entries.first() {
-            // Skip if this point is already marked for deletion from Step 3
-            if !duplicate_ids_to_delete.contains(&entry.0) {
-                content_map.entry(entry.1.clone()).or_default()
-                    .push((label.clone(), entry.0.clone()));
-            }
-        }
-    }
-
-    for (content_preview, entries) in &content_map {
-        if entries.len() > 1 {
-            dedup_content_count += 1;
-            let preview = if content_preview.len() > 60 {
-                format!("{}...", &content_preview[..60])
-            } else {
-                content_preview.clone()
-            };
-            info!("[rebuild:rules] Duplicate content across {} labels: {:?} — keeping '{}'",
-                entries.len(),
-                entries.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
-                entries[0].0);
-            for dup in &entries[1..] {
-                duplicate_ids_to_delete.push(dup.1.clone());
-                // Also remove the stale label from rules_mirror
-                let _ = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
-                    .bind(&dup.0)
-                    .execute(pool)
-                    .await;
-            }
-            let _ = preview; // suppress unused warning
-        }
-    }
-
-    // Execute Qdrant deletions
-    let deleted_count = duplicate_ids_to_delete.len() as u64;
-    if !duplicate_ids_to_delete.is_empty() {
-        match storage.delete_points_by_ids("rules", &duplicate_ids_to_delete).await {
+    let deleted_count = ids_to_delete.len() as u64;
+    if !ids_to_delete.is_empty() {
+        match storage.delete_points_by_ids("rules", &ids_to_delete).await {
             Ok(_) => info!("[rebuild:rules] Deleted {} duplicate Qdrant points", deleted_count),
             Err(e) => error!("[rebuild:rules] Failed to delete duplicate points: {}", e),
         }
     }
 
-    // --- Build the deduplicated Qdrant state (label → single winning entry) ---
-    let mut qdrant_deduped: std::collections::HashMap<String, (String, Option<String>, Option<String>)> =
-        std::collections::HashMap::new();
+    // Build deduplicated state and reconcile
+    let qdrant_deduped = rules_rebuild::build_deduped_state(&qdrant_by_label, &ids_to_delete);
+    let (inserted, updated, enqueued) =
+        rules_rebuild::reconcile_rules(pool, &qdrant_deduped, &db_by_label).await;
 
-    for (label, entries) in &qdrant_by_label {
-        // After dedup, pick the first entry not in the deletion list
-        if let Some(winner) = entries.iter().find(|e| !duplicate_ids_to_delete.contains(&e.0)) {
-            qdrant_deduped.insert(label.clone(), (winner.1.clone(), winner.2.clone(), winner.3.clone()));
-        }
-    }
-
-    // --- Step 5 & 6 & 7: Bidirectional reconciliation ---
-    let now = wqm_common::timestamps::now_utc();
-    let mut mirror_inserted = 0u64;
-    let mut mirror_updated = 0u64;
-    let mut enqueued_to_qdrant = 0u64;
-
-    // 5. Rules in Qdrant but not SQLite → insert into rules_mirror
-    // 7. Rules in both but content differs → Qdrant authoritative, update SQLite
-    for (label, (q_content, q_scope, q_tenant)) in &qdrant_deduped {
-        match db_by_label.get(label) {
-            None => {
-                // Missing from SQLite — insert
-                let _ = sqlx::query(
-                    "INSERT OR IGNORE INTO rules_mirror \
-                     (rule_id, rule_text, scope, tenant_id, created_at, updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                )
-                .bind(label)
-                .bind(q_content)
-                .bind(q_scope)
-                .bind(q_tenant)
-                .bind(&now)
-                .bind(&now)
-                .execute(pool)
-                .await;
-                mirror_inserted += 1;
-            }
-            Some((db_content, _, _)) if db_content != q_content => {
-                // Content mismatch — Qdrant is authoritative
-                let _ = sqlx::query(
-                    "UPDATE rules_mirror SET rule_text = ?1, scope = ?2, tenant_id = ?3, updated_at = ?4 \
-                     WHERE rule_id = ?5",
-                )
-                .bind(q_content)
-                .bind(q_scope)
-                .bind(q_tenant)
-                .bind(&now)
-                .bind(label)
-                .execute(pool)
-                .await;
-                mirror_updated += 1;
-            }
-            _ => {} // In sync — nothing to do
-        }
-    }
-
-    // 6. Rules in SQLite but not Qdrant → enqueue re-ingestion
-    for (label, (db_content, db_scope, db_tenant)) in &db_by_label {
-        if !qdrant_deduped.contains_key(label) {
-            let tid = db_tenant.as_deref().unwrap_or("global");
-            let payload = serde_json::json!({
-                "content": db_content,
-                "scope": db_scope,
-                "label": label,
-            });
-            let payload_str = payload.to_string();
-            let idem_key = wqm_common::hashing::compute_content_hash(
-                &format!("text|add|{}|rules|{}", tid, payload_str),
-            );
-
-            let _ = sqlx::query(
-                "INSERT OR IGNORE INTO unified_queue \
-                 (queue_id, idempotency_key, item_type, op, tenant_id, collection, priority, status, payload_json, created_at, updated_at) \
-                 VALUES (?1, ?2, 'text', 'add', ?3, 'rules', 8, 'pending', ?4, ?5, ?6)",
-            )
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(&idem_key[..32])
-            .bind(tid)
-            .bind(&payload_str)
-            .bind(&now)
-            .bind(&now)
-            .execute(pool)
-            .await;
-            enqueued_to_qdrant += 1;
-        }
-    }
-
-    // --- Summary ---
     info!("[rebuild:rules] Reconciliation complete in {}ms: \
-        qdrant_total={}, db_total={}, \
-        label_dups_removed={}, content_dups_removed={}, qdrant_points_deleted={}, \
-        mirror_inserted={}, mirror_updated={}, enqueued_to_qdrant={}",
-        start.elapsed().as_millis(),
-        all_points.len(), db_by_label.len(),
-        dedup_label_count, dedup_content_count, deleted_count,
-        mirror_inserted, mirror_updated, enqueued_to_qdrant);
+        qdrant_total={}, db_total={}, label_dups={}, content_dups={}, \
+        deleted={}, mirror_inserted={}, mirror_updated={}, enqueued={}",
+        start.elapsed().as_millis(), all_points.len(), db_by_label.len(),
+        label_dups, content_dups, deleted_count, inserted, updated, enqueued);
 }
 
 /// Rescan watch folders by enqueuing scan operations.
