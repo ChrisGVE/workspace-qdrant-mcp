@@ -30,6 +30,32 @@ export interface ListTrackedFilesOptions {
   limit?: number;
 }
 
+// ── Query Building ───────────────────────────────────────────────────────
+
+interface FilterClause {
+  conditions: string[];
+  params: (string | number)[];
+}
+
+/** Build WHERE conditions and params from filter options. */
+function buildFilterClause(
+  options: Omit<ListTrackedFilesOptions, 'limit'>,
+): FilterClause {
+  const conditions: string[] = ['watch_folder_id = ?'];
+  const params: (string | number)[] = [options.watchFolderId];
+  const { path, fileType, language, extension, branch } = options;
+  const includeTests = options.includeTests ?? true;
+
+  if (path) { conditions.push('relative_path LIKE ?'); params.push(`${path}/%`); }
+  if (fileType) { conditions.push('file_type = ?'); params.push(fileType); }
+  if (language) { conditions.push('language = ?'); params.push(language); }
+  if (extension) { conditions.push('extension = ?'); params.push(extension); }
+  if (!includeTests) { conditions.push('is_test = 0'); }
+  if (branch) { conditions.push('branch = ?'); params.push(branch); }
+
+  return { conditions, params };
+}
+
 // ── Queries ──────────────────────────────────────────────────────────────
 
 /**
@@ -50,50 +76,9 @@ export function listTrackedFiles(
     };
   }
 
-  const {
-    watchFolderId,
-    path,
-    fileType,
-    language,
-    extension,
-    includeTests = true,
-    branch,
-    limit = 500,
-  } = options;
-
   try {
-    const conditions: string[] = ['watch_folder_id = ?'];
-    const params: (string | number)[] = [watchFolderId];
-
-    if (path) {
-      conditions.push('relative_path LIKE ?');
-      params.push(`${path}/%`);
-    }
-
-    if (fileType) {
-      conditions.push('file_type = ?');
-      params.push(fileType);
-    }
-
-    if (language) {
-      conditions.push('language = ?');
-      params.push(language);
-    }
-
-    if (extension) {
-      conditions.push('extension = ?');
-      params.push(extension);
-    }
-
-    if (!includeTests) {
-      conditions.push('is_test = 0');
-    }
-
-    if (branch) {
-      conditions.push('branch = ?');
-      params.push(branch);
-    }
-
+    const { conditions, params } = buildFilterClause(options);
+    const limit = options.limit ?? 500;
     params.push(limit);
 
     const sql = `
@@ -112,10 +97,7 @@ export function listTrackedFiles(
       is_test: number;
     }>;
 
-    return {
-      data: rows.map(mapTrackedFileRow),
-      status: 'ok',
-    };
+    return { data: rows.map(mapTrackedFileRow), status: 'ok' };
   } catch (error) {
     return handleTableNotFound(error, [], 'tracked_files');
   }
@@ -132,55 +114,13 @@ export function countTrackedFiles(
 ): number {
   if (!db) return 0;
 
-  const {
-    watchFolderId,
-    path,
-    fileType,
-    language,
-    extension,
-    includeTests = true,
-    branch,
-  } = options;
-
   try {
-    const conditions: string[] = ['watch_folder_id = ?'];
-    const params: (string | number)[] = [watchFolderId];
-
-    if (path) {
-      conditions.push('relative_path LIKE ?');
-      params.push(`${path}/%`);
-    }
-
-    if (fileType) {
-      conditions.push('file_type = ?');
-      params.push(fileType);
-    }
-
-    if (language) {
-      conditions.push('language = ?');
-      params.push(language);
-    }
-
-    if (extension) {
-      conditions.push('extension = ?');
-      params.push(extension);
-    }
-
-    if (!includeTests) {
-      conditions.push('is_test = 0');
-    }
-
-    if (branch) {
-      conditions.push('branch = ?');
-      params.push(branch);
-    }
-
+    const { conditions, params } = buildFilterClause(options);
     const sql = `
       SELECT COUNT(*) as cnt
       FROM tracked_files
       WHERE ${conditions.join(' AND ')}
     `;
-
     const row = db.prepare(sql).get(...params) as { cnt: number };
     return row.cnt;
   } catch {
