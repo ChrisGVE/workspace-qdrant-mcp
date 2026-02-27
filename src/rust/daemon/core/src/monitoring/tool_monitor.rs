@@ -30,7 +30,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -374,10 +373,9 @@ impl ToolMonitor {
         tool_type: &str,
         language: &str,
     ) -> MonitoringResult<Option<String>> {
-        // Check tool availability based on type
         let tool_path = match tool_type {
-            "tree-sitter" => Self::find_tree_sitter_parser(language),
-            "lsp" => Self::find_lsp_server(language),
+            "tree-sitter" => super::tool_detection::find_tree_sitter_parser(language),
+            "lsp" => super::tool_detection::find_lsp_server(language),
             _ => {
                 warn!("Unknown tool type: {}", tool_type);
                 None
@@ -385,192 +383,22 @@ impl ToolMonitor {
         };
 
         let is_available = tool_path.is_some();
-
-        // NOTE: Previously this wrote to tool_availability table, but that table
-        // violates 3-table SQLite compliance. Tool availability is now checked
-        // without persistence - state should be tracked in-memory if needed.
         let _ = db_pool; // Suppress unused warning
 
         debug!(
             "Tool check: {} for {} - {}",
             tool_type,
             language,
-            if is_available {
-                "AVAILABLE"
-            } else {
-                "NOT AVAILABLE"
-            }
+            if is_available { "AVAILABLE" } else { "NOT AVAILABLE" }
         );
 
         Ok(tool_path)
-    }
-
-    /// Find tree-sitter parser for a language
-    ///
-    /// Searches standard locations for tree-sitter dynamic libraries
-    fn find_tree_sitter_parser(language: &str) -> Option<String> {
-        // Standard search paths for tree-sitter parsers
-        let search_paths = Self::get_tree_sitter_search_paths();
-
-        // Library filename patterns
-        #[cfg(target_os = "macos")]
-        let lib_patterns = vec![
-            format!("libtree-sitter-{}.dylib", language),
-            format!("tree-sitter-{}.dylib", language),
-        ];
-
-        #[cfg(target_os = "linux")]
-        let lib_patterns = vec![
-            format!("libtree-sitter-{}.so", language),
-            format!("tree-sitter-{}.so", language),
-        ];
-
-        #[cfg(target_os = "windows")]
-        let lib_patterns = vec![
-            format!("tree-sitter-{}.dll", language),
-            format!("libtree-sitter-{}.dll", language),
-        ];
-
-        // Search for library
-        for search_path in search_paths {
-            for pattern in &lib_patterns {
-                let lib_path = search_path.join(pattern);
-                if lib_path.exists() && lib_path.is_file() {
-                    return Some(lib_path.to_string_lossy().to_string());
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Get standard tree-sitter search paths
-    fn get_tree_sitter_search_paths() -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-
-        // User-local tree-sitter parsers
-        if let Ok(home) = std::env::var("HOME") {
-            let home_path = PathBuf::from(&home);
-            paths.push(home_path.join(".tree-sitter/bin"));
-            paths.push(PathBuf::from(&home).join(".local/lib"));
-        }
-
-        // System-wide locations
-        #[cfg(unix)]
-        {
-            paths.push(PathBuf::from("/usr/local/lib"));
-            paths.push(PathBuf::from("/usr/lib"));
-            paths.push(PathBuf::from("/opt/homebrew/lib")); // macOS ARM
-        }
-
-        // Current working directory
-        if let Ok(cwd) = std::env::current_dir() {
-            paths.push(cwd.join("lib"));
-        }
-
-        paths
-    }
-
-    /// Find LSP server for a language
-    ///
-    /// Searches PATH for language server executables
-    fn find_lsp_server(language: &str) -> Option<String> {
-        // Common LSP server naming patterns
-        let server_names = Self::get_lsp_server_names(language);
-
-        // Search PATH for executables
-        if let Ok(path_var) = std::env::var("PATH") {
-            for path_dir in path_var.split(':') {
-                let path = Path::new(path_dir);
-                if !path.exists() || !path.is_dir() {
-                    continue;
-                }
-
-                for server_name in &server_names {
-                    let executable = path.join(server_name);
-
-                    // Check if executable exists
-                    #[cfg(unix)]
-                    {
-                        if executable.exists() && executable.is_file() {
-                            // Check if file is executable
-                            use std::os::unix::fs::PermissionsExt;
-                            if let Ok(metadata) = std::fs::metadata(&executable) {
-                                let permissions = metadata.permissions();
-                                if permissions.mode() & 0o111 != 0 {
-                                    return Some(executable.to_string_lossy().to_string());
-                                }
-                            }
-                        }
-                    }
-
-                    #[cfg(not(unix))]
-                    {
-                        if executable.exists() && executable.is_file() {
-                            return Some(executable.to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Get LSP server name patterns for a language
-    fn get_lsp_server_names(language: &str) -> Vec<String> {
-        match language {
-            "rust" => vec!["rust-analyzer".to_string(), "rls".to_string()],
-            "python" => vec![
-                "pylsp".to_string(),
-                "pyls".to_string(),
-                "pyright-langserver".to_string(),
-            ],
-            "javascript" | "typescript" => vec![
-                "typescript-language-server".to_string(),
-                "tsserver".to_string(),
-            ],
-            "go" => vec!["gopls".to_string()],
-            "java" => vec!["jdtls".to_string(), "java-language-server".to_string()],
-            "c" | "cpp" => vec!["clangd".to_string(), "ccls".to_string()],
-            "ruby" => vec!["solargraph".to_string()],
-            "php" => vec!["phpactor".to_string(), "intelephense".to_string()],
-            _ => vec![
-                // Generic patterns
-                format!("{}-language-server", language),
-                format!("{}-lsp", language),
-                format!("{}ls", language),
-            ],
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_get_lsp_server_names() {
-        let names = ToolMonitor::get_lsp_server_names("rust");
-        assert!(names.contains(&"rust-analyzer".to_string()));
-
-        let names = ToolMonitor::get_lsp_server_names("python");
-        assert!(names.contains(&"pylsp".to_string()));
-
-        let names = ToolMonitor::get_lsp_server_names("unknown");
-        assert!(names.contains(&"unknown-language-server".to_string()));
-    }
-
-    #[test]
-    fn test_get_tree_sitter_search_paths() {
-        let paths = ToolMonitor::get_tree_sitter_search_paths();
-        assert!(!paths.is_empty());
-
-        // Should include user home directory path if HOME is set
-        if std::env::var("HOME").is_ok() {
-            assert!(paths.iter().any(|p| p.to_string_lossy().contains(".tree-sitter")));
-        }
-    }
 
     #[tokio::test]
     async fn test_requeue_stats_default() {

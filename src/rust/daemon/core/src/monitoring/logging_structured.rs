@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use tracing::{error, info, warn, debug, instrument};
 
 use crate::error::{WorkspaceError, ErrorSeverity, ErrorMonitor};
-use super::logging_config::{record_operation_metric, record_error_metric};
+use super::logging_perf::{record_operation_metric, record_error_metric};
 
 /// Error tracking with context information
 pub fn log_error_with_context(error: &WorkspaceError, context: &str) {

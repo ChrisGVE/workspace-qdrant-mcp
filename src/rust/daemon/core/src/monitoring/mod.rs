@@ -4,26 +4,35 @@
 //! remote monitoring, and tool monitoring into a single module namespace.
 
 pub mod logging_config;
+pub mod logging_perf;
 pub mod logging_structured;
 pub mod metrics_core;
+mod metrics_helpers; // impl blocks for DaemonMetrics helper methods
 pub mod metrics_server;
 pub mod metrics_alerts;
 pub mod metrics_history;
+pub mod metrics_aggregation;
 pub mod remote_monitor;
+pub mod tool_detection;
 pub mod tool_monitor;
 
 #[cfg(test)]
 mod logging_tests;
 #[cfg(test)]
 mod metrics_tests;
+#[cfg(test)]
+mod metrics_history_tests;
 
 // ── Backward-compatible re-exports ────────────────────────────────────
 
 // Logging re-exports (previously `crate::logging::*`)
 pub use logging_config::{
-    LoggingConfig, PerformanceMetrics, initialize_logging,
-    initialize_daemon_silence, track_async_operation,
+    LoggingConfig, initialize_logging,
+    initialize_daemon_silence,
     suppress_tty_debug_output, get_canonical_log_dir,
+};
+pub use logging_perf::{
+    PerformanceMetrics, track_async_operation,
     record_operation_metric, record_error_metric,
     get_performance_metrics,
 };
@@ -52,10 +61,13 @@ pub use metrics_alerts::{
 pub use metrics_history::{
     write_metrics_batch, write_snapshot, query_metrics, query_aggregated,
     cleanup_old_metrics, get_available_metrics,
+    MetricsHistoryError, MetricsHistoryResult, MetricsHistoryQuery,
+    AggregatedMetric,
+};
+pub use metrics_aggregation::{
     run_aggregation, aggregate_hourly, aggregate_daily, aggregate_weekly,
     apply_retention, run_maintenance, run_maintenance_now,
-    MetricsHistoryError, MetricsHistoryResult, MetricsHistoryQuery,
-    AggregatedMetric, RetentionConfig,
+    RetentionConfig,
 };
 
 // Remote monitor re-exports (previously `crate::remote_monitor::*`)

@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
     use crate::monitoring::logging_config::*;
+    use crate::monitoring::logging_perf::*;
     use crate::monitoring::logging_structured::*;
     use crate::error::WorkspaceError;
     use serde_json::Value;
