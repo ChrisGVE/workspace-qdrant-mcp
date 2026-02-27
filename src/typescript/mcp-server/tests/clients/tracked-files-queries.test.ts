@@ -10,7 +10,7 @@ import {
   countTrackedFiles,
   listSubmodules,
   extractRepoName,
-} from '../../src/clients/tracked-files-queries.js';
+} from '../../src/clients/tracked-files-queries/index.js';
 
 const TRACKED_FILES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS watch_folders (
