@@ -17,122 +17,89 @@ export interface RenderResult {
 
 // ── Tree renderer ─────────────────────────────────────────────────────────
 
-export function renderTree(
-  root: FolderNode,
-  maxDepth: number,
-  limit: number,
-): RenderResult {
-  const lines: string[] = [];
-  let count = 0;
+interface WalkState { lines: string[]; count: number }
 
-  function walk(node: FolderNode, indent: number, currentDepth: number): boolean {
-    const prefix = '  '.repeat(indent);
+function walkTree(
+  node: FolderNode, indent: number, currentDepth: number,
+  maxDepth: number, limit: number, state: WalkState,
+): boolean {
+  const prefix = '  '.repeat(indent);
+  const sortedChildren = Array.from(node.children.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]));
 
-    // Render child folders first (sorted)
-    const sortedChildren = Array.from(node.children.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0]),
-    );
-
-    for (const [, child] of sortedChildren) {
-      if (count >= limit) return false;
-
-      if (child.submodule) {
-        lines.push(`${prefix}${child.name}/ [submodule: ${child.submodule.repoName}]`);
-        count++;
-        continue;
-      }
-
-      if (currentDepth >= maxDepth) {
-        lines.push(`${prefix}${child.name}/ (${child.totalFiles} files)`);
-        count++;
-        continue;
-      }
-
-      lines.push(`${prefix}${child.name}/`);
-      count++;
-      if (!walk(child, indent + 1, currentDepth + 1)) return false;
+  for (const [, child] of sortedChildren) {
+    if (state.count >= limit) return false;
+    if (child.submodule) {
+      state.lines.push(`${prefix}${child.name}/ [submodule: ${child.submodule.repoName}]`);
+      state.count++;
+      continue;
     }
-
-    // Render files (sorted)
-    const sortedFiles = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
-    for (const file of sortedFiles) {
-      if (count >= limit) return false;
-      const tag = file.extension ? ` [${file.extension}]` : '';
-      lines.push(`${prefix}${file.name}${tag}`);
-      count++;
+    if (currentDepth >= maxDepth) {
+      state.lines.push(`${prefix}${child.name}/ (${child.totalFiles} files)`);
+      state.count++;
+      continue;
     }
-
-    return true;
+    state.lines.push(`${prefix}${child.name}/`);
+    state.count++;
+    if (!walkTree(child, indent + 1, currentDepth + 1, maxDepth, limit, state)) return false;
   }
 
-  // Start rendering from root's children (skip the root node name itself)
-  walk(root, 0, 1);
+  const sortedFiles = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
+  for (const file of sortedFiles) {
+    if (state.count >= limit) return false;
+    const tag = file.extension ? ` [${file.extension}]` : '';
+    state.lines.push(`${prefix}${file.name}${tag}`);
+    state.count++;
+  }
+  return true;
+}
 
-  return { text: lines.join('\n'), count };
+export function renderTree(root: FolderNode, maxDepth: number, limit: number): RenderResult {
+  const state: WalkState = { lines: [], count: 0 };
+  walkTree(root, 0, 1, maxDepth, limit, state);
+  return { text: state.lines.join('\n'), count: state.count };
 }
 
 // ── Summary renderer ─────────────────────────────────────────────────────
 
-export function renderSummary(
-  root: FolderNode,
-  maxDepth: number,
-  limit: number,
-): RenderResult {
-  const lines: string[] = [];
-  let count = 0;
+function walkSummary(
+  node: FolderNode, indent: number, currentDepth: number, chainPrefix: string,
+  maxDepth: number, limit: number, state: WalkState,
+): boolean {
+  const sortedChildren = Array.from(node.children.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]));
 
-  function walk(node: FolderNode, indent: number, currentDepth: number, chainPrefix: string): boolean {
-    // Get sorted children
-    const sortedChildren = Array.from(node.children.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0]),
-    );
+  for (const [name, child] of sortedChildren) {
+    if (state.count >= limit) return false;
+    const childPath = chainPrefix ? `${chainPrefix}${name}` : name;
 
-    for (const [name, child] of sortedChildren) {
-      if (count >= limit) return false;
-
-      const childPath = chainPrefix ? `${chainPrefix}${name}` : name;
-
-      if (child.submodule) {
-        const prefix = '  '.repeat(indent);
-        lines.push(`${prefix}${childPath}/ [submodule: ${child.submodule.repoName}]`);
-        count++;
-        continue;
-      }
-
-      // Single-child chain collapsing: if this folder has exactly one child folder
-      // and no files, collapse into the child's display
-      if (
-        child.children.size === 1 &&
-        child.files.length === 0 &&
-        currentDepth < maxDepth
-      ) {
-        // Continue the chain
-        if (!walk(child, indent, currentDepth + 1, `${childPath}/`)) return false;
-        continue;
-      }
-
-      const prefix = '  '.repeat(indent);
-      const extCounts = aggregateExtensions(child);
-      const summary = formatExtensionSummary(child.totalFiles, extCounts);
-
-      if (currentDepth >= maxDepth) {
-        lines.push(`${prefix}${childPath}/ ${summary}`);
-        count++;
-        continue;
-      }
-
-      lines.push(`${prefix}${childPath}/ ${summary}`);
-      count++;
-
-      if (!walk(child, indent + 1, currentDepth + 1, '')) return false;
+    if (child.submodule) {
+      state.lines.push(`${'  '.repeat(indent)}${childPath}/ [submodule: ${child.submodule.repoName}]`);
+      state.count++;
+      continue;
+    }
+    // Single-child chain collapsing
+    if (child.children.size === 1 && child.files.length === 0 && currentDepth < maxDepth) {
+      if (!walkSummary(child, indent, currentDepth + 1, `${childPath}/`, maxDepth, limit, state)) return false;
+      continue;
     }
 
-    return true;
+    const prefix = '  '.repeat(indent);
+    const summary = formatExtensionSummary(child.totalFiles, aggregateExtensions(child));
+    state.lines.push(`${prefix}${childPath}/ ${summary}`);
+    state.count++;
+
+    if (currentDepth < maxDepth) {
+      if (!walkSummary(child, indent + 1, currentDepth + 1, '', maxDepth, limit, state)) return false;
+    }
   }
+  return true;
+}
 
-  walk(root, 0, 1, '');
-
-  return { text: lines.join('\n'), count };
+export function renderSummary(root: FolderNode, maxDepth: number, limit: number): RenderResult {
+  const state: WalkState = { lines: [], count: 0 };
+  walkSummary(root, 0, 1, '', maxDepth, limit, state);
+  return { text: state.lines.join('\n'), count: state.count };
 }
 
 function aggregateExtensions(node: FolderNode): Map<string, number> {

@@ -21,10 +21,22 @@ import { pathToComponentId } from './helpers.js';
  * Uses a simple line-based parser (no TOML dependency needed)
  * since workspace member arrays are straightforward.
  */
+/** Add workspace members as components, resolving paths relative to the Cargo.toml location. */
+function addMemberComponents(
+  members: string[], cargoPath: string, projectPath: string, components: ComponentMap,
+): void {
+  const cargoDir = resolve(cargoPath, '..');
+  const relativeBase = cargoDir === projectPath ? '' : cargoDir.slice(projectPath.length + 1);
+
+  for (const member of members) {
+    const fullPath = relativeBase ? `${relativeBase}/${member}` : member;
+    const id = pathToComponentId(member);
+    components.set(id, { id, basePath: fullPath, patterns: [`${fullPath}/**`], source: 'cargo' });
+  }
+}
+
 export function detectCargoWorkspace(projectPath: string): ComponentMap {
   const components: ComponentMap = new Map();
-
-  // Search for Cargo.toml in project root and common subdirectories
   const candidates = [
     join(projectPath, 'Cargo.toml'),
     join(projectPath, 'src', 'rust', 'Cargo.toml'),
@@ -32,39 +44,15 @@ export function detectCargoWorkspace(projectPath: string): ComponentMap {
 
   for (const cargoPath of candidates) {
     if (!existsSync(cargoPath)) continue;
-
     let content: string;
-    try {
-      content = readFileSync(cargoPath, 'utf-8');
-    } catch {
-      continue;
-    }
+    try { content = readFileSync(cargoPath, 'utf-8'); } catch { continue; }
 
     const members = parseCargoMembers(content);
     if (members.length === 0) continue;
 
-    // Compute base directory relative to project root
-    const cargoDir = resolve(cargoPath, '..');
-    const relativeBase = cargoDir === projectPath
-      ? ''
-      : cargoDir.slice(projectPath.length + 1);
-
-    for (const member of members) {
-      const fullPath = relativeBase ? `${relativeBase}/${member}` : member;
-      const id = pathToComponentId(member);
-
-      components.set(id, {
-        id,
-        basePath: fullPath,
-        patterns: [`${fullPath}/**`],
-        source: 'cargo',
-      });
-    }
-
-    // Found a workspace, stop searching
-    if (members.length > 0) break;
+    addMemberComponents(members, cargoPath, projectPath, components);
+    break; // Found a workspace, stop searching
   }
-
   return components;
 }
 
