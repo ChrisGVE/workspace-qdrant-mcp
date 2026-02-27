@@ -11,8 +11,10 @@ use tempfile::tempdir;
 
 mod cascade_priority_tests;
 mod concurrency_tests;
-mod core_tests;
 mod destination_tests;
+mod enqueue_dequeue_tests;
+mod failure_retry_tests;
+mod stats_cleanup_tests;
 mod validation_tests;
 
 async fn apply_sql_script(pool: &SqlitePool, script: &str) -> Result<(), sqlx::Error> {
