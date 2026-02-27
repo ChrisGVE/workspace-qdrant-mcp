@@ -528,260 +528,23 @@ impl AdaptiveResourceManager {
         config: AdaptiveResourceConfig,
         cancellation_token: CancellationToken,
     ) -> Self {
-        let normal_profile = ResourceProfile {
-            max_concurrent_embeddings: config.normal_max_concurrent_embeddings,
-            inter_item_delay_ms: config.normal_inter_item_delay_ms,
-        };
-        let burst_profile = ResourceProfile {
-            max_concurrent_embeddings: config.burst_max_concurrent_embeddings,
-            inter_item_delay_ms: config.burst_inter_item_delay_ms,
-        };
-
-        // Active processing profile (+50% concurrency, halved delay)
-        let active_profile = {
-            let active_embeddings = std::cmp::max(
-                normal_profile.max_concurrent_embeddings + 1,
-                (normal_profile.max_concurrent_embeddings as f64 * config.active_concurrency_multiplier)
-                    .round() as usize,
-            );
-            ResourceProfile {
-                max_concurrent_embeddings: std::cmp::min(
-                    active_embeddings,
-                    burst_profile.max_concurrent_embeddings,
-                ),
-                inter_item_delay_ms: config.active_inter_item_delay_ms,
-            }
-        };
-
-        // Elevated profile: midpoint between active and burst
-        let elevated_profile = {
-            let mid_embeddings = (active_profile.max_concurrent_embeddings
-                + burst_profile.max_concurrent_embeddings) / 2;
-            let mid_delay = (active_profile.inter_item_delay_ms
-                + burst_profile.inter_item_delay_ms) / 2;
-            ResourceProfile {
-                max_concurrent_embeddings: std::cmp::max(
-                    active_profile.max_concurrent_embeddings,
-                    mid_embeddings,
-                ),
-                inter_item_delay_ms: mid_delay,
-            }
-        };
+        let profiles = build_profiles(&config);
+        let normal_profile = profiles.normal;
 
         let (tx, rx) = watch::channel(normal_profile);
         let state = Arc::new(AdaptiveResourceState::new());
         state.set_profile(&normal_profile);
         let state_clone = Arc::clone(&state);
-
         let physical_cores = detect_physical_cores();
 
-        info!(
-            "Adaptive resource manager started \
-             (idle_threshold={}s, confirm={}s, ramp_up_step={}s, ramp_down_step={}s, burst_hold={}s, \
-             normal={}/{}, active={}/{}, elevated={}/{}, burst={}/{}, poll={}s)",
-            config.idle_threshold_secs,
-            config.idle_confirmation_secs,
-            config.ramp_up_step_secs,
-            config.ramp_down_step_secs,
-            config.burst_hold_secs,
-            normal_profile.max_concurrent_embeddings,
-            normal_profile.inter_item_delay_ms,
-            active_profile.max_concurrent_embeddings,
-            active_profile.inter_item_delay_ms,
-            elevated_profile.max_concurrent_embeddings,
-            elevated_profile.inter_item_delay_ms,
-            burst_profile.max_concurrent_embeddings,
-            burst_profile.inter_item_delay_ms,
-            config.poll_interval_secs,
-        );
+        log_startup_config(&config, &profiles);
 
         tokio::spawn(async move {
-            let poll_interval = Duration::from_secs(config.poll_interval_secs);
-            let idle_confirmation = Duration::from_secs(config.idle_confirmation_secs);
-            let ramp_up_step = Duration::from_secs(config.ramp_up_step_secs);
-            let ramp_down_step = Duration::from_secs(config.ramp_down_step_secs);
-            let burst_hold = Duration::from_secs(config.burst_hold_secs);
-
-            let mut sys_state = SystemState::new();
-            let mut current_profile = normal_profile;
-            let mut heartbeat_counter: u64 = 0;
-            let heartbeat_interval: u64 = 60 / config.poll_interval_secs.max(1);
-            let mut mode_tracker = crate::idle_history::ModeTracker::new();
-            let rotation_interval: u64 = 3600 / config.poll_interval_secs.max(1);
-
-            loop {
-                tokio::select! {
-                    _ = cancellation_token.cancelled() => {
-                        debug!("Adaptive resource manager shutting down");
-                        break;
-                    }
-                    _ = tokio::time::sleep(poll_interval) => {
-                        let idle_secs = seconds_since_last_input().unwrap_or(0.0);
-                        state_clone.set_idle_seconds(idle_secs);
-
-                        let user_is_idle = idle_secs >= config.idle_threshold_secs as f64;
-                        let cpu_ok = !is_cpu_under_pressure(
-                            config.cpu_pressure_threshold,
-                            physical_cores,
-                        );
-
-                        let old_level = sys_state.level;
-
-                        if user_is_idle && cpu_ok {
-                            // --- User is idle, CPU ok: ramp UP ---
-                            sys_state.activity_detected_at = None; // reset descent timer
-
-                            if sys_state.idle_detected_at.is_none() {
-                                sys_state.idle_detected_at = Some(Instant::now());
-                                debug!(
-                                    "Idle detected at level {:?}, starting confirmation timer ({}s)",
-                                    sys_state.level, config.idle_confirmation_secs,
-                                );
-                            }
-
-                            let idle_duration = sys_state.idle_detected_at
-                                .map(|t| t.elapsed())
-                                .unwrap_or_default();
-
-                            // Must confirm idle before any upward transition
-                            if idle_duration >= idle_confirmation && sys_state.level < ResourceLevel::Burst {
-                                let time_at_level = sys_state.level_entered_at.elapsed();
-
-                                if time_at_level >= ramp_up_step {
-                                    let new_level = sys_state.level.up();
-                                    info!(
-                                        "Ramp-up: {:?} -> {:?} (idle {:.0}s, at level {:.0}s)",
-                                        sys_state.level, new_level,
-                                        idle_secs, time_at_level.as_secs_f64(),
-                                    );
-                                    sys_state.transition_to(new_level);
-                                } else {
-                                    debug!(
-                                        "Ramp-up: holding at {:?} ({:.0}s/{:.0}s before next level)",
-                                        sys_state.level,
-                                        time_at_level.as_secs_f64(),
-                                        ramp_up_step.as_secs_f64(),
-                                    );
-                                }
-                            } else if idle_duration < idle_confirmation {
-                                debug!(
-                                    "Idle confirmation: {:.0}s/{:.0}s",
-                                    idle_duration.as_secs_f64(),
-                                    idle_confirmation.as_secs_f64(),
-                                );
-                            }
-                        } else {
-                            // --- User active or CPU pressure: ramp DOWN ---
-                            sys_state.idle_detected_at = None; // reset idle confirmation
-
-                            // Target is always Normal when user is active — resource level
-                            // is driven purely by idle time, not queue depth.
-                            let target = ResourceLevel::Normal;
-
-                            if sys_state.level <= target {
-                                // Already at or below target
-                                sys_state.activity_detected_at = None;
-                            } else {
-                                // Need to ramp down
-                                if sys_state.activity_detected_at.is_none() {
-                                    sys_state.activity_detected_at = Some(Instant::now());
-                                    debug!(
-                                        "Activity detected at level {:?}, starting ramp-down timer ({}s/level)",
-                                        sys_state.level, config.ramp_down_step_secs,
-                                    );
-                                }
-
-                                // Burst hold: enforce minimum time at burst
-                                if sys_state.level == ResourceLevel::Burst {
-                                    let burst_time = sys_state.level_entered_at.elapsed();
-                                    if burst_time < burst_hold {
-                                        debug!(
-                                            "Burst hold: {:.0}s/{:.0}s before ramp-down allowed",
-                                            burst_time.as_secs_f64(),
-                                            burst_hold.as_secs_f64(),
-                                        );
-                                        // Don't start the ramp-down timer until burst hold expires
-                                        sys_state.activity_detected_at = None;
-                                        // Continue in next branch
-                                    }
-                                }
-
-                                // Check if enough sustained activity for a level drop
-                                if let Some(activity_start) = sys_state.activity_detected_at {
-                                    let activity_duration = activity_start.elapsed();
-                                    if activity_duration >= ramp_down_step {
-                                        let new_level = sys_state.level.down();
-                                        info!(
-                                            "Ramp-down: {:?} -> {:?} (active {:.0}s)",
-                                            sys_state.level, new_level,
-                                            activity_duration.as_secs_f64(),
-                                        );
-                                        sys_state.transition_to(new_level);
-                                        // Reset activity timer for next level's descent
-                                        sys_state.activity_detected_at = Some(Instant::now());
-                                    } else {
-                                        debug!(
-                                            "Ramp-down: holding at {:?} ({:.0}s/{:.0}s before drop)",
-                                            sys_state.level,
-                                            activity_duration.as_secs_f64(),
-                                            ramp_down_step.as_secs_f64(),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-
-                        // Compute profile and mode from current level
-                        let new_profile = profile_for_level(
-                            sys_state.level,
-                            &normal_profile, &active_profile,
-                            &elevated_profile, &burst_profile,
-                        );
-                        let new_mode = ResourceMode::from(sys_state.level);
-
-                        state_clone.set_mode(new_mode);
-                        state_clone.set_profile(&new_profile);
-
-                        // Track level transitions for history (uses ResourceLevel
-                        // directly to avoid ResourceMode ambiguity between Active
-                        // Processing and Active ramp-down level)
-                        mode_tracker.on_mode_change(sys_state.level, idle_secs);
-
-                        if new_profile != current_profile {
-                            if old_level != sys_state.level {
-                                info!(
-                                    "Profile changed: embeddings {} -> {}, delay {}ms -> {}ms",
-                                    current_profile.max_concurrent_embeddings,
-                                    new_profile.max_concurrent_embeddings,
-                                    current_profile.inter_item_delay_ms,
-                                    new_profile.inter_item_delay_ms,
-                                );
-                            }
-                            let _ = tx.send(new_profile);
-                            current_profile = new_profile;
-                        }
-
-                        // Periodic heartbeat
-                        heartbeat_counter += 1;
-                        if heartbeat_counter % heartbeat_interval == 0 {
-                            info!(
-                                "Adaptive resources heartbeat: level={:?}, mode={}, idle_secs={:.0}, cpu_pressure={}, embeddings={}, delay={}ms",
-                                sys_state.level,
-                                new_mode.as_str(),
-                                idle_secs,
-                                !cpu_ok,
-                                new_profile.max_concurrent_embeddings,
-                                new_profile.inter_item_delay_ms,
-                            );
-                        }
-
-                        // Rotate idle history once per hour
-                        if heartbeat_counter % rotation_interval == 0 {
-                            mode_tracker.rotate();
-                        }
-                    }
-                }
-            }
+            run_adaptive_loop(
+                config, profiles, cancellation_token, tx,
+                state_clone, physical_cores,
+            )
+            .await;
         });
 
         Self { rx, state }
@@ -808,6 +571,219 @@ fn detect_physical_cores() -> usize {
     use sysinfo::System;
     let sys = System::new_all();
     sys.physical_core_count().unwrap_or(4)
+}
+
+/// All four resource profiles built from config.
+struct Profiles {
+    normal: ResourceProfile,
+    active: ResourceProfile,
+    elevated: ResourceProfile,
+    burst: ResourceProfile,
+}
+
+/// Build the four resource profiles from adaptive config.
+fn build_profiles(config: &AdaptiveResourceConfig) -> Profiles {
+    let normal = ResourceProfile {
+        max_concurrent_embeddings: config.normal_max_concurrent_embeddings,
+        inter_item_delay_ms: config.normal_inter_item_delay_ms,
+    };
+    let burst = ResourceProfile {
+        max_concurrent_embeddings: config.burst_max_concurrent_embeddings,
+        inter_item_delay_ms: config.burst_inter_item_delay_ms,
+    };
+    let active_embeddings = std::cmp::min(
+        burst.max_concurrent_embeddings,
+        std::cmp::max(
+            normal.max_concurrent_embeddings + 1,
+            (normal.max_concurrent_embeddings as f64 * config.active_concurrency_multiplier)
+                .round() as usize,
+        ),
+    );
+    let active = ResourceProfile {
+        max_concurrent_embeddings: active_embeddings,
+        inter_item_delay_ms: config.active_inter_item_delay_ms,
+    };
+    let elevated = ResourceProfile {
+        max_concurrent_embeddings: std::cmp::max(
+            active.max_concurrent_embeddings,
+            (active.max_concurrent_embeddings + burst.max_concurrent_embeddings) / 2,
+        ),
+        inter_item_delay_ms: (active.inter_item_delay_ms + burst.inter_item_delay_ms) / 2,
+    };
+    Profiles { normal, active, elevated, burst }
+}
+
+/// Log the startup configuration.
+fn log_startup_config(config: &AdaptiveResourceConfig, p: &Profiles) {
+    info!(
+        "Adaptive resource manager started \
+         (idle_threshold={}s, confirm={}s, ramp_up={}s, ramp_down={}s, burst_hold={}s, \
+         normal={}/{}, active={}/{}, elevated={}/{}, burst={}/{}, poll={}s)",
+        config.idle_threshold_secs, config.idle_confirmation_secs,
+        config.ramp_up_step_secs, config.ramp_down_step_secs, config.burst_hold_secs,
+        p.normal.max_concurrent_embeddings, p.normal.inter_item_delay_ms,
+        p.active.max_concurrent_embeddings, p.active.inter_item_delay_ms,
+        p.elevated.max_concurrent_embeddings, p.elevated.inter_item_delay_ms,
+        p.burst.max_concurrent_embeddings, p.burst.inter_item_delay_ms,
+        config.poll_interval_secs,
+    );
+}
+
+/// Main adaptive resource loop — evaluates idle/active state and adjusts levels.
+async fn run_adaptive_loop(
+    config: AdaptiveResourceConfig,
+    profiles: Profiles,
+    cancellation_token: CancellationToken,
+    tx: watch::Sender<ResourceProfile>,
+    state: Arc<AdaptiveResourceState>,
+    physical_cores: usize,
+) {
+    let poll_interval = Duration::from_secs(config.poll_interval_secs);
+    let idle_confirmation = Duration::from_secs(config.idle_confirmation_secs);
+    let ramp_up_step = Duration::from_secs(config.ramp_up_step_secs);
+    let ramp_down_step = Duration::from_secs(config.ramp_down_step_secs);
+    let burst_hold = Duration::from_secs(config.burst_hold_secs);
+
+    let mut sys_state = SystemState::new();
+    let mut current_profile = profiles.normal;
+    let mut heartbeat_counter: u64 = 0;
+    let heartbeat_interval: u64 = 60 / config.poll_interval_secs.max(1);
+    let mut mode_tracker = crate::idle_history::ModeTracker::new();
+    let rotation_interval: u64 = 3600 / config.poll_interval_secs.max(1);
+
+    loop {
+        tokio::select! {
+            _ = cancellation_token.cancelled() => {
+                debug!("Adaptive resource manager shutting down");
+                break;
+            }
+            _ = tokio::time::sleep(poll_interval) => {
+                let idle_secs = seconds_since_last_input().unwrap_or(0.0);
+                state.set_idle_seconds(idle_secs);
+
+                let user_is_idle = idle_secs >= config.idle_threshold_secs as f64;
+                let cpu_ok = !is_cpu_under_pressure(config.cpu_pressure_threshold, physical_cores);
+                let old_level = sys_state.level;
+
+                if user_is_idle && cpu_ok {
+                    evaluate_ramp_up(&mut sys_state, &config, idle_secs, idle_confirmation, ramp_up_step);
+                } else {
+                    evaluate_ramp_down(&mut sys_state, &config, ramp_down_step, burst_hold);
+                }
+
+                let new_profile = profile_for_level(
+                    sys_state.level, &profiles.normal, &profiles.active,
+                    &profiles.elevated, &profiles.burst,
+                );
+                let new_mode = ResourceMode::from(sys_state.level);
+                state.set_mode(new_mode);
+                state.set_profile(&new_profile);
+                mode_tracker.on_mode_change(sys_state.level, idle_secs);
+
+                if new_profile != current_profile {
+                    if old_level != sys_state.level {
+                        info!("Profile changed: embeddings {} -> {}, delay {}ms -> {}ms",
+                            current_profile.max_concurrent_embeddings, new_profile.max_concurrent_embeddings,
+                            current_profile.inter_item_delay_ms, new_profile.inter_item_delay_ms);
+                    }
+                    let _ = tx.send(new_profile);
+                    current_profile = new_profile;
+                }
+
+                heartbeat_counter += 1;
+                if heartbeat_counter % heartbeat_interval == 0 {
+                    info!("Adaptive resources heartbeat: level={:?}, mode={}, idle={:.0}s, cpu_pressure={}, embeddings={}, delay={}ms",
+                        sys_state.level, new_mode.as_str(), idle_secs, !cpu_ok,
+                        new_profile.max_concurrent_embeddings, new_profile.inter_item_delay_ms);
+                }
+                if heartbeat_counter % rotation_interval == 0 {
+                    mode_tracker.rotate();
+                }
+            }
+        }
+    }
+}
+
+/// Evaluate whether to ramp up resource levels during idle+CPU-ok state.
+fn evaluate_ramp_up(
+    sys_state: &mut SystemState,
+    config: &AdaptiveResourceConfig,
+    idle_secs: f64,
+    idle_confirmation: Duration,
+    ramp_up_step: Duration,
+) {
+    sys_state.activity_detected_at = None;
+
+    if sys_state.idle_detected_at.is_none() {
+        sys_state.idle_detected_at = Some(Instant::now());
+        debug!("Idle detected at level {:?}, starting confirmation ({}s)",
+            sys_state.level, config.idle_confirmation_secs);
+    }
+
+    let idle_duration = sys_state.idle_detected_at.map(|t| t.elapsed()).unwrap_or_default();
+
+    if idle_duration >= idle_confirmation && sys_state.level < ResourceLevel::Burst {
+        let time_at_level = sys_state.level_entered_at.elapsed();
+        if time_at_level >= ramp_up_step {
+            let new_level = sys_state.level.up();
+            info!("Ramp-up: {:?} -> {:?} (idle {:.0}s, at level {:.0}s)",
+                sys_state.level, new_level, idle_secs, time_at_level.as_secs_f64());
+            sys_state.transition_to(new_level);
+        } else {
+            debug!("Ramp-up: holding at {:?} ({:.0}s/{:.0}s before next level)",
+                sys_state.level, time_at_level.as_secs_f64(), ramp_up_step.as_secs_f64());
+        }
+    } else if idle_duration < idle_confirmation {
+        debug!("Idle confirmation: {:.0}s/{:.0}s",
+            idle_duration.as_secs_f64(), idle_confirmation.as_secs_f64());
+    }
+}
+
+/// Evaluate whether to ramp down resource levels during active/CPU-pressure state.
+fn evaluate_ramp_down(
+    sys_state: &mut SystemState,
+    config: &AdaptiveResourceConfig,
+    ramp_down_step: Duration,
+    burst_hold: Duration,
+) {
+    sys_state.idle_detected_at = None;
+    let target = ResourceLevel::Normal;
+
+    if sys_state.level <= target {
+        sys_state.activity_detected_at = None;
+        return;
+    }
+
+    if sys_state.activity_detected_at.is_none() {
+        sys_state.activity_detected_at = Some(Instant::now());
+        debug!("Activity detected at level {:?}, starting ramp-down ({}s/level)",
+            sys_state.level, config.ramp_down_step_secs);
+    }
+
+    // Burst hold: enforce minimum time at burst before allowing ramp-down
+    if sys_state.level == ResourceLevel::Burst {
+        let burst_time = sys_state.level_entered_at.elapsed();
+        if burst_time < burst_hold {
+            debug!("Burst hold: {:.0}s/{:.0}s before ramp-down allowed",
+                burst_time.as_secs_f64(), burst_hold.as_secs_f64());
+            sys_state.activity_detected_at = None;
+            return;
+        }
+    }
+
+    if let Some(activity_start) = sys_state.activity_detected_at {
+        let activity_duration = activity_start.elapsed();
+        if activity_duration >= ramp_down_step {
+            let new_level = sys_state.level.down();
+            info!("Ramp-down: {:?} -> {:?} (active {:.0}s)",
+                sys_state.level, new_level, activity_duration.as_secs_f64());
+            sys_state.transition_to(new_level);
+            sys_state.activity_detected_at = Some(Instant::now());
+        } else {
+            debug!("Ramp-down: holding at {:?} ({:.0}s/{:.0}s before drop)",
+                sys_state.level, activity_duration.as_secs_f64(), ramp_down_step.as_secs_f64());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
