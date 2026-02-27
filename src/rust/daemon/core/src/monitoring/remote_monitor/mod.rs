@@ -52,7 +52,6 @@ pub async fn check_remote_url_changes(
 ) -> Result<RemoteCheckResult, String> {
     let mut result = RemoteCheckResult::default();
 
-    // Query active, non-archived, top-level project watch_folders that have git remotes
     let watches: Vec<(String, String, String, String, Option<String>, Option<String>)> =
         sqlx::query_as(
             r#"
@@ -77,93 +76,79 @@ pub async fn check_remote_url_changes(
     {
         result.projects_checked += 1;
 
-        // Read current git remote URL from filesystem
         let current_url = match get_git_remote_url(path) {
             Ok(url) => url,
             Err(e) => {
-                debug!(
-                    "Skipping remote check for {} ({}): {}",
-                    watch_id, path, e
-                );
+                debug!("Skipping remote check for {} ({}): {}", watch_id, path, e);
                 result.errors += 1;
                 continue;
             }
         };
 
-        // Normalize both for comparison
         let normalized_stored = ProjectIdCalculator::normalize_git_url(stored_url);
         let normalized_current = ProjectIdCalculator::normalize_git_url(&current_url);
 
         if normalized_stored == normalized_current {
-            continue; // No change
-        }
-
-        info!(
-            "Remote URL changed for watch_id={}: {} -> {}",
-            watch_id, normalized_stored, normalized_current
-        );
-
-        // Compute new tenant_id and remote_hash
-        let new_remote_hash = calculator.calculate_remote_hash(&current_url);
-        let new_tenant_id = calculator.calculate(
-            std::path::Path::new(path),
-            Some(&current_url),
-            disambiguation_path.as_deref(),
-        );
-
-        // Update SQLite atomically: watch_folders (parent + submodules)
-        if let Err(e) = update_watch_folders_remote(
-            pool,
-            watch_id,
-            &current_url,
-            &new_remote_hash,
-            &new_tenant_id,
-        )
-        .await
-        {
-            warn!(
-                "Failed to update watch_folders for {}: {}",
-                watch_id, e
-            );
-            result.errors += 1;
             continue;
         }
 
-        // Enqueue Qdrant cascade rename (update tenant_id in point payloads)
-        let reason = format!(
-            "Remote URL changed: {} -> {}",
-            normalized_stored, normalized_current
-        );
-        match queue_manager
-            .enqueue_cascade_rename(
-                old_tenant_id,
-                &new_tenant_id,
-                &["projects", "memory"],
-                &reason,
-            )
-            .await
+        match process_remote_change(
+            pool,
+            queue_manager,
+            &calculator,
+            watch_id,
+            path,
+            old_tenant_id,
+            &current_url,
+            disambiguation_path.as_deref(),
+            &normalized_stored,
+            &normalized_current,
+        )
+        .await
         {
-            Ok(queue_ids) => {
-                info!(
-                    "Enqueued {} cascade rename(s) for tenant {} -> {}",
-                    queue_ids.len(),
-                    old_tenant_id,
-                    new_tenant_id
-                );
-            }
+            Ok(()) => result.changes_detected += 1,
             Err(e) => {
-                // SQLite is already updated - log error but don't fail
-                warn!(
-                    "Failed to enqueue cascade rename for {} -> {}: {}",
-                    old_tenant_id, new_tenant_id, e
-                );
+                warn!("Failed to process remote change for {}: {}", watch_id, e);
+                result.errors += 1;
             }
         }
-
-        result.changes_detected += 1;
     }
 
     Ok(result)
+}
+
+/// Process a single detected remote URL change: update SQLite and enqueue rename.
+async fn process_remote_change(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+    calculator: &ProjectIdCalculator,
+    watch_id: &str,
+    path: &str,
+    old_tenant_id: &str,
+    current_url: &str,
+    disambiguation_path: Option<&str>,
+    normalized_stored: &str,
+    normalized_current: &str,
+) -> Result<(), String> {
+    info!(
+        "Remote URL changed for watch_id={}: {} -> {}",
+        watch_id, normalized_stored, normalized_current
+    );
+
+    let new_remote_hash = calculator.calculate_remote_hash(current_url);
+    let new_tenant_id = calculator.calculate(
+        std::path::Path::new(path),
+        Some(current_url),
+        disambiguation_path,
+    );
+
+    update_watch_folders_remote(pool, watch_id, current_url, &new_remote_hash, &new_tenant_id)
+        .await?;
+
+    let reason = format!("Remote URL changed: {} -> {}", normalized_stored, normalized_current);
+    enqueue_cascade_rename(queue_manager, old_tenant_id, &new_tenant_id, &reason).await;
+
+    Ok(())
 }
 
 /// Read the current git remote URL from a repository path using git2.
@@ -292,7 +277,6 @@ pub async fn check_git_state_changes(
 ) -> Result<GitStateCheckResult, String> {
     let mut result = GitStateCheckResult::default();
 
-    // Query ALL active, non-archived, top-level project watch_folders
     let watches: Vec<(String, String, String, i32, Option<String>, Option<String>)> =
         sqlx::query_as(
             r#"
@@ -319,7 +303,6 @@ pub async fn check_git_state_changes(
         result.projects_checked += 1;
         let project_path = std::path::Path::new(path.as_str());
 
-        // Detect current filesystem git state
         let git_status = crate::git::detect_git_status(project_path);
         let current_remote = if git_status.is_git {
             get_git_remote_url(path).ok()
@@ -328,128 +311,143 @@ pub async fn check_git_state_changes(
         };
 
         let was_git = *stored_git_tracked != 0;
-        let is_now_git = git_status.is_git;
         let had_remote = stored_remote.is_some();
-        let has_remote_now = current_remote.is_some();
 
-        // Determine which transition, if any, occurred
-        let transition = match (was_git, had_remote, is_now_git, has_remote_now) {
-            // No change
-            (false, false, false, false) => continue,          // local → local
-            (true, false, true, false) => continue,            // local-git → local-git
-            (true, true, true, true) => continue,              // remote-git → remote-git (URL change handled by check_remote_url_changes)
-
-            // Transition 1: local → local-git (git init)
-            (false, _, true, false) => "local → local-git",
-
-            // Transition 2: local → remote-git (git init + remote add)
-            (false, _, true, true) => "local → remote-git",
-
-            // Transition 3: local-git → remote-git (remote add)
-            (true, false, true, true) => "local-git → remote-git",
-
-            // Transition 4: git → local (rm -rf .git)
-            (true, _, false, _) => "git → local",
-
-            // Transition 5: remote-git → local-git (remote remove)
-            (true, true, true, false) => "remote-git → local-git",
-
-            // Unexpected states — skip
-            _ => {
-                debug!(
-                    "Unexpected git state for {}: was_git={}, had_remote={}, is_git={}, has_remote={}",
-                    watch_id, was_git, had_remote, is_now_git, has_remote_now
-                );
-                continue;
-            }
-        };
-
-        info!(
-            "Git state transition detected for {}: {} (path={})",
-            watch_id, transition, path
-        );
-
-        // Compute new tenant_id based on new state
-        let new_tenant_id = match &current_remote {
-            Some(url) => calculator.calculate(
-                project_path,
-                Some(url.as_str()),
-                disambiguation_path.as_deref(),
-            ),
-            None => calculator.calculate(project_path, None, None),
-        };
-
-        let new_remote_hash = current_remote.as_ref().map(|url| calculator.calculate_remote_hash(url));
-
-        // Determine what to update in SQLite
-        let new_is_git_tracked: i32 = if is_now_git { 1 } else { 0 };
-
-        // Update watch_folders atomically
-        let now = wqm_common::timestamps::now_utc();
-        let update_result = sqlx::query(
-            r#"
-            UPDATE watch_folders
-            SET is_git_tracked = ?1,
-                git_remote_url = ?2,
-                remote_hash = ?3,
-                tenant_id = ?4,
-                updated_at = ?5
-            WHERE watch_id = ?6
-            "#,
-        )
-        .bind(new_is_git_tracked)
-        .bind(current_remote.as_deref())
-        .bind(new_remote_hash.as_deref())
-        .bind(&new_tenant_id)
-        .bind(&now)
-        .bind(watch_id)
-        .execute(pool)
-        .await;
-
-        if let Err(e) = update_result {
-            warn!(
-                "Failed to update watch_folders for git state transition {}: {}",
-                watch_id, e
-            );
-            result.errors += 1;
+        let Some(transition) = detect_git_transition(
+            watch_id, was_git, had_remote, git_status.is_git, current_remote.is_some(),
+        ) else {
             continue;
-        }
+        };
 
-        // Enqueue cascade rename if tenant_id changed
-        if new_tenant_id != *old_tenant_id {
-            let reason = format!("Git state transition: {}", transition);
-            match queue_manager
-                .enqueue_cascade_rename(
-                    old_tenant_id,
-                    &new_tenant_id,
-                    &["projects", "memory"],
-                    &reason,
-                )
-                .await
-            {
-                Ok(queue_ids) => {
-                    info!(
-                        "Enqueued {} cascade rename(s) for tenant {} -> {} ({})",
-                        queue_ids.len(),
-                        old_tenant_id,
-                        new_tenant_id,
-                        transition
-                    );
-                }
-                Err(e) => {
-                    // SQLite already updated — log but don't fail
-                    warn!(
-                        "Failed to enqueue cascade rename for {} -> {}: {}",
-                        old_tenant_id, new_tenant_id, e
-                    );
-                }
+        info!("Git state transition detected for {}: {} (path={})", watch_id, transition, path);
+
+        match apply_git_state_transition(
+            pool, queue_manager, &calculator, watch_id, project_path,
+            old_tenant_id, disambiguation_path.as_deref(),
+            git_status.is_git, &current_remote, transition,
+        )
+        .await
+        {
+            Ok(()) => result.transitions_detected += 1,
+            Err(e) => {
+                warn!("Failed to apply git state transition for {}: {}", watch_id, e);
+                result.errors += 1;
             }
         }
-
-        result.transitions_detected += 1;
     }
 
     Ok(result)
+}
+
+/// Determine which git state transition, if any, occurred.
+///
+/// Returns `None` for no change, `Some(description)` for a detected transition.
+fn detect_git_transition(
+    watch_id: &str,
+    was_git: bool,
+    had_remote: bool,
+    is_now_git: bool,
+    has_remote_now: bool,
+) -> Option<&'static str> {
+    match (was_git, had_remote, is_now_git, has_remote_now) {
+        (false, false, false, false) => None,          // local -> local
+        (true, false, true, false) => None,            // local-git -> local-git
+        (true, true, true, true) => None,              // remote-git -> remote-git
+        (false, _, true, false) => Some("local → local-git"),
+        (false, _, true, true) => Some("local → remote-git"),
+        (true, false, true, true) => Some("local-git → remote-git"),
+        (true, _, false, _) => Some("git → local"),
+        (true, true, true, false) => Some("remote-git → local-git"),
+        _ => {
+            debug!(
+                "Unexpected git state for {}: was_git={}, had_remote={}, is_git={}, has_remote={}",
+                watch_id, was_git, had_remote, is_now_git, has_remote_now
+            );
+            None
+        }
+    }
+}
+
+/// Apply a detected git state transition: update SQLite and enqueue cascade rename.
+async fn apply_git_state_transition(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+    calculator: &ProjectIdCalculator,
+    watch_id: &str,
+    project_path: &std::path::Path,
+    old_tenant_id: &str,
+    disambiguation_path: Option<&str>,
+    is_now_git: bool,
+    current_remote: &Option<String>,
+    transition: &str,
+) -> Result<(), String> {
+    let new_tenant_id = match current_remote {
+        Some(url) => calculator.calculate(project_path, Some(url.as_str()), disambiguation_path),
+        None => calculator.calculate(project_path, None, None),
+    };
+
+    let new_remote_hash = current_remote
+        .as_ref()
+        .map(|url| calculator.calculate_remote_hash(url));
+
+    let now = wqm_common::timestamps::now_utc();
+    sqlx::query(
+        r#"
+        UPDATE watch_folders
+        SET is_git_tracked = ?1,
+            git_remote_url = ?2,
+            remote_hash = ?3,
+            tenant_id = ?4,
+            updated_at = ?5
+        WHERE watch_id = ?6
+        "#,
+    )
+    .bind(if is_now_git { 1i32 } else { 0i32 })
+    .bind(current_remote.as_deref())
+    .bind(new_remote_hash.as_deref())
+    .bind(&new_tenant_id)
+    .bind(&now)
+    .bind(watch_id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to update watch_folders: {}", e))?;
+
+    if new_tenant_id != old_tenant_id {
+        let reason = format!("Git state transition: {}", transition);
+        enqueue_cascade_rename(queue_manager, old_tenant_id, &new_tenant_id, &reason).await;
+    }
+
+    Ok(())
+}
+
+/// Enqueue cascade rename, logging success/failure without propagating errors.
+///
+/// SQLite is already updated at this point, so we log but don't fail.
+async fn enqueue_cascade_rename(
+    queue_manager: &QueueManager,
+    old_tenant_id: &str,
+    new_tenant_id: &str,
+    reason: &str,
+) {
+    match queue_manager
+        .enqueue_cascade_rename(old_tenant_id, new_tenant_id, &["projects", "memory"], reason)
+        .await
+    {
+        Ok(queue_ids) => {
+            info!(
+                "Enqueued {} cascade rename(s) for tenant {} -> {}",
+                queue_ids.len(),
+                old_tenant_id,
+                new_tenant_id
+            );
+        }
+        Err(e) => {
+            warn!(
+                "Failed to enqueue cascade rename for {} -> {}: {}",
+                old_tenant_id, new_tenant_id, e
+            );
+        }
+    }
 }
 
 #[cfg(test)]
