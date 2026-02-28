@@ -206,16 +206,23 @@ async fn resolve_watch_folder(
     })?;
 
     // CRITICAL: watch_folders lookup MUST succeed before ingestion.
-    // For library-routed files from project folders (Task 568), the item's collection
-    // is "libraries" but the watch_folder has collection="projects". Fall back to
-    // looking up by "projects" when the primary lookup fails.
+    // For library-routed files from project folders, the item's tenant_id is a
+    // derived library name (e.g. "abc123-refs") and collection is "libraries",
+    // but the watch_folder has the original project tenant_id and collection="projects".
+    // Fall back using source_project_id from metadata when the primary lookup fails.
     match watch_info {
         Some((wid, bp)) => Ok((wid, bp)),
         None if item.collection == COLLECTION_LIBRARIES => {
-            // Try fallback: file may originate from a project watch folder
+            // Extract source_project_id from metadata for format-routed files
+            let source_project_id = item.metadata.as_deref()
+                .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+                .and_then(|v| v.get("source_project_id")?.as_str().map(String::from));
+
+            // Try fallback with source_project_id (original project tenant)
+            let fallback_tenant = source_project_id.as_deref().unwrap_or(&item.tenant_id);
             let fallback = tracked_files_schema::lookup_watch_folder(
                 pool,
-                &item.tenant_id,
+                fallback_tenant,
                 COLLECTION_PROJECTS,
             )
             .await
@@ -229,15 +236,15 @@ async fn resolve_watch_folder(
             match fallback {
                 Some((wid, bp)) => {
                     debug!(
-                        "Library-routed file resolved via project watch_folder: tenant={}, watch_id={}",
-                        item.tenant_id, wid
+                        "Library-routed file resolved via project watch_folder: library_tenant={}, source_project={}, watch_id={}",
+                        item.tenant_id, fallback_tenant, wid
                     );
                     Ok((wid, bp))
                 }
                 None => {
                     error!(
-                        "watch_folders validation failed: tenant_id={}, collection={} (also tried 'projects') -- refusing ingestion",
-                        item.tenant_id, item.collection
+                        "watch_folders validation failed: tenant_id={}, source_project={:?}, collection={} -- refusing ingestion",
+                        item.tenant_id, source_project_id, item.collection
                     );
                     Err(UnifiedProcessorError::QueueOperation(format!(
                         "No watch_folder found for tenant_id={}, collection={} or projects. Cannot ingest without tracked_files context.",
