@@ -9,6 +9,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.node
 
 # Logs
 *.log
@@ -108,6 +109,18 @@ tests/reporting/*.db
 test_ingestion*.txt
 test_ingestion*.md
 test_file_ingestion*.md
+
+# Qdrant local storage (runtime data)
+storage/
+
+# Root-level stray package files (real ones are in src/typescript/mcp-server/)
+/package.json
+/package-lock.json
+
+# LargeCode analysis output
+largecode.csv
+large_code.csv
+large_code.sh
 
 # Git cleanup artifacts
 affected_commits.txt
