@@ -5,8 +5,8 @@
  * This prevents drift between MCP and daemon's project_id calculations.
  */
 
-import { existsSync, statSync, readdirSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 import { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 
@@ -283,39 +283,5 @@ export class ProjectDetector {
   }
 }
 
-/**
- * Check if a path is a git repository
- */
-export function isGitRepository(path: string): boolean {
-  const gitDir = join(path, '.git');
-  try {
-    return existsSync(gitDir) && statSync(gitDir).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get git remote URL for a repository
- *
- * Note: This is for informational purposes only.
- * The daemon computes the authoritative project_id.
- */
-export function getGitRemoteUrl(repoPath: string): string | null {
-  const gitConfigPath = join(repoPath, '.git', 'config');
-
-  try {
-    const { readFileSync } = require('node:fs');
-    const config = readFileSync(gitConfigPath, 'utf-8');
-
-    // Parse remote "origin" URL
-    const remoteMatch = config.match(/\[remote "origin"\][^\[]*url = (.+)/m);
-    if (remoteMatch?.[1]) {
-      return remoteMatch[1].trim();
-    }
-  } catch {
-    // File doesn't exist or not readable
-  }
-
-  return null;
-}
+// Re-export git utilities for backward compatibility
+export { isGitRepository, getGitRemoteUrl } from './git-utils.js';
