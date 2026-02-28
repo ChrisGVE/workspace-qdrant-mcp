@@ -3320,6 +3320,7 @@ dependencies = [
  "clap",
  "libc",
  "scopeguard",
+ "sqlx",
  "tokio",
  "tokio-util",
  "tracing",

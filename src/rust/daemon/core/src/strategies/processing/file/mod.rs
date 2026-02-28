@@ -17,6 +17,7 @@ mod chunk_embed;
 mod delete;
 mod fts5_index;
 mod graph_ingest;
+mod ingest;
 mod keyword_extract;
 mod keyword_persist;
 pub(crate) mod lsp_payload;
@@ -24,20 +25,18 @@ mod store_track;
 mod update_preamble;
 
 use std::path::Path;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, error, info};
 
 use crate::context::ProcessingContext;
-use crate::processing_timings::{self, PhaseTiming};
 use crate::strategies::ProcessingStrategy;
 use crate::tracked_files_schema;
 use crate::specs::parse_payload;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
-    DestinationStatus, FilePayload, ItemType, QueueOperation, UnifiedQueueItem,
+    FilePayload, ItemType, QueueOperation, UnifiedQueueItem,
 };
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 
@@ -181,7 +180,7 @@ impl FileStrategy {
             }
         }
 
-        ingest_file_content(
+        ingest::ingest_file_content(
             ctx, item, pool, file_path, &payload, &watch_folder_id, &base_path, &relative_path,
         )
         .await
@@ -207,16 +206,23 @@ async fn resolve_watch_folder(
     })?;
 
     // CRITICAL: watch_folders lookup MUST succeed before ingestion.
-    // For library-routed files from project folders (Task 568), the item's collection
-    // is "libraries" but the watch_folder has collection="projects". Fall back to
-    // looking up by "projects" when the primary lookup fails.
+    // For library-routed files from project folders, the item's tenant_id is a
+    // derived library name (e.g. "abc123-refs") and collection is "libraries",
+    // but the watch_folder has the original project tenant_id and collection="projects".
+    // Fall back using source_project_id from metadata when the primary lookup fails.
     match watch_info {
         Some((wid, bp)) => Ok((wid, bp)),
         None if item.collection == COLLECTION_LIBRARIES => {
-            // Try fallback: file may originate from a project watch folder
+            // Extract source_project_id from metadata for format-routed files
+            let source_project_id = item.metadata.as_deref()
+                .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+                .and_then(|v| v.get("source_project_id")?.as_str().map(String::from));
+
+            // Try fallback with source_project_id (original project tenant)
+            let fallback_tenant = source_project_id.as_deref().unwrap_or(&item.tenant_id);
             let fallback = tracked_files_schema::lookup_watch_folder(
                 pool,
-                &item.tenant_id,
+                fallback_tenant,
                 COLLECTION_PROJECTS,
             )
             .await
@@ -230,15 +236,15 @@ async fn resolve_watch_folder(
             match fallback {
                 Some((wid, bp)) => {
                     debug!(
-                        "Library-routed file resolved via project watch_folder: tenant={}, watch_id={}",
-                        item.tenant_id, wid
+                        "Library-routed file resolved via project watch_folder: library_tenant={}, source_project={}, watch_id={}",
+                        item.tenant_id, fallback_tenant, wid
                     );
                     Ok((wid, bp))
                 }
                 None => {
                     error!(
-                        "watch_folders validation failed: tenant_id={}, collection={} (also tried 'projects') -- refusing ingestion",
-                        item.tenant_id, item.collection
+                        "watch_folders validation failed: tenant_id={}, source_project={:?}, collection={} -- refusing ingestion",
+                        item.tenant_id, source_project_id, item.collection
                     );
                     Err(UnifiedProcessorError::QueueOperation(format!(
                         "No watch_folder found for tenant_id={}, collection={} or projects. Cannot ingest without tracked_files context.",
@@ -260,342 +266,6 @@ async fn resolve_watch_folder(
     }
 }
 
-/// Check if a file is a workspace definition file that triggers component re-detection.
-fn is_workspace_definition_file(relative_path: &str) -> bool {
-    let filename = relative_path.rsplit('/').next().unwrap_or(relative_path);
-    filename == "Cargo.toml" || filename == "package.json"
-}
-
-/// Resolve the component for a file, using the per-watch-folder cache.
-///
-/// On cache miss: detects components from the project's workspace files,
-/// persists them to `project_components`, and caches the result.
-async fn resolve_component(
-    ctx: &ProcessingContext,
-    pool: &SqlitePool,
-    watch_folder_id: &str,
-    base_path: &str,
-    relative_path: &str,
-) -> Option<String> {
-    use crate::component_detection;
-
-    // Fast path: check cache
-    {
-        let cache = ctx.component_cache.read().await;
-        if let Some(components) = cache.get(watch_folder_id) {
-            return component_detection::assign_component(relative_path, components)
-                .map(|c| c.id.clone());
-        }
-    }
-
-    // Slow path: detect from filesystem, persist, and cache
-    let project_path = Path::new(base_path);
-    let components = component_detection::detect_components(project_path);
-
-    if !components.is_empty() {
-        if let Err(e) =
-            component_detection::persist_components(pool, watch_folder_id, &components).await
-        {
-            debug!("Failed to persist components for {}: {}", watch_folder_id, e);
-        }
-    }
-
-    let result = component_detection::assign_component(relative_path, &components)
-        .map(|c| c.id.clone());
-
-    // Cache even if empty (avoids re-detecting for projects with no workspace)
-    {
-        let mut cache = ctx.component_cache.write().await;
-        cache.insert(watch_folder_id.to_string(), components);
-    }
-
-    result
-}
-
-/// Ingest file content: embedding, Qdrant upsert, tracked_files, FTS5.
-///
-/// Shared by both add and update paths (after update preamble completes).
-#[allow(clippy::too_many_arguments)]
-async fn ingest_file_content(
-    ctx: &ProcessingContext,
-    item: &UnifiedQueueItem,
-    pool: &SqlitePool,
-    file_path: &Path,
-    payload: &FilePayload,
-    watch_folder_id: &str,
-    base_path: &str,
-    relative_path: &str,
-) -> UnifiedProcessorResult<()> {
-    // === PER-DESTINATION RETRY SKIP (Task 6) ===
-    // If qdrant_status is already 'done' from a previous attempt, skip directly
-    // to the search DB (FTS5) update.
-    let qdrant_already_done = item.qdrant_status == Some(DestinationStatus::Done);
-    if qdrant_already_done {
-        info!(
-            "Qdrant already done for {} (retry), skipping to search DB update",
-            item.queue_id
-        );
-
-        // We still need file_id for FTS5 -- look it up from tracked_files
-        if let Some(sdb) = &ctx.search_db {
-            if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
-                pool,
-                watch_folder_id,
-                relative_path,
-                Some(item.branch.as_str()),
-            )
-            .await
-            {
-                let _ = ctx
-                    .queue_manager
-                    .update_destination_status(
-                        &item.queue_id,
-                        "search",
-                        DestinationStatus::InProgress,
-                    )
-                    .await;
-                fts5_index::update_fts5_for_file(
-                    sdb,
-                    pool,
-                    existing.file_id,
-                    &payload.file_path,
-                    &item.tenant_id,
-                    Some(&item.branch),
-                    existing.base_point.as_deref(),
-                    Some(relative_path),
-                    Some(existing.file_hash.as_str()),
-                )
-                .await;
-                let _ = ctx
-                    .queue_manager
-                    .update_destination_status(
-                        &item.queue_id,
-                        "search",
-                        DestinationStatus::Done,
-                    )
-                    .await;
-            } else {
-                let _ = ctx
-                    .queue_manager
-                    .update_destination_status(
-                        &item.queue_id,
-                        "search",
-                        DestinationStatus::Done,
-                    )
-                    .await;
-            }
-        } else {
-            let _ = ctx
-                .queue_manager
-                .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
-                .await;
-        }
-
-        return Ok(());
-    }
-
-    // Mark qdrant status as in_progress
-    let _ = ctx
-        .queue_manager
-        .update_destination_status(
-            &item.queue_id,
-            "qdrant",
-            DestinationStatus::InProgress,
-        )
-        .await;
-
-    // === INGEST / UPDATE: process file content ===
-    let mut timings: Vec<PhaseTiming> = Vec::new();
-
-    let t0 = Instant::now();
-    let document_content = ctx
-        .document_processor
-        .process_file_content(file_path, &item.collection)
-        .await
-        .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
-    timings.push(PhaseTiming { phase: "parse", duration_ms: t0.elapsed().as_millis() as u64 });
-
-    info!(
-        "Extracted {} chunks from {}",
-        document_content.chunks.len(),
-        payload.file_path
-    );
-
-    // Generate stable document_id for this file (deterministic from tenant + path)
-    let file_document_id =
-        crate::generate_document_id(&item.tenant_id, &payload.file_path);
-
-    // Compute file hash and base_point BEFORE the chunk loop so point IDs use the base_point model
-    let file_hash = tracked_files_schema::compute_file_hash(file_path)
-        .unwrap_or_else(|_| "unknown".to_string());
-    let base_point = wqm_common::hashing::compute_base_point(
-        &item.tenant_id,
-        &item.branch,
-        relative_path,
-        &file_hash,
-    );
-
-    // Embed all chunks
-    let t0 = Instant::now();
-    let embed_result = chunk_embed::embed_chunks(
-        ctx,
-        item,
-        &document_content,
-        file_path,
-        &file_document_id,
-        relative_path,
-        &base_point,
-        &file_hash,
-        payload.file_type.as_deref(),
-    )
-    .await?;
-    timings.push(PhaseTiming { phase: "embed", duration_ms: t0.elapsed().as_millis() as u64 });
-
-    let mut points = embed_result.points;
-    let chunk_records = embed_result.chunk_records;
-    let lsp_status = embed_result.lsp_status;
-    let treesitter_status = embed_result.treesitter_status;
-
-    // === KEYWORD/TAG EXTRACTION (Task 33) ===
-    // Run extraction pipeline after chunk embeddings, before Qdrant upsert.
-    // Results are injected into point payloads AND persisted to SQLite.
-    // Failures are non-fatal.
-    if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
-        let t0 = Instant::now();
-        let extraction = keyword_extract::run_keyword_extraction(
-            ctx,
-            item,
-            file_path,
-            &document_content,
-            &mut points,
-        )
-        .await;
-        timings.push(PhaseTiming { phase: "extract", duration_ms: t0.elapsed().as_millis() as u64 });
-
-        // Persist keywords/tags to SQLite for CLI queries and hierarchy building
-        if let Some(ref extraction) = extraction {
-            keyword_persist::persist_extraction(
-                pool,
-                &file_document_id,
-                &item.tenant_id,
-                &item.collection,
-                extraction,
-            )
-            .await;
-        }
-    }
-
-    // === GRAPH RELATIONSHIP EXTRACTION (graph-rag Task 3) ===
-    // Extract code relationships (CALLS, CONTAINS, IMPORTS, USES_TYPE) from
-    // semantic chunk metadata and store in graph.db. Non-blocking: failures
-    // are logged but never fail the ingestion pipeline.
-    let t0 = Instant::now();
-    graph_ingest::ingest_graph_edges(
-        ctx,
-        &item.tenant_id,
-        relative_path,
-        &document_content.chunks,
-    )
-    .await;
-    timings.push(PhaseTiming { phase: "graph", duration_ms: t0.elapsed().as_millis() as u64 });
-
-    // === COMPONENT DETECTION (Phase 2) ===
-    // Invalidate component cache if a workspace definition file changed.
-    if is_workspace_definition_file(relative_path) {
-        let mut cache = ctx.component_cache.write().await;
-        cache.remove(watch_folder_id);
-        debug!("Invalidated component cache for {} (workspace file changed: {})", watch_folder_id, relative_path);
-    }
-    // Resolve the component for this file based on workspace structure.
-    // Uses a per-watch-folder cache to avoid re-parsing workspace files.
-    let component = resolve_component(ctx, pool, watch_folder_id, &base_path, relative_path).await;
-
-    // Inject component_id into every point's payload for Qdrant filter support
-    if let Some(ref comp) = component {
-        for point in &mut points {
-            point
-                .payload
-                .insert("component_id".to_string(), serde_json::json!(comp));
-        }
-    }
-
-    // Upsert to Qdrant + record in tracked_files atomically
-    let t0 = Instant::now();
-    let file_id = store_track::upsert_and_track(
-        ctx,
-        item,
-        pool,
-        points,
-        &chunk_records,
-        watch_folder_id,
-        relative_path,
-        &base_point,
-        &file_hash,
-        file_path,
-        &document_content,
-        lsp_status,
-        treesitter_status,
-        payload.file_type.as_deref(),
-        component,
-    )
-    .await?;
-    timings.push(PhaseTiming { phase: "upsert", duration_ms: t0.elapsed().as_millis() as u64 });
-
-    // Mark qdrant destination as done (Task 6: per-destination state machine)
-    let _ = ctx
-        .queue_manager
-        .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Done)
-        .await;
-
-    // === FTS5 CODE SEARCH INDEX UPDATE (Task 52) ===
-    let _ = ctx
-        .queue_manager
-        .update_destination_status(
-            &item.queue_id,
-            "search",
-            DestinationStatus::InProgress,
-        )
-        .await;
-    let t0 = Instant::now();
-    if let Some(sdb) = &ctx.search_db {
-        fts5_index::update_fts5_for_file(
-            sdb,
-            pool,
-            file_id,
-            &payload.file_path,
-            &item.tenant_id,
-            Some(&item.branch),
-            Some(&base_point),
-            Some(relative_path),
-            Some(&file_hash),
-        )
-        .await;
-    }
-    timings.push(PhaseTiming { phase: "fts5", duration_ms: t0.elapsed().as_millis() as u64 });
-    let _ = ctx
-        .queue_manager
-        .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
-        .await;
-
-    // Record per-phase timings (non-fatal: errors are logged, never propagated)
-    processing_timings::record_timings(
-        pool,
-        &item.queue_id,
-        &item.item_type.as_str(),
-        &item.op.as_str(),
-        &item.tenant_id,
-        &item.collection,
-        &timings,
-    )
-    .await;
-
-    info!(
-        "Successfully processed file item {} ({})",
-        item.queue_id, payload.file_path
-    );
-
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

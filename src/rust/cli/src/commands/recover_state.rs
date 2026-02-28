@@ -129,42 +129,8 @@ struct ReconstructStats {
     chunks: u64,
 }
 
-/// Create a fresh SQLite database with all required tables.
-///
-/// We create only the tables needed for recovery. The daemon will
-/// handle any remaining migrations on its next startup.
-fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
-    // Ensure parent directory exists
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("Failed to create database directory")?;
-    }
-
-    let conn = rusqlite::Connection::open(db_path)
-        .context("Failed to create state database")?;
-
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-         PRAGMA foreign_keys=ON;"
-    ).context("Failed to set SQLite pragmas")?;
-
-    // Schema version table
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER NOT NULL,
-            applied_at TEXT NOT NULL
-        )"
-    ).context("Failed to create schema_version")?;
-
-    // Insert current schema version (21) so daemon doesn't re-run migrations
-    let now = wqm_common::timestamps::now_utc();
-    conn.execute(
-        "INSERT INTO schema_version (version, applied_at) VALUES (?1, ?2)",
-        params![21, now],
-    ).context("Failed to insert schema version")?;
-
-    // Watch folders
+/// Create core tables: watch_folders, tracked_files, qdrant_chunks.
+fn create_core_tables(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS watch_folders (
             watch_id TEXT PRIMARY KEY,
@@ -194,7 +160,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create watch_folders")?;
 
-    // Tracked files
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS tracked_files (
             file_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,7 +190,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create tracked_files")?;
 
-    // Qdrant chunks
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS qdrant_chunks (
             chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -241,9 +205,11 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
             FOREIGN KEY (file_id) REFERENCES tracked_files(file_id) ON DELETE CASCADE,
             UNIQUE(file_id, chunk_index)
         )"
-    ).context("Failed to create qdrant_chunks")?;
+    ).context("Failed to create qdrant_chunks")
+}
 
-    // Rules mirror
+/// Create auxiliary tables: rules_mirror, unified_queue, submodules, operational_state.
+fn create_auxiliary_tables(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS rules_mirror (
             rule_id TEXT PRIMARY KEY,
@@ -255,7 +221,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create rules_mirror")?;
 
-    // Unified queue (empty but needed for daemon startup)
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS unified_queue (
             queue_id TEXT PRIMARY KEY,
@@ -278,7 +243,6 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create unified_queue")?;
 
-    // Watch folder submodules junction table
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS watch_folder_submodules (
             parent_watch_id TEXT NOT NULL,
@@ -291,22 +255,17 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
         )"
     ).context("Failed to create watch_folder_submodules")?;
 
-    // Operational state (for migration flags)
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS operational_state (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )"
-    ).context("Failed to create operational_state")?;
+    ).context("Failed to create operational_state")
+}
 
-    // Mark recovery as done so daemon doesn't re-scan everything
-    conn.execute(
-        "INSERT INTO operational_state (key, value, updated_at) VALUES ('recovery_done', 'true', ?1)",
-        params![now],
-    ).context("Failed to set recovery flag")?;
-
-    // Basic indexes
+/// Create indexes for recovery tables.
+fn create_recovery_indexes(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_watch_collection_tenant ON watch_folders(collection, tenant_id);
          CREATE INDEX IF NOT EXISTS idx_watch_path ON watch_folders(path);
@@ -315,7 +274,50 @@ fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
          CREATE INDEX IF NOT EXISTS idx_tracked_files_base_point ON tracked_files(base_point);
          CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_point ON qdrant_chunks(point_id);
          CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_file ON qdrant_chunks(file_id);"
-    ).context("Failed to create indexes")?;
+    ).context("Failed to create indexes")
+}
+
+/// Create a fresh SQLite database with all required tables.
+///
+/// We create only the tables needed for recovery. The daemon will
+/// handle any remaining migrations on its next startup.
+fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connection> {
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)
+            .context("Failed to create database directory")?;
+    }
+
+    let conn = rusqlite::Connection::open(db_path)
+        .context("Failed to create state database")?;
+
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA foreign_keys=ON;"
+    ).context("Failed to set SQLite pragmas")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER NOT NULL,
+            applied_at TEXT NOT NULL
+        )"
+    ).context("Failed to create schema_version")?;
+
+    let now = wqm_common::timestamps::now_utc();
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?1, ?2)",
+        params![21, now],
+    ).context("Failed to insert schema version")?;
+
+    create_core_tables(&conn)?;
+    create_auxiliary_tables(&conn)?;
+
+    conn.execute(
+        "INSERT INTO operational_state (key, value, updated_at) VALUES ('recovery_done', 'true', ?1)",
+        params![now],
+    ).context("Failed to set recovery flag")?;
+
+    create_recovery_indexes(&conn)?;
 
     Ok(conn)
 }
@@ -327,147 +329,126 @@ fn reconstruct_project_state(
 ) -> Result<ReconstructStats> {
     let now = wqm_common::timestamps::now_utc();
 
-    // Group points by tenant_id to infer watch folders
     let mut tenant_files: BTreeMap<String, Vec<&serde_json::Value>> = BTreeMap::new();
     for point in points {
-        let tenant_id = point["payload"]["tenant_id"]
-            .as_str()
-            .unwrap_or("unknown")
-            .to_string();
+        let tenant_id = point["payload"]["tenant_id"].as_str().unwrap_or("unknown").to_string();
         tenant_files.entry(tenant_id).or_default().push(point);
     }
 
-    let mut watch_folders_created = 0u64;
-    let mut tracked_files_created = 0u64;
-    let mut chunks_created = 0u64;
+    let mut stats = ReconstructStats { watch_folders: 0, tracked_files: 0, chunks: 0 };
 
-    let tx = conn.unchecked_transaction()
-        .context("Failed to begin transaction")?;
+    let tx = conn.unchecked_transaction().context("Failed to begin transaction")?;
 
     for (tenant_id, points) in &tenant_files {
-        // Infer project root from absolute paths
         let project_root = infer_project_root(points);
-
         let watch_id = Uuid::new_v4().to_string();
         tx.execute(
             "INSERT OR IGNORE INTO watch_folders (watch_id, path, collection, tenant_id, is_active, enabled, created_at, updated_at)
              VALUES (?1, ?2, 'projects', ?3, 0, 1, ?4, ?5)",
             params![watch_id, project_root, tenant_id, now, now],
         ).context("Failed to insert watch_folder")?;
-        watch_folders_created += 1;
+        stats.watch_folders += 1;
 
-        // Group points by (file_path, branch) for tracked_files
-        let mut file_groups: BTreeMap<(String, String), Vec<&serde_json::Value>> = BTreeMap::new();
-        for point in points {
-            let file_path = point["payload"]["file_path"]
-                .as_str()
-                .or_else(|| point["payload"]["absolute_path"].as_str())
-                .unwrap_or("")
-                .to_string();
-            let branch = point["payload"]["branch"]
-                .as_str()
-                .unwrap_or("main")
-                .to_string();
-
-            if file_path.is_empty() {
-                continue;
-            }
-            file_groups.entry((file_path, branch)).or_default().push(point);
-        }
-
+        let file_groups = group_points_by_file(points);
         for ((file_path, branch), file_points) in &file_groups {
-            // Take metadata from the first chunk
-            let first = file_points[0];
-            let file_hash = first["payload"]["file_hash"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
-            let language = first["payload"]["language"]
-                .as_str()
-                .map(|s| s.to_string());
-            let file_type = first["payload"]["file_type"]
-                .as_str()
-                .map(|s| s.to_string());
-            let base_point = first["payload"]["base_point"]
-                .as_str()
-                .map(|s| s.to_string());
-            let relative_path = first["payload"]["relative_path"]
-                .as_str()
-                .map(|s| s.to_string());
-            let extension = first["payload"]["file_extension"]
-                .as_str()
-                .map(|s| s.to_string());
-
-            let chunk_count = file_points.len() as i64;
-
-            let result = tx.execute(
-                "INSERT OR IGNORE INTO tracked_files
-                 (watch_folder_id, file_path, branch, file_type, language, file_mtime, file_hash,
-                  chunk_count, collection, base_point, relative_path, extension, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'projects', ?9, ?10, ?11, ?12, ?13)",
-                params![
-                    watch_id, file_path, branch, file_type, language,
-                    now, file_hash, chunk_count, base_point, relative_path,
-                    extension, now, now
-                ],
-            ).context("Failed to insert tracked_file")?;
-
-            if result == 0 {
-                continue; // Duplicate
-            }
-
-            let file_id = tx.last_insert_rowid();
-            tracked_files_created += 1;
-
-            // Insert qdrant_chunks
-            for point in file_points {
-                let point_id_str = if let Some(s) = point["id"].as_str() {
-                    s.to_string()
-                } else if let Some(n) = point["id"].as_u64() {
-                    n.to_string()
-                } else {
-                    continue;
-                };
-                let chunk_index = point["payload"]["chunk_index"]
-                    .as_u64()
-                    .unwrap_or(0) as i64;
-                let content = point["payload"]["content"]
-                    .as_str()
-                    .unwrap_or("");
-                let content_hash = wqm_common::hashing::compute_content_hash(content);
-                let chunk_type = point["payload"]["chunk_type"]
-                    .as_str()
-                    .map(|s| s.to_string());
-                let symbol_name = point["payload"]["chunk_symbol_name"]
-                    .as_str()
-                    .map(|s| s.to_string());
-                let start_line = point["payload"]["chunk_start_line"]
-                    .as_i64();
-                let end_line = point["payload"]["chunk_end_line"]
-                    .as_i64();
-
-                tx.execute(
-                    "INSERT OR IGNORE INTO qdrant_chunks
-                     (file_id, point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    params![
-                        file_id, point_id_str, chunk_index,
-                        &content_hash[..32], chunk_type, symbol_name,
-                        start_line, end_line, now
-                    ],
-                ).context("Failed to insert qdrant_chunk")?;
-                chunks_created += 1;
+            let file_id = insert_project_tracked_file(&tx, &watch_id, file_path, branch, file_points, &now)?;
+            if let Some(fid) = file_id {
+                stats.tracked_files += 1;
+                stats.chunks += insert_qdrant_chunks_with_metadata(&tx, fid, file_points, &now)?;
             }
         }
     }
 
     tx.commit().context("Failed to commit project reconstruction")?;
+    Ok(stats)
+}
 
-    Ok(ReconstructStats {
-        watch_folders: watch_folders_created,
-        tracked_files: tracked_files_created,
-        chunks: chunks_created,
-    })
+/// Group points by (file_path, branch) for tracked file reconstruction.
+fn group_points_by_file<'a>(
+    points: &[&'a serde_json::Value],
+) -> BTreeMap<(String, String), Vec<&'a serde_json::Value>> {
+    let mut groups: BTreeMap<(String, String), Vec<&serde_json::Value>> = BTreeMap::new();
+    for point in points {
+        let file_path = point["payload"]["file_path"].as_str()
+            .or_else(|| point["payload"]["absolute_path"].as_str())
+            .unwrap_or("").to_string();
+        let branch = point["payload"]["branch"].as_str().unwrap_or("main").to_string();
+        if !file_path.is_empty() {
+            groups.entry((file_path, branch)).or_default().push(point);
+        }
+    }
+    groups
+}
+
+/// Insert a tracked_file row for a project file. Returns the file_id if inserted (None if duplicate).
+fn insert_project_tracked_file(
+    tx: &rusqlite::Transaction<'_>,
+    watch_id: &str,
+    file_path: &str,
+    branch: &str,
+    file_points: &[&serde_json::Value],
+    now: &str,
+) -> Result<Option<i64>> {
+    let first = file_points[0];
+    let file_hash = first["payload"]["file_hash"].as_str().unwrap_or("").to_string();
+    let language = first["payload"]["language"].as_str().map(|s| s.to_string());
+    let file_type = first["payload"]["file_type"].as_str().map(|s| s.to_string());
+    let base_point = first["payload"]["base_point"].as_str().map(|s| s.to_string());
+    let relative_path = first["payload"]["relative_path"].as_str().map(|s| s.to_string());
+    let extension = first["payload"]["file_extension"].as_str().map(|s| s.to_string());
+
+    let result = tx.execute(
+        "INSERT OR IGNORE INTO tracked_files
+         (watch_folder_id, file_path, branch, file_type, language, file_mtime, file_hash,
+          chunk_count, collection, base_point, relative_path, extension, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'projects', ?9, ?10, ?11, ?12, ?13)",
+        params![
+            watch_id, file_path, branch, file_type, language,
+            now, file_hash, file_points.len() as i64, base_point, relative_path,
+            extension, now, now
+        ],
+    ).context("Failed to insert tracked_file")?;
+
+    Ok(if result > 0 { Some(tx.last_insert_rowid()) } else { None })
+}
+
+/// Insert qdrant_chunks with full metadata (chunk_type, symbol, line range). Returns chunk count.
+fn insert_qdrant_chunks_with_metadata(
+    tx: &rusqlite::Transaction<'_>,
+    file_id: i64,
+    file_points: &[&serde_json::Value],
+    now: &str,
+) -> Result<u64> {
+    let mut count = 0u64;
+    for point in file_points {
+        let point_id_str = extract_point_id(point);
+        let Some(point_id_str) = point_id_str else { continue };
+        let chunk_index = point["payload"]["chunk_index"].as_u64().unwrap_or(0) as i64;
+        let content = point["payload"]["content"].as_str().unwrap_or("");
+        let content_hash = wqm_common::hashing::compute_content_hash(content);
+        let chunk_type = point["payload"]["chunk_type"].as_str().map(|s| s.to_string());
+        let symbol_name = point["payload"]["chunk_symbol_name"].as_str().map(|s| s.to_string());
+
+        tx.execute(
+            "INSERT OR IGNORE INTO qdrant_chunks
+             (file_id, point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                file_id, point_id_str, chunk_index, &content_hash[..32],
+                chunk_type, symbol_name,
+                point["payload"]["chunk_start_line"].as_i64(),
+                point["payload"]["chunk_end_line"].as_i64(), now
+            ],
+        ).context("Failed to insert qdrant_chunk")?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// Extract point ID as string from a Qdrant point JSON value.
+fn extract_point_id(point: &serde_json::Value) -> Option<String> {
+    point["id"].as_str().map(|s| s.to_string())
+        .or_else(|| point["id"].as_u64().map(|n| n.to_string()))
 }
 
 /// Reconstruct watch_folders + tracked_files from libraries collection points.
@@ -521,50 +502,28 @@ fn reconstruct_library_state(
 
         for (doc_id, doc_points) in &doc_groups {
             let first = doc_points[0];
-            let file_path = first["payload"]["file_path"]
-                .as_str()
+            let file_path = first["payload"]["file_path"].as_str()
                 .or_else(|| first["payload"]["source_url"].as_str())
-                .unwrap_or(&doc_id)
-                .to_string();
-            let file_hash = first["payload"]["file_hash"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
-            let branch = first["payload"]["branch"]
-                .as_str()
-                .unwrap_or("main")
-                .to_string();
-
-            let chunk_count = doc_points.len() as i64;
+                .unwrap_or(doc_id).to_string();
+            let file_hash = first["payload"]["file_hash"].as_str().unwrap_or("").to_string();
+            let branch = first["payload"]["branch"].as_str().unwrap_or("main").to_string();
 
             let result = tx.execute(
                 "INSERT OR IGNORE INTO tracked_files
                  (watch_folder_id, file_path, branch, file_mtime, file_hash, chunk_count, collection, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'libraries', ?7, ?8)",
-                params![watch_id, file_path, branch, now, file_hash, chunk_count, now, now],
+                params![watch_id, file_path, branch, now, file_hash, doc_points.len() as i64, now, now],
             ).context("Failed to insert library tracked_file")?;
 
-            if result == 0 {
-                continue;
-            }
+            if result == 0 { continue; }
 
             let file_id = tx.last_insert_rowid();
             tracked_files_created += 1;
 
             for point in doc_points {
-                let point_id_str = if let Some(s) = point["id"].as_str() {
-                    s.to_string()
-                } else if let Some(n) = point["id"].as_u64() {
-                    n.to_string()
-                } else {
-                    continue;
-                };
-                let chunk_index = point["payload"]["chunk_index"]
-                    .as_u64()
-                    .unwrap_or(0) as i64;
-                let content = point["payload"]["content"]
-                    .as_str()
-                    .unwrap_or("");
+                let Some(point_id_str) = extract_point_id(point) else { continue };
+                let chunk_index = point["payload"]["chunk_index"].as_u64().unwrap_or(0) as i64;
+                let content = point["payload"]["content"].as_str().unwrap_or("");
                 let content_hash = wqm_common::hashing::compute_content_hash(content);
 
                 tx.execute(
@@ -598,13 +557,7 @@ fn reconstruct_rules_state(
     let mut count = 0u64;
 
     for point in points {
-        let point_id = if let Some(s) = point["id"].as_str() {
-            s.to_string()
-        } else if let Some(n) = point["id"].as_u64() {
-            n.to_string()
-        } else {
-            continue;
-        };
+        let Some(point_id) = extract_point_id(point) else { continue };
 
         let content = point["payload"]["content"]
             .as_str()

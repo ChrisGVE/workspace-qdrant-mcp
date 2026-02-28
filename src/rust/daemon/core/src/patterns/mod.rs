@@ -10,6 +10,7 @@ use thiserror::Error;
 
 pub mod manager;
 pub mod comprehensive;
+mod conversion;
 pub mod detection;
 pub mod project;
 pub mod exclusion;

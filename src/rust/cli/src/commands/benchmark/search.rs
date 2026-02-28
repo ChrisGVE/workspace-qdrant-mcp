@@ -47,102 +47,26 @@ struct QueryComparison {
 }
 
 /// Default query set covering typical code search patterns.
-fn default_queries() -> Vec<BenchQuery> {
-    vec![
-        // Exact queries (8)
-        BenchQuery {
-            label: "exact: common keyword",
-            pattern: "async fn",
-            regex: false,
-        },
-        BenchQuery {
-            label: "exact: struct name",
-            pattern: "ProcessingContext",
-            regex: false,
-        },
-        BenchQuery {
-            label: "exact: import path",
-            pattern: "use std::collections::HashMap",
-            regex: false,
-        },
-        BenchQuery {
-            label: "exact: error handling",
-            pattern: "anyhow::Result",
-            regex: false,
-        },
-        BenchQuery {
-            label: "exact: rare symbol",
-            pattern: "CentralityCache",
-            regex: false,
-        },
-        BenchQuery {
-            label: "exact: trait impl",
-            pattern: "impl Default for",
-            regex: false,
-        },
-        BenchQuery {
-            label: "exact: test annotation",
-            pattern: "#[cfg(test)]",
-            regex: false,
-        },
-        BenchQuery {
-            label: "exact: multi-word",
-            pattern: "queue processor",
-            regex: false,
-        },
-        // Regex queries (10)
-        BenchQuery {
-            label: "regex: fn signature",
-            pattern: r"pub async fn \w+\(",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: struct definition",
-            pattern: r"pub struct \w+ \{",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: fn definition",
-            pattern: r"fn \w+\(",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: mutable binding",
-            pattern: r"let mut \w+",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: trait impl",
-            pattern: r"impl \w+ for \w+",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: std imports",
-            pattern: r"use (std|tokio|serde)::\w+",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: derive macros",
-            pattern: r"#\[derive\(\w+",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: public decls",
-            pattern: r"pub (fn|struct|enum|trait|type) \w+",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: async Result",
-            pattern: r"async fn \w+.*-> Result",
-            regex: true,
-        },
-        BenchQuery {
-            label: "regex: method chains",
-            pattern: r"\.(await|unwrap|expect)\b",
-            regex: true,
-        },
-    ]
-}
+static DEFAULT_QUERIES: &[BenchQuery] = &[
+    BenchQuery { label: "exact: common keyword", pattern: "async fn", regex: false },
+    BenchQuery { label: "exact: struct name", pattern: "ProcessingContext", regex: false },
+    BenchQuery { label: "exact: import path", pattern: "use std::collections::HashMap", regex: false },
+    BenchQuery { label: "exact: error handling", pattern: "anyhow::Result", regex: false },
+    BenchQuery { label: "exact: rare symbol", pattern: "CentralityCache", regex: false },
+    BenchQuery { label: "exact: trait impl", pattern: "impl Default for", regex: false },
+    BenchQuery { label: "exact: test annotation", pattern: "#[cfg(test)]", regex: false },
+    BenchQuery { label: "exact: multi-word", pattern: "queue processor", regex: false },
+    BenchQuery { label: "regex: fn signature", pattern: r"pub async fn \w+\(", regex: true },
+    BenchQuery { label: "regex: struct definition", pattern: r"pub struct \w+ \{", regex: true },
+    BenchQuery { label: "regex: fn definition", pattern: r"fn \w+\(", regex: true },
+    BenchQuery { label: "regex: mutable binding", pattern: r"let mut \w+", regex: true },
+    BenchQuery { label: "regex: trait impl", pattern: r"impl \w+ for \w+", regex: true },
+    BenchQuery { label: "regex: std imports", pattern: r"use (std|tokio|serde)::\w+", regex: true },
+    BenchQuery { label: "regex: derive macros", pattern: r"#\[derive\(\w+", regex: true },
+    BenchQuery { label: "regex: public decls", pattern: r"pub (fn|struct|enum|trait|type) \w+", regex: true },
+    BenchQuery { label: "regex: async Result", pattern: r"async fn \w+.*-> Result", regex: true },
+    BenchQuery { label: "regex: method chains", pattern: r"\.(await|unwrap|expect)\b", regex: true },
+];
 
 /// Execute the search benchmark.
 pub async fn execute(
@@ -172,7 +96,7 @@ pub async fn execute(
         .await
         .context("Failed to open search.db")?;
 
-    let queries = default_queries();
+    let queries = DEFAULT_QUERIES;
 
     println!("Search Benchmark: FTS5 vs ripgrep");
     println!("=================================");
@@ -193,7 +117,7 @@ pub async fn execute(
     if warmup > 0 {
         println!("Warming up...");
         for _ in 0..warmup {
-            for q in &queries {
+            for q in queries {
                 let _ = run_fts5_query(&search_db, q, tenant_id.as_deref()).await;
                 let _ = run_rg_query(&project_root, q);
             }
@@ -204,7 +128,7 @@ pub async fn execute(
     println!("Running benchmark...");
     let mut comparisons: Vec<QueryComparison> = Vec::new();
 
-    for q in &queries {
+    for q in queries {
         let mut fts5_latencies = Vec::new();
         let mut rg_latencies = Vec::new();
         let mut last_fts5 = None;
@@ -538,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_default_queries_not_empty() {
-        let queries = default_queries();
+        let queries = DEFAULT_QUERIES;
         assert!(!queries.is_empty());
         let exact = queries.iter().filter(|q| !q.regex).count();
         let regex = queries.iter().filter(|q| q.regex).count();

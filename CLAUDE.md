@@ -43,138 +43,76 @@ Backward compatibility is not necessary as this project is a work in progress an
 
 When modifying files that exceed the code size guidance (see global CLAUDE.md), refactor gradually by extracting the section being changed into its own module. When files are addressed, update this CLAUDE.md file by removing the files addressed.
 
-### Rust source files exceeding 500-line limit (82 files)
+### Rust source files exceeding 500-line limit
 
-**Critical (>2000 lines):**
+All Critical (>2000) and High (1000-2000) files have been split across arch-refactor rounds 1-3.
+22 Moderate files were also addressed. Remaining oversized source files:
 
-| File | Lines | Action |
-|------|------:|--------|
-| `daemon/core/src/unified_queue_processor.rs` | 4,929 | Split into `queue_processor/` module tree |
-| `daemon/core/src/watching_queue.rs` | 4,210 | Split into `watching/` module tree |
-| `daemon/core/src/processing.rs` | 4,152 | Split by processing type |
-| `daemon/core/src/queue_operations.rs` | 3,771 | Split by operation category |
-| `daemon/core/src/daemon_state.rs` | 3,014 | Split by domain (watches, queue, config) |
-| `daemon/core/src/lsp/project_manager.rs` | 2,889 | Split by lifecycle phase |
-| `daemon/core/src/text_search.rs` | 2,476 | Split search vs indexing |
-| `daemon/core/src/search_db.rs` | 2,415 | Split schema vs queries |
-| `daemon/core/src/storage.rs` | 2,252 | Split by collection/operation |
-| `daemon/core/src/schema_version.rs` | 2,061 | Split migrations into per-version files |
-| `daemon/core/src/config.rs` | 2,030 | Split by config domain |
-| `daemon/grpc/src/services/project_service.rs` | 1,969 | Split by operation type |
-| `daemon/core/src/document_processor.rs` | 1,895 | Split extraction vs chunking |
-| `daemon/core/src/watching.rs` | 1,888 | Split event handling vs lifecycle |
-| `daemon/core/src/tracked_files_schema.rs` | 1,882 | Split schema vs operations |
-
-**High (1000–2000 lines):**
+**High (>700 lines):**
 
 | File | Lines |
 |------|------:|
-| `daemon/core/src/library_document.rs` | 1,462 |
-| `cli/src/commands/debug.rs` | 1,458 |
-| `daemon/core/src/metrics.rs` | 1,434 |
-| `daemon/core/src/logging.rs` | 1,428 |
-| `cli/src/commands/library.rs` | 1,404 |
-| `daemon/grpc/src/services/document_service.rs` | 1,276 |
-| `daemon/core/src/tree_sitter/grammar_manager.rs` | 1,236 |
-| `cli/src/commands/rules.rs` | 1,228 |
-| `daemon/core/src/git_integration.rs` | 1,212 |
-| `daemon/memexd/src/main.rs` | 1,178 |
-| `cli/src/commands/project.rs` | 1,159 |
-| `daemon/core/src/git_watcher.rs` | 1,131 |
-| `daemon/core/src/watching/platform.rs` | 1,124 |
-| `daemon/grpc/src/services/system_service.rs` | 1,114 |
-| `daemon/core/src/lsp/lifecycle.rs` | 1,092 |
-| `daemon/core/src/adaptive_resources.rs` | 1,090 |
-| `daemon/core/src/fts_batch_processor.rs` | 1,044 |
-| `daemon/core/src/priority_manager.rs` | 1,031 |
-| `daemon/core/src/lsp/detection.rs` | 1,014 |
+| `daemon/core/src/strategies/processing/file/chunk_embed.rs` | 761 |
+| `daemon/core/src/embedding.rs` | 748 |
+| `cli/src/commands/recover_state.rs` | 703 |
+| `daemon/core/src/text_search/exact_search.rs` | 700 |
 
-**Moderate (550–1000 lines, 48 files):**
+**Moderate (550–700 lines):**
 
 | File | Lines |
 |------|------:|
-| `daemon/core/src/error.rs` | 947 |
-| `cli/src/commands/service.rs` | 936 |
-| `cli/src/commands/queue.rs` | 914 |
-| `cli/src/commands/status.rs` | 879 |
-| `daemon/core/src/lib.rs` | 863 |
-| `cli/src/commands/watch.rs` | 847 |
-| `common/src/yaml_defaults.rs` | 831 |
-| `daemon/core/src/ipc.rs` | 826 |
-| `daemon/core/src/metrics_history.rs` | 822 |
-| `cli/src/config.rs` | 798 |
-| `daemon/core/src/patterns/project.rs` | 793 |
-| `daemon/core/src/lsp/config.rs` | 783 |
-| `daemon/core/src/patterns/exclusion.rs` | 758 |
-| `daemon/grpc/src/lib.rs` | 730 |
-| `cli/src/commands/tags.rs` | 710 |
-| `daemon/core/src/patterns/manager.rs` | 700 |
+| `daemon/core/src/keyword_extraction/canonical_tags.rs` | 696 |
 | `cli/src/commands/hooks.rs` | 695 |
-| `daemon/core/src/watching/file_watcher.rs` | 685 |
-| `daemon/core/src/tree_sitter/languages/rust.rs` | 674 |
-| `daemon/core/src/tree_sitter/parser.rs` | 667 |
-| `daemon/shared-test-utils/src/test_helpers.rs` | 661 |
-| `daemon/core/src/lsp/tests.rs` | 659 |
-| `daemon/core/src/unified_queue_schema.rs` | 652 |
-| `daemon/core/src/startup_reconciliation.rs` | 647 |
+| `cli/src/commands/tags.rs` | 648 |
+| `daemon/core/src/lexicon.rs` | 647 |
 | `daemon/core/src/parent_unit.rs` | 637 |
+| `daemon/core/src/unified_queue_schema.rs` | 630 |
 | `daemon/core/src/title_extraction.rs` | 629 |
+| `daemon/core/src/branch_switch.rs` | 624 |
 | `cli/src/commands/config_cmd.rs` | 624 |
+| `daemon/core/src/processing/executor.rs` | 622 |
 | `common/src/queue_types.rs` | 617 |
-| `daemon/core/src/remote_monitor.rs` | 615 |
+| `cli/src/commands/graph.rs` | 607 |
 | `daemon/core/src/queue_error_handler.rs` | 604 |
 | `cli/src/commands/language.rs` | 602 |
-| `cli/src/commands/admin.rs` | 600 |
+| `cli/src/commands/admin.rs` | 602 |
+| `common/src/payloads.rs` | 596 |
 | `cli/src/commands/update.rs` | 596 |
-| `daemon/shared-test-utils/src/fixtures.rs` | 589 |
+| `daemon/core/src/grouping/affinity.rs` | 589 |
+| `daemon/core/src/cooccurrence_schema.rs` | 586 |
 | `daemon/core/src/allowed_extensions.rs` | 585 |
-| `daemon/core/src/tool_monitor.rs` | 582 |
 | `daemon/core/src/service_discovery/manager.rs` | 575 |
-| `daemon/core/src/startup_recovery.rs` | 574 |
+| `daemon/core/src/processing/request_queue.rs` | 573 |
 | `daemon/core/src/unified_config.rs` | 567 |
 | `daemon/core/src/patterns/detection.rs` | 566 |
-| `common/src/payloads.rs` | 565 |
+| `daemon/core/src/keyword_extraction/hierarchy_builder.rs` | 566 |
 | `cli/src/commands/restore.rs` | 565 |
-| `daemon/core/src/tree_sitter/chunker.rs` | 561 |
+| `daemon/grpc/src/services/graph_service.rs` | 563 |
+| `daemon/core/src/metadata_enrichment.rs` | 561 |
 | `daemon/core/src/keyword_extraction/lsp_candidates.rs` | 560 |
-| `cli/src/commands/ingest.rs` | 559 |
-| `daemon/core/src/lsp/communication.rs` | 555 |
-| `daemon/core/src/embedding.rs` | 554 |
-| `daemon/core/src/lexicon.rs` | 552 |
+| `cli/src/commands/ingest.rs` | 557 |
+| `daemon/core/src/idle_history.rs` | 553 |
+| `daemon/core/src/graph/ladybug_store.rs` | 547 |
+| `daemon/core/src/grep_search.rs` | 546 |
+| `daemon/grpc/src/services/collection_service.rs` | 539 |
+| `cli/src/output.rs` | 536 |
+| `daemon/core/src/strategies/processing/folder.rs` | 534 |
+| `cli/src/commands/backup.rs` | 534 |
+| `daemon/core/src/image_extraction.rs` | 531 |
+| `daemon/core/src/text_search/regex_parser.rs` | 530 |
+| `daemon/core/src/service_discovery/network.rs` | 528 |
+| `daemon/core/src/file_classification.rs` | 519 |
+| `daemon/core/src/storage/collections.rs` | 518 |
+| `daemon/core/src/watching/move_detector.rs` | 515 |
+| `common/src/project_id.rs` | 513 |
+| `daemon/core/src/image_ingestion.rs` | 508 |
+| `daemon/core/src/grouping/workspace.rs` | 505 |
+| `cli/src/commands/collections.rs` | 504 |
+| `daemon/core/src/tree_sitter/grammar_cache.rs` | 503 |
 
 ### TypeScript source files exceeding 300-line limit
 
-All 8 oversized TypeScript source files have been split (arch-refactor Task 18, done).
-
-**Test files exceeding limits (tracked but lower priority):**
-
-| File | Lines |
-|------|------:|
-| `daemon/core/tests/file_ingestion_pipeline_tests.rs` | 2,536 |
-| `daemon/core/tests/file_watching_tests.rs` | 1,336 |
-| `daemon/core/tests/cross_platform_safety_tests.rs` | 1,220 |
-| `daemon/core/src/watching/tests.rs` | 1,169 |
-| `daemon/core/tests/unsafe_code_audit_tests.rs` | 1,107 |
-| `daemon/core/tests/stress_tests.rs` | 983 |
-| `daemon/core/tests/property_based_tests.rs` | 958 |
-| `daemon/core/tests/fts5_integration_tests.rs` | 925 |
-| `daemon/core/tests/ffi_performance_tests.rs` | 890 |
-| `daemon/core/tests/fts5_edge_case_tests.rs` | 880 |
-| `daemon/core/tests/file_ingestion_comprehensive_tests.rs` | 803 |
-| `daemon/core/tests/valgrind_memory_tests.rs` | 775 |
-| `daemon/core/tests/property_file_monitoring_tests.rs` | 659 |
-| `daemon/core/tests/qdrant_client_validation_tests.rs` | 643 |
-| `daemon/core/tests/async_unit_tests.rs` | 645 |
-| `mcp-server/tests/integration/server-integration.test.ts` | 1,022 |
-| `mcp-server/tests/tools/search.test.ts` | 634 |
-| `mcp-server/tests/tools/retrieve.test.ts` | 550 |
-| `mcp-server/tests/clients/sqlite-state-manager.test.ts` | 503 |
-| `mcp-server/tests/tools/rules.test.ts` | 441 |
-| `mcp-server/tests/tools/store.test.ts` | 427 |
-| `mcp-server/tests/server.test.ts` | 397 |
-| `mcp-server/tests/tools/search-expansion.test.ts` | 379 |
-| `mcp-server/tests/utils/health-monitor.test.ts` | 358 |
-| `mcp-server/tests/utils/project-detector.test.ts` | 353 |
+All TypeScript source files are now under the 300-line limit (arch-refactor rounds 1-3 complete).
 
 ## Development Commands
 

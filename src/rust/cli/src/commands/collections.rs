@@ -70,7 +70,7 @@ enum CollectionsCommand {
 
     /// Reset (delete and recreate) specific collection(s)
     Reset {
-        /// Collection name(s) to reset (projects, libraries, memory)
+        /// Collection name(s) to reset (projects, libraries, rules, scratchpad)
         #[arg(required = true)]
         names: Vec<String>,
 
@@ -488,7 +488,8 @@ mod tests {
     fn test_valid_collections() {
         assert!(VALID_COLLECTIONS.contains(&"projects"));
         assert!(VALID_COLLECTIONS.contains(&"libraries"));
-        assert!(VALID_COLLECTIONS.contains(&"memory"));
+        assert!(VALID_COLLECTIONS.contains(&"rules"));
+        assert!(VALID_COLLECTIONS.contains(&"scratchpad"));
         assert!(!VALID_COLLECTIONS.contains(&"invalid"));
     }
 

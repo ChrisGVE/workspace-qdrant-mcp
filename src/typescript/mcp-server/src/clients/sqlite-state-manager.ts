@@ -56,12 +56,12 @@ import * as searchEventQueries from './search-event-queries.js';
 import * as tagQueries from './tag-queries.js';
 import * as instanceQueries from './instance-queries.js';
 import * as rulesMirrorQueries from './rules-mirror-queries.js';
-import * as trackedFilesQueries from './tracked-files-queries.js';
+import * as trackedFilesQueries from './tracked-files-queries/index.js';
 
 // Re-export delegate types
 export type { SearchEventInput, SearchEventUpdate } from './search-event-queries.js';
 export type { RulesMirrorEntry } from './rules-mirror-queries.js';
-export type { TrackedFileEntry, SubmoduleEntry, ComponentEntry, ListTrackedFilesOptions } from './tracked-files-queries.js';
+export type { TrackedFileEntry, SubmoduleEntry, ComponentEntry, ListTrackedFilesOptions } from './tracked-files-queries/index.js';
 
 // Default database path
 const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');

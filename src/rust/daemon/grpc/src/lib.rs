@@ -2,19 +2,33 @@
 //!
 //! This crate provides the gRPC server implementation for communication
 //! between the Python MCP server and the Rust processing engine.
+//!
+//! # Module layout
+//!
+//! - [`auth`] - Authentication interceptor and TLS/auth configuration types
+//! - [`builder`] - Fluent builder methods for `GrpcServer` dependency injection
+//! - [`factory`] - Service instantiation, TLS setup, and server startup
+//! - [`services`] - Individual gRPC service implementations
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
+
+use sqlx::SqlitePool;
 use thiserror::Error;
 use tokio::sync::{Notify, RwLock};
-use tonic::transport::{Server, ServerTlsConfig, Identity};
-use tonic::{Request, Status};
-use sqlx::SqlitePool;
+use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
 use workspace_qdrant_core::LanguageServerManager;
 use workspace_qdrant_core::SearchDbManager;
-use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
+
+pub mod auth;
+mod builder;
+mod factory;
+pub mod services;
+
+// Re-export auth types at crate root for backward compatibility
+pub use auth::{AuthConfig, AuthInterceptor, TlsConfig};
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
@@ -22,12 +36,6 @@ pub mod proto {
     // EmbeddingService, ProjectService, TextSearchService, GraphService
     tonic::include_proto!("workspace_daemon");
 }
-
-// Legacy IngestionService removed - all operations now use workspace_daemon protocol
-// See: SystemService, CollectionService, DocumentService, EmbeddingService, ProjectService in services/
-
-// New modular services implementation
-pub mod services;
 
 /// gRPC service errors
 #[derive(Error, Debug)]
@@ -65,24 +73,6 @@ pub struct ServerConfig {
     pub health_check_config: HealthCheckConfig,
 }
 
-/// TLS configuration for secure connections
-#[derive(Debug, Clone)]
-pub struct TlsConfig {
-    pub cert_path: String,
-    pub key_path: String,
-    pub ca_cert_path: Option<String>,
-    pub require_client_cert: bool,
-}
-
-/// Authentication configuration
-#[derive(Debug, Clone)]
-pub struct AuthConfig {
-    pub enabled: bool,
-    pub api_key: Option<String>,
-    pub jwt_secret: Option<String>,
-    pub allowed_origins: Vec<String>,
-}
-
 /// Timeout configuration
 #[derive(Debug, Clone)]
 pub struct TimeoutConfig {
@@ -112,6 +102,41 @@ pub struct HealthCheckConfig {
     pub failure_threshold: u32,
 }
 
+impl Default for TimeoutConfig {
+    fn default() -> Self {
+        Self {
+            request_timeout: Duration::from_secs(30),
+            connection_timeout: Duration::from_secs(10),
+            keepalive_interval: Duration::from_secs(30),
+            keepalive_timeout: Duration::from_secs(5),
+        }
+    }
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_streams: 1000,
+            max_message_size: 16 * 1024 * 1024, // 16MB
+            max_connection_idle: Duration::from_secs(300),   // 5 minutes
+            max_connection_age: Duration::from_secs(3600),   // 1 hour
+            tcp_nodelay: true,
+            tcp_keepalive: Some(Duration::from_secs(600)),   // 10 minutes
+        }
+    }
+}
+
+impl Default for HealthCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval: Duration::from_secs(30),
+            timeout: Duration::from_secs(5),
+            failure_threshold: 3,
+        }
+    }
+}
+
 impl ServerConfig {
     pub fn new(bind_addr: SocketAddr) -> Self {
         Self {
@@ -125,7 +150,12 @@ impl ServerConfig {
     }
 
     /// Create a secure configuration with TLS and authentication required
-    pub fn new_secure(bind_addr: SocketAddr, cert_path: String, key_path: String, api_key: String) -> Self {
+    pub fn new_secure(
+        bind_addr: SocketAddr,
+        cert_path: String,
+        key_path: String,
+        api_key: String,
+    ) -> Self {
         Self {
             bind_addr,
             tls_config: Some(TlsConfig {
@@ -138,7 +168,7 @@ impl ServerConfig {
                 enabled: true,
                 api_key: Some(api_key),
                 jwt_secret: None,
-                allowed_origins: vec![], // Empty = no wildcard allowed
+                allowed_origins: vec![],
             }),
             timeout_config: TimeoutConfig::default(),
             performance_config: PerformanceConfig::default(),
@@ -175,8 +205,8 @@ impl ServerConfig {
 
     /// Check if the configuration is secure (has TLS or requires authentication)
     pub fn is_secure(&self) -> bool {
-        self.tls_config.is_some() ||
-        self.auth_config.as_ref().map(|a| a.enabled).unwrap_or(false)
+        self.tls_config.is_some()
+            || self.auth_config.as_ref().map(|a| a.enabled).unwrap_or(false)
     }
 
     /// Get security warnings for the current configuration
@@ -184,29 +214,43 @@ impl ServerConfig {
         let mut warnings = Vec::new();
 
         if self.tls_config.is_none() {
-            warnings.push("TLS is not enabled - all communication will be unencrypted".to_string());
+            warnings.push(
+                "TLS is not enabled - all communication will be unencrypted".to_string(),
+            );
         }
 
-        if let Some(auth) = &self.auth_config {
-            if !auth.enabled {
-                warnings.push("Authentication is disabled - anyone can access the gRPC server".to_string());
-            }
-            if auth.enabled && auth.api_key.is_none() && auth.jwt_secret.is_none() {
-                warnings.push("Authentication enabled but no credentials configured".to_string());
-            }
-            if auth.allowed_origins.contains(&"*".to_string()) {
-                warnings.push("Wildcard origin allowed - CORS protection disabled".to_string());
-            }
-        } else {
-            warnings.push("No authentication configured".to_string());
-        }
+        self.check_auth_warnings(&mut warnings);
 
         // Check if binding to all interfaces without TLS
         if self.bind_addr.ip().is_unspecified() && self.tls_config.is_none() {
-            warnings.push("Binding to 0.0.0.0 without TLS - server exposed to network without encryption".to_string());
+            warnings.push(
+                "Binding to 0.0.0.0 without TLS - server exposed to network without encryption"
+                    .to_string(),
+            );
         }
 
         warnings
+    }
+
+    fn check_auth_warnings(&self, warnings: &mut Vec<String>) {
+        let Some(auth) = &self.auth_config else {
+            warnings.push("No authentication configured".to_string());
+            return;
+        };
+
+        if !auth.enabled {
+            warnings.push(
+                "Authentication is disabled - anyone can access the gRPC server".to_string(),
+            );
+        }
+        if auth.enabled && auth.api_key.is_none() && auth.jwt_secret.is_none() {
+            warnings
+                .push("Authentication enabled but no credentials configured".to_string());
+        }
+        if auth.allowed_origins.contains(&"*".to_string()) {
+            warnings
+                .push("Wildcard origin allowed - CORS protection disabled".to_string());
+        }
     }
 
     pub fn with_tls(mut self, tls_config: TlsConfig) -> Self {
@@ -230,80 +274,39 @@ impl ServerConfig {
     }
 }
 
-// Macro to implement Default for configuration structs
-macro_rules! implement_defaults {
-    ($($struct_name:ident { $($field:ident: $value:expr),* $(,)? }),* $(,)?) => {
-        $(
-            impl Default for $struct_name {
-                fn default() -> Self {
-                    Self {
-                        $($field: $value,)*
-                    }
-                }
-            }
-        )*
-    };
-}
-
-implement_defaults! {
-    AuthConfig {
-        enabled: false,
-        api_key: None,
-        jwt_secret: None,
-        allowed_origins: vec!["*".to_string()],
-    },
-    TimeoutConfig {
-        request_timeout: Duration::from_secs(30),
-        connection_timeout: Duration::from_secs(10),
-        keepalive_interval: Duration::from_secs(30),
-        keepalive_timeout: Duration::from_secs(5),
-    },
-    PerformanceConfig {
-        max_concurrent_streams: 1000,
-        max_message_size: 16 * 1024 * 1024, // 16MB
-        max_connection_idle: Duration::from_secs(300), // 5 minutes
-        max_connection_age: Duration::from_secs(3600), // 1 hour
-        tcp_nodelay: true,
-        tcp_keepalive: Some(Duration::from_secs(600)), // 10 minutes
-    },
-    HealthCheckConfig {
-        enabled: true,
-        interval: Duration::from_secs(30),
-        timeout: Duration::from_secs(5),
-        failure_threshold: 3,
-    },
-}
-
 /// gRPC server instance with enhanced security and performance
 pub struct GrpcServer {
-    config: ServerConfig,
-    shutdown_signal: Option<tokio::sync::oneshot::Receiver<()>>,
-    metrics: Arc<ServerMetrics>,
+    pub(crate) config: ServerConfig,
+    pub(crate) shutdown_signal: Option<tokio::sync::oneshot::Receiver<()>>,
+    pub(crate) metrics: Arc<ServerMetrics>,
     /// Optional database pool for ProjectService
-    db_pool: Option<SqlitePool>,
+    pub(crate) db_pool: Option<SqlitePool>,
     /// Whether to enable LSP lifecycle management in ProjectService
-    enable_lsp: bool,
+    pub(crate) enable_lsp: bool,
     /// External LSP manager for lifecycle control (optional)
-    /// If provided, this takes precedence over internal creation
-    lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
+    pub(crate) lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
     /// Shared pause flag for watcher pause/resume propagation
-    pause_flag: Option<Arc<AtomicBool>>,
+    pub(crate) pause_flag: Option<Arc<AtomicBool>>,
     /// Signal to trigger immediate WatchManager refresh on config changes
-    watch_refresh_signal: Option<Arc<Notify>>,
+    pub(crate) watch_refresh_signal: Option<Arc<Notify>>,
     /// Queue processor health state for monitoring
-    queue_health: Option<Arc<workspace_qdrant_core::QueueProcessorHealth>>,
+    pub(crate) queue_health: Option<Arc<workspace_qdrant_core::QueueProcessorHealth>>,
     /// Adaptive resource state for idle/burst mode reporting
-    adaptive_state: Option<Arc<AdaptiveResourceState>>,
+    pub(crate) adaptive_state: Option<Arc<AdaptiveResourceState>>,
     /// Search database manager for TextSearchService
-    search_db: Option<Arc<SearchDbManager>>,
+    pub(crate) search_db: Option<Arc<SearchDbManager>>,
     /// Graph store for GraphService (code relationship queries)
-    graph_store: Option<workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>>,
+    pub(crate) graph_store: Option<
+        workspace_qdrant_core::graph::SharedGraphStore<
+            workspace_qdrant_core::graph::SqliteGraphStore,
+        >,
+    >,
     /// Hierarchy builder for tag hierarchy rebuild via gRPC
-    hierarchy_builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
+    pub(crate) hierarchy_builder: Option<Arc<workspace_qdrant_core::HierarchyBuilder>>,
     /// Lexicon manager for vocabulary rebuild via gRPC
-    lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
+    pub(crate) lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
     /// Storage client for Qdrant operations (rules rebuild)
-    storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
+    pub(crate) storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
 }
 
 /// Server metrics for monitoring
@@ -314,59 +317,6 @@ pub struct ServerMetrics {
     pub failed_requests: std::sync::atomic::AtomicU64,
     pub auth_failures: std::sync::atomic::AtomicU64,
     pub avg_response_time: std::sync::atomic::AtomicU64, // in milliseconds
-}
-
-/// Authentication interceptor
-#[derive(Clone)]
-pub struct AuthInterceptor {
-    config: Option<AuthConfig>,
-}
-
-impl AuthInterceptor {
-    pub fn new(config: Option<AuthConfig>) -> Self {
-        Self { config }
-    }
-
-    pub fn check(&self, req: &Request<()>) -> Result<(), Status> {
-        let Some(auth_config) = &self.config else {
-            return Ok(()); // No auth configured
-        };
-
-        if !auth_config.enabled {
-            return Ok(());
-        }
-
-        // Check API key if configured
-        if let Some(expected_key) = &auth_config.api_key {
-            let auth_header = req.metadata()
-                .get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .ok_or_else(|| Status::unauthenticated("Missing authorization header"))?;
-
-            if !auth_header.starts_with("Bearer ") {
-                return Err(Status::unauthenticated("Invalid authorization format"));
-            }
-
-            let token = &auth_header[7..]; // Remove "Bearer " prefix
-            if token != expected_key {
-                return Err(Status::unauthenticated("Invalid API key"));
-            }
-        }
-
-        // Check origin if configured
-        if !auth_config.allowed_origins.contains(&"*".to_string()) {
-            let origin = req.metadata()
-                .get("origin")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-
-            if !auth_config.allowed_origins.contains(&origin.to_string()) {
-                return Err(Status::permission_denied("Origin not allowed"));
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl GrpcServer {
@@ -388,354 +338,6 @@ impl GrpcServer {
             lexicon_manager: None,
             storage_client: None,
         }
-    }
-
-    pub fn with_shutdown_signal(mut self, receiver: tokio::sync::oneshot::Receiver<()>) -> Self {
-        self.shutdown_signal = Some(receiver);
-        self
-    }
-
-    /// Set the database pool for ProjectService
-    ///
-    /// If provided, ProjectService will be registered with the gRPC server,
-    /// enabling project registration, heartbeat, and priority management.
-    pub fn with_database_pool(mut self, pool: SqlitePool) -> Self {
-        self.db_pool = Some(pool);
-        self
-    }
-
-    /// Enable LSP lifecycle management in ProjectService
-    ///
-    /// When enabled, ProjectService will automatically start/stop LSP servers
-    /// for projects when they are registered/deprioritized.
-    pub fn with_lsp_enabled(mut self, enable: bool) -> Self {
-        self.enable_lsp = enable;
-        self
-    }
-
-    /// Set an external LSP manager for lifecycle control
-    ///
-    /// When provided, this manager is used instead of creating one internally.
-    /// This allows the daemon to manage the LSP lifecycle across components
-    /// (e.g., sharing with UnifiedQueueProcessor).
-    pub fn with_lsp_manager(mut self, manager: Arc<RwLock<LanguageServerManager>>) -> Self {
-        self.lsp_manager = Some(manager);
-        self.enable_lsp = true; // Automatically enable LSP when manager is provided
-        self
-    }
-
-    /// Set a shared pause flag for watcher pause/resume propagation.
-    /// This flag is shared with SystemServiceImpl so that gRPC pause/resume
-    /// endpoints toggle it in addition to updating the database.
-    pub fn with_pause_flag(mut self, flag: Arc<AtomicBool>) -> Self {
-        self.pause_flag = Some(flag);
-        self
-    }
-
-    /// Set the watch refresh signal for triggering WatchManager refresh
-    /// when gRPC calls modify watch_folders state.
-    pub fn with_watch_refresh_signal(mut self, signal: Arc<Notify>) -> Self {
-        self.watch_refresh_signal = Some(signal);
-        self
-    }
-
-    /// Set shared queue processor health state for health monitoring.
-    /// This is the same `Arc` passed to `UnifiedQueueProcessor`.
-    pub fn with_queue_health(mut self, health: Arc<workspace_qdrant_core::QueueProcessorHealth>) -> Self {
-        self.queue_health = Some(health);
-        self
-    }
-
-    /// Set adaptive resource state for idle/burst mode reporting in system status.
-    pub fn with_adaptive_state(mut self, state: Arc<AdaptiveResourceState>) -> Self {
-        self.adaptive_state = Some(state);
-        self
-    }
-
-    /// Set the search database manager for TextSearchService.
-    ///
-    /// If provided, TextSearchService will be registered with the gRPC server,
-    /// enabling FTS5-based code search via gRPC.
-    pub fn with_search_db(mut self, search_db: Arc<SearchDbManager>) -> Self {
-        self.search_db = Some(search_db);
-        self
-    }
-
-    /// Set the graph store for GraphService.
-    ///
-    /// If provided, GraphService will be registered with the gRPC server,
-    /// enabling code relationship queries via gRPC.
-    pub fn with_graph_store(
-        mut self,
-        graph_store: workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>,
-    ) -> Self {
-        self.graph_store = Some(graph_store);
-        self
-    }
-
-    /// Set the hierarchy builder for tag hierarchy rebuild via RebuildIndex RPC.
-    pub fn with_hierarchy_builder(
-        mut self,
-        builder: Arc<workspace_qdrant_core::HierarchyBuilder>,
-    ) -> Self {
-        self.hierarchy_builder = Some(builder);
-        self
-    }
-
-    /// Set the lexicon manager for vocabulary rebuild via RebuildIndex RPC.
-    pub fn with_lexicon_manager(
-        mut self,
-        lexicon: Arc<workspace_qdrant_core::LexiconManager>,
-    ) -> Self {
-        self.lexicon_manager = Some(lexicon);
-        self
-    }
-
-    /// Set the storage client for Qdrant operations (rules rebuild).
-    pub fn with_storage_client(
-        mut self,
-        client: Arc<workspace_qdrant_core::StorageClient>,
-    ) -> Self {
-        self.storage_client = Some(client);
-        self
-    }
-
-    pub async fn start(&mut self) -> Result<(), GrpcError> {
-        // Debug: verify this code path is reached
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/grpc_debug.log")
-        {
-            use std::io::Write;
-            let _ = writeln!(f, "GrpcServer::start() called");
-        }
-
-        // Create instances of the new modular services
-        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl, ProjectServiceImpl, TextSearchServiceImpl};
-        use workspace_qdrant_core::storage::StorageClient;
-
-        // Create shared storage client with daemon-mode config (HTTP transport, no compat checks)
-        use workspace_qdrant_core::storage::StorageConfig;
-
-        // Debug: log before StorageClient creation
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/grpc_debug.log")
-        {
-            use std::io::Write;
-            let _ = writeln!(f, "About to create StorageClient with daemon_mode()");
-        }
-
-        let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
-
-        let mut system_service = if let Some(pool) = self.db_pool.as_ref() {
-            SystemServiceImpl::new().with_database_pool(pool.clone())
-        } else {
-            SystemServiceImpl::new()
-        };
-        if let Some(flag) = &self.pause_flag {
-            system_service = system_service.with_pause_flag(Arc::clone(flag));
-        }
-        if let Some(ref signal) = self.watch_refresh_signal {
-            system_service = system_service.with_watch_refresh_signal(Arc::clone(signal));
-        }
-        if let Some(ref health) = self.queue_health {
-            system_service = system_service.with_queue_health(Arc::clone(health));
-        }
-        if let Some(ref adaptive_state) = self.adaptive_state {
-            system_service = system_service.with_adaptive_state(Arc::clone(adaptive_state));
-        }
-        if let Some(ref hierarchy_builder) = self.hierarchy_builder {
-            system_service = system_service.with_hierarchy_builder(Arc::clone(hierarchy_builder));
-        }
-        if let Some(ref search_db) = self.search_db {
-            system_service = system_service.with_search_db(Arc::clone(search_db));
-        }
-        if let Some(ref lexicon_manager) = self.lexicon_manager {
-            system_service = system_service.with_lexicon_manager(Arc::clone(lexicon_manager));
-        }
-        // Use the externally provided storage client or fall back to the local one
-        if let Some(ref sc) = self.storage_client {
-            system_service = system_service.with_storage_client(Arc::clone(sc));
-        } else {
-            system_service = system_service.with_storage_client(Arc::clone(&storage_client));
-        }
-        let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
-        let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
-        let embedding_service = EmbeddingServiceImpl::new();
-
-        // Create ProjectService if database pool is available
-        let project_service = if let Some(pool) = self.db_pool.as_ref() {
-            tracing::info!("Creating ProjectService with database pool");
-
-            // Use external LSP manager if provided, otherwise create one if LSP is enabled
-            if let Some(lsp_manager) = self.lsp_manager.take() {
-                // External LSP manager provided - use it directly
-                tracing::info!("Using external LSP manager for ProjectService");
-                Some(ProjectServiceImpl::with_lsp_manager(pool.clone(), lsp_manager))
-            } else if self.enable_lsp {
-                // Create internal LSP manager
-                use workspace_qdrant_core::ProjectLspConfig;
-
-                match LanguageServerManager::new(ProjectLspConfig::default()).await {
-                    Ok(mut lsp_manager) => {
-                        // Initialize the LSP manager
-                        if let Err(e) = lsp_manager.initialize().await {
-                            tracing::warn!("Failed to initialize LSP manager: {}", e);
-                        }
-
-                        let lsp_manager = Arc::new(RwLock::new(lsp_manager));
-                        tracing::info!("LSP lifecycle management enabled for ProjectService (internal)");
-                        Some(ProjectServiceImpl::with_lsp_manager(pool.clone(), lsp_manager))
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to create LSP manager, continuing without LSP: {}", e);
-                        Some(ProjectServiceImpl::new(pool.clone()))
-                    }
-                }
-            } else {
-                Some(ProjectServiceImpl::new(pool.clone()))
-            }
-        } else {
-            None
-        };
-
-        // Wire watch refresh signal into ProjectService
-        let project_service = if let Some(ref signal) = self.watch_refresh_signal {
-            project_service.map(|svc| svc.with_watch_refresh_signal(Arc::clone(signal)))
-        } else {
-            project_service
-        };
-
-        // Wire storage client into ProjectService for DeleteProject
-        let project_service = project_service.map(|svc| svc.with_storage(Arc::clone(&storage_client)));
-
-        tracing::info!("Starting gRPC server on {}", self.config.bind_addr);
-        tracing::info!("gRPC server configuration: TLS={}, Auth={}, Timeouts={:?}",
-            self.config.tls_config.is_some(),
-            self.config.auth_config.as_ref().map(|a| a.enabled).unwrap_or(false),
-            self.config.timeout_config
-        );
-
-        // Log security warnings
-        let warnings = self.config.get_security_warnings();
-        if !warnings.is_empty() {
-            tracing::warn!("===== SECURITY WARNINGS =====");
-            for warning in &warnings {
-                tracing::warn!("  - {}", warning);
-            }
-            tracing::warn!("============================");
-            if !self.config.is_secure() {
-                tracing::error!("gRPC server is running in INSECURE mode - not suitable for production");
-            }
-        } else {
-            tracing::info!("gRPC server security configuration validated");
-        }
-
-        let mut server_builder = Server::builder()
-            .timeout(self.config.timeout_config.request_timeout)
-            .concurrency_limit_per_connection(self.config.performance_config.max_concurrent_streams as usize)
-            .tcp_nodelay(self.config.performance_config.tcp_nodelay);
-
-        // Configure TLS if enabled
-        if let Some(tls_config) = &self.config.tls_config {
-            let cert = tokio::fs::read(&tls_config.cert_path).await
-                .map_err(|e| GrpcError::Configuration(
-                    format!("Failed to read TLS certificate: {}", e)
-                ))?;
-
-            let key = tokio::fs::read(&tls_config.key_path).await
-                .map_err(|e| GrpcError::Configuration(
-                    format!("Failed to read TLS key: {}", e)
-                ))?;
-
-            let identity = Identity::from_pem(cert, key);
-            let mut tls = ServerTlsConfig::new().identity(identity);
-
-            if let Some(ca_cert_path) = &tls_config.ca_cert_path {
-                let ca_cert = tokio::fs::read(ca_cert_path).await
-                    .map_err(|e| GrpcError::Configuration(
-                        format!("Failed to read CA certificate: {}", e)
-                    ))?;
-                tls = tls.client_ca_root(tonic::transport::Certificate::from_pem(ca_cert));
-            }
-
-            if tls_config.require_client_cert {
-                tls = tls.client_auth_optional(false);
-            }
-
-            server_builder = server_builder.tls_config(tls)
-                .map_err(|e| GrpcError::Configuration(
-                    format!("Failed to configure TLS: {}", e)
-                ))?;
-        }
-
-        // Register gRPC services
-        let system_svc = proto::system_service_server::SystemServiceServer::new(system_service);
-        let collection_svc = proto::collection_service_server::CollectionServiceServer::new(collection_service);
-        let document_svc = proto::document_service_server::DocumentServiceServer::new(document_service);
-        let embedding_svc = proto::embedding_service_server::EmbeddingServiceServer::new(embedding_service);
-
-        // Build server with core services
-        let mut router = server_builder
-            .add_service(system_svc)
-            .add_service(collection_svc)
-            .add_service(document_svc)
-            .add_service(embedding_svc);
-
-        // Conditionally add ProjectService if database pool was provided
-        if let Some(project_svc_impl) = project_service {
-            // Start the deferred shutdown monitor background task (Task 1.12)
-            project_svc_impl.start_deferred_shutdown_monitor();
-
-            let project_svc = proto::project_service_server::ProjectServiceServer::new(project_svc_impl);
-            tracing::info!("Registering ProjectService gRPC endpoint with deferred shutdown monitor");
-            router = router.add_service(project_svc);
-        }
-
-        // Conditionally add TextSearchService if search_db was provided
-        if let Some(search_db) = self.search_db.take() {
-            let text_search_svc_impl = TextSearchServiceImpl::new(search_db);
-            let text_search_svc = proto::text_search_service_server::TextSearchServiceServer::new(text_search_svc_impl);
-            tracing::info!("Registering TextSearchService gRPC endpoint");
-            router = router.add_service(text_search_svc);
-        }
-
-        // Conditionally add GraphService if graph_store was provided
-        if let Some(graph_store) = self.graph_store.take() {
-            let graph_svc_impl = crate::services::GraphServiceImpl::new(graph_store);
-            let graph_svc = proto::graph_service_server::GraphServiceServer::new(graph_svc_impl);
-            tracing::info!("Registering GraphService gRPC endpoint");
-            router = router.add_service(graph_svc);
-        }
-
-        let server = router;
-
-        // Start server with graceful shutdown
-        match self.shutdown_signal.take() {
-            Some(shutdown) => {
-                tracing::info!("gRPC server started with graceful shutdown support");
-                server
-                    .serve_with_shutdown(self.config.bind_addr, async {
-                        shutdown.await.ok();
-                        tracing::info!("gRPC server received shutdown signal");
-                    })
-                    .await?
-            }
-            None => {
-                tracing::info!("gRPC server started without shutdown signal");
-                server.serve(self.config.bind_addr).await?
-            }
-        }
-
-        tracing::info!("gRPC server stopped");
-        Ok(())
-    }
-
-    pub fn get_metrics(&self) -> Arc<ServerMetrics> {
-        Arc::clone(&self.metrics)
     }
 }
 
@@ -766,7 +368,6 @@ mod tests {
         use crate::proto::*;
         use prost::Message;
 
-        // Test CreateCollectionRequest serialization
         let request = CreateCollectionRequest {
             collection_name: "test_collection".to_string(),
             project_id: "test_project".to_string(),
@@ -778,7 +379,6 @@ mod tests {
             }),
         };
 
-        // Should be able to serialize and deserialize
         let bytes = prost::Message::encode_to_vec(&request);
         assert!(!bytes.is_empty());
 
@@ -795,10 +395,6 @@ mod tests {
     fn test_grpc_service_instantiation() {
         use crate::services::SystemServiceImpl;
 
-        // Test that the system service can be created (no dependencies)
         let _system_service = SystemServiceImpl::new();
-        // CollectionServiceImpl and DocumentServiceImpl require StorageClient
-        // ProjectServiceImpl requires SqlitePool
-        // These are tested in their respective module tests
     }
 }

@@ -88,7 +88,7 @@ impl FolderStrategy {
                     );
                     Ok(())
                 } else {
-                    crate::strategies::processing::tenant::TenantStrategy::scan_library_directory(
+                    crate::strategies::processing::tenant::scan_library_directory(
                         item,
                         &payload.folder_path,
                         &ctx.queue_manager,
@@ -129,7 +129,7 @@ impl FolderStrategy {
                     );
                     Ok(())
                 } else {
-                    crate::strategies::processing::tenant::TenantStrategy::scan_library_directory(
+                    crate::strategies::processing::tenant::scan_library_directory(
                         item,
                         &payload.folder_path,
                         &ctx.queue_manager,
