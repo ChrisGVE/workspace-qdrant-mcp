@@ -1,5 +1,7 @@
 //! Diff-to-database application logic for code_lines updates.
 
+use std::collections::HashSet;
+
 use crate::code_lines_schema::{initial_seq, INITIAL_SEQ_GAP};
 use crate::line_diff::{DiffOp, DiffResult};
 use crate::search_db::SearchDbError;
@@ -11,6 +13,8 @@ pub(super) struct FileDiffStats {
     pub(super) lines_updated: usize,
     pub(super) lines_deleted: usize,
     pub(super) lines_unchanged: usize,
+    /// Internal: tracks retained line_ids during diff application (cleared before return).
+    retained_ids: HashSet<i64>,
 }
 
 /// Apply a diff result to the code_lines table within a transaction.
@@ -27,9 +31,6 @@ pub(super) async fn apply_diff_to_code_lines(
     diff: &DiffResult,
     new_content: &str,
 ) -> Result<FileDiffStats, SearchDbError> {
-    let mut stats = FileDiffStats::default();
-
-    // Check if the file already has code_lines
     let existing_count: i32 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM code_lines WHERE file_id = ?1",
     )
@@ -38,24 +39,49 @@ pub(super) async fn apply_diff_to_code_lines(
     .await?;
 
     if existing_count == 0 {
-        // First ingestion: insert all lines from new_content
-        let lines: Vec<&str> = new_content.split('\n').collect();
-        for (i, line) in lines.iter().enumerate() {
-            let seq = initial_seq(i);
-            let line_number = (i + 1) as i64;
-            sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)")
-                .bind(file_id)
-                .bind(seq)
-                .bind(*line)
-                .bind(line_number)
-                .execute(&mut **tx)
-                .await?;
-            stats.lines_inserted += 1;
-        }
-        return Ok(stats);
+        return insert_all_lines(tx, file_id, new_content).await;
     }
 
-    // File has existing lines — build a map from old line index to (line_id, seq)
+    let existing_lines = fetch_existing_lines(tx, file_id).await?;
+    let mut stats = FileDiffStats::default();
+    let insertions = apply_diff_ops(tx, diff, &existing_lines, &mut stats).await?;
+    delete_orphaned_lines(tx, &existing_lines, &stats.retained_ids).await?;
+    insert_pending_lines(tx, file_id, insertions, &mut stats).await?;
+    renumber_after_changes(tx, file_id, &stats).await?;
+
+    // Clear internal tracking field before returning
+    stats.retained_ids.clear();
+    Ok(stats)
+}
+
+/// Insert all lines for first-time ingestion (no existing code_lines).
+async fn insert_all_lines(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_id: i64,
+    content: &str,
+) -> Result<FileDiffStats, SearchDbError> {
+    let mut stats = FileDiffStats::default();
+    let lines: Vec<&str> = content.split('\n').collect();
+    for (i, line) in lines.iter().enumerate() {
+        let seq = initial_seq(i);
+        let line_number = (i + 1) as i64;
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)")
+            .bind(file_id)
+            .bind(seq)
+            .bind(*line)
+            .bind(line_number)
+            .execute(&mut **tx)
+            .await?;
+        stats.lines_inserted += 1;
+    }
+    Ok(stats)
+}
+
+/// Fetch existing line_id and seq values for a file, ordered by seq.
+async fn fetch_existing_lines(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_id: i64,
+) -> Result<Vec<(i64, f64)>, SearchDbError> {
     let rows = sqlx::query(
         "SELECT line_id, seq FROM code_lines WHERE file_id = ?1 ORDER BY seq",
     )
@@ -63,48 +89,45 @@ pub(super) async fn apply_diff_to_code_lines(
     .fetch_all(&mut **tx)
     .await?;
 
-    let existing_lines: Vec<(i64, f64)> = rows
+    Ok(rows
         .iter()
         .map(|r| {
             use sqlx::Row;
             (r.get::<i64, _>("line_id"), r.get::<f64, _>("seq"))
         })
-        .collect();
+        .collect())
+}
 
-    // Track which existing line_ids to delete (those not referenced by Unchanged or Changed)
-    let mut retained_line_ids = std::collections::HashSet::new();
-
-    // Track insertions that need seq assignment after we know the final layout
-    let mut insertions: Vec<(usize, String)> = Vec::new(); // (new_index, content)
+/// Process diff operations: update changed lines, collect insertions, delete removed lines.
+/// Returns the list of pending insertions (new_index, content).
+async fn apply_diff_ops(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    diff: &DiffResult,
+    existing_lines: &[(i64, f64)],
+    stats: &mut FileDiffStats,
+) -> Result<Vec<(usize, String)>, SearchDbError> {
+    let mut insertions: Vec<(usize, String)> = Vec::new();
 
     for op in &diff.ops {
         match op {
             DiffOp::Unchanged { old_index, .. } => {
                 if let Some(&(line_id, _)) = existing_lines.get(*old_index) {
-                    retained_line_ids.insert(line_id);
+                    stats.retained_ids.insert(line_id);
                     stats.lines_unchanged += 1;
                 }
             }
-            DiffOp::Changed {
-                old_index,
-                new_content: content,
-                ..
-            } => {
+            DiffOp::Changed { old_index, new_content: content, .. } => {
                 if let Some(&(line_id, _)) = existing_lines.get(*old_index) {
-                    // Update content in place (seq stays the same)
                     sqlx::query("UPDATE code_lines SET content = ?1 WHERE line_id = ?2")
                         .bind(content.as_str())
                         .bind(line_id)
                         .execute(&mut **tx)
                         .await?;
-                    retained_line_ids.insert(line_id);
+                    stats.retained_ids.insert(line_id);
                     stats.lines_updated += 1;
                 }
             }
-            DiffOp::Inserted {
-                new_index,
-                new_content: content,
-            } => {
+            DiffOp::Inserted { new_index, new_content: content } => {
                 insertions.push((*new_index, content.clone()));
             }
             DiffOp::Deleted { old_index } => {
@@ -119,28 +142,40 @@ pub(super) async fn apply_diff_to_code_lines(
         }
     }
 
-    // Delete any existing lines not in the retained set (orphaned by the diff)
-    for &(line_id, _) in &existing_lines {
-        if !retained_line_ids.contains(&line_id) {
-            // Already handled by DiffOp::Deleted above, but this catches edge cases
-            // where the diff algorithm doesn't produce explicit Delete ops
+    Ok(insertions)
+}
+
+/// Delete existing lines not referenced by any Unchanged or Changed op.
+async fn delete_orphaned_lines(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    existing_lines: &[(i64, f64)],
+    retained_ids: &std::collections::HashSet<i64>,
+) -> Result<usize, SearchDbError> {
+    let mut deleted = 0;
+    for &(line_id, _) in existing_lines {
+        if !retained_ids.contains(&line_id) {
             let result = sqlx::query("DELETE FROM code_lines WHERE line_id = ?1")
                 .bind(line_id)
                 .execute(&mut **tx)
                 .await?;
             if result.rows_affected() > 0 {
-                stats.lines_deleted += 1;
+                deleted += 1;
             }
         }
     }
+    Ok(deleted)
+}
 
-    // Handle insertions: assign seq values based on surrounding lines
-    // Sort insertions by new_index so we can process them in order
-    let mut sorted_insertions = insertions;
-    sorted_insertions.sort_by_key(|(idx, _)| *idx);
+/// Insert pending lines, assigning seq values by appending after max_seq.
+async fn insert_pending_lines(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_id: i64,
+    mut insertions: Vec<(usize, String)>,
+    stats: &mut FileDiffStats,
+) -> Result<(), SearchDbError> {
+    insertions.sort_by_key(|(idx, _)| *idx);
 
-    for (_, content) in &sorted_insertions {
-        // For simplicity in the transactional context, append at end with max_seq + gap
+    for (_, content) in &insertions {
         let max_seq: Option<f64> = sqlx::query_scalar(
             "SELECT MAX(seq) FROM code_lines WHERE file_id = ?1",
         )
@@ -154,7 +189,6 @@ pub(super) async fn apply_diff_to_code_lines(
             None => INITIAL_SEQ_GAP,
         };
 
-        // line_number=0 as placeholder; renumbered below after all insertions
         sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)")
             .bind(file_id)
             .bind(new_seq)
@@ -163,24 +197,32 @@ pub(super) async fn apply_diff_to_code_lines(
             .await?;
         stats.lines_inserted += 1;
     }
+    Ok(())
+}
 
-    // Renumber line_numbers for this file after diff operations if any insertions/deletions occurred
-    if stats.lines_inserted > 0 || stats.lines_deleted > 0 {
-        let line_ids: Vec<i64> = sqlx::query_scalar(
-            "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
-        )
-        .bind(file_id)
-        .fetch_all(&mut **tx)
-        .await?;
-
-        for (i, line_id) in line_ids.iter().enumerate() {
-            sqlx::query("UPDATE code_lines SET line_number = ?1 WHERE line_id = ?2")
-                .bind((i + 1) as i64)
-                .bind(*line_id)
-                .execute(&mut **tx)
-                .await?;
-        }
+/// Renumber line_numbers sequentially after insertions or deletions.
+async fn renumber_after_changes(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_id: i64,
+    stats: &FileDiffStats,
+) -> Result<(), SearchDbError> {
+    if stats.lines_inserted == 0 && stats.lines_deleted == 0 {
+        return Ok(());
     }
 
-    Ok(stats)
+    let line_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
+    )
+    .bind(file_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for (i, line_id) in line_ids.iter().enumerate() {
+        sqlx::query("UPDATE code_lines SET line_number = ?1 WHERE line_id = ?2")
+            .bind((i + 1) as i64)
+            .bind(*line_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }

@@ -61,26 +61,21 @@ async fn test_delete_cascade_purges_pending_items() {
         .await
         .unwrap();
 
-    // Verify: 3 add items + 1 delete = 4 total
+    // Cascade purge happens during enqueue: 3 add items purged, only the delete remains
     let stats = manager.get_unified_queue_stats().await.unwrap();
-    assert_eq!(stats.total_items, 4);
+    assert_eq!(stats.total_items, 1, "Only delete should remain after cascade purge");
 
-    // Dequeue should return the delete first (highest priority)
+    // Dequeue should return the delete
     let items = manager
         .dequeue_unified(10, "worker-1", None, None, None, None)
         .await
         .unwrap();
 
-    // After delete cascade: pending add/update items for same tenant should be purged
-    // Only the delete item itself should remain
-    assert!(
-        !items.is_empty(),
-        "Should have at least the delete item"
-    );
+    assert_eq!(items.len(), 1, "Only the delete item should be dequeued");
     assert_eq!(
         items[0].op,
         UnifiedOp::Delete,
-        "Delete should be first item (highest priority)"
+        "The remaining item should be the delete"
     );
 }
 
@@ -169,9 +164,9 @@ async fn test_delete_cascade_does_not_affect_other_tenants() {
         .await
         .unwrap();
 
-    // Total should be 5 (2 + 2 + 1 delete)
+    // Cascade purge removes tenant-a's 2 adds; remaining: 2 (tenant-b) + 1 (tenant-a delete) = 3
     let stats = manager.get_unified_queue_stats().await.unwrap();
-    assert_eq!(stats.total_items, 5);
+    assert_eq!(stats.total_items, 3, "tenant-a adds purged by cascade, tenant-b untouched");
 
     // Dequeue all
     let items = manager
