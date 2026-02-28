@@ -45,11 +45,7 @@ mod paused_event_buffer_tests {
 
     #[test]
     fn test_paused_event_buffer_capacity_eviction() {
-        let mut buffer = PausedEventBuffer {
-            events: VecDeque::new(),
-            capacity: 3, // Small capacity for testing
-            evictions: 0,
-        };
+        let mut buffer = PausedEventBuffer::with_capacity(3);
 
         buffer.push_event(make_test_event("/a.rs"));
         buffer.push_event(make_test_event("/b.rs"));
@@ -71,6 +67,6 @@ mod paused_event_buffer_tests {
     fn test_paused_event_buffer_default() {
         let buffer = PausedEventBuffer::default();
         assert!(buffer.is_empty());
-        assert_eq!(buffer.capacity, PAUSED_EVENT_BUFFER_CAPACITY);
+        assert_eq!(buffer.capacity(), PAUSED_EVENT_BUFFER_CAPACITY);
     }
 }

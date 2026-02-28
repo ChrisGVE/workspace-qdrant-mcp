@@ -8,9 +8,12 @@
 
 use super::*;
 use shared_test_utils::*;
-use std::time::Duration;
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 use tempfile::TempDir;
-use crate::processing::Pipeline;
+use notify::EventKind;
+use crate::processing::{Pipeline, TaskPriority, TaskSubmitter};
 
 /// Create a test configuration for watching
 pub(super) fn test_watcher_config() -> WatcherConfig {
