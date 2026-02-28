@@ -22,7 +22,6 @@ pub mod file_watcher;
 // Re-export primary types
 pub use config::{WatcherConfig, TelemetryConfig, BatchConfig};
 pub use events::{FileEvent, PausedEventBuffer};
-pub(crate) use events::PAUSED_EVENT_BUFFER_CAPACITY;
 pub use telemetry::{TelemetrySnapshot, WatchingStats};
 pub use watcher::FileWatcher;
 

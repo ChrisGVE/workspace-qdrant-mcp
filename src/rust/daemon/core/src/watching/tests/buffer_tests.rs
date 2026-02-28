@@ -4,6 +4,7 @@ use super::*;
 
 mod paused_event_buffer_tests {
     use super::*;
+    use crate::watching::events::PAUSED_EVENT_BUFFER_CAPACITY;
 
     fn make_test_event(path: &str) -> FileEvent {
         FileEvent {
