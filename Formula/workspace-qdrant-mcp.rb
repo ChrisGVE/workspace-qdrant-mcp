@@ -37,8 +37,7 @@ class WorkspaceQdrantMcp < Formula
     end
   end
 
-  # ONNX Runtime dependency for the daemon
-  depends_on "onnxruntime"
+  # No runtime dependencies - binaries are self-contained with ONNX Runtime statically linked
 
   def install
     bin.install "wqm"
