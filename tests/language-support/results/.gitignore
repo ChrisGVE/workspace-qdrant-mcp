@@ -1,0 +1,4 @@
+# Language validation results are environment-specific
+*.yaml
+*.yml
+!.gitignore

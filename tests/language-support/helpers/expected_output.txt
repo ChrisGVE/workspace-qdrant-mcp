@@ -1,0 +1,38 @@
+=== Library Report: Computer Science ===
+Total books: 5
+Available: 4 / 5 (80%)
+Capacity: 5 / 10 (50% full)
+
+Authors (5 unique):
+  - Donald Knuth (1 books)
+  - Harold Abelson (1 books)
+  - Thomas Cormen (1 books)
+  - Erich Gamma (1 books)
+  - David Thomas (1 books)
+
+Year range: 1968 - 2019
+
+Books by availability:
+  [+] The Art of Computer Programming by Donald Knuth (1968) - 9780201896831
+  [+] Structure and Interpretation of Computer Programs by Harold Abelson (1996) - 9780262510875
+  [-] Introduction to Algorithms by Thomas Cormen (2009) - 9780262033848
+  [+] Design Patterns by Erich Gamma (1994) - 9780201633610
+  [+] The Pragmatic Programmer by David Thomas (2019) - 9780135957059
+
+--- Search by author "knuth" ---
+  "The Art of Computer Programming" by Donald Knuth (1968) [ISBN: 9780201896831]
+
+--- Search by year range 1990-2010 ---
+  "Structure and Interpretation of Computer Programs" by Harold Abelson (1996) [ISBN: 9780262510875]
+  "Introduction to Algorithms" by Thomas Cormen (2009) [ISBN: 9780262033848]
+  "Design Patterns" by Erich Gamma (1994) [ISBN: 9780201633610]
+
+--- Parse CSV ---
+  Parsed: "Clean Code" by Robert Martin (2008) [ISBN: 9780132350884]
+
+--- ISBN Validation ---
+  9780201896831: valid
+  9780262510875: valid
+  9780262033848: valid
+  9780201633610: valid
+  9780135957059: valid
