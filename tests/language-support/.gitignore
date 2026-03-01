@@ -10,11 +10,51 @@ Cargo.lock
 *.o
 *.exe
 *.beam
+*.mod
+*.ppu
 _build/
 deps/
 .build/
 zig-cache/
+.zig-cache/
 zig-out/
+
+# Compiled binaries (Fortran, Pascal, Ada, etc.)
+fortran/bookshelf
+pascal/bookshelf
+ada/bookshelf
+odin/bookshelf
+
+# Clojure
+.cpcache/
+
+# Scala
+.bsp/
+.scala-build/
+.metals/
+
+# Elixir
+_build/
+deps/
+.elixir_ls/
+
+# Pascal
+obj/
+
+# Haskell
+.stack-work/
+*.hi
+*.dyn_hi
+*.dyn_o
+
+# OCaml
+_build/
+*.cmi
+*.cmo
+*.cmx
+
+# Erlang
+ebin/
 
 # IDE
 .idea/
