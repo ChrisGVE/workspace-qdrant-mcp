@@ -18,7 +18,22 @@ Runs on every code file during ingestion:
 - **Syntax structure:** Imports, exports, declarations
 - **Semantic chunking:** Split files into meaningful units (see below)
 
-**Grammars:** Downloaded on demand. Common languages bundled.
+**Built-in grammar support (semantic chunking):**
+
+| Language   | Grammar  | Chunk Types                                      |
+| ---------- | -------- | ------------------------------------------------ |
+| C          | Built-in | function, struct, preamble                       |
+| C++        | Built-in | function, class, method, struct, preamble        |
+| Go         | Built-in | function, struct, method, preamble               |
+| Java       | Built-in | class, method, interface, preamble               |
+| JavaScript | Built-in | function, class, method, preamble                |
+| Python     | Built-in | function, class, method, preamble                |
+| Rust       | Built-in | function, struct, impl, trait, method, preamble  |
+| TypeScript | Built-in | function, class, method, interface, preamble     |
+
+**All other languages** fall back to text-based overlap chunking (384 chars target, 58 chars overlap).
+
+**Grammars:** 8 languages have built-in grammars (see table above). Dynamic grammar download infrastructure exists but is not yet populated with additional languages.
 
 ### LSP (Enhancement for Active Projects)
 
@@ -37,6 +52,20 @@ Runs when project is active:
 ```
 
 **One server per language per project.** Multi-target projects (e.g., Cargo workspace with multiple crates) are handled by single language server.
+
+**Default LSP server configurations:**
+
+| Language       | Server Binary                  | Notes                        |
+| -------------- | ------------------------------ | ---------------------------- |
+| Python         | `ruff` (ruff-lsp)             | Primary; fallback to pylsp/pyright |
+| Rust           | `rust-analyzer`               |                              |
+| TypeScript/JS  | `typescript-language-server`   | Handles both TS and JS       |
+| Go             | `gopls`                       |                              |
+| C/C++          | `clangd`                      | Handles both C and C++       |
+
+**LSP Language enum** (18 total): Python, Rust, TypeScript, JavaScript, JSON, Go, Java, C, C++, Ruby, PHP, Shell, YAML, TOML, XML, HTML, CSS, SQL, Other(custom).
+
+Languages without a configured default server can still be used if the user manually installs and configures the LSP server via `wqm lsp install`.
 
 ### LSP Server Lifecycle
 

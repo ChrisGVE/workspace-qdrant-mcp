@@ -538,6 +538,7 @@ HNSW:
   "file_type": "code", // code|doc|test|config|note|artifact
   "language": "rust",
   "branch": "main",
+  "component_id": "daemon.core",      // Auto-detected workspace component (Cargo.toml/package.json)
   "commit_hash": "abc123def...",  // HEAD commit SHA at ingestion time
   "symbols": ["MyClass", "my_function"],
   "chunk_index": 0,

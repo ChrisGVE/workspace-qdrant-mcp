@@ -117,7 +117,6 @@ The `watch_folders` table tracks activity state:
 CREATE TABLE unified_queue (
     -- Identity
     queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
-    idempotency_key TEXT NOT NULL UNIQUE,  -- SHA256 hash for deduplication
 
     -- Item classification
     item_type TEXT NOT NULL CHECK (item_type IN (
@@ -127,21 +126,11 @@ CREATE TABLE unified_queue (
     tenant_id TEXT NOT NULL,
     collection TEXT NOT NULL,            -- projects|libraries|rules
 
-    -- Processing control
-    priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+    -- Processing control (no priority column — priority is computed at dequeue
+    -- time via JOINs with watch_folders.is_active)
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
         'pending', 'in_progress', 'done', 'failed'
     )),
-
-    -- Per-destination state machine
-    qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN (
-        'pending', 'in_progress', 'done', 'failed'
-    )),
-    search_status TEXT DEFAULT 'pending' CHECK (search_status IN (
-        'pending', 'in_progress', 'done', 'failed'
-    )),
-    decision_json TEXT,                  -- Stored decision: action, old_base_point,
-                                         -- new_base_point, delete_old (boolean)
 
     -- Timestamps
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -151,21 +140,34 @@ CREATE TABLE unified_queue (
     lease_until TEXT,                    -- Expiration timestamp for current lease
     worker_id TEXT,                      -- ID of worker holding lease
 
-    -- Payload and metadata
+    -- Deduplication and payload
+    idempotency_key TEXT NOT NULL UNIQUE, -- SHA256 hash for deduplication
     payload_json TEXT NOT NULL DEFAULT '{}',
     branch TEXT DEFAULT 'main',
     metadata TEXT DEFAULT '{}',
+    file_path TEXT UNIQUE,               -- Per-file deduplication (set for item_type='file', NULL for others)
 
     -- Error handling
     retry_count INTEGER NOT NULL DEFAULT 0,
     max_retries INTEGER NOT NULL DEFAULT 3,
     error_message TEXT,
-    last_error_at TEXT
+    last_error_at TEXT,
+
+    -- Per-destination state machine
+    qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN (
+        'pending', 'in_progress', 'done', 'failed'
+    )),
+    search_status TEXT DEFAULT 'pending' CHECK (search_status IN (
+        'pending', 'in_progress', 'done', 'failed'
+    )),
+    decision_json TEXT                   -- Stored decision: { action: "ingest"|"update"|"delete"|"skip",
+                                         --   old_base_point?: string, new_base_point?: string,
+                                         --   delete_old?: boolean }
 );
 
--- Primary dequeue index (pending items by priority)
-CREATE INDEX idx_unified_queue_dequeue
-    ON unified_queue(status, priority DESC, created_at ASC)
+-- Primary dequeue index (pending items by creation order)
+CREATE INDEX IF NOT EXISTS idx_unified_queue_dequeue
+    ON unified_queue(status, created_at ASC)
     WHERE status = 'pending';
 
 -- Idempotency enforcement (unique constraint creates implicit index)
@@ -189,7 +191,7 @@ CREATE INDEX idx_unified_queue_collection_tenant
 - **decision_json:** Stores the keep/delete decision (computed once during the decision phase) before execution. On retry, only the failed destination is re-executed using the stored decision — no re-analysis needed.
 - **lease_until/worker_id:** Enables crash recovery by detecting stale leases
 - **idempotency_key:** SHA256 hash of `item_type|op|tenant_id|collection|payload_json` - prevents duplicate processing even for content items without file paths
-- **priority column:** Allows different priority levels for different item types (e.g., MCP content = 8, file watch = 5)
+- **priority (computed at dequeue):** Not stored in the queue — calculated at dequeue time via JOINs with `watch_folders.is_active`, enabling dynamic priority based on current project activity state
 - **updated_at:** Tracks when item status last changed
 - **branch:** Preserves branch context for project items
 

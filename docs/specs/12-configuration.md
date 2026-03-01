@@ -10,6 +10,7 @@
 2. `~/.workspace-qdrant/config.yaml` (or `.yml`)
 3. `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` (or `.yml`; defaults to `~/.config`)
 4. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS only)
+5. `%APPDATA%\workspace-qdrant\config.yaml` (Windows only)
 
 No project-local `.workspace-qdrant.yaml` is searched. All components use the same cascade.
 
@@ -75,7 +76,7 @@ qdrant:
   transport: grpc                       # grpc | http
   pool_size: 10
   tls: false
-  dense_vector_size: 1536
+  dense_vector_size: 384
   check_compatibility: true
 
 # Daemon top-level settings
@@ -288,7 +289,7 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 |------------|--------------|---------------|
 | `projects` | `dense` (384-dim), `sparse` (BM25) | Use `dense` |
 | `libraries` | `dense` (384-dim), `sparse` (BM25) | Use `dense` |
-| `memory` | `dense` (384-dim) | Use `dense` |
+| `rules` | `dense` (384-dim) | Use `dense` |
 
 **Distance Matrix API:** For graph visualization of semantically similar documents, use Qdrant's Distance Matrix API to compute pairwise distances between points using the `dense` vector. This can reveal clusters of related code files or documentation.
 

@@ -2,26 +2,25 @@
 
 ### MCP Tools
 
-The server provides exactly **4 tools**: `search`, `retrieve`, `rules`, and `store`.
+The server provides exactly **6 tools**: `search`, `retrieve`, `rules`, `store`, `grep`, and `list`.
 
 **Important design principles:**
 
 - The MCP server does NOT store content to the `projects` collection. Project content is ingested by the daemon via file watching.
-- The MCP can manage rules via the `rules` tool and store to `libraries` (reference documentation), and can register new projects with the daemon via `store` with `type: "project"`.
+- The MCP can manage rules via the `rules` tool, store to `libraries` (reference documentation), register new projects with the daemon via `store` with `type: "project"`, search code with exact/regex matching via `grep`, and browse project structure via `list`.
 - Session management (activate/deactivate) is automated, not exposed as a tool.
 - Health monitoring is server-internal and affects search response metadata.
 
 #### search
 
-Semantic search with optional direct retrieval mode.
+Hybrid semantic and keyword search across project content, libraries, and rules.
 
 ```typescript
 search({
     query: string,                      // Required: search query
     collection?: "projects" | "libraries" | "rules", // default: "projects"
-    mode?: "hybrid" | "semantic" | "keyword" | "retrieve", // default: "hybrid"
+    mode?: "hybrid" | "semantic" | "keyword", // default: "hybrid"
     limit?: number,                     // default: 10
-    score_threshold?: number,           // default: 0.3 (ignored in retrieve mode)
     // Collection-specific scope filters (see below)
     scope?: string,                     // Scope within collection
     branch?: string,                    // For projects: branch filter
@@ -33,9 +32,14 @@ search({
     tags?: string[],                   // Filter by multiple concept tags (OR logic)
     // Cross-collection options
     include_libraries?: boolean,       // Also search libraries collection
-    include_deleted?: boolean,         // Include deleted documents (libraries only)
-    // Context expansion (libraries collection only)
-    expandContext?: boolean,           // Fetch parent unit context for results (default: false)
+    // Exact search options
+    exact?: boolean,                   // Use exact substring search instead of semantic search (default: false)
+    contextLines?: number,             // Lines of context before/after matches in exact mode (default: 0)
+    // Code intelligence options
+    includeGraphContext?: boolean,     // Include code relationship graph context (callers/callees) for matched symbols (default: false)
+    // Structural filters
+    component?: string,               // Filter by project component (e.g., "daemon", "daemon.core"). Supports prefix matching.
+    pathGlob?: string,                // File path glob filter (e.g., "**/*.rs", "src/**/*.ts")
 )
 ```
 
@@ -44,7 +48,6 @@ search({
 - `hybrid`: Semantic + keyword search (default)
 - `semantic`: Pure vector similarity
 - `keyword`: Keyword/exact matching
-- `retrieve`: Direct document access by ID or metadata (no ranking)
 
 **file_type values:**
 
@@ -61,37 +64,11 @@ search({
 
 When `include_libraries=True`, search queries the `libraries` collection in addition to the primary collection. This enables cross-collection search for finding related documentation alongside project code. Results from both collections are fused using Reciprocal Rank Fusion.
 
-**expandContext:**
-
-When `expandContext=true`, the MCP server batch-fetches parent unit records from Qdrant for each search result and includes them in the `parent_context` field. This provides full document/unit-level context for library document chunks, enabling the LLM to see the complete surrounding text, document title, authors, and source location. Only applicable to the `libraries` collection. The parent context includes:
-
-- `parent_unit_id`: Qdrant point ID of the parent record
-- `unit_type`: "document" or "code_block"
-- `unit_text`: Full text of the parent unit
-- `locator`: Format-specific location (e.g., page number, section)
-
-Example result with expanded context:
-
-```typescript
-{
-  "id": "chunk-point-id",
-  "score": 0.87,
-  "collection": "libraries",
-  "content": "Array operations allow element-wise...",
-  "parent_context": {
-    "parent_unit_id": "parent-point-id",
-    "unit_type": "document",
-    "unit_text": "Full document text...",
-    "locator": { "page": 1, "section": "Introduction" }
-  }
-}
-```
-
 **Collection-specific scope:**
 
 | Collection  | Scope Options              | Notes                                           |
 | ----------- | -------------------------- | ----------------------------------------------- |
-| `memory`    | `all`, `global`, `project` | `project` = current project's rules             |
+| `rules`     | `all`, `global`, `project` | `project` = current project's rules             |
 | `projects`  | `all`, `current`, `other`  | Combined with `branch` and `project_id` filters |
 | `libraries` | `all`, `<library_name>`    | Filter by specific library                      |
 
@@ -127,7 +104,7 @@ retrieve({
 });
 ```
 
-**Use case:** Retrieving large documents chunk by chunk without overwhelming context. Use `search` with `mode="retrieve"` for metadata-based retrieval, or `retrieve` for ID-based access.
+**Use case:** Retrieving specific documents by ID or metadata filter for chunk-by-chunk access without overwhelming context. Use `search` for discovery by query, and `retrieve` for direct access when you know the document ID or metadata.
 
 #### rules
 
@@ -191,37 +168,96 @@ User: "Actually, let me update that rule about testing"
 
 #### store
 
-Store content to libraries collection or register a project with the daemon. The `type` parameter determines the operation mode.
+Store content or register a project. The `type` parameter determines the operation mode.
+
+```typescript
+store({
+    type?: "library" | "url" | "scratchpad" | "project", // What to store (default: "library")
+    // Common parameters
+    content?: string,                  // Text content (required for type "library")
+    title?: string,                    // Content title (for type "library")
+    url?: string,                      // Source URL (for web content)
+    filePath?: string,                 // Source file path
+    metadata?: Record<string, unknown>, // Additional metadata
+    // Library-specific parameters
+    libraryName?: string,              // Library identifier (required for type "library" unless forProject is true)
+    forProject?: boolean,              // When true, store to libraries collection scoped to current project. libraryName defaults to "project-refs".
+    sourceType?: "user_input" | "web" | "file" | "scratchbook" | "note", // Source type (default: "user_input")
+    // Scratchpad-specific parameters
+    tags?: string[],                   // Tags for scratchpad entries
+    // Project-specific parameters
+    path?: string,                     // Absolute path to project directory (required for type "project")
+    name?: string,                     // Display name (defaults to directory name, for type "project")
+})
+```
 
 **Type: `"library"` (default) — Store reference documentation:**
 
-```typescript
-store({
-    type?: "library",                  // Default: "library"
-    content: string,                   // Required: text content
-    library_name: string,              // Required: library identifier (acts as tag)
-    title?: string,                    // Document title
-    source?: "user_input" | "web" | "file", // default: "user_input"
-    url?: string,                      // Source URL (for web content)
-    metadata?: Record<string, unknown>, // Additional metadata
-});
-```
+Stores content to the `libraries` collection. Requires `content` and `libraryName` (unless `forProject` is true, in which case `libraryName` defaults to `"project-refs"`).
+
+**Type: `"url"` — Fetch and ingest a web page:**
+
+Fetches the content at the given `url`, converts it to text, and stores it in the `libraries` collection. Useful for ingesting online documentation, articles, or reference pages.
+
+**Type: `"scratchpad"` — Persistent notes/scratch space:**
+
+Stores content to the `scratchpad` collection for temporary working notes. Supports `tags` for categorization.
 
 **Type: `"project"` — Register a project directory:**
-
-```typescript
-store({
-    type: "project",                   // Required: must be "project"
-    path: string,                      // Required: absolute path to project directory
-    name?: string,                     // Optional: display name (defaults to directory name)
-});
-```
 
 Registers a new project with the daemon for file watching and ingestion. Uses `register_if_new: true` so the daemon will create the project in `watch_folders` if it doesn't already exist. Returns `{ success, project_id, created, is_active, message }`.
 
 **Note:** `store` with `type: "library"` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or behavioral rules (use `rules` tool). Use `type: "project"` to register a new project directory with the daemon.
 
 **Libraries definition:** Libraries are collections of reference information (books, documentation, papers, websites) - NOT programming libraries (use context7 MCP for those).
+
+#### grep
+
+Search code with exact substring or regex pattern matching via FTS5 trigram index.
+
+```typescript
+grep({
+    pattern: string,                    // Required: search pattern (exact substring or regex)
+    regex?: boolean,                    // Treat pattern as regex (default: false)
+    caseSensitive?: boolean,            // Case-sensitive matching (default: true)
+    pathGlob?: string,                  // File path glob filter (e.g., "**/*.rs", "src/**/*.ts")
+    scope?: "project" | "all",          // Search scope (default: "project")
+    contextLines?: number,              // Lines of context before/after each match (default: 0)
+    maxResults?: number,                // Maximum results to return (default: 1000)
+    branch?: string,                    // Filter by branch name
+    projectId?: string,                 // Specific project ID to search
+})
+```
+
+**Use case:** Finding exact code patterns, function calls, imports, or string literals across the indexed codebase. Unlike `search` which uses semantic similarity, `grep` finds exact text matches. Results include file path, line number, and matched content.
+
+#### list
+
+List project files and folder structure. Shows only indexed files (excludes gitignored, node_modules, etc).
+
+```typescript
+list({
+    path?: string,                      // Subfolder relative to project root (default: root)
+    depth?: number,                     // Max directory depth (default: 3, max: 10)
+    format?: "tree" | "summary" | "flat", // Output format (default: tree)
+    fileType?: string,                  // Filter: "code", "text", "data", "config", "build", "web"
+    language?: string,                  // Filter by programming language (e.g., "rust", "typescript")
+    extension?: string,                 // Filter by file extension (e.g., "rs", "ts")
+    pattern?: string,                   // Glob pattern on relative path (e.g., "**/*.test.ts")
+    includeTests?: boolean,             // Include test files (default: true)
+    limit?: number,                     // Max entries returned (default: 200, max: 500)
+    projectId?: string,                 // Specific project ID (default: current project)
+    component?: string,                 // Filter by component (e.g., "daemon", "daemon.core")
+})
+```
+
+**Formats:**
+
+- `tree`: Hierarchical directory tree with file counts per directory
+- `summary`: High-level project overview with component breakdown, language statistics, and directory structure
+- `flat`: Simple flat list of file paths matching filters
+
+**Use case:** Understanding project structure before diving into code. Start with `format: "summary"` for an overview, then use `path` to drill into specific directories.
 
 ### Session Lifecycle
 
@@ -334,9 +370,9 @@ The following are **not exposed as MCP tools**:
 
 ### gRPC Services
 
-The daemon exposes 6 gRPC services on port 50051.
+The daemon exposes 7 gRPC services on port 50051.
 
-#### SystemService (7 RPCs)
+#### SystemService (10 RPCs)
 
 System-level operations for monitoring, metrics, and lifecycle management.
 
@@ -349,6 +385,9 @@ System-level operations for monitoring, metrics, and lifecycle management.
 | `Shutdown`            | CLI      | Graceful daemon shutdown        | Production |
 | `SendRefreshSignal`   | CLI      | Signal database state changes   | Production |
 | `NotifyServerStatus`  | MCP      | Server lifecycle notifications  | Production |
+| `PauseAllWatchers`    | CLI      | Pause all file watchers         | Production |
+| `ResumeAllWatchers`   | CLI      | Resume all paused watchers      | Production |
+| `RebuildIndex`        | CLI      | Rebuild FTS5 search index       | Production |
 
 #### CollectionService (7 RPCs)
 
@@ -392,7 +431,16 @@ Embedding generation for TypeScript MCP server. Centralizes embedding model in d
 - Dense vectors use FastEmbed `all-MiniLM-L6-v2` model (384 dimensions)
 - Sparse vectors use BM25 algorithm with IDF weighting: `IDF * (k1 * tf) / (tf + k1)` where `IDF = ln((N - df + 0.5) / (df + 0.5))`, clamped at 0. IDF vocabulary and corpus statistics are persisted in `sparse_vocabulary` and `corpus_statistics` SQLite tables (schema v15). Per-collection BM25 instances maintain independent document frequency counts.
 
-#### ProjectService (6 RPCs)
+#### TextSearchService (2 RPCs)
+
+Exact substring and regex code search via FTS5 trigram index. Used by the `grep` MCP tool.
+
+| Method         | Used By | Purpose                            | Status     |
+| -------------- | ------- | ---------------------------------- | ---------- |
+| `Search`       | MCP     | Exact/regex pattern matching       | Production |
+| `CountMatches` | MCP     | Count matches without full results | Production |
+
+#### ProjectService (8 RPCs)
 
 Multi-tenant project lifecycle and session management.
 
@@ -404,6 +452,8 @@ Multi-tenant project lifecycle and session management.
 | `GetProjectStatus`    | MCP      | Get project status               | Production                   |
 | `ListProjects`        | CLI      | List all registered projects     | Production                   |
 | `Heartbeat`           | MCP      | Keep session alive (60s)         | Production                   |
+| `RenameTenant`        | CLI      | Rename tenant_id across collections | Production                |
+| `SetProjectPriority`  | CLI      | Set project processing priority  | Production                   |
 
 **Enqueue-Only Pattern (RegisterProject, DeleteProject):**
 - These handlers do NOT perform direct SQLite mutations
