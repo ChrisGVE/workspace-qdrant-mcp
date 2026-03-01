@@ -223,6 +223,8 @@ The Rust daemon handles file watching, embedding generation, code graph extracti
 - [Configuration](docs/reference/configuration.md) — all options and defaults
 - [Architecture](docs/reference/architecture.md) — component overview
 
+See the [Documentation Index](docs/INDEX.md) for specifications, ADRs, and developer resources.
+
 ## Development
 
 ```bash
