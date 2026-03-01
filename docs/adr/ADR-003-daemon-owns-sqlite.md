@@ -171,7 +171,7 @@ The TypeScript MCP server:
 ## Related Documents
 
 - [ADR-002](./ADR-002-daemon-only-write-policy.md) - Daemon-only writes to Qdrant
-- [WORKSPACE_QDRANT_MCP.md](../../WORKSPACE_QDRANT_MCP.md) - Main specification
+- [docs/specs/](../../docs/specs/) - Modular specification files (see [12-configuration.md](../../docs/specs/12-configuration.md) for SQLite/database spec)
 - [FIRST-PRINCIPLES.md](../../FIRST-PRINCIPLES.md) - Architectural principles
 
 ## Changelog

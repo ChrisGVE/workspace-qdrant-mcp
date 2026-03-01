@@ -1,7 +1,7 @@
 //! Schema Version Table and Migration System
 //!
 //! This module implements the schema version tracking and migration system.
-//! Per WORKSPACE_QDRANT_MCP.md spec v1.6.3, the daemon is the sole owner of
+//! Per docs/specs/12-configuration.md, the daemon is the sole owner of
 //! the SQLite database schema. It creates all tables on startup and handles
 //! all schema version upgrades.
 //!

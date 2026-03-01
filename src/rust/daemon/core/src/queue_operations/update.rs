@@ -12,7 +12,7 @@ use super::{QueueError, QueueManager, QueueResult};
 impl QueueManager {
     /// Delete a unified queue item after successful processing
     ///
-    /// Per WORKSPACE_QDRANT_MCP.md spec line 813:
+    /// Per docs/specs/04-write-path.md:
     /// "On success: DELETE items from queue"
     ///
     /// This is the correct method for handling successfully processed items.

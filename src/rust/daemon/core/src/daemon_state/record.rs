@@ -8,7 +8,7 @@ use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 use super::{DaemonStateManager, DaemonStateResult};
 
 /// Watch folder record matching spec-defined watch_folders table
-/// Per WORKSPACE_QDRANT_MCP.md v1.6.4, this unified table consolidates
+/// Per docs/specs/06-file-watching.md, this unified table consolidates
 /// project and library watching configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchFolderRecord {

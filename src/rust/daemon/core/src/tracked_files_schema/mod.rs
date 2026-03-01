@@ -4,7 +4,7 @@
 //! tables. Together they form the authoritative file inventory, replacing the need to
 //! scroll Qdrant for file listings, recovery, and cleanup operations.
 //!
-//! Per WORKSPACE_QDRANT_MCP.md spec:
+//! Per docs/specs/04-write-path.md spec:
 //! - `tracked_files` is written by the daemon, read by CLI
 //! - `qdrant_chunks` is daemon-only (write and read)
 //! - `qdrant_chunks` is a child of `tracked_files` with CASCADE delete

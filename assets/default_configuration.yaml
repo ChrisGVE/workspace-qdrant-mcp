@@ -2449,7 +2449,7 @@ watching:
   # allowed_extensions: File extensions eligible for ingestion
   # Purpose: Primary gate — only files with these extensions are processed
   # Format: Array of extension strings (with leading dot)
-  # Categories: 21 language/format categories (see WORKSPACE_QDRANT_MCP.md)
+  # Categories: 21 language/format categories (see docs/specs/06-file-watching.md)
   allowed_extensions:
     # 1. Systems Languages
     - ".c"

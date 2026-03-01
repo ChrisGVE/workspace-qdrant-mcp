@@ -12,7 +12,7 @@
 //! - `set_priority`: Maps "high"/"normal" to is_active=1/0
 //! - `cleanup_orphaned_sessions`: Detects stale active projects (>60s without heartbeat)
 //!
-//! ## Schema Compliance (WORKSPACE_QDRANT_MCP.md v1.6.7)
+//! ## Schema Compliance (docs/specs/04-write-path.md)
 //!
 //! This module uses only the `watch_folders` table for activity state.
 //! Queue ordering is computed at dequeue time, not stored.

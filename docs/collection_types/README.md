@@ -8,7 +8,7 @@
 > - No underscore prefixes, no per-project collections, no SYSTEM/GLOBAL types
 >
 > **See:**
-> - [WORKSPACE_QDRANT_MCP.md](../../WORKSPACE_QDRANT_MCP.md) - Authoritative specification
+> - [docs/specs/02-collection-architecture.md](../../docs/specs/02-collection-architecture.md) - Collection architecture specification
 > - [ADR-001](../adr/ADR-001-canonical-collection-architecture.md) - Collection architecture decision
 >
 > This documentation is retained for reference during migration from legacy systems.

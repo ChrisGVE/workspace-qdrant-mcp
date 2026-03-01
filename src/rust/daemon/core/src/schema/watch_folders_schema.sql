@@ -1,6 +1,6 @@
 -- watch_folders_schema.sql
 -- Unified watch folders table for projects, libraries, and submodules
--- Per WORKSPACE_QDRANT_MCP.md spec v1.6.3
+-- Per docs/specs/06-file-watching.md
 --
 -- This table consolidates:
 --   - registered_projects (merged)

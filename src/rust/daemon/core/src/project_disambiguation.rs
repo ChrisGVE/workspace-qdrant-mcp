@@ -95,7 +95,7 @@ pub struct RegisteredProject {
 
 // NOTE: Legacy SQL constants (CREATE_REGISTERED_PROJECTS_SQL, CREATE_REGISTERED_PROJECTS_INDEXES_SQL)
 // have been removed. Use the unified `watch_folders` table from `watch_folders_schema.rs` instead.
-// See WORKSPACE_QDRANT_MCP.md v1.6.2+ for the consolidated schema.
+// See docs/specs/12-configuration.md for the consolidated schema.
 
 // NOTE: Tests for ProjectIdCalculator, DisambiguationPathComputer, and related functions
 // have been moved to wqm_common::project_id. Only daemon-specific tests remain here.

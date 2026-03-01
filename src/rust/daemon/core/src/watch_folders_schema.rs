@@ -2,7 +2,7 @@
 //!
 //! This module defines the types and schema for the unified watch_folders table.
 //! It consolidates: registered_projects, project_submodules, watch_configurations,
-//! and library_watches into a single table per WORKSPACE_QDRANT_MCP.md spec v1.6.3.
+//! and library_watches into a single table per docs/specs/06-file-watching.md.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

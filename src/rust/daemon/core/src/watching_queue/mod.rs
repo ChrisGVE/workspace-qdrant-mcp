@@ -1,7 +1,7 @@
 //! File Watching with SQLite Queue Integration
 //!
 //! This module provides Rust-based file watching that writes directly to the
-//! unified_queue SQLite table per WORKSPACE_QDRANT_MCP.md specification.
+//! unified_queue SQLite table per docs/specs/04-write-path.md specification.
 
 mod types;
 mod file_watcher;

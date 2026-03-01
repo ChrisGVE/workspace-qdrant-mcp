@@ -1,6 +1,6 @@
 # workspace-qdrant-mcp Architecture
 
-> **Authoritative Specification**: For the complete system specification, see [WORKSPACE_QDRANT_MCP.md](../WORKSPACE_QDRANT_MCP.md). This document provides visual diagrams and component details.
+> **Authoritative Specification**: For the complete system specification, see the modular spec files in [docs/specs/](./specs/). This document provides visual diagrams and component details.
 >
 > **Note**: This document describes the full system architecture including the Rust daemon and CLI which are under development. The MCP server (`workspace-qdrant-mcp`) is fully functional. Daemon and CLI features are planned for v0.4.0.
 
@@ -857,6 +857,6 @@ For detailed component specifications and implementation details:
 
 **Version**: 1.4
 **Last Updated**: 2026-01-30
-**PRD Alignment**: WORKSPACE_QDRANT_MCP.md (Consolidated Specification)
+**PRD Alignment**: docs/specs/ (Modular Specification)
 **ADR Alignment**: ADR-001 (canonical collection names), ADR-002 (daemon-only writes), ADR-003 (daemon owns SQLite)
 **Updates**: Added ADR-003 - daemon owns SQLite database and schema

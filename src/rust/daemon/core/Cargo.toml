@@ -109,7 +109,7 @@ dirs = "5.0"
 #   4. cargo build --release
 #
 # See: https://ort.pyke.io/setup/linking
-# See: WORKSPACE_QDRANT_MCP.md section "ONNX Runtime Static Linking"
+# See: docs/specs/11-grammar-runtime.md for ONNX Runtime static linking details
 fastembed = { version = "5", features = ["hf-hub"] }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 

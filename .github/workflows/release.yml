@@ -7,7 +7,7 @@
 #   so we download Microsoft's ONNX Runtime and set ORT_LIB_LOCATION
 #
 # All binaries are self-contained with ONNX Runtime statically linked.
-# See: WORKSPACE_QDRANT_MCP.md section "ONNX Runtime Static Linking"
+# See: docs/specs/11-grammar-runtime.md for ONNX Runtime static linking details
 #
 # Targets:
 # - ARM Mac (aarch64-apple-darwin)

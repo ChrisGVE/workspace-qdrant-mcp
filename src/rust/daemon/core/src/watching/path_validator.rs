@@ -290,7 +290,7 @@ impl OrphanCleanupActions {
         let path_str = self.path.to_string_lossy();
 
         // NOTE: registered_projects table has been consolidated into watch_folders
-        // per WORKSPACE_QDRANT_MCP.md v1.6.2+
+        // per docs/specs/06-file-watching.md
         vec![
             ("unified_queue", format!("tenant_id = '{}'", project_id)),
             ("watch_folders", format!("path = '{}' OR path LIKE '{}/%'", path_str, path_str)),

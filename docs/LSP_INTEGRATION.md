@@ -741,7 +741,7 @@ wqm admin cleanup --lsp     # Clear stale LSP state
 
 | Document | Purpose |
 |----------|---------|
-| [WORKSPACE_QDRANT_MCP.md](../WORKSPACE_QDRANT_MCP.md) | Main specification |
+| [docs/specs/](../docs/specs/) | Modular specification files |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture |
 | [CLI.md](./CLI.md) | CLI command reference |
 | [METRICS.md](./METRICS.md) | Metrics documentation |

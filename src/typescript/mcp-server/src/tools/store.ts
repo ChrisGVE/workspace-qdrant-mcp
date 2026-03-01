@@ -1,10 +1,10 @@
 /**
  * Store tool implementation for content storage to libraries collection
  *
- * Per WORKSPACE_QDRANT_MCP.md spec line 1718:
+ * Per docs/specs/08-api-reference.md:
  * "store is for adding reference documentation to the libraries collection"
  *
- * Per spec v1.3 changelog:
+ * Per spec:
  * "clarified MCP does NOT store to projects collection (daemon handles via file watching)"
  *
  * Per ADR-002, this tool ONLY uses unified_queue for writes.
@@ -216,7 +216,7 @@ export class StoreTool {
     };
 
     // Use state manager to enqueue to libraries collection
-    const result = await this.stateManager.enqueueUnified(
+    const result = this.stateManager.enqueueUnified(
       'tenant',
       'add',
       params.tenantId,
