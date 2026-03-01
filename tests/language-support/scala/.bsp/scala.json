@@ -1,0 +1,29 @@
+{
+  "name": "scala",
+  "argv": [
+    "/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home/bin/java",
+    "-jar",
+    "/usr/local/Cellar/scala/3.8.2/libexec/libexec/scala-cli.jar",
+    "--cli-default-scala-version",
+    "3.8.2",
+    "--repository",
+    "file:///usr/local/Cellar/scala/3.8.2/libexec/maven2",
+    "--prog-name",
+    "scala",
+    "--skip-cli-updates",
+    "bsp",
+    "--json-options",
+    "/Users/chris/dev/projects/mcp/workspace-qdrant-mcp/tests/language-support/scala/.scala-build/ide-options-v2.json",
+    "--json-launcher-options",
+    "/Users/chris/dev/projects/mcp/workspace-qdrant-mcp/tests/language-support/scala/.scala-build/ide-launcher-options.json",
+    "--envs-file",
+    "/Users/chris/dev/projects/mcp/workspace-qdrant-mcp/tests/language-support/scala/.scala-build/ide-envs.json",
+    "/Users/chris/dev/projects/mcp/workspace-qdrant-mcp/tests/language-support/scala"
+  ],
+  "version": "1.12.2",
+  "bspVersion": "2.1.1",
+  "languages": [
+    "scala",
+    "java"
+  ]
+}
