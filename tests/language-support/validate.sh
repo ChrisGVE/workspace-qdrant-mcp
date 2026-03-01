@@ -492,9 +492,9 @@ compute_verdict() {
 
   # Read Phase 1 results
   local comp exec match
-  comp=$(grep 'compilation_pass:' "$report" | head -1 | awk '{print $2}')
-  exec=$(grep 'execution_pass:' "$report" | head -1 | awk '{print $2}')
-  match=$(grep 'output_match:' "$report" | head -1 | awk '{print $2}')
+  comp=$(grep 'compilation_pass:' "$report" 2>/dev/null | head -1 | awk '{print $2}' || true)
+  exec=$(grep 'execution_pass:' "$report" 2>/dev/null | head -1 | awk '{print $2}' || true)
+  match=$(grep 'output_match:' "$report" 2>/dev/null | head -1 | awk '{print $2}' || true)
 
   if [[ "$comp" != "true" || "$exec" != "true" ]]; then
     verdict="FAIL"
@@ -540,7 +540,7 @@ generate_summary() {
     [[ ! -f "$report" ]] && continue
 
     local v
-    v=$(grep '^verdict:' "$report" 2>/dev/null | awk '{print $2}')
+    v=$(grep '^verdict:' "$report" 2>/dev/null | awk '{print $2}' || true)
     case "$v" in
       PASS) pass=$((pass + 1)) ;;
       PARTIAL) partial=$((partial + 1)) ;;
@@ -563,7 +563,7 @@ generate_summary() {
 
     # Search precision
     local prec
-    prec=$(grep 'search_precision:' "$report" 2>/dev/null | awk '{print $2}')
+    prec=$(grep 'search_precision:' "$report" 2>/dev/null | awk '{print $2}' || true)
     if [[ -n "$prec" && "$prec" =~ ^[0-9]+$ ]]; then
       precision_sum=$((precision_sum + prec))
       precision_count=$((precision_count + 1))
@@ -574,7 +574,7 @@ generate_summary() {
 
   local mean_precision="0.0"
   if [[ $precision_count -gt 0 ]]; then
-    mean_precision=$(python3 -c "print(round($precision_sum / $precision_count, 1))" 2>/dev/null || echo "0.0")
+    mean_precision=$(python3 -c "print(round($precision_sum / $precision_count, 1))" 2>/dev/null) || mean_precision="0.0"
   fi
 
   # Strip trailing commas
@@ -642,7 +642,7 @@ main() {
     echo "--- $lang ---"
 
     if [[ -z "$PHASE" ]] || [[ "$PHASE" == "1" ]]; then
-      run_phase1 "$lang"
+      run_phase1 "$lang" || true
     fi
 
     if $PHASE1_ONLY; then
@@ -654,7 +654,7 @@ main() {
     fi
 
     if [[ -z "$PHASE" ]] || [[ "$PHASE" == "2" ]]; then
-      run_phase2 "$lang"
+      run_phase2 "$lang" || true
     fi
 
     if [[ -z "$PHASE" ]] || [[ "$PHASE" == "3" ]]; then
