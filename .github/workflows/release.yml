@@ -401,3 +401,30 @@ jobs:
             Place the `.node` file in `src/rust/common-node/` for the MCP server to use.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract per-platform checksums
+        id: checksums
+        run: |
+          cd artifacts
+          # Extract SHA256 for each platform tarball
+          for platform in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            sha=$(grep "workspace-qdrant-mcp-${platform}.tar.gz" checksums.txt | awk '{print $1}')
+            key=$(echo "$platform" | tr '-' '_')
+            echo "${key}=${sha}" >> $GITHUB_OUTPUT
+          done
+
+      - name: Dispatch Homebrew tap update
+        if: "!contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha')"
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TAP_DISPATCH_TOKEN }}
+          repository: ChrisGVE/homebrew-tap
+          event-type: release-published
+          client-payload: |
+            {
+              "version": "${{ github.ref_name }}",
+              "darwin_arm64_sha256": "${{ steps.checksums.outputs.darwin_arm64 }}",
+              "darwin_x64_sha256": "${{ steps.checksums.outputs.darwin_x64 }}",
+              "linux_x64_sha256": "${{ steps.checksums.outputs.linux_x64 }}",
+              "linux_arm64_sha256": "${{ steps.checksums.outputs.linux_arm64 }}"
+            }
