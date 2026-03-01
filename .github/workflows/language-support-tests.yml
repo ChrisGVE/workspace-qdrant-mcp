@@ -1,0 +1,232 @@
+name: Language Support Tests
+
+on:
+  push:
+    branches: [main]
+    paths: ['tests/language-support/**']
+  pull_request:
+    branches: [main]
+    paths: ['tests/language-support/**']
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: 'Language tier to test'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - tier1
+          - tier2
+          - tier3
+          - all
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  tier1:
+    name: "Tier 1: ${{ matrix.language }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [rust, python, typescript, javascript, go]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node.js
+        if: matrix.language == 'typescript' || matrix.language == 'javascript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install tsx (TypeScript)
+        if: matrix.language == 'typescript'
+        run: npm install -g tsx
+
+      - name: Run Phase 1 validation
+        working-directory: tests/language-support
+        run: |
+          chmod +x validate.sh
+          ./validate.sh --phase1-only --language ${{ matrix.language }} --verbose
+
+      - name: Check verdict
+        working-directory: tests/language-support
+        run: |
+          report="results/${{ matrix.language }}.yaml"
+          if [ ! -f "$report" ]; then
+            echo "::error::No report generated for ${{ matrix.language }}"
+            exit 1
+          fi
+          verdict=$(grep '^verdict:' "$report" | awk '{print $2}' || true)
+          if [ "$verdict" = "FAIL" ]; then
+            echo "::error::${{ matrix.language }} validation FAILED"
+            cat "$report"
+            exit 1
+          fi
+          echo "${{ matrix.language }}: $verdict"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.language }}
+          path: tests/language-support/results/${{ matrix.language }}.yaml
+          retention-days: 90
+
+  tier2:
+    name: "Tier 2: ${{ matrix.language }}"
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [c, cpp, java, swift, scala, haskell, ocaml, erlang, elixir, ruby]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install language toolchains
+        run: |
+          sudo apt-get update
+          case "${{ matrix.language }}" in
+            c|cpp)     sudo apt-get install -y build-essential ;;
+            java)      sudo apt-get install -y default-jdk ;;
+            swift)     # Swift is pre-installed on ubuntu runners
+                       swift --version || sudo apt-get install -y swift ;;
+            scala)     curl -fL https://github.com/Virtuslab/scala-cli/releases/latest/download/scala-cli-x86_64-pc-linux.gz | gunzip > /usr/local/bin/scala-cli && chmod +x /usr/local/bin/scala-cli ;;
+            haskell)   sudo apt-get install -y ghc ;;
+            ocaml)     sudo apt-get install -y ocaml ;;
+            erlang)    sudo apt-get install -y erlang ;;
+            elixir)    sudo apt-get install -y elixir ;;
+            ruby)      # Ruby is pre-installed on ubuntu runners
+                       ruby --version ;;
+          esac
+
+      - name: Run Phase 1 validation
+        working-directory: tests/language-support
+        run: |
+          chmod +x validate.sh
+          ./validate.sh --phase1-only --language ${{ matrix.language }} --verbose
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.language }}
+          path: tests/language-support/results/${{ matrix.language }}.yaml
+          retention-days: 90
+
+  tier3:
+    name: "Tier 3: ${{ matrix.language }}"
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [clojure, lisp, lua, perl, shell, pascal, fortran, odin, zig]
+        # Ada excluded: GNAT not readily available on GitHub runners
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install language toolchains
+        run: |
+          sudo apt-get update
+          case "${{ matrix.language }}" in
+            clojure)   sudo apt-get install -y clojure ;;
+            lisp)      sudo apt-get install -y sbcl ;;
+            lua)       sudo apt-get install -y lua5.4 ;;
+            perl)      # Perl is pre-installed ;;
+                       ;;
+            shell)     # Bash is pre-installed ;;
+                       ;;
+            pascal)    sudo apt-get install -y fpc ;;
+            fortran)   sudo apt-get install -y gfortran ;;
+            odin)      curl -fsSL https://github.com/odin-lang/Odin/releases/latest/download/odin-ubuntu-amd64-nightly+*.tar.gz -o odin.tar.gz || true
+                       # Odin may need manual setup; skip gracefully if unavailable
+                       ;;
+            zig)       sudo snap install zig --classic --beta || sudo apt-get install -y zig ;;
+          esac
+
+      - name: Run Phase 1 validation
+        working-directory: tests/language-support
+        run: |
+          chmod +x validate.sh
+          ./validate.sh --phase1-only --language ${{ matrix.language }} --verbose || true
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.language }}
+          path: tests/language-support/results/${{ matrix.language }}.yaml
+          retention-days: 90
+
+  summary:
+    name: Summary
+    needs: [tier1]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+          pattern: report-*
+
+      - name: Generate summary
+        run: |
+          echo "## Language Support Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Language | Verdict |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|---------|" >> $GITHUB_STEP_SUMMARY
+
+          pass=0
+          fail=0
+          for report in reports/report-*/*.yaml; do
+            lang=$(basename "$(dirname "$report")" | sed 's/report-//')
+            verdict=$(grep '^verdict:' "$report" 2>/dev/null | awk '{print $2}' || echo "N/A")
+            echo "| $lang | $verdict |" >> $GITHUB_STEP_SUMMARY
+            if [ "$verdict" = "PASS" ]; then
+              pass=$((pass + 1))
+            elif [ "$verdict" = "FAIL" ]; then
+              fail=$((fail + 1))
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Results:** $pass passed, $fail failed" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check tier-1 results
+        run: |
+          for report in reports/report-{rust,python,typescript,javascript,go}/*.yaml; do
+            if [ -f "$report" ]; then
+              verdict=$(grep '^verdict:' "$report" 2>/dev/null | awk '{print $2}' || true)
+              lang=$(basename "$(dirname "$report")" | sed 's/report-//')
+              if [ "$verdict" = "FAIL" ]; then
+                echo "::error::Tier-1 language $lang FAILED"
+                exit 1
+              fi
+            fi
+          done
+          echo "All tier-1 languages passed"
