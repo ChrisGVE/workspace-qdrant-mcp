@@ -34,7 +34,7 @@ parseCsvLine line =
                 trimmed = strip availStr
             in case reads yearStr :: [(Int, String)] of
                  [(year, "")] ->
-                     case map toLowerStr trimmed of
+                     case toLowerStr trimmed of
                          "true"  -> Right $ Book (strip title) (strip author) year (strip isbn) True
                          "false" -> Right $ Book (strip title) (strip author) year (strip isbn) False
                          _       -> Left $ "Invalid boolean: " ++ availStr
