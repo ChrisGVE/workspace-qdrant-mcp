@@ -131,16 +131,7 @@ fn default_grammar_cache_dir() -> PathBuf {
     PathBuf::from("~/.workspace-qdrant/grammars")
 }
 fn default_required_grammars() -> Vec<String> {
-    vec![
-        "rust".to_string(),
-        "python".to_string(),
-        "javascript".to_string(),
-        "typescript".to_string(),
-        "go".to_string(),
-        "java".to_string(),
-        "c".to_string(),
-        "cpp".to_string(),
-    ]
+    vec![]
 }
 fn default_tree_sitter_version() -> String { "0.24".to_string() }
 fn default_download_base_url() -> String {
@@ -158,8 +149,8 @@ pub struct GrammarConfig {
     #[serde(default = "default_grammar_cache_dir")]
     pub cache_dir: PathBuf,
 
-    /// List of required language grammars for daemon startup
-    /// Daemon verifies these exist on startup
+    /// List of language grammars to pre-download on daemon startup
+    /// Default: empty (grammars downloaded on first use via auto_download)
     #[serde(default = "default_required_grammars")]
     pub required: Vec<String>,
 
@@ -329,8 +320,7 @@ mod tests {
     fn test_grammar_config_defaults() {
         let config = GrammarConfig::default();
         assert_eq!(config.cache_dir, PathBuf::from("~/.workspace-qdrant/grammars"));
-        assert!(config.required.contains(&"rust".to_string()));
-        assert!(config.required.contains(&"python".to_string()));
+        assert!(config.required.is_empty(), "Default required should be empty");
         assert!(config.auto_download);
         assert_eq!(config.tree_sitter_version, "0.24");
         assert!(config.verify_checksums);

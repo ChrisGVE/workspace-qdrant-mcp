@@ -262,7 +262,7 @@ Tree-sitter grammar cache settings.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `cache_dir` | string | `~/.workspace-qdrant/grammars` | Local directory for compiled grammar files |
-| `required` | array | `[rust, python, javascript, typescript, go, java, c, cpp]` | Grammars downloaded on first run |
+| `required` | array | `[]` | Grammars to pre-download on startup (empty = on-demand via auto_download) |
 | `auto_download` | bool | `true` | Automatically download missing grammars |
 | `tree_sitter_version` | string | `"0.24"` | Tree-sitter ABI version to target |
 | `verify_checksums` | bool | `true` | Verify grammar file integrity |

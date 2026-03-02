@@ -3174,22 +3174,13 @@ grammars:
   # Default reasoning: Standard location under workspace-qdrant config directory
   cache_dir: "~/.workspace-qdrant/grammars"
 
-  # required: List of language grammars required for daemon startup
-  # Purpose: Specifies which grammars must be available before daemon is ready
-  # Validation: Daemon verifies all required grammars exist on startup
-  # Missing grammars: Auto-downloaded if auto_download=true, else warning logged
-  # Empty list: No grammars required, all loaded on-demand
+  # required: List of language grammars to pre-download on daemon startup
+  # Purpose: Grammars listed here are downloaded eagerly at startup
+  # Default: Empty — grammars are downloaded on first use via auto_download
+  # Use case: Pre-populate cache for offline environments or faster first-file processing
   # Format: List of language identifiers (lowercase)
-  # Default reasoning: Common languages for typical codebases
-  required:
-    - rust
-    - python
-    - javascript
-    - typescript
-    - go
-    - java
-    - c
-    - cpp
+  # Example: [rust, python, javascript, typescript, go, java, c, cpp]
+  required: []
 
   # auto_download: Automatically download missing grammars
   # Purpose: Controls whether missing grammars are fetched from download sources
