@@ -151,10 +151,11 @@ windows = { version = "0.52", features = [
 ] }
 
 [features]
-default = ["static-grammars"]
+default = []
 
 # Static grammar support - includes bundled tree-sitter grammars as fallback
-# Disable to reduce binary size (~5-10MB) when using only dynamic loading
+# Enable to bundle grammars in the binary: cargo build --features static-grammars
+# Without this feature, grammars are downloaded dynamically on first use
 static-grammars = [
     "tree-sitter-rust",
     "tree-sitter-python",
