@@ -556,6 +556,59 @@ HNSW:
   ef_construct: 100
 ```
 
+### Search Score Filtering
+
+The `scoreThreshold` parameter controls the minimum similarity score for search results. It is applied **Qdrant-side** (via the `score_threshold` field in search requests), so filtered-out results never leave the database.
+
+**Default:** `0.3` (defined as `DEFAULT_SCORE_THRESHOLD` in `search-types.ts`)
+
+#### What the Score Represents
+
+The score meaning varies by search mode:
+
+| Search Mode | Score Source | Score Range | Interpretation |
+|-------------|------------|-------------|----------------|
+| `semantic` | Cosine similarity (dense vectors) | 0.0–1.0 | Higher = more semantically similar |
+| `keyword` | BM25 relevance (sparse vectors) | 0.0–∞ | Higher = more keyword-relevant (not bounded to 1.0) |
+| `hybrid` | Reciprocal Rank Fusion (RRF) | 0.0–1.0 | Higher = better combined ranking (see below) |
+
+**Semantic scores** are cosine similarity from the `all-MiniLM-L6-v2` embedding model (384 dimensions). A score of 1.0 means identical vectors; 0.0 means orthogonal (unrelated).
+
+**Keyword scores** are BM25 with IDF weighting. These scores are unbounded — a document with many matching rare terms can score well above 1.0.
+
+**Hybrid (RRF) scores** are computed after both semantic and keyword results are retrieved and fused: `RRF_score = Σ 1/(k + rank_i)` where `k=60` (standard constant). RRF scores are typically in the 0.001–0.033 range.
+
+#### Threshold Application per Search Mode
+
+| Mode | Dense Threshold | Sparse Threshold | Notes |
+|------|----------------|-----------------|-------|
+| `semantic` | `scoreThreshold` (full) | N/A | Applied directly to cosine similarity |
+| `keyword` | N/A | `scoreThreshold × 0.5` | Halved because BM25 scores have different scale |
+| `hybrid` | `scoreThreshold` (full) | `scoreThreshold × 0.5` | Each leg filtered independently before RRF fusion |
+
+The sparse threshold is halved (`× 0.5`) because BM25 scores have a fundamentally different distribution than cosine similarity scores. A cosine threshold of 0.3 would be overly aggressive for BM25.
+
+#### Cross-Collection Threshold Behavior
+
+When `includeLibraries=true` or multiple collections are searched, each collection search uses the same threshold logic. There is no per-collection threshold adjustment — the threshold applies uniformly to each `searchCollection()` call.
+
+#### Fallback Search
+
+When the daemon is unavailable, the system falls back to text matching (Qdrant scroll + substring match). Fallback results receive a fixed score of `0.5` and are not subject to scoreThreshold filtering.
+
+#### Rules Duplication Detection
+
+The `rules` tool uses a separate threshold (`duplicationThreshold`, default `0.7`) for detecting similar existing rules when adding new ones. This is independent of the search scoreThreshold and operates directly on cosine similarity from the `all-MiniLM-L6-v2` model.
+
+#### Default Value Rationale
+
+The default of `0.3` was chosen as a balance between recall and precision:
+- **Too low** (< 0.2): Returns marginally relevant results that add noise
+- **Too high** (> 0.5): Filters out results that are relevant but use different terminology
+- **0.3**: Captures semantically related content while filtering clearly unrelated results
+
+For keyword-only mode, the effective threshold is `0.15` (0.3 × 0.5), which is permissive enough to include most BM25 matches.
+
 ### Payload Schemas
 
 **Projects Collection:**
