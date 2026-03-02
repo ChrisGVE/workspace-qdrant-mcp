@@ -1,6 +1,6 @@
 [package]
 name = "workspace-qdrant-core"
-version = "0.1.0-beta2"
+version = "0.1.0-beta1"
 edition = "2021"
 license = "MIT"
 
@@ -114,7 +114,7 @@ fastembed = { version = "5", features = ["hf-hub"] }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 # Code parsing (semantic chunking)
-tree-sitter = "null"
+tree-sitter = "0.24"
 libloading = "0.9"  # Dynamic library loading for tree-sitter grammars
 
 # Static grammar libraries (optional - enable 'static-grammars' feature for bundled fallback)
