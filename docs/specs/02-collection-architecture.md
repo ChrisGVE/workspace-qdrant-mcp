@@ -504,6 +504,39 @@ CREATE INDEX idx_qdrant_chunks_file ON qdrant_chunks(file_id);
 3. **Debugging**: See exactly what's in Qdrant per file without querying Qdrant
 4. **Statistics**: Chunks per file/language/project — instant from SQLite
 
+#### List Tool (File Structure Browser)
+
+The `workspace-qdrant/list` MCP tool provides file and folder structure browsing from the `tracked_files` and `qdrant_chunks` tables. It shows only indexed files (gitignored, node_modules, etc. are excluded by the daemon's file watcher).
+
+**Data source:** `tracked_files` joined with `watch_folders` for tenant/project context and `qdrant_chunks` for chunk statistics.
+
+**Three output formats:**
+
+| Format | Description | Use Case |
+|--------|-------------|----------|
+| `tree` | Hierarchical directory tree with file counts per directory | Understanding folder structure |
+| `summary` | Component breakdown, language statistics, directory overview | Quick project orientation |
+| `flat` | Simple flat list of file paths matching filters | Integration with other tools |
+
+**Filtering parameters:**
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `path` | Subfolder relative to project root | Root |
+| `depth` | Max directory depth (1-10) | 3 |
+| `fileType` | Filter by category: code, text, data, config, build, web | All |
+| `language` | Filter by programming language (e.g., "rust", "typescript") | All |
+| `extension` | Filter by file extension (e.g., "rs", "ts") | All |
+| `pattern` | Glob pattern on relative path (e.g., `**/*.test.ts`) | None |
+| `includeTests` | Include test files | `true` |
+| `limit` | Max entries returned (max: 500) | 200 |
+| `projectId` | Specific project ID | Current project |
+| `component` | Component filter (dot-separated prefix matching) | All |
+
+**Component detection:** Components are auto-detected from Cargo.toml workspace members and package.json workspaces. They use dot-separated IDs (e.g., `daemon`, `daemon.core`, `daemon.grpc`). The `component` parameter supports prefix matching: `daemon` matches `daemon`, `daemon.core`, `daemon.grpc`, etc.
+
+**Project scoping:** By default, the list tool shows files for the current session's project. The `projectId` parameter allows querying a different project's files.
+
 ### Vector Configuration
 
 All collections use identical vector configuration:
