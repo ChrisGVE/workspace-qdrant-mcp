@@ -430,7 +430,7 @@ async fn enqueue_cascade_rename(
     reason: &str,
 ) {
     match queue_manager
-        .enqueue_cascade_rename(old_tenant_id, new_tenant_id, &["projects", "memory"], reason)
+        .enqueue_cascade_rename(old_tenant_id, new_tenant_id, &["projects", "rules"], reason)
         .await
     {
         Ok(queue_ids) => {

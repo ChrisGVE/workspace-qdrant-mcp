@@ -126,9 +126,9 @@ pub(crate) fn determine_collection_routing(
         return Err(Status::invalid_argument("Tenant ID cannot be empty"));
     }
 
-    // Memory collection uses single canonical name with tenant isolation via metadata
-    if basename == "memory" || basename == "agent_memory" {
-        return Ok(("memory".to_string(), "project_id".to_string(), tenant_id.to_string()));
+    // Rules collection uses single canonical name with tenant isolation via metadata
+    if basename == "rules" || basename == "memory" || basename == "agent_memory" {
+        return Ok(("rules".to_string(), "project_id".to_string(), tenant_id.to_string()));
     }
 
     if is_project_id(tenant_id) {
@@ -173,7 +173,7 @@ mod tests {
 
         assert!(validate_collection_name("projects").is_ok());
         assert!(validate_collection_name("libraries").is_ok());
-        assert!(validate_collection_name("memory").is_ok());
+        assert!(validate_collection_name("rules").is_ok());
 
         assert!(validate_collection_name("ab").is_err());
         assert!(validate_collection_name("1memory").is_err());
@@ -215,18 +215,24 @@ mod tests {
     }
 
     #[test]
-    fn test_determine_collection_routing_memory() {
-        let result = determine_collection_routing("memory", "github_com_user_repo");
+    fn test_determine_collection_routing_rules() {
+        let result = determine_collection_routing("rules", "github_com_user_repo");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "memory");
+        assert_eq!(collection, "rules");
         assert_eq!(tenant_type, "project_id");
         assert_eq!(tenant_value, "github_com_user_repo");
+
+        // Legacy "memory" and "agent_memory" names route to "rules"
+        let result = determine_collection_routing("memory", "github_com_user_repo");
+        assert!(result.is_ok());
+        let (collection, _, _) = result.unwrap();
+        assert_eq!(collection, "rules");
 
         let result = determine_collection_routing("agent_memory", "path_a1b2c3d4e5f6789a");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "memory");
+        assert_eq!(collection, "rules");
         assert_eq!(tenant_type, "project_id");
         assert_eq!(tenant_value, "path_a1b2c3d4e5f6789a");
     }

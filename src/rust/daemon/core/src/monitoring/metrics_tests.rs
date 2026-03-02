@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn test_metrics_snapshot() {
         METRICS.session_started("snapshot-test", "low");
-        METRICS.set_queue_depth("low", "memory", 25);
+        METRICS.set_queue_depth("low", "rules", 25);
 
         let snapshot = MetricsSnapshot::capture();
         assert!(snapshot.active_sessions >= 1);

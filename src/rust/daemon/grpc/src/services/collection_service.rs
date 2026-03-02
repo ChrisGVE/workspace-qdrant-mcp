@@ -96,7 +96,7 @@ impl CollectionServiceImpl {
     }
 
     /// Canonical collection names that cannot be used as aliases (per ADR-001)
-    const CANONICAL_COLLECTIONS: &'static [&'static str] = &["projects", "libraries", "memory", "scratchpad"];
+    const CANONICAL_COLLECTIONS: &'static [&'static str] = &["projects", "libraries", "rules", "scratchpad"];
 
     /// Validate that an alias name does not conflict with canonical collection names
     fn validate_alias_name(alias_name: &str) -> Result<(), Status> {
@@ -475,12 +475,12 @@ mod tests {
         // Canonical collection names per ADR-001 must be valid
         assert!(CollectionServiceImpl::validate_collection_name("projects").is_ok());
         assert!(CollectionServiceImpl::validate_collection_name("libraries").is_ok());
-        assert!(CollectionServiceImpl::validate_collection_name("memory").is_ok());
+        assert!(CollectionServiceImpl::validate_collection_name("rules").is_ok());
 
         // Legacy underscore-prefixed names are syntactically valid for migration compatibility
         assert!(CollectionServiceImpl::validate_collection_name("_projects").is_ok());
         assert!(CollectionServiceImpl::validate_collection_name("_libraries").is_ok());
-        assert!(CollectionServiceImpl::validate_collection_name("_memory").is_ok());
+        assert!(CollectionServiceImpl::validate_collection_name("_rules").is_ok());
     }
 
     #[test]
@@ -525,7 +525,7 @@ mod tests {
         // Canonical collection names must be rejected as aliases
         assert!(CollectionServiceImpl::validate_alias_name("projects").is_err());
         assert!(CollectionServiceImpl::validate_alias_name("libraries").is_err());
-        assert!(CollectionServiceImpl::validate_alias_name("memory").is_err());
+        assert!(CollectionServiceImpl::validate_alias_name("rules").is_err());
     }
 
     #[test]

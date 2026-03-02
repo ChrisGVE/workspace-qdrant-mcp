@@ -197,7 +197,7 @@ async fn test_alias_canonical_name_rejection() {
     let service = CollectionServiceImpl::default();
 
     // Create alias with canonical name should fail
-    for canonical in &["projects", "libraries", "memory"] {
+    for canonical in &["projects", "libraries", "rules"] {
         let request = Request::new(CreateAliasRequest {
             alias_name: canonical.to_string(),
             collection_name: "test_collection".to_string(),
@@ -209,7 +209,7 @@ async fn test_alias_canonical_name_rejection() {
     }
 
     // Rename alias to canonical name should fail
-    for canonical in &["projects", "libraries", "memory"] {
+    for canonical in &["projects", "libraries", "rules"] {
         let request = Request::new(RenameAliasRequest {
             old_alias_name: "old_alias".to_string(),
             new_alias_name: canonical.to_string(),

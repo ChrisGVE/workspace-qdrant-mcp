@@ -2,19 +2,19 @@
 //!
 //! Implements metadata enrichment rules for different collection types according to
 //! architectural decisions in Task 375. Enriches document metadata based on collection
-//! type: PROJECT, LIBRARY, USER, or MEMORY.
+//! type: PROJECT, LIBRARY, USER, or RULES.
 //!
 //! Collection Type Detection:
 //! - PROJECT: _{project_id} where project_id is 12-char hex hash
 //! - LIBRARY: _{library_name} where library_name is alphanumeric with hyphens
 //! - USER: {basename}-{type} format
-//! - MEMORY: exact match "memory"
+//! - RULES: exact match "rules" (also accepts legacy "memory")
 //!
 //! Metadata Enrichment Rules:
 //! - PROJECT: project_id, branch, file_type, extension, is_test
 //! - USER: project_id only (no branch)
 //! - LIBRARY: library_name (no project_id or branch)
-//! - MEMORY: global metadata only (no project_id or branch)
+//! - RULES: global metadata only (no project_id or branch)
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,8 +44,8 @@ pub enum CollectionType {
         /// Collection type suffix
         collection_type: String,
     },
-    /// Memory collection (exact match "memory")
-    Memory,
+    /// Rules collection (exact match "rules", also accepts legacy "memory")
+    Rules,
 }
 
 impl CollectionType {
@@ -70,13 +70,13 @@ impl CollectionType {
     /// let ctype = CollectionType::from_name("myapp-notes");
     /// assert!(matches!(ctype, CollectionType::User { .. }));
     ///
-    /// let ctype = CollectionType::from_name("memory");
-    /// assert!(matches!(ctype, CollectionType::Memory));
+    /// let ctype = CollectionType::from_name("rules");
+    /// assert!(matches!(ctype, CollectionType::Rules));
     /// ```
     pub fn from_name(collection_name: &str) -> Self {
-        // Check for exact "memory" match
-        if collection_name == "memory" {
-            return CollectionType::Memory;
+        // Check for "rules" (or legacy "memory") match
+        if collection_name == "rules" || collection_name == "memory" {
+            return CollectionType::Rules;
         }
 
         // Check for underscore prefix (PROJECT or LIBRARY)
@@ -290,13 +290,13 @@ pub fn enrich_metadata(
             // Note: NO project_id or branch for LIBRARY collections
         }
 
-        CollectionType::Memory => {
-            // MEMORY collection: global metadata only (no project_id or branch)
+        CollectionType::Rules => {
+            // RULES collection: global metadata only (no project_id or branch)
             metadata.insert("scope".to_string(), "global".to_string());
 
-            debug!("MEMORY collection: global scope, no project metadata");
+            debug!("RULES collection: global scope, no project metadata");
 
-            // Note: NO project_id or branch for MEMORY collection
+            // Note: NO project_id or branch for RULES collection
         }
     }
 
@@ -361,9 +361,13 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_memory_collection() {
+    fn test_parse_rules_collection() {
+        let ctype = CollectionType::from_name("rules");
+        assert!(matches!(ctype, CollectionType::Rules));
+
+        // Legacy "memory" name also maps to Rules
         let ctype = CollectionType::from_name("memory");
-        assert!(matches!(ctype, CollectionType::Memory));
+        assert!(matches!(ctype, CollectionType::Rules));
     }
 
     #[test]
@@ -490,13 +494,13 @@ mod tests {
     }
 
     #[test]
-    fn test_enrich_memory_collection_metadata() {
+    fn test_enrich_rules_collection_metadata() {
         let temp_dir = tempdir().unwrap();
         let test_file = temp_dir.path().join("note.txt");
         fs::write(&test_file, "Note").unwrap();
 
         let metadata = enrich_metadata(
-            "memory",
+            "rules",
             &test_file,
             None,
             None,
@@ -546,7 +550,7 @@ mod tests {
         base.insert("custom_field".to_string(), "custom_value".to_string());
 
         let metadata = enrich_metadata(
-            "memory",
+            "rules",
             &test_file,
             Some(base),
             None,
@@ -555,7 +559,7 @@ mod tests {
 
         // Base metadata should be preserved
         assert_eq!(metadata.get("custom_field"), Some(&"custom_value".to_string()));
-        // Memory-specific metadata should be added
+        // Rules-specific metadata should be added
         assert_eq!(metadata.get("scope"), Some(&"global".to_string()));
     }
 }

@@ -158,7 +158,7 @@ async fn test_memory_collection_high_priority() {
 
     let payload_memory = serde_json::json!({"content": "remember this"}).to_string();
     queue_manager.enqueue_unified(
-        ItemType::Text, QueueOperation::Add, "user", "memory",
+        ItemType::Text, QueueOperation::Add, "user", "rules",
         &payload_memory, None, None,
     ).await.unwrap();
 
@@ -178,7 +178,7 @@ async fn test_memory_collection_high_priority() {
     assert_eq!(items.len(), 3, "Should dequeue all 3 items");
     // memory (priority=1) should be before libraries (priority=0)
     // For inactive project (priority=0) and libraries (priority=0), FIFO tiebreaker applies
-    assert_eq!(items[0].collection, "memory", "Memory collection should be dequeued first in DESC mode");
+    assert_eq!(items[0].collection, "rules", "Rules collection should be dequeued first in DESC mode");
 }
 
 #[tokio::test]

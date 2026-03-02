@@ -360,7 +360,7 @@ mod tests {
     fn test_tenant_field_for_collection() {
         assert_eq!(tenant_field_for_collection("libraries"), "library_name");
         assert_eq!(tenant_field_for_collection("projects"), "tenant_id");
-        assert_eq!(tenant_field_for_collection("memory"), "tenant_id");
+        assert_eq!(tenant_field_for_collection("rules"), "tenant_id");
         assert_eq!(tenant_field_for_collection("scratchpad"), "tenant_id");
     }
 

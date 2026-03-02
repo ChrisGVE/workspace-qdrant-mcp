@@ -205,7 +205,7 @@ async fn show_topic_help(topic: &str) -> Result<()> {
             output::separator();
             output::info("List collections: wqm admin collections");
         }
-        "memory" | "rules" => {
+        "rules" => {
             output::info("Memory rules guide LLM behavior:");
             output::separator();
             output::info("Types:");
