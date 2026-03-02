@@ -55,6 +55,11 @@ export const searchToolDefinition = {
         type: 'string',
         description: 'Filter by file type',
       },
+      scoreThreshold: {
+        type: 'number',
+        description:
+          'Minimum similarity score threshold (0-1, default: 0.3). Results below this score are filtered out.',
+      },
       includeLibraries: {
         type: 'boolean',
         description: 'Include libraries in search (default: false)',
