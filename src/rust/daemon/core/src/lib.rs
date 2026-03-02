@@ -251,7 +251,7 @@ pub use crate::storage::{
 };
 pub use crate::tree_sitter::{
     SemanticChunker, TreeSitterParser, ChunkExtractor, ChunkType, SemanticChunk,
-    extract_chunks, detect_language, is_language_supported,
+    extract_chunks, detect_language, is_language_supported, is_language_available,
     GrammarManager, GrammarError, GrammarResult, GrammarStatus, GrammarInfo,
     GrammarCachePaths, GrammarMetadata, GrammarLoader, LoadedGrammar,
     GrammarDownloader, DownloadError, LoadedGrammarsProvider, GrammarValidationResult,

@@ -33,6 +33,24 @@ use std::path::Path;
 
 use crate::error::DaemonError;
 
+/// Known languages with well-known tree-sitter grammars.
+///
+/// These languages have grammars available for download from the default
+/// grammar sources. When `auto_download` is enabled, any of these languages
+/// can be used for semantic chunking.
+const KNOWN_GRAMMAR_LANGUAGES: &[&str] = &[
+    "rust",
+    "python",
+    "javascript",
+    "typescript",
+    "tsx",
+    "jsx",
+    "go",
+    "java",
+    "c",
+    "cpp",
+];
+
 /// Language registry mapping file extensions to language identifiers.
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?;
@@ -53,11 +71,33 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
 }
 
 /// Check if a language is supported for semantic chunking.
+///
+/// Without a `GrammarManager`, checks against the hardcoded list of known
+/// grammar languages. With a manager, also considers dynamically cached
+/// or downloadable grammars.
 pub fn is_language_supported(language: &str) -> bool {
-    matches!(
-        language,
-        "rust" | "python" | "javascript" | "typescript" | "tsx" | "jsx" | "go" | "java" | "c" | "cpp"
-    )
+    KNOWN_GRAMMAR_LANGUAGES.contains(&language)
+}
+
+/// Check if a language has an available grammar via the GrammarManager.
+///
+/// Returns true if the grammar is loaded, cached, or known to be downloadable.
+/// This is the dynamic-aware version of `is_language_supported`.
+///
+/// When `auto_download` is enabled, a language is considered available if it
+/// is in the known grammar list OR already cached/loaded. When `auto_download`
+/// is disabled, only loaded or cached grammars count as available.
+pub fn is_language_available(language: &str, manager: &GrammarManager) -> bool {
+    let status = manager.grammar_status(language);
+    match status {
+        GrammarStatus::Loaded | GrammarStatus::Cached => true,
+        GrammarStatus::NeedsDownload => {
+            // The manager reports NeedsDownload for any language when auto_download
+            // is on. Gate this to known grammar languages to avoid pointless downloads.
+            KNOWN_GRAMMAR_LANGUAGES.contains(&language)
+        }
+        _ => false,
+    }
 }
 
 /// Extract semantic chunks from source code.
@@ -111,5 +151,43 @@ mod tests {
         assert!(is_language_supported("cpp"));
         assert!(!is_language_supported("json")); // JSON not supported for semantic chunking
         assert!(!is_language_supported("unknown"));
+    }
+
+    #[test]
+    fn test_is_language_available_with_auto_download() {
+        use crate::config::GrammarConfig;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = GrammarConfig {
+            cache_dir: temp_dir.path().to_path_buf(),
+            auto_download: true,
+            ..Default::default()
+        };
+        let manager = GrammarManager::new(config);
+
+        // Known languages should be available (NeedsDownload) with auto_download
+        assert!(is_language_available("rust", &manager));
+        assert!(is_language_available("python", &manager));
+
+        // Unknown languages should not be available
+        assert!(!is_language_available("unknown_lang", &manager));
+    }
+
+    #[test]
+    fn test_is_language_available_without_auto_download() {
+        use crate::config::GrammarConfig;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = GrammarConfig {
+            cache_dir: temp_dir.path().to_path_buf(),
+            auto_download: false,
+            ..Default::default()
+        };
+        let manager = GrammarManager::new(config);
+
+        // Without auto_download, uncached grammars are NotAvailable
+        assert!(!is_language_available("rust", &manager));
     }
 }
