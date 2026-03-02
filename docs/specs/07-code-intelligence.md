@@ -35,9 +35,9 @@ Grammars are downloaded automatically on first use (`auto_download: true` by def
 | TSX        | Auto-download | function, class, method, interface, preamble     |
 | TypeScript | Auto-download | function, class, method, interface, preamble     |
 
-**All other languages** fall back to text-based overlap chunking (384 chars target, 58 chars overlap).
+**Languages without a chunk type mapping** fall back to text-based overlap chunking (384 chars target, 58 chars overlap). The table above lists languages with explicit chunk type mappings; additional languages can be added by defining their chunk type mappings.
 
-**Grammars:** 10 languages have known grammars available for auto-download (see table above). Optional static compilation is available via `--features static-grammars` for environments without internet access.
+**Grammars:** Tree-sitter grammars are available for hundreds of languages in the tree-sitter ecosystem. No grammars are pre-loaded — they are downloaded on demand when a file of that language is first encountered (`auto_download: true` by default). The only limitation is the availability of a tree-sitter grammar for the language. Optional static compilation is available via `--features static-grammars` for environments without internet access.
 
 ### LSP (Enhancement for Active Projects)
 
@@ -57,7 +57,14 @@ Runs when project is active:
 
 **One server per language per project.** Multi-target projects (e.g., Cargo workspace with multiple crates) are handled by single language server.
 
-**Default LSP server configurations:**
+**Language-agnostic LSP architecture:**
+
+LSP support is not limited to a fixed set of languages. Any language with an LSP server can be used. The system provides:
+
+1. **Well-known defaults**: A small set of languages ship with pre-configured LSP server mappings (see table below). These are suggestions — the user can override them.
+2. **User-managed registration**: For any other language, the user registers their own LSP server executable via the CLI. The mapping is stored in the user's configuration file.
+
+**Well-known LSP defaults** (shipped in default configuration):
 
 | Language       | Server Binary                  | Notes                        |
 | -------------- | ------------------------------ | ---------------------------- |
@@ -67,9 +74,28 @@ Runs when project is active:
 | Go             | `gopls`                       |                              |
 | C/C++          | `clangd`                      | Handles both C and C++       |
 
-**LSP Language enum** (18 total): Python, Rust, TypeScript, JavaScript, JSON, Go, Java, C, C++, Ruby, PHP, Shell, YAML, TOML, XML, HTML, CSS, SQL, Other(custom).
+**User-managed LSP registration:**
 
-Languages without a configured default server can still be used if the user manually installs and configures the LSP server via `wqm lsp install`.
+Users install LSP servers using their own package manager (brew, cargo, pip, npm, etc.) and register them with the system:
+
+```bash
+wqm language add-lsp <language> <lsp-executable>   # Register LSP server for a language
+wqm language remove-lsp <language>                  # Remove LSP registration
+wqm language list-lsp                               # List registered LSP servers
+```
+
+The registration is stored in the user's configuration file under `lsp.servers`:
+
+```yaml
+lsp:
+  servers:
+    fortran:
+      binary: "fortls"
+    haskell:
+      binary: "haskell-language-server"
+```
+
+The daemon uses these mappings to spawn the correct server when a project containing that language is activated. If no LSP server is registered for a detected language, the daemon proceeds without LSP enrichment for that language (tree-sitter still provides baseline intelligence).
 
 ### LSP Server Lifecycle
 
@@ -124,11 +150,10 @@ Server states are persisted to SQLite for recovery after daemon restart:
 **Language server management:**
 
 ```bash
-wqm lsp install python    # Installs pyright or pylsp
-wqm lsp install rust      # Installs rust-analyzer
-wqm lsp list              # Shows available/installed servers
-wqm lsp remove <lang>     # Removes language server
-wqm lsp status            # Show running LSP servers and metrics
+wqm language add-lsp <lang> <binary>   # Register LSP server for a language
+wqm language remove-lsp <lang>         # Remove LSP registration
+wqm language list-lsp                  # List registered LSP servers (defaults + user)
+wqm lsp status                         # Show running LSP servers and metrics
 ```
 
 **PATH configuration:** CLI manages `environment.user_path` in the configuration file.

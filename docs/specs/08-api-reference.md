@@ -6,8 +6,12 @@ The server provides exactly **6 tools**: `search`, `retrieve`, `rules`, `store`,
 
 **Important design principles:**
 
-- The MCP server does NOT store content to the `projects` collection. Project content is ingested by the daemon via file watching.
-- The MCP can manage rules via the `rules` tool, store to `libraries` (reference documentation), register new projects with the daemon via `store` with `type: "project"`, search code with exact/regex matching via `grep`, and browse project structure via `list`.
+- The MCP server does NOT store content to the `projects` collection. Project content is ingested exclusively by the daemon via file watching.
+- The MCP server CAN register new projects and activate/keep-active existing ones via `store` with `type: "project"`.
+- The MCP server stores ad-hoc content (strings, files, URLs) to the `scratchpad` collection, which supports both global and project-scoped entries.
+- The MCP server can store content to a named `library` only when the user explicitly instructs it to do so (not autonomously).
+- The MCP server manages behavioral rules (strings only, global or per-project) via the `rules` tool.
+- The MCP server searches code with exact/regex matching via `grep`, and browses project structure via `list`.
 - Session management (activate/deactivate) is automated, not exposed as a tool.
 - Health monitoring is server-internal and affects search response metadata.
 
@@ -21,6 +25,7 @@ search({
     collection?: "projects" | "libraries" | "rules", // default: "projects"
     mode?: "hybrid" | "semantic" | "keyword", // default: "hybrid"
     limit?: number,                     // default: 10
+    scoreThreshold?: number,           // Minimum similarity score (0-1, default: 0.3)
     // Collection-specific scope filters (see below)
     scope?: string,                     // Scope within collection
     branch?: string,                    // For projects: branch filter
@@ -111,7 +116,7 @@ retrieve({
 Manage behavioral rules (persistent preferences).
 
 ```typescript
-memory({
+rules({
     action: "add" | "update" | "remove" | "list", // Required
     label?: string,                    // Rule label (unique per scope)
     content?: string,                  // Rule content (for add/update)
@@ -133,7 +138,7 @@ memory({
 
 **LLM Generation Guidelines:**
 
-When creating memory rules, the LLM should generate metadata fields following these constraints:
+When creating rules, the LLM should generate metadata fields following these constraints:
 
 | Field | Constraints | Examples |
 |-------|-------------|----------|
@@ -145,17 +150,17 @@ When creating memory rules, the LLM should generate metadata fields following th
 
 ```
 User: "For future reference, always use uv instead of pip"
-→ LLM calls: memory(action="add", label="prefer-uv", title="Use uv for Python packages",
+→ LLM calls: rules(action="add", label="prefer-uv", title="Use uv for Python packages",
                     content="Always use uv instead of pip for Python package management...",
                     tags=["python", "tooling"])
 
 User: "Remember to run tests before committing"
-→ LLM calls: memory(action="add", label="pre-commit-tests", title="Run tests before commits",
+→ LLM calls: rules(action="add", label="pre-commit-tests", title="Run tests before commits",
                     content="Always run the test suite before committing changes...",
                     tags=["git", "testing"])
 
 User: "Actually, let me update that rule about testing"
-→ LLM calls: memory(action="update", label="pre-commit-tests", title="Run tests before commits",
+→ LLM calls: rules(action="update", label="pre-commit-tests", title="Run tests before commits",
                     content="Run the full test suite AND linting before committing...")
 ```
 
@@ -191,25 +196,35 @@ store({
 })
 ```
 
+**Understanding `type` vs collection:** The `type` parameter describes the **nature of the input** (a document, a URL to fetch, a note, a project registration), not the destination collection. The destination collection is determined by context and other parameters.
+
 **Type: `"library"` (default) — Store reference documentation:**
 
-Stores content to the `libraries` collection. Requires `content` and `libraryName` (unless `forProject` is true, in which case `libraryName` defaults to `"project-refs"`).
+Stores content to the `libraries` collection under a named library. Requires `content` and `libraryName` (unless `forProject` is true, in which case `libraryName` defaults to `"project-refs"`). This type should only be used when the user **explicitly instructs** the LLM to store into a named library — not autonomously.
 
 **Type: `"url"` — Fetch and ingest a web page:**
 
-Fetches the content at the given `url`, converts it to text, and stores it in the `libraries` collection. Useful for ingesting online documentation, articles, or reference pages.
+Queues a URL for daemon-side fetch and ingestion. The destination collection depends on context: stores to `libraries` if `libraryName` is provided (for adding URLs to a named library), otherwise stores to `scratchpad` for ad-hoc reference. URLs (webpages, websites) can also be part of a tracked library folder as webarchive files.
 
 **Type: `"scratchpad"` — Persistent notes/scratch space:**
 
-Stores content to the `scratchpad` collection for temporary working notes. Supports `tags` for categorization.
+Stores content to the `scratchpad` collection. Supports both global and project-scoped entries. Global entries can be further segregated by user-defined themes or keywords. This is the **preferred destination** for ad-hoc content ingestion by the server (strings, files, URLs). Supports `tags` for categorization.
 
 **Type: `"project"` — Register a project directory:**
 
-Registers a new project with the daemon for file watching and ingestion. Uses `register_if_new: true` so the daemon will create the project in `watch_folders` if it doesn't already exist. Returns `{ success, project_id, created, is_active, message }`.
+Registers a new project with the daemon for file watching and ingestion. Uses `register_if_new: true` so the daemon will create the project in `watch_folders` if it doesn't already exist. The server can also activate and keep-active existing projects. Returns `{ success, project_id, created, is_active, message }`.
 
-**Note:** `store` with `type: "library"` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or behavioral rules (use `rules` tool). Use `type: "project"` to register a new project directory with the daemon.
+**Collection routing summary:**
 
-**Libraries definition:** Libraries are collections of reference information (books, documentation, papers, websites) - NOT programming libraries (use context7 MCP for those).
+| Type | Destination | Condition |
+|------|------------|-----------|
+| `library` | `libraries` | Always (explicit user instruction only) |
+| `url` | `libraries` | When `libraryName` provided |
+| `url` | `scratchpad` | Default (ad-hoc reference) |
+| `scratchpad` | `scratchpad` | Always |
+| `project` | N/A | Registers project with daemon |
+
+**Note:** The server cannot store content to the `projects` collection — project content is ingested exclusively by the daemon via file watching. Behavioral rules use the dedicated `rules` tool. Libraries are collections of reference information (books, documentation, papers, websites) — NOT programming libraries (use context7 MCP for those).
 
 #### grep
 
@@ -276,7 +291,7 @@ When the MCP server connects to the transport (stdio or HTTP):
    - Server queries daemon via `GetProjectStatus` to check if project exists in `watch_folders`
    - **If registered:** Server sends `RegisterProject` (with `register_if_new=false`, the default)
      - Daemon sets `is_active = true` and updates `last_activity_at`
-   - **If not registered:** Server logs a warning ("Project not registered, use `wqm project add` or the `store` tool with `type: \"project\"` to register") and continues without activation — search and memory tools still work, but file watching is not started
+   - **If not registered:** Server logs a warning ("Project not registered, use `wqm project add` or the `store` tool with `type: \"project\"` to register") and continues without activation — search and rules tools still work, but file watching is not started
 
 2. **Start heartbeat:**
    - Periodic heartbeat with daemon to prevent timeout-based deactivation
@@ -291,20 +306,20 @@ When the MCP server connects to the transport (stdio or HTTP):
 2. **Process cleanup:**
    - Daemon shuts down any spawned processes for that project (e.g., LSP servers)
 
-#### Memory Injection
+#### Rules Injection
 
 Rule injection is handled via the `rules` MCP tool:
 - Claude reads behavioral rules by calling the `rules` tool with `action: "list"`
-- Memory is NOT automatically injected at session start (that would require external hooks)
+- Rules are NOT automatically injected at session start (that would require external hooks)
 
-**Optional Enhancement via Claude Code Hooks:** For automatic memory injection, users can configure a `SessionStart` hook in their `~/.claude/settings.json`:
+**Optional Enhancement via Claude Code Hooks:** For automatic rules injection, users can configure a `SessionStart` hook in their `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
     "SessionStart": [{
       "hooks": [{
         "type": "command",
-        "command": "/path/to/inject-memory.sh"
+        "command": "wqm rules inject"
       }]
     }]
   }
@@ -312,9 +327,9 @@ Rule injection is handled via the `rules` MCP tool:
 ```
 This is external to the MCP server and optional.
 
-#### Memory and Project ID Changes
+#### Rules and Project ID Changes
 
-When a project is renamed or its `project_id` changes (e.g., due to disambiguation when a second clone is detected), the memory records in Qdrant must have their `project_id` field updated to maintain association.
+When a project is renamed or its `project_id` changes (e.g., due to disambiguation when a second clone is detected), the rules records in Qdrant must have their `project_id` field updated to maintain association.
 
 ### Health Status Integration
 
@@ -440,7 +455,9 @@ Exact substring and regex code search via FTS5 trigram index. Used by the `grep`
 | `Search`       | MCP     | Exact/regex pattern matching       | Production |
 | `CountMatches` | MCP     | Count matches without full results | Production |
 
-#### ProjectService (8 RPCs)
+**Result caching:** TextSearchService maintains a short-lived cache (TTL of a few seconds) keyed by the search parameters. This allows a CountMatches call to warm the cache so that a subsequent Search with the same parameters can return full results without re-executing the query, and vice versa. The cache is invalidated after the TTL expires.
+
+#### ProjectService (7 RPCs)
 
 Multi-tenant project lifecycle and session management.
 
@@ -453,7 +470,6 @@ Multi-tenant project lifecycle and session management.
 | `ListProjects`        | CLI      | List all registered projects     | Production                   |
 | `Heartbeat`           | MCP      | Keep session alive (60s)         | Production                   |
 | `RenameTenant`        | CLI      | Rename tenant_id across collections | Production                |
-| `SetProjectPriority`  | CLI      | Set project processing priority  | Production                   |
 
 **Enqueue-Only Pattern (RegisterProject, DeleteProject):**
 - These handlers do NOT perform direct SQLite mutations

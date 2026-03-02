@@ -11,25 +11,35 @@ The daemon manages tree-sitter grammars and ONNX runtime as external dependencie
 
 ### Tree-sitter Grammar Management
 
+**Language-agnostic grammar support:**
+
+Tree-sitter grammars are available for hundreds of languages. The system does not pre-load any grammars — they are downloaded on demand when a file of that language is first encountered. The default configuration maps known languages to file extensions; the set of supported languages is limited only by the availability of tree-sitter grammars in the ecosystem.
+
 **Configuration:**
 
 ```yaml
 grammars:
   cache_dir: "~/.workspace-qdrant/grammars/"
-  required:
-    - rust
-    - python
-    - typescript
-    - javascript
-  auto_download: true # Download missing grammars automatically
+  auto_download: true # Download missing grammars automatically on first use
 ```
+
+**Grammar discovery and installation:**
+
+```bash
+wqm language ts-search <query>          # Search for available tree-sitter grammars
+wqm language ts-install <language>      # Download and install a grammar
+wqm language ts-list                    # List installed grammars
+wqm language ts-remove <language>       # Remove a cached grammar
+```
+
+`ts-search` queries the tree-sitter grammar ecosystem to find available grammars matching the query. This allows users to discover and install grammars for any language without needing to know the exact grammar repository name.
 
 **Daemon behavior:**
 
-1. On startup, check each required grammar exists in cache
-2. If grammar missing and `auto_download: true`, download from grammar repository
+1. When a file is encountered during ingestion, detect language from file extension
+2. If grammar not in cache and `auto_download: true`, download from grammar repository
 3. If grammar version mismatches tree-sitter runtime version, replace with compatible version
-4. If `auto_download: false` and grammar missing, log warning and skip that language
+4. If `auto_download: false` and grammar missing, log warning and fall back to text chunking
 
 ### Manual Updates via CLI
 
