@@ -104,6 +104,11 @@ fn show_lsp_install_suggestions(language: &str) {
         }
         "rust" => output::info("    rustup component add rust-analyzer"),
         "go" => output::info("    go install golang.org/x/tools/gopls@latest"),
+        "java" => output::info("    brew install jdtls"),
+        "ruby" => output::info("    gem install ruby-lsp"),
+        "php" => output::info("    composer global require phpactor/phpactor"),
+        "shell" | "bash" => output::info("    npm install -g bash-language-server"),
+        "html" => output::info("    npm install -g vscode-langservers-extracted"),
         _ => output::info(&format!(
             "    Search for {}-language-server",
             language
@@ -213,6 +218,8 @@ fn show_extension_mapping(language: &str) {
         "cpp" | "c++" => vec![".cpp", ".hpp", ".cc", ".hh", ".cxx", ".hxx"],
         "ruby" => vec![".rb", ".rake", ".gemspec"],
         "php" => vec![".php", ".phtml"],
+        "shell" | "bash" | "sh" => vec![".sh", ".bash"],
+        "html" | "htm" => vec![".html", ".htm"],
         _ => vec![],
     };
 

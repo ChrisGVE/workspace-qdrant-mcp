@@ -381,9 +381,43 @@ async fn lsp_install(language: &str) -> Result<()> {
             output::info("Alternative: ccls");
             output::info("  brew install ccls");
         }
+        "ruby" | "rb" => {
+            output::info("Ruby language servers:");
+            output::separator();
+            output::info("  1. ruby-lsp (recommended, by Shopify):");
+            output::info("     gem install ruby-lsp");
+            output::info("");
+            output::info("  2. solargraph:");
+            output::info("     gem install solargraph");
+        }
+        "php" => {
+            output::info("PHP language servers:");
+            output::separator();
+            output::info("  1. phpactor:");
+            output::info("     composer global require phpactor/phpactor");
+            output::info("");
+            output::info("  2. intelephense:");
+            output::info("     npm install -g intelephense");
+        }
+        "shell" | "bash" | "sh" => {
+            output::info("bash-language-server - For Bash/Shell scripts");
+            output::separator();
+            output::info("Installation:");
+            output::info("  npm install -g bash-language-server");
+        }
+        "html" | "htm" => {
+            output::info("vscode-html-languageserver - For HTML");
+            output::separator();
+            output::info("Installation:");
+            output::info("  npm install -g vscode-langservers-extracted");
+        }
         _ => {
-            output::warning(format!("Unknown language: {}", language));
-            output::info("Supported languages: rust, python, typescript, javascript, go, java, c, cpp");
+            output::warning(format!("No known LSP server for: {}", language));
+            output::info("Known languages: rust, python, typescript, javascript, go, java, c, cpp, ruby, php, shell, html");
+            output::info("");
+            output::info("If your language has an LSP server, install it manually and");
+            output::info("ensure the binary is on your PATH. The daemon will detect it");
+            output::info("automatically via PATH scanning.");
         }
     }
 
@@ -397,8 +431,8 @@ async fn lsp_remove(language: &str) -> Result<()> {
     let lsp_info = get_lsp_server_info(language);
 
     if lsp_info.is_none() {
-        output::warning(format!("Unknown language: {}", language));
-        output::info("Supported languages: rust, python, typescript, javascript, go, java, c, cpp");
+        output::warning(format!("No known LSP server for: {}", language));
+        output::info("Known languages: rust, python, typescript, javascript, go, java, c, cpp, ruby, php, shell, html");
         return Ok(());
     }
 
@@ -435,6 +469,19 @@ async fn lsp_remove(language: &str) -> Result<()> {
                 "c" | "cpp" | "c++" => {
                     output::info("  brew uninstall llvm  # for clangd");
                     output::info("  # or: apt remove clangd");
+                }
+                "ruby" | "rb" => {
+                    output::info("  gem uninstall ruby-lsp solargraph");
+                }
+                "php" => {
+                    output::info("  composer global remove phpactor/phpactor");
+                    output::info("  # or: npm uninstall -g intelephense");
+                }
+                "shell" | "bash" | "sh" => {
+                    output::info("  npm uninstall -g bash-language-server");
+                }
+                "html" | "htm" => {
+                    output::info("  npm uninstall -g vscode-langservers-extracted");
                 }
                 _ => {}
             }
@@ -490,7 +537,10 @@ async fn language_status(language: Option<String>, verbose: bool) -> Result<()> 
     // Check specific language or all
     let languages_to_check: Vec<&str> = match &language {
         Some(l) => vec![l.as_str()],
-        None => vec!["rust", "python", "typescript", "go", "java", "c", "cpp"],
+        None => vec![
+            "rust", "python", "typescript", "go", "java", "c", "cpp",
+            "ruby", "php", "shell", "html",
+        ],
     };
 
     for lang in languages_to_check {
@@ -592,6 +642,10 @@ fn get_lsp_server_info(language: &str) -> Option<(&'static str, Vec<&'static str
         "go" | "golang" => Some(("gopls", vec!["gopls"])),
         "java" => Some(("jdtls", vec!["jdtls"])),
         "c" | "cpp" | "c++" => Some(("clangd/ccls", vec!["clangd", "ccls"])),
+        "ruby" | "rb" => Some(("ruby-lsp/solargraph", vec!["ruby-lsp", "solargraph"])),
+        "php" => Some(("phpactor/intelephense", vec!["phpactor", "intelephense"])),
+        "shell" | "bash" | "sh" => Some(("bash-language-server", vec!["bash-language-server"])),
+        "html" | "htm" => Some(("vscode-html-languageserver", vec!["vscode-html-language-server"])),
         _ => None,
     }
 }
@@ -608,6 +662,10 @@ fn detect_available_servers() -> Vec<(String, String, String)> {
         ("Go", vec!["gopls"]),
         ("Java", vec!["jdtls"]),
         ("C/C++", vec!["clangd", "ccls"]),
+        ("Ruby", vec!["ruby-lsp", "solargraph"]),
+        ("PHP", vec!["phpactor", "intelephense"]),
+        ("Shell", vec!["bash-language-server"]),
+        ("HTML", vec!["vscode-html-language-server"]),
     ];
 
     let mut found = Vec::new();

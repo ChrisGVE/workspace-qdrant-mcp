@@ -40,17 +40,19 @@ fn test_language_has_lsp_support() {
     assert!(Language::Cpp.has_lsp_support());
     assert!(Language::Go.has_lsp_support());
 
-    // Languages without LSP server support -- should skip enrichment
+    // Programming languages that could have LSP servers
+    assert!(Language::Java.has_lsp_support());
+    assert!(Language::Ruby.has_lsp_support());
+    assert!(Language::Php.has_lsp_support());
+    assert!(Language::Shell.has_lsp_support());
+    assert!(Language::Html.has_lsp_support());
+
+    // Data/config formats — should skip LSP enrichment
     assert!(!Language::Yaml.has_lsp_support());
     assert!(!Language::Toml.has_lsp_support());
-    assert!(!Language::Shell.has_lsp_support());
-    assert!(!Language::Html.has_lsp_support());
     assert!(!Language::Css.has_lsp_support());
     assert!(!Language::Sql.has_lsp_support());
     assert!(!Language::Xml.has_lsp_support());
-    assert!(!Language::Ruby.has_lsp_support());
-    assert!(!Language::Php.has_lsp_support());
-    assert!(!Language::Java.has_lsp_support());
     assert!(!Language::Other("md".to_string()).has_lsp_support());
 }
 

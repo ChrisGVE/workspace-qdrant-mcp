@@ -422,6 +422,10 @@ impl LanguageServerManager {
             (Language::Java, vec!["jdtls"]),
             (Language::C, vec!["clangd", "ccls"]),
             (Language::Cpp, vec!["clangd", "ccls"]),
+            (Language::Ruby, vec!["ruby-lsp", "solargraph"]),
+            (Language::Php, vec!["phpactor", "intelephense"]),
+            (Language::Shell, vec!["bash-language-server"]),
+            (Language::Html, vec!["vscode-html-language-server"]),
         ];
 
         for (language, candidates) in servers_to_check {

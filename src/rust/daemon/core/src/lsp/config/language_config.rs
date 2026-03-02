@@ -62,6 +62,11 @@ pub fn default_language_configs() -> HashMap<Language, LanguageConfig> {
     configs.insert(Language::Go, go_config());
     configs.insert(Language::C, c_config());
     configs.insert(Language::Cpp, cpp_config());
+    configs.insert(Language::Java, java_config());
+    configs.insert(Language::Ruby, ruby_config());
+    configs.insert(Language::Php, php_config());
+    configs.insert(Language::Shell, shell_config());
+    configs.insert(Language::Html, html_config());
 
     configs
 }
@@ -206,6 +211,52 @@ fn cpp_config() -> LanguageConfig {
             "*.cxx".to_string(),
             "*.hpp".to_string(),
         ],
+        enabled_features: standard_features(),
+        ..LanguageConfig::default()
+    }
+}
+
+fn java_config() -> LanguageConfig {
+    LanguageConfig {
+        preferred_servers: vec!["jdtls".to_string()],
+        file_patterns: vec!["*.java".to_string()],
+        enabled_features: extended_features(),
+        startup_timeout_override: Some(Duration::from_secs(90)),
+        ..LanguageConfig::default()
+    }
+}
+
+fn ruby_config() -> LanguageConfig {
+    LanguageConfig {
+        preferred_servers: vec!["ruby-lsp".to_string(), "solargraph".to_string()],
+        file_patterns: vec!["*.rb".to_string()],
+        enabled_features: standard_features(),
+        ..LanguageConfig::default()
+    }
+}
+
+fn php_config() -> LanguageConfig {
+    LanguageConfig {
+        preferred_servers: vec!["phpactor".to_string(), "intelephense".to_string()],
+        file_patterns: vec!["*.php".to_string()],
+        enabled_features: standard_features(),
+        ..LanguageConfig::default()
+    }
+}
+
+fn shell_config() -> LanguageConfig {
+    LanguageConfig {
+        preferred_servers: vec!["bash-language-server".to_string()],
+        file_patterns: vec!["*.sh".to_string(), "*.bash".to_string()],
+        enabled_features: standard_features(),
+        ..LanguageConfig::default()
+    }
+}
+
+fn html_config() -> LanguageConfig {
+    LanguageConfig {
+        preferred_servers: vec!["vscode-html-languageserver".to_string()],
+        file_patterns: vec!["*.html".to_string(), "*.htm".to_string()],
         enabled_features: standard_features(),
         ..LanguageConfig::default()
     }

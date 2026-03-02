@@ -191,22 +191,22 @@ impl Language {
         }
     }
 
-    /// Check if this language has known LSP server support.
+    /// Check if this language could benefit from LSP enrichment.
     ///
-    /// Returns true only for languages that have configured LSP server
-    /// templates in the detection module. Non-code files (markdown, config,
-    /// etc.) return false and should skip LSP enrichment.
+    /// Returns true for programming languages where LSP servers may exist.
+    /// Returns false for data/config formats (YAML, TOML, XML, etc.) and
+    /// `Other` variants that are unknown. The LSP detection system handles
+    /// the case where no server is actually installed — this method only
+    /// indicates whether LSP enrichment is *worth attempting*.
     pub fn has_lsp_support(&self) -> bool {
-        matches!(
+        !matches!(
             self,
-            Language::Python
-                | Language::Rust
-                | Language::TypeScript
-                | Language::JavaScript
-                | Language::Json
-                | Language::C
-                | Language::Cpp
-                | Language::Go
+            Language::Yaml
+                | Language::Toml
+                | Language::Xml
+                | Language::Css
+                | Language::Sql
+                | Language::Other(_)
         )
     }
 
