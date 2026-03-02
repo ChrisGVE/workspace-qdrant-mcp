@@ -76,6 +76,12 @@ impl UnifiedQueueProcessor {
             .checked_sub(Duration::from_secs(uplift_config.min_interval_secs))
             .unwrap_or_else(std::time::Instant::now);
 
+        // Grammar idle-time update check tracking
+        let mut idle_since: Option<std::time::Instant> = None;
+        let mut last_grammar_check = std::time::Instant::now()
+            .checked_sub(Duration::from_secs(3600))
+            .unwrap_or_else(std::time::Instant::now);
+
         info!(
             "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s)",
             config.batch_size, config.worker_id, config.fairness_enabled,
@@ -161,6 +167,11 @@ impl UnifiedQueueProcessor {
             {
                 Ok(items) => {
                     if items.is_empty() {
+                        // Track continuous idle time for grammar update checks
+                        if idle_since.is_none() {
+                            idle_since = Some(std::time::Instant::now());
+                        }
+
                         // Run metadata uplift when queue is idle (Task 18)
                         let since_last = last_uplift_attempt.elapsed().as_secs();
                         if since_last >= uplift_config.min_interval_secs {
@@ -186,10 +197,48 @@ impl UnifiedQueueProcessor {
                             last_uplift_attempt = std::time::Instant::now();
                         }
 
+                        // Run grammar update check when idle long enough (Task 5)
+                        if let Some(ref gm) = grammar_manager {
+                            let idle_elapsed = idle_since.map_or(0, |t| t.elapsed().as_secs());
+                            let gm_read = gm.read().await;
+                            let cfg = gm_read.config();
+                            let check_enabled = cfg.idle_update_check_enabled;
+                            let delay = cfg.idle_update_check_delay_secs;
+                            let needs_check = gm_read.needs_periodic_check();
+                            drop(gm_read);
+
+                            if check_enabled
+                                && idle_elapsed >= delay
+                                && needs_check
+                                && last_grammar_check.elapsed().as_secs() >= delay
+                            {
+                                info!(
+                                    "Queue idle for {}s (threshold: {}s) — running grammar update check",
+                                    idle_elapsed, delay
+                                );
+                                let mut gm_write = gm.write().await;
+                                let results = gm_write.periodic_version_check().await;
+                                drop(gm_write);
+
+                                let checked = results.len();
+                                let updated = results.values().filter(|r| r.is_ok()).count();
+                                let errors = results.values().filter(|r| r.is_err()).count();
+                                if checked > 0 {
+                                    info!(
+                                        "Grammar update check: {checked} checked, {updated} up-to-date, {errors} errors"
+                                    );
+                                }
+                                last_grammar_check = std::time::Instant::now();
+                            }
+                        }
+
                         debug!("Unified queue is empty, waiting {}ms", config.poll_interval_ms);
                         tokio::time::sleep(poll_interval).await;
                         continue;
                     }
+
+                    // Queue has items — reset idle tracker
+                    idle_since = None;
 
                     info!("Dequeued {} unified queue items for processing", items.len());
 
