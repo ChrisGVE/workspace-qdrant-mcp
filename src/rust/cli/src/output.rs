@@ -308,7 +308,7 @@ pub fn truncate(s: &str, max_len: usize) -> String {
 ///
 /// Extracts the date portion (YYYY-MM-DD) from an ISO-8601 timestamp.
 pub fn format_date(ts: &str) -> String {
-    if ts.len() >= 10 {
+    if ts.len() >= 10 && ts.is_char_boundary(10) {
         ts[..10].to_string()
     } else {
         ts.to_string()
