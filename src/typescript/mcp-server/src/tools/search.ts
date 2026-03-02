@@ -114,7 +114,6 @@ export class SearchTool {
       projectId,
       libraryName,
       includeLibraries = false,
-      includeDeleted = false,
       tag,
       tags,
     } = options;
@@ -153,7 +152,6 @@ export class SearchTool {
     if (fileType) filters.file_type = fileType;
     if (libraryName) filters.library_name = libraryName;
     if (tag) filters.tag = tag;
-    if (includeDeleted) filters.include_deleted = true;
 
     this._stateManager.logSearchEvent({
       id: eventId,
@@ -201,7 +199,7 @@ export class SearchTool {
       try {
         const filterParams: FilterParams = {
           collection: coll, scope, projectId: currentProjectId,
-          branch, fileType, libraryName, includeDeleted, tag, tags,
+          branch, fileType, libraryName, tag, tags,
           pathGlob: options.pathGlob,
           component: options.component,
           basePoints: coll === PROJECTS_COLLECTION ? basePoints : undefined,

@@ -38,7 +38,6 @@ export interface SearchOptions {
   projectId?: string;
   libraryName?: string;
   includeLibraries?: boolean;
-  includeDeleted?: boolean;
   tag?: string;
   /** Filter results by multiple concept tags (OR logic) */
   tags?: string[];
@@ -117,7 +116,6 @@ export interface FilterParams {
   branch: string | undefined;
   fileType: string | undefined;
   libraryName: string | undefined;
-  includeDeleted: boolean;
   tag: string | undefined;
   tags: string[] | undefined;
   pathGlob: string | undefined;

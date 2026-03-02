@@ -148,8 +148,8 @@ export function buildFilter(params: FilterParams): Record<string, unknown> | nul
     }
   }
 
-  // Exclude deleted libraries unless explicitly included
-  if (params.collection === LIBRARIES_COLLECTION && !params.includeDeleted) {
+  // Exclude deleted libraries
+  if (params.collection === LIBRARIES_COLLECTION) {
     mustNotConditions.push({
       key: FIELD_DELETED,
       match: { value: true },
