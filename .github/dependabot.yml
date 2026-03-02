@@ -1,68 +1,67 @@
 # GitHub Dependabot configuration for automated dependency updates
-# This keeps dependencies secure and up-to-date with evidence-based testing
+#
+# Note: tree-sitter and ONNX Runtime (ort/fastembed) have dedicated custom
+# workflows that include cross-platform builds and auto-PR creation:
+#   - tree-sitter-version-bump.yml (daily crates.io check)
+#   - onnx-runtime-version-bump.yml (daily crates.io check)
+#   - deps-post-merge-release.yml (auto-patch-release on merge)
 
 version: 2
 updates:
-  # Python package dependencies
-  - package-ecosystem: "pip"
-    directory: "/"
+  # Rust/Cargo dependencies (workspace at src/rust/)
+  - package-ecosystem: "cargo"
+    directory: "/src/rust"
     schedule:
-      interval: "daily"
-      time: "04:00"  # 4 AM UTC
+      interval: "weekly"
+      day: "wednesday"
+      time: "04:00"
     open-pull-requests-limit: 10
     reviewers:
-      - "@chris"  # Replace with actual maintainer usernames
-    assignees:
-      - "@chris"
+      - "ChrisGVE"
     commit-message:
-      prefix: "deps"
-      prefix-development: "deps(dev)"
+      prefix: "build(deps)"
       include: "scope"
     labels:
       - "dependencies"
-      - "security"
-    # Group updates by dependency type
+      - "rust"
     groups:
-      production-dependencies:
-        patterns:
-          - "fastmcp*"
-          - "qdrant-client*"
-          - "fastembed*" 
-          - "GitPython*"
-          - "pydantic*"
-          - "python-dotenv*"
-          - "typer*"
-      development-dependencies:
-        patterns:
-          - "pytest*"
-          - "black*"
-          - "ruff*"
-          - "mypy*"
-          - "bandit*"
-          - "safety*"
-      security-dependencies:
-        patterns:
-          - "cryptography*"
-          - "requests*"
-          - "urllib3*"
-          - "certifi*"
-    # Ignore specific versions if they have known issues
+      rust-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "tree-sitter*"
+          - "fastembed*"
+          - "ort*"
     ignore:
-      # Example: ignore specific versions with compatibility issues
-      # - dependency-name: "some-package"
-      #   versions: ["1.2.0", "1.2.1"]
-    # Version update strategy
-    versioning-strategy: "increase"
-    # Automatically merge minor and patch updates that pass CI
-    auto-merge:
-      - match:
-          update_type: "security"
-      - match:
-          update_type: "semver:patch"
-          dependency_type: "direct"
-      - match:
-          update_type: "semver:minor"
-          dependency_type: "development"
+      # Handled by tree-sitter-version-bump.yml (custom cross-platform workflow)
+      - dependency-name: "tree-sitter"
+      - dependency-name: "tree-sitter-*"
+      # Handled by onnx-runtime-version-bump.yml (custom cross-platform workflow)
+      - dependency-name: "fastembed"
+      - dependency-name: "ort"
+
+  # TypeScript/npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/src/typescript/mcp-server"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "04:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "ChrisGVE"
+    commit-message:
+      prefix: "build(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "typescript"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   # GitHub Actions workflow dependencies
   - package-ecosystem: "github-actions"
@@ -73,20 +72,19 @@ updates:
       time: "04:00"
     open-pull-requests-limit: 5
     reviewers:
-      - "@chris"
+      - "ChrisGVE"
     commit-message:
       prefix: "ci"
       include: "scope"
     labels:
       - "github-actions"
       - "ci/cd"
-    # Group all GitHub Actions updates together
     groups:
       github-actions:
         patterns:
           - "*"
 
-  # Docker dependencies (if any Dockerfiles are added)
+  # Docker dependencies
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -95,7 +93,7 @@ updates:
       time: "04:00"
     open-pull-requests-limit: 3
     reviewers:
-      - "@chris"
+      - "ChrisGVE"
     commit-message:
       prefix: "docker"
       include: "scope"
