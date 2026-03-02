@@ -12,7 +12,7 @@ function createMockStateManager(): SqliteStateManager {
   return {
     initialize: vi.fn().mockReturnValue({ status: 'ok' }),
     close: vi.fn(),
-    enqueueUnified: vi.fn().mockResolvedValue({
+    enqueueUnified: vi.fn().mockReturnValue({
       status: 'ok',
       data: {
         queueId: 'queue-456',
@@ -70,9 +70,9 @@ describe('StoreTool - queue operations', () => {
   });
 
   it('should handle queue errors gracefully', async () => {
-    vi.mocked(mockStateManager.enqueueUnified).mockRejectedValue(
-      new Error('Database connection failed')
-    );
+    vi.mocked(mockStateManager.enqueueUnified).mockImplementation(() => {
+      throw new Error('Database connection failed');
+    });
 
     const options: StoreOptions = {
       content: 'Test content',
@@ -87,7 +87,7 @@ describe('StoreTool - queue operations', () => {
   });
 
   it('should handle queue returning degraded status with no data', async () => {
-    vi.mocked(mockStateManager.enqueueUnified).mockResolvedValue({
+    vi.mocked(mockStateManager.enqueueUnified).mockReturnValue({
       status: 'degraded',
       message: 'Queue full',
       data: null,  // Simulate missing data

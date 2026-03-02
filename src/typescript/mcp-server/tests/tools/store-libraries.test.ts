@@ -13,7 +13,7 @@ function createMockStateManager(): SqliteStateManager {
   return {
     initialize: vi.fn().mockReturnValue({ status: 'ok' }),
     close: vi.fn(),
-    enqueueUnified: vi.fn().mockResolvedValue({
+    enqueueUnified: vi.fn().mockReturnValue({
       status: 'ok',
       data: {
         queueId: 'queue-456',
