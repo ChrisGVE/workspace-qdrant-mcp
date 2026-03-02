@@ -24,6 +24,7 @@ fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {
         verify_checksums: false,
         lazy_loading: true,
         check_interval_hours: 168, // Weekly
+        ..Default::default()
     }
 }
 
@@ -254,6 +255,7 @@ async fn test_concurrent_grammar_manager_access() {
                 verify_checksums: false,
                 lazy_loading: true,
                 check_interval_hours: 168, // Weekly
+                ..Default::default()
             };
 
             let manager = GrammarManager::new(config);
