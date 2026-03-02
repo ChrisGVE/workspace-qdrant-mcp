@@ -268,6 +268,8 @@ Tree-sitter grammar cache settings.
 | `verify_checksums` | bool | `true` | Verify grammar file integrity |
 | `lazy_loading` | bool | `true` | Load grammars on first use instead of at startup |
 | `check_interval_hours` | integer | `168` | Hours between grammar update checks (168 = weekly) |
+| `idle_update_check_enabled` | bool | `true` | Check for grammar updates when queue is idle |
+| `idle_update_check_delay_secs` | integer | `300` | Seconds of idle time before triggering update check |
 
 ### `git`
 

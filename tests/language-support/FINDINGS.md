@@ -12,7 +12,7 @@
 | PASS | 24 |
 | PARTIAL | 0 |
 | FAIL | 1 (Ada) |
-| Tree-sitter built-in | 8 |
+| Tree-sitter grammars (auto-download) | 10 known |
 | LSP default servers | 6 |
 
 ## Phase 1 Results: Compilation and Output Match
@@ -57,22 +57,24 @@ Ada fails because GNAT (the Ada compiler) is not available via Homebrew on macOS
 
 ## Code Intelligence Coverage
 
-### Tree-sitter Semantic Chunking (8/25 languages)
+### Tree-sitter Semantic Chunking (10/25 languages known)
 
-Languages with built-in tree-sitter grammars receive semantic chunking (function/class/method boundaries):
+Grammars are downloaded automatically on first use (`auto_download: true` by default). The daemon caches grammars in `~/.workspace-qdrant/grammars/`. Pre-download with `wqm language ts-install <lang>`.
 
 | Language | Grammar | Chunk Quality |
 |----------|---------|---------------|
-| C | Built-in | Semantic |
-| C++ | Built-in | Semantic |
-| Go | Built-in | Semantic |
-| Java | Built-in | Semantic |
-| JavaScript | Built-in | Semantic |
-| Python | Built-in | Semantic |
-| Rust | Built-in | Semantic |
-| TypeScript | Built-in | Semantic |
+| C | Auto-download | Semantic |
+| C++ | Auto-download | Semantic |
+| Go | Auto-download | Semantic |
+| Java | Auto-download | Semantic |
+| JavaScript | Auto-download | Semantic |
+| JSX | Auto-download | Semantic |
+| Python | Auto-download | Semantic |
+| Rust | Auto-download | Semantic |
+| TSX | Auto-download | Semantic |
+| TypeScript | Auto-download | Semantic |
 
-The remaining 17 languages fall back to token-based text chunking (105 target tokens, 12 overlap). This is functional but loses function/class boundary information.
+The remaining 15 languages fall back to token-based text chunking (105 target tokens, 12 overlap). This is functional but loses function/class boundary information. Additional tree-sitter grammars (Ruby, Swift, Haskell, etc.) can be added to the known grammar list as they mature.
 
 ### LSP Enrichment (6/25 languages)
 

@@ -56,7 +56,7 @@ File changes on disk
   → notify-rs debouncer (buffers rapid changes)
   → unified_queue table (SQLite, ACID-guaranteed)
   → queue processor dequeues item
-  → Tree-sitter semantic chunking (8 built-in languages)
+  → Tree-sitter semantic chunking (10 languages, auto-download on first use)
   → LSP enrichment (active projects: references, types, resolved imports)
   → keyword/tag extraction (8-stage pipeline)
   → FastEmbed dense vector (384-dim, all-MiniLM-L6-v2)
@@ -106,7 +106,8 @@ Tree-sitter parse (always runs)
   — language detection from grammar
   — semantic chunking by symbol type:
       preamble | function | class | method | struct | trait
-  — 8 built-in grammars: Rust, TypeScript, Python, Go, C, C++, Java, JavaScript
+  — 10 known grammars (auto-download on first use): Rust, TypeScript, TSX, Python,
+    Go, C, C++, Java, JavaScript, JSX
   — all other languages: text overlap chunking (384-char target, 58-char overlap)
   ↓
 LSP enrichment (active projects only)

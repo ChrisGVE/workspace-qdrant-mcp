@@ -18,22 +18,26 @@ Runs on every code file during ingestion:
 - **Syntax structure:** Imports, exports, declarations
 - **Semantic chunking:** Split files into meaningful units (see below)
 
-**Built-in grammar support (semantic chunking):**
+**Dynamic grammar support (semantic chunking):**
 
-| Language   | Grammar  | Chunk Types                                      |
-| ---------- | -------- | ------------------------------------------------ |
-| C          | Built-in | function, struct, preamble                       |
-| C++        | Built-in | function, class, method, struct, preamble        |
-| Go         | Built-in | function, struct, method, preamble               |
-| Java       | Built-in | class, method, interface, preamble               |
-| JavaScript | Built-in | function, class, method, preamble                |
-| Python     | Built-in | function, class, method, preamble                |
-| Rust       | Built-in | function, struct, impl, trait, method, preamble  |
-| TypeScript | Built-in | function, class, method, interface, preamble     |
+Grammars are downloaded automatically on first use (`auto_download: true` by default) and cached in `~/.workspace-qdrant/grammars/`. Pre-download with `wqm language ts-install <lang>`. The daemon checks for grammar updates when the queue is idle (configurable interval, default: weekly).
+
+| Language   | Grammar       | Chunk Types                                      |
+| ---------- | ------------- | ------------------------------------------------ |
+| C          | Auto-download | function, struct, preamble                       |
+| C++        | Auto-download | function, class, method, struct, preamble        |
+| Go         | Auto-download | function, struct, method, preamble               |
+| Java       | Auto-download | class, method, interface, preamble               |
+| JavaScript | Auto-download | function, class, method, preamble                |
+| JSX        | Auto-download | function, class, method, preamble                |
+| Python     | Auto-download | function, class, method, preamble                |
+| Rust       | Auto-download | function, struct, impl, trait, method, preamble  |
+| TSX        | Auto-download | function, class, method, interface, preamble     |
+| TypeScript | Auto-download | function, class, method, interface, preamble     |
 
 **All other languages** fall back to text-based overlap chunking (384 chars target, 58 chars overlap).
 
-**Grammars:** 8 languages have built-in grammars (see table above). Dynamic grammar download infrastructure exists but is not yet populated with additional languages.
+**Grammars:** 10 languages have known grammars available for auto-download (see table above). Optional static compilation is available via `--features static-grammars` for environments without internet access.
 
 ### LSP (Enhancement for Active Projects)
 

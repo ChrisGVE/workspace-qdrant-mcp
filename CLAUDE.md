@@ -19,7 +19,7 @@ workspace-qdrant-mcp (v0.1.0-beta1) is a Model Context Protocol (MCP) server pro
 - Rust daemon for high-performance file watching and processing
 
 **v0.1.0-beta1 Features:**
-- Tree-sitter semantic code chunking by function/class/method
+- Tree-sitter semantic code chunking by function/class/method (dynamic grammar auto-download)
 - LSP integration for code intelligence (per-project, active projects only)
 - Branch lifecycle management (create, delete, rename, default tracking)
 - Project ID disambiguation for multi-clone repositories
