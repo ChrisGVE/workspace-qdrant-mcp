@@ -46,6 +46,13 @@ jobs:
         run: |
           # Query crates.io API for latest tree-sitter version
           LATEST=$(curl -sS 'https://crates.io/api/v1/crates/tree-sitter' | jq -r '.crate.max_stable_version // .crate.max_version')
+
+          # Validate: must look like a semver (digits.digits or digits.digits.digits)
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ] || ! echo "$LATEST" | grep -qE '^[0-9]+\.[0-9]+'; then
+            echo "ERROR: crates.io returned invalid version: '$LATEST'"
+            exit 1
+          fi
+
           echo "version=$LATEST" >> $GITHUB_OUTPUT
           echo "Latest tree-sitter version: $LATEST"
 
@@ -58,9 +65,12 @@ jobs:
           echo "current_version=$CURRENT" >> $GITHUB_OUTPUT
           echo "latest_version=$LATEST" >> $GITHUB_OUTPUT
 
-          if [ "$CURRENT" != "$LATEST" ] || [ "${{ inputs.force_check }}" == "true" ]; then
+          if [ "$CURRENT" != "$LATEST" ]; then
             echo "needs_update=true" >> $GITHUB_OUTPUT
             echo "Version update needed: $CURRENT -> $LATEST"
+          elif [ "${{ inputs.force_check }}" == "true" ]; then
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "Force check enabled, proceeding with $CURRENT"
           else
             echo "needs_update=false" >> $GITHUB_OUTPUT
             echo "Already at latest version: $CURRENT"
@@ -161,6 +171,7 @@ jobs:
         run: |
           git add -A
           git commit -m "deps: bump tree-sitter from $CURRENT_VERSION to $LATEST_VERSION"
+          git pull --rebase origin main
           git push origin main
 
       - name: Create and push tag
