@@ -241,13 +241,12 @@ pub fn grammar_filename() -> &'static str {
     }
 }
 
-/// Get the tree-sitter runtime version.
+/// Get the tree-sitter runtime version (major.minor).
 ///
-/// This reads from the tree-sitter crate version at compile time.
+/// Derived at compile time from Cargo.lock via build.rs — no manual
+/// synchronization needed when updating the tree-sitter dependency.
 pub fn tree_sitter_runtime_version() -> &'static str {
-    // The tree-sitter crate version we're compiled against
-    // This should match what's in Cargo.toml
-    "0.24"
+    env!("TREE_SITTER_VERSION_MAJOR_MINOR")
 }
 
 /// Compute SHA256 checksum of a file.

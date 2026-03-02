@@ -133,7 +133,9 @@ fn default_grammar_cache_dir() -> PathBuf {
 fn default_required_grammars() -> Vec<String> {
     vec![]
 }
-fn default_tree_sitter_version() -> String { "0.24".to_string() }
+fn default_tree_sitter_version() -> String {
+    env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string()
+}
 fn default_download_base_url() -> String {
     "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}".to_string()
 }
@@ -322,7 +324,7 @@ mod tests {
         assert_eq!(config.cache_dir, PathBuf::from("~/.workspace-qdrant/grammars"));
         assert!(config.required.is_empty(), "Default required should be empty");
         assert!(config.auto_download);
-        assert_eq!(config.tree_sitter_version, "0.24");
+        assert_eq!(config.tree_sitter_version, env!("TREE_SITTER_VERSION_MAJOR_MINOR"));
         assert!(config.verify_checksums);
         assert!(config.lazy_loading);
         assert!(config.idle_update_check_enabled);
@@ -339,7 +341,7 @@ mod tests {
         // Invalid tree_sitter_version
         config.tree_sitter_version = String::new();
         assert!(config.validate().is_err());
-        config.tree_sitter_version = "0.24".to_string();
+        config.tree_sitter_version = env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string();
 
         // Invalid download_base_url when auto_download enabled
         config.download_base_url = String::new();
@@ -382,7 +384,7 @@ mod tests {
             cache_dir: PathBuf::from("/custom/grammars"),
             required: vec!["rust".to_string(), "python".to_string()],
             auto_download: false,
-            tree_sitter_version: "0.24".to_string(),
+            tree_sitter_version: env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string(),
             download_base_url: "https://example.com".to_string(),
             verify_checksums: true,
             lazy_loading: true,
@@ -409,17 +411,17 @@ mod tests {
     #[test]
     fn test_grammar_config_missing_new_fields_uses_defaults() {
         // Simulate deserialization from config without new fields
-        let json = r#"{
+        let json = format!(r#"{{
             "cache_dir": "/custom/grammars",
             "required": ["rust"],
             "auto_download": true,
-            "tree_sitter_version": "0.24",
+            "tree_sitter_version": "{}",
             "download_base_url": "https://example.com",
             "verify_checksums": true,
             "lazy_loading": true,
             "check_interval_hours": 168
-        }"#;
-        let config: GrammarConfig = serde_json::from_str(json).unwrap();
+        }}"#, env!("TREE_SITTER_VERSION_MAJOR_MINOR"));
+        let config: GrammarConfig = serde_json::from_str(&json).unwrap();
         // New fields should use defaults when missing
         assert!(config.idle_update_check_enabled);
         assert_eq!(config.idle_update_check_delay_secs, 300);

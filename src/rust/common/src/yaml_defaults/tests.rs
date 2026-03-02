@@ -102,10 +102,9 @@ fn test_lsp_defaults() {
 fn test_grammars_defaults() {
     let config = &*DEFAULT_YAML_CONFIG;
     assert_eq!(config.grammars.cache_dir, "~/.workspace-qdrant/grammars");
-    assert!(config.grammars.required.contains(&"rust".to_string()));
-    assert!(config.grammars.required.contains(&"python".to_string()));
+    assert!(config.grammars.required.is_empty(), "Default required should be empty");
     assert!(config.grammars.auto_download);
-    assert_eq!(config.grammars.tree_sitter_version, "0.24");
+    assert_eq!(config.grammars.tree_sitter_version, env!("TREE_SITTER_VERSION_MAJOR_MINOR"));
 }
 
 #[test]

@@ -182,18 +182,9 @@ impl Default for YamlGrammarsConfig {
     fn default() -> Self {
         Self {
             cache_dir: "~/.workspace-qdrant/grammars".to_string(),
-            required: vec![
-                "rust".into(),
-                "python".into(),
-                "javascript".into(),
-                "typescript".into(),
-                "go".into(),
-                "java".into(),
-                "c".into(),
-                "cpp".into(),
-            ],
+            required: vec![],
             auto_download: true,
-            tree_sitter_version: "0.24".to_string(),
+            tree_sitter_version: env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string(),
             download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}".to_string(),
             verify_checksums: true,
             lazy_loading: true,
