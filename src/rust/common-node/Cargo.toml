@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wqm-common = { path = "../common" }
-napi = { version = "2", default-features = false, features = ["napi9"] }
+napi = { version = "3", default-features = false, features = ["napi9"] }
 napi-derive = "2"
 
 [build-dependencies]
