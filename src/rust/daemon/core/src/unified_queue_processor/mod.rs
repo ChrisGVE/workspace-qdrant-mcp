@@ -29,6 +29,7 @@ use crate::queue_health::QueueProcessorHealth;
 use crate::lsp::LanguageServerManager;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
+use crate::tree_sitter::GrammarManager;
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
 use crate::storage::{StorageClient, StorageConfig};
 use crate::lexicon::LexiconManager;
@@ -94,6 +95,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Signal to trigger WatchManager refresh after creating a new watch_folder (Task 12)
     watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
+
+    /// Grammar manager for dynamic tree-sitter grammar loading
+    grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
 }
 
 impl UnifiedQueueProcessor {
@@ -153,6 +157,7 @@ impl UnifiedQueueProcessor {
             search_db: None,
             graph_store: None,
             watch_refresh_signal: None,
+            grammar_manager: None,
         }
     }
 
@@ -206,7 +211,14 @@ impl UnifiedQueueProcessor {
             search_db: None,
             graph_store: None,
             watch_refresh_signal: None,
+            grammar_manager: None,
         }
+    }
+
+    /// Set the grammar manager for dynamic tree-sitter grammar loading
+    pub fn with_grammar_manager(mut self, manager: Arc<RwLock<GrammarManager>>) -> Self {
+        self.grammar_manager = Some(manager);
+        self
     }
 
     /// Set the watch refresh signal for triggering WatchManager refresh after new watch_folders (Task 12)
@@ -314,6 +326,7 @@ impl UnifiedQueueProcessor {
         let search_db = self.search_db.clone();
         let graph_store = self.graph_store.clone();
         let watch_refresh_signal = self.watch_refresh_signal.clone();
+        let grammar_manager = self.grammar_manager.clone();
 
         // Mark as running in health state
         if let Some(ref h) = queue_health {
@@ -346,6 +359,7 @@ impl UnifiedQueueProcessor {
                 search_db,
                 graph_store,
                 watch_refresh_signal,
+                grammar_manager,
             )
             .await
             {

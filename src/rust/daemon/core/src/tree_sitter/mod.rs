@@ -30,6 +30,7 @@ pub use version_checker::{
 };
 
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::error::DaemonError;
 
@@ -109,15 +110,45 @@ pub fn extract_chunks(
     path: &Path,
     max_chunk_size: usize,
 ) -> Result<Vec<SemanticChunk>, DaemonError> {
+    extract_chunks_with_provider(source, path, max_chunk_size, None)
+}
+
+/// Extract semantic chunks with an optional dynamic language provider.
+///
+/// When a provider is given, it supplies dynamically-loaded grammars for
+/// languages beyond the statically compiled set. This enables first-use
+/// grammar download: the caller ensures the grammar is loaded (async) and
+/// passes a snapshot provider into this synchronous function.
+pub fn extract_chunks_with_provider(
+    source: &str,
+    path: &Path,
+    max_chunk_size: usize,
+    provider: Option<Arc<dyn LanguageProvider>>,
+) -> Result<Vec<SemanticChunk>, DaemonError> {
     let language = match detect_language(path) {
         Some(lang) if is_language_supported(lang) => lang,
+        Some(lang) => {
+            // Language detected but not in the hardcoded supported list —
+            // check whether the provider has a grammar for it
+            if provider
+                .as_ref()
+                .map_or(false, |p| p.supports_language(lang))
+            {
+                lang
+            } else {
+                return Ok(chunker::text_chunk_fallback(source, path, max_chunk_size));
+            }
+        }
         _ => {
             // Fall back to text chunking for unsupported languages
             return Ok(chunker::text_chunk_fallback(source, path, max_chunk_size));
         }
     };
 
-    let chunker = SemanticChunker::new(max_chunk_size);
+    let chunker = match provider {
+        Some(p) => SemanticChunker::with_provider(max_chunk_size, p),
+        None => SemanticChunker::new(max_chunk_size),
+    };
     chunker.chunk_source(source, path, language)
 }
 

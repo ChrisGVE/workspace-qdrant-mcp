@@ -5,14 +5,16 @@
 //! extraction → component detection → Qdrant upsert → FTS5 indexing.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 use sqlx::SqlitePool;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::context::ProcessingContext;
 use crate::processing_timings::{self, PhaseTiming};
 use crate::tracked_files_schema;
+use crate::tree_sitter::{detect_language, parser::LanguageProvider};
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
     DestinationStatus, FilePayload, QueueOperation, UnifiedQueueItem,
@@ -148,11 +150,14 @@ async fn run_ingest_pipeline(
 ) -> UnifiedProcessorResult<()> {
     let mut timings: Vec<PhaseTiming> = Vec::new();
 
-    // Phase 1: Parse document
+    // Phase 0: Ensure grammar is available for this file's language (dynamic download)
+    let provider = ensure_grammar_available(ctx, file_path).await;
+
+    // Phase 1: Parse document (with dynamic grammar provider)
     let t0 = Instant::now();
     let document_content = ctx
         .document_processor
-        .process_file_content(file_path, &item.collection)
+        .process_file_content_with_provider(file_path, &item.collection, provider)
         .await
         .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
     timings.push(PhaseTiming { phase: "parse", duration_ms: t0.elapsed().as_millis() as u64 });
@@ -313,6 +318,44 @@ async fn update_search_index(
         .queue_manager
         .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
         .await;
+}
+
+/// Ensure the tree-sitter grammar for this file's language is loaded.
+///
+/// If a grammar manager is available, detects the language from the file extension,
+/// triggers an async download if the grammar isn't cached yet, and returns a
+/// `LoadedGrammarsProvider` snapshot for use in the synchronous parsing pipeline.
+async fn ensure_grammar_available(
+    ctx: &ProcessingContext,
+    file_path: &Path,
+) -> Option<Arc<dyn LanguageProvider>> {
+    let grammar_mgr = ctx.grammar_manager.as_ref()?;
+
+    // Detect language from file extension
+    let language = detect_language(file_path)?;
+
+    // Acquire write lock to potentially download the grammar
+    let mut mgr = grammar_mgr.write().await;
+
+    // Attempt to get (load/download) the grammar for this language
+    if let Err(e) = mgr.get_grammar(language).await {
+        warn!(
+            language = language,
+            "Grammar not available for {}: {} (falling back to text chunking)",
+            file_path.display(),
+            e
+        );
+    }
+
+    // Create a sync snapshot of all currently loaded grammars
+    let provider = mgr.create_language_provider();
+
+    // Only return provider if it has grammars (avoid wrapping an empty provider)
+    if provider.is_empty() {
+        None
+    } else {
+        Some(Arc::new(provider))
+    }
 }
 
 /// Check if a file is a workspace definition file that triggers component re-detection.

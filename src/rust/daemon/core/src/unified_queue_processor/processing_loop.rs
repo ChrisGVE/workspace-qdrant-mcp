@@ -14,6 +14,7 @@ use crate::lsp::LanguageServerManager;
 use crate::queue_health::QueueProcessorHealth;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
+use crate::tree_sitter::GrammarManager;
 use crate::unified_queue_schema::{ItemType, QueueOperation, QueueStatus, UnifiedQueueItem};
 use crate::{DocumentProcessor, EmbeddingGenerator};
 use crate::storage::StorageClient;
@@ -60,6 +61,7 @@ impl UnifiedQueueProcessor {
         search_db: Option<Arc<SearchDbManager>>,
         graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
         watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
+        grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -223,6 +225,7 @@ impl UnifiedQueueProcessor {
                             &lexicon_manager,
                             &search_db,
                             &graph_store,
+                            &grammar_manager,
                         )
                         .await
                         {
@@ -401,6 +404,7 @@ impl UnifiedQueueProcessor {
         lexicon_manager: &Arc<LexiconManager>,
         search_db: &Option<Arc<SearchDbManager>>,
         graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -421,6 +425,9 @@ impl UnifiedQueueProcessor {
         );
         if let Some(gs) = graph_store {
             ctx = ctx.with_graph_store(gs.clone());
+        }
+        if let Some(gm) = grammar_manager {
+            ctx = ctx.with_grammar_manager(Arc::clone(gm));
         }
 
         match item.item_type {

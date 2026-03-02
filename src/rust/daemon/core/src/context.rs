@@ -20,6 +20,7 @@ use crate::lsp::LanguageServerManager;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
+use crate::tree_sitter::GrammarManager;
 
 /// Bundled processing dependencies for queue item strategies.
 ///
@@ -66,6 +67,10 @@ pub struct ProcessingContext {
     /// Cache of detected project components, keyed by watch_folder_id.
     /// Lazily populated on first file processed per watch folder.
     pub component_cache: Arc<RwLock<HashMap<String, ComponentMap>>>,
+
+    /// Grammar manager for dynamic tree-sitter grammar loading (optional).
+    /// Provides on-demand grammar download and caching for semantic code chunking.
+    pub grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
 }
 
 impl ProcessingContext {
@@ -96,6 +101,7 @@ impl ProcessingContext {
             cooccurrence_cache: Arc::new(tokio::sync::Mutex::new(CentralityCache::default())),
             graph_store: None,
             component_cache: Arc::new(RwLock::new(HashMap::new())),
+            grammar_manager: None,
         }
     }
 }
@@ -104,6 +110,12 @@ impl ProcessingContext {
     /// Attach a graph store to the processing context.
     pub fn with_graph_store(mut self, store: SharedGraphStore<SqliteGraphStore>) -> Self {
         self.graph_store = Some(store);
+        self
+    }
+
+    /// Attach a grammar manager for dynamic tree-sitter grammar loading.
+    pub fn with_grammar_manager(mut self, manager: Arc<RwLock<GrammarManager>>) -> Self {
+        self.grammar_manager = Some(manager);
         self
     }
 }
@@ -132,6 +144,7 @@ mod tests {
             let _ = &ctx.cooccurrence_cache;
             let _ = &ctx.graph_store;
             let _ = &ctx.component_cache;
+            let _ = &ctx.grammar_manager;
         }
     }
 }

@@ -27,7 +27,8 @@ use tracing::{debug, info, warn};
 
 #[cfg(feature = "ocr")]
 use crate::ocr::OcrEngine;
-use crate::tree_sitter::{extract_chunks, is_language_supported};
+use crate::tree_sitter::parser::LanguageProvider;
+use crate::tree_sitter::{extract_chunks_with_provider, is_language_supported};
 use crate::{ChunkingConfig, DocumentContent, DocumentResult, DocumentType, TextChunk};
 
 use self::chunking::{chunk_text, convert_semantic_chunks_to_text_chunks};
@@ -178,6 +179,39 @@ impl DocumentProcessor {
         result
     }
 
+    /// Process a file with a dynamic language provider for grammar-backed semantic chunking.
+    ///
+    /// The provider supplies dynamically-loaded grammars. It is created from the
+    /// GrammarManager's loaded grammars snapshot before entering the sync context.
+    pub async fn process_file_content_with_provider(
+        &self,
+        file_path: &Path,
+        collection: &str,
+        provider: Option<Arc<dyn LanguageProvider>>,
+    ) -> DocumentProcessorResult<DocumentContent> {
+        let path = file_path.to_path_buf();
+        let collection = collection.to_string();
+        let chunking_config = self.chunking_config.clone();
+
+        #[cfg(feature = "ocr")]
+        let ocr = self.ocr_engine.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            #[cfg(feature = "ocr")]
+            {
+                process_file_sync_with_provider(&path, &collection, &chunking_config, provider, ocr.as_deref())
+            }
+            #[cfg(not(feature = "ocr"))]
+            {
+                process_file_sync_with_provider(&path, &collection, &chunking_config, provider)
+            }
+        })
+        .await
+        .map_err(|e| DocumentProcessorError::TaskError(e.to_string()))?;
+
+        result
+    }
+
     /// Get the chunking configuration
     pub fn chunking_config(&self) -> &ChunkingConfig {
         &self.chunking_config
@@ -202,7 +236,7 @@ fn process_file_sync(
     chunking_config: &ChunkingConfig,
     ocr_engine: Option<&OcrEngine>,
 ) -> DocumentProcessorResult<DocumentContent> {
-    process_file_sync_inner(file_path, collection, chunking_config, ocr_engine)
+    process_file_sync_inner(file_path, collection, chunking_config, None, ocr_engine)
 }
 
 #[cfg(not(feature = "ocr"))]
@@ -211,7 +245,29 @@ fn process_file_sync(
     collection: &str,
     chunking_config: &ChunkingConfig,
 ) -> DocumentProcessorResult<DocumentContent> {
-    process_file_sync_inner(file_path, collection, chunking_config)
+    process_file_sync_inner(file_path, collection, chunking_config, None)
+}
+
+/// Synchronous file processing with an optional dynamic language provider.
+#[cfg(feature = "ocr")]
+fn process_file_sync_with_provider(
+    file_path: &Path,
+    collection: &str,
+    chunking_config: &ChunkingConfig,
+    provider: Option<Arc<dyn LanguageProvider>>,
+    ocr_engine: Option<&OcrEngine>,
+) -> DocumentProcessorResult<DocumentContent> {
+    process_file_sync_inner(file_path, collection, chunking_config, provider, ocr_engine)
+}
+
+#[cfg(not(feature = "ocr"))]
+fn process_file_sync_with_provider(
+    file_path: &Path,
+    collection: &str,
+    chunking_config: &ChunkingConfig,
+    provider: Option<Arc<dyn LanguageProvider>>,
+) -> DocumentProcessorResult<DocumentContent> {
+    process_file_sync_inner(file_path, collection, chunking_config, provider)
 }
 
 /// Extract raw text and metadata from a file based on its document type.
@@ -271,16 +327,31 @@ fn extract_by_document_type(
 }
 
 /// Generate chunks from extracted text, using semantic chunking for supported code files.
+///
+/// When a `LanguageProvider` is given, it enables semantic chunking for languages
+/// beyond the statically compiled set — e.g. grammars downloaded at runtime.
 fn generate_chunks(
     raw_text: &str,
     file_path: &Path,
     document_type: &DocumentType,
     metadata: &HashMap<String, String>,
     chunking_config: &ChunkingConfig,
+    provider: Option<Arc<dyn LanguageProvider>>,
 ) -> Vec<TextChunk> {
+    let has_provider_support = |lang: &str| -> bool {
+        provider
+            .as_ref()
+            .map_or(false, |p| p.supports_language(lang))
+    };
+
     match document_type {
-        DocumentType::Code(lang) if is_language_supported(lang) => {
-            match extract_chunks(raw_text, file_path, chunking_config.chunk_size) {
+        DocumentType::Code(lang) if is_language_supported(lang) || has_provider_support(lang) => {
+            match extract_chunks_with_provider(
+                raw_text,
+                file_path,
+                chunking_config.chunk_size,
+                provider,
+            ) {
                 Ok(semantic_chunks) => {
                     info!(
                         "Extracted {} semantic chunks from {:?} ({})",
@@ -308,6 +379,7 @@ fn process_file_sync_inner(
     file_path: &Path,
     collection: &str,
     chunking_config: &ChunkingConfig,
+    provider: Option<Arc<dyn LanguageProvider>>,
     #[cfg(feature = "ocr")] ocr_engine: Option<&OcrEngine>,
 ) -> DocumentProcessorResult<DocumentContent> {
     if !file_path.exists() {
@@ -335,7 +407,7 @@ fn process_file_sync_inner(
 
     // Generate chunks
     let chunks =
-        generate_chunks(&raw_text, file_path, &document_type, &metadata, chunking_config);
+        generate_chunks(&raw_text, file_path, &document_type, &metadata, chunking_config, provider);
 
     Ok(DocumentContent {
         raw_text,

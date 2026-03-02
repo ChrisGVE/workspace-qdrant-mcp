@@ -21,6 +21,7 @@ use workspace_qdrant_core::{
     LanguageServerManager,
     AllowedExtensions,
     SearchDbManager,
+    create_grammar_manager,
     HierarchyBuilder, HierarchyRebuildConfig,
     adaptive_resources::{AdaptiveResourceManager, AdaptiveResourceConfig, AdaptiveResourceState},
 };
@@ -197,6 +198,18 @@ pub async fn initialize(
         embedding_generator,
         storage_client,
     );
+
+    // Create grammar manager for dynamic tree-sitter grammar loading
+    let grammar_manager = Arc::new(RwLock::new(
+        create_grammar_manager(daemon_config.grammars.clone())
+    ));
+    info!(
+        "Grammar manager created (auto_download={}, cache_dir={:?})",
+        daemon_config.grammars.auto_download,
+        daemon_config.grammars.expanded_cache_dir()
+    );
+
+    let uqp = uqp.with_grammar_manager(Arc::clone(&grammar_manager));
 
     let mut uqp = attach_optional_components(
         uqp, lsp_manager, &allowed_extensions, search_db, graph_store, watch_refresh_signal,
