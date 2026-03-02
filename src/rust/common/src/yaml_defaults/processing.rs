@@ -174,6 +174,8 @@ pub struct YamlGrammarsConfig {
     pub verify_checksums: bool,
     pub lazy_loading: bool,
     pub check_interval_hours: u32,
+    pub idle_update_check_enabled: bool,
+    pub idle_update_check_delay_secs: u64,
 }
 
 impl Default for YamlGrammarsConfig {
@@ -196,6 +198,8 @@ impl Default for YamlGrammarsConfig {
             verify_checksums: true,
             lazy_loading: true,
             check_interval_hours: 168,
+            idle_update_check_enabled: true,
+            idle_update_check_delay_secs: 300,
         }
     }
 }

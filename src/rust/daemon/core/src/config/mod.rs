@@ -205,6 +205,8 @@ impl From<&YamlConfig> for DaemonConfig {
                 verify_checksums: yaml.grammars.verify_checksums,
                 lazy_loading: yaml.grammars.lazy_loading,
                 check_interval_hours: yaml.grammars.check_interval_hours,
+                idle_update_check_enabled: yaml.grammars.idle_update_check_enabled,
+                idle_update_check_delay_secs: yaml.grammars.idle_update_check_delay_secs,
             },
             updates: UpdatesConfig {
                 auto_check: yaml.updates.auto_check,

@@ -126,6 +126,7 @@ impl LspSettings {
 // --- Grammar Config ---
 
 fn default_grammar_check_interval() -> u32 { 168 } // Weekly
+fn default_idle_update_check_delay() -> u64 { 300 } // 5 minutes
 fn default_grammar_cache_dir() -> PathBuf {
     PathBuf::from("~/.workspace-qdrant/grammars")
 }
@@ -187,6 +188,16 @@ pub struct GrammarConfig {
     /// Default: 168 (weekly)
     #[serde(default = "default_grammar_check_interval")]
     pub check_interval_hours: u32,
+
+    /// Enable idle-time grammar and LSP update checks
+    /// When true, daemon checks for updates when the queue is idle
+    #[serde(default = "default_true")]
+    pub idle_update_check_enabled: bool,
+
+    /// Seconds the queue must be continuously empty before triggering update check
+    /// Range: 1-3600
+    #[serde(default = "default_idle_update_check_delay")]
+    pub idle_update_check_delay_secs: u64,
 }
 
 impl Default for GrammarConfig {
@@ -200,6 +211,8 @@ impl Default for GrammarConfig {
             verify_checksums: default_true(),
             lazy_loading: default_true(),
             check_interval_hours: default_grammar_check_interval(),
+            idle_update_check_enabled: default_true(),
+            idle_update_check_delay_secs: default_idle_update_check_delay(),
         }
     }
 }
@@ -212,6 +225,12 @@ impl GrammarConfig {
         }
         if self.download_base_url.is_empty() && self.auto_download {
             return Err("download_base_url required when auto_download is enabled".to_string());
+        }
+        if self.idle_update_check_delay_secs == 0 {
+            return Err("idle_update_check_delay_secs must be greater than 0".to_string());
+        }
+        if self.idle_update_check_delay_secs > 3600 {
+            return Err("idle_update_check_delay_secs must not exceed 3600 (1 hour)".to_string());
         }
         Ok(())
     }
@@ -316,6 +335,8 @@ mod tests {
         assert_eq!(config.tree_sitter_version, "0.24");
         assert!(config.verify_checksums);
         assert!(config.lazy_loading);
+        assert!(config.idle_update_check_enabled);
+        assert_eq!(config.idle_update_check_delay_secs, 300);
     }
 
     #[test]
@@ -335,6 +356,25 @@ mod tests {
         assert!(config.validate().is_err());
         config.auto_download = false;
         assert!(config.validate().is_ok()); // Empty URL ok when auto_download disabled
+        config = GrammarConfig::default(); // Reset
+
+        // Invalid idle_update_check_delay_secs = 0
+        config.idle_update_check_delay_secs = 0;
+        assert!(config.validate().is_err());
+        config.idle_update_check_delay_secs = 300;
+
+        // Invalid idle_update_check_delay_secs > 3600
+        config.idle_update_check_delay_secs = 3601;
+        assert!(config.validate().is_err());
+        config.idle_update_check_delay_secs = 300;
+
+        // Valid edge: exactly 3600
+        config.idle_update_check_delay_secs = 3600;
+        assert!(config.validate().is_ok());
+
+        // Valid edge: exactly 1
+        config.idle_update_check_delay_secs = 1;
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -357,16 +397,41 @@ mod tests {
             verify_checksums: true,
             lazy_loading: true,
             check_interval_hours: 168,
+            idle_update_check_enabled: false,
+            idle_update_check_delay_secs: 600,
         };
 
         // Serialize to JSON
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("\"/custom/grammars\""));
         assert!(json.contains("\"auto_download\":false"));
+        assert!(json.contains("\"idle_update_check_enabled\":false"));
+        assert!(json.contains("\"idle_update_check_delay_secs\":600"));
 
         // Deserialize back
         let deserialized: GrammarConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.cache_dir, PathBuf::from("/custom/grammars"));
         assert!(!deserialized.auto_download);
+        assert!(!deserialized.idle_update_check_enabled);
+        assert_eq!(deserialized.idle_update_check_delay_secs, 600);
+    }
+
+    #[test]
+    fn test_grammar_config_missing_new_fields_uses_defaults() {
+        // Simulate deserialization from config without new fields
+        let json = r#"{
+            "cache_dir": "/custom/grammars",
+            "required": ["rust"],
+            "auto_download": true,
+            "tree_sitter_version": "0.24",
+            "download_base_url": "https://example.com",
+            "verify_checksums": true,
+            "lazy_loading": true,
+            "check_interval_hours": 168
+        }"#;
+        let config: GrammarConfig = serde_json::from_str(json).unwrap();
+        // New fields should use defaults when missing
+        assert!(config.idle_update_check_enabled);
+        assert_eq!(config.idle_update_check_delay_secs, 300);
     }
 }

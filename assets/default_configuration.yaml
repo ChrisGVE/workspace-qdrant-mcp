@@ -3249,6 +3249,25 @@ grammars:
   # Default reasoning: 168 (weekly) balances freshness with network traffic
   check_interval_hours: 168
 
+  # idle_update_check_enabled: Enable idle-time grammar and LSP update checks
+  # Purpose: Automatically check for grammar and LSP updates when system is idle
+  # Idle detection: Queue continuously empty for idle_update_check_delay_secs
+  # Grammar updates: Downloads newer grammar versions automatically
+  # LSP updates: Logs available updates (user installs manually via wqm language)
+  # Frequency: Respects check_interval_hours to avoid excessive checks
+  # Format: Boolean
+  # Default reasoning: true provides hands-off maintenance
+  idle_update_check_enabled: true
+
+  # idle_update_check_delay_secs: Idle delay before triggering update check
+  # Purpose: Prevents update checks during active file processing
+  # Trigger: Queue must be continuously empty for this duration
+  # Interruption: Check aborts immediately if new queue items arrive
+  # Range: 1-3600 seconds
+  # Format: Integer (seconds)
+  # Default reasoning: 300 (5 minutes) avoids checks during brief pauses
+  idle_update_check_delay_secs: 300
+
 # =============================================================================
 # DAEMON SELF-UPDATE CONFIGURATION
 # =============================================================================
