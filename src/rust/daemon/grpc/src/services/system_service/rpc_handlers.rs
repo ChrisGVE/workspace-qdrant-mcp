@@ -410,7 +410,7 @@ impl SystemService for SystemServiceImpl {
 
         const VALID_TARGETS: &[&str] = &[
             "tags", "search", "vocabulary", "keywords", "rules",
-            "projects", "libraries", "all",
+            "projects", "libraries", "components", "all",
         ];
         if !VALID_TARGETS.contains(&base_target) {
             return Err(Status::invalid_argument(format!(
@@ -428,6 +428,7 @@ impl SystemService for SystemServiceImpl {
         let db_pool = self.db_pool.clone();
         let tenant_id = req.tenant_id.clone();
         let collection = req.collection.clone().unwrap_or_else(|| "projects".into());
+        let force = req.force.unwrap_or(false);
         let target_owned = base_target.to_string();
 
         // Spawn rebuild as a background task to avoid gRPC timeout
@@ -441,6 +442,7 @@ impl SystemService for SystemServiceImpl {
                 db_pool.as_ref(),
                 tenant_id.as_deref(),
                 &collection,
+                force,
             ).await;
         });
 

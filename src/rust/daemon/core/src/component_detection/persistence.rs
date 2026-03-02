@@ -105,25 +105,43 @@ pub struct BackfillStats {
     pub errors: u64,
 }
 
-/// Backfill NULL component assignments for all active watch folders.
+/// Backfill component assignments for active watch folders.
 ///
 /// For each enabled watch folder, detects components from the workspace
-/// definition files, then assigns components to tracked_files that have
-/// `component IS NULL`. Batches updates in transactions of `batch_size`.
+/// definition files, then assigns components to tracked_files.
+///
+/// When `force` is `false`, only files with `component IS NULL` are updated.
+/// When `force` is `true`, all files are re-evaluated and stale
+/// `project_components` entries are cleaned up before persisting.
+///
+/// When `tenant_id` is `Some`, only watch folders matching that tenant are processed.
+/// Batches updates in transactions of `batch_size`.
 pub async fn backfill_components(
     pool: &SqlitePool,
     batch_size: usize,
+    force: bool,
+    tenant_id: Option<&str>,
 ) -> Result<BackfillStats, String> {
     use sqlx::Row;
 
     let mut stats = BackfillStats::default();
 
-    // Get all enabled, non-archived watch folders with their paths
-    let folders: Vec<(String, String)> = sqlx::query_as(
-        "SELECT watch_id, path FROM watch_folders WHERE enabled = 1 AND is_archived = 0",
-    )
-    .fetch_all(pool)
-    .await
+    // Get enabled, non-archived watch folders (optionally filtered by tenant)
+    let folders: Vec<(String, String)> = if let Some(tid) = tenant_id {
+        sqlx::query_as(
+            "SELECT watch_id, path FROM watch_folders \
+             WHERE enabled = 1 AND is_archived = 0 AND tenant_id = ?1",
+        )
+        .bind(tid)
+        .fetch_all(pool)
+        .await
+    } else {
+        sqlx::query_as(
+            "SELECT watch_id, path FROM watch_folders WHERE enabled = 1 AND is_archived = 0",
+        )
+        .fetch_all(pool)
+        .await
+    }
     .map_err(|e| format!("Failed to query watch_folders: {e}"))?;
 
     for (watch_id, path) in &folders {
@@ -141,17 +159,40 @@ pub async fn backfill_components(
             continue;
         }
 
-        // Persist the detected components (idempotent)
+        // When force is true, delete stale project_components before persisting
+        // so removed workspace members get cleaned up
+        if force {
+            if let Err(e) = sqlx::query(
+                "DELETE FROM project_components WHERE watch_folder_id = ?1",
+            )
+            .bind(watch_id)
+            .execute(pool)
+            .await
+            {
+                debug!("Failed to clean stale components for {}: {}", watch_id, e);
+            }
+        }
+
+        // Persist the detected components (idempotent via INSERT OR REPLACE)
         if let Err(e) = persist_components(pool, watch_id, &components).await {
             debug!("Failed to persist components for {}: {}", watch_id, e);
             stats.errors += 1;
         }
 
-        // Find all tracked files with NULL component in this watch folder
-        let null_files: Vec<(i64, String)> = sqlx::query(
-            "SELECT file_id, relative_path FROM tracked_files
-             WHERE watch_folder_id = ?1 AND component IS NULL AND relative_path IS NOT NULL",
-        )
+        // Find tracked files to update
+        let files: Vec<(i64, String)> = if force {
+            // Force mode: re-evaluate ALL files with a relative_path
+            sqlx::query(
+                "SELECT file_id, relative_path FROM tracked_files
+                 WHERE watch_folder_id = ?1 AND relative_path IS NOT NULL",
+            )
+        } else {
+            // Normal mode: only files with NULL component
+            sqlx::query(
+                "SELECT file_id, relative_path FROM tracked_files
+                 WHERE watch_folder_id = ?1 AND component IS NULL AND relative_path IS NOT NULL",
+            )
+        }
         .bind(watch_id)
         .map(|row: sqlx::sqlite::SqliteRow| {
             let file_id: i64 = row.get("file_id");
@@ -162,19 +203,20 @@ pub async fn backfill_components(
         .await
         .map_err(|e| format!("Failed to query tracked_files for {}: {e}", watch_id))?;
 
-        if null_files.is_empty() {
+        if files.is_empty() {
             stats.folders_processed += 1;
             continue;
         }
 
         debug!(
-            "Backfilling components for {}: {} files with NULL component",
+            "Backfilling components for {}: {} files (force={})",
             watch_id,
-            null_files.len()
+            files.len(),
+            force,
         );
 
         // Batch update in transactions
-        for chunk in null_files.chunks(batch_size) {
+        for chunk in files.chunks(batch_size) {
             let mut tx = pool
                 .begin()
                 .await

@@ -235,9 +235,10 @@ message Metric {
 
 // RebuildIndex Request
 message RebuildIndexRequest {
-    string target = 1;                            // "tags", "fts", "sparse", "all"
+    string target = 1;                            // "tags", "fts", "sparse", "components", "all"
     optional string tenant_id = 2;                // Scope to tenant (empty = all tenants)
     optional string collection = 3;               // Collection (default: "projects")
+    optional bool force = 4;                      // Force full rebuild (e.g. reassign all components, not just NULL)
 }
 
 // RebuildIndex Response

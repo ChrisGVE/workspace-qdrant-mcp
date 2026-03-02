@@ -17,6 +17,7 @@ pub(super) async fn dispatch(
     db_pool: Option<&sqlx::SqlitePool>,
     tenant_id: Option<&str>,
     collection: &str,
+    force: bool,
 ) {
     match target {
         "tags" => rebuild_tags(hierarchy_builder, tenant_id).await,
@@ -26,10 +27,12 @@ pub(super) async fn dispatch(
         "rules" => rebuild_rules(storage_client, db_pool).await,
         "projects" => rebuild_watch_folders(db_pool, "projects", tenant_id).await,
         "libraries" => rebuild_watch_folders(db_pool, "libraries", tenant_id).await,
+        "components" => rebuild_components(db_pool, tenant_id, force).await,
         "all" => {
             info!("Starting full rebuild (all targets)");
             rebuild_vocabulary(lexicon_manager, db_pool, collection).await;
             rebuild_search(search_db).await;
+            rebuild_components(db_pool, tenant_id, force).await;
             rebuild_tags(hierarchy_builder, tenant_id).await;
             rebuild_keywords(db_pool, tenant_id, collection).await;
             rebuild_rules(storage_client, db_pool).await;
@@ -412,4 +415,40 @@ async fn rebuild_watch_folders(
     }
 
     info!("[rebuild:{}] Enqueued {} scan operations for watch folders", collection, enqueued);
+}
+
+/// Re-detect and assign workspace components to tracked files.
+async fn rebuild_components(
+    db_pool: Option<&sqlx::SqlitePool>,
+    tenant_id: Option<&str>,
+    force: bool,
+) {
+    let Some(pool) = db_pool else {
+        error!(target = "components", "Database pool not configured");
+        return;
+    };
+
+    let start = std::time::Instant::now();
+
+    match workspace_qdrant_core::component_detection::backfill_components(
+        pool, 200, force, tenant_id,
+    )
+    .await
+    {
+        Ok(stats) => {
+            info!(
+                target = "components",
+                folders = stats.folders_processed,
+                updated = stats.files_updated,
+                unmatched = stats.files_unmatched,
+                errors = stats.errors,
+                force,
+                duration_ms = start.elapsed().as_millis() as u64,
+                "Component rebuild complete"
+            );
+        }
+        Err(e) => {
+            error!(target = "components", error = %e, "Component rebuild failed");
+        }
+    }
 }

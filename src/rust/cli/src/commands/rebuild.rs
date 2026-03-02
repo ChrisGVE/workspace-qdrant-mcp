@@ -69,6 +69,17 @@ enum RebuildCommand {
         tenant: Option<String>,
     },
 
+    /// Re-detect and assign workspace components to tracked files
+    Components {
+        /// Tenant ID (optional, all tenants if omitted)
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Force reassign all files (not just NULL components)
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Rebuild all computed indexes in sequence
     All {
         /// Tenant ID (optional, all tenants if omitted)
@@ -83,15 +94,16 @@ enum RebuildCommand {
 
 /// Execute rebuild command
 pub async fn execute(args: RebuildArgs) -> Result<()> {
-    let (target, tenant, collection) = match args.command {
-        RebuildCommand::Tags { tenant, collection } => ("tags".to_string(), tenant, Some(collection)),
-        RebuildCommand::Search => ("search".to_string(), None, None),
-        RebuildCommand::Vocabulary { collection } => ("vocabulary".to_string(), None, Some(collection)),
-        RebuildCommand::Keywords { tenant, collection } => ("keywords".to_string(), tenant, Some(collection)),
-        RebuildCommand::Rules => ("rules".to_string(), None, None),
-        RebuildCommand::Projects { tenant } => ("projects".to_string(), tenant, None),
-        RebuildCommand::Libraries { tenant } => ("libraries".to_string(), tenant, None),
-        RebuildCommand::All { tenant, collection } => ("all".to_string(), tenant, Some(collection)),
+    let (target, tenant, collection, force) = match args.command {
+        RebuildCommand::Tags { tenant, collection } => ("tags".to_string(), tenant, Some(collection), false),
+        RebuildCommand::Search => ("search".to_string(), None, None, false),
+        RebuildCommand::Vocabulary { collection } => ("vocabulary".to_string(), None, Some(collection), false),
+        RebuildCommand::Keywords { tenant, collection } => ("keywords".to_string(), tenant, Some(collection), false),
+        RebuildCommand::Rules => ("rules".to_string(), None, None, false),
+        RebuildCommand::Projects { tenant } => ("projects".to_string(), tenant, None, false),
+        RebuildCommand::Libraries { tenant } => ("libraries".to_string(), tenant, None, false),
+        RebuildCommand::Components { tenant, force } => ("components".to_string(), tenant, None, force),
+        RebuildCommand::All { tenant, collection } => ("all".to_string(), tenant, Some(collection), false),
     };
 
     let mut client = DaemonClient::connect_default()
@@ -99,18 +111,20 @@ pub async fn execute(args: RebuildArgs) -> Result<()> {
         .context("Failed to connect to daemon. Is memexd running?")?;
 
     output::info(format!(
-        "Rebuilding '{}'{}...",
+        "Rebuilding '{}'{}{}...",
         target,
         tenant
             .as_ref()
             .map(|t| format!(" for tenant {}", t))
-            .unwrap_or_default()
+            .unwrap_or_default(),
+        if force { " (force)" } else { "" },
     ));
 
     let mut request = tonic::Request::new(RebuildIndexRequest {
         target,
         tenant_id: tenant,
         collection,
+        force: if force { Some(true) } else { None },
     });
     request.set_timeout(std::time::Duration::from_secs(300));
 

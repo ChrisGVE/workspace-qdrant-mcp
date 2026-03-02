@@ -351,7 +351,7 @@ fn spawn_rules_mirror_backfill(
 fn spawn_component_backfill(uqp: &UnifiedQueueProcessor) {
     let pool = uqp.pool().clone();
     tokio::spawn(async move {
-        match workspace_qdrant_core::component_detection::backfill_components(&pool, 100).await {
+        match workspace_qdrant_core::component_detection::backfill_components(&pool, 100, false, None).await {
             Ok(stats) => {
                 if stats.files_updated > 0 {
                     info!(
