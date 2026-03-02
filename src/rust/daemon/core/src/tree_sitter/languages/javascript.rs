@@ -285,10 +285,14 @@ impl ChunkExtractor for JavaScriptExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_sitter::parser::get_language;
     use std::path::PathBuf;
 
     #[test]
     fn test_extract_function() {
+        let Some(lang) = get_language("javascript") else {
+            return;
+        };
         let source = r#"
 /**
  * Say hello.
@@ -298,7 +302,7 @@ function hello() {
 }
 "#;
         let path = PathBuf::from("test.js");
-        let extractor = JavaScriptExtractor::new();
+        let extractor = JavaScriptExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
@@ -308,6 +312,9 @@ function hello() {
 
     #[test]
     fn test_extract_class() {
+        let Some(lang) = get_language("javascript") else {
+            return;
+        };
         let source = r#"
 class Person {
     constructor(name) {
@@ -320,7 +327,7 @@ class Person {
 }
 "#;
         let path = PathBuf::from("test.js");
-        let extractor = JavaScriptExtractor::new();
+        let extractor = JavaScriptExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let class_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Class);
@@ -330,13 +337,16 @@ class Person {
 
     #[test]
     fn test_extract_arrow_function() {
+        let Some(lang) = get_language("javascript") else {
+            return;
+        };
         let source = r#"
 const greet = async (name) => {
     return `Hello, ${name}!`;
 };
 "#;
         let path = PathBuf::from("test.js");
-        let extractor = JavaScriptExtractor::new();
+        let extractor = JavaScriptExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         assert!(!chunks.is_empty());

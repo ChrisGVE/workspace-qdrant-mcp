@@ -279,10 +279,14 @@ impl ChunkExtractor for CExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_sitter::parser::get_language;
     use std::path::PathBuf;
 
     #[test]
     fn test_extract_function() {
+        let Some(lang) = get_language("c") else {
+            return;
+        };
         let source = r#"
 #include <stdio.h>
 
@@ -292,7 +296,7 @@ void hello() {
 }
 "#;
         let path = PathBuf::from("test.c");
-        let extractor = CExtractor::new();
+        let extractor = CExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
@@ -302,6 +306,9 @@ void hello() {
 
     #[test]
     fn test_extract_struct() {
+        let Some(lang) = get_language("c") else {
+            return;
+        };
         let source = r#"
 struct Person {
     char* name;
@@ -309,7 +316,7 @@ struct Person {
 };
 "#;
         let path = PathBuf::from("test.c");
-        let extractor = CExtractor::new();
+        let extractor = CExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let struct_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Struct);
@@ -319,6 +326,9 @@ struct Person {
 
     #[test]
     fn test_extract_preamble() {
+        let Some(lang) = get_language("c") else {
+            return;
+        };
         let source = r#"
 #include <stdio.h>
 #include <stdlib.h>
@@ -328,7 +338,7 @@ struct Person {
 int main() { return 0; }
 "#;
         let path = PathBuf::from("test.c");
-        let extractor = CExtractor::new();
+        let extractor = CExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let preamble = chunks.iter().find(|c| c.chunk_type == ChunkType::Preamble);

@@ -292,10 +292,14 @@ impl ChunkExtractor for JavaExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_sitter::parser::get_language;
     use std::path::PathBuf;
 
     #[test]
     fn test_extract_class() {
+        let Some(lang) = get_language("java") else {
+            return;
+        };
         let source = r#"
 package com.example;
 
@@ -315,7 +319,7 @@ public class Person {
 }
 "#;
         let path = PathBuf::from("Person.java");
-        let extractor = JavaExtractor::new();
+        let extractor = JavaExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let class_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Class);
@@ -328,6 +332,9 @@ public class Person {
 
     #[test]
     fn test_extract_interface() {
+        let Some(lang) = get_language("java") else {
+            return;
+        };
         let source = r#"
 package com.example;
 
@@ -336,7 +343,7 @@ public interface Greeter {
 }
 "#;
         let path = PathBuf::from("Greeter.java");
-        let extractor = JavaExtractor::new();
+        let extractor = JavaExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let iface_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Interface);

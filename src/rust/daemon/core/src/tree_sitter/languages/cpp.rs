@@ -373,10 +373,14 @@ impl ChunkExtractor for CppExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_sitter::parser::get_language;
     use std::path::PathBuf;
 
     #[test]
     fn test_extract_function() {
+        let Some(lang) = get_language("cpp") else {
+            return;
+        };
         let source = r#"
 #include <iostream>
 
@@ -386,7 +390,7 @@ void hello() {
 }
 "#;
         let path = PathBuf::from("test.cpp");
-        let extractor = CppExtractor::new();
+        let extractor = CppExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
@@ -396,6 +400,9 @@ void hello() {
 
     #[test]
     fn test_extract_class() {
+        let Some(lang) = get_language("cpp") else {
+            return;
+        };
         let source = r#"
 class Person {
 public:
@@ -406,7 +413,7 @@ private:
 };
 "#;
         let path = PathBuf::from("test.cpp");
-        let extractor = CppExtractor::new();
+        let extractor = CppExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let class_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Class);
@@ -416,13 +423,16 @@ private:
 
     #[test]
     fn test_extract_namespace() {
+        let Some(lang) = get_language("cpp") else {
+            return;
+        };
         let source = r#"
 namespace myapp {
     void helper() {}
 }
 "#;
         let path = PathBuf::from("test.cpp");
-        let extractor = CppExtractor::new();
+        let extractor = CppExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let ns_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Module);

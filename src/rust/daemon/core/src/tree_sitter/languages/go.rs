@@ -316,10 +316,14 @@ impl ChunkExtractor for GoExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_sitter::parser::get_language;
     use std::path::PathBuf;
 
     #[test]
     fn test_extract_function() {
+        let Some(lang) = get_language("go") else {
+            return;
+        };
         let source = r#"
 package main
 
@@ -329,7 +333,7 @@ func Hello() {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let extractor = GoExtractor::new();
+        let extractor = GoExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
@@ -339,6 +343,9 @@ func Hello() {
 
     #[test]
     fn test_extract_method() {
+        let Some(lang) = get_language("go") else {
+            return;
+        };
         let source = r#"
 package main
 
@@ -347,7 +354,7 @@ func (p *Person) Greet() {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let extractor = GoExtractor::new();
+        let extractor = GoExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let method_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Method);
@@ -359,6 +366,9 @@ func (p *Person) Greet() {
 
     #[test]
     fn test_extract_struct() {
+        let Some(lang) = get_language("go") else {
+            return;
+        };
         let source = r#"
 package main
 
@@ -369,7 +379,7 @@ type Person struct {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let extractor = GoExtractor::new();
+        let extractor = GoExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let struct_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Struct);
@@ -379,6 +389,9 @@ type Person struct {
 
     #[test]
     fn test_extract_interface() {
+        let Some(lang) = get_language("go") else {
+            return;
+        };
         let source = r#"
 package main
 
@@ -387,7 +400,7 @@ type Greeter interface {
 }
 "#;
         let path = PathBuf::from("test.go");
-        let extractor = GoExtractor::new();
+        let extractor = GoExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let iface_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Interface);

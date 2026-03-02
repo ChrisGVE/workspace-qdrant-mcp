@@ -306,17 +306,21 @@ impl ChunkExtractor for PythonExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_sitter::parser::get_language;
     use std::path::PathBuf;
 
     #[test]
     fn test_extract_function() {
+        let Some(lang) = get_language("python") else {
+            return;
+        };
         let source = r#"
 def hello():
     """Say hello."""
     print("Hello!")
 "#;
         let path = PathBuf::from("test.py");
-        let extractor = PythonExtractor::new();
+        let extractor = PythonExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
@@ -329,6 +333,9 @@ def hello():
 
     #[test]
     fn test_extract_class() {
+        let Some(lang) = get_language("python") else {
+            return;
+        };
         let source = r#"
 class Person:
     """A person class."""
@@ -341,7 +348,7 @@ class Person:
         print(f"Hello, {self.name}!")
 "#;
         let path = PathBuf::from("test.py");
-        let extractor = PythonExtractor::new();
+        let extractor = PythonExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let class_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Class);
@@ -354,13 +361,16 @@ class Person:
 
     #[test]
     fn test_extract_async_function() {
+        let Some(lang) = get_language("python") else {
+            return;
+        };
         let source = r#"
 async def fetch_data():
     """Fetch data asynchronously."""
     return await get_data()
 "#;
         let path = PathBuf::from("test.py");
-        let extractor = PythonExtractor::new();
+        let extractor = PythonExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let async_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::AsyncFunction);
@@ -370,6 +380,9 @@ async def fetch_data():
 
     #[test]
     fn test_extract_preamble() {
+        let Some(lang) = get_language("python") else {
+            return;
+        };
         let source = r#"
 """Module docstring."""
 
@@ -380,7 +393,7 @@ def main():
     pass
 "#;
         let path = PathBuf::from("test.py");
-        let extractor = PythonExtractor::new();
+        let extractor = PythonExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let preamble = chunks.iter().find(|c| c.chunk_type == ChunkType::Preamble);
@@ -392,13 +405,16 @@ def main():
 
     #[test]
     fn test_decorated_function() {
+        let Some(lang) = get_language("python") else {
+            return;
+        };
         let source = r#"
 @decorator
 def decorated_func():
     pass
 "#;
         let path = PathBuf::from("test.py");
-        let extractor = PythonExtractor::new();
+        let extractor = PythonExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);

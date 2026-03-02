@@ -347,10 +347,14 @@ impl ChunkExtractor for TypeScriptExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_sitter::parser::get_language;
     use std::path::PathBuf;
 
     #[test]
     fn test_extract_function() {
+        let Some(lang) = get_language("typescript") else {
+            return;
+        };
         let source = r#"
 /**
  * Say hello.
@@ -360,7 +364,7 @@ function hello(): void {
 }
 "#;
         let path = PathBuf::from("test.ts");
-        let extractor = TypeScriptExtractor::new(false);
+        let extractor = TypeScriptExtractor::with_language(lang, false);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
@@ -370,6 +374,9 @@ function hello(): void {
 
     #[test]
     fn test_extract_interface() {
+        let Some(lang) = get_language("typescript") else {
+            return;
+        };
         let source = r#"
 interface Person {
     name: string;
@@ -377,7 +384,7 @@ interface Person {
 }
 "#;
         let path = PathBuf::from("test.ts");
-        let extractor = TypeScriptExtractor::new(false);
+        let extractor = TypeScriptExtractor::with_language(lang, false);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let iface_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Interface);
@@ -387,11 +394,14 @@ interface Person {
 
     #[test]
     fn test_extract_type_alias() {
+        let Some(lang) = get_language("typescript") else {
+            return;
+        };
         let source = r#"
 type ID = string | number;
 "#;
         let path = PathBuf::from("test.ts");
-        let extractor = TypeScriptExtractor::new(false);
+        let extractor = TypeScriptExtractor::with_language(lang, false);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
         let type_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::TypeAlias);

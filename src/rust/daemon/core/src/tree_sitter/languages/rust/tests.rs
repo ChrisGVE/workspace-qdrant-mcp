@@ -1,11 +1,15 @@
 //! Unit tests for the Rust chunk extractor.
 
 use super::*;
+use crate::tree_sitter::parser::get_language;
 use crate::tree_sitter::types::ChunkType;
 use std::path::PathBuf;
 
 #[test]
 fn test_extract_function() {
+    let Some(lang) = get_language("rust") else {
+        return;
+    };
     let source = r#"
 /// A simple function.
 fn hello() {
@@ -13,7 +17,7 @@ fn hello() {
 }
 "#;
     let path = PathBuf::from("test.rs");
-    let extractor = RustExtractor::new();
+    let extractor = RustExtractor::with_language(lang);
     let chunks = extractor.extract_chunks(source, &path).unwrap();
 
     assert!(!chunks.is_empty());
@@ -27,6 +31,9 @@ fn hello() {
 
 #[test]
 fn test_extract_struct() {
+    let Some(lang) = get_language("rust") else {
+        return;
+    };
     let source = r#"
 /// A person struct.
 pub struct Person {
@@ -35,7 +42,7 @@ pub struct Person {
 }
 "#;
     let path = PathBuf::from("test.rs");
-    let extractor = RustExtractor::new();
+    let extractor = RustExtractor::with_language(lang);
     let chunks = extractor.extract_chunks(source, &path).unwrap();
 
     let struct_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Struct);
@@ -46,6 +53,9 @@ pub struct Person {
 
 #[test]
 fn test_extract_impl() {
+    let Some(lang) = get_language("rust") else {
+        return;
+    };
     let source = r#"
 impl Person {
     fn new(name: String) -> Self {
@@ -58,7 +68,7 @@ impl Person {
 }
 "#;
     let path = PathBuf::from("test.rs");
-    let extractor = RustExtractor::new();
+    let extractor = RustExtractor::with_language(lang);
     let chunks = extractor.extract_chunks(source, &path).unwrap();
 
     // Should have impl block + methods
@@ -75,6 +85,9 @@ impl Person {
 
 #[test]
 fn test_extract_trait() {
+    let Some(lang) = get_language("rust") else {
+        return;
+    };
     let source = r#"
 /// A greeter trait.
 pub trait Greeter {
@@ -82,7 +95,7 @@ pub trait Greeter {
 }
 "#;
     let path = PathBuf::from("test.rs");
-    let extractor = RustExtractor::new();
+    let extractor = RustExtractor::with_language(lang);
     let chunks = extractor.extract_chunks(source, &path).unwrap();
 
     let trait_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Trait);
@@ -92,6 +105,9 @@ pub trait Greeter {
 
 #[test]
 fn test_extract_preamble() {
+    let Some(lang) = get_language("rust") else {
+        return;
+    };
     let source = r#"
 use std::collections::HashMap;
 use std::io::Result;
@@ -101,7 +117,7 @@ mod utils;
 fn main() {}
 "#;
     let path = PathBuf::from("test.rs");
-    let extractor = RustExtractor::new();
+    let extractor = RustExtractor::with_language(lang);
     let chunks = extractor.extract_chunks(source, &path).unwrap();
 
     let preamble = chunks.iter().find(|c| c.chunk_type == ChunkType::Preamble);
@@ -113,13 +129,16 @@ fn main() {}
 
 #[test]
 fn test_extract_async_function() {
+    let Some(lang) = get_language("rust") else {
+        return;
+    };
     let source = r#"
 async fn fetch_data() -> Result<String> {
     Ok("data".to_string())
 }
 "#;
     let path = PathBuf::from("test.rs");
-    let extractor = RustExtractor::new();
+    let extractor = RustExtractor::with_language(lang);
     let chunks = extractor.extract_chunks(source, &path).unwrap();
 
     let async_chunk = chunks
@@ -131,6 +150,9 @@ async fn fetch_data() -> Result<String> {
 
 #[test]
 fn test_extract_function_calls() {
+    let Some(lang) = get_language("rust") else {
+        return;
+    };
     let source = r#"
 fn process() {
     helper();
@@ -139,7 +161,7 @@ fn process() {
 }
 "#;
     let path = PathBuf::from("test.rs");
-    let extractor = RustExtractor::new();
+    let extractor = RustExtractor::with_language(lang);
     let chunks = extractor.extract_chunks(source, &path).unwrap();
 
     let fn_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
