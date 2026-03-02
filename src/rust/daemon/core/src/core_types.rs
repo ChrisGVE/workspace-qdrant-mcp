@@ -55,6 +55,7 @@ pub enum DocumentType {
     Ppt,
     Xlsx,
     Xls,
+    Numbers,
     Csv,
     Jupyter,
     Pages,
@@ -82,6 +83,7 @@ impl DocumentType {
             Self::Ppt => "ppt",
             Self::Xlsx => "xlsx",
             Self::Xls => "xls",
+            Self::Numbers => "numbers",
             Self::Csv => "csv",
             Self::Jupyter => "jupyter",
             Self::Pages => "pages",
@@ -191,6 +193,7 @@ mod tests {
         assert_eq!(DocumentType::Ppt.as_str(), "ppt");
         assert_eq!(DocumentType::Xlsx.as_str(), "xlsx");
         assert_eq!(DocumentType::Xls.as_str(), "xls");
+        assert_eq!(DocumentType::Numbers.as_str(), "numbers");
         assert_eq!(DocumentType::Csv.as_str(), "csv");
         assert_eq!(DocumentType::Jupyter.as_str(), "jupyter");
         assert_eq!(DocumentType::Pages.as_str(), "pages");

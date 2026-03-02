@@ -458,6 +458,9 @@ extensions:
   ods:
     file_type: data
     document_type: ods
+  numbers:
+    file_type: data
+    document_type: numbers
   ipynb:
     file_type: data
     document_type: jupyter

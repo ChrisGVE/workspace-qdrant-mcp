@@ -306,10 +306,11 @@ fn extract_by_document_type(
             );
             extract_text_with_encoding(file_path)
         }
-        DocumentType::Pages | DocumentType::Key => {
+        DocumentType::Pages | DocumentType::Key | DocumentType::Numbers => {
             let fmt = match document_type {
                 DocumentType::Pages => "Pages",
                 DocumentType::Key => "Keynote",
+                DocumentType::Numbers => "Numbers",
                 _ => unreachable!(),
             };
             warn!(

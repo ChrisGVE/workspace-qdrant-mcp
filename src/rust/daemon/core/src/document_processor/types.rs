@@ -90,6 +90,7 @@ pub fn detect_document_type(file_path: &Path) -> DocumentType {
             "doc" => DocumentType::Doc,
             "xlsx" => DocumentType::Xlsx,
             "xls" => DocumentType::Xls,
+            "numbers" => DocumentType::Numbers,
             "csv" => DocumentType::Csv,
             "jupyter" => DocumentType::Jupyter,
             "pages" => DocumentType::Pages,

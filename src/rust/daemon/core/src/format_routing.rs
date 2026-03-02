@@ -48,6 +48,7 @@ impl Default for RoutingConfig {
                 ".xlsx".into(),
                 ".xls".into(),
                 ".ods".into(),
+                ".numbers".into(),
                 ".parquet".into(),
             ],
             route_docx_to: "libraries".into(),

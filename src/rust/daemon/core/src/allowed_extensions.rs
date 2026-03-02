@@ -37,7 +37,7 @@ const LIBRARY_ROUTED_EXTENSIONS: &[&str] = &[
     ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt",
     ".mobi",
     ".pptx", ".ppt", ".pages", ".key", ".odp",
-    ".xlsx", ".xls", ".ods", ".parquet",
+    ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
 ];
 
 /// Two-tier allowlist of file extensions for project and library ingestion.
@@ -142,7 +142,7 @@ impl Default for AllowedExtensions {
             // Presentations
             ".pptx", ".ppt", ".pages", ".key", ".odp",
             // Spreadsheets (formats not already in project_extensions)
-            ".xlsx", ".xls", ".ods", ".parquet",
+            ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
             // Web (variant not in project set)
             ".htm",
         ]
