@@ -186,7 +186,7 @@ chunk_text_indexed: "## Advanced Features\n### Array Operations\nThe array index
 
 This ensures search results include contextual headings without duplication in the raw text.
 
-**Memory Collection:**
+**Rules Collection:**
 
 ```json
 {
@@ -197,6 +197,81 @@ This ensures search results include contextual headings without duplication in t
   "created_at": "2026-01-30T12:00:00Z"
 }
 ```
+
+### Store Tool Type System
+
+The `store` MCP tool uses a `type` parameter that describes the **nature of the input**, not the destination collection. The destination collection is determined by the type combined with context parameters.
+
+#### Type: `library` (default)
+
+Stores content to the `libraries` collection under a named library. Requires `content` and `libraryName` (unless `forProject` is true, in which case `libraryName` defaults to `"project-refs"`).
+
+Libraries are collections of reference information — books, documentation, papers, websites. They are NOT programming libraries (use context7 MCP for those). This type should only be used when the user **explicitly instructs** the LLM to store into a named library — not autonomously.
+
+#### Type: `url`
+
+Queues a URL for daemon-side fetch and ingestion. Stores to `libraries` if `libraryName` is provided (for adding URLs to a named library), otherwise stores to `scratchpad` for ad-hoc reference. URLs can also be part of a tracked library folder as webarchive files.
+
+#### Type: `scratchpad`
+
+Stores content to the `scratchpad` collection. See [Scratchpad Collection](#scratchpad-collection) below.
+
+#### Type: `project`
+
+Registers a new project with the daemon for file watching and ingestion. Uses `register_if_new: true` so the daemon will create the project in `watch_folders` if it doesn't already exist. Can also activate and keep-active existing projects.
+
+#### Collection Routing Summary
+
+| Type | Destination | Condition |
+|------|------------|-----------|
+| `library` | `libraries` | Always (explicit user instruction only) |
+| `url` | `libraries` | When `libraryName` provided |
+| `url` | `scratchpad` | Default (ad-hoc reference) |
+| `scratchpad` | `scratchpad` | Always |
+| `project` | N/A | Registers project with daemon |
+
+**Write restrictions:** The MCP server cannot store content to the `projects` collection — project content is ingested exclusively by the daemon via file watching. Behavioral rules use the dedicated `rules` tool.
+
+#### Library-Type Document Routing from Projects
+
+When the daemon's file watcher encounters library-type documents (PDF, EPUB, DOCX, PPTX, ODT, ODS, XLSX, XLS, Numbers, Parquet, RTF, Mobi, Pages, Key) inside a project folder, it routes them to the `libraries` collection with the project's tenant_id as the library name reference. This ensures reference documents within a project folder are processed by the library pipeline (structural units, token-based chunking) rather than the code pipeline.
+
+The MCP server and CLI can mark library documents as `persistent` to prevent the daemon from deleting them when the source file is removed.
+
+### Scratchpad Collection
+
+The `scratchpad` collection serves as a persistent working space for ad-hoc content storage. It is the **preferred destination** for content that doesn't belong in a named library or the rules collection.
+
+#### Scoping
+
+Scratchpad entries can be either global or project-scoped:
+
+| Scope | `tenant_id` | Visibility |
+|-------|------------|------------|
+| Global | `_global_` | Visible from all projects |
+| Project-scoped | `<project_id>` | Visible only when searching from that project |
+
+Project scoping is automatic: when a session has an active project, scratchpad entries default to that project's scope. When no project is active, entries are stored globally.
+
+#### Organization
+
+Global entries can be further segregated by user-defined themes or keywords via the `tags` parameter. Tags enable filtering during search (using the `tag` or `tags` search parameters).
+
+#### Content Types
+
+The scratchpad accepts:
+
+- **Text strings**: Direct content from the LLM or user
+- **URLs** (via `type: "url"` without `libraryName`): Daemon fetches and stores the extracted text
+- **File content** (via `filePath`): Content extracted from local files
+- **Notes**: Session observations, analysis transcripts, research findings
+
+#### Use Cases
+
+1. **Session memory**: Store analysis results, brainstorming transcripts, decision records
+2. **Ad-hoc reference**: Store URLs or text snippets for later retrieval
+3. **Cross-session context**: Persist information that should survive session boundaries
+4. **Research collection**: Accumulate findings from multiple sources under theme tags
 
 ---
 
