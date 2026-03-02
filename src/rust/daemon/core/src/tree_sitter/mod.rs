@@ -71,6 +71,11 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
     }
 }
 
+/// Get the list of known grammar languages available for download.
+pub fn known_grammar_languages() -> &'static [&'static str] {
+    KNOWN_GRAMMAR_LANGUAGES
+}
+
 /// Check if a language is supported for semantic chunking.
 ///
 /// Without a `GrammarManager`, checks against the hardcoded list of known

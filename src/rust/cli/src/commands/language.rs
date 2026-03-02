@@ -101,6 +101,7 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
 async fn list_languages(installed: bool, category: Option<String>, verbose: bool) -> Result<()> {
     use workspace_qdrant_core::config::GrammarConfig;
     use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus, StaticLanguageProvider};
+    use workspace_qdrant_core::known_grammar_languages;
 
     output::section("Language Support");
 
@@ -142,7 +143,11 @@ async fn list_languages(installed: bool, category: Option<String>, verbose: bool
     // Show Tree-sitter grammars
     println!("{}", "Tree-sitter Grammars".cyan().bold());
 
-    // Static grammars
+    let config = GrammarConfig::default();
+    let manager = GrammarManager::new(config.clone());
+    let cached = manager.cached_languages().unwrap_or_default();
+
+    // Static grammars (only shown when feature is enabled)
     let static_langs = StaticLanguageProvider::SUPPORTED_LANGUAGES;
     if !static_langs.is_empty() {
         println!("  {}", "Static (bundled):".dimmed());
@@ -151,34 +156,47 @@ async fn list_languages(installed: bool, category: Option<String>, verbose: bool
         }
     }
 
-    // Cached grammars
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
-
-    match manager.cached_languages() {
-        Ok(cached) if !cached.is_empty() => {
-            println!("  {}", "Cached:".dimmed());
-            for lang in &cached {
-                let status = manager.grammar_status(lang);
-                let status_icon = match status {
-                    GrammarStatus::Loaded => "✓".green(),
-                    GrammarStatus::Cached => "●".blue(),
-                    GrammarStatus::NeedsDownload => "↓".yellow(),
-                    GrammarStatus::NotAvailable => "✗".red(),
-                    GrammarStatus::IncompatibleVersion => "!".yellow(),
-                };
-                print!("    {} {}", status_icon, lang);
-                if verbose {
-                    let info = manager.grammar_info(lang);
-                    if let Some(meta) = info.metadata {
-                        print!(" (v{}, ts {})", meta.grammar_version, meta.tree_sitter_version);
-                    }
+    // Cached (dynamically downloaded) grammars
+    if !cached.is_empty() {
+        println!("  {}", "Cached (dynamic):".dimmed());
+        for lang in &cached {
+            let status = manager.grammar_status(lang);
+            let status_icon = match status {
+                GrammarStatus::Loaded => "✓".green(),
+                GrammarStatus::Cached => "●".blue(),
+                GrammarStatus::NeedsDownload => "↓".yellow(),
+                GrammarStatus::NotAvailable => "✗".red(),
+                GrammarStatus::IncompatibleVersion => "!".yellow(),
+            };
+            print!("    {} {}", status_icon, lang);
+            if verbose {
+                let info = manager.grammar_info(lang);
+                if let Some(meta) = info.metadata {
+                    print!(" (v{}, ts {})", meta.grammar_version, meta.tree_sitter_version);
                 }
-                println!();
+            }
+            println!();
+        }
+    } else if !installed {
+        println!("  Cached: (none)");
+    }
+
+    // Available for download
+    if !installed {
+        let known = known_grammar_languages();
+        let downloadable: Vec<&&str> = known
+            .iter()
+            .filter(|l| {
+                !cached.contains(&l.to_string())
+                    && !static_langs.contains(l)
+            })
+            .collect();
+        if !downloadable.is_empty() && config.auto_download {
+            println!("  {}", "Available (auto-download on first use):".dimmed());
+            for lang in downloadable {
+                println!("    {} {}", "↓".yellow(), lang);
             }
         }
-        Ok(_) if !installed => println!("  Cached: (none)"),
-        _ => {}
     }
 
     if !installed {
@@ -431,7 +449,36 @@ async fn lsp_remove(language: &str) -> Result<()> {
 
 /// Show language support status
 async fn language_status(language: Option<String>, verbose: bool) -> Result<()> {
+    use workspace_qdrant_core::config::GrammarConfig;
+    use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
+    use workspace_qdrant_core::known_grammar_languages;
+
     output::section("Language Support Status");
+
+    let config = GrammarConfig::default();
+    let manager = GrammarManager::new(config.clone());
+    let cached = manager.cached_languages().unwrap_or_default();
+    let known = known_grammar_languages();
+
+    // Grammar config summary
+    println!("{}", "Tree-sitter Grammar Settings".cyan().bold());
+    output::kv(
+        "  Auto-download",
+        if config.auto_download { "enabled" } else { "disabled" },
+    );
+    output::kv(
+        "  Cached grammars",
+        &format!("{}/{}", cached.len(), known.len()),
+    );
+    let idle_status = if config.idle_update_check_enabled {
+        format!("enabled (every {} hours, after {}s idle)",
+            config.check_interval_hours,
+            config.idle_update_check_delay_secs)
+    } else {
+        "disabled".to_string()
+    };
+    output::kv("  Idle update checks", &idle_status);
+    output::separator();
 
     if let Some(lang) = &language {
         output::kv("Language", lang);
@@ -470,11 +517,6 @@ async fn language_status(language: Option<String>, verbose: bool) -> Result<()> 
         }
 
         // Check Tree-sitter grammar
-        use workspace_qdrant_core::config::GrammarConfig;
-        use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
-
-        let config = GrammarConfig::default();
-        let manager = GrammarManager::new(config);
         let grammar_status = manager.grammar_status(lang);
 
         match grammar_status {
