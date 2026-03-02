@@ -24,7 +24,7 @@ echo "--- ORT_VERSION consistency ---"
 ORT_VERSIONS=()
 while IFS= read -r line; do
     file=$(echo "$line" | cut -d: -f1)
-    version=$(echo "$line" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+    version=$(echo "$line" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' || true)
     if [ -n "$version" ]; then
         ORT_VERSIONS+=("$file:$version")
         echo "  $file: $version"
