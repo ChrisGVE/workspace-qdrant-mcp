@@ -44,8 +44,8 @@ export async function storeUrl(
 
   const libraryName = args?.['libraryName'] as string | undefined;
   const title = args?.['title'] as string | undefined;
-  const collection = libraryName ? 'libraries' : 'projects';
-  const tenantId = libraryName?.trim() || sessionState.projectId || 'default';
+  const collection = libraryName ? 'libraries' : COLLECTION_SCRATCHPAD;
+  const tenantId = libraryName?.trim() || sessionState.projectId || '_global_';
 
   const payload: Record<string, unknown> = {
     url: url.trim(),
