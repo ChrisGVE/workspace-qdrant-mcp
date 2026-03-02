@@ -8,24 +8,21 @@ on:
     branches: [main, dev]
     paths:
       - 'src/rust/**'
-      - 'src/python/**'
+      - 'src/typescript/**'
       - 'tests/**'
-      - 'Cargo.lock'
-      - 'pyproject.toml'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main, dev]
     paths:
       - 'src/rust/**'
-      - 'src/python/**'
+      - 'src/typescript/**'
       - 'tests/**'
-      - 'Cargo.lock'
-      - 'pyproject.toml'
       - '.github/workflows/ci.yml'
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  ORT_VERSION: "1.23.2"
 
 jobs:
   # Rust build and test
@@ -79,7 +76,7 @@ jobs:
         id: onnx-cache
         with:
           path: ~/.onnxruntime
-          key: onnxruntime-1.22.0-${{ runner.os }}
+          key: onnxruntime-${{ env.ORT_VERSION }}-${{ runner.os }}
 
       - name: Download ONNX Runtime
         if: steps.onnx-cache.outputs.cache-hit != 'true'
@@ -90,18 +87,18 @@ jobs:
             macOS)
               # Detect architecture
               if [[ "$(uname -m)" == "arm64" ]]; then
-                curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
+                curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-arm64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
               else
-                curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-x86_64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
+                curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-x86_64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
               fi
               ;;
             Linux)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
+              curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-linux-x64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
               ;;
             Windows)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip -o ort.zip
+              curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-win-x64-${{ env.ORT_VERSION }}.zip" -o ort.zip
               unzip ort.zip -d ~/.onnxruntime
-              mv ~/.onnxruntime/onnxruntime-win-x64-1.22.0/* ~/.onnxruntime/
+              mv ~/.onnxruntime/onnxruntime-win-x64-${{ env.ORT_VERSION }}/* ~/.onnxruntime/
               ;;
           esac
 
@@ -135,38 +132,3 @@ jobs:
       - name: Test
         working-directory: src/rust
         run: cargo test --release
-
-  # Python tests
-  python:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.11', '3.12']
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: "latest"
-
-      - name: Set up Python
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --dev
-
-      - name: Run linting
-        run: |
-          uv run ruff check src/python
-          uv run black --check src/python
-
-      - name: Run type checking
-        run: uv run mypy src/python --ignore-missing-imports
-
-      - name: Run tests
-        run: uv run pytest tests/unit -v --tb=short
