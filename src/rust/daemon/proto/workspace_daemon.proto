@@ -159,9 +159,6 @@ service ProjectService {
 
     // Delete a project and optionally its Qdrant data
     rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
-
-    // Set project priority level (high/normal)
-    rpc SetProjectPriority(SetProjectPriorityRequest) returns (SetProjectPriorityResponse);
 }
 
 // =============================================================================
@@ -519,19 +516,6 @@ message DeleteProjectResponse {
     string message = 6;
 }
 
-// SetProjectPriority Request/Response
-message SetProjectPriorityRequest {
-    string project_id = 1;                        // 12-char hex identifier
-    string priority = 2;                          // "high" or "normal"
-}
-
-message SetProjectPriorityResponse {
-    bool success = 1;
-    string previous_priority = 2;
-    string new_priority = 3;
-    int32 queue_items_updated = 4;
-}
-
 // -----------------------------------------------------------------------------
 // 6. TextSearchService (2 RPCs)
 // -----------------------------------------------------------------------------
@@ -824,9 +808,7 @@ enum ProcessingStatus {
     PROCESSING_STATUS_UNSPECIFIED = 0;
     PROCESSING_STATUS_PENDING = 1;
     PROCESSING_STATUS_IN_PROGRESS = 2;
-    PROCESSING_STATUS_COMPLETED = 3;
-    PROCESSING_STATUS_FAILED = 4;
-    PROCESSING_STATUS_CANCELLED = 5;
+    PROCESSING_STATUS_FAILED = 3;
 }
 
 // =============================================================================

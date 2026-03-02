@@ -1,8 +1,8 @@
 //! ProjectService gRPC implementation
 //!
 //! Handles multi-tenant project lifecycle and session management.
-//! Provides 8 RPCs: RegisterProject, DeprioritizeProject, GetProjectStatus,
-//! ListProjects, Heartbeat, RenameTenant, DeleteProject, SetProjectPriority
+//! Provides 7 RPCs: RegisterProject, DeprioritizeProject, GetProjectStatus,
+//! ListProjects, Heartbeat, RenameTenant, DeleteProject
 //!
 //! LSP Integration:
 //! - On RegisterProject: detects project languages and starts LSP servers
@@ -33,7 +33,7 @@ use crate::proto::{
     DeprioritizeProjectRequest, DeprioritizeProjectResponse, GetProjectStatusRequest,
     GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListProjectsRequest,
     ListProjectsResponse, RegisterProjectRequest, RegisterProjectResponse, RenameTenantRequest,
-    RenameTenantResponse, SetProjectPriorityRequest, SetProjectPriorityResponse,
+    RenameTenantResponse,
 };
 
 use workspace_qdrant_core::{
@@ -267,13 +267,4 @@ impl ProjectService for ProjectServiceImpl {
         self.handle_delete_project(req).await.map(Response::new)
     }
 
-    async fn set_project_priority(
-        &self,
-        request: Request<SetProjectPriorityRequest>,
-    ) -> Result<Response<SetProjectPriorityResponse>, Status> {
-        let req = request.into_inner();
-        self.handle_set_project_priority(req)
-            .await
-            .map(Response::new)
-    }
 }

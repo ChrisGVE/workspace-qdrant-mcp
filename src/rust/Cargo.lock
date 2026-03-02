@@ -8025,6 +8025,7 @@ dependencies = [
 name = "wqm-cli"
 version = "0.1.0-beta1"
 dependencies = [
+ "ansi-str",
  "anyhow",
  "chrono",
  "clap",

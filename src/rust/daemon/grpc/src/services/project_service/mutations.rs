@@ -1,13 +1,12 @@
 //! Project mutation operations
 //!
-//! Handles tenant renaming, project deletion, and priority changes.
+//! Handles tenant renaming and project deletion.
 
 use tonic::Status;
 use tracing::{debug, error, info, warn};
 
 use crate::proto::{
     DeleteProjectRequest, DeleteProjectResponse, RenameTenantRequest, RenameTenantResponse,
-    SetProjectPriorityRequest, SetProjectPriorityResponse,
 };
 
 use wqm_common::constants::COLLECTION_PROJECTS;
@@ -200,46 +199,6 @@ impl ProjectServiceImpl {
                 Err(Status::internal(format!(
                     "Failed to enqueue deletion: {e}"
                 )))
-            }
-        }
-    }
-
-    /// Execute the set_project_priority business logic
-    pub(crate) async fn handle_set_project_priority(
-        &self,
-        req: SetProjectPriorityRequest,
-    ) -> Result<SetProjectPriorityResponse, Status> {
-        if req.project_id.is_empty() {
-            return Err(Status::invalid_argument("project_id cannot be empty"));
-        }
-        if req.priority != "high" && req.priority != "normal" {
-            return Err(Status::invalid_argument(
-                "priority must be 'high' or 'normal'",
-            ));
-        }
-
-        info!(
-            "Setting project priority: {} -> {}",
-            req.project_id, req.priority
-        );
-
-        match self
-            .priority_manager
-            .set_priority(&req.project_id, &req.priority)
-            .await
-        {
-            Ok((previous, queue_updated)) => Ok(SetProjectPriorityResponse {
-                success: true,
-                previous_priority: previous,
-                new_priority: req.priority,
-                queue_items_updated: queue_updated,
-            }),
-            Err(workspace_qdrant_core::PriorityError::ProjectNotFound(id)) => {
-                Err(Status::not_found(format!("Project not found: {id}")))
-            }
-            Err(e) => {
-                error!("Failed to set project priority: {e}");
-                Err(Status::internal(format!("Failed to set priority: {e}")))
             }
         }
     }

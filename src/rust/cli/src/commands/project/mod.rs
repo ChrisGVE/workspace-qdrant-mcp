@@ -1,6 +1,6 @@
 //! Project command - project and branch management
 //!
-//! Subcommands: list, status, register, info, delete, priority, activate, deactivate, check, branch
+//! Subcommands: list, status, register, info, delete, activate, deactivate, check, branch
 
 use std::path::PathBuf;
 
@@ -13,7 +13,6 @@ mod check;
 mod delete;
 mod info;
 mod list;
-mod priority;
 mod register;
 pub(crate) mod resolver;
 mod status;
@@ -81,16 +80,6 @@ enum ProjectCommand {
         keep_data: bool,
     },
 
-    /// Set project priority level (auto-detects from CWD if project omitted)
-    Priority {
-        /// Project ID or path (auto-detected from current directory if omitted)
-        project: Option<String>,
-
-        /// Priority level
-        #[arg(value_parser = ["high", "normal"])]
-        level: String,
-    },
-
     /// Activate a project (auto-detects from CWD if project omitted)
     Activate {
         /// Project ID or path (auto-detected from current directory if omitted)
@@ -154,9 +143,6 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
             yes,
             keep_data,
         } => delete::delete_project(project.as_deref(), yes, !keep_data).await,
-        ProjectCommand::Priority { project, level } => {
-            priority::set_priority(project.as_deref(), &level).await
-        }
         ProjectCommand::Activate { project } => {
             activate::activate_project(project.as_deref()).await
         }
