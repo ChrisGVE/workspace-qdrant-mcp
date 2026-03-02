@@ -20,8 +20,8 @@ wqm-common = { path = "../common", features = ["sqlite"] }
 workspace-qdrant-core = { path = "../daemon/core" }
 
 # CLI framework
-clap = { version = "4.4", features = ["derive", "string", "wrap_help", "cargo", "env"] }
-clap_complete = "4.4"
+clap = { version = "4.5", features = ["derive", "string", "wrap_help", "cargo", "env"] }
+clap_complete = "4.5"
 clap_mangen = "0.2"
 
 # gRPC client
@@ -55,7 +55,7 @@ which = "6.0"
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # UUID for queue item IDs
-uuid = { version = "1.10", features = ["v4", "v5"] }
+uuid = { version = "1.21", features = ["v4", "v5"] }
 
 # Crypto for idempotency key generation
 sha2 = "0.10"
@@ -78,7 +78,7 @@ semver = "1.0"
 
 
 [dev-dependencies]
-tempfile = "3.10"
+tempfile = "3.26"
 
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }
