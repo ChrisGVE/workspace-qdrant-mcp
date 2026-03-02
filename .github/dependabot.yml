@@ -1,10 +1,9 @@
 # GitHub Dependabot configuration for automated dependency updates
 #
 # Note: tree-sitter and ONNX Runtime (ort/fastembed) have dedicated custom
-# workflows that include cross-platform builds and auto-PR creation:
-#   - tree-sitter-version-bump.yml (daily crates.io check)
-#   - onnx-runtime-version-bump.yml (daily crates.io check)
-#   - deps-post-merge-release.yml (auto-patch-release on merge)
+# workflows that push updates directly to main and tag a release:
+#   - tree-sitter-version-bump.yml (daily crates.io check → direct push + tag)
+#   - onnx-runtime-version-bump.yml (daily crates.io check → direct push + tag)
 
 version: 2
 updates:
