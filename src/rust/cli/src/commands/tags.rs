@@ -34,6 +34,14 @@ enum TagsCommand {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 
     /// List keywords for a specific document
@@ -45,6 +53,14 @@ enum TagsCommand {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 
     /// Show canonical tag hierarchy for a tenant
@@ -81,6 +97,14 @@ enum TagsCommand {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 
     /// Show keyword baskets for a document
@@ -92,18 +116,34 @@ enum TagsCommand {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 }
 
 /// Execute tags command
 pub async fn execute(args: TagsArgs) -> Result<()> {
     match args.command {
-        TagsCommand::List { doc, tag_type, json } => list_tags(&doc, tag_type.as_deref(), json),
-        TagsCommand::Keywords { doc, json } => list_keywords(&doc, json),
+        TagsCommand::List { doc, tag_type, json, script, no_headers } => {
+            list_tags(&doc, tag_type.as_deref(), json, script, no_headers)
+        }
+        TagsCommand::Keywords { doc, json, script, no_headers } => {
+            list_keywords(&doc, json, script, no_headers)
+        }
         TagsCommand::Tree { tenant, collection } => show_tree(&tenant, &collection),
         TagsCommand::Stats { tenant, collection } => show_stats(tenant.as_deref(), &collection),
-        TagsCommand::Search { query, collection, json } => search_tags(&query, &collection, json),
-        TagsCommand::Baskets { doc, json } => show_baskets(&doc, json),
+        TagsCommand::Search { query, collection, json, script, no_headers } => {
+            search_tags(&query, &collection, json, script, no_headers)
+        }
+        TagsCommand::Baskets { doc, json, script, no_headers } => {
+            show_baskets(&doc, json, script, no_headers)
+        }
     }
 }
 
@@ -146,7 +186,7 @@ struct TagRow {
     diversity: String,
 }
 
-fn list_tags(doc_id: &str, tag_type: Option<&str>, json: bool) -> Result<()> {
+fn list_tags(doc_id: &str, tag_type: Option<&str>, json: bool, script: bool, no_headers: bool) -> Result<()> {
     let conn = open_db()?;
     if !table_exists(&conn, "tags") {
         anyhow::bail!("Tags table not found. Ensure daemon schema v16+ is applied.");
@@ -186,6 +226,8 @@ fn list_tags(doc_id: &str, tag_type: Option<&str>, json: bool) -> Result<()> {
 
     if json {
         output::print_json(&rows);
+    } else if script {
+        output::print_script(&rows, !no_headers);
     } else {
         output::info(format!("Tags for document {} ({} total)", doc_id, rows.len()));
         output::print_table(&rows);
@@ -208,7 +250,7 @@ struct KeywordRow {
     stability: i32,
 }
 
-fn list_keywords(doc_id: &str, json: bool) -> Result<()> {
+fn list_keywords(doc_id: &str, json: bool, script: bool, no_headers: bool) -> Result<()> {
     let conn = open_db()?;
     if !table_exists(&conn, "keywords") {
         anyhow::bail!("Keywords table not found. Ensure daemon schema v16+ is applied.");
@@ -240,6 +282,8 @@ fn list_keywords(doc_id: &str, json: bool) -> Result<()> {
 
     if json {
         output::print_json(&rows);
+    } else if script {
+        output::print_script(&rows, !no_headers);
     } else {
         output::info(format!("Keywords for document {} ({} total)", doc_id, rows.len()));
         output::print_table(&rows);
@@ -486,7 +530,7 @@ struct TagSearchRow {
     avg_score: String,
 }
 
-fn search_tags(query: &str, collection: &str, json: bool) -> Result<()> {
+fn search_tags(query: &str, collection: &str, json: bool, script: bool, no_headers: bool) -> Result<()> {
     let conn = open_db()?;
     if !table_exists(&conn, "tags") {
         anyhow::bail!("Tags table not found. Ensure daemon schema v16+ is applied.");
@@ -521,6 +565,8 @@ fn search_tags(query: &str, collection: &str, json: bool) -> Result<()> {
 
     if json {
         output::print_json(&rows);
+    } else if script {
+        output::print_script(&rows, !no_headers);
     } else {
         output::info(format!("Tags matching '{}' ({} results)", query, rows.len()));
         output::print_table(&rows);
@@ -529,7 +575,7 @@ fn search_tags(query: &str, collection: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn show_baskets(doc_id: &str, json: bool) -> Result<()> {
+fn show_baskets(doc_id: &str, json: bool, script: bool, no_headers: bool) -> Result<()> {
     let conn = open_db()?;
     if !table_exists(&conn, "keyword_baskets") {
         anyhow::bail!("Keyword baskets table not found. Ensure daemon schema v16+ is applied.");
@@ -571,6 +617,25 @@ fn show_baskets(doc_id: &str, json: bool) -> Result<()> {
 
     if json {
         output::print_json(&baskets);
+    } else if script {
+        #[derive(Tabled)]
+        struct BasketRow {
+            #[tabled(rename = "Tag")]
+            tag: String,
+            #[tabled(rename = "Keywords")]
+            keywords: String,
+            #[tabled(rename = "Count")]
+            count: usize,
+        }
+        let rows: Vec<BasketRow> = baskets
+            .iter()
+            .map(|b| BasketRow {
+                tag: b.tag.clone(),
+                keywords: b.keywords.join(","),
+                count: b.keywords.len(),
+            })
+            .collect();
+        output::print_script(&rows, !no_headers);
     } else {
         output::info(format!(
             "Keyword baskets for document {} ({} baskets)",

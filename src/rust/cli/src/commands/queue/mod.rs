@@ -69,6 +69,14 @@ enum QueueCommand {
         #[arg(long)]
         json: bool,
 
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
+
         /// Show more columns
         #[arg(short, long)]
         verbose: bool,
@@ -147,11 +155,13 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             order_by,
             desc,
             json,
+            script,
+            no_headers,
             verbose,
         } => {
             list::execute(
                 status, collection, item_type, limit, offset, &order_by, desc,
-                json, verbose,
+                json, script, no_headers, verbose,
             )
             .await
         }

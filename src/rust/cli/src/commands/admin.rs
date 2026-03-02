@@ -59,6 +59,14 @@ enum AdminCommand {
         /// Hours of history to analyze (default: 24)
         #[arg(short = 'H', long, default_value = "24")]
         hours: f64,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long)]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
     /// Prune old log files from the canonical log directory
     PruneLogs {
@@ -100,8 +108,8 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
         AdminCommand::RenameTenant { old_id, new_id, yes } => {
             rename_tenant(old_id, new_id, yes).await
         }
-        AdminCommand::IdleHistory { hours } => {
-            show_idle_history(hours)
+        AdminCommand::IdleHistory { hours, script, no_headers } => {
+            show_idle_history(hours, script, no_headers)
         }
         AdminCommand::PruneLogs { dry_run, retention_hours } => {
             prune_logs(dry_run, retention_hours)
@@ -211,7 +219,7 @@ async fn rename_tenant(old_id: String, new_id: String, yes: bool) -> Result<()> 
 }
 
 /// Show idle state transition history and flip-flop analysis
-fn show_idle_history(hours: f64) -> Result<()> {
+fn show_idle_history(hours: f64, script: bool, no_headers: bool) -> Result<()> {
     use serde::Deserialize;
     use std::io::BufRead;
     use tabled::Tabled;
@@ -315,7 +323,11 @@ fn show_idle_history(hours: f64) -> Result<()> {
     }).collect();
 
     output::separator();
-    output::print_table_auto(&rows);
+    if script {
+        output::print_script(&rows, !no_headers);
+    } else {
+        output::print_table_auto(&rows);
+    }
 
     Ok(())
 }

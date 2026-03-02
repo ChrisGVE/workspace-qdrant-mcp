@@ -11,6 +11,8 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 
+use tabled::Tabled;
+
 use crate::grpc::client::DaemonClient;
 use crate::output;
 use super::qdrant_helpers;
@@ -66,6 +68,14 @@ enum CollectionsCommand {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 
     /// Reset (delete and recreate) specific collection(s)
@@ -88,7 +98,9 @@ enum CollectionsCommand {
 /// Execute collections command
 pub async fn execute(args: CollectionsArgs) -> Result<()> {
     match args.command {
-        CollectionsCommand::List { json } => list_collections(json).await,
+        CollectionsCommand::List { json, script, no_headers } => {
+            list_collections(json, script, no_headers).await
+        }
         CollectionsCommand::Reset {
             names,
             include_queue,
@@ -117,8 +129,8 @@ struct QdrantResponse<T> {
     result: T,
 }
 
-async fn list_collections(json: bool) -> Result<()> {
-    if !json {
+async fn list_collections(json: bool, script: bool, no_headers: bool) -> Result<()> {
+    if !json && !script {
         output::section("Qdrant Collections");
     }
 
@@ -138,7 +150,9 @@ async fn list_collections(json: bool) -> Result<()> {
             }
 
             if body.result.collections.is_empty() {
-                output::info("No collections found");
+                if !script {
+                    output::info("No collections found");
+                }
                 return Ok(());
             }
 
@@ -146,6 +160,22 @@ async fn list_collections(json: bool) -> Result<()> {
             let db_conn = qdrant_helpers::open_state_db().ok();
             let qdrant_client = qdrant_helpers::build_qdrant_http_client()?;
             let base_url = qdrant_helpers::qdrant_base_url();
+
+            #[derive(Tabled)]
+            struct CollectionRow {
+                #[tabled(rename = "Name")]
+                name: String,
+                #[tabled(rename = "Type")]
+                ctype: String,
+                #[tabled(rename = "Points")]
+                points: String,
+                #[tabled(rename = "Tenants")]
+                tenants: String,
+                #[tabled(rename = "Orphans")]
+                orphans: String,
+            }
+
+            let mut script_rows: Vec<CollectionRow> = Vec::new();
 
             for col in &body.result.collections {
                 let is_canonical = VALID_COLLECTIONS.contains(&col.name.as_str());
@@ -187,32 +217,54 @@ async fn list_collections(json: bool) -> Result<()> {
                         .filter(|t| !known_tenants.contains(*t))
                         .count();
 
-                    let orphan_str = if orphan_count > 0 {
-                        format!(", {} orphan(s)", orphan_count)
+                    if script {
+                        script_rows.push(CollectionRow {
+                            name: col.name.clone(),
+                            ctype: label.to_string(),
+                            points: points_str.clone(),
+                            tenants: qdrant_tenants.len().to_string(),
+                            orphans: orphan_count.to_string(),
+                        });
                     } else {
-                        String::new()
-                    };
+                        let orphan_str = if orphan_count > 0 {
+                            format!(", {} orphan(s)", orphan_count)
+                        } else {
+                            String::new()
+                        };
 
-                    output::kv(
-                        &col.name,
-                        &format!(
-                            "{} | {} points | {} tenant(s){}",
-                            label,
-                            points_str,
-                            qdrant_tenants.len(),
-                            orphan_str
-                        ),
-                    );
+                        output::kv(
+                            &col.name,
+                            &format!(
+                                "{} | {} points | {} tenant(s){}",
+                                label,
+                                points_str,
+                                qdrant_tenants.len(),
+                                orphan_str
+                            ),
+                        );
+                    }
+                } else if script {
+                    script_rows.push(CollectionRow {
+                        name: col.name.clone(),
+                        ctype: label.to_string(),
+                        points: points_str.clone(),
+                        tenants: "-".to_string(),
+                        orphans: "-".to_string(),
+                    });
                 } else {
                     output::kv(&col.name, &format!("{} | {} points", label, points_str));
                 }
             }
 
-            output::separator();
-            output::info(format!(
-                "Total: {} collections",
-                body.result.collections.len()
-            ));
+            if script {
+                output::print_script(&script_rows, !no_headers);
+            } else {
+                output::separator();
+                output::info(format!(
+                    "Total: {} collections",
+                    body.result.collections.len()
+                ));
+            }
         }
         Ok(resp) => {
             output::error(format!(

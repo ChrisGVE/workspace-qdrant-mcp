@@ -18,6 +18,8 @@ pub async fn execute(
     order_by: &str,
     desc: bool,
     json: bool,
+    script: bool,
+    no_headers: bool,
     verbose: bool,
 ) -> Result<()> {
     let conn = connect_readonly()?;
@@ -97,9 +99,9 @@ pub async fn execute(
     }
 
     if verbose {
-        print_verbose(&items, json);
+        print_verbose(&items, json, script, no_headers);
     } else {
-        print_compact(&items, json);
+        print_compact(&items, json, script, no_headers);
     }
 
     Ok(())
@@ -117,7 +119,7 @@ type RowTuple = (
     Option<String>,
 );
 
-fn print_verbose(items: &[RowTuple], json: bool) {
+fn print_verbose(items: &[RowTuple], json: bool, script: bool, no_headers: bool) {
     let display_items: Vec<QueueListItemVerbose> = items
         .iter()
         .map(
@@ -139,13 +141,15 @@ fn print_verbose(items: &[RowTuple], json: bool) {
 
     if json {
         output::print_json(&display_items);
+    } else if script {
+        output::print_script(&display_items, !no_headers);
     } else {
         output::print_table_auto(&display_items);
         output::info(format!("Showing {} items", display_items.len()));
     }
 }
 
-fn print_compact(items: &[RowTuple], json: bool) {
+fn print_compact(items: &[RowTuple], json: bool, script: bool, no_headers: bool) {
     let display_items: Vec<QueueListItem> = items
         .iter()
         .map(
@@ -165,6 +169,8 @@ fn print_compact(items: &[RowTuple], json: bool) {
 
     if json {
         output::print_json(&display_items);
+    } else if script {
+        output::print_script(&display_items, !no_headers);
     } else {
         output::print_table_auto(&display_items);
         output::info(format!("Showing {} items", display_items.len()));

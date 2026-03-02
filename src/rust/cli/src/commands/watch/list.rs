@@ -14,6 +14,8 @@ pub async fn list(
     disabled_only: bool,
     collection: Option<String>,
     json: bool,
+    script: bool,
+    no_headers: bool,
     verbose: bool,
     show_archived: bool,
 ) -> Result<()> {
@@ -92,9 +94,9 @@ pub async fn list(
     }
 
     if verbose {
-        print_verbose(&items, json);
+        print_verbose(&items, json, script, no_headers);
     } else {
-        print_compact(&items, json);
+        print_compact(&items, json, script, no_headers);
     }
 
     Ok(())
@@ -115,7 +117,7 @@ type WatchRow = (
     Option<String>, // library_mode
 );
 
-fn print_verbose(items: &[WatchRow], json: bool) {
+fn print_verbose(items: &[WatchRow], json: bool, script: bool, no_headers: bool) {
     let display_items: Vec<WatchListItemVerbose> = items
         .iter()
         .map(
@@ -155,6 +157,8 @@ fn print_verbose(items: &[WatchRow], json: bool) {
 
     if json {
         output::print_json(&display_items);
+    } else if script {
+        output::print_script(&display_items, !no_headers);
     } else {
         output::print_table_auto(&display_items);
         output::info(format!(
@@ -164,7 +168,7 @@ fn print_verbose(items: &[WatchRow], json: bool) {
     }
 }
 
-fn print_compact(items: &[WatchRow], json: bool) {
+fn print_compact(items: &[WatchRow], json: bool, script: bool, no_headers: bool) {
     let display_items: Vec<WatchListItem> = items
         .iter()
         .map(
@@ -201,6 +205,8 @@ fn print_compact(items: &[WatchRow], json: bool) {
 
     if json {
         output::print_json(&display_items);
+    } else if script {
+        output::print_script(&display_items, !no_headers);
     } else {
         output::print_table_auto(&display_items);
         output::info(format!(

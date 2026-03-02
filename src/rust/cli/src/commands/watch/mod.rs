@@ -46,6 +46,14 @@ enum WatchCommand {
         #[arg(long)]
         json: bool,
 
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
+
         /// Show more columns
         #[arg(short, long)]
         verbose: bool,
@@ -105,9 +113,11 @@ pub async fn execute(args: WatchArgs) -> Result<()> {
             disabled,
             collection,
             json,
+            script,
+            no_headers,
             verbose,
             show_archived,
-        } => list::list(enabled, disabled, collection, json, verbose, show_archived).await,
+        } => list::list(enabled, disabled, collection, json, script, no_headers, verbose, show_archived).await,
         WatchCommand::Enable { watch_id } => enable_disable::enable(&watch_id).await,
         WatchCommand::Disable { watch_id } => enable_disable::disable(&watch_id).await,
         WatchCommand::Show { watch_id, json } => show::show(&watch_id, json).await,

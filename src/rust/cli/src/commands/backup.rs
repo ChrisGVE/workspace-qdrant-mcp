@@ -149,6 +149,14 @@ enum BackupCommand {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 
     /// Delete a snapshot
@@ -179,7 +187,9 @@ pub async fn execute(args: BackupArgs) -> Result<()> {
             description,
             json,
         } => create_backup(&collection, output, description, json).await,
-        BackupCommand::List { collection, verbose, json } => list_backups(collection, verbose, json).await,
+        BackupCommand::List { collection, verbose, json, script, no_headers } => {
+            list_backups(collection, verbose, json, script, no_headers).await
+        }
         BackupCommand::Delete {
             snapshot,
             collection,
@@ -317,7 +327,7 @@ async fn create_backup(
     Ok(())
 }
 
-async fn list_backups(collection: Option<String>, verbose: bool, json: bool) -> Result<()> {
+async fn list_backups(collection: Option<String>, verbose: bool, json: bool, script: bool, no_headers: bool) -> Result<()> {
     if !json {
         output::section("List Backups");
     }
@@ -353,6 +363,9 @@ async fn list_backups(collection: Option<String>, verbose: bool, json: bool) -> 
             let snapshots = api_resp.result;
             if json {
                 output::print_json(&snapshots);
+            } else if script {
+                let rows: Vec<SnapshotRow> = snapshots.iter().map(SnapshotRow::from).collect();
+                output::print_script(&rows, !no_headers);
             } else if snapshots.is_empty() {
                 output::info("No snapshots found for this collection.");
             } else {
@@ -457,6 +470,9 @@ async fn list_backups(collection: Option<String>, verbose: bool, json: bool) -> 
 
             if json {
                 output::print_json(&all_snapshots);
+            } else if script {
+                let rows: Vec<SnapshotRow> = all_snapshots.iter().map(SnapshotRow::from).collect();
+                output::print_script(&rows, !no_headers);
             }
         }
     }

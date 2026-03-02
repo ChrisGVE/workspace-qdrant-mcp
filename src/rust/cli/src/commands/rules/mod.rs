@@ -45,6 +45,14 @@ enum RulesCommand {
         /// Output format: table (default) or json
         #[arg(short, long, default_value = "table")]
         format: String,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long)]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 
     /// Add a new rule
@@ -136,9 +144,11 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             rule_type,
             verbose,
             format,
+            script,
+            no_headers,
         } => {
             let scope = resolve_scope(global, project);
-            list::list_rules(scope, rule_type, verbose, &format).await
+            list::list_rules(scope, rule_type, verbose, &format, script, no_headers).await
         }
         RulesCommand::Add {
             label,

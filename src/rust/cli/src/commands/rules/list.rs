@@ -21,6 +21,8 @@ pub async fn list_rules(
     _rule_type: Option<String>,
     verbose: bool,
     format: &str,
+    script: bool,
+    no_headers: bool,
 ) -> Result<()> {
     let client = build_qdrant_client()?;
     let collection = wqm_common::constants::COLLECTION_RULES;
@@ -71,6 +73,11 @@ pub async fn list_rules(
         return print_json_output(points);
     }
 
+    // Script output
+    if script {
+        return print_script_output(points, &scope, verbose, no_headers);
+    }
+
     // Table output
     print_table_output(points, &scope, verbose);
 
@@ -105,6 +112,59 @@ fn print_json_output(
         })
         .collect();
     output::print_json(&rules);
+    Ok(())
+}
+
+/// Render rules as script-friendly space-separated output.
+fn print_script_output(
+    points: &[super::helpers::QdrantPoint],
+    scope: &Option<String>,
+    verbose: bool,
+    no_headers: bool,
+) -> Result<()> {
+    let project_names = load_project_names();
+
+    if verbose {
+        let rows: Vec<RuleRowVerbose> = points
+            .iter()
+            .filter_map(|p| p.payload.as_ref())
+            .map(|payload| RuleRowVerbose {
+                label: payload_str(payload, rules_schema::LABEL.name),
+                title: format_title_with_project(payload, &project_names, true),
+                scope: payload_str(payload, rules_schema::SCOPE.name),
+                priority: payload_u32(payload, rules_schema::PRIORITY.name)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                tags: normalize_commas(&payload_str(payload, rules_schema::TAGS.name)),
+                content: payload_str(payload, rules_schema::CONTENT.name),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
+                    payload,
+                    rules_schema::CREATED_AT.name,
+                )),
+            })
+            .collect();
+        output::print_script(&rows, !no_headers);
+    } else {
+        let rows: Vec<RuleRow> = points
+            .iter()
+            .filter_map(|p| p.payload.as_ref())
+            .map(|payload| RuleRow {
+                label: payload_str(payload, rules_schema::LABEL.name),
+                title: format_title_with_project(payload, &project_names, false),
+                scope: payload_str(payload, rules_schema::SCOPE.name),
+                priority: payload_u32(payload, rules_schema::PRIORITY.name)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
+                    payload,
+                    rules_schema::CREATED_AT.name,
+                )),
+            })
+            .collect();
+        output::print_script(&rows, !no_headers);
+    }
+
+    let _ = scope; // used only for table header
     Ok(())
 }
 

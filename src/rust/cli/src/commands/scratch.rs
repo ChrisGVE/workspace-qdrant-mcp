@@ -58,6 +58,14 @@ enum ScratchCommand {
         /// Output format: table (default) or json
         #[arg(short, long, default_value = "table")]
         format: String,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long)]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
     },
 }
 
@@ -75,7 +83,9 @@ pub async fn execute(args: ScratchArgs) -> Result<()> {
             limit,
             verbose,
             format,
-        } => list_entries(project, limit, verbose, &format).await,
+            script,
+            no_headers,
+        } => list_entries(project, limit, verbose, &format, script, no_headers).await,
     }
 }
 
@@ -247,6 +257,8 @@ async fn list_entries(
     limit: usize,
     verbose: bool,
     format: &str,
+    script: bool,
+    no_headers: bool,
 ) -> Result<()> {
     let client = build_qdrant_client()?;
     let collection = wqm_common::constants::COLLECTION_SCRATCHPAD;
@@ -312,6 +324,37 @@ async fn list_entries(
             })
             .collect();
         output::print_json(&entries);
+        return Ok(());
+    }
+
+    // Script output
+    if script {
+        if verbose {
+            let rows: Vec<ScratchRowVerbose> = points
+                .iter()
+                .filter_map(|p| p.payload.as_ref())
+                .map(|payload| ScratchRowVerbose {
+                    title: payload_str(payload, "title"),
+                    tenant_id: payload_str(payload, "tenant_id"),
+                    tags: payload_tags(payload).join(","),
+                    content: payload_str(payload, "content"),
+                    created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
+                })
+                .collect();
+            output::print_script(&rows, !no_headers);
+        } else {
+            let rows: Vec<ScratchRow> = points
+                .iter()
+                .filter_map(|p| p.payload.as_ref())
+                .map(|payload| ScratchRow {
+                    title: payload_str(payload, "title"),
+                    tenant_id: payload_str(payload, "tenant_id"),
+                    tags: payload_tags(payload).join(","),
+                    created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
+                })
+                .collect();
+            output::print_script(&rows, !no_headers);
+        }
         return Ok(());
     }
 
