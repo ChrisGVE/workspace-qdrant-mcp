@@ -307,3 +307,101 @@ LIMIT 10;
 
 ---
 
+## Text Search (grep Tool)
+
+The `workspace-qdrant/grep` MCP tool provides exact substring and regex pattern matching across all indexed code. It is powered by a dedicated FTS5 search database separate from the main state database.
+
+### Architecture
+
+**Search Database:**
+
+- **Path:** `~/.workspace-qdrant/search.db`
+- **Owner:** Rust daemon (memexd) — same ownership model as `state.db`
+- Separate from `state.db` to avoid FTS5 index overhead on the state database
+- Two tables: `file_metadata` (per-file-version metadata) and `code_lines` (FTS5 virtual table)
+
+**Two Search Modes:**
+
+| Mode | Input | Engine | Use Case |
+|------|-------|--------|----------|
+| Exact | Literal substring | FTS5 trigram index | `fn validate_token`, `TODO:` |
+| Regex | Regular expression | Hybrid FTS5 + grep-searcher | `fn\s+\w+_test`, `\.(await\|unwrap)` |
+
+### Exact Substring Search
+
+Uses FTS5 trigram tokenization for fast substring matching. The query is broken into trigrams (3-character sequences) that FTS5 intersects against the index.
+
+**Flow:**
+
+1. Pattern → FTS5 trigram query
+2. FTS5 returns candidate line rowids
+3. Rust verifies exact match (FTS5 trigram matching can have false positives)
+4. Apply scope filters (tenant_id, branch, path_glob)
+5. Return matching lines with file metadata
+
+### Regex Search: Hybrid FTS5 + grep-searcher Dispatch
+
+Regex search uses a hybrid dispatch strategy. For most queries, FTS5 trigram pre-filtering narrows candidates efficiently. But for high-frequency patterns (e.g., `\.(await|unwrap|expect)\b` producing 10K+ candidates), SQLite row-fetch overhead (~3μs/row) dominates. In those cases, the engine delegates to ripgrep's `grep-searcher` crate for SIMD-accelerated file scanning.
+
+**Dispatch flow:**
+
+1. Extract literal substrings from the regex for FTS5 pre-filtering
+2. Run a lightweight FTS5-only probe: `SELECT rowid FROM code_lines_fts WHERE content MATCH ?1 LIMIT 1 OFFSET ?2` (no JOINs, sub-millisecond)
+3. If candidates exceed threshold (5,000) → delegate to `grep-searcher` module which scans source files directly via `file_metadata` paths
+4. Otherwise → stream FTS5 candidates with Rust regex verification
+
+**Dependencies:** `grep-searcher`, `grep-regex`, `grep-matcher` (ripgrep's library crates)
+
+**Module:** `src/rust/daemon/core/src/grep_search.rs`
+
+The grep path uses `tokio::task::spawn_blocking` for synchronous file I/O, supports context lines via grep-searcher's built-in `before_context`/`after_context`, and applies the same glob/scope filters as the FTS5 path. The `SearchResults.search_engine` field indicates which path was used (`"fts5"` or `"grep"`).
+
+### FTS5 Query Optimization: Redundant AND Elimination
+
+When affix merging prepends a prefix to all alternation branches (e.g., `pub (fn|struct|enum|trait|type) \w+` → branches `"pub fn "`, `"pub struct "`, etc.), the standalone mandatory term `"pub "` is redundant since it's a prefix of every branch. The query builder detects this and omits the redundant AND clause, reducing FTS5 intersection work.
+
+### Scope and Filtering
+
+All text searches support the following scope parameters:
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `tenant_id` | Scope to a specific project | All projects |
+| `branch` | Scope to a specific branch | All branches |
+| `path_prefix` | Filter by file path prefix (e.g., `src/`) | None |
+| `path_glob` | Filter by glob pattern (e.g., `**/*.rs`) | None |
+| `case_sensitive` | Case-sensitive matching | `true` |
+| `max_results` | Maximum results to return | 1000 |
+| `context_lines` | Lines of context before/after each match | 0 |
+
+When `path_glob` is set, it takes precedence over `path_prefix`. A SQL prefix is extracted from the glob for pre-filtering, then `glob::Pattern` verifies in Rust.
+
+### Result Caching
+
+The TextSearchService gRPC layer maintains a short-lived result cache (5-second TTL) to avoid redundant FTS5 queries when `CountMatches` and `Search` are called with the same parameters in quick succession.
+
+**Cache key:** `(pattern, regex, case_sensitive, tenant_id, branch, path_prefix, path_glob)`
+
+**Behavior:**
+- On cache miss: runs the full query (no max_results cap, no context lines) and caches the result
+- `CountMatches` returns the count from cached results
+- `Search` applies `max_results` truncation from cached results; if `context_lines > 0`, re-runs with context (context is not cached to save memory)
+- Cache evicts expired entries when capacity (32 entries) is reached
+
+### Consistency with Qdrant
+
+The search DB follows the same reference-counting deletion logic as Qdrant — the decision (keep/delete old base_point) is made **once** in the queue processor's decision phase and applied to **both** destinations:
+
+- **Qdrant**: Delete/create chunk points
+- **Search DB**: Delete/create file_metadata + code_lines entries
+
+Within search.db, the delete-old + insert-new is **atomic** (SQLite transaction). This ensures no window where a file version is partially present.
+
+The per-destination state machine in the unified queue (`qdrant_status`, `search_status`) tracks completion independently. Both destinations execute in **parallel** with no ordering dependency. See [Per-destination processing flow](04-write-path.md#queue-schema) for details.
+
+### Relation to Search Instrumentation
+
+Text search events from the `grep` MCP tool are logged as `tool = 'mcp_qdrant'` in `search_events` (since they go through the MCP server). The `op` field distinguishes semantic search (`search`) from text search (`grep`). Traditional `rg` and `grep` CLI usage is tracked separately via the instrumented wrappers described above.
+
+---
+

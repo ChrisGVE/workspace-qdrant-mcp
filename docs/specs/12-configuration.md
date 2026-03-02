@@ -350,7 +350,7 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 
 #### Search DB (FTS5)
 
-The search DB (`search.db`) is a **separate SQLite database** from `state.db`, dedicated to full-text search via FTS5 virtual tables. It provides the `workspace-qdrant/grep` MCP tool with fast pattern-matching search across all indexed code.
+The search DB (`search.db`) is a **separate SQLite database** from `state.db`, dedicated to full-text search via FTS5 virtual tables. It provides the `workspace-qdrant/grep` MCP tool with fast pattern-matching search across all indexed code. For the full functional specification of text search (dispatch strategy, caching, scope filtering), see [09-search-instrumentation.md § Text Search](09-search-instrumentation.md#text-search-grep-tool).
 
 **Path:** `~/.workspace-qdrant/search.db`
 
