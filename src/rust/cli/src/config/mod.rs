@@ -40,6 +40,8 @@ pub enum OutputFormat {
     Json,
     /// Plain text (minimal formatting)
     Plain,
+    /// Script-friendly space-separated output (no ANSI, categorical only)
+    Script,
 }
 
 impl OutputFormat {
@@ -49,6 +51,7 @@ impl OutputFormat {
             "table" => Some(Self::Table),
             "json" => Some(Self::Json),
             "plain" | "text" => Some(Self::Plain),
+            "script" => Some(Self::Script),
             _ => None,
         }
     }

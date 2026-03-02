@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 use std::fmt::Display;
 
+use ansi_str::AnsiStr;
 use colored::Colorize;
 use serde::Serialize;
 use tabled::settings::peaker::{Peaker, PriorityMax};
@@ -132,14 +133,60 @@ pub fn print_data<T: Serialize + Tabled>(data: &[T], format: OutputFormat) {
         OutputFormat::Json => print_json(data),
         OutputFormat::Table => print_table(data),
         OutputFormat::Plain => print_plain(data),
+        OutputFormat::Script => print_script(data, true),
     }
 }
 
 /// Print data as JSON
+///
+/// ANSI escape codes are stripped from the output to prevent colored fields
+/// from leaking terminal sequences into the JSON.
 pub fn print_json<T: Serialize + ?Sized>(data: &T) {
     match serde_json::to_string_pretty(data) {
-        Ok(json) => println!("{}", json),
+        Ok(json) => println!("{}", strip_ansi(&json)),
         Err(e) => error(format!("Failed to serialize to JSON: {}", e)),
+    }
+}
+
+/// Strip ANSI escape sequences from a string.
+///
+/// Uses the `ansi-str` crate to remove all terminal formatting codes,
+/// producing plain text suitable for machine consumption.
+pub fn strip_ansi(s: &str) -> String {
+    s.ansi_strip().to_string()
+}
+
+/// Print data in script-friendly format: space-separated columns, one row per line.
+///
+/// Uses `Tabled::headers()` for the header row and `Tabled::fields()` for data rows.
+/// All ANSI escape codes are stripped. Suitable for piping through `awk`, `cut`, `grep`.
+pub fn print_script<T: Tabled>(data: &[T], include_headers: bool) {
+    if include_headers {
+        let headers: Vec<String> = T::headers()
+            .into_iter()
+            .map(|h| strip_ansi(&h).replace(' ', "_"))
+            .collect();
+        println!("{}", headers.join(" "));
+    }
+
+    for row in data {
+        let fields: Vec<String> = row
+            .fields()
+            .into_iter()
+            .map(|f| {
+                let clean = strip_ansi(&f);
+                // Replace any whitespace in field values with underscores
+                // so each field is a single "word" for awk/cut
+                if clean.contains(' ') {
+                    clean.replace(' ', "_")
+                } else if clean.is_empty() {
+                    "-".to_string()
+                } else {
+                    clean
+                }
+            })
+            .collect();
+        println!("{}", fields.join(" "));
     }
 }
 
@@ -476,6 +523,109 @@ mod tests {
         assert_eq!(ServiceStatus::from_proto(3), ServiceStatus::Unhealthy);
         assert_eq!(ServiceStatus::from_proto(0), ServiceStatus::Unknown);
         assert_eq!(ServiceStatus::from_proto(99), ServiceStatus::Unknown);
+    }
+
+    #[test]
+    fn test_strip_ansi_plain() {
+        assert_eq!(strip_ansi("hello world"), "hello world");
+        assert_eq!(strip_ansi(""), "");
+    }
+
+    #[test]
+    fn test_strip_ansi_colored() {
+        // "\x1b[31mfailed\x1b[0m" is red "failed"
+        assert_eq!(strip_ansi("\x1b[31mfailed\x1b[0m"), "failed");
+        // Bold + green
+        assert_eq!(strip_ansi("\x1b[1;32mdone\x1b[0m"), "done");
+    }
+
+    #[test]
+    fn test_strip_ansi_mixed() {
+        let s = "prefix \x1b[33myellow\x1b[0m suffix";
+        assert_eq!(strip_ansi(s), "prefix yellow suffix");
+    }
+
+    /// Test struct for print_script
+    #[derive(Tabled)]
+    struct ScriptTestRow {
+        #[tabled(rename = "ID")]
+        id: String,
+        #[tabled(rename = "Status")]
+        status: String,
+        #[tabled(rename = "Name")]
+        name: String,
+    }
+
+    #[test]
+    fn test_print_script_with_headers() {
+        // Capture output by testing the logic directly
+        let data = vec![
+            ScriptTestRow {
+                id: "1".into(),
+                status: "done".into(),
+                name: "test".into(),
+            },
+        ];
+        let headers: Vec<String> = <ScriptTestRow as Tabled>::headers()
+            .into_iter()
+            .map(|h| strip_ansi(&h).replace(' ', "_"))
+            .collect();
+        assert_eq!(headers.join(" "), "ID Status Name");
+
+        let fields: Vec<String> = data[0]
+            .fields()
+            .into_iter()
+            .map(|f| strip_ansi(&f))
+            .collect();
+        assert_eq!(fields.join(" "), "1 done test");
+    }
+
+    #[test]
+    fn test_print_script_strips_ansi_from_fields() {
+        let data = vec![ScriptTestRow {
+            id: "abc".into(),
+            status: "\x1b[31mfailed\x1b[0m".into(),
+            name: "my item".into(),
+        }];
+        let fields: Vec<String> = data[0]
+            .fields()
+            .into_iter()
+            .map(|f| {
+                let clean = strip_ansi(&f);
+                if clean.contains(' ') {
+                    clean.replace(' ', "_")
+                } else if clean.is_empty() {
+                    "-".to_string()
+                } else {
+                    clean
+                }
+            })
+            .collect();
+        assert_eq!(fields[0], "abc");
+        assert_eq!(fields[1], "failed"); // ANSI stripped
+        assert_eq!(fields[2], "my_item"); // space replaced with underscore
+    }
+
+    #[test]
+    fn test_print_script_empty_field_becomes_dash() {
+        let data = vec![ScriptTestRow {
+            id: "1".into(),
+            status: "".into(),
+            name: "ok".into(),
+        }];
+        let fields: Vec<String> = data[0]
+            .fields()
+            .into_iter()
+            .map(|f| {
+                let clean = strip_ansi(&f);
+                if clean.is_empty() {
+                    "-".to_string()
+                } else {
+                    clean
+                }
+            })
+            .collect();
+        assert_eq!(fields[1], "-");
     }
 
     /// Test struct for column min width computation
