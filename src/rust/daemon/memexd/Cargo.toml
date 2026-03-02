@@ -37,7 +37,7 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "minwinbase", "processenv", "winbase"] }
-windows-service = "0.7"
+windows-service = "0.8"
 
 [features]
 default = []
