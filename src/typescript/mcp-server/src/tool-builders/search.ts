@@ -22,10 +22,12 @@ export type SearchOptions = {
   includeGraphContext?: boolean;
 };
 
-/** Build search options from raw tool arguments */
-export function buildSearchOptions(args: Record<string, unknown> | undefined): SearchOptions {
-  const options: SearchOptions = { query: (args?.['query'] as string) ?? '' };
+// ── Option group extractors ───────────────────────────────────────────────
 
+function extractScopeOptions(
+  args: Record<string, unknown> | undefined,
+  options: SearchOptions,
+): void {
   const collection = args?.['collection'] as string | undefined;
   if (collection) options.collection = collection;
 
@@ -37,7 +39,12 @@ export function buildSearchOptions(args: Record<string, unknown> | undefined): S
 
   const limit = args?.['limit'] as number | undefined;
   if (limit !== undefined) options.limit = limit;
+}
 
+function extractIdentifierOptions(
+  args: Record<string, unknown> | undefined,
+  options: SearchOptions,
+): void {
   const projectId = args?.['projectId'] as string | undefined;
   if (projectId) options.projectId = projectId;
 
@@ -52,7 +59,12 @@ export function buildSearchOptions(args: Record<string, unknown> | undefined): S
 
   const includeLibraries = args?.['includeLibraries'] as boolean | undefined;
   if (includeLibraries !== undefined) options.includeLibraries = includeLibraries;
+}
 
+function extractFilterOptions(
+  args: Record<string, unknown> | undefined,
+  options: SearchOptions,
+): void {
   const tag = args?.['tag'] as string | undefined;
   if (tag) options.tag = tag;
 
@@ -64,7 +76,12 @@ export function buildSearchOptions(args: Record<string, unknown> | undefined): S
 
   const component = args?.['component'] as string | undefined;
   if (component) options.component = component;
+}
 
+function extractOutputOptions(
+  args: Record<string, unknown> | undefined,
+  options: SearchOptions,
+): void {
   const exact = args?.['exact'] as boolean | undefined;
   if (exact !== undefined) options.exact = exact;
 
@@ -73,6 +90,16 @@ export function buildSearchOptions(args: Record<string, unknown> | undefined): S
 
   const includeGraphContext = args?.['includeGraphContext'] as boolean | undefined;
   if (includeGraphContext !== undefined) options.includeGraphContext = includeGraphContext;
+}
+
+/** Build search options from raw tool arguments */
+export function buildSearchOptions(args: Record<string, unknown> | undefined): SearchOptions {
+  const options: SearchOptions = { query: (args?.['query'] as string) ?? '' };
+
+  extractScopeOptions(args, options);
+  extractIdentifierOptions(args, options);
+  extractFilterOptions(args, options);
+  extractOutputOptions(args, options);
 
   return options;
 }
