@@ -62,99 +62,108 @@ export function determineCollections(
   }
 }
 
-/**
- * Build Qdrant filter based on search parameters.
- */
-export function buildFilter(params: FilterParams): Record<string, unknown> | null {
-  const mustConditions: Record<string, unknown>[] = [];
-  const mustNotConditions: Record<string, unknown>[] = [];
+// ── Filter condition builders ─────────────────────────────────────────────
 
-  // Project filter for project scope
-  if (params.scope === 'project' && params.projectId) {
-    mustConditions.push({
-      key: FIELD_TENANT_ID,
-      match: { value: params.projectId },
-    });
-  }
+function buildProjectCondition(params: FilterParams): Record<string, unknown> | null {
+  if (params.scope !== 'project' || !params.projectId) return null;
+  return { key: FIELD_TENANT_ID, match: { value: params.projectId } };
+}
 
-  // Task 15: Instance-aware base_point filter
-  if (params.basePoints && params.basePoints.length > 0) {
-    mustConditions.push({
-      key: FIELD_BASE_POINT,
-      match: { any: params.basePoints },
-    });
-  }
+function buildBasePointCondition(params: FilterParams): Record<string, unknown> | null {
+  if (!params.basePoints || params.basePoints.length === 0) return null;
+  return { key: FIELD_BASE_POINT, match: { any: params.basePoints } };
+}
 
-  // Branch filter
-  if (params.branch && params.branch !== '*') {
-    mustConditions.push({
-      key: FIELD_BRANCH,
-      match: { value: params.branch },
-    });
-  }
+function buildBranchCondition(params: FilterParams): Record<string, unknown> | null {
+  if (!params.branch || params.branch === '*') return null;
+  return { key: FIELD_BRANCH, match: { value: params.branch } };
+}
 
-  // File type filter
-  if (params.fileType) {
-    mustConditions.push({
-      key: FIELD_FILE_TYPE,
-      match: { value: params.fileType },
-    });
-  }
+function buildFileTypeCondition(params: FilterParams): Record<string, unknown> | null {
+  if (!params.fileType) return null;
+  return { key: FIELD_FILE_TYPE, match: { value: params.fileType } };
+}
 
-  // Library name filter
-  if (params.collection === LIBRARIES_COLLECTION && params.libraryName) {
-    mustConditions.push({
-      key: FIELD_LIBRARY_NAME,
-      match: { value: params.libraryName },
-    });
-  }
+function buildLibraryNameCondition(params: FilterParams): Record<string, unknown> | null {
+  if (params.collection !== LIBRARIES_COLLECTION || !params.libraryName) return null;
+  return { key: FIELD_LIBRARY_NAME, match: { value: params.libraryName } };
+}
 
-  // Tag filter — single tag (exact match on concept_tags payload field)
+function buildTagConditions(params: FilterParams): Record<string, unknown>[] {
+  const conditions: Record<string, unknown>[] = [];
+
   if (params.tag) {
-    mustConditions.push({
-      key: FIELD_CONCEPT_TAGS,
-      match: { value: params.tag },
-    });
+    conditions.push({ key: FIELD_CONCEPT_TAGS, match: { value: params.tag } });
   }
 
-  // Multi-tag filter (OR logic)
   if (params.tags && params.tags.length > 0) {
     const tagShouldConditions = params.tags.map((t) => ({
       key: FIELD_CONCEPT_TAGS,
       match: { value: t },
     }));
-    mustConditions.push({ should: tagShouldConditions });
+    conditions.push({ should: tagShouldConditions });
   }
 
-  // Component filter — prefix matching on component_id payload field
-  if (params.component) {
-    // Use "should" for OR: exact match OR prefix match (component + ".")
-    mustConditions.push({
-      should: [
-        { key: 'component_id', match: { value: params.component } },
-        { key: 'component_id', match: { text: `${params.component}.` } },
-      ],
-    });
-  }
+  return conditions;
+}
 
-  // Path glob filter — extract deterministic prefix for Qdrant text match
-  if (params.pathGlob) {
-    const prefix = extractGlobPrefix(params.pathGlob);
-    if (prefix) {
-      mustConditions.push({
-        key: FIELD_FILE_PATH,
-        match: { text: prefix },
-      });
-    }
-  }
+function buildComponentCondition(params: FilterParams): Record<string, unknown> | null {
+  if (!params.component) return null;
+  return {
+    should: [
+      { key: 'component_id', match: { value: params.component } },
+      { key: 'component_id', match: { text: `${params.component}.` } },
+    ],
+  };
+}
 
-  // Exclude deleted libraries
-  if (params.collection === LIBRARIES_COLLECTION) {
-    mustNotConditions.push({
-      key: FIELD_DELETED,
-      match: { value: true },
-    });
-  }
+function buildPathGlobCondition(params: FilterParams): Record<string, unknown> | null {
+  if (!params.pathGlob) return null;
+  const prefix = extractGlobPrefix(params.pathGlob);
+  if (!prefix) return null;
+  return { key: FIELD_FILE_PATH, match: { text: prefix } };
+}
+
+function buildMustConditions(params: FilterParams): Record<string, unknown>[] {
+  const conditions: Record<string, unknown>[] = [];
+
+  const projectCond = buildProjectCondition(params);
+  if (projectCond) conditions.push(projectCond);
+
+  const basePointCond = buildBasePointCondition(params);
+  if (basePointCond) conditions.push(basePointCond);
+
+  const branchCond = buildBranchCondition(params);
+  if (branchCond) conditions.push(branchCond);
+
+  const fileTypeCond = buildFileTypeCondition(params);
+  if (fileTypeCond) conditions.push(fileTypeCond);
+
+  const libNameCond = buildLibraryNameCondition(params);
+  if (libNameCond) conditions.push(libNameCond);
+
+  conditions.push(...buildTagConditions(params));
+
+  const componentCond = buildComponentCondition(params);
+  if (componentCond) conditions.push(componentCond);
+
+  const pathGlobCond = buildPathGlobCondition(params);
+  if (pathGlobCond) conditions.push(pathGlobCond);
+
+  return conditions;
+}
+
+function buildMustNotConditions(params: FilterParams): Record<string, unknown>[] {
+  if (params.collection !== LIBRARIES_COLLECTION) return [];
+  return [{ key: FIELD_DELETED, match: { value: true } }];
+}
+
+/**
+ * Build Qdrant filter based on search parameters.
+ */
+export function buildFilter(params: FilterParams): Record<string, unknown> | null {
+  const mustConditions = buildMustConditions(params);
+  const mustNotConditions = buildMustNotConditions(params);
 
   if (mustConditions.length === 0 && mustNotConditions.length === 0) {
     return null;
