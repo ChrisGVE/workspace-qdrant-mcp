@@ -70,104 +70,8 @@ pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Res
                 return Ok(());
             }
 
-            // Open SQLite for orphan detection (non-fatal)
-            let db_conn = qdrant_helpers::open_state_db().ok();
-            let qdrant_client = qdrant_helpers::build_qdrant_http_client()?;
-            let base_url = qdrant_helpers::qdrant_base_url();
-
-            let mut script_rows: Vec<CollectionRow> = Vec::new();
-
-            for col in &body.result.collections {
-                let is_canonical = VALID_COLLECTIONS.contains(&col.name.as_str());
-                let label = if is_canonical { "canonical" } else { "custom" };
-
-                // Get point count
-                let point_count = qdrant_helpers::get_collection_point_count(
-                    &qdrant_client,
-                    &base_url,
-                    &col.name,
-                )
-                .await
-                .unwrap_or(None);
-
-                let points_str = point_count
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "?".to_string());
-
-                // For canonical collections, compute tenant and orphan counts
-                if is_canonical {
-                    let tenant_field =
-                        qdrant_helpers::tenant_field_for_collection(&col.name);
-                    let qdrant_tenants = qdrant_helpers::scroll_unique_field_values(
-                        &qdrant_client,
-                        &base_url,
-                        &col.name,
-                        tenant_field,
-                    )
-                    .await
-                    .unwrap_or_default();
-
-                    let known_tenants = db_conn
-                        .as_ref()
-                        .map(|c| {
-                            qdrant_helpers::get_known_tenants_for_collection(c, &col.name)
-                        })
-                        .transpose()?
-                        .unwrap_or_default();
-
-                    let orphan_count = qdrant_tenants
-                        .iter()
-                        .filter(|t| !known_tenants.contains(*t))
-                        .count();
-
-                    if script {
-                        script_rows.push(CollectionRow {
-                            name: col.name.clone(),
-                            ctype: label.to_string(),
-                            points: points_str.clone(),
-                            tenants: qdrant_tenants.len().to_string(),
-                            orphans: orphan_count.to_string(),
-                        });
-                    } else {
-                        let orphan_str = if orphan_count > 0 {
-                            format!(", {} orphan(s)", orphan_count)
-                        } else {
-                            String::new()
-                        };
-
-                        output::kv(
-                            &col.name,
-                            &format!(
-                                "{} | {} points | {} tenant(s){}",
-                                label,
-                                points_str,
-                                qdrant_tenants.len(),
-                                orphan_str
-                            ),
-                        );
-                    }
-                } else if script {
-                    script_rows.push(CollectionRow {
-                        name: col.name.clone(),
-                        ctype: label.to_string(),
-                        points: points_str.clone(),
-                        tenants: "-".to_string(),
-                        orphans: "-".to_string(),
-                    });
-                } else {
-                    output::kv(&col.name, &format!("{} | {} points", label, points_str));
-                }
-            }
-
-            if script {
-                output::print_script(&script_rows, !no_headers);
-            } else {
-                output::separator();
-                output::info(format!(
-                    "Total: {} collections",
-                    body.result.collections.len()
-                ));
-            }
+            let rows = build_collection_rows(&body.result.collections).await?;
+            print_collection_results(&rows, &body.result.collections, script, no_headers);
         }
         Ok(resp) => {
             output::error(format!(
@@ -186,4 +90,137 @@ pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Res
     }
 
     Ok(())
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+async fn build_collection_rows(
+    collections: &[CollectionDescription],
+) -> Result<Vec<CollectionRow>> {
+    let db_conn = qdrant_helpers::open_state_db().ok();
+    let qdrant_client = qdrant_helpers::build_qdrant_http_client()?;
+    let base_url = qdrant_helpers::qdrant_base_url();
+
+    let mut rows: Vec<CollectionRow> = Vec::new();
+
+    for col in collections {
+        let row = build_single_collection_row(
+            col,
+            &qdrant_client,
+            &base_url,
+            db_conn.as_ref(),
+        )
+        .await?;
+        rows.push(row);
+    }
+
+    Ok(rows)
+}
+
+async fn build_single_collection_row(
+    col: &CollectionDescription,
+    qdrant_client: &reqwest::Client,
+    base_url: &str,
+    db_conn: Option<&rusqlite::Connection>,
+) -> Result<CollectionRow> {
+    let is_canonical = VALID_COLLECTIONS.contains(&col.name.as_str());
+    let label = if is_canonical { "canonical" } else { "custom" };
+
+    let point_count = qdrant_helpers::get_collection_point_count(
+        qdrant_client,
+        base_url,
+        &col.name,
+    )
+    .await
+    .unwrap_or(None);
+
+    let points_str = point_count
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "?".to_string());
+
+    if is_canonical {
+        build_canonical_row(col, qdrant_client, base_url, db_conn, label, points_str).await
+    } else {
+        Ok(CollectionRow {
+            name: col.name.clone(),
+            ctype: label.to_string(),
+            points: points_str,
+            tenants: "-".to_string(),
+            orphans: "-".to_string(),
+        })
+    }
+}
+
+async fn build_canonical_row(
+    col: &CollectionDescription,
+    qdrant_client: &reqwest::Client,
+    base_url: &str,
+    db_conn: Option<&rusqlite::Connection>,
+    label: &str,
+    points_str: String,
+) -> Result<CollectionRow> {
+    let tenant_field = qdrant_helpers::tenant_field_for_collection(&col.name);
+    let qdrant_tenants = qdrant_helpers::scroll_unique_field_values(
+        qdrant_client,
+        base_url,
+        &col.name,
+        tenant_field,
+    )
+    .await
+    .unwrap_or_default();
+
+    let known_tenants = db_conn
+        .map(|c| qdrant_helpers::get_known_tenants_for_collection(c, &col.name))
+        .transpose()?
+        .unwrap_or_default();
+
+    let orphan_count = qdrant_tenants
+        .iter()
+        .filter(|t| !known_tenants.contains(*t))
+        .count();
+
+    Ok(CollectionRow {
+        name: col.name.clone(),
+        ctype: label.to_string(),
+        points: points_str,
+        tenants: qdrant_tenants.len().to_string(),
+        orphans: orphan_count.to_string(),
+    })
+}
+
+fn print_collection_results(
+    rows: &[CollectionRow],
+    collections: &[CollectionDescription],
+    script: bool,
+    no_headers: bool,
+) {
+    if script {
+        output::print_script(rows, !no_headers);
+        return;
+    }
+
+    for row in rows {
+        let orphan_str = row
+            .orphans
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n > 0)
+            .map(|n| format!(", {} orphan(s)", n))
+            .unwrap_or_default();
+
+        if row.tenants == "-" {
+            output::kv(&row.name, &format!("{} | {} points", row.ctype, row.points));
+        } else {
+            output::kv(
+                &row.name,
+                &format!(
+                    "{} | {} points | {} tenant(s){}",
+                    row.ctype, row.points, row.tenants, orphan_str
+                ),
+            );
+        }
+    }
+
+    output::separator();
+    output::info(format!("Total: {} collections", collections.len()));
 }

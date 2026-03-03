@@ -8,11 +8,15 @@ use crate::output::{self, ServiceStatus};
 
 use super::helpers::{get_lsp_server_info, which_cmd};
 
+const ALL_LANGUAGES: &[&str] = &[
+    "rust", "python", "typescript", "go", "java", "c", "cpp", "ruby", "php", "shell", "html",
+];
+
 /// Show language support status (LSP + grammar availability).
 pub async fn language_status(language: Option<String>, verbose: bool) -> Result<()> {
     use workspace_qdrant_core::config::GrammarConfig;
     use workspace_qdrant_core::known_grammar_languages;
-    use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
+    use workspace_qdrant_core::tree_sitter::GrammarManager;
 
     output::section("Language Support Status");
 
@@ -21,7 +25,32 @@ pub async fn language_status(language: Option<String>, verbose: bool) -> Result<
     let cached = manager.cached_languages().unwrap_or_default();
     let known = known_grammar_languages();
 
-    // Grammar config summary
+    print_grammar_config_summary(&config, cached.len(), known.len());
+
+    if let Some(ref lang) = language {
+        output::kv("Language", lang);
+        output::separator();
+        check_single_language(lang.as_str(), &manager, verbose);
+    } else {
+        output::info("Checking all languages...");
+        output::separator();
+        for lang in ALL_LANGUAGES {
+            check_single_language(lang, &manager, verbose);
+        }
+    }
+
+    print_daemon_language_components(verbose).await;
+
+    Ok(())
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn print_grammar_config_summary(
+    config: &workspace_qdrant_core::config::GrammarConfig,
+    cached_count: usize,
+    known_count: usize,
+) {
     println!("{}", "Tree-sitter Grammar Settings".cyan().bold());
     output::kv(
         "  Auto-download",
@@ -29,7 +58,7 @@ pub async fn language_status(language: Option<String>, verbose: bool) -> Result<
     );
     output::kv(
         "  Cached grammars",
-        &format!("{}/{}", cached.len(), known.len()),
+        &format!("{}/{}", cached_count, known_count),
     );
     let idle_status = if config.idle_update_check_enabled {
         format!(
@@ -41,71 +70,50 @@ pub async fn language_status(language: Option<String>, verbose: bool) -> Result<
     };
     output::kv("  Idle update checks", &idle_status);
     output::separator();
+}
 
-    if let Some(lang) = &language {
-        output::kv("Language", lang);
+fn check_single_language(
+    lang: &str,
+    manager: &workspace_qdrant_core::tree_sitter::GrammarManager,
+    verbose: bool,
+) {
+    use workspace_qdrant_core::tree_sitter::GrammarStatus;
+
+    println!("{}", format!("  {}", lang).cyan().bold());
+
+    let lsp_info = get_lsp_server_info(lang);
+    if let Some((server_name, executables)) = lsp_info {
+        let lsp_path = executables.iter().find_map(|exe| which_cmd(exe));
+        match lsp_path {
+            Some(path) => {
+                print!("    LSP: {} {}", "✓".green(), server_name);
+                if verbose {
+                    print!(" ({})", path);
+                }
+                println!();
+            }
+            None => println!("    LSP: {} not installed", "✗".red()),
+        }
     } else {
-        output::info("Checking all languages...");
-    }
-    output::separator();
-
-    // Check specific language or all
-    let languages_to_check: Vec<&str> = match &language {
-        Some(l) => vec![l.as_str()],
-        None => vec![
-            "rust", "python", "typescript", "go", "java", "c", "cpp", "ruby", "php", "shell",
-            "html",
-        ],
-    };
-
-    for lang in languages_to_check {
-        println!("{}", format!("  {}", lang).cyan().bold());
-
-        // Check LSP
-        let lsp_info = get_lsp_server_info(lang);
-        if let Some((server_name, executables)) = lsp_info {
-            let lsp_path = executables.iter().find_map(|exe| which_cmd(exe));
-            match lsp_path {
-                Some(path) => {
-                    print!("    LSP: {} {}", "✓".green(), server_name);
-                    if verbose {
-                        print!(" ({})", path);
-                    }
-                    println!();
-                }
-                None => {
-                    println!("    LSP: {} not installed", "✗".red());
-                }
-            }
-        } else {
-            println!("    LSP: {} not supported", "?".yellow());
-        }
-
-        // Check Tree-sitter grammar
-        let grammar_status = manager.grammar_status(lang);
-
-        match grammar_status {
-            GrammarStatus::Loaded => {
-                println!("    Grammar: {} loaded", "✓".green());
-            }
-            GrammarStatus::Cached => {
-                println!("    Grammar: {} cached", "●".blue());
-            }
-            GrammarStatus::NeedsDownload => {
-                println!("    Grammar: {} available (needs download)", "↓".yellow());
-            }
-            GrammarStatus::NotAvailable => {
-                println!("    Grammar: {} not available", "✗".red());
-            }
-            GrammarStatus::IncompatibleVersion => {
-                println!("    Grammar: {} incompatible version", "!".yellow());
-            }
-        }
-
-        println!();
+        println!("    LSP: {} not supported", "?".yellow());
     }
 
-    // Check daemon language components if connected
+    match manager.grammar_status(lang) {
+        GrammarStatus::Loaded => println!("    Grammar: {} loaded", "✓".green()),
+        GrammarStatus::Cached => println!("    Grammar: {} cached", "●".blue()),
+        GrammarStatus::NeedsDownload => {
+            println!("    Grammar: {} available (needs download)", "↓".yellow())
+        }
+        GrammarStatus::NotAvailable => println!("    Grammar: {} not available", "✗".red()),
+        GrammarStatus::IncompatibleVersion => {
+            println!("    Grammar: {} incompatible version", "!".yellow())
+        }
+    }
+
+    println!();
+}
+
+async fn print_daemon_language_components(verbose: bool) {
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
             output::separator();
@@ -126,9 +134,7 @@ pub async fn language_status(language: Option<String>, verbose: bool) -> Result<
                         }
                     }
                 }
-                Err(e) => {
-                    output::warning(format!("Could not get daemon status: {}", e));
-                }
+                Err(e) => output::warning(format!("Could not get daemon status: {}", e)),
             }
         }
         Err(_) => {
@@ -136,6 +142,4 @@ pub async fn language_status(language: Option<String>, verbose: bool) -> Result<
             output::warning("Daemon not running - some status info unavailable");
         }
     }
-
-    Ok(())
 }

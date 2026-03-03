@@ -23,7 +23,48 @@ pub async fn lsp_install(language: &str) -> Result<()> {
     }
 
     output::section(format!("Installing {} Language Server", language));
+    print_install_instructions(language);
+    Ok(())
+}
 
+/// Show removal guide for an LSP server.
+pub async fn lsp_remove(language: &str) -> Result<()> {
+    output::section(format!("Remove {} Language Server", language));
+
+    let lsp_info = get_lsp_server_info(language);
+
+    if lsp_info.is_none() {
+        output::warning(format!("No known LSP server for: {}", language));
+        output::info(
+            "Known languages: rust, python, typescript, javascript, go, java, c, cpp, ruby, php, shell, html",
+        );
+        return Ok(());
+    }
+
+    let (server_name, executables) = lsp_info.unwrap();
+    let installed_path = executables.iter().find_map(|exe| which_cmd(exe));
+
+    match installed_path {
+        Some(path) => {
+            output::kv("Server", server_name);
+            output::kv("Path", &path);
+            output::separator();
+            output::info("LSP servers are typically managed by package managers.");
+            output::info("To remove, use the appropriate package manager:");
+            output::separator();
+            print_remove_instructions(language);
+        }
+        None => {
+            output::info(format!("{} language server is not installed", language));
+        }
+    }
+
+    Ok(())
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn print_install_instructions(language: &str) {
     match language.to_lowercase().as_str() {
         "rust" => {
             output::info("rust-analyzer - The official Rust language server");
@@ -133,78 +174,44 @@ pub async fn lsp_install(language: &str) -> Result<()> {
             output::info("automatically via PATH scanning.");
         }
     }
-
-    Ok(())
 }
 
-/// Show removal guide for an LSP server.
-pub async fn lsp_remove(language: &str) -> Result<()> {
-    output::section(format!("Remove {} Language Server", language));
-
-    let lsp_info = get_lsp_server_info(language);
-
-    if lsp_info.is_none() {
-        output::warning(format!("No known LSP server for: {}", language));
-        output::info(
-            "Known languages: rust, python, typescript, javascript, go, java, c, cpp, ruby, php, shell, html",
-        );
-        return Ok(());
-    }
-
-    let (server_name, executables) = lsp_info.unwrap();
-    let installed_path = executables.iter().find_map(|exe| which_cmd(exe));
-
-    match installed_path {
-        Some(path) => {
-            output::kv("Server", server_name);
-            output::kv("Path", &path);
-            output::separator();
-            output::info("LSP servers are typically managed by package managers.");
-            output::info("To remove, use the appropriate package manager:");
-            output::separator();
-
-            match language.to_lowercase().as_str() {
-                "rust" => {
-                    output::info("  rustup component remove rust-analyzer");
-                    output::info("  # or: brew uninstall rust-analyzer");
-                }
-                "python" => {
-                    output::info("  pip uninstall ruff-lsp python-lsp-server pyright");
-                    output::info("  # or: uv tool uninstall ruff");
-                }
-                "typescript" | "javascript" | "ts" | "js" => {
-                    output::info("  npm uninstall -g typescript-language-server");
-                }
-                "go" | "golang" => {
-                    output::info("  rm $(which gopls)");
-                }
-                "java" => {
-                    output::info("  brew uninstall jdtls");
-                }
-                "c" | "cpp" | "c++" => {
-                    output::info("  brew uninstall llvm  # for clangd");
-                    output::info("  # or: apt remove clangd");
-                }
-                "ruby" | "rb" => {
-                    output::info("  gem uninstall ruby-lsp solargraph");
-                }
-                "php" => {
-                    output::info("  composer global remove phpactor/phpactor");
-                    output::info("  # or: npm uninstall -g intelephense");
-                }
-                "shell" | "bash" | "sh" => {
-                    output::info("  npm uninstall -g bash-language-server");
-                }
-                "html" | "htm" => {
-                    output::info("  npm uninstall -g vscode-langservers-extracted");
-                }
-                _ => {}
-            }
+fn print_remove_instructions(language: &str) {
+    match language.to_lowercase().as_str() {
+        "rust" => {
+            output::info("  rustup component remove rust-analyzer");
+            output::info("  # or: brew uninstall rust-analyzer");
         }
-        None => {
-            output::info(format!("{} language server is not installed", language));
+        "python" => {
+            output::info("  pip uninstall ruff-lsp python-lsp-server pyright");
+            output::info("  # or: uv tool uninstall ruff");
         }
+        "typescript" | "javascript" | "ts" | "js" => {
+            output::info("  npm uninstall -g typescript-language-server");
+        }
+        "go" | "golang" => {
+            output::info("  rm $(which gopls)");
+        }
+        "java" => {
+            output::info("  brew uninstall jdtls");
+        }
+        "c" | "cpp" | "c++" => {
+            output::info("  brew uninstall llvm  # for clangd");
+            output::info("  # or: apt remove clangd");
+        }
+        "ruby" | "rb" => {
+            output::info("  gem uninstall ruby-lsp solargraph");
+        }
+        "php" => {
+            output::info("  composer global remove phpactor/phpactor");
+            output::info("  # or: npm uninstall -g intelephense");
+        }
+        "shell" | "bash" | "sh" => {
+            output::info("  npm uninstall -g bash-language-server");
+        }
+        "html" | "htm" => {
+            output::info("  npm uninstall -g vscode-langservers-extracted");
+        }
+        _ => {}
     }
-
-    Ok(())
 }

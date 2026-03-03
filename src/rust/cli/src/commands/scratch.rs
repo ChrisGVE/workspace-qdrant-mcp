@@ -261,6 +261,32 @@ async fn list_entries(
     no_headers: bool,
 ) -> Result<()> {
     let client = build_qdrant_client()?;
+    let points = fetch_scroll_points(&client, project.as_deref(), limit).await?;
+
+    if points.is_empty() {
+        output::info("No scratchpad entries found.");
+        return Ok(());
+    }
+
+    if format == "json" {
+        print_json_entries(&points);
+        return Ok(());
+    }
+
+    if script {
+        print_script_entries(&points, verbose, no_headers);
+        return Ok(());
+    }
+
+    print_table_entries(&points, project.as_deref(), verbose);
+    Ok(())
+}
+
+async fn fetch_scroll_points(
+    client: &reqwest::Client,
+    project: Option<&str>,
+    limit: usize,
+) -> Result<Vec<QdrantPoint>> {
     let collection = wqm_common::constants::COLLECTION_SCRATCHPAD;
     let url = format!("{}/collections/{}/points/scroll", qdrant_url(), collection);
 
@@ -269,14 +295,10 @@ async fn list_entries(
         "with_payload": true,
     });
 
-    // Optional tenant_id filter
-    if let Some(ref proj) = project {
+    if let Some(proj) = project {
         let tenant_id = resolve_tenant_id(Some(proj))?;
         body["filter"] = serde_json::json!({
-            "must": [{
-                "key": "tenant_id",
-                "match": { "value": tenant_id }
-            }]
+            "must": [{ "key": "tenant_id", "match": { "value": tenant_id } }]
         });
     }
 
@@ -292,7 +314,7 @@ async fn list_entries(
         let text = response.text().await.unwrap_or_default();
         if status.as_u16() == 404 {
             output::info("Scratchpad collection does not exist yet. No entries stored.");
-            return Ok(());
+            return Ok(Vec::new());
         }
         anyhow::bail!("Qdrant scroll failed ({}): {}", status, text);
     }
@@ -302,66 +324,62 @@ async fn list_entries(
         .await
         .context("Failed to parse Qdrant scroll response")?;
 
-    let points = &scroll.result.points;
+    Ok(scroll.result.points)
+}
 
-    if points.is_empty() {
-        output::info("No scratchpad entries found.");
-        return Ok(());
-    }
+fn print_json_entries(points: &[QdrantPoint]) {
+    let entries: Vec<ScratchJson> = points
+        .iter()
+        .filter_map(|p| p.payload.as_ref())
+        .map(|payload| ScratchJson {
+            title: payload_str(payload, "title"),
+            content: payload_str(payload, "content"),
+            tenant_id: payload_str(payload, "tenant_id"),
+            tags: payload_tags(payload),
+            source_type: payload_str(payload, "source_type"),
+            created_at: payload_str(payload, "created_at"),
+        })
+        .collect();
+    output::print_json(&entries);
+}
 
-    // JSON output
-    if format == "json" {
-        let entries: Vec<ScratchJson> = points
+fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool) {
+    if verbose {
+        let rows: Vec<ScratchRowVerbose> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
-            .map(|payload| ScratchJson {
+            .map(|payload| ScratchRowVerbose {
                 title: payload_str(payload, "title"),
-                content: payload_str(payload, "content"),
                 tenant_id: payload_str(payload, "tenant_id"),
-                tags: payload_tags(payload),
-                source_type: payload_str(payload, "source_type"),
-                created_at: payload_str(payload, "created_at"),
+                tags: payload_tags(payload).join(","),
+                content: payload_str(payload, "content"),
+                created_at: wqm_common::timestamp_fmt::format_local(
+                    &payload_str(payload, "created_at"),
+                ),
             })
             .collect();
-        output::print_json(&entries);
-        return Ok(());
+        output::print_script(&rows, !no_headers);
+    } else {
+        let rows: Vec<ScratchRow> = points
+            .iter()
+            .filter_map(|p| p.payload.as_ref())
+            .map(|payload| ScratchRow {
+                title: payload_str(payload, "title"),
+                tenant_id: payload_str(payload, "tenant_id"),
+                tags: payload_tags(payload).join(","),
+                created_at: wqm_common::timestamp_fmt::format_local(
+                    &payload_str(payload, "created_at"),
+                ),
+            })
+            .collect();
+        output::print_script(&rows, !no_headers);
     }
+}
 
-    // Script output
-    if script {
-        if verbose {
-            let rows: Vec<ScratchRowVerbose> = points
-                .iter()
-                .filter_map(|p| p.payload.as_ref())
-                .map(|payload| ScratchRowVerbose {
-                    title: payload_str(payload, "title"),
-                    tenant_id: payload_str(payload, "tenant_id"),
-                    tags: payload_tags(payload).join(","),
-                    content: payload_str(payload, "content"),
-                    created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
-                })
-                .collect();
-            output::print_script(&rows, !no_headers);
-        } else {
-            let rows: Vec<ScratchRow> = points
-                .iter()
-                .filter_map(|p| p.payload.as_ref())
-                .map(|payload| ScratchRow {
-                    title: payload_str(payload, "title"),
-                    tenant_id: payload_str(payload, "tenant_id"),
-                    tags: payload_tags(payload).join(","),
-                    created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
-                })
-                .collect();
-            output::print_script(&rows, !no_headers);
-        }
-        return Ok(());
-    }
-
-    // Table output
+fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: bool) {
     output::section("Scratchpad Entries");
     output::kv("Total", &points.len().to_string());
-    if let Some(p) = &project {
+    if let Some(p) = project {
         output::kv("Filter", p);
     }
     output::separator();
@@ -375,7 +393,9 @@ async fn list_entries(
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(", "),
                 content: payload_str(payload, "content"),
-                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
+                created_at: wqm_common::timestamp_fmt::format_local(
+                    &payload_str(payload, "created_at"),
+                ),
             })
             .collect();
         output::print_table_auto(&rows);
@@ -387,13 +407,13 @@ async fn list_entries(
                 title: payload_str(payload, "title"),
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(", "),
-                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
+                created_at: wqm_common::timestamp_fmt::format_local(
+                    &payload_str(payload, "created_at"),
+                ),
             })
             .collect();
         output::print_table_auto(&rows);
     }
-
-    Ok(())
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
