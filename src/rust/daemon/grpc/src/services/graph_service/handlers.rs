@@ -1,8 +1,4 @@
-//! GraphService gRPC implementation
-//!
-//! Provides code relationship graph queries: traversal, impact analysis,
-//! statistics, PageRank, community detection, betweenness centrality,
-//! and backend migration. All queries use a shared read lock on the graph store.
+//! gRPC handler implementations for GraphService.
 
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
@@ -10,7 +6,7 @@ use workspace_qdrant_core::graph::algorithms::{
     CommunityConfig, PageRankConfig, compute_betweenness_centrality, compute_pagerank,
     detect_communities,
 };
-use workspace_qdrant_core::graph::{EdgeType, SharedGraphStore, SqliteGraphStore};
+use workspace_qdrant_core::graph::EdgeType;
 
 use crate::proto::{
     BetweennessNodeProto, BetweennessRequest, BetweennessResponse, CommunityMemberProto,
@@ -21,34 +17,8 @@ use crate::proto::{
     graph_service_server::GraphService,
 };
 
-/// Parse edge_types from proto string list, returning None for "all".
-fn parse_edge_type_filter(types: &[String]) -> Result<Option<Vec<String>>, Status> {
-    if types.is_empty() {
-        return Ok(None);
-    }
-    // Validate all types are known
-    for t in types {
-        if EdgeType::from_str(t).is_none() {
-            return Err(Status::invalid_argument(format!(
-                "unknown edge type: {}",
-                t
-            )));
-        }
-    }
-    Ok(Some(types.to_vec()))
-}
-
-/// GraphService implementation backed by SharedGraphStore.
-pub struct GraphServiceImpl {
-    graph_store: SharedGraphStore<SqliteGraphStore>,
-}
-
-impl GraphServiceImpl {
-    /// Create a new GraphService with a shared graph store handle.
-    pub fn new(graph_store: SharedGraphStore<SqliteGraphStore>) -> Self {
-        Self { graph_store }
-    }
-}
+use super::helpers::parse_edge_type_filter;
+use super::service_impl::GraphServiceImpl;
 
 #[tonic::async_trait]
 impl GraphService for GraphServiceImpl {
@@ -520,44 +490,5 @@ impl GraphService for GraphServiceImpl {
             edges_match: report.edges_match,
             warnings: report.warnings,
         }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_edge_type_parsing() {
-        assert!(EdgeType::from_str("CALLS").is_some());
-        assert!(EdgeType::from_str("IMPORTS").is_some());
-        assert!(EdgeType::from_str("USES_TYPE").is_some());
-        assert!(EdgeType::from_str("CONTAINS").is_some());
-        assert!(EdgeType::from_str("EXTENDS").is_some());
-        assert!(EdgeType::from_str("IMPLEMENTS").is_some());
-        assert!(EdgeType::from_str("INVALID").is_none());
-    }
-
-    #[test]
-    fn test_parse_edge_type_filter_empty() {
-        let result = parse_edge_type_filter(&[]);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-    }
-
-    #[test]
-    fn test_parse_edge_type_filter_valid() {
-        let types = vec!["CALLS".to_string(), "IMPORTS".to_string()];
-        let result = parse_edge_type_filter(&types);
-        assert!(result.is_ok());
-        let filter = result.unwrap().unwrap();
-        assert_eq!(filter.len(), 2);
-    }
-
-    #[test]
-    fn test_parse_edge_type_filter_invalid() {
-        let types = vec!["CALLS".to_string(), "INVALID".to_string()];
-        let result = parse_edge_type_filter(&types);
-        assert!(result.is_err());
     }
 }
