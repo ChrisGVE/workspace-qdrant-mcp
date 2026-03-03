@@ -1,52 +1,20 @@
-/// LadybugDB (Kuzu fork) graph store implementation.
-///
-/// Provides a `GraphStore` implementation backed by LadybugDB's in-process
-/// property graph engine with native Cypher query support.
-///
-/// Gated behind the `ladybug` feature flag. Requires C++ compiler (Clang/LLVM)
-/// at build time.
+/// LadybugDB-backed graph store implementation.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use async_trait::async_trait;
 use lbug::{Connection, Database, SystemConfig, Value};
 use tokio::sync::Mutex;
 
-use super::{
-    EdgeType, GraphEdge, GraphNode, GraphStats, ImpactNode, ImpactReport,
-    TraversalNode,
+use crate::graph::{
+    EdgeType, GraphEdge, GraphNode, GraphStats, ImpactNode, ImpactReport, TraversalNode,
     schema::{GraphDbError, GraphDbResult},
     GraphStore,
 };
 
-// ─── Configuration ──────────────────────────────────────────────────────
+use super::config::LadybugConfig;
 
-/// LadybugDB backend configuration.
-#[derive(Debug, Clone)]
-pub struct LadybugConfig {
-    /// Path to the LadybugDB database directory.
-    pub db_path: PathBuf,
-    /// Buffer pool size in bytes (default: 256 MB, 0 = auto).
-    pub buffer_pool_size: u64,
-    /// Maximum number of threads for query processing (0 = auto).
-    pub max_num_threads: u64,
-}
-
-impl Default for LadybugConfig {
-    fn default() -> Self {
-        let db_path = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".workspace-qdrant")
-            .join("graph");
-        Self {
-            db_path,
-            buffer_pool_size: 0, // auto-detect
-            max_num_threads: 4,
-        }
-    }
-}
-
-// ─── Store implementation ───────────────────────────────────────────────
+// ─── Store struct ────────────────────────────────────────────────────────────
 
 /// LadybugDB-backed graph store.
 ///
@@ -65,6 +33,8 @@ pub struct LadybugGraphStore {
 // Safety: Database is Send+Sync per lbug crate.
 unsafe impl Send for LadybugGraphStore {}
 unsafe impl Sync for LadybugGraphStore {}
+
+// ─── Constructor and helpers ─────────────────────────────────────────────────
 
 impl LadybugGraphStore {
     /// Create a new LadybugDB graph store.
@@ -164,8 +134,10 @@ impl LadybugGraphStore {
     }
 }
 
+// ─── Value helpers ───────────────────────────────────────────────────────────
+
 /// Extract a String from a lbug Value, falling back to Debug format.
-fn value_to_string(val: &Value) -> String {
+pub(super) fn value_to_string(val: &Value) -> String {
     match val {
         Value::String(s) => s.clone(),
         Value::Int64(n) => n.to_string(),
@@ -174,12 +146,19 @@ fn value_to_string(val: &Value) -> String {
 }
 
 /// Extract an i64 from a lbug Value.
-fn value_to_i64(val: &Value) -> i64 {
+pub(super) fn value_to_i64(val: &Value) -> i64 {
     match val {
         Value::Int64(n) => *n,
         _ => 0,
     }
 }
+
+/// Escape single quotes in Cypher string literals.
+pub(super) fn escape_cypher(s: &str) -> String {
+    s.replace('\'', "\\'")
+}
+
+// ─── GraphStore trait implementation ────────────────────────────────────────
 
 #[async_trait]
 impl GraphStore for LadybugGraphStore {
@@ -435,113 +414,5 @@ impl GraphStore for LadybugGraphStore {
         // in which case it's a no-op (returns 0).
         let _ = conn.query(&cypher);
         Ok(0)
-    }
-}
-
-/// Escape single quotes in Cypher string literals.
-fn escape_cypher(s: &str) -> String {
-    s.replace('\'', "\\'")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_escape_cypher() {
-        assert_eq!(escape_cypher("hello"), "hello");
-        assert_eq!(escape_cypher("it's"), "it\\'s");
-        assert_eq!(escape_cypher("a'b'c"), "a\\'b\\'c");
-    }
-
-    #[test]
-    fn test_default_config() {
-        let config = LadybugConfig::default();
-        assert!(config.db_path.to_string_lossy().contains("graph"));
-        assert_eq!(config.max_num_threads, 4);
-    }
-
-    #[test]
-    fn test_custom_config() {
-        let config = LadybugConfig {
-            db_path: PathBuf::from("/tmp/test-graph"),
-            buffer_pool_size: 512 * 1024 * 1024,
-            max_num_threads: 8,
-        };
-        assert_eq!(config.db_path, PathBuf::from("/tmp/test-graph"));
-        assert_eq!(config.buffer_pool_size, 512 * 1024 * 1024);
-    }
-
-    #[tokio::test]
-    async fn test_ladybug_store_create() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = LadybugConfig {
-            db_path: tmp.path().join("graph_test"),
-            buffer_pool_size: 0,
-            max_num_threads: 2,
-        };
-        let store = LadybugGraphStore::new(config);
-        assert!(store.is_ok(), "Should create store: {:?}", store.err());
-    }
-
-    #[tokio::test]
-    async fn test_ladybug_upsert_and_stats() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = LadybugConfig {
-            db_path: tmp.path().join("graph_upsert"),
-            buffer_pool_size: 0,
-            max_num_threads: 2,
-        };
-        let store = LadybugGraphStore::new(config).unwrap();
-
-        let node = GraphNode::new(
-            "test-tenant", "src/main.rs", "main",
-            super::super::NodeType::Function,
-        );
-        let result = store.upsert_node(&node).await;
-        assert!(result.is_ok(), "upsert failed: {:?}", result.err());
-
-        let stats = store.stats(Some("test-tenant")).await.unwrap();
-        assert_eq!(stats.total_nodes, 1);
-    }
-
-    #[tokio::test]
-    async fn test_ladybug_insert_edge() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = LadybugConfig {
-            db_path: tmp.path().join("graph_edge"),
-            buffer_pool_size: 0,
-            max_num_threads: 2,
-        };
-        let store = LadybugGraphStore::new(config).unwrap();
-
-        let node_a = GraphNode::new(
-            "t1", "a.rs", "foo", super::super::NodeType::Function,
-        );
-        let node_b = GraphNode::new(
-            "t1", "b.rs", "bar", super::super::NodeType::Function,
-        );
-        store.upsert_nodes(&[node_a.clone(), node_b.clone()]).await.unwrap();
-
-        let edge = GraphEdge::new(
-            "t1", &node_a.node_id, &node_b.node_id,
-            EdgeType::Calls, "a.rs",
-        );
-        let result = store.insert_edge(&edge).await;
-        assert!(result.is_ok(), "insert_edge failed: {:?}", result.err());
-    }
-
-    #[tokio::test]
-    async fn test_ladybug_execute_cypher() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = LadybugConfig {
-            db_path: tmp.path().join("graph_cypher"),
-            buffer_pool_size: 0,
-            max_num_threads: 2,
-        };
-        let store = LadybugGraphStore::new(config).unwrap();
-        let rows = store.execute_cypher("RETURN 1 + 2 AS result").unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0][0], "3");
     }
 }
