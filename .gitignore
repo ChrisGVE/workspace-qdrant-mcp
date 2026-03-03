@@ -111,7 +111,7 @@ test_ingestion*.md
 test_file_ingestion*.md
 
 # Qdrant local storage (runtime data)
-storage/
+/storage/
 
 # Root-level stray package files (real ones are in src/typescript/mcp-server/)
 /package.json
