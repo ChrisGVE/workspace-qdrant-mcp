@@ -1,92 +1,10 @@
-//! Move detection and rename correlation for file watching.
-//!
-//! This module provides functionality to correlate rename events and detect
-//! folder moves within the filesystem. It handles:
-//! - Intra-filesystem moves (MOVED_FROM + MOVED_TO correlation)
-//! - Cross-filesystem moves (detected as delete when MOVED_TO times out)
-//! - Root folder moves (MOVE_SELF or RENAME events)
+//! MoveCorrelator: correlates rename events to determine move type.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use std::time::Duration;
 
-/// Errors that can occur during move detection
-#[derive(Error, Debug)]
-pub enum MoveDetectorError {
-    #[error("Invalid path: {0}")]
-    InvalidPath(String),
-
-    #[error("Correlation timeout: {0}")]
-    CorrelationTimeout(String),
-
-    #[error("Database error: {0}")]
-    Database(String),
-}
-
-/// Result of a rename operation analysis
-#[derive(Debug, Clone, PartialEq)]
-pub enum RenameAction {
-    /// Move within the same filesystem (both old and new paths known)
-    IntraFilesystemMove {
-        old_path: PathBuf,
-        new_path: PathBuf,
-        is_directory: bool,
-    },
-
-    /// Move across filesystems (detected as delete - MOVED_FROM without MOVED_TO)
-    CrossFilesystemMove {
-        deleted_path: PathBuf,
-        is_directory: bool,
-    },
-
-    /// Simple rename (file/folder renamed in place)
-    SimpleRename {
-        old_path: PathBuf,
-        new_path: PathBuf,
-        is_directory: bool,
-    },
-
-    /// Pending - waiting for MOVED_TO event
-    Pending,
-}
-
-/// Tracks a pending move operation (MOVED_FROM without MOVED_TO yet)
-#[derive(Debug, Clone)]
-struct PendingMove {
-    /// Original path of the file/folder
-    old_path: PathBuf,
-
-    /// Whether this is a directory
-    is_directory: bool,
-
-    /// When the MOVED_FROM was received
-    timestamp: Instant,
-}
-
-/// Configuration for the move correlator
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MoveCorrelatorConfig {
-    /// Timeout for correlating MOVED_FROM with MOVED_TO (seconds)
-    pub correlation_timeout_secs: u64,
-
-    /// Maximum number of pending moves to track
-    pub max_pending_moves: usize,
-
-    /// Whether to enable file ID correlation (platform-specific)
-    pub enable_file_id_correlation: bool,
-}
-
-impl Default for MoveCorrelatorConfig {
-    fn default() -> Self {
-        Self {
-            correlation_timeout_secs: 30,
-            max_pending_moves: 10000,
-            enable_file_id_correlation: true,
-        }
-    }
-}
+use super::types::{MoveCorrelatorConfig, MoveCorrelatorStats, PendingMove, RenameAction};
 
 /// Correlates rename events to determine move type
 pub struct MoveCorrelator {
@@ -139,7 +57,7 @@ impl MoveCorrelator {
         let pending = PendingMove {
             old_path: path.clone(),
             is_directory,
-            timestamp: Instant::now(),
+            timestamp: std::time::Instant::now(),
         };
 
         // Store by file ID if available, otherwise by path
@@ -167,7 +85,6 @@ impl MoveCorrelator {
         if let Some(id) = file_id {
             if let Some(pending) = self.pending_moves.remove(&id) {
                 if pending.timestamp.elapsed() < timeout {
-                    // Check if it's a simple rename (same parent) or a move
                     let old_parent = pending.old_path.parent();
                     let new_parent = new_path.parent();
 
@@ -364,152 +281,5 @@ impl MoveCorrelator {
 impl Default for MoveCorrelator {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Statistics for the move correlator
-#[derive(Debug, Clone, Default)]
-pub struct MoveCorrelatorStats {
-    pub pending_by_id: usize,
-    pub pending_by_path: usize,
-    pub max_capacity: usize,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::thread::sleep;
-
-    #[test]
-    fn test_simple_rename_same_directory() {
-        let mut correlator = MoveCorrelator::new();
-
-        let old_path = PathBuf::from("/project/old_name.txt");
-        let new_path = PathBuf::from("/project/new_name.txt");
-
-        // Simulate MOVED_FROM
-        let result = correlator.handle_moved_from(old_path.clone(), false, Some(12345));
-        assert_eq!(result, RenameAction::Pending);
-
-        // Simulate MOVED_TO with same file ID
-        let result = correlator.handle_moved_to(new_path.clone(), false, Some(12345));
-
-        assert!(matches!(result, RenameAction::SimpleRename { .. }));
-        if let RenameAction::SimpleRename { old_path: op, new_path: np, is_directory } = result {
-            assert_eq!(op, old_path);
-            assert_eq!(np, new_path);
-            assert!(!is_directory);
-        }
-    }
-
-    #[test]
-    fn test_intra_filesystem_move() {
-        let mut correlator = MoveCorrelator::new();
-
-        let old_path = PathBuf::from("/project/src/file.txt");
-        let new_path = PathBuf::from("/project/dest/file.txt");
-
-        // Simulate MOVED_FROM
-        let result = correlator.handle_moved_from(old_path.clone(), false, Some(12345));
-        assert_eq!(result, RenameAction::Pending);
-
-        // Simulate MOVED_TO with same file ID
-        let result = correlator.handle_moved_to(new_path.clone(), false, Some(12345));
-
-        assert!(matches!(result, RenameAction::IntraFilesystemMove { .. }));
-        if let RenameAction::IntraFilesystemMove { old_path: op, new_path: np, is_directory } = result {
-            assert_eq!(op, old_path);
-            assert_eq!(np, new_path);
-            assert!(!is_directory);
-        }
-    }
-
-    #[test]
-    fn test_directory_rename() {
-        let mut correlator = MoveCorrelator::new();
-
-        let old_path = PathBuf::from("/project/old_folder");
-        let new_path = PathBuf::from("/project/new_folder");
-
-        // Simulate MOVED_FROM for directory
-        let result = correlator.handle_moved_from(old_path.clone(), true, Some(12345));
-        assert_eq!(result, RenameAction::Pending);
-
-        // Simulate MOVED_TO with same file ID
-        let result = correlator.handle_moved_to(new_path.clone(), true, Some(12345));
-
-        assert!(matches!(result, RenameAction::SimpleRename { .. }));
-        if let RenameAction::SimpleRename { old_path: op, new_path: np, is_directory } = result {
-            assert_eq!(op, old_path);
-            assert_eq!(np, new_path);
-            assert!(is_directory);
-        }
-    }
-
-    #[test]
-    fn test_combined_rename_event() {
-        let mut correlator = MoveCorrelator::new();
-
-        let old_path = PathBuf::from("/project/old.txt");
-        let new_path = PathBuf::from("/project/new.txt");
-
-        let result = correlator.handle_rename_event(old_path.clone(), new_path.clone(), false);
-
-        assert!(matches!(result, RenameAction::SimpleRename { .. }));
-    }
-
-    #[test]
-    fn test_expired_moves_become_cross_filesystem() {
-        let config = MoveCorrelatorConfig {
-            correlation_timeout_secs: 0, // Immediate timeout for testing
-            ..Default::default()
-        };
-        let mut correlator = MoveCorrelator::with_config(config);
-
-        let old_path = PathBuf::from("/project/moved_file.txt");
-
-        // Simulate MOVED_FROM
-        let result = correlator.handle_moved_from(old_path.clone(), false, Some(12345));
-        assert_eq!(result, RenameAction::Pending);
-
-        // Wait for timeout
-        sleep(Duration::from_millis(10));
-
-        // Get expired moves
-        let expired = correlator.get_expired_moves();
-
-        assert_eq!(expired.len(), 1);
-        assert!(matches!(expired[0], RenameAction::CrossFilesystemMove { .. }));
-        if let RenameAction::CrossFilesystemMove { deleted_path, is_directory } = &expired[0] {
-            assert_eq!(deleted_path, &old_path);
-            assert!(!is_directory);
-        }
-    }
-
-    #[test]
-    fn test_stats() {
-        let mut correlator = MoveCorrelator::new();
-
-        correlator.handle_moved_from(PathBuf::from("/a"), false, Some(1));
-        correlator.handle_moved_from(PathBuf::from("/b"), false, Some(2));
-        correlator.handle_moved_from(PathBuf::from("/c"), false, None);
-
-        let stats = correlator.stats();
-        assert_eq!(stats.pending_by_id, 2);
-        assert_eq!(stats.pending_by_path, 1);
-    }
-
-    #[test]
-    fn test_clear() {
-        let mut correlator = MoveCorrelator::new();
-
-        correlator.handle_moved_from(PathBuf::from("/a"), false, Some(1));
-        correlator.handle_moved_from(PathBuf::from("/b"), false, None);
-
-        correlator.clear();
-
-        let stats = correlator.stats();
-        assert_eq!(stats.pending_by_id, 0);
-        assert_eq!(stats.pending_by_path, 0);
     }
 }
