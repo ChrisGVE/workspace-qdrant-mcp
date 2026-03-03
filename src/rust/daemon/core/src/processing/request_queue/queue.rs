@@ -1,173 +1,17 @@
-//! Request queue with timeout, deduplication, and priority boosting
-//!
-//! Manages per-priority queues for incoming tasks, providing content-hash
-//! deduplication, configurable timeouts, and automatic priority boosting
-//! for aged requests.
+//! Request queue manager with timeout, deduplication, and priority boosting
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
-use super::{PriorityError, PriorityTask, TaskPayload, TaskPriority};
+use crate::processing::{PriorityError, PriorityTask, TaskPayload, TaskPriority};
 
-/// Request queuing configuration and limits
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueConfig {
-    /// Maximum number of queued requests per priority level
-    pub max_queued_per_priority: usize,
-    /// Default timeout for queued requests in milliseconds
-    pub default_queue_timeout_ms: u64,
-    /// Enable request deduplication based on content hash
-    pub enable_deduplication: bool,
-    /// Maximum time to wait for queue space in milliseconds
-    pub queue_wait_timeout_ms: u64,
-    /// Enable priority boost for aged requests
-    pub enable_priority_boost: bool,
-    /// Age threshold for priority boost in milliseconds
-    pub priority_boost_age_ms: u64,
-    /// Enable rate limiting for task submission
-    pub enable_rate_limiting: bool,
-    /// Maximum tasks per second (None = unlimited)
-    pub max_tasks_per_second: Option<u64>,
-    /// Enable backpressure signaling
-    pub enable_backpressure: bool,
-    /// Queue utilization threshold for backpressure warning (0.0-1.0, default: 0.8)
-    pub backpressure_threshold: f64,
-}
-
-impl Default for QueueConfig {
-    fn default() -> Self {
-        Self {
-            max_queued_per_priority: 100,
-            default_queue_timeout_ms: 30_000,
-            enable_deduplication: true,
-            queue_wait_timeout_ms: 5_000,
-            enable_priority_boost: true,
-            priority_boost_age_ms: 10_000,
-            enable_rate_limiting: true,
-            max_tasks_per_second: Some(100),
-            enable_backpressure: true,
-            backpressure_threshold: 0.8,
-        }
-    }
-}
-
-/// Configuration builder for creating optimized queue configurations
-pub struct QueueConfigBuilder {
-    config: QueueConfig,
-}
-
-impl QueueConfigBuilder {
-    /// Start with default configuration
-    pub fn new() -> Self {
-        Self {
-            config: QueueConfig::default(),
-        }
-    }
-
-    /// Set maximum queued requests per priority level
-    pub fn max_queued_per_priority(mut self, max: usize) -> Self {
-        self.config.max_queued_per_priority = max;
-        self
-    }
-
-    /// Set default queue timeout
-    pub fn default_queue_timeout(mut self, timeout_ms: u64) -> Self {
-        self.config.default_queue_timeout_ms = timeout_ms;
-        self
-    }
-
-    /// Enable or disable deduplication
-    pub fn deduplication(mut self, enable: bool) -> Self {
-        self.config.enable_deduplication = enable;
-        self
-    }
-
-    /// Set queue wait timeout
-    pub fn queue_wait_timeout(mut self, timeout_ms: u64) -> Self {
-        self.config.queue_wait_timeout_ms = timeout_ms;
-        self
-    }
-
-    /// Enable or disable priority boosting
-    pub fn priority_boost(mut self, enable: bool, age_threshold_ms: u64) -> Self {
-        self.config.enable_priority_boost = enable;
-        self.config.priority_boost_age_ms = age_threshold_ms;
-        self
-    }
-
-    /// Build the configuration for MCP servers (low latency)
-    pub fn for_mcp_server(mut self) -> Self {
-        self.config.max_queued_per_priority = 50;
-        self.config.default_queue_timeout_ms = 5_000;
-        self.config.enable_deduplication = true;
-        self.config.queue_wait_timeout_ms = 1_000;
-        self.config.enable_priority_boost = true;
-        self.config.priority_boost_age_ms = 2_000;
-        self
-    }
-
-    /// Build the configuration for batch processing (high throughput)
-    pub fn for_batch_processing(mut self) -> Self {
-        self.config.max_queued_per_priority = 1000;
-        self.config.default_queue_timeout_ms = 60_000;
-        self.config.enable_deduplication = true;
-        self.config.queue_wait_timeout_ms = 10_000;
-        self.config.enable_priority_boost = false;
-        self.config.priority_boost_age_ms = 30_000;
-        self
-    }
-
-    /// Build the configuration for resource-constrained environments
-    pub fn for_low_resource(mut self) -> Self {
-        self.config.max_queued_per_priority = 10;
-        self.config.default_queue_timeout_ms = 120_000;
-        self.config.enable_deduplication = false;
-        self.config.queue_wait_timeout_ms = 30_000;
-        self.config.enable_priority_boost = false;
-        self.config.priority_boost_age_ms = 60_000;
-        self
-    }
-
-    /// Build the final configuration
-    pub fn build(self) -> QueueConfig {
-        self.config
-    }
-}
-
-impl Default for QueueConfigBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Queued request with timeout and metadata
-#[derive(Debug)]
-struct QueuedRequest {
-    task: PriorityTask,
-    queued_at: Instant,
-    timeout: Option<Instant>,
-    content_hash: Option<u64>,
-    priority_boosted: bool,
-    original_priority: TaskPriority,
-    #[allow(dead_code)]
-    retry_count: usize,
-}
-
-/// Queue statistics for monitoring
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueStats {
-    pub total_queued: usize,
-    pub queued_by_priority: HashMap<TaskPriority, usize>,
-    pub oldest_request_age_ms: Option<u64>,
-    pub timeout_manager_size: usize,
-    pub deduplication_map_size: usize,
-}
+use super::config::QueueConfig;
+use super::types::{QueuedRequest, QueueStats};
 
 /// Request queue manager with timeout and capacity management
 pub struct RequestQueue {
@@ -282,7 +126,9 @@ impl RequestQueue {
 
         tracing::debug!(
             "Enqueued request {} with priority {:?}, queue size now: {}",
-            task_id, priority, current_total + 1
+            task_id,
+            priority,
+            current_total + 1
         );
 
         Ok(())
@@ -305,17 +151,17 @@ impl RequestQueue {
                     // Check for timeout
                     if let Some(timeout) = queued_request.timeout {
                         if Instant::now() > timeout {
-                            self.handle_timeout_cleanup(queued_request.task.context.task_id).await;
+                            self.handle_timeout_cleanup(queued_request.task.context.task_id)
+                                .await;
                             continue;
                         }
                     }
 
                     // Check for priority boost
                     if self.config.enable_priority_boost && !queued_request.priority_boosted {
-                        if let Some(boosted) = self.try_priority_boost(
-                            &mut queued_request,
-                            &mut queues_lock,
-                        ) {
+                        if let Some(boosted) =
+                            self.try_priority_boost(&mut queued_request, &mut queues_lock)
+                        {
                             if boosted {
                                 continue;
                             }
@@ -326,7 +172,8 @@ impl RequestQueue {
                     self.cleanup_request_tracking(
                         queued_request.task.context.task_id,
                         queued_request.content_hash,
-                    ).await;
+                    )
+                    .await;
                     self.total_queued.fetch_sub(1, AtomicOrdering::Relaxed);
 
                     return Some(queued_request.task);
@@ -347,9 +194,7 @@ impl RequestQueue {
         let age = queued_request.queued_at.elapsed();
         let boost_threshold = Duration::from_millis(self.config.priority_boost_age_ms);
 
-        if age > boost_threshold
-            && queued_request.original_priority != TaskPriority::McpRequests
-        {
+        if age > boost_threshold && queued_request.original_priority != TaskPriority::McpRequests {
             let boosted_priority = match queued_request.original_priority {
                 TaskPriority::BackgroundWatching => TaskPriority::CliCommands,
                 TaskPriority::CliCommands => TaskPriority::ProjectWatching,
@@ -372,7 +217,9 @@ impl RequestQueue {
             let original_priority = queued_request.original_priority;
             tracing::info!(
                 "Boosted priority for aged request {} from {:?} to {:?}",
-                task_id, original_priority, boosted_priority
+                task_id,
+                original_priority,
+                boosted_priority
             );
             // The request was already popped, so we don't re-queue it.
             // Let it proceed at the boosted priority.
@@ -440,8 +287,12 @@ impl RequestQueue {
 
                             async move {
                                 Self::cleanup_request_tracking_static(
-                                    task_id, content_hash, dedup_ref, timeout_ref,
-                                ).await;
+                                    task_id,
+                                    content_hash,
+                                    dedup_ref,
+                                    timeout_ref,
+                                )
+                                .await;
                             }
                         });
 
@@ -462,7 +313,8 @@ impl RequestQueue {
             cleaned_count += removed_count;
 
             if removed_count > 0 {
-                self.total_queued.fetch_sub(removed_count as u64, AtomicOrdering::Relaxed);
+                self.total_queued
+                    .fetch_sub(removed_count as u64, AtomicOrdering::Relaxed);
             }
         }
 
@@ -473,7 +325,11 @@ impl RequestQueue {
     pub fn get_utilization(&self) -> f64 {
         let current = self.total_queued.load(AtomicOrdering::Relaxed) as usize;
         let max = self.config.max_queued_per_priority * 4;
-        if max == 0 { 0.0 } else { current as f64 / max as f64 }
+        if max == 0 {
+            0.0
+        } else {
+            current as f64 / max as f64
+        }
     }
 
     /// Check if the queue has capacity for a new task
@@ -495,13 +351,17 @@ impl RequestQueue {
 
     /// Calculate content hash for deduplication
     fn calculate_content_hash(&self, task: &PriorityTask) -> u64 {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
 
         match &task.payload {
-            TaskPayload::ProcessDocument { file_path, collection, branch } => {
+            TaskPayload::ProcessDocument {
+                file_path,
+                collection,
+                branch,
+            } => {
                 "ProcessDocument".hash(&mut hasher);
                 file_path.hash(&mut hasher);
                 collection.hash(&mut hasher);
@@ -512,13 +372,20 @@ impl RequestQueue {
                 path.hash(&mut hasher);
                 recursive.hash(&mut hasher);
             }
-            TaskPayload::ExecuteQuery { query, collection, limit } => {
+            TaskPayload::ExecuteQuery {
+                query,
+                collection,
+                limit,
+            } => {
                 "ExecuteQuery".hash(&mut hasher);
                 query.hash(&mut hasher);
                 collection.hash(&mut hasher);
                 limit.hash(&mut hasher);
             }
-            TaskPayload::Generic { operation, parameters } => {
+            TaskPayload::Generic {
+                operation,
+                parameters,
+            } => {
                 "Generic".hash(&mut hasher);
                 operation.hash(&mut hasher);
                 let mut param_keys: Vec<_> = parameters.keys().cloned().collect();
@@ -550,7 +417,8 @@ impl RequestQueue {
             content_hash,
             Arc::clone(&self.dedup_map),
             Arc::clone(&self.timeout_manager),
-        ).await;
+        )
+        .await;
     }
 
     /// Static version of cleanup for spawned tasks
