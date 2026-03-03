@@ -4,14 +4,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::DocumentType;
-use crate::unified_queue_schema::{ItemType, QueueOperation};
+use crate::unified_queue_schema::{ItemType, QueueOperation, UnifiedQueueItem};
 use crate::tracked_files_schema::{ChunkType as TrackedChunkType, ProcessingStatus};
 use wqm_common::queue_types::QueueStatus;
 
 use super::payload::build_chunk_payload;
 use super::types::{ChunkRecord, EmbedResult};
-use super::super::super::super::super::super::unified_queue_schema::UnifiedQueueItem;
-use crate::storage::DocumentPoint;
 
 /// Helper: build a minimal UnifiedQueueItem for tests.
 fn test_queue_item() -> UnifiedQueueItem {
