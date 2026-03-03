@@ -7,6 +7,31 @@
 
 import type { Database as DatabaseType } from 'better-sqlite3';
 
+// ── Tokenization ──────────────────────────────────────────────────────────
+
+function tokenizeQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.replace(/[^a-z0-9_-]/g, ''))
+    .filter((t) => t.length >= 3);
+}
+
+// ── SQL helpers ───────────────────────────────────────────────────────────
+
+function buildTenantClause(tenantId: string | undefined): string {
+  return tenantId ? 'AND t.tenant_id = ?' : '';
+}
+
+function buildTenantParams(
+  base: (string | number)[],
+  tenantId: string | undefined,
+): (string | number)[] {
+  return tenantId ? [...base, tenantId] : base;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────
+
 /**
  * Find tags matching query terms.
  *
@@ -23,38 +48,24 @@ export function getMatchingTags(
   if (!db) return [];
 
   try {
-    // Tokenize query into meaningful words (3+ chars, lowercase)
-    const tokens = query
-      .toLowerCase()
-      .split(/\s+/)
-      .map((t) => t.replace(/[^a-z0-9_-]/g, ''))
-      .filter((t) => t.length >= 3);
-
+    const tokens = tokenizeQuery(query);
     if (tokens.length === 0) return [];
 
-    // Build LIKE conditions for each token
     const likeConditions = tokens.map(() => 'LOWER(t.tag) LIKE ?').join(' OR ');
     const likeParams = tokens.map((t) => `%${t}%`);
-
-    const params: (string | number)[] = [collection, ...likeParams];
-    let tenantClause = '';
-    if (tenantId) {
-      tenantClause = 'AND t.tenant_id = ?';
-      params.push(tenantId);
-    }
+    const tenantClause = buildTenantClause(tenantId);
+    const params = buildTenantParams([collection, ...likeParams], tenantId);
 
     const rows = db
       .prepare(
-        `
-        SELECT DISTINCT t.tag_id, t.tag, t.score
+        `SELECT DISTINCT t.tag_id, t.tag, t.score
         FROM tags t
         WHERE t.collection = ?
           AND t.tag_type = 'concept'
           AND (${likeConditions})
           ${tenantClause}
         ORDER BY t.score DESC
-        LIMIT 10
-        `,
+        LIMIT 10`,
       )
       .all(...params) as Array<{ tag_id: number; tag: string; score: number }>;
 
@@ -81,11 +92,9 @@ export function getKeywordBasketsForTags(
     const placeholders = tagIds.map(() => '?').join(',');
     const rows = db
       .prepare(
-        `
-        SELECT kb.tag_id, kb.keywords_json
+        `SELECT kb.tag_id, kb.keywords_json
         FROM keyword_baskets kb
-        WHERE kb.tag_id IN (${placeholders})
-        `,
+        WHERE kb.tag_id IN (${placeholders})`,
       )
       .all(...tagIds) as Array<{ tag_id: number; keywords_json: string }>;
 
@@ -119,18 +128,13 @@ export function listTags(
   if (!db) return [];
 
   try {
-    const params: (string | number)[] = [collection];
-    let tenantClause = '';
-    if (tenantId) {
-      tenantClause = 'AND t.tenant_id = ?';
-      params.push(tenantId);
-    }
+    const tenantClause = buildTenantClause(tenantId);
+    const params = buildTenantParams([collection], tenantId);
     params.push(limit);
 
     const rows = db
       .prepare(
-        `
-        SELECT t.tag,
+        `SELECT t.tag,
                COUNT(DISTINCT t.doc_id) as doc_count,
                ROUND(AVG(t.score), 4) as avg_score
         FROM tags t
@@ -139,8 +143,7 @@ export function listTags(
           ${tenantClause}
         GROUP BY t.tag
         ORDER BY doc_count DESC, avg_score DESC
-        LIMIT ?
-        `,
+        LIMIT ?`,
       )
       .all(...params) as Array<{ tag: string; doc_count: number; avg_score: number }>;
 
@@ -167,17 +170,12 @@ export function getTagHierarchy(
   if (!db) return [];
 
   try {
-    const params: string[] = [collection];
-    let tenantClause = '';
-    if (tenantId) {
-      tenantClause = 'AND ct.tenant_id = ?';
-      params.push(tenantId);
-    }
+    const tenantClause = tenantId ? 'AND ct.tenant_id = ?' : '';
+    const params = buildTenantParams([collection], tenantId);
 
     const rows = db
       .prepare(
-        `
-        SELECT ct.canonical_name,
+        `SELECT ct.canonical_name,
                ct.level,
                parent.canonical_name as parent_name,
                (SELECT COUNT(*) FROM canonical_tags child
@@ -186,8 +184,7 @@ export function getTagHierarchy(
         LEFT JOIN canonical_tags parent ON ct.parent_id = parent.canonical_id
         WHERE ct.collection = ?
           ${tenantClause}
-        ORDER BY ct.level ASC, ct.canonical_name ASC
-        `,
+        ORDER BY ct.level ASC, ct.canonical_name ASC`,
       )
       .all(...params) as Array<{
       canonical_name: string;
