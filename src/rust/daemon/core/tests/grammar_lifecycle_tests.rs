@@ -6,7 +6,7 @@ use tempfile::TempDir;
 use workspace_qdrant_core::config::GrammarConfig;
 use workspace_qdrant_core::tree_sitter::{
     extract_chunks, extract_chunks_with_provider, known_grammar_languages, GrammarManager,
-    GrammarMetadata, GrammarStatus, StaticLanguageProvider, TreeSitterParser,
+    GrammarMetadata, GrammarStatus, LanguageProvider, StaticLanguageProvider, TreeSitterParser,
 };
 
 /// Create a test grammar configuration with temporary cache directory.

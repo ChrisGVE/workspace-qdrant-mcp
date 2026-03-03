@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use workspace_qdrant_core::config::GrammarConfig;
 use workspace_qdrant_core::tree_sitter::{
-    check_grammar_compatibility, extract_chunks, GrammarManager, GrammarStatus,
+    check_grammar_compatibility, extract_chunks, GrammarManager, GrammarStatus, LanguageProvider,
     StaticLanguageProvider, TreeSitterParser,
 };
 
