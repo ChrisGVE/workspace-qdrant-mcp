@@ -406,8 +406,8 @@ mod tests {
     #[test]
     fn test_daemon_config_includes_grammars() {
         let config = DaemonConfig::default();
-        // Verify grammars field exists and has defaults
-        assert!(!config.grammars.required.is_empty());
+        // YAML default: required is empty (grammars downloaded on first use)
+        assert!(config.grammars.required.is_empty());
         assert!(config.grammars.auto_download);
     }
 
