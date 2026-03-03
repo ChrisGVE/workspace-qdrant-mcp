@@ -17,7 +17,6 @@ class WorkspaceQdrantMcp < Formula
   on_macos do
     on_arm do
       url "https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/download/v#{version}/workspace-qdrant-mcp-darwin-arm64.tar.gz"
-      # sha256 will be filled in by release automation
       # sha256 "PLACEHOLDER"
     end
     on_intel do
