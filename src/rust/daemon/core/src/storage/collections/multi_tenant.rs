@@ -197,109 +197,120 @@ impl StorageClient {
 
         let mut result = MultiTenantInitResult::default();
 
-        // Create _projects collection
-        match self.create_multi_tenant_collection(COLLECTION_PROJECTS, &config).await {
-            Ok(()) => {
-                if !self.collection_exists(COLLECTION_PROJECTS).await.unwrap_or(false) {
-                    result.projects_created = true;
-                }
-                match self.create_payload_index(COLLECTION_PROJECTS, "project_id").await {
-                    Ok(()) => result.projects_indexed = true,
-                    Err(e) => {
-                        warn!("Could not create project_id index (may already exist): {}", e);
-                        result.projects_indexed = true;
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to create {} collection: {}", COLLECTION_PROJECTS, e);
-                return Err(e);
-            }
-        }
-        result.projects_created = true;
-
-        // Create _libraries collection
-        match self.create_multi_tenant_collection(COLLECTION_LIBRARIES, &config).await {
-            Ok(()) => {
-                match self.create_payload_index(COLLECTION_LIBRARIES, "library_name").await {
-                    Ok(()) => result.libraries_indexed = true,
-                    Err(e) => {
-                        warn!("Could not create library_name index (may already exist): {}", e);
-                        result.libraries_indexed = true;
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to create {} collection: {}", COLLECTION_LIBRARIES, e);
-                return Err(e);
-            }
-        }
-        result.libraries_created = true;
-
-        // Create rules collection
-        match self.create_multi_tenant_collection(COLLECTION_RULES, &config).await {
-            Ok(()) => {}
-            Err(e) => {
-                error!("Failed to create {} collection: {}", COLLECTION_RULES, e);
-                return Err(e);
-            }
-        }
-        result.rules_created = true;
-
-        // Create scratchpad collection with tenant_id index
-        match self.create_multi_tenant_collection(COLLECTION_SCRATCHPAD, &config).await {
-            Ok(()) => {
-                match self.create_payload_index(COLLECTION_SCRATCHPAD, "tenant_id").await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        warn!(
-                            "Could not create tenant_id index on scratchpad (may already exist): {}",
-                            e
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to create {} collection: {}", COLLECTION_SCRATCHPAD, e);
-                return Err(e);
-            }
-        }
-        result.scratchpad_created = true;
-
-        // Create images collection (512-dim CLIP, dense-only)
-        match self.create_image_collection(&config).await {
-            Ok(()) => {
-                match self.create_payload_index(COLLECTION_IMAGES, "tenant_id").await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        warn!(
-                            "Could not create tenant_id index on images (may already exist): {}",
-                            e
-                        );
-                    }
-                }
-                match self
-                    .create_payload_index(COLLECTION_IMAGES, "source_document_id")
-                    .await
-                {
-                    Ok(()) => {}
-                    Err(e) => {
-                        warn!(
-                            "Could not create source_document_id index on images \
-                             (may already exist): {}",
-                            e
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to create {} collection: {}", COLLECTION_IMAGES, e);
-                return Err(e);
-            }
-        }
-        result.images_created = true;
+        self.init_projects_collection(&config, &mut result).await?;
+        self.init_libraries_collection(&config, &mut result).await?;
+        self.init_rules_collection(&config, &mut result).await?;
+        self.init_scratchpad_collection(&config, &mut result).await?;
+        self.init_images_collection(&config, &mut result).await?;
 
         info!("Multi-tenant collections initialized: {:?}", result);
         Ok(result)
+    }
+
+    async fn init_projects_collection(
+        &self,
+        config: &MultiTenantConfig,
+        result: &mut MultiTenantInitResult,
+    ) -> Result<(), StorageError> {
+        self.create_multi_tenant_collection(COLLECTION_PROJECTS, config)
+            .await
+            .map_err(|e| {
+                error!("Failed to create {} collection: {}", COLLECTION_PROJECTS, e);
+                e
+            })?;
+        result.projects_created = true;
+        match self.create_payload_index(COLLECTION_PROJECTS, "project_id").await {
+            Ok(()) => result.projects_indexed = true,
+            Err(e) => {
+                warn!("Could not create project_id index (may already exist): {}", e);
+                result.projects_indexed = true;
+            }
+        }
+        Ok(())
+    }
+
+    async fn init_libraries_collection(
+        &self,
+        config: &MultiTenantConfig,
+        result: &mut MultiTenantInitResult,
+    ) -> Result<(), StorageError> {
+        self.create_multi_tenant_collection(COLLECTION_LIBRARIES, config)
+            .await
+            .map_err(|e| {
+                error!("Failed to create {} collection: {}", COLLECTION_LIBRARIES, e);
+                e
+            })?;
+        result.libraries_created = true;
+        match self.create_payload_index(COLLECTION_LIBRARIES, "library_name").await {
+            Ok(()) => result.libraries_indexed = true,
+            Err(e) => {
+                warn!("Could not create library_name index (may already exist): {}", e);
+                result.libraries_indexed = true;
+            }
+        }
+        Ok(())
+    }
+
+    async fn init_rules_collection(
+        &self,
+        config: &MultiTenantConfig,
+        result: &mut MultiTenantInitResult,
+    ) -> Result<(), StorageError> {
+        self.create_multi_tenant_collection(COLLECTION_RULES, config)
+            .await
+            .map_err(|e| {
+                error!("Failed to create {} collection: {}", COLLECTION_RULES, e);
+                e
+            })?;
+        result.rules_created = true;
+        Ok(())
+    }
+
+    async fn init_scratchpad_collection(
+        &self,
+        config: &MultiTenantConfig,
+        result: &mut MultiTenantInitResult,
+    ) -> Result<(), StorageError> {
+        self.create_multi_tenant_collection(COLLECTION_SCRATCHPAD, config)
+            .await
+            .map_err(|e| {
+                error!("Failed to create {} collection: {}", COLLECTION_SCRATCHPAD, e);
+                e
+            })?;
+        result.scratchpad_created = true;
+        if let Err(e) = self.create_payload_index(COLLECTION_SCRATCHPAD, "tenant_id").await {
+            warn!(
+                "Could not create tenant_id index on scratchpad (may already exist): {}",
+                e
+            );
+        }
+        Ok(())
+    }
+
+    async fn init_images_collection(
+        &self,
+        config: &MultiTenantConfig,
+        result: &mut MultiTenantInitResult,
+    ) -> Result<(), StorageError> {
+        self.create_image_collection(config)
+            .await
+            .map_err(|e| {
+                error!("Failed to create {} collection: {}", COLLECTION_IMAGES, e);
+                e
+            })?;
+        result.images_created = true;
+        if let Err(e) = self.create_payload_index(COLLECTION_IMAGES, "tenant_id").await {
+            warn!("Could not create tenant_id index on images (may already exist): {}", e);
+        }
+        if let Err(e) = self
+            .create_payload_index(COLLECTION_IMAGES, "source_document_id")
+            .await
+        {
+            warn!(
+                "Could not create source_document_id index on images (may already exist): {}",
+                e
+            );
+        }
+        Ok(())
     }
 }

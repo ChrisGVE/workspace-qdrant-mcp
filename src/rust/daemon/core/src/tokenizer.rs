@@ -95,7 +95,6 @@ impl ModelTokenizer {
             return Ok(vec![]);
         }
 
-        // Split into paragraphs first
         let paragraphs: Vec<&str> = text.split("\n\n").collect();
         let mut chunks: Vec<TokenChunk> = Vec::new();
         let mut current_text = String::new();
@@ -106,74 +105,37 @@ impl ModelTokenizer {
         for (i, paragraph) in paragraphs.iter().enumerate() {
             let para_tokens = self.count_tokens(paragraph)?;
 
-            // If this single paragraph exceeds target, split it by words
             if para_tokens > target_tokens && current_text.is_empty() {
                 let word_chunks = self.split_paragraph_by_tokens(
                     paragraph, target_tokens, overlap_tokens, char_offset,
                 )?;
                 chunks.extend(word_chunks);
                 char_offset += paragraph.len();
-                if i < paragraphs.len() - 1 {
-                    char_offset += 2; // "\n\n" separator
-                }
+                if i < paragraphs.len() - 1 { char_offset += 2; }
                 chunk_start_char = char_offset;
                 continue;
             }
 
-            // Check if adding this paragraph would exceed the target
-            let separator = if current_text.is_empty() { "" } else { "\n\n" };
-            let combined_tokens = if current_text.is_empty() {
-                para_tokens
-            } else {
-                self.count_tokens(&format!("{}{}{}", current_text, separator, paragraph))?
-            };
+            let combined_tokens = self.combined_token_count(&current_text, paragraph, para_tokens)?;
 
             if combined_tokens > target_tokens && !current_text.is_empty() {
-                // Flush current chunk
-                let token_count = current_tokens;
-                chunks.push(TokenChunk {
-                    text: std::mem::take(&mut current_text),
-                    token_count,
-                    char_start: chunk_start_char,
-                    char_end: char_offset.saturating_sub(2), // before the separator
-                });
-
-                // Apply overlap: re-include the end of the previous chunk
-                if overlap_tokens > 0 {
-                    if let Some(overlap_text) = self.extract_overlap_suffix(
-                        chunks.last().map(|c| c.text.as_str()).unwrap_or(""),
-                        overlap_tokens,
-                    )? {
-                        current_text = overlap_text;
-                        chunk_start_char = char_offset.saturating_sub(current_text.len());
-                    } else {
-                        chunk_start_char = char_offset;
-                    }
-                } else {
-                    chunk_start_char = char_offset;
-                }
-
-                // Add current paragraph
-                if !current_text.is_empty() {
-                    current_text.push_str("\n\n");
-                }
+                chunk_start_char = self.flush_chunk(
+                    &mut chunks, &mut current_text, current_tokens,
+                    chunk_start_char, char_offset, overlap_tokens,
+                )?;
+                if !current_text.is_empty() { current_text.push_str("\n\n"); }
                 current_text.push_str(paragraph);
                 current_tokens = self.count_tokens(&current_text)?;
             } else {
-                if !current_text.is_empty() {
-                    current_text.push_str("\n\n");
-                }
+                if !current_text.is_empty() { current_text.push_str("\n\n"); }
                 current_text.push_str(paragraph);
                 current_tokens = combined_tokens;
             }
 
             char_offset += paragraph.len();
-            if i < paragraphs.len() - 1 {
-                char_offset += 2; // "\n\n" separator
-            }
+            if i < paragraphs.len() - 1 { char_offset += 2; }
         }
 
-        // Flush remaining text
         if !current_text.is_empty() {
             let token_count = self.count_tokens(&current_text)?;
             chunks.push(TokenChunk {
@@ -186,6 +148,50 @@ impl ModelTokenizer {
 
         debug!("Split text into {} token-based chunks", chunks.len());
         Ok(chunks)
+    }
+
+    /// Compute combined token count for current_text + paragraph.
+    fn combined_token_count(
+        &self,
+        current_text: &str,
+        paragraph: &str,
+        para_tokens: usize,
+    ) -> Result<usize, TokenizerError> {
+        if current_text.is_empty() {
+            Ok(para_tokens)
+        } else {
+            self.count_tokens(&format!("{}\n\n{}", current_text, paragraph))
+        }
+    }
+
+    /// Flush the accumulated text as a chunk and return the new chunk_start_char.
+    fn flush_chunk(
+        &self,
+        chunks: &mut Vec<TokenChunk>,
+        current_text: &mut String,
+        token_count: usize,
+        chunk_start_char: usize,
+        char_offset: usize,
+        overlap_tokens: usize,
+    ) -> Result<usize, TokenizerError> {
+        chunks.push(TokenChunk {
+            text: std::mem::take(current_text),
+            token_count,
+            char_start: chunk_start_char,
+            char_end: char_offset.saturating_sub(2),
+        });
+
+        if overlap_tokens > 0 {
+            if let Some(overlap_text) = self.extract_overlap_suffix(
+                chunks.last().map(|c| c.text.as_str()).unwrap_or(""),
+                overlap_tokens,
+            )? {
+                let new_start = char_offset.saturating_sub(overlap_text.len());
+                *current_text = overlap_text;
+                return Ok(new_start);
+            }
+        }
+        Ok(char_offset)
     }
 
     /// Split a single paragraph into chunks by word boundaries

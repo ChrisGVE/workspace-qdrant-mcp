@@ -125,10 +125,29 @@ impl ErrorHandler {
         collection: &str,
         context: Option<&HashMap<String, serde_json::Value>>,
     ) -> (bool, ErrorType) {
-        // Classify error
-        let error_type = self.classify_error(error_message);
+        let error_type = self.classify_and_update_metrics(error_message);
 
-        // Update metrics
+        if !self.check_and_handle_circuit_breaker(file_path, error_type, error_message, collection).await {
+            return (false, error_type);
+        }
+
+        let retry_count = 0; // placeholder, should be fetched from queue
+        if !self.should_retry(error_type, retry_count) {
+            info!(
+                "Error {} for {} is not retryable, moving to dead letter queue",
+                error_type.as_str(),
+                file_path
+            );
+            self.move_to_dead_letter_queue(file_path, error_type, error_message, context).await;
+            self.record_circuit_breaker_failure(collection);
+            return (false, error_type);
+        }
+
+        self.record_error_and_retry(file_path, error_type, error_message, collection, context, retry_count).await
+    }
+
+    fn classify_and_update_metrics(&mut self, error_message: &str) -> ErrorType {
+        let error_type = self.classify_error(error_message);
         self.metrics.total_errors += 1;
         match error_type.category() {
             ErrorCategory::Transient => self.metrics.transient_errors += 1,
@@ -136,15 +155,19 @@ impl ErrorHandler {
             ErrorCategory::RateLimit => self.metrics.rate_limit_errors += 1,
             ErrorCategory::Resource => self.metrics.resource_errors += 1,
         }
+        error_type
+    }
 
-        // Check circuit breaker
-        let (can_proceed, _breaker_reason) = self.check_circuit_breaker(collection);
-
+    async fn check_and_handle_circuit_breaker(
+        &mut self,
+        file_path: &str,
+        error_type: ErrorType,
+        error_message: &str,
+        collection: &str,
+    ) -> bool {
+        let (can_proceed, _) = self.check_circuit_breaker(collection);
         if !can_proceed {
-            warn!(
-                "Circuit breaker open for {}, moving to dead letter queue",
-                collection
-            );
+            warn!("Circuit breaker open for {}, moving to dead letter queue", collection);
             self.move_to_dead_letter_queue(
                 file_path,
                 error_type,
@@ -155,26 +178,19 @@ impl ErrorHandler {
                 )])),
             )
             .await;
-            return (false, error_type);
         }
+        can_proceed
+    }
 
-        // Get current retry count (placeholder, should be fetched from queue)
-        let retry_count = 0;
-
-        // Check if should retry
-        if !self.should_retry(error_type, retry_count) {
-            info!(
-                "Error {} for {} is not retryable, moving to dead letter queue",
-                error_type.as_str(),
-                file_path
-            );
-            self.move_to_dead_letter_queue(file_path, error_type, error_message, context)
-                .await;
-            self.record_circuit_breaker_failure(collection);
-            return (false, error_type);
-        }
-
-        // Record error and determine retry delay
+    async fn record_error_and_retry(
+        &mut self,
+        file_path: &str,
+        error_type: ErrorType,
+        error_message: &str,
+        collection: &str,
+        context: Option<&HashMap<String, serde_json::Value>>,
+        retry_count: i32,
+    ) -> (bool, ErrorType) {
         let max_retries = if error_type.max_retries() > 0 {
             error_type.max_retries()
         } else {
@@ -183,42 +199,22 @@ impl ErrorHandler {
 
         let result = self
             .queue_manager
-            .mark_error(
-                file_path,
-                error_type.as_str(),
-                error_message,
-                context,
-                max_retries,
-            )
+            .mark_error(file_path, error_type.as_str(), error_message, context, max_retries)
             .await;
 
         match result {
             Ok((should_retry_result, _error_message_id)) => {
                 if should_retry_result {
                     self.metrics.retry_count += 1;
-
                     let delay = self.calculate_retry_delay(retry_count, error_type);
                     info!(
                         "Retrying {} after {:.2}s (attempt {}/{})",
-                        file_path,
-                        delay,
-                        retry_count + 1,
-                        max_retries
+                        file_path, delay, retry_count + 1, max_retries
                     );
-
                     (true, error_type)
                 } else {
-                    warn!(
-                        "Max retries exceeded for {}, moving to dead letter queue",
-                        file_path
-                    );
-                    self.move_to_dead_letter_queue(
-                        file_path,
-                        error_type,
-                        error_message,
-                        context,
-                    )
-                    .await;
+                    warn!("Max retries exceeded for {}, moving to dead letter queue", file_path);
+                    self.move_to_dead_letter_queue(file_path, error_type, error_message, context).await;
                     self.record_circuit_breaker_failure(collection);
                     (false, error_type)
                 }

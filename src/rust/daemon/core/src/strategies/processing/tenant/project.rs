@@ -70,17 +70,24 @@ async fn handle_project_add(
         .await
         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
-    // Detect git status (Task 11)
-    let git_status = crate::git::detect_git_status(
-        std::path::Path::new(&payload.project_root),
-    );
+    let git_status = crate::git::detect_git_status(std::path::Path::new(&payload.project_root));
+    insert_watch_folder(ctx, item, payload, &git_status).await?;
+    enqueue_project_scan(ctx, item, payload).await;
 
-    // Create watch_folder entry (idempotent -- skip if already exists)
+    Ok(())
+}
+
+async fn insert_watch_folder(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    payload: &ProjectPayload,
+    git_status: &crate::git::GitStatus,
+) -> UnifiedProcessorResult<()> {
     let now = wqm_common::timestamps::now_utc();
     let watch_id = uuid::Uuid::new_v4().to_string();
-    let is_active: i32 =
-        if payload.is_active.unwrap_or(false) { 1 } else { 0 };
-    let insert_result = sqlx::query(
+    let is_active: i32 = if payload.is_active.unwrap_or(false) { 1 } else { 0 };
+
+    let result = sqlx::query(
         r#"INSERT OR IGNORE INTO watch_folders (
             watch_id, path, collection, tenant_id, is_active,
             git_remote_url, last_activity_at, follow_symlinks, enabled,
@@ -97,38 +104,33 @@ async fn handle_project_add(
     .bind(git_status.is_git as i32)
     .bind(&git_status.commit_hash)
     .execute(ctx.queue_manager.pool())
-    .await;
+    .await
+    .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to create watch_folder: {}", e)))?;
 
-    match insert_result {
-        Ok(result) => {
-            if result.rows_affected() > 0 {
-                info!(
-                    "Created watch_folder for tenant={} path={} (active={}, git={}, branch={}, worktree={})",
-                    item.tenant_id, payload.project_root, is_active,
-                    git_status.is_git, git_status.branch, git_status.is_worktree,
-                );
-            } else {
-                info!(
-                    "Watch folder already exists for tenant={} (idempotent)",
-                    item.tenant_id
-                );
-            }
-        }
-        Err(e) => {
-            return Err(UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to create watch_folder: {}",
-                e
-            )));
-        }
+    if result.rows_affected() > 0 {
+        info!(
+            "Created watch_folder for tenant={} path={} (active={}, git={}, branch={}, worktree={})",
+            item.tenant_id, payload.project_root, is_active,
+            git_status.is_git, git_status.branch, git_status.is_worktree,
+        );
+    } else {
+        info!("Watch folder already exists for tenant={} (idempotent)", item.tenant_id);
     }
+    Ok(())
+}
 
-    // Enqueue (Tenant, Scan) to trigger directory scanning
-    let scan_payload_json = serde_json::to_string(payload).map_err(|e| {
-        UnifiedProcessorError::InvalidPayload(format!(
-            "Failed to serialize scan payload: {}",
-            e
-        ))
-    })?;
+async fn enqueue_project_scan(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    payload: &ProjectPayload,
+) {
+    let scan_payload_json = match serde_json::to_string(payload) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("Failed to serialize scan payload for tenant={}: {} (non-critical)", item.tenant_id, e);
+            return;
+        }
+    };
 
     match ctx
         .queue_manager
@@ -143,23 +145,14 @@ async fn handle_project_add(
         )
         .await
     {
-        Ok((queue_id, is_new)) => {
-            if is_new {
-                info!(
-                    "Enqueued project scan for tenant={} queue_id={}",
-                    item.tenant_id, queue_id
-                );
-            }
+        Ok((queue_id, true)) => {
+            info!("Enqueued project scan for tenant={} queue_id={}", item.tenant_id, queue_id);
         }
+        Ok((_, false)) => {}
         Err(e) => {
-            warn!(
-                "Failed to enqueue project scan for tenant={}: {} (non-critical)",
-                item.tenant_id, e
-            );
+            warn!("Failed to enqueue project scan for tenant={}: {} (non-critical)", item.tenant_id, e);
         }
     }
-
-    Ok(())
 }
 
 /// Handle Tenant/Scan for the projects collection.

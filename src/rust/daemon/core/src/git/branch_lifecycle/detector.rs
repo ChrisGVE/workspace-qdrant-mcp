@@ -201,94 +201,18 @@ impl BranchLifecycleDetector {
         let mut events = Vec::new();
         let mut tracked = self.tracked_branches.write().await;
         let tracked_names: HashSet<String> = tracked.keys().cloned().collect();
-
         let rename_timeout = Duration::from_millis(self.config.rename_correlation_timeout_ms);
         let mut pending = self.pending_deletes.write().await;
 
-        // Check for new branches
-        for (name, commit_hash, _) in &current_branches {
-            if !tracked_names.contains(name) {
-                let rename_source = pending.iter().position(|pd| {
-                    pd.deleted_at.elapsed() < rename_timeout && pd.commit_hash == *commit_hash
-                });
+        self.detect_new_branches(&current_branches, &tracked_names, &mut tracked, &mut pending, rename_timeout, &mut events);
+        self.detect_deleted_branches(&current_names, &tracked_names, &mut tracked, &mut pending);
+        self.emit_expired_deletes(&mut pending, rename_timeout, &mut events);
 
-                if let Some(idx) = rename_source {
-                    let old_delete = pending.remove(idx);
-                    let event = BranchEvent::Renamed {
-                        old_name: old_delete.branch,
-                        new_name: name.clone(),
-                    };
-                    info!(
-                        "Detected branch rename: {} -> {}",
-                        event.branch_name(),
-                        name
-                    );
-                    events.push(event);
-                } else {
-                    let event = BranchEvent::Created {
-                        branch: name.clone(),
-                        commit_hash: Some(commit_hash.clone()),
-                    };
-                    info!("Detected new branch: {}", name);
-                    events.push(event);
-                }
-
-                tracked.insert(
-                    name.clone(),
-                    TrackedBranch {
-                        commit_hash: commit_hash.clone(),
-                    },
-                );
-            }
-        }
-
-        // Check for deleted branches
-        for name in tracked_names.difference(&current_names) {
-            if let Some(old_branch) = tracked.remove(name) {
-                pending.push(PendingDelete {
-                    branch: name.clone(),
-                    commit_hash: old_branch.commit_hash,
-                    deleted_at: Instant::now(),
-                });
-            }
-        }
-
-        // Clean up expired pending deletes and emit delete events
-        let expired_deletes: Vec<_> = pending
-            .iter()
-            .filter(|pd| pd.deleted_at.elapsed() >= rename_timeout)
-            .map(|pd| pd.branch.clone())
-            .collect();
-
-        for branch in expired_deletes {
-            pending.retain(|pd| pd.branch != branch);
-            let event = BranchEvent::Deleted {
-                branch: branch.clone(),
-            };
-            info!("Detected branch deletion: {}", branch);
-            events.push(event);
-        }
-
-        // Check for default branch change
         let current_default = self.detect_default_branch()?;
         let mut stored_default = self.current_default.write().await;
-
-        if let Some(old_default) = stored_default.as_ref() {
-            if old_default != &current_default {
-                let event = BranchEvent::DefaultChanged {
-                    old_default: old_default.clone(),
-                    new_default: current_default.clone(),
-                };
-                info!(
-                    "Detected default branch change: {} -> {}",
-                    old_default, current_default
-                );
-                events.push(event);
-            }
-        }
+        emit_default_branch_change(stored_default.as_deref(), &current_default, &mut events);
         *stored_default = Some(current_default);
 
-        // Send events through channel if configured
         if let Some(ref sender) = self.event_sender {
             for event in &events {
                 if sender.send(event.clone()).await.is_err() {
@@ -300,6 +224,79 @@ impl BranchLifecycleDetector {
 
         Ok(events)
     }
+
+    fn detect_new_branches(
+        &self,
+        current_branches: &[(String, String, std::time::SystemTime)],
+        tracked_names: &HashSet<String>,
+        tracked: &mut std::collections::HashMap<String, TrackedBranch>,
+        pending: &mut Vec<PendingDelete>,
+        rename_timeout: Duration,
+        events: &mut Vec<BranchEvent>,
+    ) {
+        for (name, commit_hash, _) in current_branches {
+            if tracked_names.contains(name) {
+                continue;
+            }
+            let rename_idx = pending.iter().position(|pd| {
+                pd.deleted_at.elapsed() < rename_timeout && pd.commit_hash == *commit_hash
+            });
+            if let Some(idx) = rename_idx {
+                let old_delete = pending.remove(idx);
+                let event = BranchEvent::Renamed {
+                    old_name: old_delete.branch,
+                    new_name: name.clone(),
+                };
+                info!("Detected branch rename: {} -> {}", event.branch_name(), name);
+                events.push(event);
+            } else {
+                let event = BranchEvent::Created {
+                    branch: name.clone(),
+                    commit_hash: Some(commit_hash.clone()),
+                };
+                info!("Detected new branch: {}", name);
+                events.push(event);
+            }
+            tracked.insert(name.clone(), TrackedBranch { commit_hash: commit_hash.clone() });
+        }
+    }
+
+    fn detect_deleted_branches(
+        &self,
+        current_names: &HashSet<String>,
+        tracked_names: &HashSet<String>,
+        tracked: &mut std::collections::HashMap<String, TrackedBranch>,
+        pending: &mut Vec<PendingDelete>,
+    ) {
+        for name in tracked_names.difference(current_names) {
+            if let Some(old_branch) = tracked.remove(name) {
+                pending.push(PendingDelete {
+                    branch: name.clone(),
+                    commit_hash: old_branch.commit_hash,
+                    deleted_at: Instant::now(),
+                });
+            }
+        }
+    }
+
+    fn emit_expired_deletes(
+        &self,
+        pending: &mut Vec<PendingDelete>,
+        rename_timeout: Duration,
+        events: &mut Vec<BranchEvent>,
+    ) {
+        let expired: Vec<_> = pending
+            .iter()
+            .filter(|pd| pd.deleted_at.elapsed() >= rename_timeout)
+            .map(|pd| pd.branch.clone())
+            .collect();
+        for branch in expired {
+            pending.retain(|pd| pd.branch != branch);
+            info!("Detected branch deletion: {}", branch);
+            events.push(BranchEvent::Deleted { branch });
+        }
+    }
+
 
     /// Get the current list of tracked branches
     pub async fn get_tracked_branches(&self) -> Vec<String> {
@@ -335,6 +332,23 @@ impl BranchLifecycleDetector {
             tracked_branches: tracked.len(),
             pending_deletes: pending.len(),
             default_branch: default.clone(),
+        }
+    }
+}
+
+/// Emit a `DefaultChanged` event if the default branch has changed.
+fn emit_default_branch_change(
+    old_default: Option<&str>,
+    current_default: &str,
+    events: &mut Vec<BranchEvent>,
+) {
+    if let Some(old) = old_default {
+        if old != current_default {
+            info!("Detected default branch change: {} -> {}", old, current_default);
+            events.push(BranchEvent::DefaultChanged {
+                old_default: old.to_string(),
+                new_default: current_default.to_string(),
+            });
         }
     }
 }

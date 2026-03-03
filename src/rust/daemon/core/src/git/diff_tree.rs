@@ -40,106 +40,102 @@ pub fn diff_tree(
     let repo = git2::Repository::open(repo_root)
         .map_err(|e| GitWatcherError::NotGitRepo(format!("{}: {}", repo_root.display(), e)))?;
 
+    let diff = build_diff(&repo, old_sha, new_sha)?;
+    collect_changes(diff)
+}
+
+fn build_diff<'a>(
+    repo: &'a git2::Repository,
+    old_sha: &str,
+    new_sha: &str,
+) -> Result<git2::Diff<'a>, GitWatcherError> {
+    let io_err = |kind, msg: String| {
+        GitWatcherError::Io(std::io::Error::new(kind, msg))
+    };
+
     let old_oid = git2::Oid::from_str(old_sha)
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid old SHA: {}", e))))?;
+        .map_err(|e| io_err(std::io::ErrorKind::InvalidData, format!("Invalid old SHA: {}", e)))?;
     let new_oid = git2::Oid::from_str(new_sha)
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Invalid new SHA: {}", e))))?;
+        .map_err(|e| io_err(std::io::ErrorKind::InvalidData, format!("Invalid new SHA: {}", e)))?;
 
-    // Handle the null SHA (initial commit or creation)
     let is_initial = old_sha == "0000000000000000000000000000000000000000";
-
     let old_tree = if is_initial {
         None
     } else {
         let old_commit = repo.find_commit(old_oid)
-            .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Old commit not found: {}", e))))?;
+            .map_err(|e| io_err(std::io::ErrorKind::NotFound, format!("Old commit not found: {}", e)))?;
         Some(old_commit.tree()
-            .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Old tree error: {}", e))))?)
+            .map_err(|e| io_err(std::io::ErrorKind::Other, format!("Old tree error: {}", e)))?)
     };
 
     let new_commit = repo.find_commit(new_oid)
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("New commit not found: {}", e))))?;
+        .map_err(|e| io_err(std::io::ErrorKind::NotFound, format!("New commit not found: {}", e)))?;
     let new_tree = new_commit.tree()
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("New tree error: {}", e))))?;
+        .map_err(|e| io_err(std::io::ErrorKind::Other, format!("New tree error: {}", e)))?;
 
     let mut diff_opts = git2::DiffOptions::new();
     diff_opts.include_untracked(false);
 
-    let diff = repo.diff_tree_to_tree(
-        old_tree.as_ref(),
-        Some(&new_tree),
-        Some(&mut diff_opts),
-    ).map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Diff error: {}", e))))?;
+    let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut diff_opts))
+        .map_err(|e| io_err(std::io::ErrorKind::Other, format!("Diff error: {}", e)))?;
 
-    // Enable rename/copy detection
     let mut find_opts = git2::DiffFindOptions::new();
     find_opts.renames(true);
     find_opts.copies(true);
-    let diff = {
-        let mut d = diff;
-        d.find_similar(Some(&mut find_opts))
-            .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Find similar error: {}", e))))?;
-        d
-    };
+    let mut diff = diff;
+    diff.find_similar(Some(&mut find_opts))
+        .map_err(|e| io_err(std::io::ErrorKind::Other, format!("Find similar error: {}", e)))?;
 
+    Ok(diff)
+}
+
+fn collect_changes(diff: git2::Diff<'_>) -> Result<Vec<FileChange>, GitWatcherError> {
     let mut changes = Vec::new();
 
     diff.foreach(
         &mut |delta, _| {
-            let status = delta.status();
             let new_file = delta.new_file();
             let old_file = delta.old_file();
-
             let path = new_file.path()
                 .or_else(|| old_file.path())
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
 
-            let change_status = match status {
+            let change_status = match delta.status() {
                 git2::Delta::Added => FileChangeStatus::Added,
                 git2::Delta::Deleted => {
                     let delete_path = old_file.path()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    changes.push(FileChange {
-                        status: FileChangeStatus::Deleted,
-                        path: delete_path,
-                    });
+                    changes.push(FileChange { status: FileChangeStatus::Deleted, path: delete_path });
                     return true;
                 }
                 git2::Delta::Modified => FileChangeStatus::Modified,
-                git2::Delta::Renamed => {
-                    let old_path = old_file.path()
+                git2::Delta::Renamed => FileChangeStatus::Renamed {
+                    old_path: old_file.path()
                         .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    FileChangeStatus::Renamed {
-                        old_path,
-                        similarity: 0,
-                    }
-                }
-                git2::Delta::Copied => {
-                    let src_path = old_file.path()
+                        .unwrap_or_default(),
+                    similarity: 0,
+                },
+                git2::Delta::Copied => FileChangeStatus::Copied {
+                    src_path: old_file.path()
                         .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    FileChangeStatus::Copied {
-                        src_path,
-                        similarity: 0,
-                    }
-                }
+                        .unwrap_or_default(),
+                    similarity: 0,
+                },
                 git2::Delta::Typechange => FileChangeStatus::TypeChanged,
                 _ => return true,
             };
 
-            changes.push(FileChange {
-                status: change_status,
-                path,
-            });
+            changes.push(FileChange { status: change_status, path });
             true
         },
         None,
         None,
         None,
-    ).map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Diff foreach error: {}", e))))?;
+    ).map_err(|e| GitWatcherError::Io(
+        std::io::Error::new(std::io::ErrorKind::Other, format!("Diff foreach error: {}", e))
+    ))?;
 
     Ok(changes)
 }

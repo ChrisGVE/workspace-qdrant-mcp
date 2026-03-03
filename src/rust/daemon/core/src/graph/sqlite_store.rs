@@ -281,29 +281,7 @@ impl GraphStore for SqliteGraphStore {
         symbol_name: &str,
         file_path: Option<&str>,
     ) -> GraphDbResult<ImpactReport> {
-        // Find the target node(s) matching the symbol
-        let target_nodes: Vec<String> = if let Some(fp) = file_path {
-            let rows = sqlx::query(
-                "SELECT node_id FROM graph_nodes
-                 WHERE tenant_id = ?1 AND symbol_name = ?2 AND file_path = ?3",
-            )
-            .bind(tenant_id)
-            .bind(symbol_name)
-            .bind(fp)
-            .fetch_all(&self.pool)
-            .await?;
-            rows.iter().map(|r| r.get("node_id")).collect()
-        } else {
-            let rows = sqlx::query(
-                "SELECT node_id FROM graph_nodes
-                 WHERE tenant_id = ?1 AND symbol_name = ?2",
-            )
-            .bind(tenant_id)
-            .bind(symbol_name)
-            .fetch_all(&self.pool)
-            .await?;
-            rows.iter().map(|r| r.get("node_id")).collect()
-        };
+        let target_nodes = self.find_target_nodes(tenant_id, symbol_name, file_path).await?;
 
         if target_nodes.is_empty() {
             return Ok(ImpactReport {
@@ -313,57 +291,12 @@ impl GraphStore for SqliteGraphStore {
             });
         }
 
-        // Reverse traversal: find all nodes that reference any of the target nodes
-        // (up to 3 hops for impact analysis)
         let mut all_impacted = Vec::new();
-
         for target_id in &target_nodes {
-            let rows = sqlx::query(
-                "WITH RECURSIVE reverse_traverse AS (
-                    SELECT e.source_node_id AS node_id, e.edge_type, 1 AS depth
-                    FROM graph_edges e
-                    WHERE e.target_node_id = ?1 AND e.tenant_id = ?2
-
-                    UNION ALL
-
-                    SELECT e.source_node_id, e.edge_type, rt.depth + 1
-                    FROM graph_edges e
-                    INNER JOIN reverse_traverse rt ON e.target_node_id = rt.node_id
-                    WHERE rt.depth < 3 AND e.tenant_id = ?2
-                )
-                SELECT DISTINCT rt.node_id, rt.edge_type, rt.depth,
-                       n.symbol_name, n.file_path
-                FROM reverse_traverse rt
-                JOIN graph_nodes n ON rt.node_id = n.node_id
-                ORDER BY rt.depth, n.symbol_name",
-            )
-            .bind(target_id)
-            .bind(tenant_id)
-            .fetch_all(&self.pool)
-            .await?;
-
-            for row in rows {
-                let depth: i64 = row.get("depth");
-                let edge_type_str: String = row.get("edge_type");
-                let impact_type = match (depth, edge_type_str.as_str()) {
-                    (1, "CALLS") => "direct_caller",
-                    (1, "USES_TYPE") => "type_user",
-                    (1, _) => "direct_reference",
-                    (_, "CALLS") => "indirect_caller",
-                    _ => "indirect_reference",
-                };
-
-                all_impacted.push(ImpactNode {
-                    node_id: row.get("node_id"),
-                    symbol_name: row.get("symbol_name"),
-                    file_path: row.get("file_path"),
-                    impact_type: impact_type.to_string(),
-                    distance: depth as u32,
-                });
-            }
+            let impacted = self.reverse_traverse(tenant_id, target_id).await?;
+            all_impacted.extend(impacted);
         }
 
-        // Deduplicate by node_id, keeping lowest distance
         all_impacted.sort_by(|a, b| a.distance.cmp(&b.distance));
         let mut seen = std::collections::HashSet::new();
         all_impacted.retain(|n| seen.insert(n.node_id.clone()));
@@ -446,5 +379,86 @@ impl GraphStore for SqliteGraphStore {
         let count = result.rows_affected();
         debug!("Pruned {} orphaned nodes for tenant {}", count, tenant_id);
         Ok(count)
+    }
+}
+
+impl SqliteGraphStore {
+    async fn find_target_nodes(
+        &self,
+        tenant_id: &str,
+        symbol_name: &str,
+        file_path: Option<&str>,
+    ) -> GraphDbResult<Vec<String>> {
+        if let Some(fp) = file_path {
+            let rows = sqlx::query(
+                "SELECT node_id FROM graph_nodes
+                 WHERE tenant_id = ?1 AND symbol_name = ?2 AND file_path = ?3",
+            )
+            .bind(tenant_id)
+            .bind(symbol_name)
+            .bind(fp)
+            .fetch_all(&self.pool)
+            .await?;
+            Ok(rows.iter().map(|r| r.get("node_id")).collect())
+        } else {
+            let rows = sqlx::query(
+                "SELECT node_id FROM graph_nodes
+                 WHERE tenant_id = ?1 AND symbol_name = ?2",
+            )
+            .bind(tenant_id)
+            .bind(symbol_name)
+            .fetch_all(&self.pool)
+            .await?;
+            Ok(rows.iter().map(|r| r.get("node_id")).collect())
+        }
+    }
+
+    async fn reverse_traverse(
+        &self,
+        tenant_id: &str,
+        target_id: &str,
+    ) -> GraphDbResult<Vec<ImpactNode>> {
+        let rows = sqlx::query(
+            "WITH RECURSIVE reverse_traverse AS (
+                SELECT e.source_node_id AS node_id, e.edge_type, 1 AS depth
+                FROM graph_edges e
+                WHERE e.target_node_id = ?1 AND e.tenant_id = ?2
+
+                UNION ALL
+
+                SELECT e.source_node_id, e.edge_type, rt.depth + 1
+                FROM graph_edges e
+                INNER JOIN reverse_traverse rt ON e.target_node_id = rt.node_id
+                WHERE rt.depth < 3 AND e.tenant_id = ?2
+            )
+            SELECT DISTINCT rt.node_id, rt.edge_type, rt.depth,
+                   n.symbol_name, n.file_path
+            FROM reverse_traverse rt
+            JOIN graph_nodes n ON rt.node_id = n.node_id
+            ORDER BY rt.depth, n.symbol_name",
+        )
+        .bind(target_id)
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.iter().map(|row| {
+            let depth: i64 = row.get("depth");
+            let edge_type_str: String = row.get("edge_type");
+            let impact_type = match (depth, edge_type_str.as_str()) {
+                (1, "CALLS") => "direct_caller",
+                (1, "USES_TYPE") => "type_user",
+                (1, _) => "direct_reference",
+                (_, "CALLS") => "indirect_caller",
+                _ => "indirect_reference",
+            };
+            ImpactNode {
+                node_id: row.get("node_id"),
+                symbol_name: row.get("symbol_name"),
+                file_path: row.get("file_path"),
+                impact_type: impact_type.to_string(),
+                distance: depth as u32,
+            }
+        }).collect())
     }
 }

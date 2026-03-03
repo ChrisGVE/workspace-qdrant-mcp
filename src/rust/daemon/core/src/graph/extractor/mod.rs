@@ -131,109 +131,140 @@ pub fn extract_edges_from_text_chunks(
 ) -> ExtractionResult {
     let mut result = ExtractionResult::default();
 
-    // Create a File node for import edges
     let file_node = GraphNode::new(tenant_id, file_path, file_path, NodeType::File);
     result.nodes.push(file_node);
 
     for chunk in chunks {
-        let meta = &chunk.metadata;
-
-        // Determine node type from chunk_type metadata
-        let chunk_type_str = match meta.get("chunk_type") {
-            Some(s) => s.as_str(),
-            None => continue, // No chunk_type means not a semantic chunk
-        };
-        let Some(node_type) = node_type_from_display_name(chunk_type_str) else {
-            // Preamble and text chunks: extract imports from preamble content
-            if chunk_type_str == "preamble" {
-                let language = meta.get("language").map(|s| s.as_str()).unwrap_or("");
-                extract_imports_from_content(
-                    &chunk.content,
-                    language,
-                    tenant_id,
-                    file_path,
-                    &mut result,
-                );
-            }
-            continue;
-        };
-
-        let symbol_name = match meta.get("symbol_name") {
-            Some(s) if !s.is_empty() => s,
-            _ => continue,
-        };
-        let language = meta.get("language").cloned().unwrap_or_default();
-
-        // Create the node
-        let mut node = GraphNode::new(tenant_id, file_path, symbol_name, node_type);
-        node.start_line = meta.get("start_line").and_then(|s| s.parse::<u32>().ok());
-        node.end_line = meta.get("end_line").and_then(|s| s.parse::<u32>().ok());
-        node.signature = meta.get("signature").cloned();
-        node.language = Some(language.clone());
-        result.nodes.push(node.clone());
-
-        // CONTAINS edges
-        if let Some(parent) = meta.get("parent_symbol") {
-            if !parent.is_empty() {
-                let parent_type = infer_parent_node_type(parent, &language);
-                let parent_node = GraphNode::stub(tenant_id, parent, parent_type);
-                let edge = GraphEdge::new(
-                    tenant_id,
-                    &parent_node.node_id,
-                    &node.node_id,
-                    EdgeType::Contains,
-                    file_path,
-                );
-                result.nodes.push(parent_node);
-                result.edges.push(edge);
-            }
-        }
-
-        // CALLS edges (comma-separated in metadata)
-        if let Some(calls_str) = meta.get("calls") {
-            for call in calls_str.split(',') {
-                let call = call.trim();
-                if call.is_empty() {
-                    continue;
-                }
-                let (_qualifier, callee_name) = parse_qualified_name(call);
-                if callee_name.is_empty() {
-                    continue;
-                }
-                let callee_stub =
-                    GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
-                let edge = GraphEdge::new(
-                    tenant_id,
-                    &node.node_id,
-                    &callee_stub.node_id,
-                    EdgeType::Calls,
-                    file_path,
-                );
-                result.nodes.push(callee_stub);
-                result.edges.push(edge);
-            }
-        }
-
-        // USES_TYPE edges
-        if let Some(sig) = meta.get("signature") {
-            let type_refs = extract_type_references(sig, &language);
-            for type_name in type_refs {
-                let type_stub =
-                    GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
-                let edge = GraphEdge::new(
-                    tenant_id,
-                    &node.node_id,
-                    &type_stub.node_id,
-                    EdgeType::UsesType,
-                    file_path,
-                );
-                result.nodes.push(type_stub);
-                result.edges.push(edge);
-            }
-        }
+        process_text_chunk(chunk, tenant_id, file_path, &mut result);
     }
 
     result
+}
+
+/// Process a single `TextChunk` into graph nodes and edges.
+fn process_text_chunk(
+    chunk: &TextChunk,
+    tenant_id: &str,
+    file_path: &str,
+    result: &mut ExtractionResult,
+) {
+    let meta = &chunk.metadata;
+
+    let chunk_type_str = match meta.get("chunk_type") {
+        Some(s) => s.as_str(),
+        None => return,
+    };
+    let Some(node_type) = node_type_from_display_name(chunk_type_str) else {
+        if chunk_type_str == "preamble" {
+            let language = meta.get("language").map(|s| s.as_str()).unwrap_or("");
+            extract_imports_from_content(
+                &chunk.content,
+                language,
+                tenant_id,
+                file_path,
+                result,
+            );
+        }
+        return;
+    };
+
+    let symbol_name = match meta.get("symbol_name") {
+        Some(s) if !s.is_empty() => s,
+        _ => return,
+    };
+    let language = meta.get("language").cloned().unwrap_or_default();
+
+    let mut node = GraphNode::new(tenant_id, file_path, symbol_name, node_type);
+    node.start_line = meta.get("start_line").and_then(|s| s.parse::<u32>().ok());
+    node.end_line = meta.get("end_line").and_then(|s| s.parse::<u32>().ok());
+    node.signature = meta.get("signature").cloned();
+    node.language = Some(language.clone());
+    result.nodes.push(node.clone());
+
+    add_contains_edges(meta, &node, tenant_id, file_path, &language, result);
+    add_calls_edges(meta, &node, tenant_id, file_path, result);
+    add_uses_type_edges(meta, &node, tenant_id, file_path, &language, result);
+}
+
+fn add_contains_edges(
+    meta: &std::collections::HashMap<String, String>,
+    node: &GraphNode,
+    tenant_id: &str,
+    file_path: &str,
+    language: &str,
+    result: &mut ExtractionResult,
+) {
+    if let Some(parent) = meta.get("parent_symbol") {
+        if !parent.is_empty() {
+            let parent_type = infer_parent_node_type(parent, language);
+            let parent_node = GraphNode::stub(tenant_id, parent, parent_type);
+            let edge = GraphEdge::new(
+                tenant_id,
+                &parent_node.node_id,
+                &node.node_id,
+                EdgeType::Contains,
+                file_path,
+            );
+            result.nodes.push(parent_node);
+            result.edges.push(edge);
+        }
+    }
+}
+
+fn add_calls_edges(
+    meta: &std::collections::HashMap<String, String>,
+    node: &GraphNode,
+    tenant_id: &str,
+    file_path: &str,
+    result: &mut ExtractionResult,
+) {
+    if let Some(calls_str) = meta.get("calls") {
+        for call in calls_str.split(',') {
+            let call = call.trim();
+            if call.is_empty() {
+                continue;
+            }
+            let (_qualifier, callee_name) = parse_qualified_name(call);
+            if callee_name.is_empty() {
+                continue;
+            }
+            let callee_stub = GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
+            let edge = GraphEdge::new(
+                tenant_id,
+                &node.node_id,
+                &callee_stub.node_id,
+                EdgeType::Calls,
+                file_path,
+            );
+            result.nodes.push(callee_stub);
+            result.edges.push(edge);
+        }
+    }
+}
+
+fn add_uses_type_edges(
+    meta: &std::collections::HashMap<String, String>,
+    node: &GraphNode,
+    tenant_id: &str,
+    file_path: &str,
+    language: &str,
+    result: &mut ExtractionResult,
+) {
+    if let Some(sig) = meta.get("signature") {
+        let type_refs = extract_type_references(sig, language);
+        for type_name in type_refs {
+            let type_stub = GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
+            let edge = GraphEdge::new(
+                tenant_id,
+                &node.node_id,
+                &type_stub.node_id,
+                EdgeType::UsesType,
+                file_path,
+            );
+            result.nodes.push(type_stub);
+            result.edges.push(edge);
+        }
+    }
 }
 
 /// Convert a `ChunkType::display_name()` string back to `NodeType`.

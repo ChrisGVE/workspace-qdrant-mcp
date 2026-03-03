@@ -27,7 +27,6 @@ pub async fn backfill_rules_mirror(
     info!("Starting rules_mirror backfill from Qdrant...");
     let start = std::time::Instant::now();
 
-    // Check if rules collection exists before scrolling
     let exists = storage_client
         .collection_exists(wqm_common::constants::COLLECTION_RULES)
         .await
@@ -59,66 +58,17 @@ pub async fn backfill_rules_mirror(
 
         stats.points_scanned += points.len() as u64;
 
-        // Track last point ID for pagination
         if let Some(last) = points.last() {
             offset = last.id.clone();
         }
 
         for point in &points {
-            // Extract label as rule_id (required -- skip points without label)
-            let label = match point.payload.get("label").and_then(|v| v.as_str()) {
-                Some(l) => l,
-                None => {
-                    debug!("Skipping rules point without label");
-                    stats.skipped_no_label += 1;
-                    continue;
-                }
-            };
-
-            let empty = String::new();
-            let content = point.payload.get("content").and_then(|v| v.as_str()).unwrap_or(&empty);
-            let scope = point.payload.get("scope").and_then(|v| v.as_str());
-            let tenant_id = point.payload.get("tenant_id").and_then(|v| v.as_str());
-            let created_at = point.payload.get("created_at").and_then(|v| v.as_str());
-            let now = timestamps::now_utc();
-            let ts = created_at.unwrap_or(&now);
-
-            let result = sqlx::query(
-                "INSERT OR IGNORE INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
-            )
-            .bind(label)
-            .bind(content)
-            .bind(scope)
-            .bind(tenant_id)
-            .bind(ts)
-            .bind(ts)
-            .execute(pool)
-            .await;
-
-            match result {
-                Ok(r) => {
-                    if r.rows_affected() > 0 {
-                        stats.inserted += 1;
-                    } else {
-                        stats.already_exists += 1;
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to insert rules_mirror row for label={}: {}", label, e);
-                    stats.errors += 1;
-                }
-            }
+            insert_rules_mirror_point(pool, point, &mut stats).await;
         }
 
-        // If we got fewer than batch_size, we've reached the end
         if (points.len() as u32) < batch_size {
             break;
         }
-
-        // Advance offset past the last returned point
-        // scroll_with_filter already returned the offset-based page;
-        // the next page starts from the last point's ID
     }
 
     let elapsed = start.elapsed();
@@ -128,6 +78,56 @@ pub async fn backfill_rules_mirror(
     );
 
     Ok(stats)
+}
+
+async fn insert_rules_mirror_point(
+    pool: &SqlitePool,
+    point: &qdrant_client::qdrant::RetrievedPoint,
+    stats: &mut RulesBackfillStats,
+) {
+    let label = match point.payload.get("label").and_then(|v| v.as_str()) {
+        Some(l) => l,
+        None => {
+            debug!("Skipping rules point without label");
+            stats.skipped_no_label += 1;
+            return;
+        }
+    };
+
+    let empty = String::new();
+    let content = point.payload.get("content").and_then(|v| v.as_str()).unwrap_or(&empty);
+    let scope = point.payload.get("scope").and_then(|v| v.as_str());
+    let tenant_id = point.payload.get("tenant_id").and_then(|v| v.as_str());
+    let created_at = point.payload.get("created_at").and_then(|v| v.as_str());
+    let now = timestamps::now_utc();
+    let ts = created_at.unwrap_or(&now);
+
+    let result = sqlx::query(
+        "INSERT OR IGNORE INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+    )
+    .bind(label)
+    .bind(content)
+    .bind(scope)
+    .bind(tenant_id)
+    .bind(ts)
+    .bind(ts)
+    .execute(pool)
+    .await;
+
+    match result {
+        Ok(r) => {
+            if r.rows_affected() > 0 {
+                stats.inserted += 1;
+            } else {
+                stats.already_exists += 1;
+            }
+        }
+        Err(e) => {
+            warn!("Failed to insert rules_mirror row for label={}: {}", label, e);
+            stats.errors += 1;
+        }
+    }
 }
 
 /// Statistics from rules mirror backfill
