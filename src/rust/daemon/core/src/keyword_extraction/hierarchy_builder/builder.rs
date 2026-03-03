@@ -1,14 +1,4 @@
-//! Nightly canonical tag hierarchy rebuild.
-//!
-//! Periodically rebuilds the canonical tag graph per tenant by:
-//! 1. Collecting all concept tags from the `tags` table
-//! 2. Embedding tag phrases for vector similarity
-//! 3. Running `canonical_tags::build_hierarchy()` (dedup → cluster)
-//! 4. Writing results to `canonical_tags` and `tag_hierarchy_edges` tables
-//!
-//! Triggers:
-//! - Scheduled nightly at 2 AM local time
-//! - Manual via CLI: `wqm tags rebuild --tenant <id>`
+//! HierarchyBuilder: orchestrates the nightly canonical tag hierarchy rebuild.
 
 use std::sync::Arc;
 
@@ -19,55 +9,16 @@ use tracing::{debug, error, info};
 use crate::embedding::EmbeddingGenerator;
 use wqm_common::timestamps::now_utc;
 
-use super::canonical_tags::{self, CanonicalConfig, CanonicalHierarchy, TagWithVector};
+use crate::keyword_extraction::canonical_tags::{self, CanonicalHierarchy, TagWithVector};
 
-/// Configuration for the hierarchy rebuild job.
-#[derive(Debug, Clone)]
-pub struct HierarchyRebuildConfig {
-    /// Minimum number of concept tags for a tenant to trigger rebuild
-    pub min_tags_threshold: usize,
-    /// Canonical tag clustering config
-    pub canonical: CanonicalConfig,
-    /// Collection to operate on (default: "projects")
-    pub collection: String,
-}
-
-impl Default for HierarchyRebuildConfig {
-    fn default() -> Self {
-        Self {
-            min_tags_threshold: 10,
-            canonical: CanonicalConfig::default(),
-            collection: "projects".to_string(),
-        }
-    }
-}
-
-/// Result of a hierarchy rebuild for a single tenant.
-#[derive(Debug, Clone)]
-pub struct RebuildResult {
-    pub tenant_id: String,
-    pub tags_collected: usize,
-    pub level3_count: usize,
-    pub level2_count: usize,
-    pub level1_count: usize,
-    pub edges_created: usize,
-}
-
-/// Result of a full rebuild across all tenants.
-#[derive(Debug, Clone)]
-pub struct FullRebuildResult {
-    pub tenants_processed: usize,
-    pub tenants_skipped: usize,
-    pub total_canonical_tags: usize,
-    pub total_edges: usize,
-    pub tenant_results: Vec<RebuildResult>,
-}
+use super::scheduler::delay_until_next_2am;
+use super::types::{FullRebuildResult, HierarchyError, HierarchyRebuildConfig, RebuildResult};
 
 /// Hierarchy builder for nightly canonical tag rebuilds.
 pub struct HierarchyBuilder {
-    pool: SqlitePool,
-    embedding_generator: Arc<EmbeddingGenerator>,
-    config: HierarchyRebuildConfig,
+    pub(super) pool: SqlitePool,
+    pub(super) embedding_generator: Arc<EmbeddingGenerator>,
+    pub(super) config: HierarchyRebuildConfig,
 }
 
 impl std::fmt::Debug for HierarchyBuilder {
@@ -456,111 +407,5 @@ impl HierarchyBuilder {
         tx.commit().await.map_err(HierarchyError::Database)?;
 
         Ok(edges_created)
-    }
-}
-
-/// Calculate the delay until the next 2:00 AM local time.
-fn delay_until_next_2am() -> std::time::Duration {
-    let now = chrono::Local::now();
-    let today_2am = now
-        .date_naive()
-        .and_hms_opt(2, 0, 0)
-        .expect("valid time");
-
-    let target = if now.naive_local() < today_2am {
-        // 2 AM hasn't passed today yet
-        today_2am
-    } else {
-        // 2 AM already passed, schedule for tomorrow
-        today_2am + chrono::Duration::days(1)
-    };
-
-    let target_local = target
-        .and_local_timezone(now.timezone())
-        .single()
-        .unwrap_or_else(|| {
-            // DST ambiguity fallback: use the latest option
-            target
-                .and_local_timezone(now.timezone())
-                .latest()
-                .expect("at least one valid local time")
-        });
-
-    let diff = target_local - now;
-    diff.to_std().unwrap_or(std::time::Duration::from_secs(3600))
-}
-
-/// Errors from hierarchy builder operations.
-#[derive(Debug, thiserror::Error)]
-pub enum HierarchyError {
-    #[error("Database error: {0}")]
-    Database(sqlx::Error),
-
-    #[error("Embedding error: {0}")]
-    Embedding(crate::embedding::EmbeddingError),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_config() {
-        let config = HierarchyRebuildConfig::default();
-        assert_eq!(config.min_tags_threshold, 10);
-        assert_eq!(config.collection, "projects");
-        assert!((config.canonical.merge_threshold - 0.85).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_rebuild_result_fields() {
-        let result = RebuildResult {
-            tenant_id: "test-tenant".to_string(),
-            tags_collected: 50,
-            level3_count: 30,
-            level2_count: 10,
-            level1_count: 3,
-            edges_created: 40,
-        };
-        assert_eq!(result.tenant_id, "test-tenant");
-        assert_eq!(result.tags_collected, 50);
-    }
-
-    #[test]
-    fn test_full_rebuild_result_defaults() {
-        let result = FullRebuildResult {
-            tenants_processed: 0,
-            tenants_skipped: 0,
-            total_canonical_tags: 0,
-            total_edges: 0,
-            tenant_results: Vec::new(),
-        };
-        assert!(result.tenant_results.is_empty());
-    }
-
-    #[test]
-    fn test_delay_until_next_2am_is_positive() {
-        let delay = delay_until_next_2am();
-        assert!(delay.as_secs() > 0, "Delay should be positive");
-        // Should never be more than 24 hours
-        assert!(
-            delay.as_secs() < 86400 + 3600, // 25 hours max (DST edge)
-            "Delay should be less than ~25 hours, got {}s",
-            delay.as_secs()
-        );
-    }
-
-    #[test]
-    fn test_delay_is_reasonable() {
-        let delay = delay_until_next_2am();
-        // At minimum a few seconds, at maximum ~24h
-        assert!(delay.as_secs() >= 1);
-        assert!(delay.as_secs() <= 90000); // 25 hours
-    }
-
-    #[test]
-    fn test_hierarchy_error_display() {
-        let err = HierarchyError::Database(sqlx::Error::RowNotFound);
-        assert!(err.to_string().contains("Database error"));
     }
 }
