@@ -130,6 +130,71 @@ impl TextSearchServiceImpl {
         );
     }
 
+    /// Cap results to `max_results` and re-fetch with context lines when needed.
+    ///
+    /// The cache stores results without context. When `context_lines > 0`, the
+    /// search is re-executed with the limit applied so context can be included.
+    async fn apply_max_results_and_context(
+        &self,
+        results: SearchResults,
+        req: &TextSearchRequest,
+        options: &SearchOptions,
+    ) -> Vec<TextSearchMatch> {
+        let capped: Vec<_> = results
+            .matches
+            .into_iter()
+            .take(options.max_results)
+            .collect();
+
+        if options.context_lines > 0 {
+            let result_with_ctx = if req.regex {
+                search_regex(&self.search_db, &req.pattern, options).await
+            } else {
+                search_exact(&self.search_db, &req.pattern, options).await
+            };
+            match result_with_ctx {
+                Ok(ctx_results) => ctx_results
+                    .matches
+                    .into_iter()
+                    .map(|m| TextSearchMatch {
+                        file_path: m.file_path,
+                        line_number: m.line_number as i32,
+                        content: m.content,
+                        tenant_id: m.tenant_id,
+                        branch: m.branch,
+                        context_before: m.context_before,
+                        context_after: m.context_after,
+                    })
+                    .collect(),
+                Err(_) => capped
+                    .into_iter()
+                    .map(|m| TextSearchMatch {
+                        file_path: m.file_path,
+                        line_number: m.line_number as i32,
+                        content: m.content,
+                        tenant_id: m.tenant_id,
+                        branch: m.branch,
+                        context_before: vec![],
+                        context_after: vec![],
+                    })
+                    .collect(),
+            }
+        } else {
+            capped
+                .into_iter()
+                .map(|m| TextSearchMatch {
+                    file_path: m.file_path,
+                    line_number: m.line_number as i32,
+                    content: m.content,
+                    tenant_id: m.tenant_id,
+                    branch: m.branch,
+                    context_before: vec![],
+                    context_after: vec![],
+                })
+                .collect()
+        }
+    }
+
     /// Execute the search (exact or regex) or return a cached result.
     async fn execute_or_cached(
         &self,
@@ -191,72 +256,12 @@ impl TextSearchService for TextSearchServiceImpl {
 
         let start = Instant::now();
         let results = self.execute_or_cached(&req).await?;
-
         let options = Self::build_options(&req);
         let truncated = results.matches.len() > options.max_results;
 
-        // Apply max_results and re-query for context if needed
-        let capped: Vec<_> = results
-            .matches
-            .into_iter()
-            .take(options.max_results)
-            .collect();
-
-        // If context_lines > 0, we need to fetch context for the matched lines.
-        // The cached results were stored without context, so run the search
-        // with context only for the capped results. For simplicity and to avoid
-        // a separate per-line query, re-run with limits when context is needed.
-        let matches: Vec<TextSearchMatch> = if options.context_lines > 0 {
-            // Re-run search with context lines and max_results applied
-            let result_with_ctx = if req.regex {
-                search_regex(&self.search_db, &req.pattern, &options).await
-            } else {
-                search_exact(&self.search_db, &req.pattern, &options).await
-            };
-            match result_with_ctx {
-                Ok(ctx_results) => ctx_results
-                    .matches
-                    .into_iter()
-                    .map(|m| TextSearchMatch {
-                        file_path: m.file_path,
-                        line_number: m.line_number as i32,
-                        content: m.content,
-                        tenant_id: m.tenant_id,
-                        branch: m.branch,
-                        context_before: m.context_before,
-                        context_after: m.context_after,
-                    })
-                    .collect(),
-                Err(_) => {
-                    // Fallback: return without context
-                    capped
-                        .into_iter()
-                        .map(|m| TextSearchMatch {
-                            file_path: m.file_path,
-                            line_number: m.line_number as i32,
-                            content: m.content,
-                            tenant_id: m.tenant_id,
-                            branch: m.branch,
-                            context_before: vec![],
-                            context_after: vec![],
-                        })
-                        .collect()
-                }
-            }
-        } else {
-            capped
-                .into_iter()
-                .map(|m| TextSearchMatch {
-                    file_path: m.file_path,
-                    line_number: m.line_number as i32,
-                    content: m.content,
-                    tenant_id: m.tenant_id,
-                    branch: m.branch,
-                    context_before: vec![],
-                    context_after: vec![],
-                })
-                .collect()
-        };
+        let matches = self
+            .apply_max_results_and_context(results, &req, &options)
+            .await;
 
         let query_time_ms = start.elapsed().as_millis() as i64;
         let total_matches = matches.len() as i32;

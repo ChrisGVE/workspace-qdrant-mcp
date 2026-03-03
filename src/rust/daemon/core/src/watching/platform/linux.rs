@@ -179,71 +179,8 @@ impl LinuxWatcher {
                     break;
                 }
 
-                match inotify.read_events(&mut buffer) {
-                    Ok(events) => {
-                        for event in events {
-                            // Resolve the base path from the watch descriptor
-                            let base_path = match watch_descriptors.get(&event.wd) {
-                                Some(path) => path.clone(),
-                                None => {
-                                    tracing::warn!(
-                                        "Received event for unknown watch descriptor"
-                                    );
-                                    continue;
-                                }
-                            };
-
-                            // Build full path: base_dir + event.name
-                            let full_path = match event.name {
-                                Some(name) => base_path.join(name),
-                                None => base_path.clone(),
-                            };
-
-                            let event_kind = Self::mask_to_event_kind(event.mask);
-
-                            // Get file metadata for size (may fail for deleted files)
-                            let size = std::fs::metadata(&full_path).ok().map(|m| m.len());
-
-                            let mut metadata = HashMap::new();
-                            metadata
-                                .insert("platform".to_string(), "linux".to_string());
-                            metadata
-                                .insert("backend".to_string(), "inotify".to_string());
-
-                            if event.mask.contains(inotify::EventMask::ISDIR) {
-                                metadata
-                                    .insert("is_dir".to_string(), "true".to_string());
-                            }
-
-                            let file_event = FileEvent {
-                                path: full_path,
-                                event_kind,
-                                timestamp: Instant::now(),
-                                system_time: SystemTime::now(),
-                                size,
-                                metadata,
-                            };
-
-                            if let Err(e) = event_tx.send(file_event) {
-                                tracing::warn!("Failed to send inotify event: {}", e);
-                                // Channel closed, stop the loop
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) if e.kind() == ErrorKind::Interrupted => {
-                        // EINTR - just retry
-                        continue;
-                    }
-                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                        // No events available, sleep briefly and retry
-                        std::thread::sleep(std::time::Duration::from_millis(50));
-                        continue;
-                    }
-                    Err(e) => {
-                        tracing::error!("inotify read error: {}", e);
-                        break;
-                    }
+                if !process_inotify_events(&mut inotify, &mut buffer, &watch_descriptors, &event_tx) {
+                    break;
                 }
             }
 
@@ -263,6 +200,69 @@ impl LinuxWatcher {
     /// Check if the watcher is active
     pub fn is_active(&self) -> bool {
         self.event_task.is_some() && !self.watched_paths.is_empty()
+    }
+}
+
+/// Read one batch of inotify events, convert them to `FileEvent`, and send via channel.
+///
+/// Returns `true` to continue the loop, `false` to break (channel closed or fatal error).
+fn process_inotify_events(
+    inotify: &mut Inotify,
+    buffer: &mut Vec<u8>,
+    watch_descriptors: &HashMap<WatchDescriptor, PathBuf>,
+    event_tx: &mpsc::UnboundedSender<FileEvent>,
+) -> bool {
+    match inotify.read_events(buffer) {
+        Ok(events) => {
+            for event in events {
+                let base_path = match watch_descriptors.get(&event.wd) {
+                    Some(path) => path.clone(),
+                    None => {
+                        tracing::warn!("Received event for unknown watch descriptor");
+                        continue;
+                    }
+                };
+
+                let full_path = match event.name {
+                    Some(name) => base_path.join(name),
+                    None => base_path.clone(),
+                };
+
+                let event_kind = LinuxWatcher::mask_to_event_kind(event.mask);
+                let size = std::fs::metadata(&full_path).ok().map(|m| m.len());
+
+                let mut metadata = HashMap::new();
+                metadata.insert("platform".to_string(), "linux".to_string());
+                metadata.insert("backend".to_string(), "inotify".to_string());
+                if event.mask.contains(inotify::EventMask::ISDIR) {
+                    metadata.insert("is_dir".to_string(), "true".to_string());
+                }
+
+                let file_event = FileEvent {
+                    path: full_path,
+                    event_kind,
+                    timestamp: Instant::now(),
+                    system_time: SystemTime::now(),
+                    size,
+                    metadata,
+                };
+
+                if let Err(e) = event_tx.send(file_event) {
+                    tracing::warn!("Failed to send inotify event: {}", e);
+                    return false; // Channel closed
+                }
+            }
+            true
+        }
+        Err(e) if e.kind() == ErrorKind::Interrupted => true,  // EINTR — retry
+        Err(e) if e.kind() == ErrorKind::WouldBlock => {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            true
+        }
+        Err(e) => {
+            tracing::error!("inotify read error: {}", e);
+            false
+        }
     }
 }
 

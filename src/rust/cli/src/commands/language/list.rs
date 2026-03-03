@@ -11,8 +11,7 @@ use super::helpers::detect_available_servers;
 /// List available languages with support status.
 pub async fn list_languages(installed: bool, category: Option<String>, verbose: bool) -> Result<()> {
     use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::known_grammar_languages;
-    use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus, StaticLanguageProvider};
+    use workspace_qdrant_core::tree_sitter::GrammarManager;
 
     output::section("Language Support");
 
@@ -24,7 +23,6 @@ pub async fn list_languages(installed: bool, category: Option<String>, verbose: 
     }
     output::separator();
 
-    // Check daemon connection
     let daemon_connected = DaemonClient::connect_default().await.is_ok();
     if daemon_connected {
         output::status_line("Daemon", ServiceStatus::Healthy);
@@ -33,7 +31,21 @@ pub async fn list_languages(installed: bool, category: Option<String>, verbose: 
     }
     output::separator();
 
-    // Show LSP servers available
+    show_lsp_servers(installed, verbose);
+
+    let config = GrammarConfig::default();
+    let manager = GrammarManager::new(config.clone());
+    show_grammar_status(&manager, &config, installed, verbose);
+
+    if !installed {
+        show_install_hints();
+    }
+
+    Ok(())
+}
+
+/// Print the LSP servers section.
+fn show_lsp_servers(installed: bool, verbose: bool) {
     println!("{}", "LSP Servers".cyan().bold());
     let servers = detect_available_servers();
     if servers.is_empty() {
@@ -50,16 +62,23 @@ pub async fn list_languages(installed: bool, category: Option<String>, verbose: 
         }
     }
     println!();
+}
 
-    // Show Tree-sitter grammars
+/// Print the Tree-sitter grammar section (static, cached, downloadable).
+fn show_grammar_status(
+    manager: &workspace_qdrant_core::tree_sitter::GrammarManager,
+    config: &workspace_qdrant_core::config::GrammarConfig,
+    installed: bool,
+    verbose: bool,
+) {
+    use workspace_qdrant_core::known_grammar_languages;
+    use workspace_qdrant_core::tree_sitter::{GrammarStatus, StaticLanguageProvider};
+
     println!("{}", "Tree-sitter Grammars".cyan().bold());
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config.clone());
     let cached = manager.cached_languages().unwrap_or_default();
-
-    // Static grammars (only shown when feature is enabled)
     let static_langs = StaticLanguageProvider::SUPPORTED_LANGUAGES;
+
     if !static_langs.is_empty() {
         println!("  {}", "Static (bundled):".dimmed());
         for lang in static_langs {
@@ -67,7 +86,6 @@ pub async fn list_languages(installed: bool, category: Option<String>, verbose: 
         }
     }
 
-    // Cached (dynamically downloaded) grammars
     if !cached.is_empty() {
         println!("  {}", "Cached (dynamic):".dimmed());
         for lang in &cached {
@@ -92,7 +110,6 @@ pub async fn list_languages(installed: bool, category: Option<String>, verbose: 
         println!("  Cached: (none)");
     }
 
-    // Available for download
     if !installed {
         let known = known_grammar_languages();
         let downloadable: Vec<&&str> = known
@@ -106,13 +123,12 @@ pub async fn list_languages(installed: bool, category: Option<String>, verbose: 
             }
         }
     }
+}
 
-    if !installed {
-        output::separator();
-        output::info("Install components with:");
-        output::info("  wqm language lsp-install <language>  # LSP server");
-        output::info("  wqm language ts-install <language>   # Tree-sitter grammar");
-    }
-
-    Ok(())
+/// Print installation hint footer.
+fn show_install_hints() {
+    output::separator();
+    output::info("Install components with:");
+    output::info("  wqm language lsp-install <language>  # LSP server");
+    output::info("  wqm language ts-install <language>   # Tree-sitter grammar");
 }

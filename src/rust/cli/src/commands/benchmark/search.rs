@@ -97,14 +97,42 @@ pub async fn execute(
         .context("Failed to open search.db")?;
 
     let queries = DEFAULT_QUERIES;
+    print_benchmark_header(queries, &project_root, tenant_id.as_deref(), warmup, iterations);
 
+    run_warmup(&search_db, queries, &project_root, tenant_id.as_deref(), warmup).await;
+
+    let comparisons =
+        run_benchmark_queries(&search_db, queries, &project_root, tenant_id.as_deref(), iterations)
+            .await?;
+
+    search_db.close().await;
+
+    print_results(&comparisons, iterations);
+
+    if let Some(path) = output_file {
+        write_json_report(&path, &comparisons, &project_root, iterations).await?;
+        println!("Report written to: {}", path);
+    }
+
+    Ok(())
+}
+
+/// Print the benchmark run header.
+fn print_benchmark_header(
+    queries: &[BenchQuery],
+    project_root: &PathBuf,
+    tenant_id: Option<&str>,
+    warmup: usize,
+    iterations: usize,
+) {
     println!("Search Benchmark: FTS5 vs ripgrep");
     println!("=================================");
     println!("Project root: {}", project_root.display());
-    if let Some(ref tid) = tenant_id {
+    if let Some(tid) = tenant_id {
         println!("Tenant ID:    {}", tid);
     }
-    println!("Queries:      {} ({} exact, {} regex)",
+    println!(
+        "Queries:      {} ({} exact, {} regex)",
         queries.len(),
         queries.iter().filter(|q| !q.regex).count(),
         queries.iter().filter(|q| q.regex).count(),
@@ -112,19 +140,35 @@ pub async fn execute(
     println!("Warmup:       {} iteration(s)", warmup);
     println!("Iterations:   {}", iterations);
     println!();
+}
 
-    // Warmup
+/// Run warmup passes over all queries to prime caches.
+async fn run_warmup(
+    search_db: &SearchDbManager,
+    queries: &[BenchQuery],
+    project_root: &PathBuf,
+    tenant_id: Option<&str>,
+    warmup: usize,
+) {
     if warmup > 0 {
         println!("Warming up...");
         for _ in 0..warmup {
             for q in queries {
-                let _ = run_fts5_query(&search_db, q, tenant_id.as_deref()).await;
-                let _ = run_rg_query(&project_root, q);
+                let _ = run_fts5_query(search_db, q, tenant_id).await;
+                let _ = run_rg_query(project_root, q);
             }
         }
     }
+}
 
-    // Benchmark
+/// Run timed iterations for all queries and collect comparisons.
+async fn run_benchmark_queries(
+    search_db: &SearchDbManager,
+    queries: &[BenchQuery],
+    project_root: &PathBuf,
+    tenant_id: Option<&str>,
+    iterations: usize,
+) -> Result<Vec<QueryComparison>> {
     println!("Running benchmark...");
     let mut comparisons: Vec<QueryComparison> = Vec::new();
 
@@ -135,11 +179,11 @@ pub async fn execute(
         let mut last_rg = None;
 
         for _ in 0..iterations {
-            let fts5_result = run_fts5_query(&search_db, q, tenant_id.as_deref()).await?;
+            let fts5_result = run_fts5_query(search_db, q, tenant_id).await?;
             fts5_latencies.push(fts5_result.latency_ms);
             last_fts5 = Some(fts5_result);
 
-            let rg_result = run_rg_query(&project_root, q)?;
+            let rg_result = run_rg_query(project_root, q)?;
             rg_latencies.push(rg_result.latency_ms);
             last_rg = Some(rg_result);
         }
@@ -168,16 +212,7 @@ pub async fn execute(
         });
     }
 
-    search_db.close().await;
-
-    print_results(&comparisons, iterations);
-
-    if let Some(path) = output_file {
-        write_json_report(&path, &comparisons, &project_root, iterations).await?;
-        println!("Report written to: {}", path);
-    }
-
-    Ok(())
+    Ok(comparisons)
 }
 
 /// Run a query through FTS5 search.db.

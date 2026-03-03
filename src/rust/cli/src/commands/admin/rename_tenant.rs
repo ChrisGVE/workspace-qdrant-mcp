@@ -12,96 +12,83 @@ use super::VALID_COLLECTIONS;
 /// Rename a tenant_id across SQLite (via daemon gRPC) and verify
 pub async fn execute(old_id: String, new_id: String, yes: bool) -> Result<()> {
     output::section("Tenant Rename");
-
     output::kv("From", &old_id);
     output::kv("To", &new_id);
     output::separator();
-
     output::warning("This will rename the tenant_id in SQLite tables (watch_folders, unified_queue, tracked_files).");
     output::info("Qdrant payloads (project_id field) will NOT be updated automatically.");
     output::info("To update Qdrant, reset the affected collections after rename: wqm collections reset projects");
     println!();
 
-    // Confirmation
-    if !yes {
-        print!(
-            "  To confirm, type the old tenant_id '{}': ",
-            old_id
-        );
-        std::io::stdout().flush()?;
-
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        let input = input.trim();
-
-        if input != old_id {
-            output::error(format!("Expected '{}', got '{}'. Aborting.", old_id, input));
-            return Ok(());
-        }
-        println!();
+    if !yes && !confirm_rename(&old_id)? {
+        return Ok(());
     }
 
-    // Call daemon gRPC
     match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            let request = RenameTenantRequest {
-                old_tenant_id: old_id.clone(),
-                new_tenant_id: new_id.clone(),
-                collections: VALID_COLLECTIONS
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect(),
-            };
-
-            match client.project().rename_tenant(request).await {
-                Ok(response) => {
-                    let resp = response.into_inner();
-                    if resp.success {
-                        output::success(format!(
-                            "Renamed '{}' -> '{}': {} SQLite rows updated",
-                            old_id, new_id, resp.sqlite_rows_updated
-                        ));
-                    } else {
-                        output::error(format!("Rename failed: {}", resp.message));
-                    }
-                }
-                Err(e) => {
-                    output::error(format!("gRPC call failed: {}", e));
-                    output::info("Falling back to direct SQLite rename...");
-
-                    // Fallback to direct SQLite
-                    match rename_direct(&old_id, &new_id).await {
-                        Ok(count) => {
-                            output::success(format!(
-                                "Direct rename '{}' -> '{}': {} SQLite rows updated",
-                                old_id, new_id, count
-                            ));
-                        }
-                        Err(e) => {
-                            output::error(format!("Direct rename failed: {}", e));
-                        }
-                    }
-                }
-            }
-        }
+        Ok(mut client) => handle_rename_via_grpc(&mut client, &old_id, &new_id).await,
         Err(_) => {
             output::warning("Daemon not running, using direct SQLite access");
-
-            match rename_direct(&old_id, &new_id).await {
-                Ok(count) => {
-                    output::success(format!(
-                        "Direct rename '{}' -> '{}': {} SQLite rows updated",
-                        old_id, new_id, count
-                    ));
-                }
-                Err(e) => {
-                    output::error(format!("Direct rename failed: {}", e));
-                }
-            }
+            handle_rename_fallback(&old_id, &new_id).await;
         }
     }
 
     Ok(())
+}
+
+/// Prompt the user to type the old tenant ID to confirm. Returns `false` on abort.
+fn confirm_rename(old_id: &str) -> Result<bool> {
+    print!("  To confirm, type the old tenant_id '{}': ", old_id);
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+
+    if input != old_id {
+        output::error(format!("Expected '{}', got '{}'. Aborting.", old_id, input));
+        return Ok(false);
+    }
+    println!();
+    Ok(true)
+}
+
+/// Attempt rename through the daemon gRPC service, falling back to direct SQLite on error.
+async fn handle_rename_via_grpc(client: &mut DaemonClient, old_id: &str, new_id: &str) {
+    let request = RenameTenantRequest {
+        old_tenant_id: old_id.to_string(),
+        new_tenant_id: new_id.to_string(),
+        collections: VALID_COLLECTIONS.iter().map(|s| s.to_string()).collect(),
+    };
+
+    match client.project().rename_tenant(request).await {
+        Ok(response) => {
+            let resp = response.into_inner();
+            if resp.success {
+                output::success(format!(
+                    "Renamed '{}' -> '{}': {} SQLite rows updated",
+                    old_id, new_id, resp.sqlite_rows_updated
+                ));
+            } else {
+                output::error(format!("Rename failed: {}", resp.message));
+            }
+        }
+        Err(e) => {
+            output::error(format!("gRPC call failed: {}", e));
+            output::info("Falling back to direct SQLite rename...");
+            handle_rename_fallback(old_id, new_id).await;
+        }
+    }
+}
+
+/// Perform the rename directly against SQLite (used when daemon is unavailable).
+async fn handle_rename_fallback(old_id: &str, new_id: &str) {
+    match rename_direct(old_id, new_id).await {
+        Ok(count) => output::success(format!(
+            "Direct rename '{}' -> '{}': {} SQLite rows updated",
+            old_id, new_id, count
+        )),
+        Err(e) => output::error(format!("Direct rename failed: {}", e)),
+    }
 }
 
 /// Direct SQLite rename (fallback when daemon is not running)

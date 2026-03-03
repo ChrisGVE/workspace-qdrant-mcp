@@ -251,79 +251,101 @@ pub fn start_deferred_shutdown_monitor(
 
             let now = Instant::now();
             for (project_id, scheduled_time, _was_queue_checked) in pending {
-                if scheduled_time > now {
-                    debug!(
-                        project_id = %project_id,
-                        remaining_secs = (scheduled_time - now).as_secs(),
-                        "Shutdown not yet due"
-                    );
-                    continue;
-                }
-
-                let queue_depth: i64 = match sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending' AND tenant_id = ?1",
+                process_pending_shutdown(
+                    &project_id,
+                    scheduled_time,
+                    now,
+                    &db_pool,
+                    &pending_shutdowns,
+                    &lsp_manager,
+                    &language_detector,
                 )
-                .bind(&project_id)
-                .fetch_one(&db_pool)
-                .await
-                {
-                    Ok(count) => count,
-                    Err(e) => {
-                        if e.to_string().contains("no such table") {
-                            0
-                        } else {
-                            warn!(
-                                project_id = %project_id,
-                                error = %e,
-                                "Failed to check queue depth, skipping this iteration"
-                            );
-                            continue;
-                        }
-                    }
-                };
-
-                if queue_depth > 0 {
-                    debug!(
-                        project_id = %project_id,
-                        pending_items = queue_depth,
-                        "Queue not empty, deferring shutdown"
-                    );
-                    continue;
-                }
-
-                {
-                    let mut shutdowns = pending_shutdowns.write().await;
-                    shutdowns.remove(&project_id);
-                }
-
-                info!(
-                    project_id = %project_id,
-                    "Executing deferred LSP shutdown (queue empty, delay expired)"
-                );
-
-                language_detector.invalidate_cache(&project_id).await;
-
-                let Some(lsp_mgr) = &lsp_manager else {
-                    continue;
-                };
-
-                let manager = lsp_mgr.read().await;
-                for language in all_lsp_languages() {
-                    if let Err(e) = manager.stop_server(&project_id, language.clone()).await {
-                        debug!(
-                            project_id = %project_id,
-                            language = ?language,
-                            error = %e,
-                            "Error stopping LSP server (may not have been running)"
-                        );
-                    }
-                }
-
-                info!(
-                    project_id = %project_id,
-                    "Deferred LSP shutdown complete"
-                );
+                .await;
             }
         }
     });
+}
+
+/// Evaluate and potentially execute one deferred shutdown entry.
+///
+/// Skips if the shutdown time has not yet passed or the queue is non-empty.
+/// On execution: invalidates language cache and stops all LSP servers.
+async fn process_pending_shutdown(
+    project_id: &str,
+    scheduled_time: Instant,
+    now: Instant,
+    db_pool: &SqlitePool,
+    pending_shutdowns: &RwLock<HashMap<String, (Instant, bool)>>,
+    lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+    language_detector: &ProjectLanguageDetector,
+) {
+    if scheduled_time > now {
+        debug!(
+            project_id = %project_id,
+            remaining_secs = (scheduled_time - now).as_secs(),
+            "Shutdown not yet due"
+        );
+        return;
+    }
+
+    let queue_depth: i64 = match sqlx::query_scalar(
+        "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending' AND tenant_id = ?1",
+    )
+    .bind(project_id)
+    .fetch_one(db_pool)
+    .await
+    {
+        Ok(count) => count,
+        Err(e) => {
+            if e.to_string().contains("no such table") {
+                0
+            } else {
+                warn!(
+                    project_id = %project_id,
+                    error = %e,
+                    "Failed to check queue depth, skipping this iteration"
+                );
+                return;
+            }
+        }
+    };
+
+    if queue_depth > 0 {
+        debug!(
+            project_id = %project_id,
+            pending_items = queue_depth,
+            "Queue not empty, deferring shutdown"
+        );
+        return;
+    }
+
+    {
+        let mut shutdowns = pending_shutdowns.write().await;
+        shutdowns.remove(project_id);
+    }
+
+    info!(
+        project_id = %project_id,
+        "Executing deferred LSP shutdown (queue empty, delay expired)"
+    );
+
+    language_detector.invalidate_cache(project_id).await;
+
+    let Some(lsp_mgr) = lsp_manager else {
+        return;
+    };
+
+    let manager = lsp_mgr.read().await;
+    for language in all_lsp_languages() {
+        if let Err(e) = manager.stop_server(project_id, language.clone()).await {
+            debug!(
+                project_id = %project_id,
+                language = ?language,
+                error = %e,
+                "Error stopping LSP server (may not have been running)"
+            );
+        }
+    }
+
+    info!(project_id = %project_id, "Deferred LSP shutdown complete");
 }

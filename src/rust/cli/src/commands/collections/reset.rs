@@ -14,27 +14,67 @@ pub async fn reset_collections(
     include_queue: bool,
     yes: bool,
 ) -> Result<()> {
-    // Validate all collection names
+    let validated = match validate_collection_names(&names) {
+        Some(v) => v,
+        None => return Ok(()),
+    };
+
+    print_reset_warning(&validated, include_queue);
+
+    if !yes && !confirm_reset(&validated)? {
+        return Ok(());
+    }
+
+    let daemon_running = try_pause_daemon().await;
+
+    let client = build_client()?;
+    let base_url = qdrant_url();
+    perform_resets(&client, &base_url, &validated).await?;
+
+    if include_queue {
+        println!();
+        output::info("Cleaning queue items...");
+        match clean_queue_items(&validated).await {
+            Ok(count) => output::success(format!("Removed {} queue items", count)),
+            Err(e) => output::warning(format!("Queue cleanup failed: {}", e)),
+        }
+    }
+
+    if daemon_running {
+        try_resume_daemon().await;
+    }
+
+    println!();
+    output::success("Collection reset complete");
+
+    Ok(())
+}
+
+/// Validate and deduplicate collection names. Returns `None` on first invalid name.
+fn validate_collection_names(names: &[String]) -> Option<Vec<String>> {
     let mut validated = Vec::new();
-    for name in &names {
+    for name in names {
         if !VALID_COLLECTIONS.contains(&name.as_str()) {
             output::error(format!(
                 "Invalid collection name: '{}'. Valid names: {}",
                 name,
                 VALID_COLLECTIONS.join(", ")
             ));
-            return Ok(());
+            return None;
         }
         if !validated.contains(name) {
             validated.push(name.clone());
         }
     }
+    Some(validated)
+}
 
-    // Display warning
+/// Print the destructive-action warning before reset.
+fn print_reset_warning(validated: &[String], include_queue: bool) {
     output::section("Collection Reset");
     println!();
     output::warning("This will DELETE and RECREATE the following collections:");
-    for name in &validated {
+    for name in validated {
         println!("  - {}", name);
     }
     println!();
@@ -44,70 +84,46 @@ pub async fn reset_collections(
         output::info("Related pending/failed queue items will also be cleaned.");
     }
     println!();
+}
 
-    // Confirmation
-    if !yes {
-        output::info("To confirm, type each collection name exactly:");
-        for name in &validated {
-            print!("  Reset '{}'? Type '{}' to confirm: ", name, name);
-            std::io::stdout().flush()?;
+/// Prompt the user to type each collection name to confirm. Returns `false` on abort.
+fn confirm_reset(validated: &[String]) -> Result<bool> {
+    output::info("To confirm, type each collection name exactly:");
+    for name in validated {
+        print!("  Reset '{}'? Type '{}' to confirm: ", name, name);
+        std::io::stdout().flush()?;
 
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
-            let input = input.trim();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim();
 
-            if input != name.as_str() {
-                output::error(format!("Expected '{}', got '{}'. Aborting.", name, input));
-                return Ok(());
-            }
+        if input != name.as_str() {
+            output::error(format!("Expected '{}', got '{}'. Aborting.", name, input));
+            return Ok(false);
         }
-        println!();
     }
+    println!();
+    Ok(true)
+}
 
-    // Try to pause daemon watchers (non-fatal if daemon is not running)
-    let daemon_running = try_pause_daemon().await;
-
-    let client = build_client()?;
-    let base_url = qdrant_url();
-
-    // Reset each collection
-    for name in &validated {
+/// Reset each validated collection in sequence.
+async fn perform_resets(
+    client: &reqwest::Client,
+    base_url: &str,
+    validated: &[String],
+) -> Result<()> {
+    for name in validated {
         print!("  Resetting '{}'... ", name);
         std::io::stdout().flush()?;
 
-        match reset_single_collection(&client, &base_url, name).await {
-            Ok(()) => {
-                println!("done.");
-            }
+        match reset_single_collection(client, base_url, name).await {
+            Ok(()) => println!("done."),
             Err(e) => {
                 println!("FAILED: {}", e);
                 output::error(format!("Failed to reset '{}': {}", name, e));
             }
         }
     }
-
-    // Clean queue items if requested
-    if include_queue {
-        println!();
-        output::info("Cleaning queue items...");
-        match clean_queue_items(&validated).await {
-            Ok(count) => {
-                output::success(format!("Removed {} queue items", count));
-            }
-            Err(e) => {
-                output::warning(format!("Queue cleanup failed: {}", e));
-            }
-        }
-    }
-
-    // Resume daemon watchers
-    if daemon_running {
-        try_resume_daemon().await;
-    }
-
-    println!();
-    output::success("Collection reset complete");
-
     Ok(())
 }
 

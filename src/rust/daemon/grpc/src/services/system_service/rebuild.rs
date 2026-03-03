@@ -171,40 +171,9 @@ async fn rebuild_keywords(
 
     let start = std::time::Instant::now();
 
-    // Fetch all files for the scope
-    let files: Vec<(i64, String, String)> = if let Some(tid) = tenant_id {
-        match sqlx::query_as::<_, (i64, String, String)>(
-            "SELECT tf.file_id, tf.file_path, wf.tenant_id \
-             FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-             WHERE wf.tenant_id = ?1 AND wf.collection = ?2",
-        )
-        .bind(tid)
-        .bind(collection)
-        .fetch_all(pool)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!(target = "keywords", error = %e, "Failed to fetch files");
-                return;
-            }
-        }
-    } else {
-        match sqlx::query_as::<_, (i64, String, String)>(
-            "SELECT tf.file_id, tf.file_path, wf.tenant_id \
-             FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-             WHERE wf.collection = ?1",
-        )
-        .bind(collection)
-        .fetch_all(pool)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!(target = "keywords", error = %e, "Failed to fetch files");
-                return;
-            }
-        }
+    let files = match fetch_keyword_files(pool, tenant_id, collection).await {
+        Some(f) => f,
+        None => return,
     };
 
     if files.is_empty() {
@@ -212,24 +181,7 @@ async fn rebuild_keywords(
         return;
     }
 
-    // Delete existing keyword/tag data for the scope
-    if tenant_id.is_some() {
-        // Tenant-scoped: delete by file IDs
-        for (file_id, _, _) in &files {
-            let _ = sqlx::query("DELETE FROM keywords WHERE file_id = ?1")
-                .bind(file_id).execute(pool).await;
-            let _ = sqlx::query("DELETE FROM tags WHERE file_id = ?1")
-                .bind(file_id).execute(pool).await;
-        }
-    } else {
-        // Collection-wide: bulk delete
-        let _ = sqlx::query("DELETE FROM keywords WHERE collection = ?1")
-            .bind(collection).execute(pool).await;
-        let _ = sqlx::query("DELETE FROM tags WHERE collection = ?1")
-            .bind(collection).execute(pool).await;
-        let _ = sqlx::query("DELETE FROM keyword_baskets WHERE collection = ?1")
-            .bind(collection).execute(pool).await;
-    }
+    delete_keyword_data(pool, tenant_id, collection, &files).await;
 
     // Enqueue uplift operations for all files
     let now = wqm_common::timestamps::now_utc();
@@ -261,6 +213,76 @@ async fn rebuild_keywords(
     info!(target = "keywords", enqueued, collection,
         duration_ms = start.elapsed().as_millis() as u64,
         "Cleared keyword/tag data and enqueued uplift operations");
+}
+
+/// Fetch all tracked files for the keyword rebuild scope.
+///
+/// Returns `None` on a query error (already logged), `Some(vec)` otherwise.
+async fn fetch_keyword_files(
+    pool: &sqlx::SqlitePool,
+    tenant_id: Option<&str>,
+    collection: &str,
+) -> Option<Vec<(i64, String, String)>> {
+    if let Some(tid) = tenant_id {
+        match sqlx::query_as::<_, (i64, String, String)>(
+            "SELECT tf.file_id, tf.file_path, wf.tenant_id \
+             FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.tenant_id = ?1 AND wf.collection = ?2",
+        )
+        .bind(tid)
+        .bind(collection)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => Some(rows),
+            Err(e) => {
+                error!(target = "keywords", error = %e, "Failed to fetch files");
+                None
+            }
+        }
+    } else {
+        match sqlx::query_as::<_, (i64, String, String)>(
+            "SELECT tf.file_id, tf.file_path, wf.tenant_id \
+             FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.collection = ?1",
+        )
+        .bind(collection)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => Some(rows),
+            Err(e) => {
+                error!(target = "keywords", error = %e, "Failed to fetch files");
+                None
+            }
+        }
+    }
+}
+
+/// Delete existing keyword/tag rows for the given scope before re-enqueue.
+async fn delete_keyword_data(
+    pool: &sqlx::SqlitePool,
+    tenant_id: Option<&str>,
+    collection: &str,
+    files: &[(i64, String, String)],
+) {
+    if tenant_id.is_some() {
+        // Tenant-scoped: delete by file IDs
+        for (file_id, _, _) in files {
+            let _ = sqlx::query("DELETE FROM keywords WHERE file_id = ?1")
+                .bind(file_id).execute(pool).await;
+            let _ = sqlx::query("DELETE FROM tags WHERE file_id = ?1")
+                .bind(file_id).execute(pool).await;
+        }
+    } else {
+        // Collection-wide: bulk delete
+        let _ = sqlx::query("DELETE FROM keywords WHERE collection = ?1")
+            .bind(collection).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM tags WHERE collection = ?1")
+            .bind(collection).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM keyword_baskets WHERE collection = ?1")
+            .bind(collection).execute(pool).await;
+    }
 }
 
 /// Self-diagnosing rules reconciliation.
