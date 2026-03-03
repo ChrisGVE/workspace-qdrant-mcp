@@ -29,59 +29,55 @@ export function getSessionId(): string | undefined {
   return currentSessionId;
 }
 
+function buildBaseOptions(level: string): LoggerOptions {
+  return {
+    name: 'mcp-server',
+    level,
+    base: { component: 'mcp-server' },
+    timestamp: pino.stdTimeFunctions.isoTime,
+  };
+}
+
+function buildRotatingFileLogger(options: LoggerOptions): Logger {
+  const logPath = getMcpServerLogPath();
+  // Rotation settings matching daemon defaults:
+  // - 50MB max file size
+  // - 5 rotated files kept (+ 1 active)
+  const rotationSizeMb = parseInt(process.env['WQM_LOG_ROTATION_SIZE_MB'] ?? '50', 10);
+  const rotationCount = parseInt(process.env['WQM_LOG_ROTATION_COUNT'] ?? '5', 10);
+
+  return pino(
+    options,
+    pino.transport({
+      target: 'pino-roll',
+      options: {
+        file: logPath,
+        size: `${rotationSizeMb}m`,
+        limit: { count: rotationCount },
+        mkdir: true,
+      },
+    })
+  );
+}
+
 /**
  * Create the pino logger instance
  *
  * In production, logs to file only (no stderr) to avoid MCP protocol conflicts.
- * If log directory creation fails, falls back to /dev/null.
+ * If log directory creation fails, falls back to silent mode.
  */
 function createLogger(): Logger {
   const level = process.env['WQM_MCP_LOG_LEVEL'] ?? process.env['WQM_LOG_LEVEL'] ?? 'info';
-
-  // Ensure log directory exists
+  const options = buildBaseOptions(level);
   const dirCreated = ensureLogDirectory();
 
-  // Configure pino options
-  const options: LoggerOptions = {
-    name: 'mcp-server',
-    level,
-    // Add base fields to every log entry
-    base: {
-      component: 'mcp-server',
-    },
-    // Use ISO timestamps for JSON logs
-    timestamp: pino.stdTimeFunctions.isoTime,
-  };
-
-  // File-only logging to avoid MCP protocol conflicts
-  // Important: MCP server MUST NOT write to stdout/stderr as it would corrupt the protocol
+  // File-only logging — MCP server MUST NOT write to stdout/stderr
   if (dirCreated) {
-    const logPath = getMcpServerLogPath();
-
-    // Rotation settings matching daemon defaults:
-    // - 50MB max file size
-    // - 5 rotated files kept (+ 1 active)
-    const rotationSizeMb = parseInt(process.env['WQM_LOG_ROTATION_SIZE_MB'] ?? '50', 10);
-    const rotationCount = parseInt(process.env['WQM_LOG_ROTATION_COUNT'] ?? '5', 10);
-
-    // Use pino-roll transport for size-based file rotation
-    return pino(
-      options,
-      pino.transport({
-        target: 'pino-roll',
-        options: {
-          file: logPath,
-          size: `${rotationSizeMb}m`,
-          limit: { count: rotationCount },
-          mkdir: true,
-        },
-      })
-    );
-  } else {
-    // Fallback: silent logging if we can't create the log directory
-    // This prevents any output that could interfere with the MCP protocol
-    return pino({ ...options, level: 'silent' });
+    return buildRotatingFileLogger(options);
   }
+
+  // Fallback: silent logging prevents output that could interfere with MCP protocol
+  return pino({ ...options, level: 'silent' });
 }
 
 // Create singleton logger instance
