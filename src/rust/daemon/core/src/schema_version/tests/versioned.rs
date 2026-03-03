@@ -1,366 +1,5 @@
-use super::*;
-use sqlx::sqlite::SqlitePoolOptions;
-use std::time::Duration;
-
-/// Create an in-memory SQLite pool for testing
-async fn create_test_pool() -> SqlitePool {
-    SqlitePoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory SQLite pool")
-}
-
-#[test]
-fn test_sql_constant_is_valid() {
-    assert!(CREATE_SCHEMA_VERSION_SQL.contains("CREATE TABLE"));
-    assert!(CREATE_SCHEMA_VERSION_SQL.contains("schema_version"));
-    assert!(CREATE_SCHEMA_VERSION_SQL.contains("version INTEGER PRIMARY KEY"));
-}
-
-#[test]
-fn test_current_version_is_positive() {
-    assert!(CURRENT_SCHEMA_VERSION > 0);
-}
-
-#[tokio::test]
-async fn test_initialize_creates_table() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-
-    manager.initialize().await.expect("Failed to initialize");
-
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version')"
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-
-    assert!(exists, "schema_version table should exist after initialization");
-}
-
-#[tokio::test]
-async fn test_get_version_empty_db() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool);
-
-    let version = manager.get_current_version().await.expect("Failed to get version");
-    assert_eq!(version, None, "Version should be None for fresh database");
-}
-
-#[tokio::test]
-async fn test_record_and_get_version() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool);
-
-    manager.initialize().await.expect("Failed to initialize");
-    manager.record_migration(1).await.expect("Failed to record migration");
-
-    let version = manager.get_current_version().await.expect("Failed to get version");
-    assert_eq!(version, Some(1), "Version should be 1 after recording");
-}
-
-#[tokio::test]
-async fn test_migration_history() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool);
-
-    manager.initialize().await.expect("Failed to initialize");
-    manager.record_migration(1).await.expect("Failed to record v1");
-    manager.record_migration(2).await.expect("Failed to record v2");
-
-    let history = manager.get_migration_history().await.expect("Failed to get history");
-    assert_eq!(history.len(), 2, "Should have 2 migration entries");
-    assert_eq!(history[0].version, 1);
-    assert_eq!(history[1].version, 2);
-}
-
-#[tokio::test]
-async fn test_is_schema_initialized() {
-    let pool = create_test_pool().await;
-
-    assert!(!is_schema_initialized(&pool).await, "Should not be initialized yet");
-
-    let manager = SchemaManager::new(pool.clone());
-    manager.initialize().await.expect("Failed to initialize");
-
-    assert!(is_schema_initialized(&pool).await, "Should be initialized");
-}
-
-#[tokio::test]
-async fn test_get_schema_version_helper() {
-    let pool = create_test_pool().await;
-
-    let version = get_schema_version(&pool).await;
-    assert_eq!(version, None);
-
-    let manager = SchemaManager::new(pool.clone());
-    manager.initialize().await.expect("Failed to initialize");
-    manager.record_migration(3).await.expect("Failed to record");
-
-    let version = get_schema_version(&pool).await;
-    assert_eq!(version, Some(3));
-}
-
-#[tokio::test]
-async fn test_run_migrations_from_scratch() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-
-    manager.run_migrations().await.expect("Failed to run migrations");
-
-    let version = manager.get_current_version().await.expect("Failed to get version");
-    assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
-
-    let watch_folders_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='watch_folders')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(watch_folders_exists, "watch_folders table should exist after migration");
-
-    let unified_queue_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='unified_queue')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(unified_queue_exists, "unified_queue table should exist after migration");
-
-    let tracked_files_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(tracked_files_exists, "tracked_files table should exist after migration v2");
-
-    let qdrant_chunks_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='qdrant_chunks')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(qdrant_chunks_exists, "qdrant_chunks table should exist after migration v2");
-}
-
-#[tokio::test]
-async fn test_run_migrations_idempotent() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool);
-
-    manager.run_migrations().await.expect("First migration failed");
-    manager.run_migrations().await.expect("Second migration should be idempotent");
-}
-
-#[tokio::test]
-async fn test_incremental_migration_v1_to_current() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-
-    manager.initialize().await.expect("Failed to initialize");
-    manager.run_migration(1).await.expect("Failed to run v1");
-    manager.record_migration(1).await.expect("Failed to record v1");
-
-    let tracked_exists_before: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(!tracked_exists_before, "tracked_files should NOT exist before v2 migration");
-
-    manager.run_migrations().await.expect("Failed to run migrations from v1");
-
-    let tracked_exists_after: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(tracked_exists_after, "tracked_files should exist after v2 migration");
-
-    let has_reconcile: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'needs_reconcile'"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(has_reconcile, "needs_reconcile column should exist after v3 migration");
-
-    let version = manager.get_current_version().await.expect("Failed to get version");
-    assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
-}
-
-#[tokio::test]
-async fn test_qdrant_chunks_cascade_delete() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-    manager.run_migrations().await.expect("Failed to run migrations");
-
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&pool).await.unwrap();
-
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
-         VALUES ('w1', '/tmp/test', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
-    ).execute(&pool).await.unwrap();
-
-    sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, chunk_count, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', '2025-01-01T00:00:00Z', 'abc123', 2, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
-    ).execute(&pool).await.unwrap();
-
-    let file_id: i64 = sqlx::query_scalar("SELECT file_id FROM tracked_files WHERE file_path = 'src/main.rs'")
-        .fetch_one(&pool).await.unwrap();
-
-    sqlx::query(
-        "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash, created_at)
-         VALUES (?1, 'point-1', 0, 'hash1', '2025-01-01T00:00:00Z')"
-    ).bind(file_id).execute(&pool).await.unwrap();
-
-    sqlx::query(
-        "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash, created_at)
-         VALUES (?1, 'point-2', 1, 'hash2', '2025-01-01T00:00:00Z')"
-    ).bind(file_id).execute(&pool).await.unwrap();
-
-    let chunk_count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM qdrant_chunks")
-        .fetch_one(&pool).await.unwrap();
-    assert_eq!(chunk_count, 2);
-
-    sqlx::query("DELETE FROM tracked_files WHERE file_id = ?1")
-        .bind(file_id).execute(&pool).await.unwrap();
-
-    let chunk_count_after: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM qdrant_chunks")
-        .fetch_one(&pool).await.unwrap();
-    assert_eq!(chunk_count_after, 0, "qdrant_chunks should be deleted via CASCADE");
-}
-
-#[tokio::test]
-async fn test_tracked_files_unique_constraint() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-    manager.run_migrations().await.expect("Failed to run migrations");
-
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
-         VALUES ('w1', '/tmp/test', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
-    ).execute(&pool).await.unwrap();
-
-    sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'hash1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
-    ).execute(&pool).await.unwrap();
-
-    let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', 'main', '2025-01-02T00:00:00Z', 'hash2', '2025-01-02T00:00:00Z', '2025-01-02T00:00:00Z')"
-    ).execute(&pool).await;
-
-    assert!(result.is_err(), "Duplicate (watch_folder_id, file_path, branch) should violate UNIQUE constraint");
-}
-
-#[tokio::test]
-async fn test_downgrade_not_supported() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool);
-
-    manager.initialize().await.expect("Failed to initialize");
-    manager.record_migration(CURRENT_SCHEMA_VERSION + 10).await.expect("Failed to record future version");
-
-    let result = manager.run_migrations().await;
-    assert!(result.is_err());
-
-    match result.unwrap_err() {
-        SchemaError::DowngradeNotSupported { db_version, code_version } => {
-            assert_eq!(db_version, CURRENT_SCHEMA_VERSION + 10);
-            assert_eq!(code_version, CURRENT_SCHEMA_VERSION);
-        }
-        other => panic!("Expected DowngradeNotSupported error, got: {:?}", other),
-    }
-}
-
-#[tokio::test]
-async fn test_incremental_migration_v2_to_v3() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-
-    manager.initialize().await.expect("Failed to initialize");
-    manager.run_migration(1).await.expect("Failed to run v1");
-    manager.record_migration(1).await.expect("Failed to record v1");
-    manager.run_migration(2).await.expect("Failed to run v2");
-    manager.record_migration(2).await.expect("Failed to record v2");
-
-    manager.run_migrations().await.expect("Failed to run migrations from v2");
-
-    let version = manager.get_current_version().await.unwrap();
-    assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
-
-    let has_index: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_tracked_files_reconcile'"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(has_index, "Reconcile index should exist after v3 migration");
-}
-
-#[tokio::test]
-async fn test_incremental_migration_v3_to_v4() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-
-    manager.initialize().await.expect("Failed to initialize");
-    for v in 1..=3 {
-        manager.run_migration(v).await.unwrap_or_else(|e| panic!("Failed to run v{}: {}", v, e));
-        manager.record_migration(v).await.unwrap_or_else(|e| panic!("Failed to record v{}: {}", v, e));
-    }
-
-    manager.run_migrations().await.expect("Failed to run migrations from v3 to v4");
-
-    let version = manager.get_current_version().await.unwrap();
-    assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
-
-    let has_is_paused: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'is_paused'"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(has_is_paused, "is_paused column should exist after v4 migration");
-
-    let has_pause_start_time: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'pause_start_time'"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(has_pause_start_time, "pause_start_time column should exist after v4 migration");
-}
-
-#[tokio::test]
-async fn test_incremental_migration_v4_to_current() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-
-    manager.initialize().await.expect("Failed to initialize");
-    for v in 1..=4 {
-        manager.run_migration(v).await.unwrap_or_else(|e| panic!("Failed to run v{}: {}", v, e));
-        manager.record_migration(v).await.unwrap_or_else(|e| panic!("Failed to record v{}: {}", v, e));
-    }
-
-    let exists_before: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metrics_history')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(!exists_before, "metrics_history should NOT exist before v5 migration");
-
-    manager.run_migrations().await.expect("Failed to run migrations from v4 to current");
-
-    let version = manager.get_current_version().await.unwrap();
-    assert_eq!(version, Some(CURRENT_SCHEMA_VERSION as i32));
-
-    let exists_after: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metrics_history')"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(exists_after, "metrics_history table should exist after v5 migration");
-
-    let idx_count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx_metrics_%'"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert_eq!(idx_count, 3, "Should have 3 metrics_history indexes");
-
-    let has_collection: bool = sqlx::query_scalar(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'collection'"
-    )
-    .fetch_one(&pool).await.unwrap();
-    assert!(has_collection, "collection column should exist after v6 migration");
-}
+use super::super::*;
+use super::create_test_pool;
 
 #[tokio::test]
 async fn test_search_behavior_view_classification() {
@@ -462,6 +101,30 @@ async fn test_migration_v16_cascade_deletes() {
 }
 
 #[tokio::test]
+async fn test_migration_v16_multi_tenant_isolation() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager.run_migrations().await.expect("Failed to run migrations");
+
+    sqlx::query(
+        "INSERT INTO keywords (doc_id, keyword, score, collection, tenant_id) VALUES ('doc1', 'qdrant', 0.9, 'projects', 't1')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO keywords (doc_id, keyword, score, collection, tenant_id) VALUES ('doc2', 'redis', 0.8, 'projects', 't2')"
+    ).execute(&pool).await.unwrap();
+
+    let t1_count: i32 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM keywords WHERE tenant_id = 't1'"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(t1_count, 1);
+
+    let t2_count: i32 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM keywords WHERE tenant_id = 't2'"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(t2_count, 1);
+}
+
+#[tokio::test]
 async fn test_migration_v17_operational_state() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -542,30 +205,6 @@ async fn test_migration_v18_indexed_content() {
     let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM indexed_content")
         .fetch_one(&pool).await.unwrap();
     assert_eq!(count, 0, "indexed_content should cascade delete with tracked_files");
-}
-
-#[tokio::test]
-async fn test_migration_v16_multi_tenant_isolation() {
-    let pool = create_test_pool().await;
-    let manager = SchemaManager::new(pool.clone());
-    manager.run_migrations().await.expect("Failed to run migrations");
-
-    sqlx::query(
-        "INSERT INTO keywords (doc_id, keyword, score, collection, tenant_id) VALUES ('doc1', 'qdrant', 0.9, 'projects', 't1')"
-    ).execute(&pool).await.unwrap();
-    sqlx::query(
-        "INSERT INTO keywords (doc_id, keyword, score, collection, tenant_id) VALUES ('doc2', 'redis', 0.8, 'projects', 't2')"
-    ).execute(&pool).await.unwrap();
-
-    let t1_count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM keywords WHERE tenant_id = 't1'"
-    ).fetch_one(&pool).await.unwrap();
-    assert_eq!(t1_count, 1);
-
-    let t2_count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM keywords WHERE tenant_id = 't2'"
-    ).fetch_one(&pool).await.unwrap();
-    assert_eq!(t2_count, 1);
 }
 
 #[tokio::test]
@@ -764,17 +403,4 @@ async fn test_migration_v21_submodule_junction_table() {
         "SELECT COUNT(*) FROM watch_folder_submodules"
     ).fetch_one(&pool).await.unwrap();
     assert_eq!(count_after, 0, "CASCADE delete should remove junction rows");
-}
-
-#[test]
-fn test_build_registry_has_all_migrations() {
-    let registry = SchemaManager::build_registry();
-    for v in 1..=CURRENT_SCHEMA_VERSION {
-        assert!(
-            registry.get(v).is_some(),
-            "Migration v{} should be registered",
-            v
-        );
-        assert_eq!(registry.get(v).unwrap().version(), v);
-    }
 }
