@@ -79,30 +79,44 @@ pub fn enrich_text_with_ocr(
     }
 
     if !ocr_texts.is_empty() {
-        // Append OCR text after the main document text
-        raw_text.push_str("\n\n--- OCR Content ---\n\n");
-        for (idx, text) in ocr_texts.iter().enumerate() {
-            raw_text.push_str(&format!("[Image {}]\n{}\n\n", idx + 1, text));
-        }
-
-        metadata.insert("has_ocr_content".to_string(), "true".to_string());
-        metadata.insert(
-            "ocr_images_processed".to_string(),
-            ocr_count.to_string(),
-        );
-        let avg_confidence = total_confidence / ocr_count as f32;
-        metadata.insert(
-            "ocr_confidence".to_string(),
-            format!("{:.2}", avg_confidence),
-        );
-
-        debug!(
-            path = %file_path.display(),
-            images = images.len(),
-            ocr_successful = ocr_count,
-            "Enriched document with OCR text"
+        append_ocr_texts(
+            file_path,
+            &mut raw_text,
+            metadata,
+            &ocr_texts,
+            ocr_count,
+            total_confidence,
+            images.len(),
         );
     }
 
     raw_text
+}
+
+/// Append collected OCR texts to the document and record OCR metadata.
+fn append_ocr_texts(
+    file_path: &std::path::Path,
+    raw_text: &mut String,
+    metadata: &mut HashMap<String, String>,
+    ocr_texts: &[String],
+    ocr_count: usize,
+    total_confidence: f32,
+    image_count: usize,
+) {
+    raw_text.push_str("\n\n--- OCR Content ---\n\n");
+    for (idx, text) in ocr_texts.iter().enumerate() {
+        raw_text.push_str(&format!("[Image {}]\n{}\n\n", idx + 1, text));
+    }
+
+    metadata.insert("has_ocr_content".to_string(), "true".to_string());
+    metadata.insert("ocr_images_processed".to_string(), ocr_count.to_string());
+    let avg_confidence = total_confidence / ocr_count as f32;
+    metadata.insert("ocr_confidence".to_string(), format!("{:.2}", avg_confidence));
+
+    debug!(
+        path = %file_path.display(),
+        images = image_count,
+        ocr_successful = ocr_count,
+        "Enriched document with OCR text"
+    );
 }

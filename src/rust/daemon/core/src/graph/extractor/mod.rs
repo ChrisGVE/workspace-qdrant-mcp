@@ -24,6 +24,62 @@ pub struct ExtractionResult {
     pub edges: Vec<GraphEdge>,
 }
 
+/// Extract all edges (CONTAINS, CALLS, USES_TYPE) for a single semantic chunk.
+fn extract_chunk_edges(
+    chunk: &SemanticChunk,
+    node: &GraphNode,
+    tenant_id: &str,
+    file_path: &str,
+    result: &mut ExtractionResult,
+) {
+    if let Some(ref parent) = chunk.parent_symbol {
+        let parent_type = infer_parent_node_type(parent, &chunk.language);
+        let parent_node = GraphNode::stub(tenant_id, parent, parent_type);
+        let edge = GraphEdge::new(
+            tenant_id,
+            &parent_node.node_id,
+            &node.node_id,
+            EdgeType::Contains,
+            file_path,
+        );
+        result.nodes.push(parent_node);
+        result.edges.push(edge);
+    }
+
+    for call in &chunk.calls {
+        let (_qualifier, callee_name) = parse_qualified_name(call);
+        if callee_name.is_empty() {
+            continue;
+        }
+        let callee_stub = GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
+        let edge = GraphEdge::new(
+            tenant_id,
+            &node.node_id,
+            &callee_stub.node_id,
+            EdgeType::Calls,
+            file_path,
+        );
+        result.nodes.push(callee_stub);
+        result.edges.push(edge);
+    }
+
+    if let Some(ref sig) = chunk.signature {
+        let type_refs = extract_type_references(sig, &chunk.language);
+        for type_name in type_refs {
+            let type_stub = GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
+            let edge = GraphEdge::new(
+                tenant_id,
+                &node.node_id,
+                &type_stub.node_id,
+                EdgeType::UsesType,
+                file_path,
+            );
+            result.nodes.push(type_stub);
+            result.edges.push(edge);
+        }
+    }
+}
+
 /// Extract graph nodes and edges from semantic chunks for a single file.
 ///
 /// This is the main entry point called during file ingestion. It processes
@@ -63,55 +119,7 @@ pub fn extract_edges(
         node.language = Some(chunk.language.clone());
         result.nodes.push(node.clone());
 
-        // CONTAINS edges: parent_symbol -> this chunk
-        if let Some(ref parent) = chunk.parent_symbol {
-            let parent_type = infer_parent_node_type(parent, &chunk.language);
-            let parent_node = GraphNode::stub(tenant_id, parent, parent_type);
-            let edge = GraphEdge::new(
-                tenant_id,
-                &parent_node.node_id,
-                &node.node_id,
-                EdgeType::Contains,
-                file_path,
-            );
-            result.nodes.push(parent_node);
-            result.edges.push(edge);
-        }
-
-        // CALLS edges: this chunk -> called functions
-        for call in &chunk.calls {
-            let (_qualifier, callee_name) = parse_qualified_name(call);
-            if callee_name.is_empty() {
-                continue;
-            }
-            let callee_stub = GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
-            let edge = GraphEdge::new(
-                tenant_id,
-                &node.node_id,
-                &callee_stub.node_id,
-                EdgeType::Calls,
-                file_path,
-            );
-            result.nodes.push(callee_stub);
-            result.edges.push(edge);
-        }
-
-        // USES_TYPE edges: extract type references from signatures
-        if let Some(ref sig) = chunk.signature {
-            let type_refs = extract_type_references(sig, &chunk.language);
-            for type_name in type_refs {
-                let type_stub = GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
-                let edge = GraphEdge::new(
-                    tenant_id,
-                    &node.node_id,
-                    &type_stub.node_id,
-                    EdgeType::UsesType,
-                    file_path,
-                );
-                result.nodes.push(type_stub);
-                result.edges.push(edge);
-            }
-        }
+        extract_chunk_edges(chunk, &node, tenant_id, file_path, &mut result);
     }
 
     result

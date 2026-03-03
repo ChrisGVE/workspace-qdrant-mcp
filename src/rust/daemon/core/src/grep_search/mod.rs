@@ -30,6 +30,17 @@ pub const GREP_FALLBACK_THRESHOLD: i64 = 5_000;
 /// Queries `file_metadata` for file paths matching scope filters, then scans
 /// each file with `grep-searcher` for regex matches. Context lines are handled
 /// natively by grep-searcher (zero additional I/O).
+/// Build an empty SearchResults for early-return cases.
+fn empty_grep_result(pattern: &str, query_time_ms: u64) -> SearchResults {
+    SearchResults {
+        pattern: pattern.to_string(),
+        matches: vec![],
+        truncated: false,
+        query_time_ms,
+        search_engine: "grep".to_string(),
+    }
+}
+
 pub async fn search_regex_via_grep(
     search_db: &SearchDbManager,
     pattern: &str,
@@ -38,13 +49,7 @@ pub async fn search_regex_via_grep(
     let start = std::time::Instant::now();
 
     if pattern.is_empty() {
-        return Ok(SearchResults {
-            pattern: pattern.to_string(),
-            matches: vec![],
-            truncated: false,
-            query_time_ms: 0,
-            search_engine: "grep".to_string(),
-        });
+        return Ok(empty_grep_result(pattern, 0));
     }
 
     // Resolve path_glob -> SQL prefix + glob matcher
@@ -63,13 +68,7 @@ pub async fn search_regex_via_grep(
     );
 
     if file_paths.is_empty() {
-        return Ok(SearchResults {
-            pattern: pattern.to_string(),
-            matches: vec![],
-            truncated: false,
-            query_time_ms: start.elapsed().as_millis() as u64,
-            search_engine: "grep".to_string(),
-        });
+        return Ok(empty_grep_result(pattern, start.elapsed().as_millis() as u64));
     }
 
     let max_results = if options.max_results > 0 {

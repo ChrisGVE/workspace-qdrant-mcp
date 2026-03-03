@@ -78,19 +78,16 @@ impl DiffResult {
     }
 }
 
-/// Compute a line-level diff between old and new file content.
-///
-/// Uses the Histogram algorithm (best general-purpose performance for code).
-/// Lines are split on `\n`. Both inputs should be UTF-8 strings.
-pub fn compute_line_diff(old_content: &str, new_content: &str) -> DiffResult {
-    let old_lines: Vec<&str> = old_content.split('\n').collect();
-    let new_lines: Vec<&str> = new_content.split('\n').collect();
-
+/// Build per-line removed/added flags from diff hunks.
+fn build_change_flags<'a>(
+    old_lines: &[&'a str],
+    new_lines: &[&'a str],
+    old_content: &'a str,
+    new_content: &'a str,
+) -> (Vec<bool>, Vec<bool>) {
     let input = InternedInput::new(old_content, new_content);
     let diff = Diff::compute(Algorithm::Histogram, &input);
 
-    // Build a mapping: for each old line, was it removed?
-    // For each new line, was it added?
     let mut old_removed = vec![false; old_lines.len()];
     let mut new_added = vec![false; new_lines.len()];
 
@@ -106,6 +103,20 @@ pub fn compute_line_diff(old_content: &str, new_content: &str) -> DiffResult {
             }
         }
     }
+
+    (old_removed, new_added)
+}
+
+/// Compute a line-level diff between old and new file content.
+///
+/// Uses the Histogram algorithm (best general-purpose performance for code).
+/// Lines are split on `\n`. Both inputs should be UTF-8 strings.
+pub fn compute_line_diff(old_content: &str, new_content: &str) -> DiffResult {
+    let old_lines: Vec<&str> = old_content.split('\n').collect();
+    let new_lines: Vec<&str> = new_content.split('\n').collect();
+
+    let (old_removed, new_added) =
+        build_change_flags(&old_lines, &new_lines, old_content, new_content);
 
     // Walk both sequences to produce DiffOps.
     // Unchanged lines advance both cursors. Removed/added lines are paired

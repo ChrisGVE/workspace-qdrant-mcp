@@ -207,28 +207,41 @@ enum Commands {
     Benchmark(commands::benchmark::BenchmarkArgs),
 }
 
+/// Apply CLI argument overrides to configuration and validate it.
+///
+/// Exits the process with code 1 if validation fails.
+fn apply_cli_overrides(
+    mut cfg: config::Config,
+    daemon_addr: Option<String>,
+    format: &str,
+    verbose: bool,
+) -> config::Config {
+    if let Some(addr) = daemon_addr {
+        cfg = cfg.with_daemon_address(addr);
+    }
+    if let Some(fmt) = config::OutputFormat::from_str(format) {
+        cfg = cfg.with_output_format(fmt);
+    }
+    cfg = cfg.with_verbose(verbose);
+
+    if let Err(e) = cfg.validate() {
+        output::error(e);
+        std::process::exit(1);
+    }
+    cfg
+}
+
 /// Main entry point with minimal tokio runtime for fast startup
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Build configuration from CLI args and environment
-    let mut cfg = config::Config::from_env();
-
-    // Override with CLI arguments
-    if let Some(addr) = cli.daemon_addr {
-        cfg = cfg.with_daemon_address(addr);
-    }
-    if let Some(fmt) = config::OutputFormat::from_str(&cli.format) {
-        cfg = cfg.with_output_format(fmt);
-    }
-    cfg = cfg.with_verbose(cli.verbose);
-
-    // Validate configuration
-    if let Err(e) = cfg.validate() {
-        output::error(e);
-        std::process::exit(1);
-    }
+    let cfg = apply_cli_overrides(
+        config::Config::from_env(),
+        cli.daemon_addr,
+        &cli.format,
+        cli.verbose,
+    );
 
     // Set up environment PATH (expand, merge, deduplicate, save)
     // Non-fatal: warn on failure but continue CLI execution

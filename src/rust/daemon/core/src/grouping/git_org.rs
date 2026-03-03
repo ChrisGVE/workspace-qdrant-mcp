@@ -139,6 +139,45 @@ pub async fn compute_git_org_groups(pool: &SqlitePool) -> Result<usize, sqlx::Er
     Ok(groups_created)
 }
 
+/// When we are the first project in an org group, scan all other projects
+/// and add any that share the same org key.
+async fn backfill_org_peers(
+    pool: &SqlitePool,
+    tenant_id: &str,
+    org_key: &str,
+    group_id: &str,
+) -> Result<(), sqlx::Error> {
+    let peers = sqlx::query(
+        r#"
+        SELECT tenant_id, git_remote_url
+        FROM watch_folders
+        WHERE git_remote_url IS NOT NULL
+          AND git_remote_url != ''
+          AND tenant_id != ?
+        "#,
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await?;
+
+    for row in &peers {
+        let peer_tenant: String = row.get("tenant_id");
+        let peer_url: String = row.get("git_remote_url");
+
+        if let Some(peer_org) = extract_git_org(&peer_url) {
+            if peer_org == org_key {
+                schema::add_to_group(pool, group_id, &peer_tenant, "git_org", 1.0).await?;
+                debug!(
+                    peer = peer_tenant.as_str(),
+                    org = org_key,
+                    "Added existing peer to git org group"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Update git org groups for a single project.
 ///
 /// Call this when a new project is registered or its remote URL changes.
@@ -186,42 +225,7 @@ pub async fn update_project_org_group(
     // If there are already members, also ensure any single-member that was
     // previously skipped during compute_git_org_groups is now included
     if count == 0 {
-        // We're first -- check if any other projects share this org
-        let peers = sqlx::query(
-            r#"
-            SELECT tenant_id, git_remote_url
-            FROM watch_folders
-            WHERE git_remote_url IS NOT NULL
-              AND git_remote_url != ''
-              AND tenant_id != ?
-            "#,
-        )
-        .bind(tenant_id)
-        .fetch_all(pool)
-        .await?;
-
-        for row in &peers {
-            let peer_tenant: String = row.get("tenant_id");
-            let peer_url: String = row.get("git_remote_url");
-
-            if let Some(peer_org) = extract_git_org(&peer_url) {
-                if peer_org == org_key {
-                    schema::add_to_group(
-                        pool,
-                        &group_id,
-                        &peer_tenant,
-                        "git_org",
-                        1.0,
-                    )
-                    .await?;
-                    debug!(
-                        peer = peer_tenant.as_str(),
-                        org = org_key.as_str(),
-                        "Added existing peer to git org group"
-                    );
-                }
-            }
-        }
+        backfill_org_peers(pool, tenant_id, &org_key, &group_id).await?;
     }
 
     debug!(

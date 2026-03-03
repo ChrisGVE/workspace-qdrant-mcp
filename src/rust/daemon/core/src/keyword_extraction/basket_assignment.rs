@@ -45,6 +45,22 @@ impl Default for BasketConfig {
     }
 }
 
+/// Return the index and similarity of the nearest tag to a keyword vector.
+fn find_nearest_tag(kw_vec: &[f32], tag_vectors: &[Vec<f32>]) -> (usize, f64) {
+    let mut best_tag_idx = 0;
+    let mut best_sim = f64::NEG_INFINITY;
+
+    for (ti, tv) in tag_vectors.iter().enumerate() {
+        let sim = cosine_similarity(kw_vec, tv);
+        if sim > best_sim {
+            best_sim = sim;
+            best_tag_idx = ti;
+        }
+    }
+
+    (best_tag_idx, best_sim)
+}
+
 /// Assign keywords to tag baskets based on embedding similarity.
 ///
 /// # Arguments
@@ -101,17 +117,8 @@ pub fn assign_baskets(
             continue;
         }
 
-        // Find nearest tag
-        let mut best_tag_idx = 0;
-        let mut best_sim = f64::NEG_INFINITY;
-
-        for (ti, _) in tags.iter().enumerate() {
-            let sim = cosine_similarity(&keyword_vectors[ki], &tag_vectors[ti]);
-            if sim > best_sim {
-                best_sim = sim;
-                best_tag_idx = ti;
-            }
-        }
+        let (best_tag_idx, best_sim) =
+            find_nearest_tag(&keyword_vectors[ki], tag_vectors);
 
         let assigned = AssignedKeyword {
             phrase: kw.phrase.clone(),

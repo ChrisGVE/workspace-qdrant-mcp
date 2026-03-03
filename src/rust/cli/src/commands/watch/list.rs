@@ -9,6 +9,37 @@ use super::helpers::{
 };
 use super::types::{WatchListItem, WatchListItemVerbose};
 
+/// Build a WHERE clause and parameter list for the watch_folders query.
+fn build_where_clause(
+    enabled_only: bool,
+    disabled_only: bool,
+    show_archived: bool,
+    collection: &Option<String>,
+) -> (String, Vec<Box<dyn rusqlite::ToSql>>) {
+    let mut conditions: Vec<String> = Vec::new();
+    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if !show_archived {
+        conditions.push("COALESCE(is_archived, 0) = 0".to_string());
+    }
+    if enabled_only {
+        conditions.push("enabled = 1".to_string());
+    } else if disabled_only {
+        conditions.push("enabled = 0".to_string());
+    }
+    if let Some(ref c) = collection {
+        conditions.push("collection = ?".to_string());
+        params_vec.push(Box::new(c.clone()));
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+    (where_clause, params_vec)
+}
+
 pub async fn list(
     enabled_only: bool,
     disabled_only: bool,
@@ -21,31 +52,8 @@ pub async fn list(
 ) -> Result<()> {
     let conn = connect_readonly()?;
 
-    // Build WHERE clause
-    let mut conditions: Vec<String> = Vec::new();
-    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-    // By default, hide archived folders unless --show-archived is set
-    if !show_archived {
-        conditions.push("COALESCE(is_archived, 0) = 0".to_string());
-    }
-
-    if enabled_only {
-        conditions.push("enabled = 1".to_string());
-    } else if disabled_only {
-        conditions.push("enabled = 0".to_string());
-    }
-
-    if let Some(ref c) = collection {
-        conditions.push("collection = ?".to_string());
-        params_vec.push(Box::new(c.clone()));
-    }
-
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    let (where_clause, params_vec) =
+        build_where_clause(enabled_only, disabled_only, show_archived, &collection);
 
     let query = format!(
         r#"

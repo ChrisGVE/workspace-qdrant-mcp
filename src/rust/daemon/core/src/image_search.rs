@@ -168,6 +168,33 @@ fn build_image_filter(
     }
 }
 
+/// Extract optional per-page and annotation fields from a payload.
+fn extract_optional_image_fields(
+    payload: &HashMap<String, Value>,
+) -> (Option<u32>, Option<u32>, Option<String>, Option<String>) {
+    let page_number = payload
+        .get(field::PAGE_NUMBER)
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    let image_index = payload
+        .get(field::IMAGE_INDEX)
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    let ocr_text = payload
+        .get(field::OCR_TEXT)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let alt_text = payload
+        .get(field::ALT_TEXT)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    (page_number, image_index, ocr_text, alt_text)
+}
+
 /// Convert a raw Qdrant SearchResult into a structured ImageSearchResult.
 fn convert_search_result(result: SearchResult) -> Option<ImageSearchResult> {
     let payload = &result.payload;
@@ -218,25 +245,8 @@ fn convert_search_result(result: SearchResult) -> Option<ImageSearchResult> {
         .unwrap_or("")
         .to_string();
 
-    let page_number = payload
-        .get(field::PAGE_NUMBER)
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32);
-
-    let image_index = payload
-        .get(field::IMAGE_INDEX)
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32);
-
-    let ocr_text = payload
-        .get(field::OCR_TEXT)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let alt_text = payload
-        .get(field::ALT_TEXT)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let (page_number, image_index, ocr_text, alt_text) =
+        extract_optional_image_fields(payload);
 
     Some(ImageSearchResult {
         id: result.id,

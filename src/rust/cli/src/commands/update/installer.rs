@@ -121,6 +121,28 @@ pub async fn start_daemon() -> Result<()> {
     Ok(())
 }
 
+/// Backup the old binary and install the new one from a temp path.
+fn replace_binary(temp_binary: &PathBuf, install_path: &PathBuf) -> Result<()> {
+    let backup_path = install_path.with_extension("bak");
+    if install_path.exists() {
+        std::fs::rename(install_path, &backup_path)
+            .context("Failed to backup existing binary")?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(temp_binary, permissions)?;
+    }
+
+    std::fs::rename(temp_binary, install_path)
+        .context("Failed to install new binary")?;
+
+    let _ = std::fs::remove_file(&backup_path);
+    Ok(())
+}
+
 /// Perform the actual binary replacement: download, verify, replace, restart
 pub async fn perform_update(client: &Client, release: &GitHubRelease, _force: bool) -> Result<()> {
     let binary_name = get_binary_filename();
@@ -172,30 +194,10 @@ pub async fn perform_update(client: &Client, release: &GitHubRelease, _force: bo
     output::info("Stopping daemon...");
     stop_daemon().await?;
 
-    // Find installation location
+    // Find installation location and install
     let install_path = find_install_location()?;
     output::kv("Install location", install_path.display().to_string());
-
-    // Backup old binary
-    let backup_path = install_path.with_extension("bak");
-    if install_path.exists() {
-        std::fs::rename(&install_path, &backup_path)
-            .context("Failed to backup existing binary")?;
-    }
-
-    // Move new binary to install location, setting executable permission on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let permissions = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(&temp_binary, permissions)?;
-    }
-
-    std::fs::rename(&temp_binary, &install_path)
-        .context("Failed to install new binary")?;
-
-    // Clean up backup
-    let _ = std::fs::remove_file(&backup_path);
+    replace_binary(&temp_binary, &install_path)?;
 
     output::success(format!(
         "Installed {} to {}",

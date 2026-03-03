@@ -387,32 +387,8 @@ pub async fn compute_workspace_groups(pool: &SqlitePool) -> Result<usize, sqlx::
         }
     }
 
-    let mut groups_created = 0;
-
-    // Create groups for workspaces with 2+ members
-    for (workspace_id, tenants) in &workspace_tenants {
-        if tenants.len() < 2 {
-            debug!(
-                workspace_id = workspace_id.as_str(),
-                "Skipping single-member workspace"
-            );
-            continue;
-        }
-
-        let group_id = format!("workspace:{}", workspace_id);
-
-        for tenant_id in tenants {
-            schema::add_to_group(pool, &group_id, tenant_id, "workspace", 1.0)
-                .await?;
-        }
-
-        debug!(
-            workspace_id = workspace_id.as_str(),
-            members = tenants.len(),
-            "Created workspace group"
-        );
-        groups_created += 1;
-    }
+    let groups_created =
+        create_workspace_groups(pool, &workspace_tenants).await?;
 
     info!(
         projects = rows.len(),
@@ -420,6 +396,36 @@ pub async fn compute_workspace_groups(pool: &SqlitePool) -> Result<usize, sqlx::
         groups = groups_created,
         "Workspace group computation complete"
     );
+
+    Ok(groups_created)
+}
+
+/// Write workspace groups to the database for all workspaces with 2+ members.
+///
+/// Returns the number of groups created.
+async fn create_workspace_groups(
+    pool: &SqlitePool,
+    workspace_tenants: &HashMap<String, Vec<String>>,
+) -> Result<usize, sqlx::Error> {
+    let mut groups_created = 0;
+
+    for (workspace_id, tenants) in workspace_tenants {
+        if tenants.len() < 2 {
+            debug!(workspace_id = workspace_id.as_str(), "Skipping single-member workspace");
+            continue;
+        }
+
+        let group_id = format!("workspace:{}", workspace_id);
+        for tenant_id in tenants {
+            schema::add_to_group(pool, &group_id, tenant_id, "workspace", 1.0).await?;
+        }
+        debug!(
+            workspace_id = workspace_id.as_str(),
+            members = tenants.len(),
+            "Created workspace group"
+        );
+        groups_created += 1;
+    }
 
     Ok(groups_created)
 }

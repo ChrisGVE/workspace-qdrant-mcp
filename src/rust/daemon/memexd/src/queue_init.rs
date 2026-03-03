@@ -154,6 +154,35 @@ fn attach_optional_components(
     uqp
 }
 
+/// Build the base `UnifiedQueueProcessor` with grammar manager attached.
+async fn build_core_processor(
+    config: &Config,
+    daemon_config: &DaemonConfig,
+    queue_pool: SqlitePool,
+    unified_config: &UnifiedProcessorConfig,
+    embedding_generator: Arc<EmbeddingGenerator>,
+    storage_client: Arc<StorageClient>,
+) -> UnifiedQueueProcessor {
+    let uqp = UnifiedQueueProcessor::with_components(
+        queue_pool,
+        unified_config.clone(),
+        Arc::new(DocumentProcessor::new()),
+        embedding_generator,
+        storage_client,
+    );
+
+    let grammar_manager = Arc::new(RwLock::new(
+        create_grammar_manager(daemon_config.grammars.clone())
+    ));
+    info!(
+        "Grammar manager created (auto_download={}, cache_dir={:?})",
+        daemon_config.grammars.auto_download,
+        daemon_config.grammars.expanded_cache_dir()
+    );
+    let _ = config; // config referenced via unified_config already
+    uqp.with_grammar_manager(Arc::clone(&grammar_manager))
+}
+
 /// Initialize all queue-related components and return them for gRPC and watcher wiring.
 #[allow(clippy::too_many_arguments)]
 pub async fn initialize(
@@ -191,25 +220,14 @@ pub async fn initialize(
     ));
     let mirror_storage = Arc::clone(&storage_client);
 
-    let uqp = UnifiedQueueProcessor::with_components(
+    let uqp = build_core_processor(
+        config,
+        daemon_config,
         queue_pool,
-        unified_config.clone(),
-        Arc::new(DocumentProcessor::new()),
+        &unified_config,
         embedding_generator,
         storage_client,
-    );
-
-    // Create grammar manager for dynamic tree-sitter grammar loading
-    let grammar_manager = Arc::new(RwLock::new(
-        create_grammar_manager(daemon_config.grammars.clone())
-    ));
-    info!(
-        "Grammar manager created (auto_download={}, cache_dir={:?})",
-        daemon_config.grammars.auto_download,
-        daemon_config.grammars.expanded_cache_dir()
-    );
-
-    let uqp = uqp.with_grammar_manager(Arc::clone(&grammar_manager));
+    ).await;
 
     let mut uqp = attach_optional_components(
         uqp, lsp_manager, &allowed_extensions, search_db, graph_store, watch_refresh_signal,

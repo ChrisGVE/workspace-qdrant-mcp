@@ -46,6 +46,27 @@ impl RequestQueue {
         }
     }
 
+    /// Compute content hash and reject if duplicate already queued.
+    ///
+    /// Returns `Some(hash)` if deduplication is enabled and no duplicate found,
+    /// `None` if deduplication is disabled, or an error if a duplicate exists.
+    async fn check_dedup(
+        &self,
+        task: &PriorityTask,
+    ) -> Result<Option<u64>, PriorityError> {
+        if !self.config.enable_deduplication {
+            return Ok(None);
+        }
+        let hash = self.calculate_content_hash(task);
+        let dedup_lock = self.dedup_map.read().await;
+        if dedup_lock.contains_key(&hash) {
+            return Err(PriorityError::Communication(
+                "Duplicate request already queued".to_string(),
+            ));
+        }
+        Ok(Some(hash))
+    }
+
     /// Enqueue a request with timeout handling
     pub async fn enqueue(
         &self,
@@ -64,21 +85,7 @@ impl RequestQueue {
             });
         }
 
-        let content_hash = if self.config.enable_deduplication {
-            Some(self.calculate_content_hash(&task))
-        } else {
-            None
-        };
-
-        // Check for duplicates
-        if let Some(hash) = content_hash {
-            let dedup_lock = self.dedup_map.read().await;
-            if dedup_lock.contains_key(&hash) {
-                return Err(PriorityError::Communication(
-                    "Duplicate request already queued".to_string(),
-                ));
-            }
-        }
+        let content_hash = self.check_dedup(&task).await?;
 
         let timeout_instant = queue_timeout
             .or_else(|| Some(Duration::from_millis(self.config.default_queue_timeout_ms)))

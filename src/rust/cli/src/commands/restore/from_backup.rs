@@ -8,6 +8,23 @@ use crate::output;
 
 use super::client::{build_client, qdrant_url};
 
+/// Prompt the user to confirm a destructive restore.
+///
+/// Returns `Ok(true)` if confirmed, `Ok(false)` if cancelled.
+fn prompt_confirmation() -> Result<bool> {
+    output::warning("This will upload and restore the snapshot, overwriting collection data!");
+    output::warning("Use --force to skip this warning.");
+    output::separator();
+
+    eprint!("Type 'yes' to confirm restore: ");
+    std::io::stderr().flush().ok();
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .context("Failed to read input")?;
+    Ok(input.trim() == "yes")
+}
+
 /// Upload a local snapshot file to Qdrant and restore a collection from it.
 pub async fn restore_from_backup(
     path: &std::path::Path,
@@ -33,21 +50,9 @@ pub async fn restore_from_backup(
     output::kv("File Size", output::format_bytes(metadata.len() as i64));
     output::separator();
 
-    if !force {
-        output::warning("This will upload and restore the snapshot, overwriting collection data!");
-        output::warning("Use --force to skip this warning.");
-        output::separator();
-
-        eprint!("Type 'yes' to confirm restore: ");
-        std::io::stderr().flush().ok();
-        let mut input = String::new();
-        std::io::stdin()
-            .read_line(&mut input)
-            .context("Failed to read input")?;
-        if input.trim() != "yes" {
-            output::info("Restore cancelled.");
-            return Ok(());
-        }
+    if !force && !prompt_confirmation()? {
+        output::info("Restore cancelled.");
+        return Ok(());
     }
 
     output::info("Uploading snapshot file to Qdrant...");

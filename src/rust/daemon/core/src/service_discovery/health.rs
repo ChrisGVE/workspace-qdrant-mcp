@@ -159,68 +159,28 @@ impl HealthChecker {
         
         let start_time = Instant::now();
         let mut metrics = HashMap::new();
-        let status;
-        let mut error_message = None;
 
         // Step 1: Validate process if enabled
-        if self.config.validate_process
-            && !is_process_running(service_info.pid) {
-                status = HealthStatus::ProcessDead;
-                error_message = Some(format!("Process {} is not running", service_info.pid));
-                
-                return Ok(HealthCheckResult {
-                    service_name: service_name.to_string(),
-                    status,
-                    response_time_ms: Some(start_time.elapsed().as_millis() as u64),
-                    timestamp: SystemTime::now(),
-                    metrics,
-                    error_message,
-                });
-            }
+        if self.config.validate_process && !is_process_running(service_info.pid) {
+            return Ok(HealthCheckResult {
+                service_name: service_name.to_string(),
+                status: HealthStatus::ProcessDead,
+                response_time_ms: Some(start_time.elapsed().as_millis() as u64),
+                timestamp: SystemTime::now(),
+                metrics,
+                error_message: Some(format!("Process {} is not running", service_info.pid)),
+            });
+        }
 
         // Step 2: Perform HTTP health check
-        let health_url = format!("http://{}:{}{}", 
-                               service_info.host, 
-                               service_info.port, 
+        let health_url = format!("http://{}:{}{}",
+                               service_info.host,
+                               service_info.port,
                                service_info.health_endpoint);
 
-        match timeout(self.config.request_timeout, self.client.get(&health_url).send()).await {
-            Ok(Ok(response)) => {
-                let response_time = start_time.elapsed().as_millis() as u64;
-                metrics.insert("response_time_ms".to_string(), response_time.to_string());
-                metrics.insert("status_code".to_string(), response.status().as_u16().to_string());
-                
-                if response.status().is_success() {
-                    // Try to parse response body for additional metrics
-                    if let Ok(body) = response.text().await {
-                        if let Ok(health_data) = serde_json::from_str::<HashMap<String, serde_json::Value>>(&body) {
-                            for (key, value) in health_data {
-                                metrics.insert(key, value.to_string());
-                            }
-                        }
-                    }
-                    
-                    status = HealthStatus::Healthy;
-                    self.reset_failure_counter(service_name).await;
-                } else {
-                    status = HealthStatus::Unhealthy;
-                    error_message = Some(format!("HTTP {} response", response.status()));
-                    self.increment_failure_counter(service_name).await;
-                }
-            }
-            
-            Ok(Err(e)) => {
-                status = HealthStatus::Unreachable;
-                error_message = Some(format!("HTTP request failed: {}", e));
-                self.increment_failure_counter(service_name).await;
-            }
-            
-            Err(_) => {
-                status = HealthStatus::Unreachable;
-                error_message = Some("Health check timeout".to_string());
-                self.increment_failure_counter(service_name).await;
-            }
-        }
+        let (status, error_message) = self
+            .perform_http_check(service_name, &health_url, start_time, &mut metrics)
+            .await;
 
         let result = HealthCheckResult {
             service_name: service_name.to_string(),
@@ -236,6 +196,52 @@ impl HealthChecker {
 
         debug!("Health check completed for {}: {:?}", service_name, result.status);
         Ok(result)
+    }
+
+    /// Perform one HTTP health request, updating metrics in-place.
+    ///
+    /// Returns `(status, error_message)`.
+    async fn perform_http_check(
+        &self,
+        service_name: &str,
+        health_url: &str,
+        start_time: Instant,
+        metrics: &mut HashMap<String, String>,
+    ) -> (HealthStatus, Option<String>) {
+        match timeout(self.config.request_timeout, self.client.get(health_url).send()).await {
+            Ok(Ok(response)) => {
+                let response_time = start_time.elapsed().as_millis() as u64;
+                metrics.insert("response_time_ms".to_string(), response_time.to_string());
+                metrics.insert("status_code".to_string(), response.status().as_u16().to_string());
+
+                if response.status().is_success() {
+                    if let Ok(body) = response.text().await {
+                        if let Ok(health_data) =
+                            serde_json::from_str::<HashMap<String, serde_json::Value>>(&body)
+                        {
+                            for (key, value) in health_data {
+                                metrics.insert(key, value.to_string());
+                            }
+                        }
+                    }
+                    self.reset_failure_counter(service_name).await;
+                    (HealthStatus::Healthy, None)
+                } else {
+                    let msg = format!("HTTP {} response", response.status());
+                    self.increment_failure_counter(service_name).await;
+                    (HealthStatus::Unhealthy, Some(msg))
+                }
+            }
+            Ok(Err(e)) => {
+                let msg = format!("HTTP request failed: {}", e);
+                self.increment_failure_counter(service_name).await;
+                (HealthStatus::Unreachable, Some(msg))
+            }
+            Err(_) => {
+                self.increment_failure_counter(service_name).await;
+                (HealthStatus::Unreachable, Some("Health check timeout".to_string()))
+            }
+        }
     }
 
     /// Start continuous health monitoring for services

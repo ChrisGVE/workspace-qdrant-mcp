@@ -30,6 +30,56 @@ const ALL_COLLECTIONS: &[&str] = &[
     COLLECTION_SCRATCHPAD,
 ];
 
+/// Scroll all collections and reconstruct SQLite state. Returns totals.
+async fn reconstruct_all_collections(
+    conn: &rusqlite::Connection,
+    http_client: &reqwest::Client,
+    base_url: &str,
+) -> Result<(u64, u64, u64, u64, u64)> {
+    let mut total_points = 0u64;
+    let mut total_watch_folders = 0u64;
+    let mut total_tracked_files = 0u64;
+    let mut total_chunks = 0u64;
+    let mut total_rules = 0u64;
+
+    for collection in ALL_COLLECTIONS {
+        output::info(format!("Scrolling {}...", collection));
+        let points =
+            qdrant_helpers::scroll_all_points(http_client, base_url, collection).await?;
+
+        let count = points.len();
+        total_points += count as u64;
+        output::kv(&format!("  {} points", collection), &count.to_string());
+
+        if points.is_empty() {
+            continue;
+        }
+
+        match *collection {
+            c if c == COLLECTION_PROJECTS => {
+                let stats = reconstruct_project_state(conn, &points)?;
+                total_watch_folders += stats.watch_folders;
+                total_tracked_files += stats.tracked_files;
+                total_chunks += stats.chunks;
+            }
+            c if c == COLLECTION_LIBRARIES => {
+                let stats = reconstruct_library_state(conn, &points)?;
+                total_watch_folders += stats.watch_folders;
+                total_tracked_files += stats.tracked_files;
+                total_chunks += stats.chunks;
+            }
+            c if c == COLLECTION_RULES => {
+                total_rules += reconstruct_rules_state(conn, &points)?;
+            }
+            _ => {
+                // Scratchpad: no SQLite state needed, points exist only in Qdrant
+            }
+        }
+    }
+
+    Ok((total_points, total_watch_folders, total_tracked_files, total_chunks, total_rules))
+}
+
 /// Execute recover-state command
 pub async fn execute(confirm: bool) -> Result<()> {
     output::section("State Recovery from Qdrant");
@@ -67,46 +117,8 @@ pub async fn execute(confirm: bool) -> Result<()> {
     output::separator();
 
     // Step 4: Scroll each collection and reconstruct
-    let mut total_points = 0u64;
-    let mut total_watch_folders = 0u64;
-    let mut total_tracked_files = 0u64;
-    let mut total_chunks = 0u64;
-    let mut total_rules = 0u64;
-
-    for collection in ALL_COLLECTIONS {
-        output::info(format!("Scrolling {}...", collection));
-        let points =
-            qdrant_helpers::scroll_all_points(&http_client, &base_url, collection).await?;
-
-        let count = points.len();
-        total_points += count as u64;
-        output::kv(&format!("  {} points", collection), &count.to_string());
-
-        if points.is_empty() {
-            continue;
-        }
-
-        match *collection {
-            c if c == COLLECTION_PROJECTS => {
-                let stats = reconstruct_project_state(&conn, &points)?;
-                total_watch_folders += stats.watch_folders;
-                total_tracked_files += stats.tracked_files;
-                total_chunks += stats.chunks;
-            }
-            c if c == COLLECTION_LIBRARIES => {
-                let stats = reconstruct_library_state(&conn, &points)?;
-                total_watch_folders += stats.watch_folders;
-                total_tracked_files += stats.tracked_files;
-                total_chunks += stats.chunks;
-            }
-            c if c == COLLECTION_RULES => {
-                total_rules += reconstruct_rules_state(&conn, &points)?;
-            }
-            _ => {
-                // Scratchpad: no SQLite state needed, points exist only in Qdrant
-            }
-        }
-    }
+    let (total_points, total_watch_folders, total_tracked_files, total_chunks, total_rules) =
+        reconstruct_all_collections(&conn, &http_client, &base_url).await?;
 
     // Step 5: Summary
     output::separator();

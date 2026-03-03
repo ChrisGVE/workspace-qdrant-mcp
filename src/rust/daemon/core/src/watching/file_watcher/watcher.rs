@@ -111,22 +111,11 @@ impl EnhancedFileWatcher {
                     }
 
                     _ = ticker.tick() => {
-                        let mut correlator = move_correlator.lock().await;
-                        let expired = correlator.get_expired_moves();
-                        drop(correlator);
-
-                        for action in expired {
-                            if let RenameAction::CrossFilesystemMove { deleted_path, is_directory } = action {
-                                let _ = event_sender.send(WatchEvent::CrossFilesystemMove {
-                                    deleted_path,
-                                    is_directory,
-                                }).await;
-                            }
-                        }
-
-                        if path_validator.is_validation_due().await {
-                            tracing::debug!("Path validation due, will be triggered by daemon");
-                        }
+                        Self::handle_tick_expiry(
+                            &move_correlator,
+                            &event_sender,
+                            &path_validator,
+                        ).await;
                     }
 
                     else => {
@@ -147,6 +136,30 @@ impl EnhancedFileWatcher {
             self.watch_entries.clone(),
             process_task,
         ))
+    }
+
+    /// Handle periodic tick: emit expired cross-filesystem moves and check path validation.
+    async fn handle_tick_expiry(
+        move_correlator: &Arc<Mutex<MoveCorrelator>>,
+        event_sender: &mpsc::Sender<WatchEvent>,
+        path_validator: &Arc<PathValidator>,
+    ) {
+        let mut correlator = move_correlator.lock().await;
+        let expired = correlator.get_expired_moves();
+        drop(correlator);
+
+        for action in expired {
+            if let RenameAction::CrossFilesystemMove { deleted_path, is_directory } = action {
+                let _ = event_sender.send(WatchEvent::CrossFilesystemMove {
+                    deleted_path,
+                    is_directory,
+                }).await;
+            }
+        }
+
+        if path_validator.is_validation_due().await {
+            tracing::debug!("Path validation due, will be triggered by daemon");
+        }
     }
 
     /// Process debounced events

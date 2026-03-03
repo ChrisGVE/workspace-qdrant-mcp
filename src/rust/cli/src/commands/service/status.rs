@@ -32,85 +32,82 @@ fn status_name(s: ServiceStatus) -> &'static str {
     }
 }
 
+/// Display or serialize the health response when connected to the daemon.
+async fn handle_connected(
+    mut client: crate::grpc::client::DaemonClient,
+    json: bool,
+) -> Result<()> {
+    if !json {
+        output::status_line("Connection", ServiceStatus::Healthy);
+    }
+
+    match client.system().health(()).await {
+        Ok(response) => {
+            let health = response.into_inner();
+            let overall = ServiceStatus::from_proto(health.status);
+
+            if json {
+                let components: Vec<ComponentStatusJson> = health
+                    .components
+                    .iter()
+                    .map(|c| ComponentStatusJson {
+                        name: c.component_name.clone(),
+                        status: status_name(ServiceStatus::from_proto(c.status)).to_string(),
+                        message: if c.message.is_empty() { None } else { Some(c.message.clone()) },
+                    })
+                    .collect();
+                output::print_json(&ServiceStatusJson {
+                    connected: true,
+                    health: status_name(overall).to_string(),
+                    components,
+                });
+            } else {
+                output::status_line("Health", overall);
+                if !health.components.is_empty() {
+                    output::separator();
+                    for comp in health.components {
+                        let comp_status = ServiceStatus::from_proto(comp.status);
+                        output::status_line(&comp.component_name, comp_status);
+                        if !comp.message.is_empty() {
+                            output::kv("  Message", &comp.message);
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            if json {
+                output::print_json(&ServiceStatusJson {
+                    connected: true,
+                    health: "unknown".to_string(),
+                    components: Vec::new(),
+                });
+            } else {
+                output::status_line("Health", ServiceStatus::Unknown);
+                output::warning(format!("Could not get health: {}", e));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Show daemon status, optionally as JSON
 pub async fn execute(json: bool) -> Result<()> {
     if !json {
         output::section("Daemon Status");
     }
 
-    // Try to connect and get health
     match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            if !json {
-                output::status_line("Connection", ServiceStatus::Healthy);
-            }
-
-            // Get health check
-            match client.system().health(()).await {
-                Ok(response) => {
-                    let health = response.into_inner();
-                    let overall = ServiceStatus::from_proto(health.status);
-
-                    if json {
-                        let components: Vec<ComponentStatusJson> = health
-                            .components
-                            .iter()
-                            .map(|c| ComponentStatusJson {
-                                name: c.component_name.clone(),
-                                status: status_name(ServiceStatus::from_proto(c.status))
-                                    .to_string(),
-                                message: if c.message.is_empty() {
-                                    None
-                                } else {
-                                    Some(c.message.clone())
-                                },
-                            })
-                            .collect();
-                        let json_out = ServiceStatusJson {
-                            connected: true,
-                            health: status_name(overall).to_string(),
-                            components,
-                        };
-                        output::print_json(&json_out);
-                    } else {
-                        output::status_line("Health", overall);
-
-                        // Show component health
-                        if !health.components.is_empty() {
-                            output::separator();
-                            for comp in health.components {
-                                let comp_status = ServiceStatus::from_proto(comp.status);
-                                output::status_line(&comp.component_name, comp_status);
-                                if !comp.message.is_empty() {
-                                    output::kv("  Message", &comp.message);
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    if json {
-                        let json_out = ServiceStatusJson {
-                            connected: true,
-                            health: "unknown".to_string(),
-                            components: Vec::new(),
-                        };
-                        output::print_json(&json_out);
-                    } else {
-                        output::status_line("Health", ServiceStatus::Unknown);
-                        output::warning(format!("Could not get health: {}", e));
-                    }
-                }
-            }
+        Ok(client) => {
+            handle_connected(client, json).await?;
         }
         Err(_) => {
             if json {
-                let json_out = ServiceStatusJson {
+                output::print_json(&ServiceStatusJson {
                     connected: false,
                     health: "unhealthy".to_string(),
                     components: Vec::new(),
-                };
-                output::print_json(&json_out);
+                });
             } else {
                 output::status_line("Connection", ServiceStatus::Unhealthy);
                 output::error("Daemon not running or not reachable");

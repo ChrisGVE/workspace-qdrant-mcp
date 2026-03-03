@@ -164,60 +164,70 @@ impl QueueManager {
                 "ingest" | "add" => UnifiedOp::Add,
                 "update" => UnifiedOp::Update,
                 "delete" => UnifiedOp::Delete,
-                _ => UnifiedOp::Add, // Default to add
+                _ => UnifiedOp::Add,
             };
-
-            // Create file payload
-            let payload = FilePayload {
-                file_path: file_path.clone(),
-                file_type: None,
-                file_hash: None,
-                size_bytes: None,
-                old_path: None,
-            };
-            let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
             // Commit transaction before enqueueing (enqueue_unified uses its own transaction)
             tx.commit().await?;
 
-            // Enqueue to unified_queue
-            match self.enqueue_unified(
-                ItemType::File,
-                unified_op,
-                &tenant_id,
-                &collection,
-                &payload_json,
-                Some(&branch),
-                None,
-            ).await {
-                Ok((new_queue_id, _is_new)) => {
-                    // Update last_check_timestamp in missing_metadata_queue
-                    let update_query = r#"
-                        UPDATE missing_metadata_queue
-                        SET last_check_timestamp = ?1, retry_count = retry_count + 1
-                        WHERE queue_id = ?2
-                    "#;
-
-                    sqlx::query(update_query)
-                        .bind(timestamps::now_utc())
-                        .bind(queue_id)
-                        .execute(&self.pool)
-                        .await?;
-
-                    tracing::info!(
-                        "Retrying item from missing_metadata_queue: {} -> unified_queue {}",
-                        file_path, new_queue_id
-                    );
-                    Ok(true)
-                }
-                Err(e) => {
-                    tracing::error!("Failed to enqueue retry item to unified_queue: {}", e);
-                    Err(e)
-                }
-            }
+            self.enqueue_and_update_retry(
+                queue_id, &file_path, &collection, &tenant_id, &branch, unified_op,
+            ).await
         } else {
             warn!("Queue item not found in missing_metadata_queue: {}", queue_id);
             Ok(false)
+        }
+    }
+
+    /// Enqueue a file to unified_queue and update the missing_metadata_queue retry counter.
+    async fn enqueue_and_update_retry(
+        &self,
+        queue_id: &str,
+        file_path: &str,
+        collection: &str,
+        tenant_id: &str,
+        branch: &str,
+        unified_op: UnifiedOp,
+    ) -> QueueResult<bool> {
+        let payload = FilePayload {
+            file_path: file_path.to_string(),
+            file_type: None,
+            file_hash: None,
+            size_bytes: None,
+            old_path: None,
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+
+        match self.enqueue_unified(
+            ItemType::File,
+            unified_op,
+            tenant_id,
+            collection,
+            &payload_json,
+            Some(branch),
+            None,
+        ).await {
+            Ok((new_queue_id, _is_new)) => {
+                sqlx::query(
+                    "UPDATE missing_metadata_queue \
+                     SET last_check_timestamp = ?1, retry_count = retry_count + 1 \
+                     WHERE queue_id = ?2",
+                )
+                .bind(timestamps::now_utc())
+                .bind(queue_id)
+                .execute(&self.pool)
+                .await?;
+
+                tracing::info!(
+                    "Retrying item from missing_metadata_queue: {} -> unified_queue {}",
+                    file_path, new_queue_id
+                );
+                Ok(true)
+            }
+            Err(e) => {
+                tracing::error!("Failed to enqueue retry item to unified_queue: {}", e);
+                Err(e)
+            }
         }
     }
 
