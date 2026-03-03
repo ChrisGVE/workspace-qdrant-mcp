@@ -1,14 +1,14 @@
-//! Core audit engine for unsafe code validation
+//! Core audit engine (`UnsafeCodeAuditor`) for unsafe code validation
 //!
-//! Contains the `UnsafeCodeAuditor` and its helper trackers for memory and
-//! concurrency analysis.
+//! Orchestrates platform-specific, storage, concurrency, and FFI safety checks
+//! and aggregates results into `UnsafeAuditResults`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Instant;
 
-use super::types::{
+use super::trackers::{ConcurrencyTracker, MemoryTracker};
+use super::super::types::{
     BoundaryTest, ConcurrencySafety, ExceptionSafety, FfiSafety, InvariantValidation,
     MemoryAccessPattern, SafetyViolation, UnsafeAuditError, UnsafeAuditResults, ViolationSeverity,
     ViolationType,
@@ -59,6 +59,10 @@ impl UnsafeCodeAuditor {
         })
     }
 
+    // -----------------------------------------------------------------------
+    // Platform-specific audit dispatchers
+    // -----------------------------------------------------------------------
+
     /// Audit unsafe code in platform watching module
     async fn audit_platform_watching_unsafe(&self) -> Result<(), UnsafeAuditError> {
         #[cfg(target_os = "windows")]
@@ -86,6 +90,10 @@ impl UnsafeCodeAuditor {
         Ok(())
     }
 
+    // -----------------------------------------------------------------------
+    // Windows-specific checks
+    // -----------------------------------------------------------------------
+
     #[cfg(target_os = "windows")]
     async fn test_windows_file_watching_safety(&self) -> Result<(), UnsafeAuditError> {
         self.test_utf16_conversion_safety().await?;
@@ -94,6 +102,53 @@ impl UnsafeCodeAuditor {
         Ok(())
     }
 
+    #[cfg(target_os = "windows")]
+    async fn test_utf16_conversion_safety(&self) -> Result<(), UnsafeAuditError> {
+        let test_path = "C:\\test\\path\\with\\unicode\\\u{6D4B}\u{8BD5}";
+
+        let wide_chars: Vec<u16> =
+            test_path.encode_utf16().chain(std::iter::once(0)).collect();
+
+        if wide_chars.last() != Some(&0) {
+            self.record_violation(SafetyViolation {
+                location: "platform.rs:534".to_string(),
+                violation_type: ViolationType::BufferOverflow,
+                severity: ViolationSeverity::High,
+                description: "UTF-16 string not properly null-terminated".to_string(),
+                suggested_fix: "Ensure null termination in UTF-16 conversion".to_string(),
+                stack_trace: None,
+            });
+        }
+
+        let ptr = wide_chars.as_ptr();
+        if ptr.is_null() {
+            self.record_violation(SafetyViolation {
+                location: "platform.rs:538".to_string(),
+                violation_type: ViolationType::NullPointerDereference,
+                severity: ViolationSeverity::Critical,
+                description: "Null pointer from UTF-16 conversion".to_string(),
+                suggested_fix: "Validate pointer before use".to_string(),
+                stack_trace: None,
+            });
+        }
+
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn test_win32_api_safety(&self) -> Result<(), UnsafeAuditError> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn test_handle_management_safety(&self) -> Result<(), UnsafeAuditError> {
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Linux-specific checks
+    // -----------------------------------------------------------------------
+
     #[cfg(target_os = "linux")]
     async fn test_linux_file_watching_safety(&self) -> Result<(), UnsafeAuditError> {
         self.test_epoll_fd_safety().await?;
@@ -101,12 +156,40 @@ impl UnsafeCodeAuditor {
         Ok(())
     }
 
+    #[cfg(target_os = "linux")]
+    async fn test_epoll_fd_safety(&self) -> Result<(), UnsafeAuditError> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn test_inotify_fd_safety(&self) -> Result<(), UnsafeAuditError> {
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // macOS-specific checks
+    // -----------------------------------------------------------------------
+
     #[cfg(target_os = "macos")]
     async fn test_macos_file_watching_safety(&self) -> Result<(), UnsafeAuditError> {
         self.test_fsevents_callback_safety().await?;
         self.test_kqueue_fd_safety().await?;
         Ok(())
     }
+
+    #[cfg(target_os = "macos")]
+    async fn test_fsevents_callback_safety(&self) -> Result<(), UnsafeAuditError> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn test_kqueue_fd_safety(&self) -> Result<(), UnsafeAuditError> {
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Storage / POSIX fd checks
+    // -----------------------------------------------------------------------
 
     pub(crate) async fn test_fd_duplication_safety(&self) -> Result<(), UnsafeAuditError> {
         #[cfg(unix)]
@@ -172,68 +255,9 @@ impl UnsafeCodeAuditor {
         Ok(())
     }
 
-    #[cfg(target_os = "windows")]
-    async fn test_utf16_conversion_safety(&self) -> Result<(), UnsafeAuditError> {
-        let test_path = "C:\\test\\path\\with\\unicode\\\u{6D4B}\u{8BD5}";
-
-        let wide_chars: Vec<u16> =
-            test_path.encode_utf16().chain(std::iter::once(0)).collect();
-
-        if wide_chars.last() != Some(&0) {
-            self.record_violation(SafetyViolation {
-                location: "platform.rs:534".to_string(),
-                violation_type: ViolationType::BufferOverflow,
-                severity: ViolationSeverity::High,
-                description: "UTF-16 string not properly null-terminated".to_string(),
-                suggested_fix: "Ensure null termination in UTF-16 conversion".to_string(),
-                stack_trace: None,
-            });
-        }
-
-        let ptr = wide_chars.as_ptr();
-        if ptr.is_null() {
-            self.record_violation(SafetyViolation {
-                location: "platform.rs:538".to_string(),
-                violation_type: ViolationType::NullPointerDereference,
-                severity: ViolationSeverity::Critical,
-                description: "Null pointer from UTF-16 conversion".to_string(),
-                suggested_fix: "Validate pointer before use".to_string(),
-                stack_trace: None,
-            });
-        }
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn test_win32_api_safety(&self) -> Result<(), UnsafeAuditError> {
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn test_handle_management_safety(&self) -> Result<(), UnsafeAuditError> {
-        Ok(())
-    }
-
-    #[cfg(target_os = "linux")]
-    async fn test_epoll_fd_safety(&self) -> Result<(), UnsafeAuditError> {
-        Ok(())
-    }
-
-    #[cfg(target_os = "linux")]
-    async fn test_inotify_fd_safety(&self) -> Result<(), UnsafeAuditError> {
-        Ok(())
-    }
-
-    #[cfg(target_os = "macos")]
-    async fn test_fsevents_callback_safety(&self) -> Result<(), UnsafeAuditError> {
-        Ok(())
-    }
-
-    #[cfg(target_os = "macos")]
-    async fn test_kqueue_fd_safety(&self) -> Result<(), UnsafeAuditError> {
-        Ok(())
-    }
+    // -----------------------------------------------------------------------
+    // Memory access patterns
+    // -----------------------------------------------------------------------
 
     async fn test_memory_access_patterns(
         &self,
@@ -271,6 +295,10 @@ impl UnsafeCodeAuditor {
         Ok(patterns)
     }
 
+    // -----------------------------------------------------------------------
+    // Invariant validation
+    // -----------------------------------------------------------------------
+
     async fn validate_invariants(
         &self,
     ) -> Result<HashMap<String, InvariantValidation>, UnsafeAuditError> {
@@ -304,6 +332,10 @@ impl UnsafeCodeAuditor {
 
         Ok(validations)
     }
+
+    // -----------------------------------------------------------------------
+    // Boundary conditions
+    // -----------------------------------------------------------------------
 
     async fn test_boundary_conditions(
         &self,
@@ -350,6 +382,10 @@ impl UnsafeCodeAuditor {
         Ok(tests)
     }
 
+    // -----------------------------------------------------------------------
+    // Concurrency safety
+    // -----------------------------------------------------------------------
+
     async fn analyze_concurrency_safety(
         &self,
     ) -> Result<ConcurrencySafety, UnsafeAuditError> {
@@ -364,18 +400,6 @@ impl UnsafeCodeAuditor {
             lock_free_correctness: true,
             aba_problem_prevention: true,
             memory_ordering_correct: true,
-        })
-    }
-
-    async fn analyze_ffi_safety(&self) -> Result<FfiSafety, UnsafeAuditError> {
-        Ok(FfiSafety {
-            c_string_handling: true,
-            null_termination_verified: true,
-            encoding_safety: true,
-            lifetime_management: true,
-            callback_safety: true,
-            abi_compatibility: true,
-            error_propagation: true,
         })
     }
 
@@ -466,6 +490,26 @@ impl UnsafeCodeAuditor {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // FFI safety
+    // -----------------------------------------------------------------------
+
+    async fn analyze_ffi_safety(&self) -> Result<FfiSafety, UnsafeAuditError> {
+        Ok(FfiSafety {
+            c_string_handling: true,
+            null_termination_verified: true,
+            encoding_safety: true,
+            lifetime_management: true,
+            callback_safety: true,
+            abi_compatibility: true,
+            error_propagation: true,
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Scoring and violation recording
+    // -----------------------------------------------------------------------
+
     pub(crate) fn calculate_safety_score(
         &self,
         concurrency: &ConcurrencySafety,
@@ -499,112 +543,5 @@ impl UnsafeCodeAuditor {
     pub(crate) fn record_violation(&self, violation: SafetyViolation) {
         let mut violations = self.violations.lock().unwrap();
         violations.push(violation);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helper trackers
-// ---------------------------------------------------------------------------
-
-/// Memory tracking for unsafe operations
-#[derive(Debug)]
-pub(crate) struct MemoryTracker {
-    allocations: HashMap<usize, AllocationInfo>,
-    pub(crate) total_allocated: usize,
-}
-
-#[derive(Debug, Clone)]
-struct AllocationInfo {
-    size: usize,
-    _timestamp: Instant,
-    _location: String,
-}
-
-impl MemoryTracker {
-    pub(crate) fn new() -> Self {
-        Self {
-            allocations: HashMap::new(),
-            total_allocated: 0,
-        }
-    }
-
-    pub(crate) fn track_allocation(&mut self, ptr: usize, size: usize, location: String) {
-        let info = AllocationInfo {
-            size,
-            _timestamp: Instant::now(),
-            _location: location,
-        };
-
-        self.allocations.insert(ptr, info);
-        self.total_allocated += size;
-    }
-
-    pub(crate) fn track_deallocation(&mut self, ptr: usize) -> Option<()> {
-        if let Some(info) = self.allocations.remove(&ptr) {
-            self.total_allocated -= info.size;
-            Some(())
-        } else {
-            None
-        }
-    }
-}
-
-/// Concurrency tracking for unsafe operations
-#[derive(Debug)]
-pub(crate) struct ConcurrencyTracker {
-    pub(crate) active_threads: HashMap<thread::ThreadId, ThreadInfo>,
-    pub(crate) shared_accesses: HashMap<usize, Vec<AccessInfo>>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ThreadInfo {
-    _start_time: Instant,
-    _unsafe_operations: usize,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct AccessInfo {
-    _thread_id: thread::ThreadId,
-    _access_time: Instant,
-    _access_type: AccessType,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum AccessType {
-    Read,
-    _Write,
-    _ReadWrite,
-}
-
-impl ConcurrencyTracker {
-    pub(crate) fn new() -> Self {
-        Self {
-            active_threads: HashMap::new(),
-            shared_accesses: HashMap::new(),
-        }
-    }
-
-    pub(crate) fn register_thread(&mut self, thread_id: thread::ThreadId) {
-        self.active_threads.insert(
-            thread_id,
-            ThreadInfo {
-                _start_time: Instant::now(),
-                _unsafe_operations: 0,
-            },
-        );
-    }
-
-    pub(crate) fn record_access(&mut self, address: usize, access_type: AccessType) {
-        let thread_id = thread::current().id();
-        let access = AccessInfo {
-            _thread_id: thread_id,
-            _access_time: Instant::now(),
-            _access_type: access_type,
-        };
-
-        self.shared_accesses
-            .entry(address)
-            .or_insert_with(Vec::new)
-            .push(access);
     }
 }
