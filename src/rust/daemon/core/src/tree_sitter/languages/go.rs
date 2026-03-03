@@ -5,9 +5,13 @@ use std::path::Path;
 use tree_sitter::{Language, Node};
 
 use crate::error::DaemonError;
-use crate::tree_sitter::chunker::{extract_function_calls, find_child_by_kind, node_text};
+use crate::tree_sitter::chunker::{find_child_by_kind, node_text};
 use crate::tree_sitter::parser::TreeSitterParser;
 use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
+
+use super::helpers::{
+    build_function_chunk, collect_preceding_line_doc_comments, first_line_signature,
+};
 
 /// Extractor for Go source code.
 pub struct GoExtractor {
@@ -79,13 +83,7 @@ impl GoExtractor {
         file_path: &str,
         receiver: Option<&str>,
     ) -> SemanticChunk {
-        // For method_declaration, the name comes after the receiver parameter_list
-        // So we need to find the identifier that's a direct child, not inside parameter_list
         let name = self.find_function_name(node, source).unwrap_or("anonymous");
-
-        let content = node_text(node, source);
-        let start_line = node.start_position().row + 1;
-        let end_line = node.end_position().row + 1;
 
         let chunk_type = if receiver.is_some() {
             ChunkType::Method
@@ -93,41 +91,18 @@ impl GoExtractor {
             ChunkType::Function
         };
 
-        // Extract signature (first line)
-        let signature = content.lines().next().map(|l| l.trim_end_matches('{').trim().to_string());
-
-        // Extract doc comment
-        let docstring = self.extract_doc_comment(node, source);
-
-        // Extract calls
-        let calls = if let Some(body) = find_child_by_kind(node, "block") {
-            extract_function_calls(&body, source)
-        } else {
-            Vec::new()
-        };
-
-        let mut chunk = SemanticChunk::new(
+        build_function_chunk(
             chunk_type,
             name,
-            content,
-            start_line,
-            end_line,
-            "go",
+            node,
+            source,
             file_path,
+            "go",
+            "block",
+            first_line_signature(node, source),
+            collect_preceding_line_doc_comments(node, source),
+            receiver,
         )
-        .with_calls(calls);
-
-        if let Some(sig) = signature {
-            chunk = chunk.with_signature(sig);
-        }
-        if let Some(doc) = docstring {
-            chunk = chunk.with_docstring(doc);
-        }
-        if let Some(r) = receiver {
-            chunk = chunk.with_parent(r);
-        }
-
-        chunk
     }
 
     /// Extract a struct.
@@ -140,7 +115,7 @@ impl GoExtractor {
         let start_line = node.start_position().row + 1;
         let end_line = node.end_position().row + 1;
 
-        let docstring = self.extract_doc_comment(node, source);
+        let docstring = collect_preceding_line_doc_comments(node, source);
 
         let mut chunk = SemanticChunk::new(
             ChunkType::Struct,
@@ -169,7 +144,7 @@ impl GoExtractor {
         let start_line = node.start_position().row + 1;
         let end_line = node.end_position().row + 1;
 
-        let docstring = self.extract_doc_comment(node, source);
+        let docstring = collect_preceding_line_doc_comments(node, source);
 
         let mut chunk = SemanticChunk::new(
             ChunkType::Interface,
@@ -186,29 +161,6 @@ impl GoExtractor {
         }
 
         chunk
-    }
-
-    /// Extract Go doc comment.
-    fn extract_doc_comment(&self, node: &Node, source: &str) -> Option<String> {
-        let mut prev = node.prev_sibling();
-        let mut doc_lines = Vec::new();
-
-        while let Some(sibling) = prev {
-            if sibling.kind() == "comment" {
-                let text = node_text(&sibling, source);
-                doc_lines.push(text.trim_start_matches("//").trim().to_string());
-                prev = sibling.prev_sibling();
-            } else {
-                break;
-            }
-        }
-
-        if doc_lines.is_empty() {
-            None
-        } else {
-            doc_lines.reverse();
-            Some(doc_lines.join("\n"))
-        }
     }
 
     /// Find the function/method name.

@@ -5,9 +5,11 @@ use std::path::Path;
 use tree_sitter::{Language, Node};
 
 use crate::error::DaemonError;
-use crate::tree_sitter::chunker::{extract_function_calls, find_child_by_kind, node_text};
+use crate::tree_sitter::chunker::{find_child_by_kind, node_text};
 use crate::tree_sitter::parser::TreeSitterParser;
 use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
+
+use super::helpers::{build_function_chunk, clean_block_doc_comment, first_line_signature};
 
 /// Extractor for Java source code.
 pub struct JavaExtractor {
@@ -71,6 +73,16 @@ impl JavaExtractor {
         ))
     }
 
+    /// Extract Javadoc comment from the immediate previous sibling.
+    fn extract_javadoc(&self, node: &Node, source: &str) -> Option<String> {
+        let prev = node.prev_sibling()?;
+        if prev.kind() == "block_comment" {
+            clean_block_doc_comment(&prev, source)
+        } else {
+            None
+        }
+    }
+
     /// Extract a method.
     fn extract_method(
         &self,
@@ -83,43 +95,18 @@ impl JavaExtractor {
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
 
-        let content = node_text(node, source);
-        let start_line = node.start_position().row + 1;
-        let end_line = node.end_position().row + 1;
-
-        // Extract signature
-        let signature = content.lines().next().map(|l| l.trim_end_matches('{').trim().to_string());
-
-        // Extract Javadoc
-        let docstring = self.extract_javadoc(node, source);
-
-        // Extract calls
-        let calls = if let Some(body) = find_child_by_kind(node, "block") {
-            extract_function_calls(&body, source)
-        } else {
-            Vec::new()
-        };
-
-        let mut chunk = SemanticChunk::new(
+        build_function_chunk(
             ChunkType::Method,
             name,
-            content,
-            start_line,
-            end_line,
-            "java",
+            node,
+            source,
             file_path,
+            "java",
+            "block",
+            first_line_signature(node, source),
+            self.extract_javadoc(node, source),
+            Some(parent),
         )
-        .with_parent(parent)
-        .with_calls(calls);
-
-        if let Some(sig) = signature {
-            chunk = chunk.with_signature(sig);
-        }
-        if let Some(doc) = docstring {
-            chunk = chunk.with_docstring(doc);
-        }
-
-        chunk
     }
 
     /// Extract a class.
@@ -224,27 +211,6 @@ impl JavaExtractor {
         }
 
         chunk
-    }
-
-    /// Extract Javadoc comment from the immediate previous sibling.
-    fn extract_javadoc(&self, node: &Node, source: &str) -> Option<String> {
-        let prev = node.prev_sibling()?;
-        if prev.kind() == "block_comment" {
-            let text = node_text(&prev, source);
-            if text.starts_with("/**") {
-                let cleaned = text
-                    .trim_start_matches("/**")
-                    .trim_end_matches("*/")
-                    .lines()
-                    .map(|l| l.trim().trim_start_matches('*').trim())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .trim()
-                    .to_string();
-                return Some(cleaned);
-            }
-        }
-        None
     }
 }
 

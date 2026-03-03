@@ -5,9 +5,11 @@ use std::path::Path;
 use tree_sitter::{Language, Node};
 
 use crate::error::DaemonError;
-use crate::tree_sitter::chunker::{extract_function_calls, find_child_by_kind, node_text};
+use crate::tree_sitter::chunker::{find_child_by_kind, node_text};
 use crate::tree_sitter::parser::TreeSitterParser;
 use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
+
+use super::helpers::{build_function_chunk, clean_block_doc_comment, first_line_signature};
 
 /// Extractor for TypeScript source code.
 pub struct TypeScriptExtractor {
@@ -87,6 +89,16 @@ impl TypeScriptExtractor {
         ))
     }
 
+    /// Extract TSDoc comment from the immediate previous sibling.
+    fn extract_tsdoc(&self, node: &Node, source: &str) -> Option<String> {
+        let prev = node.prev_sibling()?;
+        if prev.kind() == "comment" {
+            clean_block_doc_comment(&prev, source)
+        } else {
+            None
+        }
+    }
+
     /// Extract a function.
     fn extract_function(
         &self,
@@ -101,9 +113,6 @@ impl TypeScriptExtractor {
             .unwrap_or("anonymous");
 
         let content = node_text(node, source);
-        let start_line = node.start_position().row + 1;
-        let end_line = node.end_position().row + 1;
-
         let is_async = content.trim_start().starts_with("async ");
         let chunk_type = if is_async {
             ChunkType::AsyncFunction
@@ -113,37 +122,18 @@ impl TypeScriptExtractor {
             ChunkType::Function
         };
 
-        let signature = content.lines().next().map(|l| l.trim_end_matches('{').trim().to_string());
-        let docstring = self.extract_tsdoc(node, source);
-
-        let calls = if let Some(body) = find_child_by_kind(node, "statement_block") {
-            extract_function_calls(&body, source)
-        } else {
-            Vec::new()
-        };
-
-        let mut chunk = SemanticChunk::new(
+        build_function_chunk(
             chunk_type,
             name,
-            content,
-            start_line,
-            end_line,
-            self.language_name(),
+            node,
+            source,
             file_path,
+            self.language_name(),
+            "statement_block",
+            first_line_signature(node, source),
+            self.extract_tsdoc(node, source),
+            parent,
         )
-        .with_calls(calls);
-
-        if let Some(sig) = signature {
-            chunk = chunk.with_signature(sig);
-        }
-        if let Some(doc) = docstring {
-            chunk = chunk.with_docstring(doc);
-        }
-        if let Some(p) = parent {
-            chunk = chunk.with_parent(p);
-        }
-
-        chunk
     }
 
     /// Extract a class.
@@ -253,27 +243,6 @@ impl TypeScriptExtractor {
         }
 
         chunk
-    }
-
-    /// Extract TSDoc comment from the immediate previous sibling.
-    fn extract_tsdoc(&self, node: &Node, source: &str) -> Option<String> {
-        let prev = node.prev_sibling()?;
-        if prev.kind() == "comment" {
-            let text = node_text(&prev, source);
-            if text.starts_with("/**") {
-                let cleaned = text
-                    .trim_start_matches("/**")
-                    .trim_end_matches("*/")
-                    .lines()
-                    .map(|l| l.trim().trim_start_matches('*').trim())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .trim()
-                    .to_string();
-                return Some(cleaned);
-            }
-        }
-        None
     }
 }
 

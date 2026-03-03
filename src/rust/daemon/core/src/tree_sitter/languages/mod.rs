@@ -1,5 +1,6 @@
 //! Language-specific chunk extractors.
 
+mod helpers;
 mod rust;
 mod python;
 mod javascript;
