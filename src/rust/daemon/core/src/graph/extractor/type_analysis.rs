@@ -110,124 +110,51 @@ fn is_type_name(token: &str, language: &str) -> bool {
 /// Check if a token is a language keyword (not a type).
 fn is_keyword(token: &str, language: &str) -> bool {
     match language {
-        "rust" => matches!(
-            token,
-            "fn" | "pub"
-                | "self"
-                | "Self"
-                | "mut"
-                | "let"
-                | "const"
-                | "static"
-                | "async"
-                | "await"
-                | "impl"
-                | "trait"
-                | "struct"
-                | "enum"
-                | "type"
-                | "where"
-                | "for"
-                | "in"
-                | "if"
-                | "else"
-                | "match"
-                | "return"
-                | "mod"
-                | "use"
-                | "crate"
-                | "super"
-                | "dyn"
-                | "ref"
-                | "unsafe"
-                | "extern"
-        ),
-        "python" => matches!(
-            token,
-            "def" | "self"
-                | "cls"
-                | "class"
-                | "return"
-                | "import"
-                | "from"
-                | "as"
-                | "if"
-                | "else"
-                | "elif"
-                | "for"
-                | "in"
-                | "while"
-                | "with"
-                | "try"
-                | "except"
-                | "raise"
-                | "pass"
-                | "lambda"
-                | "yield"
-                | "async"
-                | "await"
-                | "None"
-                | "True"
-                | "False"
-        ),
-        "javascript" | "typescript" | "tsx" | "jsx" => matches!(
-            token,
-            "function"
-                | "const"
-                | "let"
-                | "var"
-                | "return"
-                | "if"
-                | "else"
-                | "for"
-                | "while"
-                | "class"
-                | "extends"
-                | "implements"
-                | "import"
-                | "export"
-                | "default"
-                | "new"
-                | "this"
-                | "super"
-                | "async"
-                | "await"
-                | "yield"
-                | "typeof"
-                | "instanceof"
-                | "void"
-                | "null"
-                | "undefined"
-                | "true"
-                | "false"
-        ),
-        "go" => matches!(
-            token,
-            "func" | "return"
-                | "if"
-                | "else"
-                | "for"
-                | "range"
-                | "switch"
-                | "case"
-                | "type"
-                | "struct"
-                | "interface"
-                | "package"
-                | "import"
-                | "var"
-                | "const"
-                | "defer"
-                | "go"
-                | "chan"
-                | "select"
-                | "nil"
-                | "true"
-                | "false"
-                | "map"
-        ),
+        "rust" => is_rust_keyword(token),
+        "python" => is_python_keyword(token),
+        "javascript" | "typescript" | "tsx" | "jsx" => is_js_ts_keyword(token),
+        "go" => is_go_keyword(token),
         _ => false,
     }
+}
+
+fn is_rust_keyword(token: &str) -> bool {
+    matches!(
+        token,
+        "fn" | "pub" | "self" | "Self" | "mut" | "let" | "const" | "static"
+            | "async" | "await" | "impl" | "trait" | "struct" | "enum" | "type"
+            | "where" | "for" | "in" | "if" | "else" | "match" | "return"
+            | "mod" | "use" | "crate" | "super" | "dyn" | "ref" | "unsafe" | "extern"
+    )
+}
+
+fn is_python_keyword(token: &str) -> bool {
+    matches!(
+        token,
+        "def" | "self" | "cls" | "class" | "return" | "import" | "from" | "as"
+            | "if" | "else" | "elif" | "for" | "in" | "while" | "with" | "try"
+            | "except" | "raise" | "pass" | "lambda" | "yield" | "async" | "await"
+            | "None" | "True" | "False"
+    )
+}
+
+fn is_js_ts_keyword(token: &str) -> bool {
+    matches!(
+        token,
+        "function" | "const" | "let" | "var" | "return" | "if" | "else" | "for"
+            | "while" | "class" | "extends" | "implements" | "import" | "export"
+            | "default" | "new" | "this" | "super" | "async" | "await" | "yield"
+            | "typeof" | "instanceof" | "void" | "null" | "undefined" | "true" | "false"
+    )
+}
+
+fn is_go_keyword(token: &str) -> bool {
+    matches!(
+        token,
+        "func" | "return" | "if" | "else" | "for" | "range" | "switch" | "case"
+            | "type" | "struct" | "interface" | "package" | "import" | "var" | "const"
+            | "defer" | "go" | "chan" | "select" | "nil" | "true" | "false" | "map"
+    )
 }
 
 /// Check if a token is a primitive type or common builtin.

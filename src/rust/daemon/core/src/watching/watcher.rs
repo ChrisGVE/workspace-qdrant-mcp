@@ -343,65 +343,30 @@ impl FileWatcher {
 
     /// Process existing files in a directory (for initial scan)
     async fn process_existing_files(&self, root_path: &Path) -> Result<(), WatchingError> {
-        let config = self.config.read().await;
-        let patterns = self.patterns.read().await;
-
-        let max_depth = if config.max_depth < 0 {
-            usize::MAX
-        } else {
-            config.max_depth as usize
-        };
-
-        let walker = if config.recursive {
-            WalkDir::new(root_path).max_depth(max_depth)
-        } else {
-            WalkDir::new(root_path).max_depth(1)
-        };
-
-        let mut file_count = 0;
-        let mut filtered_count = 0;
-        let start_time = Instant::now();
-        let mut last_yield = Instant::now();
-        let mut last_progress_report = Instant::now();
-        let mut batch_buffer: Vec<FileEvent> = Vec::with_capacity(50);
-
         const YIELD_INTERVAL_MS: u64 = 10;
         const PROGRESS_REPORT_INTERVAL_S: u64 = 5;
         const BATCH_SIZE: usize = 50;
+
+        let config = self.config.read().await;
+        let patterns = self.patterns.read().await;
+        let walker = build_walker(root_path, &config);
+
+        let mut file_count = 0usize;
+        let mut filtered_count = 0usize;
+        let start_time = Instant::now();
+        let mut last_yield = Instant::now();
+        let mut last_progress = Instant::now();
+        let mut batch_buffer: Vec<FileEvent> = Vec::with_capacity(BATCH_SIZE);
 
         for entry in walker {
             match entry {
                 Ok(entry) => {
                     let path = entry.path();
-
-                    if !path.is_file() {
+                    if !accept_file(path, &patterns, &config, &mut filtered_count) {
                         continue;
                     }
 
-                    if !patterns.should_process(path) {
-                        filtered_count += 1;
-                        continue;
-                    }
-
-                    if let Some(max_size) = config.max_file_size {
-                        if let Ok(metadata) = path.metadata() {
-                            if metadata.len() > max_size {
-                                filtered_count += 1;
-                                continue;
-                            }
-                        }
-                    }
-
-                    let event = FileEvent {
-                        path: path.to_path_buf(),
-                        event_kind: EventKind::Create(notify::event::CreateKind::File),
-                        timestamp: Instant::now(),
-                        system_time: SystemTime::now(),
-                        size: path.metadata().ok().map(|m| m.len()),
-                        metadata: HashMap::new(),
-                    };
-
-                    batch_buffer.push(event);
+                    batch_buffer.push(make_file_event(path));
                     file_count += 1;
 
                     if batch_buffer.len() >= BATCH_SIZE {
@@ -417,20 +382,16 @@ impl FileWatcher {
                         tokio::task::yield_now().await;
                         last_yield = now;
                     }
-
-                    if now.duration_since(last_progress_report) >= Duration::from_secs(PROGRESS_REPORT_INTERVAL_S) {
-                        let elapsed = start_time.elapsed();
-                        let rate = file_count as f64 / elapsed.as_secs_f64();
+                    if now.duration_since(last_progress) >= Duration::from_secs(PROGRESS_REPORT_INTERVAL_S) {
+                        let rate = file_count as f64 / start_time.elapsed().as_secs_f64();
                         tracing::info!(
                             "Initial scan progress: {} files processed, {} filtered ({:.1} files/sec)",
                             file_count, filtered_count, rate
                         );
-                        last_progress_report = now;
+                        last_progress = now;
                     }
-                },
-                Err(e) => {
-                    tracing::warn!("Error walking directory {}: {}", root_path.display(), e);
                 }
+                Err(e) => tracing::warn!("Error walking directory {}: {}", root_path.display(), e),
             }
         }
 
@@ -441,14 +402,15 @@ impl FileWatcher {
             ).await;
         }
 
-        {
-            let ready_batch = {
-                let mut batcher_lock = self.batcher.lock().await;
-                batcher_lock.flush_all()
-            };
-            if let Some(batch) = ready_batch {
-                Self::submit_processing_tasks(batch, &self.config, &self.task_submitter, &self.stats, &self.telemetry_tracker).await;
-            }
+        // Flush the batcher so no events are stranded
+        let ready_batch = {
+            let mut batcher_lock = self.batcher.lock().await;
+            batcher_lock.flush_all()
+        };
+        if let Some(batch) = ready_batch {
+            Self::submit_processing_tasks(
+                batch, &self.config, &self.task_submitter, &self.stats, &self.telemetry_tracker,
+            ).await;
         }
 
         let elapsed = start_time.elapsed();
@@ -459,5 +421,56 @@ impl FileWatcher {
         );
 
         Ok(())
+    }
+}
+
+/// Build a WalkDir iterator respecting the watcher's depth and recursive settings.
+fn build_walker(root_path: &Path, config: &super::config::WatcherConfig) -> WalkDir {
+    let max_depth = if config.max_depth < 0 {
+        usize::MAX
+    } else {
+        config.max_depth as usize
+    };
+    if config.recursive {
+        WalkDir::new(root_path).max_depth(max_depth)
+    } else {
+        WalkDir::new(root_path).max_depth(1)
+    }
+}
+
+/// Return `true` when a file entry should be enqueued; update `filtered_count` otherwise.
+fn accept_file(
+    path: &Path,
+    patterns: &super::compiled_patterns::CompiledPatterns,
+    config: &super::config::WatcherConfig,
+    filtered_count: &mut usize,
+) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    if !patterns.should_process(path) {
+        *filtered_count += 1;
+        return false;
+    }
+    if let Some(max_size) = config.max_file_size {
+        if let Ok(metadata) = path.metadata() {
+            if metadata.len() > max_size {
+                *filtered_count += 1;
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Construct a synthetic Create event for an existing file.
+fn make_file_event(path: &Path) -> FileEvent {
+    FileEvent {
+        path: path.to_path_buf(),
+        event_kind: EventKind::Create(notify::event::CreateKind::File),
+        timestamp: Instant::now(),
+        system_time: SystemTime::now(),
+        size: path.metadata().ok().map(|m| m.len()),
+        metadata: HashMap::new(),
     }
 }

@@ -296,8 +296,7 @@ impl HierarchyBuilder {
         let mut tx = self.pool.begin().await.map_err(HierarchyError::Database)?;
         let now_str = now_utc();
 
-        // Clear existing canonical tags and edges for this tenant
-        // Edges are ON DELETE CASCADE so deleting canonical_tags clears them
+        // Clear existing data (edges cascade via ON DELETE CASCADE)
         sqlx::query("DELETE FROM canonical_tags WHERE tenant_id = ?1 AND collection = ?2")
             .bind(tenant_id)
             .bind(&self.config.collection)
@@ -307,105 +306,99 @@ impl HierarchyBuilder {
 
         let mut edges_created = 0usize;
 
-        // Insert level 1 (broad) tags first (no parents)
-        let mut level1_ids: Vec<i64> = Vec::with_capacity(hierarchy.level1.len());
-        for tag in &hierarchy.level1 {
-            let result = sqlx::query(
-                "INSERT INTO canonical_tags (canonical_name, level, parent_id, tenant_id, collection, created_at) \
-                 VALUES (?1, ?2, NULL, ?3, ?4, ?5)"
-            )
-            .bind(&tag.label)
-            .bind(1_i32)
-            .bind(tenant_id)
-            .bind(&self.config.collection)
-            .bind(&now_str)
-            .execute(&mut *tx)
-            .await
-            .map_err(HierarchyError::Database)?;
+        let level1_ids = insert_level1_tags(
+            &mut tx, &hierarchy.level1, tenant_id, &self.config.collection, &now_str,
+        ).await?;
 
-            level1_ids.push(result.last_insert_rowid());
-        }
+        let level2_ids = insert_level_n_tags(
+            &mut tx, &hierarchy.level2, 2, &level1_ids, tenant_id,
+            &self.config.collection, &now_str, &mut edges_created,
+        ).await?;
 
-        // Insert level 2 (mid) tags, linking to level 1 parents where possible
-        let mut level2_ids: Vec<i64> = Vec::with_capacity(hierarchy.level2.len());
-        for tag in &hierarchy.level2 {
-            let parent_id = tag.parent_index.and_then(|idx| level1_ids.get(idx).copied());
-
-            let result = sqlx::query(
-                "INSERT INTO canonical_tags (canonical_name, level, parent_id, tenant_id, collection, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
-            )
-            .bind(&tag.label)
-            .bind(2_i32)
-            .bind(parent_id)
-            .bind(tenant_id)
-            .bind(&self.config.collection)
-            .bind(&now_str)
-            .execute(&mut *tx)
-            .await
-            .map_err(HierarchyError::Database)?;
-
-            let l2_id = result.last_insert_rowid();
-            level2_ids.push(l2_id);
-
-            // Create edge from level 1 parent to this level 2 tag
-            if let Some(pid) = parent_id {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO tag_hierarchy_edges (parent_tag_id, child_tag_id, similarity_score, tenant_id) \
-                     VALUES (?1, ?2, ?3, ?4)"
-                )
-                .bind(pid)
-                .bind(l2_id)
-                .bind(tag.parent_similarity.unwrap_or(0.0))
-                .bind(tenant_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(HierarchyError::Database)?;
-
-                edges_created += 1;
-            }
-        }
-
-        // Insert level 3 (fine) tags, linking to level 2 parents where possible
-        for tag in &hierarchy.level3 {
-            let parent_id = tag.parent_index.and_then(|idx| level2_ids.get(idx).copied());
-
-            let result = sqlx::query(
-                "INSERT INTO canonical_tags (canonical_name, level, parent_id, tenant_id, collection, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
-            )
-            .bind(&tag.label)
-            .bind(3_i32)
-            .bind(parent_id)
-            .bind(tenant_id)
-            .bind(&self.config.collection)
-            .bind(&now_str)
-            .execute(&mut *tx)
-            .await
-            .map_err(HierarchyError::Database)?;
-
-            let l3_id = result.last_insert_rowid();
-
-            // Create edge from level 2 parent to this level 3 tag
-            if let Some(pid) = parent_id {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO tag_hierarchy_edges (parent_tag_id, child_tag_id, similarity_score, tenant_id) \
-                     VALUES (?1, ?2, ?3, ?4)"
-                )
-                .bind(pid)
-                .bind(l3_id)
-                .bind(tag.parent_similarity.unwrap_or(0.0))
-                .bind(tenant_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(HierarchyError::Database)?;
-
-                edges_created += 1;
-            }
-        }
+        insert_level_n_tags(
+            &mut tx, &hierarchy.level3, 3, &level2_ids, tenant_id,
+            &self.config.collection, &now_str, &mut edges_created,
+        ).await?;
 
         tx.commit().await.map_err(HierarchyError::Database)?;
-
         Ok(edges_created)
     }
+}
+
+/// Insert level-1 (root) canonical tags and return their row IDs.
+async fn insert_level1_tags(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    tags: &[crate::keyword_extraction::canonical_tags::CanonicalTag],
+    tenant_id: &str,
+    collection: &str,
+    now_str: &str,
+) -> Result<Vec<i64>, HierarchyError> {
+    let mut ids = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let result = sqlx::query(
+            "INSERT INTO canonical_tags \
+             (canonical_name, level, parent_id, tenant_id, collection, created_at) \
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5)"
+        )
+        .bind(&tag.label)
+        .bind(1_i32)
+        .bind(tenant_id)
+        .bind(collection)
+        .bind(now_str)
+        .execute(&mut **tx)
+        .await
+        .map_err(HierarchyError::Database)?;
+        ids.push(result.last_insert_rowid());
+    }
+    Ok(ids)
+}
+
+/// Insert level-N (N ≥ 2) canonical tags with parent links, returning their row IDs.
+async fn insert_level_n_tags(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    tags: &[crate::keyword_extraction::canonical_tags::CanonicalTag],
+    level: i32,
+    parent_ids: &[i64],
+    tenant_id: &str,
+    collection: &str,
+    now_str: &str,
+    edges_created: &mut usize,
+) -> Result<Vec<i64>, HierarchyError> {
+    let mut ids = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let parent_id = tag.parent_index.and_then(|idx| parent_ids.get(idx).copied());
+        let result = sqlx::query(
+            "INSERT INTO canonical_tags \
+             (canonical_name, level, parent_id, tenant_id, collection, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )
+        .bind(&tag.label)
+        .bind(level)
+        .bind(parent_id)
+        .bind(tenant_id)
+        .bind(collection)
+        .bind(now_str)
+        .execute(&mut **tx)
+        .await
+        .map_err(HierarchyError::Database)?;
+        let child_id = result.last_insert_rowid();
+        ids.push(child_id);
+
+        if let Some(pid) = parent_id {
+            sqlx::query(
+                "INSERT OR IGNORE INTO tag_hierarchy_edges \
+                 (parent_tag_id, child_tag_id, similarity_score, tenant_id) \
+                 VALUES (?1, ?2, ?3, ?4)"
+            )
+            .bind(pid)
+            .bind(child_id)
+            .bind(tag.parent_similarity.unwrap_or(0.0))
+            .bind(tenant_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(HierarchyError::Database)?;
+            *edges_created += 1;
+        }
+    }
+    Ok(ids)
 }

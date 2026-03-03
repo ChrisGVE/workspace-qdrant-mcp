@@ -150,10 +150,8 @@ async fn run_ingest_pipeline(
 ) -> UnifiedProcessorResult<()> {
     let mut timings: Vec<PhaseTiming> = Vec::new();
 
-    // Phase 0: Ensure grammar is available for this file's language (dynamic download)
+    // Phase 0: grammar availability + Phase 1: parse
     let provider = ensure_grammar_available(ctx, file_path).await;
-
-    // Phase 1: Parse document (with dynamic grammar provider)
     let t0 = Instant::now();
     let document_content = ctx
         .document_processor
@@ -161,32 +159,17 @@ async fn run_ingest_pipeline(
         .await
         .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
     timings.push(PhaseTiming { phase: "parse", duration_ms: t0.elapsed().as_millis() as u64 });
+    info!("Extracted {} chunks from {}", document_content.chunks.len(), payload.file_path);
 
-    info!(
-        "Extracted {} chunks from {}",
-        document_content.chunks.len(),
-        payload.file_path
-    );
+    let (file_document_id, file_hash, base_point) =
+        compute_file_identifiers(&item.tenant_id, &item.branch, &payload.file_path, file_path, relative_path);
 
-    let file_document_id =
-        crate::generate_document_id(&item.tenant_id, &payload.file_path);
-
-    let file_hash = tracked_files_schema::compute_file_hash(file_path)
-        .unwrap_or_else(|_| "unknown".to_string());
-    let base_point = wqm_common::hashing::compute_base_point(
-        &item.tenant_id,
-        &item.branch,
-        relative_path,
-        &file_hash,
-    );
-
-    // Phase 2: Embed chunks
+    // Phase 2: embed chunks
     let t0 = Instant::now();
     let embed_result = chunk_embed::embed_chunks(
         ctx, item, &document_content, file_path, &file_document_id,
         relative_path, &base_point, &file_hash, payload.file_type.as_deref(),
-    )
-    .await?;
+    ).await?;
     timings.push(PhaseTiming { phase: "embed", duration_ms: t0.elapsed().as_millis() as u64 });
 
     let mut points = embed_result.points;
@@ -194,32 +177,13 @@ async fn run_ingest_pipeline(
     let lsp_status = embed_result.lsp_status;
     let treesitter_status = embed_result.treesitter_status;
 
-    // Phase 3: Keyword/tag extraction
-    if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
-        let t0 = Instant::now();
-        let extraction = keyword_extract::run_keyword_extraction(
-            ctx, item, file_path, &document_content, &mut points,
-        )
-        .await;
-        timings.push(PhaseTiming { phase: "extract", duration_ms: t0.elapsed().as_millis() as u64 });
+    // Phases 3–4: keyword extraction + graph edges
+    run_keyword_and_graph_phases(
+        ctx, item, pool, file_path, &document_content,
+        &file_document_id, relative_path, &mut points, &mut timings,
+    ).await;
 
-        if let Some(ref extraction) = extraction {
-            keyword_persist::persist_extraction(
-                pool, &file_document_id, &item.tenant_id, &item.collection, extraction,
-            )
-            .await;
-        }
-    }
-
-    // Phase 4: Graph relationship extraction
-    let t0 = Instant::now();
-    graph_ingest::ingest_graph_edges(
-        ctx, &item.tenant_id, relative_path, &document_content.chunks,
-    )
-    .await;
-    timings.push(PhaseTiming { phase: "graph", duration_ms: t0.elapsed().as_millis() as u64 });
-
-    // Phase 5: Component detection + injection
+    // Phase 5: component detection + injection
     inject_component(ctx, pool, watch_folder_id, base_path, relative_path, &mut points).await;
 
     // Phase 6: Qdrant upsert + tracked_files
@@ -228,31 +192,75 @@ async fn run_ingest_pipeline(
         ctx, item, pool, points, &chunk_records, watch_folder_id, relative_path,
         &base_point, &file_hash, file_path, &document_content,
         lsp_status, treesitter_status, payload.file_type.as_deref(), None,
-    )
-    .await?;
+    ).await?;
     timings.push(PhaseTiming { phase: "upsert", duration_ms: t0.elapsed().as_millis() as u64 });
 
-    let _ = ctx
-        .queue_manager
+    let _ = ctx.queue_manager
         .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Done)
         .await;
 
     // Phase 7: FTS5 search index
-    update_search_index(ctx, item, pool, file_id, payload, &base_point, relative_path, &file_hash, &mut timings).await;
+    update_search_index(
+        ctx, item, pool, file_id, payload, &base_point, relative_path, &file_hash, &mut timings,
+    ).await;
 
-    // Record per-phase timings
     processing_timings::record_timings(
         pool, &item.queue_id, item.item_type.as_str(), item.op.as_str(),
         &item.tenant_id, &item.collection, &timings,
-    )
-    .await;
+    ).await;
 
-    info!(
-        "Successfully processed file item {} ({})",
-        item.queue_id, payload.file_path
-    );
-
+    info!("Successfully processed file item {} ({})", item.queue_id, payload.file_path);
     Ok(())
+}
+
+/// Compute file_document_id, file_hash, and base_point from item metadata.
+fn compute_file_identifiers(
+    tenant_id: &str,
+    branch: &str,
+    payload_file_path: &str,
+    file_path: &Path,
+    relative_path: &str,
+) -> (String, String, String) {
+    let file_document_id = crate::generate_document_id(tenant_id, payload_file_path);
+    let file_hash = tracked_files_schema::compute_file_hash(file_path)
+        .unwrap_or_else(|_| "unknown".to_string());
+    let base_point = wqm_common::hashing::compute_base_point(
+        tenant_id, branch, relative_path, &file_hash,
+    );
+    (file_document_id, file_hash, base_point)
+}
+
+/// Run keyword extraction (phase 3) and graph edge ingestion (phase 4).
+#[allow(clippy::too_many_arguments)]
+async fn run_keyword_and_graph_phases(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &SqlitePool,
+    file_path: &Path,
+    document_content: &crate::DocumentContent,
+    file_document_id: &str,
+    relative_path: &str,
+    points: &mut [crate::storage::DocumentPoint],
+    timings: &mut Vec<PhaseTiming>,
+) {
+    if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
+        let t0 = Instant::now();
+        let extraction = keyword_extract::run_keyword_extraction(
+            ctx, item, file_path, document_content, points,
+        ).await;
+        timings.push(PhaseTiming { phase: "extract", duration_ms: t0.elapsed().as_millis() as u64 });
+        if let Some(ref extraction) = extraction {
+            keyword_persist::persist_extraction(
+                pool, file_document_id, &item.tenant_id, &item.collection, extraction,
+            ).await;
+        }
+    }
+
+    let t0 = Instant::now();
+    graph_ingest::ingest_graph_edges(
+        ctx, &item.tenant_id, relative_path, &document_content.chunks,
+    ).await;
+    timings.push(PhaseTiming { phase: "graph", duration_ms: t0.elapsed().as_millis() as u64 });
 }
 
 /// Detect and inject component_id into point payloads.

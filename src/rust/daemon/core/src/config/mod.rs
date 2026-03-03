@@ -127,123 +127,167 @@ impl From<&YamlConfig> for DaemonConfig {
             enable_preemption: yaml.performance.enable_preemption,
             chunk_size: yaml.performance.chunk_size,
             log_level: "info".to_string(),
-            auto_ingestion: AutoIngestionConfig {
-                enabled: yaml.auto_ingestion.enabled,
-                auto_create_watches: yaml.auto_ingestion.auto_create_watches,
-                include_common_files: yaml.auto_ingestion.include_common_files,
-                include_source_files: yaml.auto_ingestion.include_source_files,
-                target_collection_suffix: "scratchbook".to_string(),
-                max_files_per_batch: yaml.auto_ingestion.max_files_per_batch,
-                batch_delay_seconds: 2.0,
-                max_file_size_mb: 50,
-                recursive_depth: 5,
-                debounce_seconds: yaml.auto_ingestion.debounce_seconds(),
-            },
+            auto_ingestion: build_auto_ingestion_config(yaml),
             project_path: None,
-            qdrant: StorageConfig {
-                url: yaml.qdrant.url.clone(),
-                api_key: yaml.qdrant.api_key.clone(),
-                timeout_ms: yaml.qdrant.timeout,
-                pool_size: yaml.qdrant.pool.max_connections,
-                dense_vector_size: yaml.qdrant.default_collection.vector_size,
-                ..StorageConfig::default()
-            },
+            qdrant: build_storage_config(yaml),
             logging: LoggingConfig::default(),
-            queue_processor: QueueProcessorSettings {
-                batch_size: yaml.queue_processor.batch_size,
-                poll_interval_ms: yaml.queue_processor.poll_interval_ms,
-                max_retries: yaml.queue_processor.max_retries,
-                retry_delays_seconds: default_retry_delays_seconds(),
-                target_throughput: yaml.queue_processor.target_throughput,
-                enable_metrics: yaml.queue_processor.enable_metrics,
-            },
+            queue_processor: build_queue_processor_settings(yaml),
             monitoring: MonitoringConfig::default(),
-            git: GitConfig {
-                enable_branch_detection: yaml.git.track_branch_lifecycle,
-                cache_ttl_seconds: yaml.git.branch_scan_interval_seconds,
-            },
-            observability: ObservabilityConfig {
-                collection_interval: yaml.observability.collection_interval_secs(),
-                metrics: MetricsConfig {
-                    enabled: yaml.observability.metrics.enabled,
-                },
-                telemetry: TelemetryConfig {
-                    enabled: yaml.observability.telemetry.enabled,
-                    history_retention: yaml.observability.telemetry.history_retention,
-                    cpu_usage: yaml.observability.telemetry.cpu_usage,
-                    memory_usage: yaml.observability.telemetry.memory_usage,
-                    latency: yaml.observability.telemetry.latency,
-                    queue_depth: yaml.observability.telemetry.queue_depth,
-                    throughput: yaml.observability.telemetry.throughput,
-                },
-            },
-            embedding: EmbeddingSettings {
-                cache_max_entries: yaml.embedding.cache_max_entries,
-                model_cache_dir: yaml.embedding.model_cache_dir.as_ref().map(PathBuf::from),
-            },
-            lsp: LspSettings {
-                user_path: yaml.lsp.user_path.clone(),
-                max_servers_per_project: yaml.lsp.max_servers_per_project,
-                auto_start_on_activation: yaml.lsp.auto_start_on_activation,
-                deactivation_delay_secs: yaml.lsp.deactivation_delay_secs,
-                enable_enrichment_cache: yaml.lsp.enable_enrichment_cache,
-                cache_ttl_secs: yaml.lsp.cache_ttl_secs,
-                startup_timeout_secs: yaml.lsp.startup_timeout_secs,
-                request_timeout_secs: yaml.lsp.request_timeout_secs,
-                health_check_interval_secs: yaml.lsp.health_check_interval_secs,
-                max_restart_attempts: yaml.lsp.max_restart_attempts,
-                restart_backoff_multiplier: yaml.lsp.restart_backoff_multiplier,
-                enable_auto_restart: true,
-                stability_reset_secs: 3600,
-            },
-            grammars: GrammarConfig {
-                cache_dir: PathBuf::from(&yaml.grammars.cache_dir),
-                required: yaml.grammars.required.clone(),
-                auto_download: yaml.grammars.auto_download,
-                tree_sitter_version: yaml.grammars.tree_sitter_version.clone(),
-                download_base_url: yaml.grammars.download_base_url.clone(),
-                verify_checksums: yaml.grammars.verify_checksums,
-                lazy_loading: yaml.grammars.lazy_loading,
-                check_interval_hours: yaml.grammars.check_interval_hours,
-                idle_update_check_enabled: yaml.grammars.idle_update_check_enabled,
-                idle_update_check_delay_secs: yaml.grammars.idle_update_check_delay_secs,
-            },
-            updates: UpdatesConfig {
-                auto_check: yaml.updates.auto_check,
-                channel: match yaml.updates.channel.as_str() {
-                    "beta" => UpdateChannel::Beta,
-                    "dev" => UpdateChannel::Dev,
-                    _ => UpdateChannel::Stable,
-                },
-                notify_only: yaml.updates.notify_only,
-                check_interval_hours: yaml.updates.check_interval_hours,
-            },
-            resource_limits: ResourceLimitsConfig {
-                nice_level: yaml.resource_limits.nice_level,
-                inter_item_delay_ms: yaml.resource_limits.inter_item_delay_ms,
-                max_concurrent_embeddings: yaml.resource_limits.max_concurrent_embeddings,
-                max_memory_percent: yaml.resource_limits.max_memory_percent,
-                onnx_intra_threads: yaml.resource_limits.onnx_intra_threads,
-                idle_threshold_secs: yaml.resource_limits.idle_threshold_secs,
-                idle_confirmation_secs: yaml.resource_limits.idle_confirmation_secs,
-                ramp_up_step_secs: yaml.resource_limits.ramp_up_step_secs,
-                ramp_down_step_secs: yaml.resource_limits.ramp_down_step_secs,
-                burst_hold_secs: yaml.resource_limits.burst_hold_secs,
-                burst_concurrency_multiplier: yaml.resource_limits.burst_concurrency_multiplier,
-                burst_inter_item_delay_ms: yaml.resource_limits.burst_inter_item_delay_ms,
-                cpu_pressure_threshold: yaml.resource_limits.cpu_pressure_threshold,
-                idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
-                active_concurrency_multiplier: yaml.resource_limits.active_concurrency_multiplier,
-                active_inter_item_delay_ms: yaml.resource_limits.active_inter_item_delay_ms,
-            },
+            git: build_git_config(yaml),
+            observability: build_observability_config(yaml),
+            embedding: build_embedding_settings(yaml),
+            lsp: build_lsp_settings(yaml),
+            grammars: build_grammar_config(yaml),
+            updates: build_updates_config(yaml),
+            resource_limits: build_resource_limits_config(yaml),
             startup: StartupConfig::default(),
-            daemon_endpoint: DaemonEndpointConfig {
-                host: yaml.grpc.host.clone(),
-                grpc_port: yaml.grpc.port,
-                health_endpoint: "/health".to_string(),
-                auth_token: None,
-            },
+            daemon_endpoint: build_daemon_endpoint_config(yaml),
         }
+    }
+}
+
+fn build_auto_ingestion_config(yaml: &YamlConfig) -> AutoIngestionConfig {
+    AutoIngestionConfig {
+        enabled: yaml.auto_ingestion.enabled,
+        auto_create_watches: yaml.auto_ingestion.auto_create_watches,
+        include_common_files: yaml.auto_ingestion.include_common_files,
+        include_source_files: yaml.auto_ingestion.include_source_files,
+        target_collection_suffix: "scratchbook".to_string(),
+        max_files_per_batch: yaml.auto_ingestion.max_files_per_batch,
+        batch_delay_seconds: 2.0,
+        max_file_size_mb: 50,
+        recursive_depth: 5,
+        debounce_seconds: yaml.auto_ingestion.debounce_seconds(),
+    }
+}
+
+fn build_storage_config(yaml: &YamlConfig) -> StorageConfig {
+    StorageConfig {
+        url: yaml.qdrant.url.clone(),
+        api_key: yaml.qdrant.api_key.clone(),
+        timeout_ms: yaml.qdrant.timeout,
+        pool_size: yaml.qdrant.pool.max_connections,
+        dense_vector_size: yaml.qdrant.default_collection.vector_size,
+        ..StorageConfig::default()
+    }
+}
+
+fn build_queue_processor_settings(yaml: &YamlConfig) -> QueueProcessorSettings {
+    QueueProcessorSettings {
+        batch_size: yaml.queue_processor.batch_size,
+        poll_interval_ms: yaml.queue_processor.poll_interval_ms,
+        max_retries: yaml.queue_processor.max_retries,
+        retry_delays_seconds: default_retry_delays_seconds(),
+        target_throughput: yaml.queue_processor.target_throughput,
+        enable_metrics: yaml.queue_processor.enable_metrics,
+    }
+}
+
+fn build_git_config(yaml: &YamlConfig) -> GitConfig {
+    GitConfig {
+        enable_branch_detection: yaml.git.track_branch_lifecycle,
+        cache_ttl_seconds: yaml.git.branch_scan_interval_seconds,
+    }
+}
+
+fn build_observability_config(yaml: &YamlConfig) -> ObservabilityConfig {
+    ObservabilityConfig {
+        collection_interval: yaml.observability.collection_interval_secs(),
+        metrics: MetricsConfig {
+            enabled: yaml.observability.metrics.enabled,
+        },
+        telemetry: TelemetryConfig {
+            enabled: yaml.observability.telemetry.enabled,
+            history_retention: yaml.observability.telemetry.history_retention,
+            cpu_usage: yaml.observability.telemetry.cpu_usage,
+            memory_usage: yaml.observability.telemetry.memory_usage,
+            latency: yaml.observability.telemetry.latency,
+            queue_depth: yaml.observability.telemetry.queue_depth,
+            throughput: yaml.observability.telemetry.throughput,
+        },
+    }
+}
+
+fn build_embedding_settings(yaml: &YamlConfig) -> EmbeddingSettings {
+    EmbeddingSettings {
+        cache_max_entries: yaml.embedding.cache_max_entries,
+        model_cache_dir: yaml.embedding.model_cache_dir.as_ref().map(PathBuf::from),
+    }
+}
+
+fn build_lsp_settings(yaml: &YamlConfig) -> LspSettings {
+    LspSettings {
+        user_path: yaml.lsp.user_path.clone(),
+        max_servers_per_project: yaml.lsp.max_servers_per_project,
+        auto_start_on_activation: yaml.lsp.auto_start_on_activation,
+        deactivation_delay_secs: yaml.lsp.deactivation_delay_secs,
+        enable_enrichment_cache: yaml.lsp.enable_enrichment_cache,
+        cache_ttl_secs: yaml.lsp.cache_ttl_secs,
+        startup_timeout_secs: yaml.lsp.startup_timeout_secs,
+        request_timeout_secs: yaml.lsp.request_timeout_secs,
+        health_check_interval_secs: yaml.lsp.health_check_interval_secs,
+        max_restart_attempts: yaml.lsp.max_restart_attempts,
+        restart_backoff_multiplier: yaml.lsp.restart_backoff_multiplier,
+        enable_auto_restart: true,
+        stability_reset_secs: 3600,
+    }
+}
+
+fn build_grammar_config(yaml: &YamlConfig) -> GrammarConfig {
+    GrammarConfig {
+        cache_dir: PathBuf::from(&yaml.grammars.cache_dir),
+        required: yaml.grammars.required.clone(),
+        auto_download: yaml.grammars.auto_download,
+        tree_sitter_version: yaml.grammars.tree_sitter_version.clone(),
+        download_base_url: yaml.grammars.download_base_url.clone(),
+        verify_checksums: yaml.grammars.verify_checksums,
+        lazy_loading: yaml.grammars.lazy_loading,
+        check_interval_hours: yaml.grammars.check_interval_hours,
+        idle_update_check_enabled: yaml.grammars.idle_update_check_enabled,
+        idle_update_check_delay_secs: yaml.grammars.idle_update_check_delay_secs,
+    }
+}
+
+fn build_updates_config(yaml: &YamlConfig) -> UpdatesConfig {
+    UpdatesConfig {
+        auto_check: yaml.updates.auto_check,
+        channel: match yaml.updates.channel.as_str() {
+            "beta" => UpdateChannel::Beta,
+            "dev" => UpdateChannel::Dev,
+            _ => UpdateChannel::Stable,
+        },
+        notify_only: yaml.updates.notify_only,
+        check_interval_hours: yaml.updates.check_interval_hours,
+    }
+}
+
+fn build_resource_limits_config(yaml: &YamlConfig) -> ResourceLimitsConfig {
+    ResourceLimitsConfig {
+        nice_level: yaml.resource_limits.nice_level,
+        inter_item_delay_ms: yaml.resource_limits.inter_item_delay_ms,
+        max_concurrent_embeddings: yaml.resource_limits.max_concurrent_embeddings,
+        max_memory_percent: yaml.resource_limits.max_memory_percent,
+        onnx_intra_threads: yaml.resource_limits.onnx_intra_threads,
+        idle_threshold_secs: yaml.resource_limits.idle_threshold_secs,
+        idle_confirmation_secs: yaml.resource_limits.idle_confirmation_secs,
+        ramp_up_step_secs: yaml.resource_limits.ramp_up_step_secs,
+        ramp_down_step_secs: yaml.resource_limits.ramp_down_step_secs,
+        burst_hold_secs: yaml.resource_limits.burst_hold_secs,
+        burst_concurrency_multiplier: yaml.resource_limits.burst_concurrency_multiplier,
+        burst_inter_item_delay_ms: yaml.resource_limits.burst_inter_item_delay_ms,
+        cpu_pressure_threshold: yaml.resource_limits.cpu_pressure_threshold,
+        idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
+        active_concurrency_multiplier: yaml.resource_limits.active_concurrency_multiplier,
+        active_inter_item_delay_ms: yaml.resource_limits.active_inter_item_delay_ms,
+    }
+}
+
+fn build_daemon_endpoint_config(yaml: &YamlConfig) -> DaemonEndpointConfig {
+    DaemonEndpointConfig {
+        host: yaml.grpc.host.clone(),
+        grpc_port: yaml.grpc.port,
+        health_endpoint: "/health".to_string(),
+        auth_token: None,
     }
 }
 

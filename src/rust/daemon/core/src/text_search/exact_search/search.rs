@@ -38,7 +38,6 @@ pub async fn search_exact(
         });
     }
 
-    // Resolve path_glob -> SQL prefix + glob matcher
     let (glob_pattern, effective_options) = resolve_path_filter(options);
     let glob_matcher = glob_pattern
         .as_deref()
@@ -46,90 +45,45 @@ pub async fn search_exact(
         .transpose()?;
 
     let fts5_pattern = escape_fts5_pattern(pattern);
-
-    // Build the SQL query dynamically based on options
     let (sql, use_fts) = build_search_query(&fts5_pattern, &effective_options);
 
     debug!(
-        "FTS5 search: pattern={:?}, fts5={:?}, use_fts={}, tenant={:?}, branch={:?}, path_prefix={:?}, path_glob={:?}",
+        "FTS5 search: pattern={:?}, fts5={:?}, use_fts={}, tenant={:?}, branch={:?}, \
+         path_prefix={:?}, path_glob={:?}",
         pattern, fts5_pattern, use_fts,
-        effective_options.tenant_id, effective_options.branch, effective_options.path_prefix,
-        options.path_glob,
+        effective_options.tenant_id, effective_options.branch,
+        effective_options.path_prefix, options.path_glob,
     );
 
-    let pool = search_db.pool();
-    let mut query = sqlx::query(&sql);
+    // Pre-compute owned bindings (temporary strings must outlive the query borrow)
+    let instr_pattern = if options.case_insensitive { pattern.to_lowercase() } else { pattern.to_string() };
+    let path_prefix_arg = effective_options.path_prefix.as_ref().map(|p| format!("{}%", p));
 
-    // Bind parameters in order
+    let mut query = sqlx::query(&sql);
     if use_fts {
         query = query.bind(fts5_pattern.as_ref().unwrap());
     }
-
-    // INSTR pattern — case insensitive uses LOWER() in SQL so bind lowercase
-    if options.case_insensitive {
-        query = query.bind(pattern.to_lowercase());
-    } else {
-        query = query.bind(pattern);
-    }
-
-    // Bind optional scope filters
+    query = query.bind(&instr_pattern);
     if let Some(ref tid) = effective_options.tenant_id {
         query = query.bind(tid);
     }
     if let Some(ref branch) = effective_options.branch {
         query = query.bind(branch);
     }
-    if let Some(ref prefix) = effective_options.path_prefix {
-        query = query.bind(format!("{}%", prefix));
+    if let Some(ref prefix_arg) = path_prefix_arg {
+        query = query.bind(prefix_arg);
     }
 
-    let max_results = if options.max_results > 0 {
-        options.max_results
-    } else {
-        usize::MAX
-    };
+    let (matches, truncated) = collect_matches(
+        search_db.pool(), query, &glob_matcher, options.max_results,
+    ).await?;
 
-    let mut stream = query.fetch(pool);
-    let mut matches = Vec::new();
-    let mut truncated = false;
-
-    while let Some(row) = stream.try_next().await? {
-        let file_path: String = row.get("file_path");
-
-        // Apply glob filter if set
-        if let Some(ref matcher) = glob_matcher {
-            if !matcher(&file_path) {
-                continue;
-            }
-        }
-
-        matches.push(SearchMatch {
-            line_id: row.get("line_id"),
-            file_id: row.get("file_id"),
-            line_number: row.get("line_number"),
-            content: row.get("content"),
-            file_path,
-            tenant_id: row.get("tenant_id"),
-            branch: row.get("branch"),
-            context_before: vec![],
-            context_after: vec![],
-        });
-
-        if matches.len() >= max_results {
-            truncated = true;
-            break;
-        }
-    }
-    // Drop the stream to release the connection before context queries
-    drop(stream);
-
-    // Attach context lines if requested
+    let mut matches = matches;
     if options.context_lines > 0 {
         attach_context_lines(search_db, &mut matches, options.context_lines).await?;
     }
 
     let query_time_ms = start.elapsed().as_millis() as u64;
-
     debug!(
         "FTS5 search complete: {} matches in {}ms (pattern={:?}, truncated={})",
         matches.len(), query_time_ms, pattern, truncated
@@ -142,4 +96,43 @@ pub async fn search_exact(
         query_time_ms,
         search_engine: "fts5".to_string(),
     })
+}
+
+/// Stream SQL rows, apply the glob filter, and collect into `SearchMatch` values.
+async fn collect_matches<'q>(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+    glob_matcher: &Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
+    max_results: usize,
+) -> Result<(Vec<SearchMatch>, bool), SearchDbError> {
+    let max = if max_results > 0 { max_results } else { usize::MAX };
+    let mut stream = query.fetch(pool);
+    let mut matches = Vec::new();
+    let mut truncated = false;
+
+    while let Some(row) = stream.try_next().await? {
+        let file_path: String = row.get("file_path");
+        if let Some(ref matcher) = glob_matcher {
+            if !matcher(&file_path) {
+                continue;
+            }
+        }
+        matches.push(SearchMatch {
+            line_id: row.get("line_id"),
+            file_id: row.get("file_id"),
+            line_number: row.get("line_number"),
+            content: row.get("content"),
+            file_path,
+            tenant_id: row.get("tenant_id"),
+            branch: row.get("branch"),
+            context_before: vec![],
+            context_after: vec![],
+        });
+        if matches.len() >= max {
+            truncated = true;
+            break;
+        }
+    }
+    drop(stream);
+    Ok((matches, truncated))
 }
