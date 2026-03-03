@@ -4,6 +4,7 @@
 //! JSON output, and real-time follow mode via `tail -f`.
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 use std::process::Command;
 use wqm_common::timestamps;
@@ -28,55 +29,26 @@ pub async fn logs(
     let daemon_log = log_dir.join("daemon.jsonl");
     let mcp_log = log_dir.join("mcp-server.jsonl");
 
-    // Parse --since into a cutoff timestamp
     let since_cutoff = match &since {
         Some(s) => Some(parse_since(s)?),
         None => None,
     };
 
     if !json_output {
-        output::section("Logs");
-        output::kv("Log directory", &log_dir.display().to_string());
-        output::kv(
-            "Component",
-            match component {
-                LogComponent::All => "all (merged)",
-                LogComponent::Daemon => "daemon",
-                LogComponent::McpServer => "mcp-server",
-            },
-        );
-        if let Some(ref sid) = session {
-            output::kv("Session filter", sid);
-        }
-        if errors_only {
-            output::kv("Level filter", "ERROR/WARN only");
-        }
-        if let Some(ref cutoff) = since_cutoff {
-            output::kv("Since", &timestamps::format_utc(cutoff));
-        }
-        output::separator();
+        print_log_header(&log_dir, component, &session, errors_only, since_cutoff.as_ref());
     }
 
-    // Handle follow mode
     if follow {
         return follow_logs(component, &daemon_log, &mcp_log, session, errors_only).await;
     }
 
-    let filter = LogFilter {
-        errors_only,
-        since: since_cutoff,
-        session,
-    };
-
-    // Collect log entries based on component filter
+    let filter = LogFilter { errors_only, since: since_cutoff, session };
     let mut all_entries = collect_entries(&log_dir, component, lines, &filter);
 
-    // Sort by timestamp if merging
     if matches!(component, LogComponent::All) {
         all_entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
     }
 
-    // Take last N entries
     let start = all_entries.len().saturating_sub(lines);
     let display_entries = &all_entries[start..];
 
@@ -88,19 +60,7 @@ pub async fn logs(
         return Ok(());
     }
 
-    // Output entries
-    for entry in display_entries {
-        if json_output {
-            println!("{}", entry.raw_line);
-        } else {
-            // Format nicely for terminal: [component] line
-            if matches!(component, LogComponent::All) {
-                println!("[{}] {}", entry.component, entry.raw_line);
-            } else {
-                println!("{}", entry.raw_line);
-            }
-        }
-    }
+    print_log_entries(display_entries, component, json_output);
 
     if !json_output {
         output::separator();
@@ -108,6 +68,53 @@ pub async fn logs(
     }
 
     Ok(())
+}
+
+/// Print the human-readable log header section.
+fn print_log_header(
+    log_dir: &std::path::Path,
+    component: LogComponent,
+    session: &Option<String>,
+    errors_only: bool,
+    since_cutoff: Option<&DateTime<Utc>>,
+) {
+    output::section("Logs");
+    output::kv("Log directory", &log_dir.display().to_string());
+    output::kv(
+        "Component",
+        match component {
+            LogComponent::All => "all (merged)",
+            LogComponent::Daemon => "daemon",
+            LogComponent::McpServer => "mcp-server",
+        },
+    );
+    if let Some(sid) = session {
+        output::kv("Session filter", sid);
+    }
+    if errors_only {
+        output::kv("Level filter", "ERROR/WARN only");
+    }
+    if let Some(cutoff) = since_cutoff {
+        output::kv("Since", &timestamps::format_utc(cutoff));
+    }
+    output::separator();
+}
+
+/// Print a slice of log entries to stdout.
+fn print_log_entries(
+    entries: &[super::log_parsing::LogEntry],
+    component: LogComponent,
+    json_output: bool,
+) {
+    for entry in entries {
+        if json_output {
+            println!("{}", entry.raw_line);
+        } else if matches!(component, LogComponent::All) {
+            println!("[{}] {}", entry.component, entry.raw_line);
+        } else {
+            println!("{}", entry.raw_line);
+        }
+    }
 }
 
 /// Collect log entries from the appropriate component files.

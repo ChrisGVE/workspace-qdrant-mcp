@@ -86,91 +86,90 @@ impl QueueManager {
         permanent: bool,
         max_retries: i32,
     ) -> QueueResult<bool> {
-        // Get current retry count
         let row = sqlx::query(
             "SELECT retry_count FROM unified_queue WHERE queue_id = ?1"
         )
-            .bind(queue_id)
-            .fetch_optional(&self.pool)
-            .await?;
+        .bind(queue_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
-        if let Some(row) = row {
-            let retry_count: i32 = row.try_get("retry_count")?;
-            let new_retry_count = retry_count + 1;
-
-            if !permanent && new_retry_count < max_retries {
-                // Can retry - reset to pending with incremented retry count
-                // Apply exponential backoff: 60s * 2^retry_count, capped at 3600s
-                let base_delay_secs = 60.0_f64;
-                let delay_secs = (base_delay_secs * 2.0_f64.powi(retry_count)).min(3600.0);
-                // Add 10% jitter to prevent thundering herd
-                let jitter = delay_secs * 0.1 * rand::random::<f64>();
-                let total_delay = delay_secs + jitter;
-                let retry_after = Utc::now() + ChronoDuration::seconds(total_delay as i64);
-                let retry_after_str = timestamps::format_utc(&retry_after);
-
-                let query = r#"
-                    UPDATE unified_queue
-                    SET status = 'pending',
-                        retry_count = ?1,
-                        error_message = ?2,
-                        last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                        lease_until = ?3,
-                        worker_id = NULL,
-                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    WHERE queue_id = ?4
-                "#;
-
-                sqlx::query(query)
-                    .bind(new_retry_count)
-                    .bind(error_message)
-                    .bind(&retry_after_str)
-                    .bind(queue_id)
-                    .execute(&self.pool)
-                    .await?;
-
-                info!(
-                    "Unified item {} failed, will retry ({}/{}) after {:.0}s backoff: {}",
-                    queue_id, new_retry_count, max_retries, total_delay, error_message
-                );
-
-                Ok(true)
-            } else {
-                // Permanent error or max retries exceeded - mark as permanently failed
-                let reason = if permanent { "permanent error" } else { "max retries exceeded" };
-
-                let query = r#"
-                    UPDATE unified_queue
-                    SET status = 'failed',
-                        retry_count = ?1,
-                        error_message = ?2,
-                        last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                        lease_until = NULL,
-                        worker_id = NULL,
-                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    WHERE queue_id = ?3
-                "#;
-
-                sqlx::query(query)
-                    .bind(new_retry_count)
-                    .bind(error_message)
-                    .bind(queue_id)
-                    .execute(&self.pool)
-                    .await?;
-
-                warn!(
-                    "Unified item {} permanently failed ({}, attempt {}/{}): {}",
-                    queue_id, reason, new_retry_count, max_retries, error_message
-                );
-
-                METRICS.queue_item_processed("unified", "failure", 0.0);
-                METRICS.ingestion_error(reason);
-
-                Ok(false)
-            }
-        } else {
+        let Some(row) = row else {
             warn!("Unified queue item not found: {}", queue_id);
-            Err(QueueError::NotFound(queue_id.to_string()))
+            return Err(QueueError::NotFound(queue_id.to_string()));
+        };
+
+        let retry_count: i32 = row.try_get("retry_count")?;
+        let new_retry_count = retry_count + 1;
+
+        if !permanent && new_retry_count < max_retries {
+            mark_unified_retry(&self.pool, queue_id, error_message, retry_count, new_retry_count, max_retries).await
+        } else {
+            mark_unified_permanent(&self.pool, queue_id, error_message, permanent, new_retry_count, max_retries).await
         }
     }
+}
+
+/// Reset a unified queue item to pending with exponential backoff for retry.
+async fn mark_unified_retry(
+    pool: &sqlx::SqlitePool,
+    queue_id: &str,
+    error_message: &str,
+    retry_count: i32,
+    new_retry_count: i32,
+    max_retries: i32,
+) -> QueueResult<bool> {
+    let delay_secs = (60.0_f64 * 2.0_f64.powi(retry_count)).min(3600.0);
+    let jitter = delay_secs * 0.1 * rand::random::<f64>();
+    let total_delay = delay_secs + jitter;
+    let retry_after_str = timestamps::format_utc(
+        &(Utc::now() + ChronoDuration::seconds(total_delay as i64))
+    );
+
+    sqlx::query(r#"
+        UPDATE unified_queue
+        SET status = 'pending', retry_count = ?1, error_message = ?2,
+            last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+            lease_until = ?3, worker_id = NULL,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE queue_id = ?4
+    "#)
+    .bind(new_retry_count).bind(error_message).bind(&retry_after_str).bind(queue_id)
+    .execute(pool).await?;
+
+    info!(
+        "Unified item {} failed, will retry ({}/{}) after {:.0}s backoff: {}",
+        queue_id, new_retry_count, max_retries, total_delay, error_message
+    );
+    Ok(true)
+}
+
+/// Mark a unified queue item as permanently failed.
+async fn mark_unified_permanent(
+    pool: &sqlx::SqlitePool,
+    queue_id: &str,
+    error_message: &str,
+    permanent: bool,
+    new_retry_count: i32,
+    max_retries: i32,
+) -> QueueResult<bool> {
+    let reason = if permanent { "permanent error" } else { "max retries exceeded" };
+
+    sqlx::query(r#"
+        UPDATE unified_queue
+        SET status = 'failed', retry_count = ?1, error_message = ?2,
+            last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+            lease_until = NULL, worker_id = NULL,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE queue_id = ?3
+    "#)
+    .bind(new_retry_count).bind(error_message).bind(queue_id)
+    .execute(pool).await?;
+
+    warn!(
+        "Unified item {} permanently failed ({}, attempt {}/{}): {}",
+        queue_id, reason, new_retry_count, max_retries, error_message
+    );
+    METRICS.queue_item_processed("unified", "failure", 0.0);
+    METRICS.ingestion_error(reason);
+    Ok(false)
 }

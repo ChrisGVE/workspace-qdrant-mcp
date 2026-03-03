@@ -94,94 +94,10 @@ impl QueueManager {
         created_at_order: &str,
         batch_size: i32,
     ) -> QueueResult<Vec<String>> {
-        let tenant_filter = match (tenant_id, item_type) {
-            (Some(_), Some(_)) => "AND q.tenant_id = ?2 AND q.item_type = ?3",
-            (Some(_), None)    => "AND q.tenant_id = ?2",
-            (None, Some(_))    => "AND q.item_type = ?2",
-            (None, None)       => "",
-        };
-
-        let limit_param = match (tenant_id, item_type) {
-            (Some(_), Some(_)) => "?4",
-            (Some(_), None) | (None, Some(_)) => "?3",
-            (None, None) => "?2",
-        };
-
-        let query = format!(
-            r#"
-            SELECT q.queue_id
-            FROM unified_queue q
-            LEFT JOIN watch_folders w
-                ON q.tenant_id = w.tenant_id
-                AND q.collection = '{coll_projects}'
-                AND w.parent_watch_id IS NULL
-            WHERE (
-                (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
-                OR (q.status = 'in_progress' AND q.lease_until < ?1)
-            )
-            {tenant_filter}
-            ORDER BY
-                -- Tier 1: Activity priority (active project or memory = high, else low)
-                CASE
-                    WHEN q.collection = '{coll_memory}' THEN 1
-                    WHEN q.collection = '{coll_libraries}' THEN 0
-                    WHEN w.is_active = 1 THEN 1
-                    ELSE 0
-                END {priority_order},
-                -- Tier 2: Operation ordering (subordinated to activity priority)
-                CASE WHEN q.op = 'delete' THEN 10
-                     WHEN q.op = 'reset' THEN 8
-                     WHEN q.op = 'scan' THEN 5
-                     WHEN q.op = 'update' THEN 3
-                     ELSE 1
-                END DESC,
-                q.created_at {created_at_order}
-            LIMIT {limit_param}
-            "#,
-            coll_projects = COLLECTION_PROJECTS,
-            coll_libraries = COLLECTION_LIBRARIES,
-            coll_memory = COLLECTION_RULES,
-            tenant_filter = tenant_filter,
-            priority_order = priority_order,
-            created_at_order = created_at_order,
-            limit_param = limit_param,
-        );
-
-        let result: Vec<String> = match (tenant_id, item_type) {
-            (Some(tid), Some(itype)) => {
-                sqlx::query_scalar::<_, String>(&query)
-                    .bind(now_str)
-                    .bind(tid)
-                    .bind(itype.to_string())
-                    .bind(batch_size)
-                    .fetch_all(&self.pool)
-                    .await?
-            }
-            (Some(tid), None) => {
-                sqlx::query_scalar::<_, String>(&query)
-                    .bind(now_str)
-                    .bind(tid)
-                    .bind(batch_size)
-                    .fetch_all(&self.pool)
-                    .await?
-            }
-            (None, Some(itype)) => {
-                sqlx::query_scalar::<_, String>(&query)
-                    .bind(now_str)
-                    .bind(itype.to_string())
-                    .bind(batch_size)
-                    .fetch_all(&self.pool)
-                    .await?
-            }
-            (None, None) => {
-                sqlx::query_scalar::<_, String>(&query)
-                    .bind(now_str)
-                    .bind(batch_size)
-                    .fetch_all(&self.pool)
-                    .await?
-            }
-        };
-
+        let query = build_dequeue_query(tenant_id, item_type, priority_order, created_at_order);
+        let result = execute_dequeue_query(
+            &self.pool, &query, now_str, tenant_id, item_type, batch_size,
+        ).await?;
         Ok(result)
     }
 
@@ -314,4 +230,95 @@ impl QueueManager {
 
         Ok(recovered)
     }
+}
+
+/// Build the dequeue SELECT query with filters substituted in.
+fn build_dequeue_query(
+    tenant_id: Option<&str>,
+    item_type: Option<ItemType>,
+    priority_order: &str,
+    created_at_order: &str,
+) -> String {
+    let tenant_filter = match (tenant_id, item_type) {
+        (Some(_), Some(_)) => "AND q.tenant_id = ?2 AND q.item_type = ?3",
+        (Some(_), None)    => "AND q.tenant_id = ?2",
+        (None, Some(_))    => "AND q.item_type = ?2",
+        (None, None)       => "",
+    };
+    let limit_param = match (tenant_id, item_type) {
+        (Some(_), Some(_)) => "?4",
+        (Some(_), None) | (None, Some(_)) => "?3",
+        (None, None) => "?2",
+    };
+    format!(
+        r#"
+        SELECT q.queue_id
+        FROM unified_queue q
+        LEFT JOIN watch_folders w
+            ON q.tenant_id = w.tenant_id
+            AND q.collection = '{coll_projects}'
+            AND w.parent_watch_id IS NULL
+        WHERE (
+            (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
+            OR (q.status = 'in_progress' AND q.lease_until < ?1)
+        )
+        {tenant_filter}
+        ORDER BY
+            CASE
+                WHEN q.collection = '{coll_memory}' THEN 1
+                WHEN q.collection = '{coll_libraries}' THEN 0
+                WHEN w.is_active = 1 THEN 1
+                ELSE 0
+            END {priority_order},
+            CASE WHEN q.op = 'delete' THEN 10
+                 WHEN q.op = 'reset' THEN 8
+                 WHEN q.op = 'scan' THEN 5
+                 WHEN q.op = 'update' THEN 3
+                 ELSE 1
+            END DESC,
+            q.created_at {created_at_order}
+        LIMIT {limit_param}
+        "#,
+        coll_projects = COLLECTION_PROJECTS,
+        coll_libraries = COLLECTION_LIBRARIES,
+        coll_memory = COLLECTION_RULES,
+        tenant_filter = tenant_filter,
+        priority_order = priority_order,
+        created_at_order = created_at_order,
+        limit_param = limit_param,
+    )
+}
+
+/// Execute the dequeue query with the appropriate bound parameters.
+async fn execute_dequeue_query(
+    pool: &sqlx::SqlitePool,
+    query: &str,
+    now_str: &str,
+    tenant_id: Option<&str>,
+    item_type: Option<ItemType>,
+    batch_size: i32,
+) -> QueueResult<Vec<String>> {
+    let result = match (tenant_id, item_type) {
+        (Some(tid), Some(itype)) => {
+            sqlx::query_scalar::<_, String>(query)
+                .bind(now_str).bind(tid).bind(itype.to_string()).bind(batch_size)
+                .fetch_all(pool).await?
+        }
+        (Some(tid), None) => {
+            sqlx::query_scalar::<_, String>(query)
+                .bind(now_str).bind(tid).bind(batch_size)
+                .fetch_all(pool).await?
+        }
+        (None, Some(itype)) => {
+            sqlx::query_scalar::<_, String>(query)
+                .bind(now_str).bind(itype.to_string()).bind(batch_size)
+                .fetch_all(pool).await?
+        }
+        (None, None) => {
+            sqlx::query_scalar::<_, String>(query)
+                .bind(now_str).bind(batch_size)
+                .fetch_all(pool).await?
+        }
+    };
+    Ok(result)
 }

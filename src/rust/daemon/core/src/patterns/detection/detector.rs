@@ -126,21 +126,18 @@ impl LanguageDetector {
         let mut confidence_scores = Vec::new();
         let mut candidate_languages = Vec::new();
 
-        // 1. Try shebang detection first (most reliable for scripts)
         if let Some((shebang, language)) = self.detect_from_shebang(content) {
             detection_methods.push(DetectionMethod::Shebang(shebang));
             confidence_scores.push(DetectionConfidence::VeryHigh);
             candidate_languages.push(language);
         }
 
-        // 2. Try keyword-based detection
         if let Some((language, keywords)) = self.detect_from_keywords(content) {
             detection_methods.push(DetectionMethod::Keywords(keywords));
             confidence_scores.push(DetectionConfidence::Medium);
             candidate_languages.push(language);
         }
 
-        // 3. If we have file path, combine with path-based detection
         if let Some(path) = file_path {
             let path_result = self.detect_from_path(path);
             if let Some(path_language) = path_result.language {
@@ -152,58 +149,11 @@ impl LanguageDetector {
             }
         }
 
-        // Determine final result
         let num_candidates = candidate_languages.len();
         let num_methods = detection_methods.len();
 
-        let (final_language, final_confidence, final_method) = if candidate_languages.is_empty() {
-            (None, DetectionConfidence::Unknown, DetectionMethod::None)
-        } else if candidate_languages.len() == 1 {
-            // Single detection method
-            (
-                Some(candidate_languages[0].clone()),
-                confidence_scores[0].clone(),
-                detection_methods.into_iter().next().unwrap_or(DetectionMethod::None),
-            )
-        } else {
-            // Multiple detection methods - check for consensus
-            let mut language_votes: HashMap<String, (usize, DetectionConfidence)> = HashMap::new();
-
-            for (i, lang) in candidate_languages.iter().enumerate() {
-                let entry = language_votes.entry(lang.clone()).or_insert((0, DetectionConfidence::Unknown));
-                entry.0 += 1;
-                if confidence_scores[i] > entry.1 {
-                    entry.1 = confidence_scores[i].clone();
-                }
-            }
-
-            // Find the language with most votes and highest confidence
-            let (best_language, (votes, best_confidence)) = language_votes
-                .into_iter()
-                .max_by(|(_, (votes1, conf1)), (_, (votes2, conf2))| {
-                    votes1.cmp(votes2).then(conf1.cmp(conf2))
-                })
-                .unwrap();
-
-            let final_confidence = if votes > 1 {
-                // Consensus found - boost confidence
-                match best_confidence {
-                    DetectionConfidence::VeryHigh => DetectionConfidence::VeryHigh,
-                    DetectionConfidence::High => DetectionConfidence::VeryHigh,
-                    DetectionConfidence::Medium => DetectionConfidence::High,
-                    DetectionConfidence::Low => DetectionConfidence::Medium,
-                    DetectionConfidence::Unknown => DetectionConfidence::Low,
-                }
-            } else {
-                best_confidence
-            };
-
-            (
-                Some(best_language),
-                final_confidence,
-                DetectionMethod::Consensus(detection_methods),
-            )
-        };
+        let (final_language, final_confidence, final_method) =
+            resolve_detection_candidates(candidate_languages, confidence_scores, detection_methods);
 
         DetectionResult {
             language: final_language,
@@ -211,8 +161,7 @@ impl LanguageDetector {
             detection_method: final_method,
             details: format!(
                 "Content analysis: {} candidates, {} methods",
-                num_candidates,
-                num_methods
+                num_candidates, num_methods
             ),
         }
     }
@@ -344,4 +293,53 @@ impl Default for LanguageDetector {
     fn default() -> Self {
         Self::new().expect("Failed to initialize LanguageDetector")
     }
+}
+
+/// Resolve a list of candidate detections to a single (language, confidence, method) result.
+fn resolve_detection_candidates(
+    candidate_languages: Vec<String>,
+    confidence_scores: Vec<DetectionConfidence>,
+    detection_methods: Vec<DetectionMethod>,
+) -> (Option<String>, DetectionConfidence, DetectionMethod) {
+    if candidate_languages.is_empty() {
+        return (None, DetectionConfidence::Unknown, DetectionMethod::None);
+    }
+    if candidate_languages.len() == 1 {
+        return (
+            Some(candidate_languages[0].clone()),
+            confidence_scores[0].clone(),
+            detection_methods.into_iter().next().unwrap_or(DetectionMethod::None),
+        );
+    }
+
+    // Multiple candidates — vote for consensus
+    let mut language_votes: HashMap<String, (usize, DetectionConfidence)> = HashMap::new();
+    for (i, lang) in candidate_languages.iter().enumerate() {
+        let entry = language_votes
+            .entry(lang.clone())
+            .or_insert((0, DetectionConfidence::Unknown));
+        entry.0 += 1;
+        if confidence_scores[i] > entry.1 {
+            entry.1 = confidence_scores[i].clone();
+        }
+    }
+
+    let (best_language, (votes, best_confidence)) = language_votes
+        .into_iter()
+        .max_by(|(_, (v1, c1)), (_, (v2, c2))| v1.cmp(v2).then(c1.cmp(c2)))
+        .unwrap();
+
+    let final_confidence = if votes > 1 {
+        match best_confidence {
+            DetectionConfidence::VeryHigh => DetectionConfidence::VeryHigh,
+            DetectionConfidence::High => DetectionConfidence::VeryHigh,
+            DetectionConfidence::Medium => DetectionConfidence::High,
+            DetectionConfidence::Low => DetectionConfidence::Medium,
+            DetectionConfidence::Unknown => DetectionConfidence::Low,
+        }
+    } else {
+        best_confidence
+    };
+
+    (Some(best_language), final_confidence, DetectionMethod::Consensus(detection_methods))
 }

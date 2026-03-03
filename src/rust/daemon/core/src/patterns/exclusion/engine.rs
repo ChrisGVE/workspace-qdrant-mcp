@@ -40,64 +40,35 @@ impl ExclusionEngine {
         let mut contains_patterns = Vec::new();
         let mut all_rules = Vec::new();
 
-        // Process all exclusion patterns from the configuration
         let exclusions = &config.exclusion_patterns;
 
-        // Version control patterns
-        for pattern in &exclusions.version_control {
-            let rule = ExclusionRule {
-                pattern: pattern.clone(),
-                category: ExclusionCategory::VersionControl,
-                reason: "Version control metadata".to_string(),
-                is_regex: false,
-                case_sensitive: true,
-            };
-            classify_and_store_pattern(pattern, &rule, &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns, &mut contains_patterns);
-            all_rules.push(rule);
-        }
+        register_patterns(
+            &exclusions.version_control, ExclusionCategory::VersionControl,
+            "Version control metadata", true,
+            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
+            &mut contains_patterns, &mut all_rules,
+        );
+        register_patterns(
+            &exclusions.build_outputs, ExclusionCategory::BuildArtifacts,
+            "Build artifacts and generated files", false,
+            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
+            &mut contains_patterns, &mut all_rules,
+        );
+        register_patterns(
+            &exclusions.cache_directories, ExclusionCategory::Cache,
+            "Cache and temporary files", false,
+            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
+            &mut contains_patterns, &mut all_rules,
+        );
+        register_patterns(
+            &exclusions.ide_files, ExclusionCategory::IdeFiles,
+            "IDE and editor configuration", false,
+            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
+            &mut contains_patterns, &mut all_rules,
+        );
 
-        // Build output patterns
-        for pattern in &exclusions.build_outputs {
-            let rule = ExclusionRule {
-                pattern: pattern.clone(),
-                category: ExclusionCategory::BuildArtifacts,
-                reason: "Build artifacts and generated files".to_string(),
-                is_regex: false,
-                case_sensitive: false,
-            };
-            classify_and_store_pattern(pattern, &rule, &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns, &mut contains_patterns);
-            all_rules.push(rule);
-        }
-
-        // Cache patterns
-        for pattern in &exclusions.cache_directories {
-            let rule = ExclusionRule {
-                pattern: pattern.clone(),
-                category: ExclusionCategory::Cache,
-                reason: "Cache and temporary files".to_string(),
-                is_regex: false,
-                case_sensitive: false,
-            };
-            classify_and_store_pattern(pattern, &rule, &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns, &mut contains_patterns);
-            all_rules.push(rule);
-        }
-
-        // IDE files
-        for pattern in &exclusions.ide_files {
-            let rule = ExclusionRule {
-                pattern: pattern.clone(),
-                category: ExclusionCategory::IdeFiles,
-                reason: "IDE and editor configuration".to_string(),
-                is_regex: false,
-                case_sensitive: false,
-            };
-            classify_and_store_pattern(pattern, &rule, &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns, &mut contains_patterns);
-            all_rules.push(rule);
-        }
-
-        // Add additional critical patterns
-        let critical_patterns = get_critical_exclusion_patterns();
-        for (pattern, reason) in critical_patterns {
+        // Critical patterns have per-entry reasons; handle them separately
+        for (pattern, reason) in get_critical_exclusion_patterns() {
             let rule = ExclusionRule {
                 pattern: pattern.clone(),
                 category: ExclusionCategory::Critical,
@@ -105,25 +76,21 @@ impl ExclusionEngine {
                 is_regex: false,
                 case_sensitive: true,
             };
-            classify_and_store_pattern(&pattern, &rule, &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns, &mut contains_patterns);
+            classify_and_store_pattern(
+                &pattern, &rule,
+                &mut exact_matches, &mut prefix_patterns,
+                &mut suffix_patterns, &mut contains_patterns,
+            );
             all_rules.push(rule);
         }
 
         tracing::debug!(
             "Exclusion engine initialized: {} exact, {} prefix, {} suffix, {} contains patterns",
-            exact_matches.len(),
-            prefix_patterns.len(),
-            suffix_patterns.len(),
-            contains_patterns.len()
+            exact_matches.len(), prefix_patterns.len(),
+            suffix_patterns.len(), contains_patterns.len()
         );
 
-        Ok(Self {
-            exact_matches,
-            prefix_patterns,
-            suffix_patterns,
-            contains_patterns,
-            all_rules,
-        })
+        Ok(Self { exact_matches, prefix_patterns, suffix_patterns, contains_patterns, all_rules })
     }
 
     /// Get the global exclusion engine instance
@@ -338,5 +305,34 @@ impl ExclusionEngine {
             _ => {},
         }
         None
+    }
+}
+
+/// Register a slice of patterns under a single category into the lookup structures.
+#[allow(clippy::too_many_arguments)]
+fn register_patterns(
+    patterns: &[String],
+    category: ExclusionCategory,
+    reason: &str,
+    case_sensitive: bool,
+    exact_matches: &mut HashSet<String>,
+    prefix_patterns: &mut Vec<String>,
+    suffix_patterns: &mut Vec<String>,
+    contains_patterns: &mut Vec<String>,
+    all_rules: &mut Vec<ExclusionRule>,
+) {
+    for pattern in patterns {
+        let rule = ExclusionRule {
+            pattern: pattern.clone(),
+            category: category.clone(),
+            reason: reason.to_string(),
+            is_regex: false,
+            case_sensitive,
+        };
+        classify_and_store_pattern(
+            pattern, &rule,
+            exact_matches, prefix_patterns, suffix_patterns, contains_patterns,
+        );
+        all_rules.push(rule);
     }
 }

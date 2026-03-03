@@ -27,91 +27,34 @@ impl QueueManager {
         error_details: Option<&HashMap<String, serde_json::Value>>,
         max_retries: i32,
     ) -> QueueResult<(bool, i64)> {
-        // Start transaction
         let mut tx = self.pool.begin().await?;
 
-        // Insert error message
-        let error_details_json = if let Some(details) = error_details {
-            Some(serde_json::to_string(details)?)
-        } else {
-            None
-        };
+        let error_details_json = error_details
+            .map(|d| serde_json::to_string(d))
+            .transpose()?;
 
-        let error_query = r#"
-            INSERT INTO messages (
-                error_type, error_message, error_details,
-                file_path, collection_name
-            ) VALUES (?1, ?2, ?3, ?4, (
-                SELECT collection_name FROM ingestion_queue
-                WHERE file_absolute_path = ?5
-            ))
-        "#;
+        let error_message_id =
+            insert_error_message(&mut tx, error_type, error_message, error_details_json, file_path)
+                .await?;
 
-        let result = sqlx::query(error_query)
-            .bind(error_type)
-            .bind(error_message)
-            .bind(error_details_json)
-            .bind(file_path)
-            .bind(file_path)
-            .execute(&mut *tx)
-            .await?;
-
-        let error_message_id = result.last_insert_rowid();
-
-        // Get current retry count
-        let row = sqlx::query("SELECT retry_count FROM ingestion_queue WHERE file_absolute_path = ?1")
-            .bind(file_path)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let row = sqlx::query(
+            "SELECT retry_count FROM ingestion_queue WHERE file_absolute_path = ?1",
+        )
+        .bind(file_path)
+        .fetch_optional(&mut *tx)
+        .await?;
 
         if let Some(row) = row {
             let current_retry_count: i32 = row.try_get("retry_count")?;
             let new_retry_count = current_retry_count + 1;
-
-            if new_retry_count >= max_retries {
-                // Max retries reached, remove from queue
-                sqlx::query("DELETE FROM ingestion_queue WHERE file_absolute_path = ?1")
-                    .bind(file_path)
-                    .execute(&mut *tx)
-                    .await?;
-
-                // Record failure metrics (Task 412.7)
-                METRICS.queue_item_processed("normal", "failure", 0.0);
-                METRICS.ingestion_error(error_type);
-
-                warn!(
-                    "Max retries ({}) reached for {}, removing from queue",
-                    max_retries, file_path
-                );
-
-                tx.commit().await?;
-                Ok((false, error_message_id))
-            } else {
-                // Update retry count and link error
-                sqlx::query(
-                    r#"
-                    UPDATE ingestion_queue
-                    SET retry_count = ?1, error_message_id = ?2
-                    WHERE file_absolute_path = ?3
-                    "#,
-                )
-                .bind(new_retry_count)
-                .bind(error_message_id)
-                .bind(file_path)
-                .execute(&mut *tx)
-                .await?;
-
-                // Record error metric - item will be retried (Task 412.7)
-                METRICS.ingestion_error(error_type);
-
-                debug!(
-                    "Updated error for {}: retry {}/{}",
-                    file_path, new_retry_count, max_retries
-                );
-
-                tx.commit().await?;
-                Ok((true, error_message_id))
-            }
+            let will_retry = new_retry_count < max_retries;
+            update_ingestion_queue_on_error(
+                &mut tx, file_path, error_type, error_message_id,
+                new_retry_count, max_retries, will_retry,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok((will_retry, error_message_id))
         } else {
             warn!("File not found in queue: {}", file_path);
             tx.commit().await?;
@@ -350,4 +293,67 @@ impl QueueManager {
             Ok(None)
         }
     }
+}
+
+/// Insert an error record into the `messages` table and return its rowid.
+async fn insert_error_message(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    error_type: &str,
+    error_message: &str,
+    error_details_json: Option<String>,
+    file_path: &str,
+) -> QueueResult<i64> {
+    let result = sqlx::query(
+        r#"INSERT INTO messages (
+            error_type, error_message, error_details,
+            file_path, collection_name
+        ) VALUES (?1, ?2, ?3, ?4, (
+            SELECT collection_name FROM ingestion_queue
+            WHERE file_absolute_path = ?5
+        ))"#,
+    )
+    .bind(error_type)
+    .bind(error_message)
+    .bind(error_details_json)
+    .bind(file_path)
+    .bind(file_path)
+    .execute(&mut **tx)
+    .await?;
+    Ok(result.last_insert_rowid())
+}
+
+/// Update (or delete) the ingestion_queue row after recording an error.
+async fn update_ingestion_queue_on_error(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_path: &str,
+    error_type: &str,
+    error_message_id: i64,
+    new_retry_count: i32,
+    max_retries: i32,
+    will_retry: bool,
+) -> QueueResult<()> {
+    if will_retry {
+        sqlx::query(
+            "UPDATE ingestion_queue SET retry_count = ?1, error_message_id = ?2
+             WHERE file_absolute_path = ?3",
+        )
+        .bind(new_retry_count)
+        .bind(error_message_id)
+        .bind(file_path)
+        .execute(&mut **tx)
+        .await?;
+
+        METRICS.ingestion_error(error_type);
+        debug!("Updated error for {}: retry {}/{}", file_path, new_retry_count, max_retries);
+    } else {
+        sqlx::query("DELETE FROM ingestion_queue WHERE file_absolute_path = ?1")
+            .bind(file_path)
+            .execute(&mut **tx)
+            .await?;
+
+        METRICS.queue_item_processed("normal", "failure", 0.0);
+        METRICS.ingestion_error(error_type);
+        warn!("Max retries ({}) reached for {}, removing from queue", max_retries, file_path);
+    }
+    Ok(())
 }

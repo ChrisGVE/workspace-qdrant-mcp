@@ -120,22 +120,50 @@ impl GrammarDownloader {
         version: &str,
     ) -> DownloadResult<DownloadedGrammar> {
         let platform = &self.cache_paths.platform;
-        let ext = library_extension();
+        let url = self.build_download_url(language, version, platform, library_extension())?;
+        info!(language, version, platform, url = %url, "Downloading grammar");
 
-        // Build the download URL
-        let url = self.build_download_url(language, version, platform, ext)?;
+        let bytes = self.fetch_bytes(&url, language, version).await?;
+
+        self.cache_paths.create_directories(language)?;
+        let grammar_path = self.cache_paths.grammar_path(language);
+        let checksum = write_grammar_file(&grammar_path, &bytes).await?;
+
+        let metadata = GrammarMetadata::new(
+            language,
+            &self.cache_paths.tree_sitter_version,
+            version,
+            platform,
+            &checksum,
+        );
+        self.cache_paths.save_metadata(language, &metadata)?;
+
         info!(
-            language = language,
-            version = version,
-            platform = platform,
-            url = %url,
-            "Downloading grammar"
+            language, version,
+            path = %grammar_path.display(),
+            checksum = &checksum[..16],
+            "Grammar downloaded successfully"
         );
 
-        // Download the file
+        Ok(DownloadedGrammar {
+            path: grammar_path,
+            checksum,
+            language: language.to_string(),
+            version: version.to_string(),
+            platform: platform.to_string(),
+        })
+    }
+
+    /// Fetch raw bytes from a URL, mapping HTTP errors to `DownloadError`.
+    async fn fetch_bytes(
+        &self,
+        url: &str,
+        language: &str,
+        version: &str,
+    ) -> DownloadResult<Vec<u8>> {
         let response = self
             .client
-            .get(&url)
+            .get(url)
             .send()
             .await
             .map_err(|e| DownloadError::NetworkError(e.to_string()))?;
@@ -147,7 +175,6 @@ impl GrammarDownloader {
                 version: version.to_string(),
             });
         }
-
         if !status.is_success() {
             return Err(DownloadError::HttpError {
                 status: status.as_u16(),
@@ -155,60 +182,10 @@ impl GrammarDownloader {
             });
         }
 
-        // Get the bytes
         let bytes = response.bytes().await.map_err(|e| {
             DownloadError::NetworkError(format!("Failed to read response body: {}", e))
         })?;
-
-        // Create the cache directories
-        self.cache_paths.create_directories(language)?;
-
-        // Write to temporary file first
-        let grammar_path = self.cache_paths.grammar_path(language);
-        let temp_path = grammar_path.with_extension("tmp");
-
-        debug!(
-            path = %temp_path.display(),
-            bytes = bytes.len(),
-            "Writing grammar to temporary file"
-        );
-
-        let mut file = tokio::fs::File::create(&temp_path).await?;
-        file.write_all(&bytes).await?;
-        file.flush().await?;
-        drop(file);
-
-        // Compute checksum
-        let checksum = compute_checksum(&temp_path)?;
-
-        // Move to final location
-        tokio::fs::rename(&temp_path, &grammar_path).await?;
-
-        // Save metadata
-        let metadata = GrammarMetadata::new(
-            language,
-            &self.cache_paths.tree_sitter_version,
-            version,
-            platform,
-            &checksum,
-        );
-        self.cache_paths.save_metadata(language, &metadata)?;
-
-        info!(
-            language = language,
-            version = version,
-            path = %grammar_path.display(),
-            checksum = &checksum[..16], // First 16 chars for brevity
-            "Grammar downloaded successfully"
-        );
-
-        Ok(DownloadedGrammar {
-            path: grammar_path,
-            checksum,
-            language: language.to_string(),
-            version: version.to_string(),
-            platform: platform.to_string(),
-        })
+        Ok(bytes.to_vec())
     }
 
     /// Check if a grammar needs to be downloaded.
@@ -290,6 +267,26 @@ impl GrammarDownloader {
     pub fn cache_paths(&self) -> &GrammarCachePaths {
         &self.cache_paths
     }
+}
+
+/// Write grammar bytes to a temporary file, compute its checksum, then move to final path.
+async fn write_grammar_file(
+    grammar_path: &std::path::Path,
+    bytes: &[u8],
+) -> DownloadResult<String> {
+    let temp_path = grammar_path.with_extension("tmp");
+    debug!(
+        path = %temp_path.display(),
+        bytes = bytes.len(),
+        "Writing grammar to temporary file"
+    );
+    let mut file = tokio::fs::File::create(&temp_path).await?;
+    file.write_all(bytes).await?;
+    file.flush().await?;
+    drop(file);
+    let checksum = compute_checksum(&temp_path)?;
+    tokio::fs::rename(&temp_path, grammar_path).await?;
+    Ok(checksum)
 }
 
 /// Get the library extension for the current platform.

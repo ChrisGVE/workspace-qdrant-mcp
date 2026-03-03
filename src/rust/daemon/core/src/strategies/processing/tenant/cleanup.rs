@@ -196,59 +196,20 @@ async fn cleanup_excluded_files_qdrant_fallback(
     }
 
     let mut files_cleaned = 0u64;
-
     for qdrant_file in &qdrant_file_paths {
         let rel_path = match Path::new(qdrant_file).strip_prefix(project_root) {
             Ok(stripped) => stripped.to_string_lossy().to_string(),
             Err(_) => qdrant_file.clone(),
         };
 
-        // Check exclusion patterns and allowlist (Task 511)
         let should_clean = should_exclude_file(&rel_path)
             || !allowed_extensions.is_allowed(qdrant_file, &item.collection);
-
         if !should_clean {
             continue;
         }
 
-        let file_payload = FilePayload {
-            file_path: qdrant_file.clone(),
-            file_type: None,
-            file_hash: None,
-            size_bytes: None,
-            old_path: None,
-        };
-
-        let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to serialize FilePayload for deletion: {}",
-                e
-            ))
-        })?;
-
-        match queue_manager
-            .enqueue_unified(
-                ItemType::File,
-                QueueOperation::Delete,
-                &item.tenant_id,
-                &item.collection,
-                &payload_json,
-                Some(&item.branch),
-                None,
-            )
-            .await
-        {
-            Ok((_queue_id, is_new)) => {
-                if is_new {
-                    files_cleaned += 1;
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to queue excluded file for deletion {}: {}",
-                    qdrant_file, e
-                );
-            }
+        if enqueue_file_for_deletion(item, qdrant_file, queue_manager).await? {
+            files_cleaned += 1;
         }
     }
 
@@ -260,4 +221,45 @@ async fn cleanup_excluded_files_qdrant_fallback(
     }
 
     Ok(files_cleaned)
+}
+
+/// Build a delete payload and enqueue it; returns true if a new item was created.
+async fn enqueue_file_for_deletion(
+    item: &UnifiedQueueItem,
+    file_path: &str,
+    queue_manager: &Arc<QueueManager>,
+) -> UnifiedProcessorResult<bool> {
+    let file_payload = FilePayload {
+        file_path: file_path.to_string(),
+        file_type: None,
+        file_hash: None,
+        size_bytes: None,
+        old_path: None,
+    };
+
+    let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!(
+            "Failed to serialize FilePayload for deletion: {}",
+            e
+        ))
+    })?;
+
+    match queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            QueueOperation::Delete,
+            &item.tenant_id,
+            &item.collection,
+            &payload_json,
+            Some(&item.branch),
+            None,
+        )
+        .await
+    {
+        Ok((_queue_id, is_new)) => Ok(is_new),
+        Err(e) => {
+            warn!("Failed to queue excluded file for deletion {}: {}", file_path, e);
+            Ok(false)
+        }
+    }
 }

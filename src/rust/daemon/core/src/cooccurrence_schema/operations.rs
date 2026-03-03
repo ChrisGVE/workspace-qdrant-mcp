@@ -104,7 +104,6 @@ pub async fn find_clusters(
     min_count: i64,
     max_hops: u32,
 ) -> Result<Vec<CooccurrenceCluster>, sqlx::Error> {
-    // For each "seed" symbol with high-weight edges, expand via CTE
     let seeds: Vec<(String,)> = sqlx::query_as(
         "SELECT DISTINCT symbol FROM (
             SELECT symbol_a AS symbol FROM symbol_cooccurrence
@@ -114,17 +113,13 @@ pub async fn find_clusters(
             WHERE tenant_id = ?1 AND collection = ?2 AND cooccurrence_count >= ?3
         )",
     )
-    .bind(tenant_id)
-    .bind(collection)
-    .bind(min_count)
-    .fetch_all(pool)
-    .await?;
+    .bind(tenant_id).bind(collection).bind(min_count)
+    .fetch_all(pool).await?;
 
     if seeds.is_empty() {
         return Ok(Vec::new());
     }
 
-    // Build clusters by expanding from each seed via CTE
     let mut assigned: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut clusters = Vec::new();
 
@@ -132,64 +127,65 @@ pub async fn find_clusters(
         if assigned.contains(seed) {
             continue;
         }
-
-        let rows: Vec<(String,)> = sqlx::query_as(&format!(
-            "WITH RECURSIVE cluster_expand AS (
-                SELECT ?1 AS symbol, 0 AS depth
-                UNION
-                SELECT
-                    CASE
-                        WHEN sc.symbol_a = ce.symbol THEN sc.symbol_b
-                        ELSE sc.symbol_a
-                    END AS symbol,
-                    ce.depth + 1
-                FROM cluster_expand ce
-                JOIN symbol_cooccurrence sc ON (
-                    (sc.symbol_a = ce.symbol OR sc.symbol_b = ce.symbol)
-                    AND sc.tenant_id = ?2
-                    AND sc.collection = ?3
-                    AND sc.cooccurrence_count >= ?4
-                )
-                WHERE ce.depth < {}
-            )
-            SELECT DISTINCT symbol FROM cluster_expand",
-            max_hops
-        ))
-        .bind(seed)
-        .bind(tenant_id)
-        .bind(collection)
-        .bind(min_count)
-        .fetch_all(pool)
-        .await?;
-
-        let cluster_symbols: Vec<String> = rows
-            .into_iter()
-            .map(|(s,)| s)
-            .filter(|s| !assigned.contains(s))
-            .collect();
-
-        if cluster_symbols.len() >= 2 {
-            for s in &cluster_symbols {
+        if let Some(cluster) = expand_cluster_from_seed(
+            pool, seed, tenant_id, collection, min_count, max_hops, &assigned,
+        ).await? {
+            for s in &cluster {
                 assigned.insert(s.clone());
             }
-            clusters.push(CooccurrenceCluster {
-                symbols: cluster_symbols,
-                min_weight: min_count,
-            });
+            clusters.push(CooccurrenceCluster { symbols: cluster, min_weight: min_count });
         } else {
-            // Single-symbol "cluster" — mark as assigned but don't emit
             assigned.insert(seed.clone());
         }
     }
 
-    debug!(
-        "Found {} co-occurrence clusters for {}/{}",
-        clusters.len(),
-        tenant_id,
-        collection
-    );
-
+    debug!("Found {} co-occurrence clusters for {}/{}", clusters.len(), tenant_id, collection);
     Ok(clusters)
+}
+
+/// Expand a cluster from a single seed using a recursive CTE.
+///
+/// Returns `Some(symbols)` if the cluster has >= 2 unassigned symbols, `None` otherwise.
+async fn expand_cluster_from_seed(
+    pool: &SqlitePool,
+    seed: &str,
+    tenant_id: &str,
+    collection: &str,
+    min_count: i64,
+    max_hops: u32,
+    assigned: &std::collections::HashSet<String>,
+) -> Result<Option<Vec<String>>, sqlx::Error> {
+    let rows: Vec<(String,)> = sqlx::query_as(&format!(
+        "WITH RECURSIVE cluster_expand AS (
+            SELECT ?1 AS symbol, 0 AS depth
+            UNION
+            SELECT
+                CASE
+                    WHEN sc.symbol_a = ce.symbol THEN sc.symbol_b
+                    ELSE sc.symbol_a
+                END AS symbol,
+                ce.depth + 1
+            FROM cluster_expand ce
+            JOIN symbol_cooccurrence sc ON (
+                (sc.symbol_a = ce.symbol OR sc.symbol_b = ce.symbol)
+                AND sc.tenant_id = ?2
+                AND sc.collection = ?3
+                AND sc.cooccurrence_count >= ?4
+            )
+            WHERE ce.depth < {}
+        )
+        SELECT DISTINCT symbol FROM cluster_expand",
+        max_hops
+    ))
+    .bind(seed).bind(tenant_id).bind(collection).bind(min_count)
+    .fetch_all(pool).await?;
+
+    let symbols: Vec<String> = rows.into_iter()
+        .map(|(s,)| s)
+        .filter(|s| !assigned.contains(s))
+        .collect();
+
+    if symbols.len() >= 2 { Ok(Some(symbols)) } else { Ok(None) }
 }
 
 /// Find symbols that co-occur with a given symbol, sorted by weight.

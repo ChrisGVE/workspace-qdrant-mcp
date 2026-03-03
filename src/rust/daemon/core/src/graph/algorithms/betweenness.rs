@@ -31,22 +31,17 @@ pub async fn compute_betweenness_centrality(
     let graph = load_adjacency_graph(pool, tenant_id, edge_types).await?;
 
     if graph.nodes.len() < 3 {
-        return Ok(graph
-            .nodes
-            .iter()
-            .map(|(id, info)| BetweennessEntry {
-                node_id: id.clone(),
-                symbol_name: info.symbol_name.clone(),
-                symbol_type: info.symbol_type.clone(),
-                file_path: info.file_path.clone(),
-                score: 0.0,
-            })
-            .collect());
+        return Ok(graph.nodes.iter().map(|(id, info)| BetweennessEntry {
+            node_id: id.clone(),
+            symbol_name: info.symbol_name.clone(),
+            symbol_type: info.symbol_type.clone(),
+            file_path: info.file_path.clone(),
+            score: 0.0,
+        }).collect());
     }
 
     let node_ids: Vec<&String> = graph.nodes.keys().collect();
 
-    // Build undirected adjacency for betweenness
     let mut neighbors: HashMap<&str, Vec<&str>> = HashMap::new();
     for (src, targets) in &graph.outgoing {
         for tgt in targets {
@@ -55,12 +50,9 @@ pub async fn compute_betweenness_centrality(
         }
     }
 
-    let mut betweenness: HashMap<&str, f64> = node_ids
-        .iter()
-        .map(|id| (id.as_str(), 0.0))
-        .collect();
+    let mut betweenness: HashMap<&str, f64> =
+        node_ids.iter().map(|id| (id.as_str(), 0.0)).collect();
 
-    // Select source nodes (all, or a sample for large graphs)
     let sources: Vec<&str> = match max_samples {
         Some(limit) if limit < node_ids.len() => {
             node_ids.iter().take(limit).map(|id| id.as_str()).collect()
@@ -68,43 +60,11 @@ pub async fn compute_betweenness_centrality(
         _ => node_ids.iter().map(|id| id.as_str()).collect(),
     };
 
-    // Brandes' algorithm: BFS from each source
     for &source in &sources {
         brandes_bfs(source, &neighbors, &mut betweenness);
     }
 
-    // Normalize: for undirected graph, divide by 2; then by (n-1)(n-2)
-    let n = graph.nodes.len() as f64;
-    let normalizer = if n > 2.0 {
-        (n - 1.0) * (n - 2.0) / 2.0
-    } else {
-        1.0
-    };
-
-    // If using sampling, scale up
-    let sample_scale = if sources.len() < node_ids.len() {
-        node_ids.len() as f64 / sources.len() as f64
-    } else {
-        1.0
-    };
-
-    let mut results: Vec<BetweennessEntry> = betweenness
-        .into_iter()
-        .filter_map(|(id, raw_score)| {
-            graph.nodes.get(id).map(|info| {
-                let normalized = (raw_score * sample_scale) / normalizer;
-                BetweennessEntry {
-                    node_id: id.to_string(),
-                    symbol_name: info.symbol_name.clone(),
-                    symbol_type: info.symbol_type.clone(),
-                    file_path: info.file_path.clone(),
-                    score: normalized.min(1.0),
-                }
-            })
-        })
-        .collect();
-
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    let results = normalize_betweenness(betweenness, &graph.nodes, &node_ids, &sources);
 
     info!(
         tenant_id,
@@ -114,6 +74,38 @@ pub async fn compute_betweenness_centrality(
     );
 
     Ok(results)
+}
+
+/// Normalize raw betweenness scores and convert to sorted `BetweennessEntry` list.
+fn normalize_betweenness<'a>(
+    betweenness: HashMap<&'a str, f64>,
+    nodes: &'a HashMap<String, super::NodeInfo>,
+    node_ids: &[&String],
+    sources: &[&str],
+) -> Vec<BetweennessEntry> {
+    let n = node_ids.len() as f64;
+    let normalizer = if n > 2.0 { (n - 1.0) * (n - 2.0) / 2.0 } else { 1.0 };
+    let sample_scale = if sources.len() < node_ids.len() {
+        n / sources.len() as f64
+    } else {
+        1.0
+    };
+
+    let mut results: Vec<BetweennessEntry> = betweenness
+        .into_iter()
+        .filter_map(|(id, raw_score)| {
+            nodes.get(id).map(|info| BetweennessEntry {
+                node_id: id.to_string(),
+                symbol_name: info.symbol_name.clone(),
+                symbol_type: info.symbol_type.clone(),
+                file_path: info.file_path.clone(),
+                score: ((raw_score * sample_scale) / normalizer).min(1.0),
+            })
+        })
+        .collect();
+
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results
 }
 
 /// Run BFS from a single source and accumulate betweenness contributions.

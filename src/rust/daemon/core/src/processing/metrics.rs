@@ -352,7 +352,6 @@ impl MetricsCollector {
 
         let (avg_task_duration, avg_queue_time, avg_preemption_time) =
             self.compute_averages(tasks_completed, tasks_failed, tasks_cancelled, preemptions_total);
-
         let p95_duration = Self::calculate_percentile(&self.recent_task_durations, 95.0).await;
         let p99_duration = Self::calculate_percentile(&self.recent_task_durations, 99.0).await;
 
@@ -360,63 +359,28 @@ impl MetricsCollector {
         let throughput = if uptime > 0 { tasks_completed as f64 / uptime as f64 } else { 0.0 };
         let error_rate = if total_tasks > 0 {
             (tasks_failed as f64 / total_tasks as f64) * 100.0
-        } else {
-            0.0
-        };
+        } else { 0.0 };
         let preemption_success_rate = if preemptions_total > 0 {
             (graceful_preemptions as f64 / preemptions_total as f64) * 100.0
-        } else {
-            100.0
-        };
+        } else { 100.0 };
 
         let (preemptions_by_priority, response_times_by_priority) =
             self.collect_per_priority_metrics().await;
-
-        let active_checkpoints = {
-            let checkpoints_lock = checkpoint_manager.checkpoints.read().await;
-            checkpoints_lock.len()
-        };
+        let active_checkpoints = checkpoint_manager.checkpoints.read().await.len();
 
         PrioritySystemMetrics {
-            pipeline: PipelineMetrics {
-                queued_tasks,
-                running_tasks,
-                total_capacity: capacity,
-                tasks_completed,
-                tasks_failed,
-                tasks_cancelled,
-                tasks_timed_out,
-                uptime_seconds: uptime,
-            },
-            queue: QueueMetrics {
-                total_queued: queue_stats.total_queued,
-                queued_by_priority: queue_stats.queued_by_priority.clone(),
-                oldest_request_age_ms: queue_stats.oldest_request_age_ms,
-                average_queue_time_ms: avg_queue_time,
-                max_queue_time_ms: 0,
-                queue_overflow_count: self.queue_overflow_count.load(AtomicOrdering::Relaxed),
-                queue_spill_count: self.queue_spill_count.load(AtomicOrdering::Relaxed),
-                deduplication_hits: self.deduplication_hits.load(AtomicOrdering::Relaxed),
-                priority_boosts_applied: self.priority_boosts_applied.load(AtomicOrdering::Relaxed),
-            },
+            pipeline: self.build_pipeline_metrics(
+                queued_tasks, running_tasks, capacity,
+                tasks_completed, tasks_failed, tasks_cancelled, tasks_timed_out, uptime,
+            ),
+            queue: self.build_queue_metrics(queue_stats, avg_queue_time),
             preemption: PreemptionMetrics {
-                preemptions_total,
-                preemptions_by_priority,
-                graceful_preemptions,
-                forced_aborts,
-                preemption_success_rate,
+                preemptions_total, preemptions_by_priority, graceful_preemptions,
+                forced_aborts, preemption_success_rate,
                 average_preemption_time_ms: avg_preemption_time,
                 tasks_resumed_from_checkpoints: 0,
             },
-            checkpoints: CheckpointMetrics {
-                active_checkpoints,
-                checkpoints_created: self.checkpoints_created.load(AtomicOrdering::Relaxed),
-                checkpoints_restored: 0,
-                rollbacks_executed: self.rollbacks_executed.load(AtomicOrdering::Relaxed),
-                rollback_success_rate: 100.0,
-                average_checkpoint_size_bytes: 0.0,
-                checkpoint_storage_usage_bytes: 0,
-            },
+            checkpoints: self.build_checkpoint_metrics(active_checkpoints),
             performance: PerformanceMetrics {
                 throughput_tasks_per_second: throughput,
                 average_task_duration_ms: avg_task_duration,
@@ -427,6 +391,49 @@ impl MetricsCollector {
                 system_load_percent: 0.0,
             },
             resources: Self::get_resource_metrics(),
+        }
+    }
+
+    /// Assemble `PipelineMetrics` from counters.
+    #[allow(clippy::too_many_arguments)]
+    fn build_pipeline_metrics(
+        &self,
+        queued_tasks: usize, running_tasks: usize, total_capacity: usize,
+        tasks_completed: u64, tasks_failed: u64, tasks_cancelled: u64,
+        tasks_timed_out: u64, uptime_seconds: u64,
+    ) -> PipelineMetrics {
+        PipelineMetrics {
+            queued_tasks, running_tasks, total_capacity,
+            tasks_completed, tasks_failed, tasks_cancelled,
+            tasks_timed_out, uptime_seconds,
+        }
+    }
+
+    /// Assemble `QueueMetrics` from queue stats and averages.
+    fn build_queue_metrics(&self, queue_stats: &QueueStats, avg_queue_time: f64) -> QueueMetrics {
+        QueueMetrics {
+            total_queued: queue_stats.total_queued,
+            queued_by_priority: queue_stats.queued_by_priority.clone(),
+            oldest_request_age_ms: queue_stats.oldest_request_age_ms,
+            average_queue_time_ms: avg_queue_time,
+            max_queue_time_ms: 0,
+            queue_overflow_count: self.queue_overflow_count.load(AtomicOrdering::Relaxed),
+            queue_spill_count: self.queue_spill_count.load(AtomicOrdering::Relaxed),
+            deduplication_hits: self.deduplication_hits.load(AtomicOrdering::Relaxed),
+            priority_boosts_applied: self.priority_boosts_applied.load(AtomicOrdering::Relaxed),
+        }
+    }
+
+    /// Assemble `CheckpointMetrics` from counters.
+    fn build_checkpoint_metrics(&self, active_checkpoints: usize) -> CheckpointMetrics {
+        CheckpointMetrics {
+            active_checkpoints,
+            checkpoints_created: self.checkpoints_created.load(AtomicOrdering::Relaxed),
+            checkpoints_restored: 0,
+            rollbacks_executed: self.rollbacks_executed.load(AtomicOrdering::Relaxed),
+            rollback_success_rate: 100.0,
+            average_checkpoint_size_bytes: 0.0,
+            checkpoint_storage_usage_bytes: 0,
         }
     }
 

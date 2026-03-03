@@ -201,102 +201,66 @@ impl ResourceLimitsConfig {
 
     /// Apply environment variable overrides
     pub fn apply_env_overrides(&mut self) {
-        use std::env;
+        apply_env_i32("WQM_RESOURCE_NICE_LEVEL", &mut self.nice_level);
+        apply_env_u64("WQM_RESOURCE_INTER_ITEM_DELAY_MS", &mut self.inter_item_delay_ms);
+        apply_env_usize("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS", &mut self.max_concurrent_embeddings);
+        apply_env_u8("WQM_RESOURCE_MAX_MEMORY_PERCENT", &mut self.max_memory_percent);
+        apply_env_usize("WQM_RESOURCE_ONNX_INTRA_THREADS", &mut self.onnx_intra_threads);
+        apply_env_u64("WQM_RESOURCE_IDLE_THRESHOLD_SECS", &mut self.idle_threshold_secs);
+        apply_env_u64("WQM_RESOURCE_IDLE_CONFIRMATION_SECS", &mut self.idle_confirmation_secs);
+        apply_env_u64("WQM_RESOURCE_RAMP_UP_STEP_SECS", &mut self.ramp_up_step_secs);
+        apply_env_u64("WQM_RESOURCE_RAMP_DOWN_STEP_SECS", &mut self.ramp_down_step_secs);
+        apply_env_u64("WQM_RESOURCE_BURST_HOLD_SECS", &mut self.burst_hold_secs);
+        apply_env_f64("WQM_RESOURCE_BURST_CONCURRENCY_MULTIPLIER", &mut self.burst_concurrency_multiplier);
+        apply_env_u64("WQM_RESOURCE_BURST_INTER_ITEM_DELAY_MS", &mut self.burst_inter_item_delay_ms);
+        apply_env_f64("WQM_RESOURCE_CPU_PRESSURE_THRESHOLD", &mut self.cpu_pressure_threshold);
+        apply_env_u64("WQM_RESOURCE_IDLE_POLL_INTERVAL_SECS", &mut self.idle_poll_interval_secs);
+        apply_env_f64("WQM_RESOURCE_ACTIVE_CONCURRENCY_MULTIPLIER", &mut self.active_concurrency_multiplier);
+        apply_env_u64("WQM_RESOURCE_ACTIVE_INTER_ITEM_DELAY_MS", &mut self.active_inter_item_delay_ms);
+    }
+}
 
-        if let Ok(val) = env::var("WQM_RESOURCE_NICE_LEVEL") {
-            if let Ok(parsed) = val.parse() {
-                self.nice_level = parsed;
-            }
+/// Apply an environment variable override to an `i32` field.
+fn apply_env_i32(var: &str, field: &mut i32) {
+    if let Ok(val) = std::env::var(var) {
+        if let Ok(parsed) = val.parse() {
+            *field = parsed;
         }
+    }
+}
 
-        if let Ok(val) = env::var("WQM_RESOURCE_INTER_ITEM_DELAY_MS") {
-            if let Ok(parsed) = val.parse() {
-                self.inter_item_delay_ms = parsed;
-            }
+/// Apply an environment variable override to a `u8` field.
+fn apply_env_u8(var: &str, field: &mut u8) {
+    if let Ok(val) = std::env::var(var) {
+        if let Ok(parsed) = val.parse() {
+            *field = parsed;
         }
+    }
+}
 
-        if let Ok(val) = env::var("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS") {
-            if let Ok(parsed) = val.parse() {
-                self.max_concurrent_embeddings = parsed;
-            }
+/// Apply an environment variable override to a `u64` field.
+fn apply_env_u64(var: &str, field: &mut u64) {
+    if let Ok(val) = std::env::var(var) {
+        if let Ok(parsed) = val.parse() {
+            *field = parsed;
         }
+    }
+}
 
-        if let Ok(val) = env::var("WQM_RESOURCE_MAX_MEMORY_PERCENT") {
-            if let Ok(parsed) = val.parse() {
-                self.max_memory_percent = parsed;
-            }
+/// Apply an environment variable override to a `usize` field.
+fn apply_env_usize(var: &str, field: &mut usize) {
+    if let Ok(val) = std::env::var(var) {
+        if let Ok(parsed) = val.parse() {
+            *field = parsed;
         }
+    }
+}
 
-        if let Ok(val) = env::var("WQM_RESOURCE_ONNX_INTRA_THREADS") {
-            if let Ok(parsed) = val.parse() {
-                self.onnx_intra_threads = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_THRESHOLD_SECS") {
-            if let Ok(parsed) = val.parse() {
-                self.idle_threshold_secs = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_CONFIRMATION_SECS") {
-            if let Ok(parsed) = val.parse() {
-                self.idle_confirmation_secs = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_RAMP_UP_STEP_SECS") {
-            if let Ok(parsed) = val.parse() {
-                self.ramp_up_step_secs = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_RAMP_DOWN_STEP_SECS") {
-            if let Ok(parsed) = val.parse() {
-                self.ramp_down_step_secs = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_BURST_HOLD_SECS") {
-            if let Ok(parsed) = val.parse() {
-                self.burst_hold_secs = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_BURST_CONCURRENCY_MULTIPLIER") {
-            if let Ok(parsed) = val.parse() {
-                self.burst_concurrency_multiplier = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_BURST_INTER_ITEM_DELAY_MS") {
-            if let Ok(parsed) = val.parse() {
-                self.burst_inter_item_delay_ms = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_CPU_PRESSURE_THRESHOLD") {
-            if let Ok(parsed) = val.parse() {
-                self.cpu_pressure_threshold = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_POLL_INTERVAL_SECS") {
-            if let Ok(parsed) = val.parse() {
-                self.idle_poll_interval_secs = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_ACTIVE_CONCURRENCY_MULTIPLIER") {
-            if let Ok(parsed) = val.parse() {
-                self.active_concurrency_multiplier = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_RESOURCE_ACTIVE_INTER_ITEM_DELAY_MS") {
-            if let Ok(parsed) = val.parse() {
-                self.active_inter_item_delay_ms = parsed;
-            }
+/// Apply an environment variable override to an `f64` field.
+fn apply_env_f64(var: &str, field: &mut f64) {
+    if let Ok(val) = std::env::var(var) {
+        if let Ok(parsed) = val.parse() {
+            *field = parsed;
         }
     }
 }
