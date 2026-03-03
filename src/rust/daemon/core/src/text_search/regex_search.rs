@@ -42,18 +42,13 @@ pub async fn search_regex(
         });
     }
 
-    // Extract literals for FTS5 acceleration
     let literals = extract_literals_from_regex(pattern);
     let fts5_query = build_fts5_query(&literals);
-
-    // Resolve path_glob -> SQL prefix + glob matcher
     let (glob_pattern, effective_options) = resolve_path_filter(options);
     let glob_matcher = glob_pattern
         .as_deref()
         .map(compile_glob_matcher)
         .transpose()?;
-
-    // Compile the regex (case-insensitive if requested)
     let re = regex::RegexBuilder::new(pattern)
         .case_insensitive(options.case_insensitive)
         .build()
@@ -64,32 +59,13 @@ pub async fn search_regex(
         pattern, literals, fts5_query, effective_options.tenant_id, options.path_glob,
     );
 
-    // Build and execute SQL query
-    let (sql, use_fts) = build_regex_search_query(&fts5_query, &effective_options);
     let pool = search_db.pool();
-    let mut query = sqlx::query(&sql);
-
-    // Bind parameters
-    if use_fts {
-        query = query.bind(fts5_query.as_ref().unwrap());
-    }
-
-    // Bind scope filters
-    if let Some(ref tid) = effective_options.tenant_id {
-        query = query.bind(tid);
-    }
-    if let Some(ref branch) = effective_options.branch {
-        query = query.bind(branch);
-    }
-    if let Some(ref prefix) = effective_options.path_prefix {
-        query = query.bind(format!("{}%", prefix));
-    }
 
     // Grep fallback: if FTS5 candidate count exceeds threshold, delegate to
     // grep-searcher for SIMD-accelerated file scanning.
-    if use_fts {
+    if let Some(ref fts_q) = fts5_query {
         let threshold = crate::grep_search::GREP_FALLBACK_THRESHOLD;
-        if fts5_exceeds_threshold(pool, fts5_query.as_ref().unwrap(), threshold).await? {
+        if fts5_exceeds_threshold(pool, fts_q, threshold).await? {
             debug!(
                 "grep fallback: FTS5 candidates exceed threshold ({}), using grep",
                 threshold
@@ -98,12 +74,65 @@ pub async fn search_regex(
         }
     }
 
-    let max_results = if options.max_results > 0 {
-        options.max_results
-    } else {
-        usize::MAX
-    };
+    let (matches, truncated, candidates_scanned) = collect_regex_matches(
+        pool,
+        &fts5_query,
+        &effective_options,
+        &re,
+        glob_matcher.as_ref(),
+        options.max_results,
+    )
+    .await?;
 
+    let mut matches = matches;
+    if options.context_lines > 0 {
+        attach_context_lines(search_db, &mut matches, options.context_lines).await?;
+    }
+
+    let query_time_ms = start.elapsed().as_millis() as u64;
+    debug!(
+        "Regex search complete: {} matches in {}ms (pattern={:?}, fts_candidates={}, truncated={})",
+        matches.len(), query_time_ms, pattern, candidates_scanned, truncated
+    );
+
+    Ok(SearchResults {
+        pattern: pattern.to_string(),
+        matches,
+        truncated,
+        query_time_ms,
+        search_engine: "fts5".to_string(),
+    })
+}
+
+/// Build, bind, and execute the SQL query, then stream rows applying regex
+/// verification and optional glob filtering.
+///
+/// Returns `(matches, truncated, candidates_scanned)`.
+async fn collect_regex_matches(
+    pool: &sqlx::SqlitePool,
+    fts5_query: &Option<String>,
+    options: &SearchOptions,
+    re: &regex::Regex,
+    glob_matcher: Option<&impl Fn(&str) -> bool>,
+    max_results_hint: usize,
+) -> Result<(Vec<SearchMatch>, bool, usize), SearchDbError> {
+    let (sql, use_fts) = build_regex_search_query(fts5_query, options);
+    let mut query = sqlx::query(&sql);
+
+    if use_fts {
+        query = query.bind(fts5_query.as_ref().unwrap());
+    }
+    if let Some(ref tid) = options.tenant_id {
+        query = query.bind(tid);
+    }
+    if let Some(ref branch) = options.branch {
+        query = query.bind(branch);
+    }
+    if let Some(ref prefix) = options.path_prefix {
+        query = query.bind(format!("{}%", prefix));
+    }
+
+    let max_results = if max_results_hint > 0 { max_results_hint } else { usize::MAX };
     let mut stream = query.fetch(pool);
     let mut matches = Vec::new();
     let mut truncated = false;
@@ -111,10 +140,9 @@ pub async fn search_regex(
 
     while let Some(row) = stream.try_next().await? {
         candidates_scanned += 1;
-
         let file_path: String = row.get("file_path");
 
-        if let Some(ref matcher) = glob_matcher {
+        if let Some(matcher) = glob_matcher {
             if !matcher(&file_path) {
                 continue;
             }
@@ -141,24 +169,7 @@ pub async fn search_regex(
     }
     drop(stream);
 
-    if options.context_lines > 0 {
-        attach_context_lines(search_db, &mut matches, options.context_lines).await?;
-    }
-
-    let query_time_ms = start.elapsed().as_millis() as u64;
-
-    debug!(
-        "Regex search complete: {} matches in {}ms (pattern={:?}, fts_candidates={}, truncated={})",
-        matches.len(), query_time_ms, pattern, candidates_scanned, truncated
-    );
-
-    Ok(SearchResults {
-        pattern: pattern.to_string(),
-        matches,
-        truncated,
-        query_time_ms,
-        search_engine: "fts5".to_string(),
-    })
+    Ok((matches, truncated, candidates_scanned))
 }
 
 /// Lightweight FTS5-only candidate count probe.

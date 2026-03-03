@@ -76,40 +76,12 @@ impl TextStrategy {
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
         let payload: MemoryPayload = parse_payload(item)?;
-
         let action = payload.action.as_deref().unwrap_or("add");
-        let now = wqm_common::timestamps::now_utc();
 
-        // For remove action, delete by label filter and clean rules_mirror
         if action == "remove" {
-            if let Some(label) = &payload.label {
-                info!("Removing rule with label: {}", label);
-                ctx.storage_client
-                    .delete_points_by_payload_field(
-                        wqm_common::constants::COLLECTION_RULES,
-                        "label",
-                        label,
-                    )
-                    .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-
-                // Also remove from rules_mirror (best-effort -- Qdrant delete already succeeded)
-                let pool = ctx.queue_manager.pool();
-                if let Err(e) = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
-                    .bind(label)
-                    .execute(pool)
-                    .await
-                {
-                    warn!(
-                        "Failed to delete rules_mirror row for label={}: {}",
-                        label, e
-                    );
-                }
-            }
-            return Ok(());
+            return Self::handle_rules_remove(ctx, &payload).await;
         }
 
-        // Generate embedding (semaphore-gated)
         let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
             &ctx.embedding_generator,
             &ctx.embedding_semaphore,
@@ -118,71 +90,13 @@ impl TextStrategy {
         )
         .await?;
 
-        // For update action, delete existing point by label first
         if action == "update" {
-            if let Some(label) = &payload.label {
-                info!(
-                    "Updating rule with label: {} (delete + re-insert)",
-                    label
-                );
-                let _ = ctx
-                    .storage_client
-                    .delete_points_by_payload_field(
-                        wqm_common::constants::COLLECTION_RULES,
-                        "label",
-                        label,
-                    )
-                    .await;
-            }
+            Self::delete_rule_by_label(ctx, &payload.label).await?;
         }
 
         let content_doc_id =
             crate::generate_content_document_id(&item.tenant_id, &payload.content);
-
-        // Build point payload with ALL rule-specific fields
-        let mut point_payload = HashMap::new();
-        point_payload.insert("content".to_string(), serde_json::json!(payload.content));
-        point_payload.insert(
-            "document_id".to_string(),
-            serde_json::json!(content_doc_id),
-        );
-        point_payload.insert(
-            "tenant_id".to_string(),
-            serde_json::json!(item.tenant_id),
-        );
-        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
-        point_payload.insert("item_type".to_string(), serde_json::json!("content"));
-        point_payload.insert(
-            "source_type".to_string(),
-            serde_json::json!(payload.source_type.to_lowercase()),
-        );
-
-        // Rule-specific fields
-        if let Some(label) = &payload.label {
-            point_payload.insert("label".to_string(), serde_json::json!(label));
-        }
-        if let Some(scope) = &payload.scope {
-            point_payload.insert("scope".to_string(), serde_json::json!(scope));
-        }
-        if let Some(project_id) = &payload.project_id {
-            point_payload.insert("project_id".to_string(), serde_json::json!(project_id));
-        }
-        if let Some(title) = &payload.title {
-            point_payload.insert("title".to_string(), serde_json::json!(title));
-        }
-        if let Some(tags) = &payload.tags {
-            // Store as comma-separated string for Qdrant keyword matching
-            point_payload.insert("tags".to_string(), serde_json::json!(tags.join(",")));
-        }
-        if let Some(priority) = payload.priority {
-            point_payload.insert("priority".to_string(), serde_json::json!(priority));
-        }
-
-        // Timestamps
-        if action == "add" {
-            point_payload.insert("created_at".to_string(), serde_json::json!(&now));
-        }
-        point_payload.insert("updated_at".to_string(), serde_json::json!(&now));
+        let point_payload = build_rules_payload(item, &payload, &content_doc_id, action);
 
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
@@ -201,6 +115,54 @@ impl TextStrategy {
             item.queue_id, action, payload.label, item.collection
         );
 
+        Ok(())
+    }
+
+    /// Handle the `remove` action: delete the point from Qdrant and clean `rules_mirror`.
+    async fn handle_rules_remove(
+        ctx: &ProcessingContext,
+        payload: &MemoryPayload,
+    ) -> UnifiedProcessorResult<()> {
+        if let Some(label) = &payload.label {
+            info!("Removing rule with label: {}", label);
+            ctx.storage_client
+                .delete_points_by_payload_field(
+                    wqm_common::constants::COLLECTION_RULES,
+                    "label",
+                    label,
+                )
+                .await
+                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+            // Best-effort: remove from rules_mirror (Qdrant delete already succeeded)
+            let pool = ctx.queue_manager.pool();
+            if let Err(e) = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
+                .bind(label)
+                .execute(pool)
+                .await
+            {
+                warn!("Failed to delete rules_mirror row for label={}: {}", label, e);
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete an existing rule point by label (used for `update` action).
+    async fn delete_rule_by_label(
+        ctx: &ProcessingContext,
+        label: &Option<String>,
+    ) -> UnifiedProcessorResult<()> {
+        if let Some(label) = label {
+            info!("Updating rule with label: {} (delete + re-insert)", label);
+            let _ = ctx
+                .storage_client
+                .delete_points_by_payload_field(
+                    wqm_common::constants::COLLECTION_RULES,
+                    "label",
+                    label,
+                )
+                .await;
+        }
         Ok(())
     }
 
@@ -336,6 +298,50 @@ impl TextStrategy {
 
         Ok(())
     }
+}
+
+/// Build the Qdrant payload map for a rules item.
+fn build_rules_payload(
+    item: &UnifiedQueueItem,
+    payload: &MemoryPayload,
+    content_doc_id: &str,
+    action: &str,
+) -> HashMap<String, serde_json::Value> {
+    let now = wqm_common::timestamps::now_utc();
+    let mut point_payload = HashMap::new();
+    point_payload.insert("content".to_string(), serde_json::json!(payload.content));
+    point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
+    point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+    point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+    point_payload.insert("item_type".to_string(), serde_json::json!("content"));
+    point_payload.insert(
+        "source_type".to_string(),
+        serde_json::json!(payload.source_type.to_lowercase()),
+    );
+    if let Some(label) = &payload.label {
+        point_payload.insert("label".to_string(), serde_json::json!(label));
+    }
+    if let Some(scope) = &payload.scope {
+        point_payload.insert("scope".to_string(), serde_json::json!(scope));
+    }
+    if let Some(project_id) = &payload.project_id {
+        point_payload.insert("project_id".to_string(), serde_json::json!(project_id));
+    }
+    if let Some(title) = &payload.title {
+        point_payload.insert("title".to_string(), serde_json::json!(title));
+    }
+    if let Some(tags) = &payload.tags {
+        // Store as comma-separated string for Qdrant keyword matching
+        point_payload.insert("tags".to_string(), serde_json::json!(tags.join(",")));
+    }
+    if let Some(priority) = payload.priority {
+        point_payload.insert("priority".to_string(), serde_json::json!(priority));
+    }
+    if action == "add" {
+        point_payload.insert("created_at".to_string(), serde_json::json!(&now));
+    }
+    point_payload.insert("updated_at".to_string(), serde_json::json!(&now));
+    point_payload
 }
 
 #[cfg(test)]

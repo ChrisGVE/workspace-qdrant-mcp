@@ -46,122 +46,11 @@ async fn persist_inner(
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    // Delete old records for this document (re-index replaces)
-    sqlx::query("DELETE FROM keyword_baskets WHERE tag_id IN (SELECT tag_id FROM tags WHERE doc_id = ?1)")
-        .bind(doc_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM tags WHERE doc_id = ?1")
-        .bind(doc_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM keywords WHERE doc_id = ?1")
-        .bind(doc_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // Insert keywords
-    for kw in &extraction.keywords {
-        sqlx::query(
-            "INSERT INTO keywords (doc_id, keyword, score, semantic_score, lexical_score, stability_count, collection, tenant_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        )
-        .bind(doc_id)
-        .bind(&kw.phrase)
-        .bind(kw.score)
-        .bind(kw.semantic_score)
-        .bind(kw.lexical_score)
-        .bind(kw.stability_count as i32)
-        .bind(collection)
-        .bind(tenant_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Insert concept tags
-    for tag in &extraction.tags {
-        sqlx::query(
-            "INSERT INTO tags (doc_id, tag, tag_type, score, diversity_score, collection, tenant_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        )
-        .bind(doc_id)
-        .bind(&tag.phrase)
-        .bind(tag.tag_type.as_str())
-        .bind(tag.score)
-        .bind(tag.diversity_score)
-        .bind(collection)
-        .bind(tenant_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Insert structural tags
-    for tag in &extraction.structural_tags {
-        sqlx::query(
-            "INSERT INTO tags (doc_id, tag, tag_type, score, diversity_score, collection, tenant_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        )
-        .bind(doc_id)
-        .bind(&tag.phrase)
-        .bind(tag.tag_type.as_str())
-        .bind(tag.score)
-        .bind(tag.diversity_score)
-        .bind(collection)
-        .bind(tenant_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Insert keyword baskets: link each basket's tag to its keywords
-    for basket in &extraction.baskets {
-        let tag_name = match &basket.tag {
-            Some(name) => name.as_str(),
-            None => continue, // skip misc basket (no parent tag)
-        };
-
-        // Find the tag_id we just inserted
-        let tag_id: Option<i64> = sqlx::query_scalar(
-            "SELECT tag_id FROM tags WHERE doc_id = ?1 AND tag = ?2 LIMIT 1",
-        )
-        .bind(doc_id)
-        .bind(tag_name)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let tag_id = match tag_id {
-            Some(id) => id,
-            None => continue, // tag wasn't inserted (shouldn't happen)
-        };
-
-        // Serialize basket keywords to JSON array
-        let kw_phrases: Vec<&str> = basket
-            .keywords
-            .iter()
-            .map(|k| k.phrase.as_str())
-            .collect();
-        let keywords_json = serde_json::to_string(&kw_phrases)
-            .unwrap_or_else(|_| "[]".to_string());
-
-        sqlx::query(
-            "INSERT INTO keyword_baskets (tag_id, keywords_json, tenant_id)
-             VALUES (?1, ?2, ?3)",
-        )
-        .bind(tag_id)
-        .bind(&keywords_json)
-        .bind(tenant_id)
-        .execute(&mut *tx)
-        .await?;
-
-        // Update the tag row with its basket_id
-        let basket_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
-            .fetch_one(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE tags SET basket_id = ?1 WHERE tag_id = ?2")
-            .bind(basket_id)
-            .bind(tag_id)
-            .execute(&mut *tx)
-            .await?;
-    }
+    delete_old_records(doc_id, &mut tx).await?;
+    insert_keywords(doc_id, tenant_id, collection, &extraction.keywords, &mut tx).await?;
+    insert_tags(doc_id, tenant_id, collection, &extraction.tags, &mut tx).await?;
+    insert_tags(doc_id, tenant_id, collection, &extraction.structural_tags, &mut tx).await?;
+    insert_baskets(doc_id, tenant_id, &extraction.baskets, &mut tx).await?;
 
     tx.commit().await?;
 
@@ -173,6 +62,134 @@ async fn persist_inner(
         doc_id,
     );
 
+    Ok(())
+}
+
+/// Delete all existing keyword/tag/basket records for a document within a transaction.
+async fn delete_old_records(
+    doc_id: &str,
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM keyword_baskets WHERE tag_id IN (SELECT tag_id FROM tags WHERE doc_id = ?1)",
+    )
+    .bind(doc_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("DELETE FROM tags WHERE doc_id = ?1")
+        .bind(doc_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM keywords WHERE doc_id = ?1")
+        .bind(doc_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Insert keyword rows within a transaction.
+async fn insert_keywords(
+    doc_id: &str,
+    tenant_id: &str,
+    collection: &str,
+    keywords: &[crate::keyword_extraction::keyword_selector::SelectedKeyword],
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<(), sqlx::Error> {
+    for kw in keywords {
+        sqlx::query(
+            "INSERT INTO keywords \
+             (doc_id, keyword, score, semantic_score, lexical_score, stability_count, collection, tenant_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        )
+        .bind(doc_id)
+        .bind(&kw.phrase)
+        .bind(kw.score)
+        .bind(kw.semantic_score)
+        .bind(kw.lexical_score)
+        .bind(kw.stability_count as i32)
+        .bind(collection)
+        .bind(tenant_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Insert tag rows (concept or structural) within a transaction.
+async fn insert_tags(
+    doc_id: &str,
+    tenant_id: &str,
+    collection: &str,
+    tags: &[crate::keyword_extraction::tag_selector::SelectedTag],
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<(), sqlx::Error> {
+    for tag in tags {
+        sqlx::query(
+            "INSERT INTO tags \
+             (doc_id, tag, tag_type, score, diversity_score, collection, tenant_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        )
+        .bind(doc_id)
+        .bind(&tag.phrase)
+        .bind(tag.tag_type.as_str())
+        .bind(tag.score)
+        .bind(tag.diversity_score)
+        .bind(collection)
+        .bind(tenant_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Insert keyword basket rows and back-link basket_id into the parent tag row.
+async fn insert_baskets(
+    doc_id: &str,
+    tenant_id: &str,
+    baskets: &[crate::keyword_extraction::basket_assignment::KeywordBasket],
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<(), sqlx::Error> {
+    for basket in baskets {
+        let tag_name = match &basket.tag {
+            Some(name) => name.as_str(),
+            None => continue, // skip misc basket (no parent tag)
+        };
+
+        let tag_id: Option<i64> = sqlx::query_scalar(
+            "SELECT tag_id FROM tags WHERE doc_id = ?1 AND tag = ?2 LIMIT 1",
+        )
+        .bind(doc_id)
+        .bind(tag_name)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let tag_id = match tag_id {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let kw_phrases: Vec<&str> = basket.keywords.iter().map(|k| k.phrase.as_str()).collect();
+        let keywords_json =
+            serde_json::to_string(&kw_phrases).unwrap_or_else(|_| "[]".to_string());
+
+        sqlx::query(
+            "INSERT INTO keyword_baskets (tag_id, keywords_json, tenant_id) VALUES (?1, ?2, ?3)",
+        )
+        .bind(tag_id)
+        .bind(&keywords_json)
+        .bind(tenant_id)
+        .execute(&mut **tx)
+        .await?;
+
+        let basket_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
+            .fetch_one(&mut **tx)
+            .await?;
+        sqlx::query("UPDATE tags SET basket_id = ?1 WHERE tag_id = ?2")
+            .bind(basket_id)
+            .bind(tag_id)
+            .execute(&mut **tx)
+            .await?;
+    }
     Ok(())
 }
 

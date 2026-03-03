@@ -122,12 +122,35 @@ pub async fn backfill_components(
     force: bool,
     tenant_id: Option<&str>,
 ) -> Result<BackfillStats, String> {
-    use sqlx::Row;
-
     let mut stats = BackfillStats::default();
 
-    // Get enabled, non-archived watch folders (optionally filtered by tenant)
-    let folders: Vec<(String, String)> = if let Some(tid) = tenant_id {
+    let folders = fetch_watch_folders(pool, tenant_id).await?;
+
+    for (watch_id, path) in &folders {
+        let project_path = Path::new(path.as_str());
+        if !project_path.is_dir() {
+            debug!("Skipping backfill for {}: path does not exist", watch_id);
+            continue;
+        }
+
+        let folder_stats =
+            backfill_one_folder(pool, watch_id, project_path, batch_size, force).await?;
+
+        stats.files_updated += folder_stats.files_updated;
+        stats.files_unmatched += folder_stats.files_unmatched;
+        stats.errors += folder_stats.errors;
+        stats.folders_processed += folder_stats.folders_processed;
+    }
+
+    Ok(stats)
+}
+
+/// Fetch the list of enabled, non-archived watch folders, optionally filtered by tenant.
+async fn fetch_watch_folders(
+    pool: &SqlitePool,
+    tenant_id: Option<&str>,
+) -> Result<Vec<(String, String)>, String> {
+    if let Some(tid) = tenant_id {
         sqlx::query_as(
             "SELECT watch_id, path FROM watch_folders \
              WHERE enabled = 1 AND is_archived = 0 AND tenant_id = ?1",
@@ -142,57 +165,121 @@ pub async fn backfill_components(
         .fetch_all(pool)
         .await
     }
-    .map_err(|e| format!("Failed to query watch_folders: {e}"))?;
+    .map_err(|e| format!("Failed to query watch_folders: {e}"))
+}
 
-    for (watch_id, path) in &folders {
-        let project_path = Path::new(path.as_str());
-        if !project_path.is_dir() {
-            debug!("Skipping backfill for {}: path does not exist", watch_id);
-            continue;
-        }
+/// Process a single watch folder: detect components, persist them, and assign
+/// component labels to tracked files in batched transactions.
+///
+/// Returns a `BackfillStats` with counts accumulated for this folder only.
+async fn backfill_one_folder(
+    pool: &SqlitePool,
+    watch_id: &str,
+    project_path: &Path,
+    batch_size: usize,
+    force: bool,
+) -> Result<BackfillStats, String> {
+    let mut stats = BackfillStats::default();
 
-        // Detect components for this project
-        let components = detect_components(project_path);
-        if components.is_empty() {
-            debug!("No components detected for {}, skipping backfill", watch_id);
-            stats.folders_processed += 1;
-            continue;
-        }
+    let components = detect_components(project_path);
+    if components.is_empty() {
+        debug!("No components detected for {}, skipping backfill", watch_id);
+        stats.folders_processed += 1;
+        return Ok(stats);
+    }
 
-        // When force is true, delete stale project_components before persisting
-        // so removed workspace members get cleaned up
-        if force {
-            if let Err(e) = sqlx::query(
-                "DELETE FROM project_components WHERE watch_folder_id = ?1",
-            )
+    // Force mode: remove stale component entries before re-persisting
+    if force {
+        if let Err(e) = sqlx::query("DELETE FROM project_components WHERE watch_folder_id = ?1")
             .bind(watch_id)
             .execute(pool)
             .await
-            {
-                debug!("Failed to clean stale components for {}: {}", watch_id, e);
+        {
+            debug!("Failed to clean stale components for {}: {}", watch_id, e);
+        }
+    }
+
+    if let Err(e) = persist_components(pool, watch_id, &components).await {
+        debug!("Failed to persist components for {}: {}", watch_id, e);
+        stats.errors += 1;
+    }
+
+    let files = fetch_files_to_backfill(pool, watch_id, force).await?;
+
+    if files.is_empty() {
+        stats.folders_processed += 1;
+        return Ok(stats);
+    }
+
+    debug!(
+        "Backfilling components for {}: {} files (force={})",
+        watch_id,
+        files.len(),
+        force,
+    );
+
+    for chunk in files.chunks(batch_size) {
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to begin transaction: {e}"))?;
+
+        for (file_id, rel_path) in chunk {
+            match assign_component(rel_path, &components) {
+                Some(comp) => {
+                    if let Err(e) = sqlx::query(
+                        "UPDATE tracked_files SET component = ?1 WHERE file_id = ?2",
+                    )
+                    .bind(&comp.id)
+                    .bind(file_id)
+                    .execute(&mut *tx)
+                    .await
+                    {
+                        debug!("Failed to update file_id {}: {}", file_id, e);
+                        stats.errors += 1;
+                    } else {
+                        stats.files_updated += 1;
+                    }
+                }
+                None => {
+                    stats.files_unmatched += 1;
+                }
             }
         }
 
-        // Persist the detected components (idempotent via INSERT OR REPLACE)
-        if let Err(e) = persist_components(pool, watch_id, &components).await {
-            debug!("Failed to persist components for {}: {}", watch_id, e);
-            stats.errors += 1;
-        }
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit batch: {e}"))?;
+    }
 
-        // Find tracked files to update
-        let files: Vec<(i64, String)> = if force {
-            // Force mode: re-evaluate ALL files with a relative_path
-            sqlx::query(
-                "SELECT file_id, relative_path FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND relative_path IS NOT NULL",
-            )
-        } else {
-            // Normal mode: only files with NULL component
-            sqlx::query(
-                "SELECT file_id, relative_path FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND component IS NULL AND relative_path IS NOT NULL",
-            )
-        }
+    stats.folders_processed += 1;
+    Ok(stats)
+}
+
+/// Query tracked files that need component assignment for a given watch folder.
+///
+/// In `force` mode all files with a `relative_path` are returned; otherwise
+/// only files where `component IS NULL` are returned.
+async fn fetch_files_to_backfill(
+    pool: &SqlitePool,
+    watch_id: &str,
+    force: bool,
+) -> Result<Vec<(i64, String)>, String> {
+    use sqlx::Row;
+
+    let query = if force {
+        sqlx::query(
+            "SELECT file_id, relative_path FROM tracked_files
+             WHERE watch_folder_id = ?1 AND relative_path IS NOT NULL",
+        )
+    } else {
+        sqlx::query(
+            "SELECT file_id, relative_path FROM tracked_files
+             WHERE watch_folder_id = ?1 AND component IS NULL AND relative_path IS NOT NULL",
+        )
+    };
+
+    query
         .bind(watch_id)
         .map(|row: sqlx::sqlite::SqliteRow| {
             let file_id: i64 = row.get("file_id");
@@ -201,57 +288,5 @@ pub async fn backfill_components(
         })
         .fetch_all(pool)
         .await
-        .map_err(|e| format!("Failed to query tracked_files for {}: {e}", watch_id))?;
-
-        if files.is_empty() {
-            stats.folders_processed += 1;
-            continue;
-        }
-
-        debug!(
-            "Backfilling components for {}: {} files (force={})",
-            watch_id,
-            files.len(),
-            force,
-        );
-
-        // Batch update in transactions
-        for chunk in files.chunks(batch_size) {
-            let mut tx = pool
-                .begin()
-                .await
-                .map_err(|e| format!("Failed to begin transaction: {e}"))?;
-
-            for (file_id, rel_path) in chunk {
-                match assign_component(rel_path, &components) {
-                    Some(comp) => {
-                        if let Err(e) = sqlx::query(
-                            "UPDATE tracked_files SET component = ?1 WHERE file_id = ?2",
-                        )
-                        .bind(&comp.id)
-                        .bind(file_id)
-                        .execute(&mut *tx)
-                        .await
-                        {
-                            debug!("Failed to update file_id {}: {}", file_id, e);
-                            stats.errors += 1;
-                        } else {
-                            stats.files_updated += 1;
-                        }
-                    }
-                    None => {
-                        stats.files_unmatched += 1;
-                    }
-                }
-            }
-
-            tx.commit()
-                .await
-                .map_err(|e| format!("Failed to commit batch: {e}"))?;
-        }
-
-        stats.folders_processed += 1;
-    }
-
-    Ok(stats)
+        .map_err(|e| format!("Failed to query tracked_files for {}: {e}", watch_id))
 }
