@@ -39,5 +39,5 @@ sqlite = ["rusqlite"]
 
 [dev-dependencies]
 regex-lite = "0.1"
-tempfile = "3.8"
+tempfile = "3.26"
 rusqlite = { version = "0.31", features = ["bundled"] }
