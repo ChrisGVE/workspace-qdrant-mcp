@@ -11,6 +11,7 @@ mod stress;
 
 use serde_json;
 use shared_test_utils::TestResult;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tempfile::tempdir;
@@ -25,6 +26,40 @@ use workspace_qdrant_core::{
 use stress::{
     create_test_file_with_size, generate_code_content, setup_test_db, StressMetrics,
 };
+
+/// Spawn processing tasks for a batch of files, recording metrics.
+fn spawn_process_batch(
+    file_paths: &[PathBuf],
+    processor: &Arc<DocumentProcessor>,
+    metrics: &StressMetrics,
+    collection: &str,
+) -> Vec<tokio::task::JoinHandle<()>> {
+    file_paths
+        .iter()
+        .map(|file_path| {
+            let processor = processor.clone();
+            let path = file_path.clone();
+            let metrics_clone = metrics.clone();
+            let coll = collection.to_string();
+
+            tokio::spawn(async move {
+                let start = Instant::now();
+                match processor.process_file(&path, &coll).await {
+                    Ok(_) => {
+                        let size = tokio::fs::metadata(&path)
+                            .await
+                            .ok()
+                            .map(|m| m.len() as usize)
+                            .unwrap_or(0);
+                        metrics_clone
+                            .record_success(size, start.elapsed().as_millis() as u64);
+                    }
+                    Err(_) => metrics_clone.record_failure(),
+                }
+            })
+        })
+        .collect()
+}
 
 /// Test 6: Code files with heavy LSP analysis
 #[tokio::test]
@@ -64,35 +99,7 @@ async fn stress_test_code_analysis() -> TestResult {
 
     println!("Analyzing code files...");
     let document_processor = Arc::new(DocumentProcessor::new());
-    let mut tasks = Vec::new();
-
-    for file_path in file_paths.iter() {
-        let processor = document_processor.clone();
-        let path = file_path.clone();
-        let metrics_clone = metrics.clone();
-
-        let task = tokio::spawn(async move {
-            let start = Instant::now();
-            match processor
-                .process_file(&path, "code_analysis_test")
-                .await
-            {
-                Ok(_) => {
-                    let size = tokio::fs::metadata(&path)
-                        .await
-                        .ok()
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
-                }
-                Err(_) => {
-                    metrics_clone.record_failure();
-                }
-            }
-        });
-        tasks.push(task);
-    }
+    let tasks = spawn_process_batch(&file_paths, &document_processor, &metrics, "code_analysis_test");
 
     for task in tasks {
         let _ = task.await;
@@ -204,128 +211,32 @@ async fn stress_test_mixed_workload() -> TestResult {
 
     // Small files (1-5KB)
     println!("Creating small files...");
-    for i in 0..SMALL_FILES {
-        let file_path = create_test_file_with_size(
-            temp_dir.path(),
-            &format!("small_{:03}.txt", i),
-            fastrand::usize(1..6),
-        )
-        .await?;
-
-        let processor = document_processor.clone();
-        let metrics_clone = metrics.clone();
-
-        let task = tokio::spawn(async move {
-            let start = Instant::now();
-            match processor.process_file(&file_path, "mixed_test").await {
-                Ok(_) => {
-                    let size = tokio::fs::metadata(&file_path)
-                        .await
-                        .ok()
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
-                }
-                Err(_) => metrics_clone.record_failure(),
-            }
-        });
-        tasks.push(task);
-    }
+    let small_paths = create_sized_file_batch(temp_dir.path(), "small", SMALL_FILES, 1..6).await?;
+    tasks.extend(spawn_process_batch(&small_paths, &document_processor, &metrics, "mixed_test"));
 
     // Medium files (50-100KB)
     println!("Creating medium files...");
-    for i in 0..MEDIUM_FILES {
-        let file_path = create_test_file_with_size(
-            temp_dir.path(),
-            &format!("medium_{:03}.txt", i),
-            fastrand::usize(50..101),
-        )
-        .await?;
-
-        let processor = document_processor.clone();
-        let metrics_clone = metrics.clone();
-
-        let task = tokio::spawn(async move {
-            let start = Instant::now();
-            match processor.process_file(&file_path, "mixed_test").await {
-                Ok(_) => {
-                    let size = tokio::fs::metadata(&file_path)
-                        .await
-                        .ok()
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
-                }
-                Err(_) => metrics_clone.record_failure(),
-            }
-        });
-        tasks.push(task);
-    }
+    let medium_paths = create_sized_file_batch(temp_dir.path(), "medium", MEDIUM_FILES, 50..101).await?;
+    tasks.extend(spawn_process_batch(&medium_paths, &document_processor, &metrics, "mixed_test"));
 
     // Large files (1-5MB)
     println!("Creating large files...");
-    for i in 0..LARGE_FILES {
-        let file_path = create_test_file_with_size(
-            temp_dir.path(),
-            &format!("large_{:03}.txt", i),
-            fastrand::usize(1024..5120),
-        )
-        .await?;
-
-        let processor = document_processor.clone();
-        let metrics_clone = metrics.clone();
-
-        let task = tokio::spawn(async move {
-            let start = Instant::now();
-            match processor.process_file(&file_path, "mixed_test").await {
-                Ok(_) => {
-                    let size = tokio::fs::metadata(&file_path)
-                        .await
-                        .ok()
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
-                }
-                Err(_) => metrics_clone.record_failure(),
-            }
-        });
-        tasks.push(task);
-    }
+    let large_paths = create_sized_file_batch(temp_dir.path(), "large", LARGE_FILES, 1024..5120).await?;
+    tasks.extend(spawn_process_batch(&large_paths, &document_processor, &metrics, "mixed_test"));
 
     // Code files
     println!("Creating code files...");
+    let mut code_paths = Vec::new();
     for i in 0..CODE_FILES {
         let content = generate_code_content(fastrand::usize(10..100));
         let file_path = temp_dir.path().join(format!("code_{:03}.rs", i));
-
         let mut file = fs::File::create(&file_path).await?;
         file.write_all(content.as_bytes()).await?;
         file.flush().await?;
         drop(file);
-
-        let processor = document_processor.clone();
-        let metrics_clone = metrics.clone();
-
-        let task = tokio::spawn(async move {
-            let start = Instant::now();
-            match processor.process_file(&file_path, "mixed_test").await {
-                Ok(_) => {
-                    let size = tokio::fs::metadata(&file_path)
-                        .await
-                        .ok()
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
-                }
-                Err(_) => metrics_clone.record_failure(),
-            }
-        });
-        tasks.push(task);
+        code_paths.push(file_path);
     }
+    tasks.extend(spawn_process_batch(&code_paths, &document_processor, &metrics, "mixed_test"));
 
     println!("Processing mixed workload...");
     for task in tasks {
@@ -342,4 +253,20 @@ async fn stress_test_mixed_workload() -> TestResult {
     );
 
     Ok(())
+}
+
+/// Create a batch of test files with random sizes in the given KB range.
+async fn create_sized_file_batch(
+    dir: &std::path::Path,
+    prefix: &str,
+    count: usize,
+    size_range_kb: std::ops::Range<usize>,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut paths = Vec::with_capacity(count);
+    for i in 0..count {
+        let size_kb = fastrand::usize(size_range_kb.clone());
+        let path = create_test_file_with_size(dir, &format!("{}_{:03}.txt", prefix, i), size_kb).await?;
+        paths.push(path);
+    }
+    Ok(paths)
 }
