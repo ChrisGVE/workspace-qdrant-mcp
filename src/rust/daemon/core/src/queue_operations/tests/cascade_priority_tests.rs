@@ -252,9 +252,9 @@ async fn test_op_priority_dequeue_ordering() {
 
     assert_eq!(dequeued.len(), 4, "All 4 items should be dequeued");
 
-    // Verify ordering by op priority: delete(10) > scan(5) > update(3) > add(1)
+    // Verify ordering by op priority: delete(10) > add(5) > update(3) > scan(1)
     assert_eq!(dequeued[0].op, UnifiedOp::Delete, "Delete should be dequeued first");
-    assert_eq!(dequeued[1].op, UnifiedOp::Scan, "Scan should be dequeued second");
+    assert_eq!(dequeued[1].op, UnifiedOp::Add, "Add should be dequeued second");
     assert_eq!(dequeued[2].op, UnifiedOp::Update, "Update should be dequeued third");
-    assert_eq!(dequeued[3].op, UnifiedOp::Add, "Add should be dequeued last");
+    assert_eq!(dequeued[3].op, UnifiedOp::Scan, "Scan should be dequeued last");
 }

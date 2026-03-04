@@ -2,7 +2,7 @@
 //!
 //! Tests:
 //! - Computed priority: active projects > memory > inactive > libraries
-//! - Op-based priority: delete > reset > scan > update > add
+//! - Op-based priority: delete > reset > add > update > scan
 //! - Fairness scheduler alternation (DESC/ASC)
 //! - Progressive scanning queue growth
 //! - Submodule detection at folder boundaries

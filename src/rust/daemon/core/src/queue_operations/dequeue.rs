@@ -272,8 +272,11 @@ fn build_dequeue_query(
             END {priority_order},
             CASE WHEN q.op = 'delete' THEN 10
                  WHEN q.op = 'reset' THEN 8
-                 WHEN q.op = 'scan' THEN 5
-                 WHEN q.op = 'update' THEN 3
+                 WHEN q.op = 'add' THEN 5
+                 WHEN q.op = 'update' THEN 4
+                 WHEN q.op = 'rename' THEN 3
+                 WHEN q.op = 'uplift' THEN 2
+                 WHEN q.op = 'scan' THEN 1
                  ELSE 1
             END DESC,
             q.created_at {created_at_order}

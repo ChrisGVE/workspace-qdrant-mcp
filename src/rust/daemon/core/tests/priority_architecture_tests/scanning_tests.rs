@@ -45,35 +45,35 @@ async fn test_progressive_scan_does_not_recurse() {
 }
 
 #[tokio::test]
-async fn test_scan_op_higher_priority_than_add() {
+async fn test_add_op_higher_priority_than_scan() {
     let pool = create_test_database().await;
     let queue_manager = QueueManager::new(pool.clone());
 
     insert_watch_folder(&pool, "wf_1", "/test/project", "tenant_1", "projects", true).await;
 
-    // Enqueue a file add first, then a folder scan
-    let payload_file = serde_json::json!({"file_path": "/test/project/file.rs"}).to_string();
-    queue_manager.enqueue_unified(
-        ItemType::File, QueueOperation::Add, "tenant_1", "projects",
-        &payload_file, None, None,
-    ).await.unwrap();
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
+    // Enqueue a folder scan first, then a file add
     let payload_scan = serde_json::json!({"folder_path": "/test/project/subdir"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Folder, QueueOperation::Scan, "tenant_1", "projects",
         &payload_scan, None, None,
     ).await.unwrap();
 
-    // Dequeue — scan (priority=5) should come before add (priority=1)
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    let payload_file = serde_json::json!({"file_path": "/test/project/file.rs"}).to_string();
+    queue_manager.enqueue_unified(
+        ItemType::File, QueueOperation::Add, "tenant_1", "projects",
+        &payload_file, None, None,
+    ).await.unwrap();
+
+    // Dequeue — add (priority=5) should come before scan (priority=1)
     let items = queue_manager.dequeue_unified(
         2, "test-worker", Some(300), None, None, Some(true),
     ).await.unwrap();
 
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0].op, QueueOperation::Scan, "Scan op should be dequeued before Add due to higher op priority");
-    assert_eq!(items[1].op, QueueOperation::Add, "Add op should be dequeued second");
+    assert_eq!(items[0].op, QueueOperation::Add, "Add op should be dequeued before Scan due to higher op priority");
+    assert_eq!(items[1].op, QueueOperation::Scan, "Scan op should be dequeued second");
 }
 
 // ── Submodule Detection Tests ──
@@ -180,7 +180,7 @@ async fn test_delete_op_highest_priority_in_dequeue() {
     ).await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
 
-    // Folder scan has op priority 5
+    // Folder scan has op priority 1 (lowest — discovery work)
     let payload_scan = serde_json::json!({"folder_path": "/test/project/subdir"}).to_string();
     queue_manager.enqueue_unified(
         ItemType::Folder, QueueOperation::Scan, "t1", "projects",
@@ -194,14 +194,14 @@ async fn test_delete_op_highest_priority_in_dequeue() {
         &payload_del, None, None,
     ).await.unwrap();
 
-    // Dequeue all — should be ordered by op priority: delete(10) > scan(5) > update(3) > add(1)
+    // Dequeue all — should be ordered by op priority: delete(10) > add(5) > update(3) > scan(1)
     let items = queue_manager.dequeue_unified(
         4, "test-worker", Some(300), None, None, Some(true),
     ).await.unwrap();
 
     assert_eq!(items.len(), 4);
     assert_eq!(items[0].op, QueueOperation::Delete, "Delete (10) should be first");
-    assert_eq!(items[1].op, QueueOperation::Scan, "Scan (5) should be second");
+    assert_eq!(items[1].op, QueueOperation::Add, "Add (5) should be second");
     assert_eq!(items[2].op, QueueOperation::Update, "Update (3) should be third");
-    assert_eq!(items[3].op, QueueOperation::Add, "Add (1) should be last");
+    assert_eq!(items[3].op, QueueOperation::Scan, "Scan (1) should be last");
 }
