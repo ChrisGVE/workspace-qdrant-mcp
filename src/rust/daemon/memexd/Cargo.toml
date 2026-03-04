@@ -16,10 +16,10 @@ workspace-qdrant-core = { path = "../core", default-features = false }
 workspace-qdrant-grpc = { path = "../grpc" }
 
 # CLI and argument parsing
-clap = { version = "4.4", features = ["derive", "string"] }
+clap = { version = "4.5", features = ["derive", "string"] }
 
 # Async runtime
-tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "signal", "fs"] }
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "signal", "fs"] }
 
 # Database (SqlitePool used in phase-module signatures)
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
