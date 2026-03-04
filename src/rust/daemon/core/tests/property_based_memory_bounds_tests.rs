@@ -5,7 +5,9 @@
 
 #![cfg(feature = "processing_engine")]
 
-mod common;
+#[allow(dead_code)]
+#[path = "common/proptest_generators.rs"]
+mod proptest_generators;
 
 use std::path::Path;
 use std::time::Duration;
@@ -19,7 +21,7 @@ use workspace_qdrant_core::{
     EmbeddingConfig, EmbeddingGenerator,
 };
 
-use common::proptest_generators::{arb_embedding_dimensions, arb_file_content};
+use proptest_generators::{arb_embedding_dimensions, arb_file_content};
 use shared_test_utils::{test_helpers::init_test_tracing, TestResult};
 
 // ============================================================================

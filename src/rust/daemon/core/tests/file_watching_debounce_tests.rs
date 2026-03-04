@@ -4,12 +4,12 @@
 //! and duplicate event detection patterns.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use shared_test_utils::{async_test, TestResult};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use shared_test_utils::async_test;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -70,13 +70,6 @@ impl TestWatcher {
 
         collected_events
     }
-}
-
-/// Test helper for creating test files
-async fn create_test_file(dir: &Path, name: &str, content: &str) -> TestResult<PathBuf> {
-    let file_path = dir.join(name);
-    tokio::fs::write(&file_path, content).await?;
-    Ok(file_path)
 }
 
 // ============================================================================

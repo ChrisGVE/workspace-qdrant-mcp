@@ -12,12 +12,14 @@ use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 
-use workspace_qdrant_core::{ChunkingConfig, DocumentProcessor};
+use workspace_qdrant_core::DocumentProcessor;
 
 use shared_test_utils::test_helpers::init_test_tracing;
 
-mod common;
-use common::file_monitoring::{arb_concurrent_operations, arb_processing_config, FileOperation};
+#[allow(dead_code)]
+#[path = "common/file_monitoring.rs"]
+mod file_monitoring;
+use file_monitoring::{arb_concurrent_operations, arb_processing_config, FileOperation};
 
 // ============================================================================
 // RAPID FILE OPERATIONS

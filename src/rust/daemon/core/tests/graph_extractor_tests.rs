@@ -1,11 +1,13 @@
 //! Integration tests for the graph extractor: TextChunk metadata extraction
 //! and backend configuration validation.
 
-mod common;
+#[allow(dead_code)]
+#[path = "common/graph_helpers.rs"]
+mod graph_helpers;
 
 use std::collections::HashMap;
 
-use common::graph_helpers::{create_factory_store, TENANT};
+use graph_helpers::{create_factory_store, TENANT};
 use tempfile::tempdir;
 use workspace_qdrant_core::graph::{self, extractor, EdgeType, NodeType};
 use workspace_qdrant_core::TextChunk;

@@ -2,9 +2,11 @@
 //! impact analysis, factory lifecycle, tenant isolation, orphan pruning, and
 //! edge type filtering.
 
-mod common;
+#[allow(dead_code)]
+#[path = "common/graph_helpers.rs"]
+mod graph_helpers;
 
-use common::graph_helpers::{
+use graph_helpers::{
     build_rust_file_chunks, build_rust_main_chunks, build_typescript_chunks,
     create_factory_store, ingest_file_chunks, TENANT,
 };

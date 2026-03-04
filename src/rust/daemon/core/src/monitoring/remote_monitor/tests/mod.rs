@@ -1,5 +1,4 @@
 use super::*;
-use tempfile::TempDir;
 use std::path::Path;
 
 use git2::Repository;

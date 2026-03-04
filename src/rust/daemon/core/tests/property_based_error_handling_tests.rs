@@ -5,7 +5,9 @@
 
 #![cfg(feature = "processing_engine")]
 
-mod common;
+#[allow(dead_code)]
+#[path = "common/proptest_generators.rs"]
+mod proptest_generators;
 
 use std::time::Duration;
 
@@ -17,7 +19,7 @@ use workspace_qdrant_core::{
     config::Config, DocumentProcessor, ProcessingEngine, TaskPriority,
 };
 
-use common::proptest_generators::{arb_file_extension, arb_malformed_content, ErrorScenario};
+use proptest_generators::{arb_file_extension, arb_malformed_content, ErrorScenario};
 use shared_test_utils::{test_helpers::init_test_tracing, TestResult};
 
 // ============================================================================

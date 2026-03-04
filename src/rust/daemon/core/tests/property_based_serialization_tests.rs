@@ -5,7 +5,9 @@
 
 #![cfg(feature = "processing_engine")]
 
-mod common;
+#[allow(dead_code)]
+#[path = "common/proptest_generators.rs"]
+mod proptest_generators;
 
 use std::collections::HashMap;
 
@@ -16,7 +18,7 @@ use workspace_qdrant_core::{
     config::Config,
 };
 
-use common::proptest_generators::{arb_chunking_config, arb_document_type, arb_file_content};
+use proptest_generators::{arb_chunking_config, arb_document_type, arb_file_content};
 
 // ============================================================================
 // DATA SERIALIZATION PROPERTY TESTS

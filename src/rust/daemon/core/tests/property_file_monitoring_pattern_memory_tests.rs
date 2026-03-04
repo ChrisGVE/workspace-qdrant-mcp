@@ -16,8 +16,10 @@ use workspace_qdrant_core::{patterns::PatternManager, DocumentProcessor};
 
 use shared_test_utils::test_helpers::init_test_tracing;
 
-mod common;
-use common::file_monitoring::{arb_file_pattern, matches_pattern, FileOperation};
+#[allow(dead_code)]
+#[path = "common/file_monitoring.rs"]
+mod file_monitoring;
+use file_monitoring::{arb_file_pattern, matches_pattern};
 
 // ============================================================================
 // PATTERN MATCHING CONSISTENCY

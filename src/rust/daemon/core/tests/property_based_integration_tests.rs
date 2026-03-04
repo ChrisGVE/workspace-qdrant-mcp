@@ -5,7 +5,9 @@
 
 #![cfg(feature = "processing_engine")]
 
-mod common;
+#[allow(dead_code)]
+#[path = "common/proptest_generators.rs"]
+mod proptest_generators;
 
 use std::sync::Arc;
 
@@ -15,7 +17,7 @@ use tokio::runtime::Runtime;
 
 use workspace_qdrant_core::DocumentProcessor;
 
-use common::proptest_generators::{arb_chunking_config, arb_file_content, arb_file_extension};
+use proptest_generators::{arb_chunking_config, arb_file_content, arb_file_extension};
 use shared_test_utils::{test_helpers::init_test_tracing, TestResult};
 
 // ============================================================================

@@ -49,7 +49,7 @@ impl Arbitrary for FileOperation {
 }
 
 /// Sanitize filename for cross-platform compatibility.
-pub fn sanitize_filename(name: String) -> String {
+fn sanitize_filename(name: String) -> String {
     name.chars()
         .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
         .take(50) // Limit length
@@ -61,7 +61,7 @@ pub fn sanitize_filename(name: String) -> String {
         .replace("", "file") // Handle empty string
 }
 
-/// Generate random file patterns for include/exclude testing.
+// Generate random file patterns for include/exclude testing.
 prop_compose! {
     pub fn arb_file_pattern()(
         pattern_type in prop_oneof!["glob", "extension", "directory", "exact"],
@@ -77,7 +77,7 @@ prop_compose! {
     }
 }
 
-/// Generate random concurrent file operations.
+// Generate random concurrent file operations.
 prop_compose! {
     pub fn arb_concurrent_operations()(
         operations in prop::collection::vec(any::<FileOperation>(), 1..20),
@@ -87,7 +87,7 @@ prop_compose! {
     }
 }
 
-/// Generate random processing configurations.
+// Generate random processing configurations.
 prop_compose! {
     pub fn arb_processing_config()(
         max_concurrent in 1..20usize,

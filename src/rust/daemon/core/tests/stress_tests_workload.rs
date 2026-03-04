@@ -5,7 +5,9 @@
 //!
 //! Updated per Task 21 to use unified_queue instead of legacy ingestion_queue.
 
-mod common;
+#[allow(dead_code)]
+#[path = "common/stress.rs"]
+mod stress;
 
 use serde_json;
 use shared_test_utils::TestResult;
@@ -20,7 +22,7 @@ use workspace_qdrant_core::{
     DocumentProcessor,
 };
 
-use common::stress::{
+use stress::{
     create_test_file_with_size, generate_code_content, setup_test_db, StressMetrics,
 };
 

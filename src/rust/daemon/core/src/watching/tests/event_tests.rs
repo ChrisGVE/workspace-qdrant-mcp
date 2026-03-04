@@ -5,7 +5,6 @@ use shared_test_utils::*;
 use std::fs;
 use std::time::Duration;
 use tempfile::TempDir;
-use crate::processing::Pipeline;
 use super::tests::{test_watcher_config, create_test_task_submitter};
 
 #[cfg(test)]

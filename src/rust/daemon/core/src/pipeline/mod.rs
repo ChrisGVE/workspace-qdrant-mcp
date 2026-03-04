@@ -155,17 +155,6 @@ impl Default for Pipeline {
 mod tests {
     use super::*;
 
-    struct PassHandler;
-    #[async_trait]
-    impl PipelineHandler for PassHandler {
-        async fn handle(&self, _ctx: &mut PipelineContext) -> PipelineResult {
-            PipelineResult::Continue
-        }
-        fn name(&self) -> &'static str {
-            "pass"
-        }
-    }
-
     struct SkipHandler {
         reason: String,
     }

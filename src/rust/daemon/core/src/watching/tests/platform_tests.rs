@@ -1,9 +1,8 @@
 //! Platform-specific tests for macOS, Windows, and Linux watchers
 
-use super::*;
-use shared_test_utils::*;
+use shared_test_utils::TestResult;
 use std::fs;
-use std::time::Duration;
+use std::path::Path;
 use tempfile::TempDir;
 
 /// Platform-specific tests for macOS FSEvents watcher
