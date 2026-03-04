@@ -41,8 +41,5 @@ windows-service = "0.7"
 
 [features]
 default = []
-# Include bundled tree-sitter grammars as fallback (increases binary size ~5-10MB)
-# Enable with: cargo build --features static-grammars
-static-grammars = ["workspace-qdrant-core/static-grammars"]
 # Enable OCR support (requires Tesseract system library)
 ocr = ["workspace-qdrant-core/ocr"]
