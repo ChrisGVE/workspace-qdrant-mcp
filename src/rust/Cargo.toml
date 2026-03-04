@@ -108,7 +108,7 @@ sha2 = "0.10"
 leptess = "0.14"
 
 # Graph database (optional — LadybugDB backend)
-lbug = "0.14"
+lbug = "0.15"
 
 # Testing dependencies (shared across workspace)
 filetime = "0.2"
