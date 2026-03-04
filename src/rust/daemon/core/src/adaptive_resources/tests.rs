@@ -259,7 +259,12 @@ fn test_heartbeat_interval_calculation() {
 
 #[test]
 fn test_cpu_pressure_check() {
-    assert!(!is_cpu_under_pressure(10.0, 4));
+    // Use an absurdly high threshold that real load can never reach,
+    // so the assertion is stable regardless of system load during test runs.
+    assert!(!is_cpu_under_pressure(10_000.0, 1));
+    // Threshold of 0.0 means any non-zero load triggers pressure.
+    // On a running system, 1-min load average is always > 0.
+    assert!(is_cpu_under_pressure(0.0, 1));
 }
 
 #[cfg(target_os = "macos")]
