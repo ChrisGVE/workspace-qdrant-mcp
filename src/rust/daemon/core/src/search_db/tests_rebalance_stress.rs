@@ -6,7 +6,7 @@ use super::*;
 use tempfile::TempDir;
 
 #[tokio::test]
-async fn test_1000_midpoint_insertions_between_adjacent() {
+async fn test_midpoint_insertions_between_adjacent() {
     use sqlx::Row;
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("search.db");
@@ -16,12 +16,16 @@ async fn test_1000_midpoint_insertions_between_adjacent() {
     manager.insert_line_at_end(1, "first").await.unwrap();
     manager.insert_line_at_end(1, "last").await.unwrap();
 
-    // Insert 1000 lines between the first and second line
+    // Insert 100 lines between the first and second line.
+    // Each insert calls renumber_file_line_numbers (O(n) per call), so total
+    // work is O(n^2). 100 iterations is enough to trigger multiple rebalances
+    // while keeping runtime reasonable (~seconds, not minutes).
     let mut before_seq = 1000.0_f64;
     let mut after_seq = 2000.0_f64;
     let mut rebalance_count = 0;
+    let iterations = 100;
 
-    for i in 0..1000 {
+    for i in 0..iterations {
         let (result, rebalanced) = manager
             .insert_line_between(1, before_seq, after_seq, &format!("mid {}", i))
             .await
@@ -42,16 +46,17 @@ async fn test_1000_midpoint_insertions_between_adjacent() {
     }
 
     // Verify all lines are present and properly ordered
+    let expected = iterations + 2;
     let rows = sqlx::query(crate::code_lines_schema::LINE_NUMBER_QUERY)
         .bind(1_i64)
         .fetch_all(manager.pool())
         .await
         .unwrap();
-    assert_eq!(rows.len(), 1002, "Should have 1002 lines (2 original + 1000 inserted)");
+    assert_eq!(rows.len(), expected, "Should have {} lines (2 original + {} inserted)", expected, iterations);
 
     // First should still be "first", last should still be "last"
     assert_eq!(rows[0].get::<String, _>("content"), "first");
-    assert_eq!(rows[1001].get::<String, _>("content"), "last");
+    assert_eq!(rows[expected - 1].get::<String, _>("content"), "last");
 
     // All seq values should be strictly increasing
     let seqs: Vec<f64> = rows.iter().map(|r| r.get::<f64, _>("seq")).collect();
@@ -66,7 +71,7 @@ async fn test_1000_midpoint_insertions_between_adjacent() {
     // At least one rebalance should have occurred
     assert!(
         rebalance_count > 0,
-        "Should have triggered at least one rebalance during 1000 insertions"
+        "Should have triggered at least one rebalance during {} insertions", iterations
     );
 
     manager.close().await;

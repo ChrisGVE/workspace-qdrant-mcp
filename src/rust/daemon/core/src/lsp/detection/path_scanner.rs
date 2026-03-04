@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
+use std::time::Duration;
 
 use tracing::{debug, info, warn};
 use which::which;
@@ -144,9 +144,27 @@ async fn is_executable(path: &Path) -> LspResult<bool> {
     }
 }
 
-/// Try to get version information from an LSP server executable
+/// Try to get version information from an LSP server executable.
+///
+/// Uses `tokio::process::Command` with a 5-second timeout to prevent hanging
+/// on servers that start in stdio mode instead of printing version and exiting.
 async fn get_server_version(path: &Path, version_args: &[&str]) -> Option<String> {
-    let output = Command::new(path).args(version_args).output().ok()?;
+    let child = tokio::process::Command::new(path)
+        .args(version_args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let output = match tokio::time::timeout(Duration::from_secs(5), child.wait_with_output()).await
+    {
+        Ok(Ok(output)) => output,
+        Ok(Err(_)) | Err(_) => {
+            debug!("Timeout or error getting version from {}", path.display());
+            return None;
+        }
+    };
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
