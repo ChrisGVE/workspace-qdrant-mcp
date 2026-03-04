@@ -3,70 +3,14 @@ use super::super::*;
 use std::fs;
 use tempfile::TempDir;
 
-#[tokio::test]
-async fn test_backfill_components() {
-    let dir = TempDir::new().unwrap();
-    fs::write(
-        dir.path().join("Cargo.toml"),
-        r#"
-[workspace]
-members = ["alpha", "beta"]
-"#,
-    )
-    .unwrap();
-    fs::create_dir_all(dir.path().join("alpha")).unwrap();
-    fs::create_dir_all(dir.path().join("beta")).unwrap();
-
-    // Create in-memory SQLite with required schema
+/// Create an in-memory pool with backfill schema, insert a watch folder, and
+/// return the pool plus the stringified path of the temp dir.
+async fn setup_backfill_pool(dir: &TempDir) -> (sqlx::SqlitePool, String) {
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
         .await
         .unwrap();
-    sqlx::query(
-        "CREATE TABLE watch_folders (
-            watch_id TEXT PRIMARY KEY,
-            path TEXT NOT NULL,
-            collection TEXT NOT NULL DEFAULT 'projects',
-            tenant_id TEXT NOT NULL DEFAULT '',
-            enabled INTEGER NOT NULL DEFAULT 1,
-            is_archived INTEGER NOT NULL DEFAULT 0
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    create_backfill_schema(&pool).await;
 
-    sqlx::query(
-        "CREATE TABLE tracked_files (
-            file_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            watch_folder_id TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            relative_path TEXT,
-            component TEXT,
-            UNIQUE(watch_folder_id, file_path)
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE project_components (
-            component_id TEXT PRIMARY KEY,
-            watch_folder_id TEXT NOT NULL,
-            component_name TEXT NOT NULL,
-            base_path TEXT NOT NULL,
-            source TEXT NOT NULL DEFAULT 'auto',
-            patterns TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            UNIQUE(watch_folder_id, component_name)
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Insert a watch folder pointing to our temp dir
     let path_str = dir.path().to_string_lossy().to_string();
     sqlx::query("INSERT INTO watch_folders (watch_id, path) VALUES ('wf1', ?1)")
         .bind(&path_str)
@@ -74,26 +18,56 @@ members = ["alpha", "beta"]
         .await
         .unwrap();
 
-    // Insert tracked files with NULL component
-    for rel in &["alpha/src/lib.rs", "beta/src/main.rs", "README.md"] {
+    (pool, path_str)
+}
+
+/// Insert tracked files with NULL component for the given watch folder.
+async fn insert_tracked_files_for(
+    pool: &sqlx::SqlitePool,
+    watch_id: &str,
+    path_str: &str,
+    rels: &[&str],
+) {
+    for rel in rels {
         let abs = format!("{}/{}", path_str, rel);
         sqlx::query(
             "INSERT INTO tracked_files (watch_folder_id, file_path, relative_path)
-             VALUES ('wf1', ?1, ?2)",
+             VALUES (?1, ?2, ?3)",
         )
+        .bind(watch_id)
         .bind(&abs)
         .bind(rel)
-        .execute(&pool)
+        .execute(pool)
         .await
         .unwrap();
     }
+}
+
+/// Insert tracked files with NULL component for watch folder 'wf1'.
+async fn insert_tracked_files(pool: &sqlx::SqlitePool, path_str: &str, rels: &[&str]) {
+    insert_tracked_files_for(pool, "wf1", path_str, rels).await;
+}
+
+#[tokio::test]
+async fn test_backfill_components() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join("alpha")).unwrap();
+    fs::create_dir_all(dir.path().join("beta")).unwrap();
+
+    let (pool, path_str) = setup_backfill_pool(&dir).await;
+    insert_tracked_files(&pool, &path_str, &["alpha/src/lib.rs", "beta/src/main.rs", "README.md"])
+        .await;
 
     let stats = backfill_components(&pool, 100, false, None).await.unwrap();
     assert_eq!(stats.folders_processed, 1);
-    assert_eq!(stats.files_updated, 2); // alpha/src/lib.rs + beta/src/main.rs
-    assert_eq!(stats.files_unmatched, 1); // README.md at root
+    assert_eq!(stats.files_updated, 2);
+    assert_eq!(stats.files_unmatched, 1);
 
-    // Verify the component column was set
     let row: (Option<String>,) = sqlx::query_as(
         "SELECT component FROM tracked_files WHERE relative_path = 'alpha/src/lib.rs'",
     )
@@ -110,7 +84,6 @@ members = ["alpha", "beta"]
     .unwrap();
     assert_eq!(row.0.as_deref(), Some("beta"));
 
-    // README.md should still be NULL
     let row: (Option<String>,) = sqlx::query_as(
         "SELECT component FROM tracked_files WHERE relative_path = 'README.md'",
     )
@@ -119,61 +92,32 @@ members = ["alpha", "beta"]
     .unwrap();
     assert!(row.0.is_none());
 
-    // Components should be persisted
     let count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM project_components WHERE watch_folder_id = 'wf1'")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(count.0, 2); // alpha + beta
+    assert_eq!(count.0, 2);
 }
 
 #[tokio::test]
 async fn test_backfill_components_force() {
     let dir = TempDir::new().unwrap();
-    // Start with alpha + beta workspace
     fs::write(
         dir.path().join("Cargo.toml"),
-        r#"
-[workspace]
-members = ["alpha", "beta"]
-"#,
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
     )
     .unwrap();
     fs::create_dir_all(dir.path().join("alpha")).unwrap();
     fs::create_dir_all(dir.path().join("beta")).unwrap();
 
-    let pool = sqlx::SqlitePool::connect("sqlite::memory:")
-        .await
-        .unwrap();
-    create_backfill_schema(&pool).await;
+    let (pool, path_str) = setup_backfill_pool(&dir).await;
+    insert_tracked_files(&pool, &path_str, &["alpha/src/lib.rs", "beta/src/main.rs"]).await;
 
-    let path_str = dir.path().to_string_lossy().to_string();
-    sqlx::query("INSERT INTO watch_folders (watch_id, path) VALUES ('wf1', ?1)")
-        .bind(&path_str)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    // Insert tracked files with NULL component
-    for rel in &["alpha/src/lib.rs", "beta/src/main.rs"] {
-        let abs = format!("{}/{}", path_str, rel);
-        sqlx::query(
-            "INSERT INTO tracked_files (watch_folder_id, file_path, relative_path)
-             VALUES ('wf1', ?1, ?2)",
-        )
-        .bind(&abs)
-        .bind(rel)
-        .execute(&pool)
-        .await
-        .unwrap();
-    }
-
-    // First backfill (non-force) assigns components
+    // First backfill assigns components
     let stats = backfill_components(&pool, 100, false, None).await.unwrap();
     assert_eq!(stats.files_updated, 2);
 
-    // Verify alpha/src/lib.rs has component "alpha"
     let row: (Option<String>,) = sqlx::query_as(
         "SELECT component FROM tracked_files WHERE relative_path = 'alpha/src/lib.rs'",
     )
@@ -182,18 +126,14 @@ members = ["alpha", "beta"]
     .unwrap();
     assert_eq!(row.0.as_deref(), Some("alpha"));
 
-    // Now rename workspace member: alpha -> gamma
+    // Rename workspace member: alpha -> gamma
     fs::write(
         dir.path().join("Cargo.toml"),
-        r#"
-[workspace]
-members = ["gamma", "beta"]
-"#,
+        "[workspace]\nmembers = [\"gamma\", \"beta\"]\n",
     )
     .unwrap();
     fs::create_dir_all(dir.path().join("gamma")).unwrap();
 
-    // Update relative_path to simulate a moved file
     sqlx::query(
         "UPDATE tracked_files SET relative_path = 'gamma/src/lib.rs' \
          WHERE relative_path = 'alpha/src/lib.rs'",
@@ -202,7 +142,7 @@ members = ["gamma", "beta"]
     .await
     .unwrap();
 
-    // Non-force backfill should NOT update (component is already non-NULL)
+    // Non-force should NOT update (component already non-NULL)
     let stats = backfill_components(&pool, 100, false, None).await.unwrap();
     assert_eq!(stats.files_updated, 0);
 
@@ -210,7 +150,6 @@ members = ["gamma", "beta"]
     let stats = backfill_components(&pool, 100, true, None).await.unwrap();
     assert_eq!(stats.files_updated, 2);
 
-    // Verify gamma/src/lib.rs now has component "gamma"
     let row: (Option<String>,) = sqlx::query_as(
         "SELECT component FROM tracked_files WHERE relative_path = 'gamma/src/lib.rs'",
     )
@@ -219,7 +158,7 @@ members = ["gamma", "beta"]
     .unwrap();
     assert_eq!(row.0.as_deref(), Some("gamma"));
 
-    // Stale "alpha" component should be cleaned up by force
+    // Stale "alpha" component should be cleaned up
     let count: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM project_components \
          WHERE watch_folder_id = 'wf1' AND component_name = 'alpha'",
@@ -229,7 +168,6 @@ members = ["gamma", "beta"]
     .unwrap();
     assert_eq!(count.0, 0);
 
-    // "gamma" and "beta" should exist
     let count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM project_components WHERE watch_folder_id = 'wf1'")
             .fetch_one(&pool)
@@ -243,72 +181,40 @@ async fn test_backfill_components_tenant_filter() {
     let dir_a = TempDir::new().unwrap();
     let dir_b = TempDir::new().unwrap();
 
-    // Both dirs have workspace definitions
     for dir in [&dir_a, &dir_b] {
         fs::write(
             dir.path().join("Cargo.toml"),
-            r#"
-[workspace]
-members = ["crate-x"]
-"#,
+            "[workspace]\nmembers = [\"crate-x\"]\n",
         )
         .unwrap();
         fs::create_dir_all(dir.path().join("crate-x")).unwrap();
     }
 
-    let pool = sqlx::SqlitePool::connect("sqlite::memory:")
-        .await
-        .unwrap();
+    let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
     create_backfill_schema(&pool).await;
 
     let path_a = dir_a.path().to_string_lossy().to_string();
     let path_b = dir_b.path().to_string_lossy().to_string();
 
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, tenant_id) VALUES ('wf_a', ?1, 'tenant_a')",
-    )
-    .bind(&path_a)
-    .execute(&pool)
-    .await
-    .unwrap();
+    for (wid, path, tid) in [("wf_a", &path_a, "tenant_a"), ("wf_b", &path_b, "tenant_b")] {
+        sqlx::query("INSERT INTO watch_folders (watch_id, path, tenant_id) VALUES (?1, ?2, ?3)")
+            .bind(wid)
+            .bind(path)
+            .bind(tid)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
 
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, tenant_id) VALUES ('wf_b', ?1, 'tenant_b')",
-    )
-    .bind(&path_b)
-    .execute(&pool)
-    .await
-    .unwrap();
+    insert_tracked_files_for(&pool, "wf_a", &path_a, &["crate-x/src/lib.rs"]).await;
+    insert_tracked_files_for(&pool, "wf_b", &path_b, &["crate-x/src/lib.rs"]).await;
 
-    // Insert tracked files for both tenants
-    let abs_a = format!("{}/crate-x/src/lib.rs", path_a);
-    sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, relative_path)
-         VALUES ('wf_a', ?1, 'crate-x/src/lib.rs')",
-    )
-    .bind(&abs_a)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let abs_b = format!("{}/crate-x/src/lib.rs", path_b);
-    sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, relative_path)
-         VALUES ('wf_b', ?1, 'crate-x/src/lib.rs')",
-    )
-    .bind(&abs_b)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Backfill only tenant_a
     let stats = backfill_components(&pool, 100, false, Some("tenant_a"))
         .await
         .unwrap();
     assert_eq!(stats.folders_processed, 1);
     assert_eq!(stats.files_updated, 1);
 
-    // tenant_a's file should have component assigned
     let row: (Option<String>,) = sqlx::query_as(
         "SELECT component FROM tracked_files WHERE watch_folder_id = 'wf_a'",
     )
@@ -317,7 +223,6 @@ members = ["crate-x"]
     .unwrap();
     assert_eq!(row.0.as_deref(), Some("crate-x"));
 
-    // tenant_b's file should still be NULL
     let row: (Option<String>,) = sqlx::query_as(
         "SELECT component FROM tracked_files WHERE watch_folder_id = 'wf_b'",
     )
