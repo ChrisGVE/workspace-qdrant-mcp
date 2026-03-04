@@ -12,109 +12,69 @@ use workspace_qdrant_core::{
 use sqlx::SqlitePool;
 use tempfile::TempDir;
 
+const CREATE_TABLE_STMTS: &[&str] = &[
+    r#"CREATE TABLE unified_queue (
+        queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+        item_type TEXT NOT NULL CHECK (item_type IN (
+            'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
+        )),
+        op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
+        tenant_id TEXT NOT NULL,
+        collection TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+            'pending', 'in_progress', 'done', 'failed'
+        )),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        lease_until TEXT, worker_id TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT, last_error_at TEXT,
+        branch TEXT DEFAULT 'main', metadata TEXT DEFAULT '{}',
+        file_path TEXT UNIQUE
+    )"#,
+    r#"CREATE TABLE watch_folders (
+        watch_id TEXT PRIMARY KEY, path TEXT NOT NULL,
+        collection TEXT NOT NULL, tenant_id TEXT NOT NULL,
+        parent_watch_id TEXT, is_active INTEGER DEFAULT 0,
+        git_remote_url TEXT, follow_symlinks INTEGER DEFAULT 0,
+        last_scan TEXT, last_activity_at TEXT,
+        enabled INTEGER DEFAULT 1, cleanup_on_disable INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(path, collection)
+    )"#,
+    r#"CREATE TABLE tracked_files (
+        file_id TEXT PRIMARY KEY, watch_folder_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL, collection TEXT NOT NULL,
+        file_path TEXT NOT NULL, relative_path TEXT NOT NULL,
+        file_hash TEXT, file_size INTEGER,
+        processing_status TEXT DEFAULT 'pending',
+        last_processed_at TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )"#,
+    r#"CREATE TABLE qdrant_chunks (
+        chunk_id TEXT PRIMARY KEY, file_id TEXT NOT NULL,
+        point_id TEXT NOT NULL, chunk_index INTEGER NOT NULL,
+        chunk_type TEXT NOT NULL, content_hash TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (file_id) REFERENCES tracked_files(file_id) ON DELETE CASCADE
+    )"#,
+];
+
 /// Helper to create in-memory SQLite database with required tables
 async fn create_test_database() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")
         .await
         .expect("Failed to create in-memory database");
 
-    sqlx::query(
-        r#"
-        CREATE TABLE unified_queue (
-            queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
-            item_type TEXT NOT NULL CHECK (item_type IN (
-                'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
-            )),
-            op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
-            tenant_id TEXT NOT NULL,
-            collection TEXT NOT NULL,
-            priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
-            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
-                'pending', 'in_progress', 'done', 'failed'
-            )),
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            lease_until TEXT,
-            worker_id TEXT,
-            idempotency_key TEXT NOT NULL UNIQUE,
-            payload_json TEXT NOT NULL DEFAULT '{}',
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            error_message TEXT,
-            last_error_at TEXT,
-            branch TEXT DEFAULT 'main',
-            metadata TEXT DEFAULT '{}',
-            file_path TEXT UNIQUE
-        )
-        "#
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create unified_queue table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE watch_folders (
-            watch_id TEXT PRIMARY KEY,
-            path TEXT NOT NULL,
-            collection TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
-            parent_watch_id TEXT,
-            is_active INTEGER DEFAULT 0,
-            git_remote_url TEXT,
-            follow_symlinks INTEGER DEFAULT 0,
-            last_scan TEXT,
-            last_activity_at TEXT,
-            enabled INTEGER DEFAULT 1,
-            cleanup_on_disable INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            UNIQUE(path, collection)
-        )
-        "#
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create watch_folders table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE tracked_files (
-            file_id TEXT PRIMARY KEY,
-            watch_folder_id TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
-            collection TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            relative_path TEXT NOT NULL,
-            file_hash TEXT,
-            file_size INTEGER,
-            processing_status TEXT DEFAULT 'pending',
-            last_processed_at TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        "#
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create tracked_files table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE qdrant_chunks (
-            chunk_id TEXT PRIMARY KEY,
-            file_id TEXT NOT NULL,
-            point_id TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            chunk_type TEXT NOT NULL,
-            content_hash TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (file_id) REFERENCES tracked_files(file_id) ON DELETE CASCADE
-        )
-        "#
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create qdrant_chunks table");
+    for stmt in CREATE_TABLE_STMTS {
+        sqlx::query(stmt)
+            .execute(&pool)
+            .await
+            .expect("Failed to create table");
+    }
 
     pool
 }

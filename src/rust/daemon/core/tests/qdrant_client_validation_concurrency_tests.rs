@@ -149,43 +149,27 @@ async fn test_connection_pooling() {
     let _ = client.delete_collection(&collection_name).await;
 }
 
-/// Test multi-tenant architecture patterns
-#[tokio::test]
-#[serial_test::serial]
-#[tracing_test::traced_test]
-async fn test_multi_tenant_architecture() {
-    let config = create_test_storage_config();
-    let client = StorageClient::with_config(config);
+/// Generate a 384-dim test search vector.
+fn test_search_vector(scale: f32) -> Vec<f32> {
+    (0..384).map(|i| ((i as f32 * scale) % 1.0).sin()).collect()
+}
 
-    // Skip if Qdrant is not available
-    if client.test_connection().await.unwrap_or(false) == false {
-        tracing::warn!("Qdrant not available, skipping multi-tenant test");
-        return;
-    }
+/// Create tenant collections with isolated data, returning collection names.
+async fn setup_tenant_collections(client: &StorageClient, count: usize) -> Vec<String> {
+    let base_name = format!("tenant_{}", Uuid::new_v4().to_string().replace('-', "_"));
+    let collections: Vec<String> = (0..count)
+        .map(|i| format!("{}_project_{}", base_name, (b'a' + i as u8) as char))
+        .collect();
 
-    let base_name = format!(
-        "tenant_{}",
-        Uuid::new_v4().to_string().replace('-', "_")
-    );
-
-    // Create collections for different tenants (simulating project isolation)
-    let tenant_collections = vec![
-        format!("{}_project_a", base_name),
-        format!("{}_project_b", base_name),
-        format!("{}_project_c", base_name),
-    ];
-
-    // Create all tenant collections
-    for collection in &tenant_collections {
+    for collection in &collections {
         client
             .create_collection(collection, Some(384), None)
             .await
             .expect("Should create tenant collection");
     }
 
-    // Insert different data in each tenant collection
-    for (i, collection) in tenant_collections.iter().enumerate() {
-        let tenant_docs: Vec<DocumentPoint> = (0..3)
+    for (i, collection) in collections.iter().enumerate() {
+        let docs: Vec<DocumentPoint> = (0..3)
             .map(|j| {
                 create_test_document(
                     &format!("tenant_{}_{}", i, j),
@@ -194,24 +178,33 @@ async fn test_multi_tenant_architecture() {
             })
             .collect();
 
-        let batch_result = client
-            .insert_points_batch(collection, tenant_docs, Some(5))
-            .await;
-        assert!(
-            batch_result.is_ok(),
-            "Should insert tenant data: {:?}",
-            batch_result
-        );
+        client
+            .insert_points_batch(collection, docs, Some(5))
+            .await
+            .expect("Should insert tenant data");
     }
 
-    // Wait for indexing
     sleep(Duration::from_secs(1)).await;
+    collections
+}
+
+/// Test multi-tenant architecture patterns
+#[tokio::test]
+#[serial_test::serial]
+#[tracing_test::traced_test]
+async fn test_multi_tenant_architecture() {
+    let config = create_test_storage_config();
+    let client = StorageClient::with_config(config);
+
+    if !client.test_connection().await.unwrap_or(false) {
+        tracing::warn!("Qdrant not available, skipping multi-tenant test");
+        return;
+    }
+
+    let tenant_collections = setup_tenant_collections(&client, 3).await;
+    let search_vector = test_search_vector(0.01);
 
     // Verify data isolation between tenants
-    let search_vector: Vec<f32> = (0..384)
-        .map(|i| ((i as f32 * 0.01) % 1.0).sin())
-        .collect();
-
     for (tenant_id, collection) in tenant_collections.iter().enumerate() {
         let search_params = SearchParams {
             dense_vector: Some(search_vector.clone()),
@@ -228,45 +221,50 @@ async fn test_multi_tenant_architecture() {
             .expect("Should search tenant collection");
 
         assert!(!results.is_empty(), "Each tenant should have data");
-
-        // Verify all results belong to this tenant
         for result in results {
-            let content = result
-                .payload
-                .get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
+            let content = result.payload.get("content").and_then(|v| v.as_str()).unwrap_or("");
             assert!(
                 content.contains(&format!("Tenant {}", tenant_id)),
-                "Result should belong to correct tenant: {}",
-                content
+                "Result should belong to correct tenant: {}", content
             );
         }
     }
 
-    // Test cross-tenant isolation by ensuring collections are separate
+    // Cleanup and verify deletion
     for collection in &tenant_collections {
-        let exists = client
-            .collection_exists(collection)
-            .await
-            .expect("Should check collection existence");
-        assert!(exists, "Tenant collection should exist");
+        client.delete_collection(collection).await.expect("Should delete tenant collection");
+        assert!(
+            !client.collection_exists(collection).await.expect("Should check existence"),
+            "Collection should be deleted"
+        );
     }
+}
 
-    // Cleanup all tenant collections
-    for collection in &tenant_collections {
-        client
-            .delete_collection(collection)
-            .await
-            .expect("Should delete tenant collection");
+/// Create a collection with batch-inserted documents, returning the collection name.
+async fn setup_workflow_collection(client: &StorageClient) -> String {
+    let collection_name = format!(
+        "test_workflow_{}",
+        Uuid::new_v4().to_string().replace('-', "_")
+    );
 
-        let exists = client
-            .collection_exists(collection)
-            .await
-            .expect("Should check collection existence");
-        assert!(!exists, "Collection should be deleted");
-    }
+    client.create_collection(&collection_name, Some(384), None).await.expect("Should create collection");
+    assert!(client.collection_exists(&collection_name).await.expect("Should check existence"));
+
+    let documents = vec![
+        create_test_document("doc1", "Rust systems programming language"),
+        create_test_document("doc2", "Python data science and machine learning"),
+        create_test_document("doc3", "JavaScript web development framework"),
+        create_test_document("doc4", "Database vector storage technology"),
+        create_test_document("doc5", "Artificial intelligence research paper"),
+    ];
+
+    client
+        .insert_points_batch(&collection_name, documents, Some(3))
+        .await
+        .expect("Batch insertion should succeed");
+
+    sleep(Duration::from_secs(1)).await;
+    collection_name
 }
 
 /// Integration test for comprehensive Qdrant workflow
@@ -277,54 +275,16 @@ async fn test_comprehensive_workflow() {
     let config = create_test_storage_config();
     let client = StorageClient::with_config(config);
 
-    // Skip if Qdrant is not available
-    if client.test_connection().await.unwrap_or(false) == false {
+    if !client.test_connection().await.unwrap_or(false) {
         tracing::warn!("Qdrant not available, skipping comprehensive workflow test");
         return;
     }
 
-    let collection_name = format!(
-        "test_workflow_{}",
-        Uuid::new_v4().to_string().replace('-', "_")
-    );
+    let collection_name = setup_workflow_collection(&client).await;
 
-    // 1. Collection lifecycle
-    client
-        .create_collection(&collection_name, Some(384), None)
-        .await
-        .expect("Should create collection");
-
-    let exists = client
-        .collection_exists(&collection_name)
-        .await
-        .expect("Should check existence");
-    assert!(exists, "Collection should exist");
-
-    // 2. Document ingestion workflow
-    let documents = vec![
-        create_test_document("doc1", "Rust systems programming language"),
-        create_test_document("doc2", "Python data science and machine learning"),
-        create_test_document("doc3", "JavaScript web development framework"),
-        create_test_document("doc4", "Database vector storage technology"),
-        create_test_document("doc5", "Artificial intelligence research paper"),
-    ];
-
-    // Insert documents in batch
-    let batch_result = client
-        .insert_points_batch(&collection_name, documents, Some(3))
-        .await;
-    assert!(batch_result.is_ok(), "Batch insertion should succeed");
-
-    // Wait for indexing
-    sleep(Duration::from_secs(1)).await;
-
-    // 3. Search and retrieval workflow
-    let query_vector: Vec<f32> = (0..384)
-        .map(|i| ((i as f32 * 0.015) % 1.0).sin())
-        .collect();
-
+    // Search and retrieval
     let search_params = SearchParams {
-        dense_vector: Some(query_vector),
+        dense_vector: Some(test_search_vector(0.015)),
         sparse_vector: None,
         search_mode: HybridSearchMode::Dense,
         limit: 3,
@@ -332,44 +292,20 @@ async fn test_comprehensive_workflow() {
         filter: None,
     };
 
-    let search_results = client.search(&collection_name, search_params).await;
-    assert!(search_results.is_ok(), "Search should succeed");
-
-    let results = search_results.unwrap();
+    let results = client.search(&collection_name, search_params).await.expect("Search should succeed");
     assert!(!results.is_empty(), "Should find relevant documents");
     assert!(results.len() <= 3, "Should respect search limit");
 
-    // 4. Verify search quality
     for result in &results {
         assert!(!result.id.is_empty(), "Should have document ID");
         assert!(result.score >= 0.1, "Should meet score threshold");
-        assert!(
-            result.payload.contains_key("content"),
-            "Should have content"
-        );
+        assert!(result.payload.contains_key("content"), "Should have content");
     }
 
-    // 5. Performance validation
-    let stats = client
-        .get_stats()
-        .await
-        .expect("Should get client stats");
-
-    assert!(
-        stats["total_requests"] > 0,
-        "Should have processed requests"
-    );
+    let stats = client.get_stats().await.expect("Should get client stats");
+    assert!(stats["total_requests"] > 0, "Should have processed requests");
     tracing::info!("Workflow completed. Stats: {:?}", stats);
 
-    // 6. Cleanup
-    client
-        .delete_collection(&collection_name)
-        .await
-        .expect("Should delete collection");
-
-    let exists_after = client
-        .collection_exists(&collection_name)
-        .await
-        .expect("Should check existence");
-    assert!(!exists_after, "Collection should be deleted");
+    client.delete_collection(&collection_name).await.expect("Should delete collection");
+    assert!(!client.collection_exists(&collection_name).await.expect("Should check existence"));
 }

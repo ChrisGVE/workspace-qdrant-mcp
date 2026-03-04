@@ -24,6 +24,44 @@ use workspace_qdrant_core::{
 
 use stress::{create_test_file_with_size, setup_test_db, StressMetrics};
 
+/// Spawn concurrent processing tasks with bounded concurrency.
+fn spawn_process_batch_concurrent(
+    file_paths: &[std::path::PathBuf],
+    processor: &Arc<DocumentProcessor>,
+    metrics: &StressMetrics,
+    collection: &str,
+    max_concurrent: usize,
+) -> Vec<tokio::task::JoinHandle<()>> {
+    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    file_paths
+        .iter()
+        .map(|file_path| {
+            let processor = processor.clone();
+            let path = file_path.clone();
+            let metrics_clone = metrics.clone();
+            let sem = semaphore.clone();
+            let coll = collection.to_string();
+
+            tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                let start = Instant::now();
+                match processor.process_file(&path, &coll).await {
+                    Ok(_) => {
+                        let size = tokio::fs::metadata(&path)
+                            .await
+                            .ok()
+                            .map(|m| m.len() as usize)
+                            .unwrap_or(0);
+                        metrics_clone
+                            .record_success(size, start.elapsed().as_millis() as u64);
+                    }
+                    Err(_) => metrics_clone.record_failure(),
+                }
+            })
+        })
+        .collect()
+}
+
 /// Test 1: High volume - 1000+ simultaneous file ingestion
 #[tokio::test]
 #[ignore]
@@ -92,39 +130,13 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
     // Process files with high concurrency
     println!("Processing files...");
     let document_processor = Arc::new(DocumentProcessor::new());
-    let semaphore = Arc::new(Semaphore::new(50));
-
-    let mut tasks = Vec::new();
-    for file_path in file_paths.iter() {
-        let processor = document_processor.clone();
-        let path = file_path.clone();
-        let metrics_clone = metrics.clone();
-        let sem = semaphore.clone();
-
-        let task = tokio::spawn(async move {
-            let _permit = sem.acquire().await.unwrap();
-            let start = Instant::now();
-
-            match processor
-                .process_file(&path, "stress_test_collection")
-                .await
-            {
-                Ok(_result) => {
-                    let file_size = tokio::fs::metadata(&path)
-                        .await
-                        .ok()
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0);
-                    metrics_clone
-                        .record_success(file_size, start.elapsed().as_millis() as u64);
-                }
-                Err(_) => {
-                    metrics_clone.record_failure();
-                }
-            }
-        });
-        tasks.push(task);
-    }
+    let tasks = spawn_process_batch_concurrent(
+        &file_paths,
+        &document_processor,
+        &metrics,
+        "stress_test_collection",
+        50,
+    );
 
     for task in tasks {
         let _ = task.await;
@@ -438,36 +450,13 @@ async fn stress_test_memory_constraints() -> TestResult {
 
     println!("Processing with memory constraints...");
     let document_processor = Arc::new(DocumentProcessor::new());
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
-
-    let mut tasks = Vec::new();
-    for file_path in file_paths.iter() {
-        let processor = document_processor.clone();
-        let path = file_path.clone();
-        let metrics_clone = metrics.clone();
-        let sem = semaphore.clone();
-
-        let task = tokio::spawn(async move {
-            let _permit = sem.acquire().await.unwrap();
-            let start = Instant::now();
-
-            match processor.process_file(&path, "memory_test").await {
-                Ok(_) => {
-                    let size = tokio::fs::metadata(&path)
-                        .await
-                        .ok()
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
-                }
-                Err(_) => {
-                    metrics_clone.record_failure();
-                }
-            }
-        });
-        tasks.push(task);
-    }
+    let tasks = spawn_process_batch_concurrent(
+        &file_paths,
+        &document_processor,
+        &metrics,
+        "memory_test",
+        MAX_CONCURRENT,
+    );
 
     for task in tasks {
         let _ = task.await;

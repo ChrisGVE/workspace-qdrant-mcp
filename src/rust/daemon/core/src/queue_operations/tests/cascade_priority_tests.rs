@@ -2,10 +2,10 @@
 
 use super::*;
 
-#[tokio::test]
-async fn test_delete_cascade_purges_pending_items() {
+/// Create a pool with watch_folders + unified_queue schema, return (pool, QueueManager, TempDir).
+async fn setup_cascade_pool() -> (SqlitePool, QueueManager, tempfile::TempDir) {
     let temp_dir = tempdir().unwrap();
-    let db_path = temp_dir.path().join("test_delete_cascade.db");
+    let db_path = temp_dir.path().join("cascade_test.db");
 
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
@@ -20,32 +20,49 @@ async fn test_delete_cascade_purges_pending_items() {
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
 
-    // Create a watch_folder for the tenant
+    (pool, manager, temp_dir)
+}
+
+/// Insert a watch_folder row with fixed timestamps.
+async fn insert_watch_folder(pool: &SqlitePool, watch_id: &str, path: &str, tenant_id: &str) {
     sqlx::query(
         r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
            created_at, updated_at)
-           VALUES ('w1', '/test', 'projects', 'cascade-tenant', 1,
+           VALUES (?1, ?2, 'projects', ?3, 1,
            '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')"#,
     )
-    .execute(&pool)
+    .bind(watch_id)
+    .bind(path)
+    .bind(tenant_id)
+    .execute(pool)
     .await
     .unwrap();
+}
 
-    // Enqueue a few add/update items for same tenant+collection
-    for i in 0..3 {
+/// Enqueue N file-add items for a tenant.
+async fn enqueue_file_adds(manager: &QueueManager, tenant_id: &str, base_path: &str, count: usize) {
+    for i in 0..count {
         manager
             .enqueue_unified(
                 ItemType::File,
                 UnifiedOp::Add,
-                "cascade-tenant",
+                tenant_id,
                 "projects",
-                &format!(r#"{{"file_path":"/test/file{}.rs"}}"#, i),
+                &format!(r#"{{"file_path":"{}/file{}.rs"}}"#, base_path, i),
                 Some("main"),
                 None,
             )
             .await
             .unwrap();
     }
+}
+
+#[tokio::test]
+async fn test_delete_cascade_purges_pending_items() {
+    let (pool, manager, _temp_dir) = setup_cascade_pool().await;
+    insert_watch_folder(&pool, "w1", "/test", "cascade-tenant").await;
+
+    enqueue_file_adds(&manager, "cascade-tenant", "/test", 3).await;
 
     // Enqueue a delete for same tenant+collection
     manager
@@ -81,74 +98,13 @@ async fn test_delete_cascade_purges_pending_items() {
 
 #[tokio::test]
 async fn test_delete_cascade_does_not_affect_other_tenants() {
-    let temp_dir = tempdir().unwrap();
-    let db_path = temp_dir.path().join("test_cascade_isolation.db");
+    let (pool, manager, _temp_dir) = setup_cascade_pool().await;
 
-    let config = QueueConnectionConfig::with_database_path(&db_path);
-    let pool = config.create_pool().await.unwrap();
+    insert_watch_folder(&pool, "w1", "/test1", "tenant-a").await;
+    insert_watch_folder(&pool, "w2", "/test2", "tenant-b").await;
 
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
-
-    let manager = QueueManager::new(pool.clone());
-    manager.init_unified_queue().await.unwrap();
-
-    // Create watch_folders for both tenants
-    sqlx::query(
-        r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
-           created_at, updated_at)
-           VALUES ('w1', '/test1', 'projects', 'tenant-a', 1,
-           '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')"#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
-           created_at, updated_at)
-           VALUES ('w2', '/test2', 'projects', 'tenant-b', 1,
-           '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')"#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Enqueue items for tenant-a
-    for i in 0..2 {
-        manager
-            .enqueue_unified(
-                ItemType::File,
-                UnifiedOp::Add,
-                "tenant-a",
-                "projects",
-                &format!(r#"{{"file_path":"/test1/file{}.rs"}}"#, i),
-                Some("main"),
-                None,
-            )
-            .await
-            .unwrap();
-    }
-
-    // Enqueue items for tenant-b
-    for i in 0..2 {
-        manager
-            .enqueue_unified(
-                ItemType::File,
-                UnifiedOp::Add,
-                "tenant-b",
-                "projects",
-                &format!(r#"{{"file_path":"/test2/file{}.rs"}}"#, i),
-                Some("main"),
-                None,
-            )
-            .await
-            .unwrap();
-    }
+    enqueue_file_adds(&manager, "tenant-a", "/test1", 2).await;
+    enqueue_file_adds(&manager, "tenant-b", "/test2", 2).await;
 
     // Enqueue delete for tenant-a
     manager
@@ -185,32 +141,8 @@ async fn test_delete_cascade_does_not_affect_other_tenants() {
 
 #[tokio::test]
 async fn test_op_priority_dequeue_ordering() {
-    let temp_dir = tempdir().unwrap();
-    let db_path = temp_dir.path().join("test_op_priority.db");
-
-    let config = QueueConnectionConfig::with_database_path(&db_path);
-    let pool = config.create_pool().await.unwrap();
-
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
-
-    let manager = QueueManager::new(pool.clone());
-    manager.init_unified_queue().await.unwrap();
-
-    // Create an inactive project watch_folder
-    sqlx::query(
-        r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
-           created_at, updated_at)
-           VALUES ('w1', '/test', 'projects', 'tenant-a', 0,
-           '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')"#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    let (pool, manager, _temp_dir) = setup_cascade_pool().await;
+    insert_watch_folder(&pool, "w1", "/test", "tenant-a").await;
 
     // Use raw SQL inserts so we can control the queue_id and created_at
     // to avoid timing-based ordering interference
