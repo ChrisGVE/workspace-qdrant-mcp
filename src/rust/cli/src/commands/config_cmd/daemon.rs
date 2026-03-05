@@ -4,7 +4,9 @@
 //! so that configuration files can be safely moved while the daemon
 //! is not running.
 
-use anyhow::{bail, Context, Result};
+#[cfg(target_os = "macos")]
+use anyhow::Context;
+use anyhow::{bail, Result};
 
 use crate::grpc::client::DaemonClient;
 use crate::output;
