@@ -1,20 +1,20 @@
-# GitHub Dependabot configuration for automated dependency updates
+# Dependabot: critical dependencies only
 #
-# Note: tree-sitter and ONNX Runtime (ort/fastembed) have dedicated custom
-# workflows that push updates directly to main and tag a release:
+# Monitors only key integration dependencies. Other updates handled by:
 #   - tree-sitter-version-bump.yml (daily crates.io check → direct push + tag)
 #   - onnx-runtime-version-bump.yml (daily crates.io check → direct push + tag)
+#   - security.yml (cargo audit + npm audit for vulnerability alerts)
 
 version: 2
 updates:
-  # Rust/Cargo dependencies (workspace at src/rust/)
+  # Rust: only qdrant-client
   - package-ecosystem: "cargo"
     directory: "/src/rust"
     schedule:
       interval: "weekly"
       day: "wednesday"
       time: "04:00"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     reviewers:
       - "ChrisGVE"
     commit-message:
@@ -23,31 +23,17 @@ updates:
     labels:
       - "dependencies"
       - "rust"
-    groups:
-      rust-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
-        exclude-patterns:
-          - "tree-sitter*"
-          - "fastembed*"
-          - "ort*"
-    ignore:
-      # Handled by tree-sitter-version-bump.yml (custom cross-platform workflow)
-      - dependency-name: "tree-sitter"
-      - dependency-name: "tree-sitter-*"
-      # Handled by onnx-runtime-version-bump.yml (custom cross-platform workflow)
-      - dependency-name: "fastembed"
-      - dependency-name: "ort"
+    allow:
+      - dependency-name: "qdrant-client"
 
-  # TypeScript/npm dependencies
+  # TypeScript: only MCP SDK and Qdrant client
   - package-ecosystem: "npm"
     directory: "/src/typescript/mcp-server"
     schedule:
       interval: "weekly"
       day: "wednesday"
       time: "04:00"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     reviewers:
       - "ChrisGVE"
     commit-message:
@@ -56,29 +42,6 @@ updates:
     labels:
       - "dependencies"
       - "typescript"
-    groups:
-      npm-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
-
-  # GitHub Actions workflow dependencies
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "04:00"
-    open-pull-requests-limit: 5
-    reviewers:
-      - "ChrisGVE"
-    commit-message:
-      prefix: "ci"
-      include: "scope"
-    labels:
-      - "github-actions"
-      - "ci/cd"
-    groups:
-      github-actions:
-        patterns:
-          - "*"
+    allow:
+      - dependency-name: "@modelcontextprotocol/sdk"
+      - dependency-name: "@qdrant/js-client-rest"
