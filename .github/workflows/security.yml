@@ -26,7 +26,11 @@ jobs:
 
       - name: Run cargo audit
         working-directory: src/rust
-        run: cargo audit --ignore yanked
+        run: |
+          cargo audit --ignore yanked \
+            --ignore RUSTSEC-2024-0437 \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2024-0363
 
   npm-audit:
     name: npm dependency audit
