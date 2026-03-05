@@ -168,7 +168,7 @@ backend: sqlite
 buffer_pool_size: 134217728
 max_threads: 4
 "#;
-        let config: GraphConfig = serde_yml::from_str(yaml).unwrap();
+        let config: GraphConfig = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(config.backend, GraphBackend::Sqlite);
         assert_eq!(config.buffer_pool_size, 128 * 1024 * 1024);
         assert_eq!(config.max_threads, 4);

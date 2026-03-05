@@ -13,7 +13,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ComprehensivePatternError {
     #[error("YAML parsing error: {0}")]
-    YamlParse(#[from] serde_yml::Error),
+    YamlParse(#[from] serde_yaml_ng::Error),
 
     #[error("Configuration validation error: {0}")]
     Validation(String),
@@ -120,7 +120,7 @@ static EMBEDDED_CONFIG: &str = include_str!("../../../../../../assets/internal_c
 static PARSED_CONFIG: Lazy<Result<Arc<InternalConfiguration>, ComprehensivePatternError>> =
     Lazy::new(|| {
         let config: InternalConfiguration =
-            serde_yml::from_str(EMBEDDED_CONFIG).map_err(ComprehensivePatternError::YamlParse)?;
+            serde_yaml_ng::from_str(EMBEDDED_CONFIG).map_err(ComprehensivePatternError::YamlParse)?;
 
         // Validate configuration after loading
         validate_configuration(&config)?;

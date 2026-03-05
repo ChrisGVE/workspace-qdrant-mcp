@@ -125,7 +125,7 @@ impl UnifiedConfigManager {
     ) -> Result<DaemonConfig, UnifiedConfigError> {
         let content = fs::read_to_string(file_path)?;
         match format {
-            ConfigFormat::Yaml => serde_yml::from_str(&content)
+            ConfigFormat::Yaml => serde_yaml_ng::from_str(&content)
                 .map_err(|e| UnifiedConfigError::YamlError(e.to_string())),
         }
     }
@@ -152,7 +152,7 @@ impl UnifiedConfigManager {
         }
 
         let content = match format {
-            ConfigFormat::Yaml => serde_yml::to_string(config)
+            ConfigFormat::Yaml => serde_yaml_ng::to_string(config)
                 .map_err(|e| UnifiedConfigError::YamlError(e.to_string()))?,
         };
 

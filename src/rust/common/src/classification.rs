@@ -14,7 +14,7 @@ pub static CLASSIFICATION_YAML: &str = include_str!("content_classification.yaml
 /// Parsed classification data, initialized once on first access.
 static CLASSIFICATION: LazyLock<ClassificationData> = LazyLock::new(|| {
     let raw: RawClassification =
-        serde_yml::from_str(CLASSIFICATION_YAML).expect("content_classification.yaml must parse");
+        serde_yaml_ng::from_str(CLASSIFICATION_YAML).expect("content_classification.yaml must parse");
     ClassificationData::from_raw(raw)
 });
 

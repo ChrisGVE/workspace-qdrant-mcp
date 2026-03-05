@@ -23,7 +23,7 @@ pub struct TaxonomyEntry {
 ///     - "term two"
 /// ```
 pub fn load_taxonomy(yaml_content: &str) -> Result<Vec<TaxonomyEntry>, String> {
-    let doc: serde_yml::Value = serde_yml::from_str(yaml_content)
+    let doc: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml_content)
         .map_err(|e| format!("taxonomy YAML parse error: {}", e))?;
 
     let categories = doc

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_default_yaml_parses() {
-    let config: YamlConfig = serde_yml::from_str(DEFAULT_YAML).expect("YAML should parse");
+    let config: YamlConfig = serde_yaml_ng::from_str(DEFAULT_YAML).expect("YAML should parse");
     // Spot-check key values
     assert_eq!(config.qdrant.url, "http://localhost:6333");
     assert_eq!(config.grpc.port, 50051);

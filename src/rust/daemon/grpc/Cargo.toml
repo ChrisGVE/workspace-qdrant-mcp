@@ -48,7 +48,7 @@ uuid = { version = "1.21", features = ["v4", "v5"] }
 fastembed = { version = "5", features = ["hf-hub"] }
 
 # Caching
-lru = "0.12"
+lru = "0.16"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
