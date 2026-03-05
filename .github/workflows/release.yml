@@ -98,7 +98,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -130,7 +130,7 @@ jobs:
 
       # Cache Rust dependencies
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -144,7 +144,7 @@ jobs:
       # Uses supertone-inc/onnxruntime-build which provides static libraries (.a)
       - name: Cache ONNX Runtime (Intel Mac)
         if: matrix.needs_ort_download
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: onnx-cache
         with:
           path: ~/.onnxruntime-static
@@ -311,7 +311,7 @@ jobs:
       # Upload artifacts
       - name: Upload artifact (Unix)
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
           path: |
@@ -325,7 +325,7 @@ jobs:
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
           path: |
@@ -346,7 +346,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -358,7 +358,7 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/**/*.tar.gz
@@ -415,7 +415,7 @@ jobs:
 
       - name: Dispatch Homebrew tap update
         if: "!contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha')"
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.TAP_DISPATCH_TOKEN }}
           repository: ChrisGVE/homebrew-tap

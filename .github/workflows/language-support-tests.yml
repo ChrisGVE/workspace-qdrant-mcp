@@ -35,7 +35,7 @@ jobs:
       matrix:
         language: [rust, python, typescript, javascript, go]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Rust
         if: matrix.language == 'rust'
@@ -43,19 +43,19 @@ jobs:
 
       - name: Setup Python
         if: matrix.language == 'python'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Setup Node.js
         if: matrix.language == 'typescript' || matrix.language == 'javascript'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
       - name: Setup Go
         if: matrix.language == 'go'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.22'
 
@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: report-${{ matrix.language }}
           path: tests/language-support/results/${{ matrix.language }}.yaml
@@ -103,7 +103,7 @@ jobs:
       matrix:
         language: [c, cpp, java, swift, scala, haskell, ocaml, erlang, elixir, ruby]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install language toolchains
         run: |
@@ -130,7 +130,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: report-${{ matrix.language }}
           path: tests/language-support/results/${{ matrix.language }}.yaml
@@ -147,7 +147,7 @@ jobs:
         language: [clojure, lisp, lua, perl, shell, pascal, fortran, odin, zig]
         # Ada excluded: GNAT not readily available on GitHub runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install language toolchains
         run: |
@@ -176,7 +176,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: report-${{ matrix.language }}
           path: tests/language-support/results/${{ matrix.language }}.yaml
@@ -189,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: reports
           pattern: report-*
