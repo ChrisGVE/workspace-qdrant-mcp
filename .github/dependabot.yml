@@ -82,20 +82,3 @@ updates:
       github-actions:
         patterns:
           - "*"
-
-  # Docker dependencies
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "04:00"
-    open-pull-requests-limit: 3
-    reviewers:
-      - "ChrisGVE"
-    commit-message:
-      prefix: "docker"
-      include: "scope"
-    labels:
-      - "docker"
-      - "infrastructure"
