@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::{interval, timeout};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::registry::ServiceInfo;
 

@@ -17,7 +17,7 @@ use reqwest::Client;
 use std::path::PathBuf;
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 /// Errors that can occur during grammar download.
 #[derive(Debug, Error)]
