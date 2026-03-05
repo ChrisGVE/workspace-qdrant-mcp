@@ -217,7 +217,7 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
           # Update all Cargo.toml files with new version
-          find . -name 'Cargo.toml' -not -path '*/target/*' -not -path '*/node_modules/*' | while read f; do
+          find . -name 'Cargo.toml' -not -path '*/target/*' -not -path '*/node_modules/*' -not -path '*/patches/*' | while read f; do
             sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" "$f"
           done
 
@@ -228,7 +228,9 @@ jobs:
           LATEST_VERSION: ${{ needs.check-version.outputs.latest_version }}
           NEW_VERSION: ${{ steps.bump.outputs.new_version }}
         run: |
-          git add -A
+          git add src/rust/Cargo.lock
+          git add $(find . -name 'Cargo.toml' -not -path '*/target/*' -not -path '*/patches/*' -not -path '*/node_modules/*')
+          git add .github/workflows/*.yml
           git commit -m "deps: bump ort (ONNX Runtime) from $CURRENT_VERSION to $LATEST_VERSION"
           git pull --rebase origin main
           git push origin main

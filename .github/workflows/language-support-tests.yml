@@ -95,7 +95,10 @@ jobs:
 
   tier2:
     name: "Tier 2: ${{ matrix.language }}"
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.tier == 'all' || github.event.inputs.tier == 'tier2'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -138,7 +141,10 @@ jobs:
 
   tier3:
     name: "Tier 3: ${{ matrix.language }}"
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.tier == 'all' || github.event.inputs.tier == 'tier3'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -184,7 +190,7 @@ jobs:
 
   summary:
     name: Summary
-    needs: [tier1]
+    needs: [tier1, tier2, tier3]
     if: always()
     runs-on: ubuntu-latest
     steps:

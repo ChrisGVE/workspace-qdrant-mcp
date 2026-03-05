@@ -73,7 +73,7 @@ jobs:
           # Windows ARM64 - ort has prebuilt binaries
           - target: aarch64-pc-windows-msvc
             os: windows-latest
-            cross: false  # Native ARM support on Windows runner
+            cross: false  # Rust cross-compiles to ARM64 on x64 runner
             artifact_name: windows-arm64
             needs_ort_download: false
             build_napi: false
@@ -113,20 +113,20 @@ jobs:
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: |
-          brew install cmake protobuf tesseract
+          brew install cmake protobuf
 
       # Linux specific: Install dependencies
       - name: Install Linux dependencies
         if: runner.os == 'Linux' && !matrix.cross
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake tesseract-ocr libtesseract-dev
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake
 
       # Windows specific: Install dependencies
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         run: |
-          choco install protoc cmake tesseract -y
+          choco install protoc cmake -y
 
       # Cache Rust dependencies
       - name: Cache cargo registry
@@ -358,7 +358,7 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/**/*.tar.gz
