@@ -15,7 +15,11 @@ async fn setup_parent_with_submodule(
 
     let parent = WatchFolderRecord {
         is_active: parent_active,
-        last_activity_at: if parent_active { Some(Utc::now()) } else { None },
+        last_activity_at: if parent_active {
+            Some(Utc::now())
+        } else {
+            None
+        },
         ..make_test_watch_folder("parent-001", "/projects/parent", "parent-tenant")
     };
     manager.store_watch_folder(&parent).await.unwrap();
@@ -24,7 +28,11 @@ async fn setup_parent_with_submodule(
         parent_watch_id: Some("parent-001".to_string()),
         submodule_path: Some("sub".to_string()),
         is_active: parent_active,
-        last_activity_at: if parent_active { Some(Utc::now()) } else { None },
+        last_activity_at: if parent_active {
+            Some(Utc::now())
+        } else {
+            None
+        },
         ..make_test_watch_folder("submodule-001", "/projects/parent/sub", "sub-tenant")
     };
     manager.store_watch_folder(&submodule).await.unwrap();
@@ -36,14 +44,24 @@ async fn setup_parent_with_submodule(
 async fn test_activate_project_by_tenant_id() {
     let (_tmp, manager) = setup_parent_with_submodule("test_tenant_activate.db", false).await;
 
-    let (affected, watch_id) = manager.activate_project_by_tenant_id("parent-tenant")
-        .await.unwrap();
+    let (affected, watch_id) = manager
+        .activate_project_by_tenant_id("parent-tenant")
+        .await
+        .unwrap();
 
     assert_eq!(affected, 2);
     assert_eq!(watch_id, Some("parent-001".to_string()));
 
-    let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
-    let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+    let parent_record = manager
+        .get_watch_folder("parent-001")
+        .await
+        .unwrap()
+        .unwrap();
+    let submodule_record = manager
+        .get_watch_folder("submodule-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(parent_record.is_active);
     assert!(submodule_record.is_active);
     assert!(parent_record.last_activity_at.is_some());
@@ -54,14 +72,24 @@ async fn test_activate_project_by_tenant_id() {
 async fn test_deactivate_project_by_tenant_id() {
     let (_tmp, manager) = setup_parent_with_submodule("test_tenant_deactivate.db", true).await;
 
-    let (affected, watch_id) = manager.deactivate_project_by_tenant_id("parent-tenant")
-        .await.unwrap();
+    let (affected, watch_id) = manager
+        .deactivate_project_by_tenant_id("parent-tenant")
+        .await
+        .unwrap();
 
     assert_eq!(affected, 2);
     assert_eq!(watch_id, Some("parent-001".to_string()));
 
-    let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
-    let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+    let parent_record = manager
+        .get_watch_folder("parent-001")
+        .await
+        .unwrap()
+        .unwrap();
+    let submodule_record = manager
+        .get_watch_folder("submodule-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!parent_record.is_active);
     assert!(!submodule_record.is_active);
 }
@@ -73,8 +101,16 @@ async fn test_heartbeat_project_group() {
     let affected = manager.heartbeat_project_group("parent-001").await.unwrap();
     assert_eq!(affected, 2);
 
-    let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
-    let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+    let parent_record = manager
+        .get_watch_folder("parent-001")
+        .await
+        .unwrap()
+        .unwrap();
+    let submodule_record = manager
+        .get_watch_folder("submodule-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(parent_record.last_activity_at.is_some());
     assert!(submodule_record.last_activity_at.is_some());
 }
@@ -83,14 +119,24 @@ async fn test_heartbeat_project_group() {
 async fn test_heartbeat_project_by_tenant_id() {
     let (_tmp, manager) = setup_parent_with_submodule("test_heartbeat_tenant.db", true).await;
 
-    let (affected, watch_id) = manager.heartbeat_project_by_tenant_id("parent-tenant")
-        .await.unwrap();
+    let (affected, watch_id) = manager
+        .heartbeat_project_by_tenant_id("parent-tenant")
+        .await
+        .unwrap();
 
     assert_eq!(affected, 2);
     assert_eq!(watch_id, Some("parent-001".to_string()));
 
-    let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
-    let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+    let parent_record = manager
+        .get_watch_folder("parent-001")
+        .await
+        .unwrap()
+        .unwrap();
+    let submodule_record = manager
+        .get_watch_folder("submodule-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(parent_record.last_activity_at.is_some());
     assert!(submodule_record.last_activity_at.is_some());
 }
@@ -116,7 +162,11 @@ async fn test_recursive_activity_inheritance_3_levels() {
     let leaf = WatchFolderRecord {
         parent_watch_id: Some("mid-001".to_string()),
         submodule_path: Some("deps/leaf".to_string()),
-        ..make_test_watch_folder("leaf-001", "/projects/root/libs/mid/deps/leaf", "leaf-tenant")
+        ..make_test_watch_folder(
+            "leaf-001",
+            "/projects/root/libs/mid/deps/leaf",
+            "leaf-tenant",
+        )
     };
     manager.store_watch_folder(&leaf).await.unwrap();
 
@@ -131,10 +181,16 @@ async fn test_recursive_activity_inheritance_3_levels() {
     }
 
     // Heartbeat from root should touch all 3 levels
-    assert_eq!(manager.heartbeat_project_group("root-001").await.unwrap(), 3);
+    assert_eq!(
+        manager.heartbeat_project_group("root-001").await.unwrap(),
+        3
+    );
 
     // Deactivate from root should deactivate all 3 levels
-    assert_eq!(manager.deactivate_project_group("root-001").await.unwrap(), 3);
+    assert_eq!(
+        manager.deactivate_project_group("root-001").await.unwrap(),
+        3
+    );
 
     for id in &["root-001", "mid-001", "leaf-001"] {
         let r = manager.get_watch_folder(id).await.unwrap().unwrap();
@@ -160,8 +216,10 @@ async fn test_activate_nonexistent_tenant_id() {
     let manager = DaemonStateManager::new(&db_path).await.unwrap();
     manager.initialize().await.unwrap();
 
-    let (affected, watch_id) = manager.activate_project_by_tenant_id("nonexistent")
-        .await.unwrap();
+    let (affected, watch_id) = manager
+        .activate_project_by_tenant_id("nonexistent")
+        .await
+        .unwrap();
 
     assert_eq!(affected, 0);
     assert!(watch_id.is_none());

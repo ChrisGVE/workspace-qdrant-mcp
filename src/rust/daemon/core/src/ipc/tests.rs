@@ -14,15 +14,21 @@ async fn test_ipc_server_client_communication() {
 
     server.start().await.expect("Failed to start IPC server");
 
-    let request_id = client.health_check().await.expect("Failed to send health check");
+    let request_id = client
+        .health_check()
+        .await
+        .expect("Failed to send health check");
 
-    let response = tokio::time::timeout(
-        Duration::from_secs(1),
-        client.recv_response()
-    ).await.expect("Health check timed out").expect("Failed to receive response");
+    let response = tokio::time::timeout(Duration::from_secs(1), client.recv_response())
+        .await
+        .expect("Health check timed out")
+        .expect("Failed to receive response");
 
     match response {
-        IpcResponse::HealthCheckOk { request_id: resp_id, status } => {
+        IpcResponse::HealthCheckOk {
+            request_id: resp_id,
+            status,
+        } => {
             assert_eq!(resp_id, request_id);
             assert_eq!(status, "OK");
         }
@@ -36,25 +42,31 @@ async fn test_ipc_task_submission() {
 
     server.start().await.expect("Failed to start IPC server");
 
-    let request_id = client.submit_task(
-        TaskPriority::McpRequests,
-        TaskSource::McpServer {
-            request_id: "test_request".to_string(),
-        },
-        TaskPayload::Generic {
-            operation: "test_operation".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(5000),
-    ).await.expect("Failed to submit task");
+    let request_id = client
+        .submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "test_request".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "test_operation".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(5000),
+        )
+        .await
+        .expect("Failed to submit task");
 
-    let response = tokio::time::timeout(
-        Duration::from_secs(1),
-        client.recv_response()
-    ).await.expect("Task submission timed out").expect("Failed to receive response");
+    let response = tokio::time::timeout(Duration::from_secs(1), client.recv_response())
+        .await
+        .expect("Task submission timed out")
+        .expect("Failed to receive response");
 
     match response {
-        IpcResponse::TaskSubmitted { task_id: _, request_id: resp_id } => {
+        IpcResponse::TaskSubmitted {
+            task_id: _,
+            request_id: resp_id,
+        } => {
             assert_eq!(resp_id, request_id);
         }
         other => panic!("Expected TaskSubmitted, got: {:?}", other),
@@ -69,13 +81,16 @@ async fn test_ipc_get_stats() {
 
     let request_id = client.get_stats().await.expect("Failed to get stats");
 
-    let response = tokio::time::timeout(
-        Duration::from_secs(1),
-        client.recv_response()
-    ).await.expect("Get stats timed out").expect("Failed to receive response");
+    let response = tokio::time::timeout(Duration::from_secs(1), client.recv_response())
+        .await
+        .expect("Get stats timed out")
+        .expect("Failed to receive response");
 
     match response {
-        IpcResponse::Stats { stats, request_id: resp_id } => {
+        IpcResponse::Stats {
+            stats,
+            request_id: resp_id,
+        } => {
             assert_eq!(resp_id, request_id);
             assert_eq!(stats.total_capacity, 3);
         }
@@ -96,15 +111,20 @@ async fn test_ipc_configuration() {
         log_level: Some("debug".to_string()),
     };
 
-    let request_id = client.configure(settings).await.expect("Failed to configure");
+    let request_id = client
+        .configure(settings)
+        .await
+        .expect("Failed to configure");
 
-    let response = tokio::time::timeout(
-        Duration::from_secs(1),
-        client.recv_response()
-    ).await.expect("Configuration timed out").expect("Failed to receive response");
+    let response = tokio::time::timeout(Duration::from_secs(1), client.recv_response())
+        .await
+        .expect("Configuration timed out")
+        .expect("Failed to receive response");
 
     match response {
-        IpcResponse::ConfigurationApplied { request_id: resp_id } => {
+        IpcResponse::ConfigurationApplied {
+            request_id: resp_id,
+        } => {
             assert_eq!(resp_id, request_id);
         }
         other => panic!("Expected ConfigurationApplied, got: {:?}", other),
@@ -124,7 +144,9 @@ fn make_test_handle(
         priority: TaskPriority::BackgroundWatching,
         created_at: Utc::now(),
         timeout_ms: None,
-        source: TaskSource::Generic { operation: "test".into() },
+        source: TaskSource::Generic {
+            operation: "test".into(),
+        },
         metadata: HashMap::new(),
         checkpoint_id: None,
         supports_checkpointing: false,
@@ -200,22 +222,26 @@ async fn test_ipc_shutdown() {
 
     server.start().await.expect("Failed to start IPC server");
 
-    let request_id = client.shutdown(true, Some(1000)).await.expect("Failed to shutdown");
+    let request_id = client
+        .shutdown(true, Some(1000))
+        .await
+        .expect("Failed to shutdown");
 
-    let response = tokio::time::timeout(
-        Duration::from_secs(1),
-        client.recv_response()
-    ).await.expect("Shutdown timed out").expect("Failed to receive response");
+    let response = tokio::time::timeout(Duration::from_secs(1), client.recv_response())
+        .await
+        .expect("Shutdown timed out")
+        .expect("Failed to receive response");
 
     match response {
-        IpcResponse::ShutdownAck { request_id: resp_id } => {
+        IpcResponse::ShutdownAck {
+            request_id: resp_id,
+        } => {
             assert_eq!(resp_id, request_id);
         }
         other => panic!("Expected ShutdownAck, got: {:?}", other),
     }
 
-    tokio::time::timeout(
-        Duration::from_secs(2),
-        server.wait_for_shutdown()
-    ).await.expect("Server did not shut down in time");
+    tokio::time::timeout(Duration::from_secs(2), server.wait_for_shutdown())
+        .await
+        .expect("Server did not shut down in time");
 }

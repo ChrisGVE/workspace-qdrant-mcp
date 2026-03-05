@@ -2,7 +2,9 @@
 
 use crate::schema::{FieldDef, TableDef};
 
-pub const TABLE: TableDef = TableDef { name: "canonical_tags" };
+pub const TABLE: TableDef = TableDef {
+    name: "canonical_tags",
+};
 
 pub const CANONICAL_ID: FieldDef = FieldDef::categorical("canonical_id");
 pub const CANONICAL_NAME: FieldDef = FieldDef::content("canonical_name");
@@ -15,8 +17,14 @@ pub const CREATED_AT: FieldDef = FieldDef::categorical("created_at");
 
 /// All columns in definition order.
 pub const ALL_COLUMNS: &[FieldDef] = &[
-    CANONICAL_ID, CANONICAL_NAME, CENTROID_VECTOR_ID, LEVEL,
-    PARENT_ID, TENANT_ID, COLLECTION, CREATED_AT,
+    CANONICAL_ID,
+    CANONICAL_NAME,
+    CENTROID_VECTOR_ID,
+    LEVEL,
+    PARENT_ID,
+    TENANT_ID,
+    COLLECTION,
+    CREATED_AT,
 ];
 
 #[cfg(test)]

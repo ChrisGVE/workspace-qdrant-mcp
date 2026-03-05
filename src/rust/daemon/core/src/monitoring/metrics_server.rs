@@ -71,7 +71,10 @@ async fn metrics_handler() -> impl axum::response::IntoResponse {
     match METRICS.encode() {
         Ok(metrics) => (
             axum::http::StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; version=0.0.4",
+            )],
             metrics,
         ),
         Err(e) => (

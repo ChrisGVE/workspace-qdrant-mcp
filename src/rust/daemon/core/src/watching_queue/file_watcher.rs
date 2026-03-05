@@ -4,19 +4,19 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use notify::{Event, RecursiveMode, Watcher as NotifyWatcher};
-use tokio::sync::{mpsc, RwLock, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{error, info};
 
-use crate::queue_operations::QueueManager;
 use crate::allowed_extensions::AllowedExtensions;
+use crate::queue_operations::QueueManager;
 
-use super::types::{
-    WatchConfig, CompiledPatterns, FileEvent, EventDebouncer, WatchingQueueResult,
-    WatchingQueueError, WatchingQueueStats,
-};
-use super::error_state::{WatchErrorTracker, WatchErrorState};
+use super::error_state::{WatchErrorState, WatchErrorTracker};
 use super::error_types::WatchHealthStatus;
 use super::throttle::{QueueThrottleState, QueueThrottleSummary};
+use super::types::{
+    CompiledPatterns, EventDebouncer, FileEvent, WatchConfig, WatchingQueueError,
+    WatchingQueueResult, WatchingQueueStats,
+};
 
 /// Main file watcher with queue integration
 pub struct FileWatcherQueue {
@@ -89,16 +89,15 @@ impl FileWatcherQueue {
         let (tx, rx) = mpsc::unbounded_channel();
         let tx_clone = tx.clone();
 
-        let watcher: Box<dyn NotifyWatcher + Send + Sync> = Box::new(
-            notify::RecommendedWatcher::new(
+        let watcher: Box<dyn NotifyWatcher + Send + Sync> =
+            Box::new(notify::RecommendedWatcher::new(
                 move |result| {
                     if let Ok(event) = result {
                         Self::handle_notify_event(event, &tx_clone);
                     }
                 },
                 notify::Config::default(),
-            )?
-        );
+            )?);
 
         // Add path to watcher
         let recursive_mode = if config.recursive {
@@ -124,8 +123,11 @@ impl FileWatcherQueue {
         // Start event processor
         self.start_event_processor().await?;
 
-        info!("Started file watcher: {} (recursive: {})",
-            config.path.display(), config.recursive);
+        info!(
+            "Started file watcher: {} (recursive: {})",
+            config.path.display(),
+            config.recursive
+        );
 
         Ok(())
     }
@@ -211,7 +213,8 @@ impl FileWatcherQueue {
                 events_filtered,
                 queue_errors,
                 events_throttled,
-            ).await;
+            )
+            .await;
         });
 
         {

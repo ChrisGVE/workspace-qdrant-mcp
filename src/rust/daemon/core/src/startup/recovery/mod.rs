@@ -8,17 +8,17 @@
 
 use std::path::Path;
 
-use wqm_common::timestamps;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
+use wqm_common::timestamps;
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::config::StartupConfig;
+use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
-use crate::file_classification::classify_file_type;
 
 /// Result of a recovery operation for a single watch_folder
 #[derive(Debug, Clone, Default)]
@@ -56,7 +56,10 @@ pub struct FullRecoveryStats {
 
 impl FullRecoveryStats {
     pub fn total_queued(&self) -> u64 {
-        self.per_folder.iter().map(|(_, s)| s.progressive_scans_enqueued + s.files_to_delete + s.files_newly_excluded).sum()
+        self.per_folder
+            .iter()
+            .map(|(_, s)| s.progressive_scans_enqueued + s.files_to_delete + s.files_newly_excluded)
+            .sum()
     }
 }
 
@@ -70,7 +73,10 @@ pub async fn check_base_point_migration(
     queue_manager: &QueueManager,
 ) -> Result<bool, String> {
     let done = crate::daemon_state::get_operational_state(
-        pool, "base_point_migration_done", "daemon", None,
+        pool,
+        "base_point_migration_done",
+        "daemon",
+        None,
     )
     .await
     .unwrap_or(None);
@@ -84,7 +90,7 @@ pub async fn check_base_point_migration(
 
     let watch_folders = sqlx::query_as::<_, (String, String, String)>(
         "SELECT watch_id, path, tenant_id FROM watch_folders
-         WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'"
+         WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'",
     )
     .fetch_all(pool)
     .await
@@ -97,23 +103,29 @@ pub async fn check_base_point_migration(
             "scan_reason": "base_point_migration",
         });
 
-        match queue_manager.enqueue_unified(
-            ItemType::Tenant,
-            QueueOperation::Scan,
-            tenant_id,
-            "projects",
-            &serde_json::to_string(&payload).unwrap_or_default(),
-            Some("main"),
-            None,
-        ).await {
+        match queue_manager
+            .enqueue_unified(
+                ItemType::Tenant,
+                QueueOperation::Scan,
+                tenant_id,
+                "projects",
+                &serde_json::to_string(&payload).unwrap_or_default(),
+                Some("main"),
+                None,
+            )
+            .await
+        {
             Ok(_) => enqueued += 1,
             Err(e) => warn!("Failed to enqueue migration scan for {}: {}", watch_id, e),
         }
     }
 
     crate::daemon_state::set_operational_state(
-        pool, "base_point_migration_done", "daemon",
-        "true", None,
+        pool,
+        "base_point_migration_done",
+        "daemon",
+        "true",
+        None,
     )
     .await
     .map_err(|e| format!("Failed to set migration flag: {}", e))?;
@@ -136,8 +148,7 @@ pub async fn run_startup_recovery(
 ) -> Result<FullRecoveryStats, String> {
     info!(
         "Starting daemon startup recovery (batch_size={}, batch_delay={}ms)...",
-        startup_config.startup_enqueue_batch_size,
-        startup_config.startup_enqueue_batch_delay_ms,
+        startup_config.startup_enqueue_batch_size, startup_config.startup_enqueue_batch_delay_ms,
     );
     let start = std::time::Instant::now();
 
@@ -153,15 +164,25 @@ pub async fn run_startup_recovery(
         return Ok(FullRecoveryStats::default());
     }
 
-    info!("Running recovery for {} enabled watch_folders", watch_folders.len());
+    info!(
+        "Running recovery for {} enabled watch_folders",
+        watch_folders.len()
+    );
 
     let mut full_stats = FullRecoveryStats::default();
 
     for (watch_id, path, collection, tenant_id) in &watch_folders {
         let result = recover_watch_folder(
-            pool, queue_manager, watch_id, path, collection, tenant_id,
-            allowed_extensions, startup_config,
-        ).await;
+            pool,
+            queue_manager,
+            watch_id,
+            path,
+            collection,
+            tenant_id,
+            allowed_extensions,
+            startup_config,
+        )
+        .await;
         log_folder_recovery(&mut full_stats, watch_id, path, result);
     }
 
@@ -186,7 +207,10 @@ fn log_folder_recovery(
 ) {
     match result {
         Ok(s) => {
-            if s.files_to_delete > 0 || s.files_newly_excluded > 0 || s.progressive_scans_enqueued > 0 {
+            if s.files_to_delete > 0
+                || s.files_newly_excluded > 0
+                || s.progressive_scans_enqueued > 0
+            {
                 info!(
                     "Recovery for {} ({}): {} progressive scan(s), -{} delete, x{} excluded, !{} errors",
                     watch_id, path, s.progressive_scans_enqueued, s.files_to_delete,
@@ -201,7 +225,9 @@ fn log_folder_recovery(
             warn!("Recovery failed for {} ({}): {}", watch_id, path, e);
             let mut error_stats = RecoveryStats::default();
             error_stats.errors = 1;
-            full_stats.per_folder.push((watch_id.to_string(), error_stats));
+            full_stats
+                .per_folder
+                .push((watch_id.to_string(), error_stats));
         }
     }
     full_stats.folders_processed += 1;
@@ -245,7 +271,7 @@ async fn reconcile_single_file(
     file: &tracked_files_schema::TrackedFile,
 ) {
     let wf = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT path, collection, tenant_id FROM watch_folders WHERE watch_id = ?1"
+        "SELECT path, collection, tenant_id FROM watch_folders WHERE watch_id = ?1",
     )
     .bind(&file.watch_folder_id)
     .fetch_optional(pool)
@@ -263,31 +289,52 @@ async fn reconcile_single_file(
             return;
         }
         Err(e) => {
-            warn!("Failed to query watch_folder {}: {}", file.watch_folder_id, e);
+            warn!(
+                "Failed to query watch_folder {}: {}",
+                file.watch_folder_id, e
+            );
             stats.reconcile_errors += 1;
             return;
         }
     };
 
     let abs_path = Path::new(&base_path).join(&file.file_path);
-    let op = if abs_path.exists() { QueueOperation::Update } else { QueueOperation::Delete };
+    let op = if abs_path.exists() {
+        QueueOperation::Update
+    } else {
+        QueueOperation::Delete
+    };
 
     if let Err(e) = enqueue_file_op(
-        queue_manager, &tenant_id, &collection,
-        &abs_path.to_string_lossy(), op.clone(), None,
-    ).await {
-        warn!("Failed to re-queue reconcile file {}: {}", file.file_path, e);
+        queue_manager,
+        &tenant_id,
+        &collection,
+        &abs_path.to_string_lossy(),
+        op.clone(),
+        None,
+    )
+    .await
+    {
+        warn!(
+            "Failed to re-queue reconcile file {}: {}",
+            file.file_path, e
+        );
         stats.reconcile_errors += 1;
         return;
     }
 
     if let Err(e) = clear_reconcile_flag(pool, file.file_id).await {
-        warn!("Failed to clear reconcile flag for file_id={}: {}", file.file_id, e);
+        warn!(
+            "Failed to clear reconcile flag for file_id={}: {}",
+            file.file_id, e
+        );
         stats.reconcile_errors += 1;
     } else {
         info!(
             "Reconciled file_id={} ({}): re-queued for {}",
-            file.file_id, file.file_path, op.as_str()
+            file.file_id,
+            file.file_path,
+            op.as_str()
         );
         stats.reconciled += 1;
     }
@@ -298,7 +345,7 @@ async fn clear_reconcile_flag(pool: &SqlitePool, file_id: i64) -> Result<(), sql
     let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1
-         WHERE file_id = ?2"
+         WHERE file_id = ?2",
     )
     .bind(&now)
     .bind(file_id)
@@ -325,13 +372,26 @@ async fn recover_watch_folder(
 ) -> Result<RecoveryStats, String> {
     let root = Path::new(base_path);
     if !root.exists() || !root.is_dir() {
-        return Err(format!("Watch folder path does not exist or is not a directory: {}", base_path));
+        return Err(format!(
+            "Watch folder path does not exist or is not a directory: {}",
+            base_path
+        ));
     }
 
     let mut stats = RecoveryStats::default();
 
     enqueue_progressive_scan(queue_manager, root, tenant_id, collection, &mut stats).await?;
-    detect_deleted_files(pool, queue_manager, root, tenant_id, collection, watch_folder_id, startup_config, &mut stats).await;
+    detect_deleted_files(
+        pool,
+        queue_manager,
+        root,
+        tenant_id,
+        collection,
+        watch_folder_id,
+        startup_config,
+        &mut stats,
+    )
+    .await;
 
     Ok(stats)
 }
@@ -347,22 +407,24 @@ async fn enqueue_progressive_scan(
     let scan_payload = serde_json::json!({
         "project_root": root.to_string_lossy(),
         "recovery": true,
-    }).to_string();
+    })
+    .to_string();
 
     let branch = crate::watching_queue::get_current_branch(root);
 
-    queue_manager.enqueue_unified(
-        ItemType::Tenant,
-        QueueOperation::Scan,
-        tenant_id,
-        collection,
-        &scan_payload,
-        Some(&branch),
-        None,
-    )
-    .await
-    .map(|_| ())
-    .map_err(|e| format!("Failed to enqueue progressive scan: {}", e))?;
+    queue_manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            QueueOperation::Scan,
+            tenant_id,
+            collection,
+            &scan_payload,
+            Some(&branch),
+            None,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("Failed to enqueue progressive scan: {}", e))?;
 
     stats.progressive_scans_enqueued += 1;
     Ok(())
@@ -390,7 +452,8 @@ async fn detect_deleted_files(
     };
 
     let batch_size = startup_config.startup_enqueue_batch_size;
-    let batch_delay = std::time::Duration::from_millis(startup_config.startup_enqueue_batch_delay_ms);
+    let batch_delay =
+        std::time::Duration::from_millis(startup_config.startup_enqueue_batch_delay_ms);
     let mut enqueued_in_batch: usize = 0;
 
     for (_file_id, file_path, _branch) in &tracked {
@@ -398,24 +461,57 @@ async fn detect_deleted_files(
 
         if !abs_path.exists() {
             match enqueue_file_op(
-                queue_manager, tenant_id, collection,
-                &abs_path.to_string_lossy(), QueueOperation::Delete, None,
-            ).await {
-                Ok(()) => { stats.files_to_delete += 1; enqueued_in_batch += 1; }
-                Err(e) => { warn!("Failed to queue deletion for missing file: {}: {}", file_path, e); stats.errors += 1; }
+                queue_manager,
+                tenant_id,
+                collection,
+                &abs_path.to_string_lossy(),
+                QueueOperation::Delete,
+                None,
+            )
+            .await
+            {
+                Ok(()) => {
+                    stats.files_to_delete += 1;
+                    enqueued_in_batch += 1;
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to queue deletion for missing file: {}: {}",
+                        file_path, e
+                    );
+                    stats.errors += 1;
+                }
             }
         } else if should_exclude_file(file_path) {
             match enqueue_file_op(
-                queue_manager, tenant_id, collection,
-                &abs_path.to_string_lossy(), QueueOperation::Delete, None,
-            ).await {
-                Ok(()) => { stats.files_newly_excluded += 1; enqueued_in_batch += 1; }
-                Err(e) => { warn!("Failed to queue deletion for excluded file: {}: {}", file_path, e); stats.errors += 1; }
+                queue_manager,
+                tenant_id,
+                collection,
+                &abs_path.to_string_lossy(),
+                QueueOperation::Delete,
+                None,
+            )
+            .await
+            {
+                Ok(()) => {
+                    stats.files_newly_excluded += 1;
+                    enqueued_in_batch += 1;
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to queue deletion for excluded file: {}: {}",
+                        file_path, e
+                    );
+                    stats.errors += 1;
+                }
             }
         }
 
         if batch_size > 0 && enqueued_in_batch >= batch_size {
-            debug!("Recovery deletion batch of {} enqueued, yielding for {:?}", enqueued_in_batch, batch_delay);
+            debug!(
+                "Recovery deletion batch of {} enqueued, yielding for {:?}",
+                enqueued_in_batch, batch_delay
+            );
             tokio::task::yield_now().await;
             if !batch_delay.is_zero() {
                 tokio::time::sleep(batch_delay).await;
@@ -435,7 +531,11 @@ async fn enqueue_file_op(
     metadata: Option<&str>,
 ) -> Result<(), String> {
     let file_type = if op != QueueOperation::Delete {
-        Some(classify_file_type(Path::new(abs_file_path)).as_str().to_string())
+        Some(
+            classify_file_type(Path::new(abs_file_path))
+                .as_str()
+                .to_string(),
+        )
     } else {
         None
     };
@@ -453,18 +553,19 @@ async fn enqueue_file_op(
 
     let branch = crate::watching_queue::get_current_branch(Path::new(abs_file_path));
 
-    queue_manager.enqueue_unified(
-        ItemType::File,
-        op,
-        tenant_id,
-        collection,
-        &payload_json,
-        Some(&branch),
-        metadata,
-    )
-    .await
-    .map(|_| ())
-    .map_err(|e| format!("Failed to enqueue: {}", e))
+    queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            op,
+            tenant_id,
+            collection,
+            &payload_json,
+            Some(&branch),
+            metadata,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("Failed to enqueue: {}", e))
 }
 
 #[cfg(test)]

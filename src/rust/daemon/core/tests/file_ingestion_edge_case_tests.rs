@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::fs;
-use workspace_qdrant_core::{Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskSource};
+use workspace_qdrant_core::{
+    Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskSource,
+};
 
 const TEST_COLLECTION: &str = "test_collection";
 const TASK_TIMEOUT: Duration = Duration::from_secs(5);

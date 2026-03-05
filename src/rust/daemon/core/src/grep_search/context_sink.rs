@@ -5,7 +5,6 @@
 ///
 /// We buffer context-before lines and attach context-after to the previous
 /// match as they arrive.
-
 use grep_searcher::{Searcher, Sink, SinkContextKind};
 
 use crate::text_search::SearchMatch;

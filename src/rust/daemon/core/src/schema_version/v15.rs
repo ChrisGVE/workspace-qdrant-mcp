@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V15Migration;
 
@@ -27,7 +27,8 @@ impl Migration for V15Migration {
             )
             "#,
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_sparse_vocabulary_collection ON sparse_vocabulary (collection)",
@@ -43,12 +44,17 @@ impl Migration for V15Migration {
             )
             "#,
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         info!("Migration v15 complete");
         Ok(())
     }
 
-    fn version(&self) -> i32 { 15 }
-    fn description(&self) -> &'static str { "Create BM25 IDF tables" }
+    fn version(&self) -> i32 {
+        15
+    }
+    fn description(&self) -> &'static str {
+        "Create BM25 IDF tables"
+    }
 }

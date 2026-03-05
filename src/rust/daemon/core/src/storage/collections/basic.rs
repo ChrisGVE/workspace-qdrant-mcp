@@ -4,8 +4,8 @@
 //! info retrieval, and alias management.
 
 use qdrant_client::qdrant::{
-    CreateCollection, DeleteCollection, Distance, VectorParams, VectorsConfig,
-    Datatype, CreateAliasBuilder, RenameAliasBuilder,
+    CreateAliasBuilder, CreateCollection, Datatype, DeleteCollection, Distance, RenameAliasBuilder,
+    VectorParams, VectorsConfig,
 };
 use tracing::{info, warn};
 
@@ -37,9 +37,9 @@ impl StorageClient {
             multivector_config: None,
         };
 
-        vectors_config.config = Some(
-            qdrant_client::qdrant::vectors_config::Config::Params(dense_vector_params)
-        );
+        vectors_config.config = Some(qdrant_client::qdrant::vectors_config::Config::Params(
+            dense_vector_params,
+        ));
 
         let create_collection = CreateCollection {
             collection_name: collection_name.to_string(),
@@ -53,9 +53,12 @@ impl StorageClient {
         };
 
         self.retry_operation(|| async {
-            self.client.create_collection(create_collection.clone()).await
+            self.client
+                .create_collection(create_collection.clone())
+                .await
                 .map_err(|e| StorageError::Collection(e.to_string()))
-        }).await?;
+        })
+        .await?;
 
         info!("Successfully created collection: {}", collection_name);
         Ok(())
@@ -71,9 +74,12 @@ impl StorageClient {
         };
 
         self.retry_operation(|| async {
-            self.client.delete_collection(delete_collection.clone()).await
+            self.client
+                .delete_collection(delete_collection.clone())
+                .await
                 .map_err(|e| StorageError::Collection(e.to_string()))
-        }).await?;
+        })
+        .await?;
 
         info!("Successfully deleted collection: {}", collection_name);
         Ok(())
@@ -83,10 +89,14 @@ impl StorageClient {
     pub async fn collection_exists(&self, collection_name: &str) -> Result<bool, StorageError> {
         tracing::debug!("Checking if collection exists: {}", collection_name);
 
-        let response = self.retry_operation(|| async {
-            self.client.collection_exists(collection_name).await
-                .map_err(|e| StorageError::Collection(e.to_string()))
-        }).await?;
+        let response = self
+            .retry_operation(|| async {
+                self.client
+                    .collection_exists(collection_name)
+                    .await
+                    .map_err(|e| StorageError::Collection(e.to_string()))
+            })
+            .await?;
 
         Ok(response)
     }
@@ -97,15 +107,16 @@ impl StorageClient {
     pub async fn list_collections(&self) -> Result<Vec<String>, StorageError> {
         tracing::debug!("Listing all collections");
 
-        let response = self.retry_operation(|| async {
-            self.client.list_collections().await
-                .map_err(|e| StorageError::Collection(e.to_string()))
-        }).await?;
+        let response = self
+            .retry_operation(|| async {
+                self.client
+                    .list_collections()
+                    .await
+                    .map_err(|e| StorageError::Collection(e.to_string()))
+            })
+            .await?;
 
-        let names = response.collections
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
+        let names = response.collections.into_iter().map(|c| c.name).collect();
 
         Ok(names)
     }
@@ -119,22 +130,29 @@ impl StorageClient {
     ) -> Result<CollectionInfoResult, StorageError> {
         tracing::debug!("Getting collection info: {}", collection_name);
 
-        let info = self.retry_operation(|| async {
-            self.client.collection_info(collection_name).await
-                .map_err(|e| StorageError::Collection(e.to_string()))
-        }).await?;
+        let info = self
+            .retry_operation(|| async {
+                self.client
+                    .collection_info(collection_name)
+                    .await
+                    .map_err(|e| StorageError::Collection(e.to_string()))
+            })
+            .await?;
 
-        let points_count = info.result
+        let points_count = info
+            .result
             .as_ref()
             .map(|r| r.points_count.unwrap_or(0))
             .unwrap_or(0);
 
-        let vectors_count = info.result
+        let vectors_count = info
+            .result
             .as_ref()
             .map(|r| r.indexed_vectors_count.unwrap_or(0))
             .unwrap_or(0);
 
-        let status = info.result
+        let status = info
+            .result
             .as_ref()
             .map(|r| match r.status() {
                 qdrant_client::qdrant::CollectionStatus::Green => "green",
@@ -150,12 +168,7 @@ impl StorageClient {
 
         // Get aliases for this collection
         let aliases = match self.client.list_collection_aliases(collection_name).await {
-            Ok(response) => {
-                response.aliases
-                    .into_iter()
-                    .map(|a| a.alias_name)
-                    .collect()
-            }
+            Ok(response) => response.aliases.into_iter().map(|a| a.alias_name).collect(),
             Err(e) => {
                 warn!("Failed to get aliases for {}: {}", collection_name, e);
                 vec![]
@@ -188,20 +201,17 @@ impl StorageClient {
         self.client
             .create_alias(CreateAliasBuilder::new(collection_name, alias_name))
             .await
-            .map_err(|e| StorageError::Collection(
-                format!("Failed to create alias '{}': {}", alias_name, e)
-            ))?;
+            .map_err(|e| {
+                StorageError::Collection(format!("Failed to create alias '{}': {}", alias_name, e))
+            })?;
         Ok(())
     }
 
     /// Delete a collection alias
     pub async fn delete_alias(&self, alias_name: &str) -> Result<(), StorageError> {
-        self.client
-            .delete_alias(alias_name)
-            .await
-            .map_err(|e| StorageError::Collection(
-                format!("Failed to delete alias '{}': {}", alias_name, e)
-            ))?;
+        self.client.delete_alias(alias_name).await.map_err(|e| {
+            StorageError::Collection(format!("Failed to delete alias '{}': {}", alias_name, e))
+        })?;
         Ok(())
     }
 
@@ -217,9 +227,12 @@ impl StorageClient {
         self.client
             .rename_alias(RenameAliasBuilder::new(old_alias_name, new_alias_name))
             .await
-            .map_err(|e| StorageError::Collection(format!(
-                "Failed to rename alias '{}' to '{}': {}", old_alias_name, new_alias_name, e
-            )))?;
+            .map_err(|e| {
+                StorageError::Collection(format!(
+                    "Failed to rename alias '{}' to '{}': {}",
+                    old_alias_name, new_alias_name, e
+                ))
+            })?;
         Ok(())
     }
 }
@@ -237,9 +250,7 @@ pub(super) fn extract_vector_dimension(
             use qdrant_client::qdrant::vectors_config::Config;
             match &vc.config {
                 Some(Config::Params(params)) => Some(params.size),
-                Some(Config::ParamsMap(map)) => {
-                    map.map.get("dense").map(|p| p.size)
-                }
+                Some(Config::ParamsMap(map)) => map.map.get("dense").map(|p| p.size),
                 _ => None,
             }
         })

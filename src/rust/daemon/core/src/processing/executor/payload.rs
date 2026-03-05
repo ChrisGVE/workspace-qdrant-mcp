@@ -13,10 +13,13 @@ pub(crate) async fn execute_task_payload(
     ingestion_engine: &Option<Arc<crate::IngestionEngine>>,
 ) -> Result<TaskResultData, PriorityError> {
     match payload {
-        TaskPayload::ProcessDocument { file_path, collection, branch } => {
-            execute_process_document(
-                &file_path, &collection, &branch, context, ingestion_engine,
-            ).await
+        TaskPayload::ProcessDocument {
+            file_path,
+            collection,
+            branch,
+        } => {
+            execute_process_document(&file_path, &collection, &branch, context, ingestion_engine)
+                .await
         }
         TaskPayload::WatchDirectory { path, recursive } => {
             tracing::info!("Watching directory: {:?}, recursive: {}", path, recursive);
@@ -26,10 +29,16 @@ pub(crate) async fn execute_task_payload(
                 checkpoint_id: context.checkpoint_id.clone(),
             })
         }
-        TaskPayload::ExecuteQuery { query, collection, limit } => {
+        TaskPayload::ExecuteQuery {
+            query,
+            collection,
+            limit,
+        } => {
             tracing::info!(
                 "Executing query: '{}' on collection: '{}' with limit: {}",
-                query, collection, limit
+                query,
+                collection,
+                limit
             );
             Ok(TaskResultData::QueryExecution {
                 results: vec![],
@@ -37,9 +46,10 @@ pub(crate) async fn execute_task_payload(
                 checkpoint_id: context.checkpoint_id.clone(),
             })
         }
-        TaskPayload::Generic { operation, parameters } => {
-            execute_generic_task(&operation, &parameters, context).await
-        }
+        TaskPayload::Generic {
+            operation,
+            parameters,
+        } => execute_generic_task(&operation, &parameters, context).await,
     }
 }
 
@@ -90,7 +100,8 @@ async fn execute_process_document(
     } else {
         tracing::info!(
             "Processing document (stub): {:?} for collection: {}",
-            file_path, collection
+            file_path,
+            collection
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -111,7 +122,8 @@ async fn execute_generic_task(
 ) -> Result<TaskResultData, PriorityError> {
     tracing::info!(
         "Executing generic operation: '{}' with {} parameters",
-        operation, parameters.len()
+        operation,
+        parameters.len()
     );
 
     let sleep_duration = if operation.starts_with("long_") {

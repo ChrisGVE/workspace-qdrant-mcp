@@ -117,8 +117,7 @@ pub fn assign_baskets(
             continue;
         }
 
-        let (best_tag_idx, best_sim) =
-            find_nearest_tag(&keyword_vectors[ki], tag_vectors);
+        let (best_tag_idx, best_sim) = find_nearest_tag(&keyword_vectors[ki], tag_vectors);
 
         let assigned = AssignedKeyword {
             phrase: kw.phrase.clone(),
@@ -135,12 +134,17 @@ pub fn assign_baskets(
 
     // Sort keywords within each basket by score descending
     for basket in &mut baskets {
-        basket
-            .keywords
-            .sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        basket.keywords.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
-    misc.keywords
-        .sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    misc.keywords.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Only include misc basket if it has keywords
     if !misc.keywords.is_empty() {
@@ -156,10 +160,7 @@ pub fn assign_baskets(
 pub fn baskets_to_map(baskets: &[KeywordBasket]) -> std::collections::HashMap<String, Vec<String>> {
     let mut map = std::collections::HashMap::new();
     for basket in baskets {
-        let key = basket
-            .tag
-            .clone()
-            .unwrap_or_else(|| "__misc__".to_string());
+        let key = basket.tag.clone().unwrap_or_else(|| "__misc__".to_string());
         let kws: Vec<String> = basket.keywords.iter().map(|k| k.phrase.clone()).collect();
         if !kws.is_empty() {
             map.insert(key, kws);
@@ -225,12 +226,20 @@ mod tests {
         assert_eq!(baskets[1].tag.as_deref(), Some("networking"));
 
         // "vector search" and "embedding model" should be in basket 0
-        let b0_phrases: Vec<&str> = baskets[0].keywords.iter().map(|k| k.phrase.as_str()).collect();
+        let b0_phrases: Vec<&str> = baskets[0]
+            .keywords
+            .iter()
+            .map(|k| k.phrase.as_str())
+            .collect();
         assert!(b0_phrases.contains(&"vector search"));
         assert!(b0_phrases.contains(&"embedding model"));
 
         // "grpc protocol" should be in basket 1
-        let b1_phrases: Vec<&str> = baskets[1].keywords.iter().map(|k| k.phrase.as_str()).collect();
+        let b1_phrases: Vec<&str> = baskets[1]
+            .keywords
+            .iter()
+            .map(|k| k.phrase.as_str())
+            .collect();
         assert!(b1_phrases.contains(&"grpc protocol"));
     }
 
@@ -300,11 +309,7 @@ mod tests {
         let tags = vec![make_tag("tag_a")];
 
         // All keywords similar to tag
-        let kw_vecs = vec![
-            vec![0.9, 0.1],
-            vec![0.8, 0.2],
-            vec![0.85, 0.15],
-        ];
+        let kw_vecs = vec![vec![0.9, 0.1], vec![0.8, 0.2], vec![0.85, 0.15]];
         let tag_vecs = vec![vec![1.0, 0.0]];
 
         let config = BasketConfig::default();
@@ -354,10 +359,7 @@ mod tests {
             map.get("vector search").unwrap(),
             &vec!["embedding".to_string(), "similarity".to_string()]
         );
-        assert_eq!(
-            map.get("__misc__").unwrap(),
-            &vec!["orphan".to_string()]
-        );
+        assert_eq!(map.get("__misc__").unwrap(), &vec!["orphan".to_string()]);
     }
 
     #[test]

@@ -9,8 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// Raw YAML string, embedded at compile time.
-pub static CLASSIFICATION_YAML: &str =
-    include_str!("content_classification.yaml");
+pub static CLASSIFICATION_YAML: &str = include_str!("content_classification.yaml");
 
 /// Parsed classification data, initialized once on first access.
 static CLASSIFICATION: LazyLock<ClassificationData> = LazyLock::new(|| {
@@ -92,11 +91,17 @@ impl ClassificationData {
                 .insert(dotted);
         }
 
-        let config_filenames: HashSet<String> =
-            raw.config_filenames.into_iter().map(|s| s.to_lowercase()).collect();
+        let config_filenames: HashSet<String> = raw
+            .config_filenames
+            .into_iter()
+            .map(|s| s.to_lowercase())
+            .collect();
 
-        let test_directories: HashSet<String> =
-            raw.test_directories.into_iter().map(|s| s.to_lowercase()).collect();
+        let test_directories: HashSet<String> = raw
+            .test_directories
+            .into_iter()
+            .map(|s| s.to_lowercase())
+            .collect();
 
         Self {
             ext_to_language,
@@ -119,7 +124,10 @@ impl ClassificationData {
 /// Accepts extensions with or without leading dot (e.g., `"rs"` or `".rs"`).
 /// Returns `None` for non-code extensions (text, docs, data, etc.).
 pub fn extension_to_language(ext: &str) -> Option<&str> {
-    CLASSIFICATION.ext_to_language.get(&ext.to_lowercase()).map(|s| s.as_str())
+    CLASSIFICATION
+        .ext_to_language
+        .get(&ext.to_lowercase())
+        .map(|s| s.as_str())
 }
 
 /// Look up the file_type category for a file extension.
@@ -127,7 +135,10 @@ pub fn extension_to_language(ext: &str) -> Option<&str> {
 /// Accepts extensions with or without leading dot.
 /// Returns `None` if the extension is not in the classification data.
 pub fn extension_to_file_type(ext: &str) -> Option<&str> {
-    CLASSIFICATION.ext_to_file_type.get(&ext.to_lowercase()).map(|s| s.as_str())
+    CLASSIFICATION
+        .ext_to_file_type
+        .get(&ext.to_lowercase())
+        .map(|s| s.as_str())
 }
 
 /// Look up the document_type override for a file extension.
@@ -136,14 +147,20 @@ pub fn extension_to_file_type(ext: &str) -> Option<&str> {
 /// is explicitly defined. For code extensions without a document_type override,
 /// returns `None` (caller should use `DocumentType::Code(language)`).
 pub fn extension_to_document_type(ext: &str) -> Option<&str> {
-    CLASSIFICATION.ext_to_document_type.get(&ext.to_lowercase()).map(|s| s.as_str())
+    CLASSIFICATION
+        .ext_to_document_type
+        .get(&ext.to_lowercase())
+        .map(|s| s.as_str())
 }
 
 /// Check if a compound extension suffix maps to a language.
 ///
 /// The suffix should NOT include a leading dot (e.g., `"d.ts"` not `".d.ts"`).
 pub fn compound_extension_language(suffix: &str) -> Option<&str> {
-    CLASSIFICATION.compound_ext_to_language.get(suffix).map(|s| s.as_str())
+    CLASSIFICATION
+        .compound_ext_to_language
+        .get(suffix)
+        .map(|s| s.as_str())
 }
 
 /// Check if a dotted extension belongs to the given file_type category.
@@ -159,7 +176,9 @@ pub fn is_file_type(dotted_ext: &str, file_type: &str) -> bool {
 
 /// Check if a filename (lowercase) is a known configuration filename.
 pub fn is_config_filename(filename: &str) -> bool {
-    CLASSIFICATION.config_filenames.contains(&filename.to_lowercase())
+    CLASSIFICATION
+        .config_filenames
+        .contains(&filename.to_lowercase())
 }
 
 /// Check if a path string contains a configuration path indicator.
@@ -172,7 +191,9 @@ pub fn is_config_path(path_lower: &str) -> bool {
 
 /// Check if a directory name is a known test directory.
 pub fn is_test_directory_name(dir_name: &str) -> bool {
-    CLASSIFICATION.test_directories.contains(&dir_name.to_lowercase())
+    CLASSIFICATION
+        .test_directories
+        .contains(&dir_name.to_lowercase())
 }
 
 /// Check if a lowercased path ends with a tarball suffix.

@@ -1,12 +1,12 @@
 //! Processing engine benchmarks
-//! 
+//!
 //! Benchmarks for core document processing functionality
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::NamedTempFile;
-use std::io::Write;
 
 // Mock processing functions for benchmarking
 // In a real implementation, these would import from the actual crate
@@ -36,28 +36,29 @@ fn mock_calculate_embeddings(text: &str) -> Vec<f32> {
 fn benchmark_text_processing(c: &mut Criterion) {
     let small_text = "Hello, world!";
     let medium_text = "This is a medium-sized text document with multiple sentences. ".repeat(50);
-    let large_text = "This is a large text document with many paragraphs and sentences. ".repeat(1000);
+    let large_text =
+        "This is a large text document with many paragraphs and sentences. ".repeat(1000);
 
     let mut group = c.benchmark_group("text_processing");
-    
+
     group.bench_with_input(
         BenchmarkId::new("small_text", small_text.len()),
         small_text,
-        |b, text| b.iter(|| mock_process_text_document(black_box(text)))
+        |b, text| b.iter(|| mock_process_text_document(black_box(text))),
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("medium_text", medium_text.len()),
         &medium_text,
-        |b, text| b.iter(|| mock_process_text_document(black_box(text)))
+        |b, text| b.iter(|| mock_process_text_document(black_box(text))),
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("large_text", large_text.len()),
         &large_text,
-        |b, text| b.iter(|| mock_process_text_document(black_box(text)))
+        |b, text| b.iter(|| mock_process_text_document(black_box(text))),
     );
-    
+
     group.finish();
 }
 
@@ -73,22 +74,23 @@ fn benchmark_json_processing(c: &mut Criterion) {
                 "tags": ["tag1", "tag2", "tag3"]
             }
         })).collect::<Vec<_>>()
-    }).to_string();
+    })
+    .to_string();
 
     let mut group = c.benchmark_group("json_processing");
-    
+
     group.bench_with_input(
         BenchmarkId::new("simple_json", simple_json.len()),
         simple_json,
-        |b, json| b.iter(|| mock_process_json_document(black_box(json)))
+        |b, json| b.iter(|| mock_process_json_document(black_box(json))),
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("complex_json", complex_json.len()),
         &complex_json,
-        |b, json| b.iter(|| mock_process_json_document(black_box(json)))
+        |b, json| b.iter(|| mock_process_json_document(black_box(json))),
     );
-    
+
     group.finish();
 }
 
@@ -99,68 +101,70 @@ fn benchmark_embedding_generation(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("embedding_generation");
     group.measurement_time(Duration::from_secs(10));
-    
+
     group.bench_with_input(
         BenchmarkId::new("short_text", short_text.len()),
         short_text,
-        |b, text| b.iter(|| mock_calculate_embeddings(black_box(text)))
+        |b, text| b.iter(|| mock_calculate_embeddings(black_box(text))),
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("medium_text", medium_text.len()),
         medium_text,
-        |b, text| b.iter(|| mock_calculate_embeddings(black_box(text)))
+        |b, text| b.iter(|| mock_calculate_embeddings(black_box(text))),
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("long_text", long_text.len()),
         &long_text,
-        |b, text| b.iter(|| mock_calculate_embeddings(black_box(text)))
+        |b, text| b.iter(|| mock_calculate_embeddings(black_box(text))),
     );
-    
+
     group.finish();
 }
 
 fn benchmark_file_io(c: &mut Criterion) {
     let test_data = "Test file content for I/O benchmarking. ".repeat(1000);
-    
+
     let mut group = c.benchmark_group("file_io");
-    
+
     group.bench_function("write_temp_file", |b| {
         b.iter(|| {
             let mut temp_file = NamedTempFile::new().unwrap();
-            temp_file.write_all(black_box(test_data.as_bytes())).unwrap();
+            temp_file
+                .write_all(black_box(test_data.as_bytes()))
+                .unwrap();
             temp_file.flush().unwrap();
         })
     });
-    
+
     group.bench_function("read_temp_file", |b| {
         // Create a temp file for reading
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(test_data.as_bytes()).unwrap();
         temp_file.flush().unwrap();
         let path = temp_file.path().to_path_buf();
-        
+
         b.iter(|| {
             let content = std::fs::read_to_string(black_box(&path)).unwrap();
             black_box(content);
         })
     });
-    
+
     group.finish();
 }
 
 fn benchmark_concurrent_processing(c: &mut Criterion) {
     use std::sync::Arc;
     use std::thread;
-    
+
     let test_texts: Vec<String> = (0..100)
         .map(|i| format!("Test document {} with some content to process. ", i).repeat(10))
         .collect();
     let test_texts = Arc::new(test_texts);
-    
+
     let mut group = c.benchmark_group("concurrent_processing");
-    
+
     group.bench_function("sequential_processing", |b| {
         b.iter(|| {
             for text in test_texts.iter() {
@@ -168,7 +172,7 @@ fn benchmark_concurrent_processing(c: &mut Criterion) {
             }
         })
     });
-    
+
     group.bench_function("parallel_processing", |b| {
         b.iter(|| {
             let texts = Arc::clone(&test_texts);
@@ -178,21 +182,25 @@ fn benchmark_concurrent_processing(c: &mut Criterion) {
                     thread::spawn(move || {
                         let chunk_size = texts.len() / 4;
                         let start = thread_id * chunk_size;
-                        let end = if thread_id == 3 { texts.len() } else { start + chunk_size };
-                        
+                        let end = if thread_id == 3 {
+                            texts.len()
+                        } else {
+                            start + chunk_size
+                        };
+
                         for text in &texts[start..end] {
                             black_box(mock_process_text_document(text));
                         }
                     })
                 })
                 .collect();
-            
+
             for handle in handles {
                 handle.join().unwrap();
             }
         })
     });
-    
+
     group.finish();
 }
 

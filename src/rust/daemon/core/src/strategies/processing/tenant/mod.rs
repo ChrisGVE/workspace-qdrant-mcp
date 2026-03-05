@@ -70,21 +70,15 @@ impl TenantStrategy {
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
         match item.op {
-            QueueOperation::Delete => {
-                delete::process_delete_tenant_item(ctx, item).await
-            }
+            QueueOperation::Delete => delete::process_delete_tenant_item(ctx, item).await,
             QueueOperation::Rename => {
                 delete::process_tenant_rename_item(item, &ctx.storage_client).await
             }
             _ => {
                 // Add, Scan, Update -- route by collection
                 match item.collection.as_str() {
-                    "libraries" => {
-                        library::process_library_item(ctx, item).await
-                    }
-                    _ => {
-                        project::process_project_item(ctx, item).await
-                    }
+                    "libraries" => library::process_library_item(ctx, item).await,
+                    _ => project::process_project_item(ctx, item).await,
                 }
             }
         }

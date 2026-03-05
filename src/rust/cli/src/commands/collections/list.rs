@@ -4,10 +4,10 @@ use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::output;
 use crate::commands::qdrant_helpers;
+use crate::output;
 
-use super::{VALID_COLLECTIONS, build_client, qdrant_url};
+use super::{build_client, qdrant_url, VALID_COLLECTIONS};
 
 /// Qdrant collection info from list endpoint
 #[derive(Debug, Deserialize, Serialize)]
@@ -104,13 +104,8 @@ async fn build_collection_rows(
     let mut rows: Vec<CollectionRow> = Vec::new();
 
     for col in collections {
-        let row = build_single_collection_row(
-            col,
-            &qdrant_client,
-            &base_url,
-            db_conn.as_ref(),
-        )
-        .await?;
+        let row =
+            build_single_collection_row(col, &qdrant_client, &base_url, db_conn.as_ref()).await?;
         rows.push(row);
     }
 
@@ -126,13 +121,10 @@ async fn build_single_collection_row(
     let is_canonical = VALID_COLLECTIONS.contains(&col.name.as_str());
     let label = if is_canonical { "canonical" } else { "custom" };
 
-    let point_count = qdrant_helpers::get_collection_point_count(
-        qdrant_client,
-        base_url,
-        &col.name,
-    )
-    .await
-    .unwrap_or(None);
+    let point_count =
+        qdrant_helpers::get_collection_point_count(qdrant_client, base_url, &col.name)
+            .await
+            .unwrap_or(None);
 
     let points_str = point_count
         .map(|c| c.to_string())

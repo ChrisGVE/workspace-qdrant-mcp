@@ -5,7 +5,7 @@
 //! by target name.
 
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Dispatch a rebuild operation to the appropriate handler.
 pub(super) async fn dispatch(
@@ -58,28 +58,39 @@ async fn rebuild_tags(
         match builder.rebuild_tenant(tid).await {
             Ok(Some(r)) => {
                 let total = r.level1_count + r.level2_count + r.level3_count;
-                info!(target = "tags", tenant = tid, canonical_tags = total,
-                    edges = r.edges_created, duration_ms = start.elapsed().as_millis() as u64,
-                    "Tag hierarchy rebuild complete");
+                info!(
+                    target = "tags",
+                    tenant = tid,
+                    canonical_tags = total,
+                    edges = r.edges_created,
+                    duration_ms = start.elapsed().as_millis() as u64,
+                    "Tag hierarchy rebuild complete"
+                );
             }
             Ok(None) => info!(target = "tags", tenant = tid, "Skipped (too few tags)"),
-            Err(e) => error!(target = "tags", tenant = tid, error = %e, "Tag hierarchy rebuild failed"),
+            Err(e) => {
+                error!(target = "tags", tenant = tid, error = %e, "Tag hierarchy rebuild failed")
+            }
         }
     } else {
         match builder.rebuild_all().await {
-            Ok(r) => info!(target = "tags", tenants = r.tenants_processed,
-                canonical_tags = r.total_canonical_tags, edges = r.total_edges,
+            Ok(r) => info!(
+                target = "tags",
+                tenants = r.tenants_processed,
+                canonical_tags = r.total_canonical_tags,
+                edges = r.total_edges,
                 duration_ms = start.elapsed().as_millis() as u64,
-                "Tag hierarchy rebuild complete (all tenants)"),
-            Err(e) => error!(target = "tags", error = %e, "Tag hierarchy rebuild failed (all tenants)"),
+                "Tag hierarchy rebuild complete (all tenants)"
+            ),
+            Err(e) => {
+                error!(target = "tags", error = %e, "Tag hierarchy rebuild failed (all tenants)")
+            }
         }
     }
 }
 
 /// Rebuild FTS5 search index.
-async fn rebuild_search(
-    search_db: Option<Arc<workspace_qdrant_core::SearchDbManager>>,
-) {
+async fn rebuild_search(search_db: Option<Arc<workspace_qdrant_core::SearchDbManager>>) {
     let Some(sdb) = search_db else {
         error!(target = "search", "SearchDbManager not configured");
         return;
@@ -90,8 +101,11 @@ async fn rebuild_search(
             if let Err(e) = sdb.optimize_fts().await {
                 warn!(target = "search", error = %e, "FTS5 rebuilt but optimize failed");
             } else {
-                info!(target = "search", duration_ms = start.elapsed().as_millis() as u64,
-                    "FTS5 search index rebuilt and optimized");
+                info!(
+                    target = "search",
+                    duration_ms = start.elapsed().as_millis() as u64,
+                    "FTS5 search index rebuilt and optimized"
+                );
             }
         }
         Err(e) => error!(target = "search", error = %e, "FTS5 rebuild failed"),
@@ -125,12 +139,10 @@ async fn rebuild_vocabulary(
     };
 
     // Step 2: Delete vocabulary for the collection and reset corpus stats
-    let vocab_deleted = match sqlx::query(
-        "DELETE FROM sparse_vocabulary WHERE collection = ?1",
-    )
-    .bind(collection)
-    .execute(pool)
-    .await
+    let vocab_deleted = match sqlx::query("DELETE FROM sparse_vocabulary WHERE collection = ?1")
+        .bind(collection)
+        .execute(pool)
+        .await
     {
         Ok(r) => r.rows_affected(),
         Err(e) => {
@@ -139,12 +151,10 @@ async fn rebuild_vocabulary(
         }
     };
 
-    if let Err(e) = sqlx::query(
-        "DELETE FROM corpus_statistics WHERE collection = ?1",
-    )
-    .bind(collection)
-    .execute(pool)
-    .await
+    if let Err(e) = sqlx::query("DELETE FROM corpus_statistics WHERE collection = ?1")
+        .bind(collection)
+        .execute(pool)
+        .await
     {
         error!(target = "vocabulary", error = %e, "Corpus stats delete failed");
         return;
@@ -153,9 +163,14 @@ async fn rebuild_vocabulary(
     // Step 3: Clear in-memory BM25 state
     lexicon.clear_all().await;
 
-    info!(target = "vocabulary", vocab_deleted, junk_removed, collection,
+    info!(
+        target = "vocabulary",
+        vocab_deleted,
+        junk_removed,
+        collection,
         duration_ms = start.elapsed().as_millis() as u64,
-        "Vocabulary cleared. Will rebuild incrementally on next processing.");
+        "Vocabulary cleared. Will rebuild incrementally on next processing."
+    );
 }
 
 /// Re-extract keywords/tags by enqueuing uplift operations.
@@ -189,9 +204,10 @@ async fn rebuild_keywords(
     for (_file_id, file_path, tid) in &files {
         let payload = serde_json::json!({ "file_path": file_path, "rebuild": true });
         let payload_str = payload.to_string();
-        let idem_key = wqm_common::hashing::compute_content_hash(
-            &format!("file|uplift|{}|{}|{}", tid, collection, payload_str),
-        );
+        let idem_key = wqm_common::hashing::compute_content_hash(&format!(
+            "file|uplift|{}|{}|{}",
+            tid, collection, payload_str
+        ));
 
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO unified_queue \
@@ -210,9 +226,13 @@ async fn rebuild_keywords(
         enqueued += 1;
     }
 
-    info!(target = "keywords", enqueued, collection,
+    info!(
+        target = "keywords",
+        enqueued,
+        collection,
         duration_ms = start.elapsed().as_millis() as u64,
-        "Cleared keyword/tag data and enqueued uplift operations");
+        "Cleared keyword/tag data and enqueued uplift operations"
+    );
 }
 
 /// Fetch all tracked files for the keyword rebuild scope.
@@ -270,18 +290,28 @@ async fn delete_keyword_data(
         // Tenant-scoped: delete by file IDs
         for (file_id, _, _) in files {
             let _ = sqlx::query("DELETE FROM keywords WHERE file_id = ?1")
-                .bind(file_id).execute(pool).await;
+                .bind(file_id)
+                .execute(pool)
+                .await;
             let _ = sqlx::query("DELETE FROM tags WHERE file_id = ?1")
-                .bind(file_id).execute(pool).await;
+                .bind(file_id)
+                .execute(pool)
+                .await;
         }
     } else {
         // Collection-wide: bulk delete
         let _ = sqlx::query("DELETE FROM keywords WHERE collection = ?1")
-            .bind(collection).execute(pool).await;
+            .bind(collection)
+            .execute(pool)
+            .await;
         let _ = sqlx::query("DELETE FROM tags WHERE collection = ?1")
-            .bind(collection).execute(pool).await;
+            .bind(collection)
+            .execute(pool)
+            .await;
         let _ = sqlx::query("DELETE FROM keyword_baskets WHERE collection = ?1")
-            .bind(collection).execute(pool).await;
+            .bind(collection)
+            .execute(pool)
+            .await;
     }
 }
 
@@ -318,8 +348,11 @@ async fn rebuild_rules(
             return;
         }
     };
-    info!("[rebuild:rules] Found {} Qdrant rules ({} unique labels)",
-        all_points.len(), qdrant_by_label.len());
+    info!(
+        "[rebuild:rules] Found {} Qdrant rules ({} unique labels)",
+        all_points.len(),
+        qdrant_by_label.len()
+    );
 
     // Step 2: Read SQLite rules_mirror
     let db_by_label = match rules_rebuild::read_sqlite_rules(pool).await {
@@ -329,7 +362,10 @@ async fn rebuild_rules(
             return;
         }
     };
-    info!("[rebuild:rules] Found {} rules in SQLite rules_mirror", db_by_label.len());
+    info!(
+        "[rebuild:rules] Found {} rules in SQLite rules_mirror",
+        db_by_label.len()
+    );
 
     // Steps 3-4: Deduplicate labels and content
     let (ids_to_delete, label_dups, content_dups) =
@@ -338,7 +374,10 @@ async fn rebuild_rules(
     let deleted_count = ids_to_delete.len() as u64;
     if !ids_to_delete.is_empty() {
         match storage.delete_points_by_ids("rules", &ids_to_delete).await {
-            Ok(_) => info!("[rebuild:rules] Deleted {} duplicate Qdrant points", deleted_count),
+            Ok(_) => info!(
+                "[rebuild:rules] Deleted {} duplicate Qdrant points",
+                deleted_count
+            ),
             Err(e) => error!("[rebuild:rules] Failed to delete duplicate points: {}", e),
         }
     }
@@ -348,11 +387,20 @@ async fn rebuild_rules(
     let (inserted, updated, enqueued) =
         rules_rebuild::reconcile_rules(pool, &qdrant_deduped, &db_by_label).await;
 
-    info!("[rebuild:rules] Reconciliation complete in {}ms: \
+    info!(
+        "[rebuild:rules] Reconciliation complete in {}ms: \
         qdrant_total={}, db_total={}, label_dups={}, content_dups={}, \
         deleted={}, mirror_inserted={}, mirror_updated={}, enqueued={}",
-        start.elapsed().as_millis(), all_points.len(), db_by_label.len(),
-        label_dups, content_dups, deleted_count, inserted, updated, enqueued);
+        start.elapsed().as_millis(),
+        all_points.len(),
+        db_by_label.len(),
+        label_dups,
+        content_dups,
+        deleted_count,
+        inserted,
+        updated,
+        enqueued
+    );
 }
 
 /// Rescan watch folders by enqueuing scan operations.
@@ -379,7 +427,10 @@ async fn rebuild_watch_folders(
         {
             Ok(rows) => rows,
             Err(e) => {
-                error!("[rebuild:{}] Failed to fetch watch folders: {}", collection, e);
+                error!(
+                    "[rebuild:{}] Failed to fetch watch folders: {}",
+                    collection, e
+                );
                 return;
             }
         }
@@ -394,7 +445,10 @@ async fn rebuild_watch_folders(
         {
             Ok(rows) => rows,
             Err(e) => {
-                error!("[rebuild:{}] Failed to fetch watch folders: {}", collection, e);
+                error!(
+                    "[rebuild:{}] Failed to fetch watch folders: {}",
+                    collection, e
+                );
                 return;
             }
         }
@@ -415,9 +469,10 @@ async fn rebuild_watch_folders(
             "rebuild": true,
         });
         let payload_str = payload.to_string();
-        let idem_key = wqm_common::hashing::compute_content_hash(
-            &format!("tenant|scan|{}|{}|{}", tid, collection, payload_str),
-        );
+        let idem_key = wqm_common::hashing::compute_content_hash(&format!(
+            "tenant|scan|{}|{}|{}",
+            tid, collection, payload_str
+        ));
 
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO unified_queue \
@@ -436,7 +491,10 @@ async fn rebuild_watch_folders(
         enqueued += 1;
     }
 
-    info!("[rebuild:{}] Enqueued {} scan operations for watch folders", collection, enqueued);
+    info!(
+        "[rebuild:{}] Enqueued {} scan operations for watch folders",
+        collection, enqueued
+    );
 }
 
 /// Re-detect and assign workspace components to tracked files.

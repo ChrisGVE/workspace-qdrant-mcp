@@ -45,8 +45,7 @@ mod tests {
         let paths = setup_test_files(&dir);
         let files = make_file_infos(&paths);
 
-        let (matches, truncated) =
-            grep_scan_files("println", false, 0, 100, &files).unwrap();
+        let (matches, truncated) = grep_scan_files("println", false, 0, 100, &files).unwrap();
 
         assert!(!truncated);
         assert_eq!(matches.len(), 1);
@@ -61,8 +60,7 @@ mod tests {
         let paths = setup_test_files(&dir);
         let files = make_file_infos(&paths);
 
-        let (matches, _) =
-            grep_scan_files(r"fn\s+\w+", false, 0, 100, &files).unwrap();
+        let (matches, _) = grep_scan_files(r"fn\s+\w+", false, 0, 100, &files).unwrap();
 
         assert_eq!(matches.len(), 2); // fn main, fn read_input
     }
@@ -73,8 +71,7 @@ mod tests {
         let paths = setup_test_files(&dir);
         let files = make_file_infos(&paths);
 
-        let (matches, _) =
-            grep_scan_files("PRINTLN", true, 0, 100, &files).unwrap();
+        let (matches, _) = grep_scan_files("PRINTLN", true, 0, 100, &files).unwrap();
 
         assert_eq!(matches.len(), 1);
     }
@@ -85,8 +82,7 @@ mod tests {
         let paths = setup_test_files(&dir);
         let files = make_file_infos(&paths);
 
-        let (matches, truncated) =
-            grep_scan_files(r"fn|let|use", false, 0, 2, &files).unwrap();
+        let (matches, truncated) = grep_scan_files(r"fn|let|use", false, 0, 2, &files).unwrap();
 
         assert_eq!(matches.len(), 2);
         assert!(truncated);
@@ -113,16 +109,14 @@ mod tests {
             branch: None,
         }];
 
-        let (matches, _) =
-            grep_scan_files("pattern", false, 0, 100, &files).unwrap();
+        let (matches, _) = grep_scan_files("pattern", false, 0, 100, &files).unwrap();
 
         assert!(matches.is_empty());
     }
 
     #[test]
     fn test_grep_scan_empty_file_list() {
-        let (matches, truncated) =
-            grep_scan_files("pattern", false, 0, 100, &[]).unwrap();
+        let (matches, truncated) = grep_scan_files("pattern", false, 0, 100, &[]).unwrap();
 
         assert!(matches.is_empty());
         assert!(!truncated);
@@ -132,11 +126,7 @@ mod tests {
     fn test_grep_scan_with_context_lines() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("ctx.rs");
-        fs::write(
-            &file,
-            "line1\nline2\ntarget_line\nline4\nline5\n",
-        )
-        .unwrap();
+        fs::write(&file, "line1\nline2\ntarget_line\nline4\nline5\n").unwrap();
 
         let files = vec![FileInfo {
             file_path: file.to_string_lossy().to_string(),
@@ -144,8 +134,7 @@ mod tests {
             branch: Some("main".to_string()),
         }];
 
-        let (matches, _) =
-            grep_scan_files("target_line", false, 2, 100, &files).unwrap();
+        let (matches, _) = grep_scan_files("target_line", false, 2, 100, &files).unwrap();
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].line_number, 3);

@@ -23,9 +23,8 @@ CREATE TABLE IF NOT EXISTS code_lines (
 "#;
 
 /// Indexes for the code_lines table.
-pub const CREATE_CODE_LINES_INDEXES_SQL: &[&str] = &[
-    "CREATE INDEX IF NOT EXISTS idx_code_lines_file ON code_lines(file_id, seq)",
-];
+pub const CREATE_CODE_LINES_INDEXES_SQL: &[&str] =
+    &["CREATE INDEX IF NOT EXISTS idx_code_lines_file ON code_lines(file_id, seq)"];
 
 /// Initial gap between consecutive seq values.
 ///
@@ -81,15 +80,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS code_lines_fts USING fts5(
 /// SQL to rebuild the FTS5 index from the external content table.
 ///
 /// Must be called after batch inserts/updates/deletes to `code_lines`.
-pub const FTS5_REBUILD_SQL: &str =
-    "INSERT INTO code_lines_fts(code_lines_fts) VALUES('rebuild')";
+pub const FTS5_REBUILD_SQL: &str = "INSERT INTO code_lines_fts(code_lines_fts) VALUES('rebuild')";
 
 /// SQL to optimize the FTS5 index.
 ///
 /// Merges internal b-tree segments for faster queries. Call after large
 /// batch operations (>1000 lines) or periodically during idle time.
-pub const FTS5_OPTIMIZE_SQL: &str =
-    "INSERT INTO code_lines_fts(code_lines_fts) VALUES('optimize')";
+pub const FTS5_OPTIMIZE_SQL: &str = "INSERT INTO code_lines_fts(code_lines_fts) VALUES('optimize')";
 
 /// Threshold for triggering FTS5 optimization after batch operations.
 pub const FTS5_OPTIMIZE_THRESHOLD: usize = 1000;
@@ -197,8 +194,7 @@ ON CONFLICT(file_id) DO UPDATE SET
 "#;
 
 /// SQL to delete a file_metadata row when its code_lines are removed.
-pub const DELETE_FILE_METADATA_SQL: &str =
-    "DELETE FROM file_metadata WHERE file_id = ?1";
+pub const DELETE_FILE_METADATA_SQL: &str = "DELETE FROM file_metadata WHERE file_id = ?1";
 
 /// SQL to delete all file_metadata rows for a tenant (project deletion).
 pub const DELETE_FILE_METADATA_BY_TENANT_SQL: &str =
@@ -298,7 +294,11 @@ mod tests {
     #[test]
     fn test_indexes_idempotent() {
         for sql in CREATE_CODE_LINES_INDEXES_SQL {
-            assert!(sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS: {}", sql);
+            assert!(
+                sql.contains("IF NOT EXISTS"),
+                "Missing IF NOT EXISTS: {}",
+                sql
+            );
         }
     }
 
@@ -409,7 +409,11 @@ mod tests {
     #[test]
     fn test_file_metadata_indexes_idempotent() {
         for sql in CREATE_FILE_METADATA_INDEXES_SQL {
-            assert!(sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS: {}", sql);
+            assert!(
+                sql.contains("IF NOT EXISTS"),
+                "Missing IF NOT EXISTS: {}",
+                sql
+            );
         }
     }
 

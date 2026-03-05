@@ -31,13 +31,11 @@ use sqlx::SqlitePool;
 use tracing::{debug, error, info};
 
 use crate::context::ProcessingContext;
+use crate::specs::parse_payload;
 use crate::strategies::ProcessingStrategy;
 use crate::tracked_files_schema;
-use crate::specs::parse_payload;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
-use crate::unified_queue_schema::{
-    FilePayload, ItemType, QueueOperation, UnifiedQueueItem,
-};
+use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation, UnifiedQueueItem};
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 
 /// Strategy for processing file queue items.
@@ -99,8 +97,7 @@ impl FileStrategy {
         let pool = ctx.queue_manager.pool();
 
         // Look up watch_folder for tracked_files context
-        let (watch_folder_id, base_path) =
-            resolve_watch_folder(pool, item).await?;
+        let (watch_folder_id, base_path) = resolve_watch_folder(pool, item).await?;
 
         let relative_path =
             tracked_files_schema::compute_relative_path(&payload.file_path, &base_path)
@@ -126,7 +123,12 @@ impl FileStrategy {
         // For ingest/update: check if file exists on disk
         if !file_path.exists() {
             delete::cleanup_missing_file(
-                ctx, item, pool, &watch_folder_id, &relative_path, &payload,
+                ctx,
+                item,
+                pool,
+                &watch_folder_id,
+                &relative_path,
+                &payload,
             )
             .await;
             // File is gone — cleanup already handled above. Treat as a no-op
@@ -163,25 +165,34 @@ impl FileStrategy {
                 }
 
                 update_preamble::execute_update_deletion(
-                    ctx, item, pool, &watch_folder_id, &relative_path, &payload, &existing,
+                    ctx,
+                    item,
+                    pool,
+                    &watch_folder_id,
+                    &relative_path,
+                    &payload,
+                    &existing,
                     &new_hash,
                 )
                 .await?;
             } else {
                 // Not tracked yet -- defensive cleanup: delete by filter as fallback for update
                 ctx.storage_client
-                    .delete_points_by_filter(
-                        &item.collection,
-                        &payload.file_path,
-                        &item.tenant_id,
-                    )
+                    .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
             }
         }
 
         ingest::ingest_file_content(
-            ctx, item, pool, file_path, &payload, &watch_folder_id, &base_path, &relative_path,
+            ctx,
+            item,
+            pool,
+            file_path,
+            &payload,
+            &watch_folder_id,
+            &base_path,
+            &relative_path,
         )
         .await
     }
@@ -192,18 +203,15 @@ async fn resolve_watch_folder(
     pool: &SqlitePool,
     item: &UnifiedQueueItem,
 ) -> Result<(String, String), UnifiedProcessorError> {
-    let watch_info = tracked_files_schema::lookup_watch_folder(
-        pool,
-        &item.tenant_id,
-        &item.collection,
-    )
-    .await
-    .map_err(|e| {
-        UnifiedProcessorError::QueueOperation(format!(
-            "Failed to lookup watch_folder: {}",
-            e
-        ))
-    })?;
+    let watch_info =
+        tracked_files_schema::lookup_watch_folder(pool, &item.tenant_id, &item.collection)
+            .await
+            .map_err(|e| {
+                UnifiedProcessorError::QueueOperation(format!(
+                    "Failed to lookup watch_folder: {}",
+                    e
+                ))
+            })?;
 
     // CRITICAL: watch_folders lookup MUST succeed before ingestion.
     // For library-routed files from project folders, the item's tenant_id is a
@@ -214,7 +222,9 @@ async fn resolve_watch_folder(
         Some((wid, bp)) => Ok((wid, bp)),
         None if item.collection == COLLECTION_LIBRARIES => {
             // Extract source_project_id from metadata for format-routed files
-            let source_project_id = item.metadata.as_deref()
+            let source_project_id = item
+                .metadata
+                .as_deref()
                 .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
                 .and_then(|v| v.get("source_project_id")?.as_str().map(String::from));
 
@@ -265,7 +275,6 @@ async fn resolve_watch_folder(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

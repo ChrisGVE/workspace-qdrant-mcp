@@ -67,21 +67,19 @@ async fn test_git_state_check_local_to_local_git() {
     assert_eq!(result.transitions_detected, 1);
 
     // Verify is_git_tracked updated to 1
-    let is_git: i32 = sqlx::query_scalar(
-        "SELECT is_git_tracked FROM watch_folders WHERE watch_id = 'proj-1'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let is_git: i32 =
+        sqlx::query_scalar("SELECT is_git_tracked FROM watch_folders WHERE watch_id = 'proj-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(is_git, 1);
 
     // tenant_id should NOT change (still local_ prefix, same path)
-    let tid: String = sqlx::query_scalar(
-        "SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-1'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let tid: String =
+        sqlx::query_scalar("SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(tid, local_tid, "Transition 1 should not change tenant_id");
 }
 
@@ -93,10 +91,7 @@ async fn test_git_state_check_local_git_to_remote_git() {
 
     let temp = TempDir::new().unwrap();
     // Create git repo WITH remote
-    create_git_repo_with_remote(
-        temp.path(),
-        "https://github.com/user/repo.git",
-    );
+    create_git_repo_with_remote(temp.path(), "https://github.com/user/repo.git");
 
     // Insert as local-git (stored: is_git_tracked=1, no remote)
     let calculator = ProjectIdCalculator::new();
@@ -123,23 +118,24 @@ async fn test_git_state_check_local_git_to_remote_git() {
     assert_eq!(result.transitions_detected, 1);
 
     // Verify remote was stored
-    let remote: Option<String> = sqlx::query_scalar(
-        "SELECT git_remote_url FROM watch_folders WHERE watch_id = 'proj-2'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let remote: Option<String> =
+        sqlx::query_scalar("SELECT git_remote_url FROM watch_folders WHERE watch_id = 'proj-2'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(remote, Some("https://github.com/user/repo.git".to_string()));
 
     // tenant_id should have changed from local_ to remote-based
-    let tid: String = sqlx::query_scalar(
-        "SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-2'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let tid: String =
+        sqlx::query_scalar("SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-2'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_ne!(tid, local_tid, "Transition 3 should change tenant_id");
-    assert!(!tid.starts_with("local_"), "Should be remote-based tenant_id");
+    assert!(
+        !tid.starts_with("local_"),
+        "Should be remote-based tenant_id"
+    );
 
     // Verify cascade rename was enqueued
     let rename_count: i32 = sqlx::query_scalar(
@@ -161,11 +157,8 @@ async fn test_git_state_check_git_to_local() {
     let temp = TempDir::new().unwrap();
 
     let calculator = ProjectIdCalculator::new();
-    let remote_tid = calculator.calculate(
-        temp.path(),
-        Some("https://github.com/user/repo.git"),
-        None,
-    );
+    let remote_tid =
+        calculator.calculate(temp.path(), Some("https://github.com/user/repo.git"), None);
 
     // Insert as remote-git project
     sqlx::query(
@@ -190,31 +183,31 @@ async fn test_git_state_check_git_to_local() {
     assert_eq!(result.transitions_detected, 1);
 
     // Verify is_git_tracked set to 0
-    let is_git: i32 = sqlx::query_scalar(
-        "SELECT is_git_tracked FROM watch_folders WHERE watch_id = 'proj-3'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let is_git: i32 =
+        sqlx::query_scalar("SELECT is_git_tracked FROM watch_folders WHERE watch_id = 'proj-3'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(is_git, 0);
 
     // Verify git_remote_url cleared
-    let remote: Option<String> = sqlx::query_scalar(
-        "SELECT git_remote_url FROM watch_folders WHERE watch_id = 'proj-3'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let remote: Option<String> =
+        sqlx::query_scalar("SELECT git_remote_url FROM watch_folders WHERE watch_id = 'proj-3'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(remote.is_none(), "Remote URL should be cleared");
 
     // tenant_id should have changed to local_
-    let tid: String = sqlx::query_scalar(
-        "SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-3'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(tid.starts_with("local_"), "Should be local-based tenant_id after .git removal");
+    let tid: String =
+        sqlx::query_scalar("SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-3'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        tid.starts_with("local_"),
+        "Should be local-based tenant_id after .git removal"
+    );
 
     // Verify cascade rename was enqueued
     let rename_count: i32 = sqlx::query_scalar(

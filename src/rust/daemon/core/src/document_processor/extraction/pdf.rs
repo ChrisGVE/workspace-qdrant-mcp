@@ -10,9 +10,7 @@ use crate::document_processor::types::{DocumentProcessorError, DocumentProcessor
 ///
 /// Wrapped in `catch_unwind` because `pdf-extract` (via `type1-encoding-parser`)
 /// panics on certain malformed Type 1 font encodings instead of returning an error.
-pub fn extract_pdf(
-    file_path: &Path,
-) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+pub fn extract_pdf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
     let mut metadata = HashMap::new();
     metadata.insert("source_format".to_string(), "pdf".to_string());
 

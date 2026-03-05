@@ -1,5 +1,5 @@
 use super::*;
-use crate::graph::{EdgeType, GraphEdge, GraphNode, NodeType, SqliteGraphStore, GraphStore};
+use crate::graph::{EdgeType, GraphEdge, GraphNode, GraphStore, NodeType, SqliteGraphStore};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
@@ -90,7 +90,10 @@ async fn seed_graph(pool: &SqlitePool) {
     let a = GraphNode::new("t1", "a.rs", "alpha", NodeType::Function);
     let b = GraphNode::new("t1", "b.rs", "beta", NodeType::Function);
     let c = GraphNode::new("t1", "c.rs", "gamma", NodeType::Struct);
-    store.upsert_nodes(&[a.clone(), b.clone(), c.clone()]).await.unwrap();
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+        .await
+        .unwrap();
 
     let e1 = GraphEdge::new("t1", &a.node_id, &b.node_id, EdgeType::Calls, "a.rs");
     let e2 = GraphEdge::new("t1", &b.node_id, &c.node_id, EdgeType::UsesType, "b.rs");
@@ -172,8 +175,9 @@ async fn test_migrate_sqlite_to_sqlite() {
     let target_pool = setup_pool().await;
     let target = SqliteGraphStore::new(target_pool.clone());
 
-    let report =
-        migrate_from_sqlite(&source_pool, &target, None, 100).await.unwrap();
+    let report = migrate_from_sqlite(&source_pool, &target, None, 100)
+        .await
+        .unwrap();
 
     assert!(report.nodes_match);
     assert!(report.edges_match);
@@ -194,10 +198,9 @@ async fn test_migrate_filtered_tenant() {
     let target_pool = setup_pool().await;
     let target = SqliteGraphStore::new(target_pool.clone());
 
-    let report =
-        migrate_from_sqlite(&source_pool, &target, Some("t1"), 100)
-            .await
-            .unwrap();
+    let report = migrate_from_sqlite(&source_pool, &target, Some("t1"), 100)
+        .await
+        .unwrap();
 
     assert_eq!(report.nodes_imported, 3); // only t1 nodes
     assert!(report.nodes_match);
@@ -217,8 +220,9 @@ async fn test_validate_migration() {
         .unwrap();
 
     // Validate
-    let valid =
-        validate_migration(&source_pool, &target, None).await.unwrap();
+    let valid = validate_migration(&source_pool, &target, None)
+        .await
+        .unwrap();
     assert!(valid);
 }
 
@@ -231,8 +235,9 @@ async fn test_validate_mismatch() {
     let target = SqliteGraphStore::new(target_pool.clone());
 
     // Don't migrate — target is empty
-    let valid =
-        validate_migration(&source_pool, &target, None).await.unwrap();
+    let valid = validate_migration(&source_pool, &target, None)
+        .await
+        .unwrap();
     assert!(!valid);
 }
 

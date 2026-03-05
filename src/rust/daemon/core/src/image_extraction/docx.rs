@@ -1,7 +1,6 @@
 /// DOCX image extraction from ZIP archive.
 ///
 /// Images are stored in the `word/media/` directory within the DOCX ZIP.
-
 use std::io::Read;
 use std::path::Path;
 

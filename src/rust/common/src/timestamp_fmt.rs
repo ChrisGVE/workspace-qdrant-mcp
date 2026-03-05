@@ -24,7 +24,11 @@ pub fn format_local(utc_str: &str) -> String {
 
     // Try SQLite datetime format (with optional fractional seconds)
     let trimmed = utc_str.trim();
-    for fmt in &["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%d %H:%M:%S"] {
+    for fmt in &[
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
         if let Ok(naive) = NaiveDateTime::parse_from_str(trimmed, fmt) {
             let utc_dt: DateTime<Utc> = Utc.from_utc_datetime(&naive);
             let local = utc_dt.with_timezone(&Local);
@@ -125,7 +129,7 @@ mod tests {
         assert_eq!(date_parts[0].len(), 4); // year
         assert_eq!(date_parts[1].len(), 2); // month
         assert_eq!(date_parts[2].len(), 2); // day
-        // Time part: HH:MM:SS
+                                            // Time part: HH:MM:SS
         let time_parts: Vec<&str> = parts[1].split(':').collect();
         assert_eq!(time_parts.len(), 3);
     }

@@ -52,7 +52,13 @@ async fn test_midpoint_insertions_between_adjacent() {
         .fetch_all(manager.pool())
         .await
         .unwrap();
-    assert_eq!(rows.len(), expected, "Should have {} lines (2 original + {} inserted)", expected, iterations);
+    assert_eq!(
+        rows.len(),
+        expected,
+        "Should have {} lines (2 original + {} inserted)",
+        expected,
+        iterations
+    );
 
     // First should still be "first", last should still be "last"
     assert_eq!(rows[0].get::<String, _>("content"), "first");
@@ -64,14 +70,18 @@ async fn test_midpoint_insertions_between_adjacent() {
         assert!(
             seqs[i] > seqs[i - 1],
             "seq[{}]={} should be > seq[{}]={}",
-            i, seqs[i], i - 1, seqs[i - 1]
+            i,
+            seqs[i],
+            i - 1,
+            seqs[i - 1]
         );
     }
 
     // At least one rebalance should have occurred
     assert!(
         rebalance_count > 0,
-        "Should have triggered at least one rebalance during {} insertions", iterations
+        "Should have triggered at least one rebalance during {} insertions",
+        iterations
     );
 
     manager.close().await;
@@ -85,7 +95,11 @@ async fn test_rebalance_preserves_fts5() {
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
     // Insert cramped lines and build FTS
-    let contents = vec!["fn hello_world()", "fn goodbye_world()", "fn third_function()"];
+    let contents = vec![
+        "fn hello_world()",
+        "fn goodbye_world()",
+        "fn third_function()",
+    ];
     for (i, content) in contents.iter().enumerate() {
         sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, ?1, ?2)")
             .bind(1.0 + i as f64 * 0.0001)
@@ -114,7 +128,10 @@ async fn test_rebalance_preserves_fts5() {
         .await
         .unwrap();
     assert_eq!(rows_after.len(), 1);
-    assert_eq!(rows_after[0].get::<String, _>("content"), "fn hello_world()");
+    assert_eq!(
+        rows_after[0].get::<String, _>("content"),
+        "fn hello_world()"
+    );
 
     // Verify seq values are now spread out
     let rows = sqlx::query("SELECT seq FROM code_lines WHERE file_id = 1 ORDER BY seq")
@@ -147,12 +164,11 @@ async fn test_insert_10000_random_positions() {
     // Use a deterministic pattern to avoid true randomness in tests
     for i in 0..200 {
         // Get current lines to find insertion points
-        let seqs: Vec<f64> = sqlx::query_scalar(
-            "SELECT seq FROM code_lines WHERE file_id = 1 ORDER BY seq",
-        )
-        .fetch_all(manager.pool())
-        .await
-        .unwrap();
+        let seqs: Vec<f64> =
+            sqlx::query_scalar("SELECT seq FROM code_lines WHERE file_id = 1 ORDER BY seq")
+                .fetch_all(manager.pool())
+                .await
+                .unwrap();
 
         // Pick two adjacent lines using a deterministic index
         let idx = i % (seqs.len() - 1);
@@ -176,7 +192,11 @@ async fn test_insert_10000_random_positions() {
         assert!(
             seqs[i] > seqs[i - 1],
             "seq[{}]={} should be > seq[{}]={} (line_number {})",
-            i, seqs[i], i - 1, seqs[i - 1], i + 1
+            i,
+            seqs[i],
+            i - 1,
+            seqs[i - 1],
+            i + 1
         );
     }
 

@@ -1,15 +1,15 @@
 //! IPC server that handles communication from the MCP server to the Rust engine.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex, RwLock};
 use uuid::Uuid;
 
-use crate::processing::{Pipeline, TaskResultHandle, TaskSubmitter};
 use super::{EngineSettings, IpcClient, IpcError, IpcRequest, IpcResponse};
+use crate::processing::{Pipeline, TaskResultHandle, TaskSubmitter};
 
 /// IPC server that handles communication between Python and Rust
 pub struct IpcServer {
@@ -68,8 +68,13 @@ impl IpcServer {
 
     /// Configure SQLite spill-to-disk for queue overflow handling.
     /// Must be called before `start()`.
-    pub fn set_spill_queue(&mut self, queue_manager: std::sync::Arc<crate::queue_operations::QueueManager>) {
-        let mut pipeline = self.pipeline.try_lock()
+    pub fn set_spill_queue(
+        &mut self,
+        queue_manager: std::sync::Arc<crate::queue_operations::QueueManager>,
+    ) {
+        let mut pipeline = self
+            .pipeline
+            .try_lock()
             .expect("pipeline lock not contended during init");
         pipeline.set_spill_queue(queue_manager);
         self.task_submitter = pipeline.task_submitter();
@@ -78,7 +83,9 @@ impl IpcServer {
     /// Configure storage client for Qdrant rollback operations.
     /// Must be called before `start()`.
     pub fn set_rollback_storage(&mut self, client: std::sync::Arc<crate::storage::StorageClient>) {
-        let mut pipeline = self.pipeline.try_lock()
+        let mut pipeline = self
+            .pipeline
+            .try_lock()
             .expect("pipeline lock not contended during init");
         pipeline.set_rollback_storage(client);
     }
@@ -88,7 +95,10 @@ impl IpcServer {
         // Start the pipeline
         {
             let mut pipeline = self.pipeline.lock().await;
-            pipeline.start().await.map_err(|e| IpcError::ProcessingError(e.to_string()))?;
+            pipeline
+                .start()
+                .await
+                .map_err(|e| IpcError::ProcessingError(e.to_string()))?;
         }
 
         // Start request processing loop
@@ -115,7 +125,8 @@ impl IpcServer {
                 settings,
                 shutdown_signal,
                 shutdown_complete,
-            ).await;
+            )
+            .await;
         });
 
         Ok(())
@@ -184,12 +195,23 @@ impl IpcServer {
     ) -> Result<(), IpcError> {
         match request {
             IpcRequest::SubmitTask {
-                priority, source, payload, timeout_ms, request_id,
+                priority,
+                source,
+                payload,
+                timeout_ms,
+                request_id,
             } => {
                 Self::handle_submit_task(
-                    task_submitter, active_tasks, response_sender,
-                    priority, source, payload, timeout_ms, request_id,
-                ).await
+                    task_submitter,
+                    active_tasks,
+                    response_sender,
+                    priority,
+                    source,
+                    payload,
+                    timeout_ms,
+                    request_id,
+                )
+                .await
             }
 
             IpcRequest::GetStats { request_id } => {
@@ -209,7 +231,10 @@ impl IpcServer {
                 Ok(())
             }
 
-            IpcRequest::Configure { settings: new_settings, request_id } => {
+            IpcRequest::Configure {
+                settings: new_settings,
+                request_id,
+            } => {
                 {
                     let mut settings_lock = settings.write().await;
                     *settings_lock = new_settings;
@@ -218,7 +243,11 @@ impl IpcServer {
                 Ok(())
             }
 
-            IpcRequest::Shutdown { graceful: _, timeout_ms: _, request_id } => {
+            IpcRequest::Shutdown {
+                graceful: _,
+                timeout_ms: _,
+                request_id,
+            } => {
                 response_sender.send(IpcResponse::ShutdownAck { request_id })?;
                 shutdown_complete.store(true, Ordering::Release);
                 shutdown_signal.notify_waiters();
@@ -240,7 +269,10 @@ impl IpcServer {
     ) -> Result<(), IpcError> {
         let timeout = timeout_ms.map(Duration::from_millis);
 
-        match task_submitter.submit_task(priority, source, payload, timeout).await {
+        match task_submitter
+            .submit_task(priority, source, payload, timeout)
+            .await
+        {
             Ok(task_handle) => {
                 let task_id = task_handle.task_id;
 

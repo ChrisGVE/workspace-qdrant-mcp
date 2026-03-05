@@ -9,17 +9,21 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
-use governor::{Quota, RateLimiter, clock::DefaultClock, state::{InMemoryState, NotKeyed}};
+use governor::{
+    clock::DefaultClock,
+    state::{InMemoryState, NotKeyed},
+    Quota, RateLimiter,
+};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::queue_operations::QueueManager;
+use super::metrics::MetricsCollector;
+use super::request_queue::RequestQueue;
 use super::{
     PriorityError, PriorityTask, TaskContext, TaskPayload, TaskPriority, TaskResult,
     TaskResultData, TaskSource,
 };
-use super::metrics::MetricsCollector;
-use super::request_queue::RequestQueue;
+use crate::queue_operations::QueueManager;
 
 /// Handle for submitting tasks to the pipeline
 #[derive(Clone)]
@@ -58,7 +62,8 @@ impl TaskSubmitter {
         payload: TaskPayload,
         timeout: Option<Duration>,
     ) -> Result<TaskResultHandle, PriorityError> {
-        self.submit_task_with_queue_timeout(priority, source, payload, timeout, None).await
+        self.submit_task_with_queue_timeout(priority, source, payload, timeout, None)
+            .await
     }
 
     /// Submit a task with separate queue timeout
@@ -114,8 +119,9 @@ impl TaskSubmitter {
         self.check_backpressure(task_id);
 
         // Retry with exponential backoff when queue is full
-        if let Some(spill_handle) =
-            self.retry_and_enqueue(task_id, &context, &payload, task, queue_timeout).await?
+        if let Some(spill_handle) = self
+            .retry_and_enqueue(task_id, &context, &payload, task, queue_timeout)
+            .await?
         {
             return Ok(spill_handle);
         }
@@ -165,7 +171,10 @@ impl TaskSubmitter {
                 if attempt > 0 {
                     tracing::warn!(
                         "Queue overflow: retry attempt {}/{} for task {} after {}ms delay",
-                        attempt, max_retries, task_id, retry_delay_ms
+                        attempt,
+                        max_retries,
+                        task_id,
+                        retry_delay_ms
                     );
                 } else {
                     tracing::error!(
@@ -187,7 +196,8 @@ impl TaskSubmitter {
                 if attempt > 0 {
                     tracing::info!(
                         "Task {} successfully queued after {} retry attempts",
-                        task_id, attempt
+                        task_id,
+                        attempt
                     );
                 }
                 break;
@@ -198,10 +208,9 @@ impl TaskSubmitter {
         match self.request_queue.enqueue(task, queue_timeout).await {
             Ok(()) => {
                 if let Some(queued_task) = self.request_queue.dequeue().await {
-                    self.sender.send(queued_task)
-                        .map_err(|_| PriorityError::Communication(
-                            "Pipeline is shutting down".to_string(),
-                        ))?;
+                    self.sender.send(queued_task).map_err(|_| {
+                        PriorityError::Communication("Pipeline is shutting down".to_string())
+                    })?;
                 } else {
                     return Err(PriorityError::Communication(
                         "Task was queued but could not be dequeued".to_string(),
@@ -248,7 +257,8 @@ impl TaskSubmitter {
                 Err(spill_err) => {
                     tracing::error!(
                         "Task {} REJECTED after retry attempts and SQLite spill failed: {}",
-                        task_id, spill_err
+                        task_id,
+                        spill_err
                     );
                     return Err(PriorityError::QueueCapacityExceeded {
                         current: self.request_queue.size(),
@@ -302,7 +312,8 @@ impl TaskSubmitter {
             cancellation_token: None,
         };
 
-        self.sender.send(task)
+        self.sender
+            .send(task)
             .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
 
         Ok(TaskResultHandle {
@@ -334,11 +345,15 @@ impl TaskSubmitter {
         payload: &TaskPayload,
     ) -> Result<(), PriorityError> {
         use crate::unified_queue_schema::{
-            ItemType, QueueOperation as UnifiedOp, FilePayload as UqFilePayload,
+            FilePayload as UqFilePayload, ItemType, QueueOperation as UnifiedOp,
         };
 
         match payload {
-            TaskPayload::ProcessDocument { file_path, collection, branch } => {
+            TaskPayload::ProcessDocument {
+                file_path,
+                collection,
+                branch,
+            } => {
                 let tenant_id = self.resolve_tenant_id(context, file_path);
 
                 let file_payload = UqFilePayload {
@@ -349,28 +364,34 @@ impl TaskSubmitter {
                     old_path: None,
                 };
 
-                let payload_json = serde_json::to_string(&file_payload)
-                    .map_err(|e| PriorityError::Communication(
-                        format!("Failed to serialize spill payload: {}", e),
-                    ))?;
+                let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
+                    PriorityError::Communication(format!(
+                        "Failed to serialize spill payload: {}",
+                        e
+                    ))
+                })?;
 
                 let metadata = serde_json::json!({
                     "spilled_from": "pipeline",
                     "original_priority": format!("{:?}", context.priority),
                     "task_id": context.task_id.to_string(),
-                }).to_string();
+                })
+                .to_string();
 
-                queue_manager.enqueue_unified(
-                    ItemType::File,
-                    UnifiedOp::Add,
-                    &tenant_id,
-                    collection,
-                    &payload_json,
-                    Some(branch),
-                    Some(&metadata),
-                ).await.map_err(|e| PriorityError::Communication(
-                    format!("SQLite spill failed: {}", e),
-                ))?;
+                queue_manager
+                    .enqueue_unified(
+                        ItemType::File,
+                        UnifiedOp::Add,
+                        &tenant_id,
+                        collection,
+                        &payload_json,
+                        Some(branch),
+                        Some(&metadata),
+                    )
+                    .await
+                    .map_err(|e| {
+                        PriorityError::Communication(format!("SQLite spill failed: {}", e))
+                    })?;
 
                 tracing::info!(
                     file_path = %file_path.display(),
@@ -381,40 +402,29 @@ impl TaskSubmitter {
 
                 Ok(())
             }
-            _ => {
-                Err(PriorityError::Communication(
-                    format!(
-                        "Cannot spill {:?} task to SQLite - only ProcessDocument is supported",
-                        std::mem::discriminant(payload)
-                    ),
-                ))
-            }
+            _ => Err(PriorityError::Communication(format!(
+                "Cannot spill {:?} task to SQLite - only ProcessDocument is supported",
+                std::mem::discriminant(payload)
+            ))),
         }
     }
 
     /// Resolve tenant_id from context or derive from filesystem paths
-    fn resolve_tenant_id(
-        &self,
-        context: &TaskContext,
-        file_path: &std::path::Path,
-    ) -> String {
+    fn resolve_tenant_id(&self, context: &TaskContext, file_path: &std::path::Path) -> String {
         if let Some(ref tid) = context.tenant_id {
             return tid.clone();
         }
 
         match &context.source {
             TaskSource::ProjectWatcher { project_path } => {
-                wqm_common::project_id::calculate_tenant_id(
-                    std::path::Path::new(project_path),
-                )
+                wqm_common::project_id::calculate_tenant_id(std::path::Path::new(project_path))
             }
             TaskSource::BackgroundWatcher { folder_path } => {
-                wqm_common::project_id::calculate_tenant_id(
-                    std::path::Path::new(folder_path),
-                )
+                wqm_common::project_id::calculate_tenant_id(std::path::Path::new(folder_path))
             }
             _ => {
-                let parent = file_path.parent()
+                let parent = file_path
+                    .parent()
                     .unwrap_or_else(|| std::path::Path::new("/"));
                 wqm_common::project_id::calculate_tenant_id(parent)
             }
@@ -437,15 +447,18 @@ impl TaskResultHandle {
         context: TaskContext,
         result_receiver: oneshot::Receiver<TaskResult>,
     ) -> Self {
-        Self { task_id, context, result_receiver }
+        Self {
+            task_id,
+            context,
+            result_receiver,
+        }
     }
 
     /// Wait for the task to complete and return the result
     pub async fn wait(self) -> Result<TaskResult, PriorityError> {
-        self.result_receiver.await
-            .map_err(|_| PriorityError::Communication(
-                "Task executor disconnected".to_string(),
-            ))
+        self.result_receiver
+            .await
+            .map_err(|_| PriorityError::Communication("Task executor disconnected".to_string()))
     }
 
     /// Check if the task result sender has been dropped (task completed or abandoned).

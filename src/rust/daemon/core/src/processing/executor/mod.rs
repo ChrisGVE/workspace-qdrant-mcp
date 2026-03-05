@@ -20,9 +20,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
-use super::{
-    PriorityError, PriorityTask, TaskContext, TaskPriority, TaskResult, TaskResultData,
-};
+use super::{PriorityError, PriorityTask, TaskContext, TaskPriority, TaskResult, TaskResultData};
 use payload::execute_task_payload;
 use preemption::{allows_bulk_preemption, try_preempt_multiple_tasks};
 
@@ -107,7 +105,8 @@ pub(crate) async fn try_start_queued_tasks(
             if let Some(priority) = next_task_priority {
                 let slots_needed = if allows_bulk_preemption(priority) {
                     let queue_lock = task_queue.read().await;
-                    let mcp_tasks_queued = queue_lock.iter()
+                    let mcp_tasks_queued = queue_lock
+                        .iter()
                         .filter(|item| {
                             matches!(item.task.context.priority, TaskPriority::McpRequests)
                         })
@@ -118,9 +117,8 @@ pub(crate) async fn try_start_queued_tasks(
                     1
                 };
 
-                let preempted_count = try_preempt_multiple_tasks(
-                    running_tasks, priority, slots_needed,
-                ).await;
+                let preempted_count =
+                    try_preempt_multiple_tasks(running_tasks, priority, slots_needed).await;
 
                 if preempted_count == 0 {
                     break;

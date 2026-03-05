@@ -43,8 +43,8 @@ pub fn read_user_path() -> Option<String> {
 /// Creates the config directory and file if they don't exist.
 /// Updates the environment.user_path value if the file exists.
 pub fn write_user_path(path: &str) -> Result<(), String> {
-    let config_dir = get_config_dir()
-        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+    let config_dir =
+        get_config_dir().map_err(|e| format!("Failed to get config directory: {}", e))?;
 
     // Create config directory if it doesn't exist
     if !config_dir.exists() {
@@ -63,7 +63,8 @@ pub fn write_user_path(path: &str) -> Result<(), String> {
     };
 
     // Check if environment section exists
-    let has_environment = config_content.contains("\nenvironment:") || config_content.starts_with("environment:");
+    let has_environment =
+        config_content.contains("\nenvironment:") || config_content.starts_with("environment:");
     let has_user_path = config_content.contains("user_path:");
 
     if has_user_path {
@@ -169,8 +170,7 @@ fn expand_path_segment_recursive(segment: &str, depth: u8) -> String {
                 // $VAR form - collect alphanumeric + underscore
                 let start = i + 1;
                 let mut end = start;
-                while end < chars.len()
-                    && (chars[end].is_ascii_alphanumeric() || chars[end] == '_')
+                while end < chars.len() && (chars[end].is_ascii_alphanumeric() || chars[end] == '_')
                 {
                     end += 1;
                 }
@@ -210,7 +210,10 @@ pub fn expand_path_segments(path: &str) -> Vec<String> {
 ///
 /// Combines current PATH with saved user_path, keeping first occurrence
 /// of each entry. Current PATH entries take precedence.
-pub(super) fn merge_and_dedup(current_segments: &[String], saved_segments: &[String]) -> Vec<String> {
+pub(super) fn merge_and_dedup(
+    current_segments: &[String],
+    saved_segments: &[String],
+) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut merged = Vec::new();
 

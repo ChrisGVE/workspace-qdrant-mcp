@@ -1,7 +1,7 @@
 //! Error and format types for unified configuration
 
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 
 /// Error types for unified configuration operations
 #[derive(Debug, thiserror::Error)]

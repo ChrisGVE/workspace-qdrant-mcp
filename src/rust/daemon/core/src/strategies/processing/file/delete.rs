@@ -62,19 +62,14 @@ pub(super) async fn process_file_delete(
 
         if delete_from_qdrant {
             // Get point_ids from qdrant_chunks for targeted deletion
-            let point_ids =
-                tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
-                    .await
-                    .unwrap_or_default();
+            let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
+                .await
+                .unwrap_or_default();
 
             if !point_ids.is_empty() {
                 // Delete from Qdrant first (irreversible), scoped to tenant
                 ctx.storage_client
-                    .delete_points_by_filter(
-                        &item.collection,
-                        abs_file_path,
-                        &item.tenant_id,
-                    )
+                    .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
             }
@@ -84,10 +79,7 @@ pub(super) async fn process_file_delete(
         // CASCADE handles qdrant_chunks
         let tx_result: Result<(), UnifiedProcessorError> = async {
             let mut tx = pool.begin().await.map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!(
-                    "Failed to begin transaction: {}",
-                    e
-                ))
+                UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
             })?;
             tracked_files_schema::delete_tracked_file_tx(&mut tx, existing.file_id)
                 .await
@@ -98,10 +90,7 @@ pub(super) async fn process_file_delete(
                     ))
                 })?;
             tx.commit().await.map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!(
-                    "Transaction commit failed: {}",
-                    e
-                ))
+                UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e))
             })?;
             Ok(())
         }
@@ -121,23 +110,18 @@ pub(super) async fn process_file_delete(
         } else {
             // FTS5 cleanup: delete code_lines + file_metadata for this file (Task 52)
             if let Some(sdb) = &ctx.search_db {
-                let processor =
-                    FtsBatchProcessor::new(sdb, FtsBatchConfig::default());
+                let processor = FtsBatchProcessor::new(sdb, FtsBatchConfig::default());
                 if let Err(e) = processor.delete_file(existing.file_id).await {
                     warn!(
                         "FTS5: failed to delete code_lines for file_id={}: {} (non-fatal)",
                         existing.file_id, e
                     );
                 } else {
-                    debug!(
-                        "FTS5: deleted code_lines for file_id={}",
-                        existing.file_id
-                    );
+                    debug!("FTS5: deleted code_lines for file_id={}", existing.file_id);
                 }
             }
             // Graph edge cleanup (graph-rag Task 3): non-blocking
-            super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path)
-                .await;
+            super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path).await;
 
             // Keyword/tag cleanup: remove SQLite keyword/tag records
             let doc_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
@@ -202,11 +186,7 @@ pub(super) async fn cleanup_missing_file(
         if !point_ids.is_empty() {
             if let Err(e) = ctx
                 .storage_client
-                .delete_points_by_filter(
-                    &item.collection,
-                    &payload.file_path,
-                    &item.tenant_id,
-                )
+                .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
                 .await
             {
                 // Qdrant deletion failed but may already be gone - log and continue cleanup
@@ -220,10 +200,7 @@ pub(super) async fn cleanup_missing_file(
         // Clean up SQLite records in a transaction (CASCADE handles qdrant_chunks)
         let tx_result: Result<(), UnifiedProcessorError> = async {
             let mut tx = pool.begin().await.map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!(
-                    "Failed to begin transaction: {}",
-                    e
-                ))
+                UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
             })?;
             tracked_files_schema::delete_tracked_file_tx(&mut tx, existing.file_id)
                 .await
@@ -234,10 +211,7 @@ pub(super) async fn cleanup_missing_file(
                     ))
                 })?;
             tx.commit().await.map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!(
-                    "Transaction commit failed: {}",
-                    e
-                ))
+                UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e))
             })?;
             Ok(())
         }
@@ -284,16 +258,11 @@ pub(super) async fn handle_qdrant_failure(
     .await
     {
         let cleanup_result: Result<(), String> = async {
-            let mut tx = pool
-                .begin()
-                .await
-                .map_err(|e| format!("begin tx: {}", e))?;
+            let mut tx = pool.begin().await.map_err(|e| format!("begin tx: {}", e))?;
             tracked_files_schema::delete_qdrant_chunks_tx(&mut tx, existing.file_id)
                 .await
                 .map_err(|e| format!("delete chunks: {}", e))?;
-            tx.commit()
-                .await
-                .map_err(|e| format!("commit: {}", e))?;
+            tx.commit().await.map_err(|e| format!("commit: {}", e))?;
             Ok(())
         }
         .await;
@@ -313,10 +282,7 @@ pub(super) async fn handle_qdrant_failure(
                 let _ = tracked_files_schema::mark_needs_reconcile(
                     pool,
                     existing.file_id,
-                    &format!(
-                        "qdrant_insert_failed_cleanup_failed: {}",
-                        cleanup_err
-                    ),
+                    &format!("qdrant_insert_failed_cleanup_failed: {}", cleanup_err),
                 )
                 .await;
             }

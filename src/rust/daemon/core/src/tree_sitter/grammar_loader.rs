@@ -108,7 +108,11 @@ impl GrammarLoader {
         // Check if already loaded
         if let Some(library) = self.loaded_libraries.get(language) {
             // Re-extract the language from the already-loaded library
-            return self.extract_language(language, library.clone(), self.cache_paths.grammar_path(language));
+            return self.extract_language(
+                language,
+                library.clone(),
+                self.cache_paths.grammar_path(language),
+            );
         }
 
         // Find the grammar file
@@ -122,14 +126,19 @@ impl GrammarLoader {
         let library = Arc::new(library);
 
         // Store the library to keep it alive
-        self.loaded_libraries.insert(language.to_string(), library.clone());
+        self.loaded_libraries
+            .insert(language.to_string(), library.clone());
 
         // Extract the language
         self.extract_language(language, library, grammar_path)
     }
 
     /// Load a grammar from a specific path (for testing or custom locations).
-    pub fn load_grammar_from_path(&mut self, language: &str, path: &Path) -> GrammarResult<LoadedGrammar> {
+    pub fn load_grammar_from_path(
+        &mut self,
+        language: &str,
+        path: &Path,
+    ) -> GrammarResult<LoadedGrammar> {
         if !path.exists() {
             return Err(GrammarLoadError::NotFound(path.display().to_string()));
         }

@@ -9,9 +9,7 @@
 
 use tempfile::TempDir;
 
-use workspace_qdrant_core::fts_batch_processor::{
-    FileChange, FtsBatchConfig, FtsBatchProcessor,
-};
+use workspace_qdrant_core::fts_batch_processor::{FileChange, FtsBatchConfig, FtsBatchProcessor};
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::text_search::{search_exact, search_regex, SearchOptions};
 
@@ -173,7 +171,10 @@ async fn test_search_accuracy_100_files() {
     )
     .await
     .unwrap();
-    assert!(no_results.matches.is_empty(), "Should have 0 false positives");
+    assert!(
+        no_results.matches.is_empty(),
+        "Should have 0 false positives"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +221,11 @@ async fn test_regex_search_accuracy_across_files() {
     )
     .await
     .unwrap();
-    assert_eq!(results.matches.len(), 2, "Should find async_handler and sync_handler");
+    assert_eq!(
+        results.matches.len(),
+        2,
+        "Should find async_handler and sync_handler"
+    );
 
     // Regex: find all async functions (either "async fn" or "fn async_")
     let results = search_regex(
@@ -233,7 +238,11 @@ async fn test_regex_search_accuracy_across_files() {
     )
     .await
     .unwrap();
-    assert_eq!(results.matches.len(), 2, "Should find 2 async-related lines");
+    assert_eq!(
+        results.matches.len(),
+        2,
+        "Should find 2 async-related lines"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +333,11 @@ async fn test_path_glob_across_ingested_files() {
     )
     .await
     .unwrap();
-    assert_eq!(results.matches.len(), 2, "Should find 2 .rs files under src/");
+    assert_eq!(
+        results.matches.len(),
+        2,
+        "Should find 2 .rs files under src/"
+    );
 
     // Glob: any .rs file
     let results = search_exact(

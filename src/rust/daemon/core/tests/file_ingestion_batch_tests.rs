@@ -8,7 +8,9 @@ use shared_test_utils::TestResult;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::fs;
-use workspace_qdrant_core::{Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskSource};
+use workspace_qdrant_core::{
+    Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskSource,
+};
 
 const TEST_COLLECTION: &str = "test_collection";
 const TASK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -54,7 +56,10 @@ async fn test_small_batch_ingestion_10_files() -> TestResult {
         }
     }
 
-    assert_eq!(success_count, 10, "All 10 files should be processed successfully");
+    assert_eq!(
+        success_count, 10,
+        "All 10 files should be processed successfully"
+    );
 
     Ok(())
 }
@@ -100,7 +105,10 @@ async fn test_medium_batch_ingestion_50_files() -> TestResult {
         }
     }
 
-    assert_eq!(success_count, 50, "All 50 files should be processed successfully");
+    assert_eq!(
+        success_count, 50,
+        "All 50 files should be processed successfully"
+    );
 
     Ok(())
 }
@@ -150,7 +158,10 @@ async fn test_large_batch_ingestion_100_files() -> TestResult {
 
     let elapsed = start.elapsed();
 
-    assert_eq!(success_count, 100, "All 100 files should be processed successfully");
+    assert_eq!(
+        success_count, 100,
+        "All 100 files should be processed successfully"
+    );
 
     // With 10 concurrent workers and 100ms per file (placeholder sleep),
     // should complete in roughly 100/10 * 100ms = 1 second, allow 5 seconds max
@@ -272,7 +283,10 @@ async fn test_concurrent_batch_with_unique_document_ids() -> TestResult {
     assert_eq!(document_ids.len(), 20, "Should have 20 document IDs");
 
     // Verify all document IDs are unique (no duplicates)
-    let unique_count = document_ids.iter().collect::<std::collections::HashSet<_>>().len();
+    let unique_count = document_ids
+        .iter()
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     assert_eq!(
         unique_count, 20,
         "All document IDs should be unique, found {} unique out of 20",

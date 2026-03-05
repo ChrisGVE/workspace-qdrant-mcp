@@ -106,10 +106,7 @@ pub fn build_rust_main_chunks() -> Vec<SemanticChunk> {
         "src/main.rs",
     )
     .with_signature("fn main()")
-    .with_calls(vec![
-        "Processor::new".to_string(),
-        "p.process".to_string(),
-    ]);
+    .with_calls(vec!["Processor::new".to_string(), "p.process".to_string()]);
 
     let helper_fn = SemanticChunk::new(
         ChunkType::Function,

@@ -1,12 +1,12 @@
 //! Types, enums, and helper functions for the watching queue module.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-use std::collections::HashMap;
 
 use git2::Repository;
-use notify::EventKind;
 use glob::Pattern;
+use notify::EventKind;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, warn};
@@ -100,20 +100,22 @@ pub(super) struct CompiledPatterns {
 
 impl CompiledPatterns {
     pub(super) fn new(config: &WatchConfig) -> Result<Self, WatchingQueueError> {
-        let include = config.patterns
+        let include = config
+            .patterns
             .iter()
             .map(|p| Pattern::new(p))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| WatchingQueueError::Config {
-                message: format!("Invalid include pattern: {}", e)
+                message: format!("Invalid include pattern: {}", e),
             })?;
 
-        let exclude = config.ignore_patterns
+        let exclude = config
+            .ignore_patterns
             .iter()
             .map(|p| Pattern::new(p))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| WatchingQueueError::Config {
-                message: format!("Invalid exclude pattern: {}", e)
+                message: format!("Invalid exclude pattern: {}", e),
             })?;
 
         Ok(Self { include, exclude })
@@ -215,7 +217,7 @@ pub struct WatchingQueueStats {
     pub events_processed: u64,
     pub events_filtered: u64,
     pub queue_errors: u64,
-    pub events_throttled: u64,  // Task 461.8: Events skipped due to queue depth
+    pub events_throttled: u64, // Task 461.8: Events skipped due to queue depth
 }
 
 /// Get the current Git branch name for a repository
@@ -313,4 +315,3 @@ pub fn get_current_branch(repo_path: &Path) -> String {
         }
     }
 }
-

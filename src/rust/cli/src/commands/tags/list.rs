@@ -3,8 +3,8 @@
 use anyhow::Result;
 use tabled::Tabled;
 
-use crate::output;
 use super::db::{open_db, table_exists};
+use crate::output;
 
 #[derive(Tabled, serde::Serialize)]
 pub(super) struct TagRow {
@@ -43,8 +43,7 @@ pub(super) fn list_tags(
     };
 
     let mut stmt = conn.prepare(sql)?;
-    let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-        params.iter().map(|p| p.as_ref()).collect();
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     let rows: Vec<TagRow> = stmt
         .query_map(params_refs.as_slice(), |row| {
             let score: f64 = row.get(2)?;
@@ -68,7 +67,11 @@ pub(super) fn list_tags(
     } else if script {
         output::print_script(&rows, !no_headers);
     } else {
-        output::info(format!("Tags for document {} ({} total)", doc_id, rows.len()));
+        output::info(format!(
+            "Tags for document {} ({} total)",
+            doc_id,
+            rows.len()
+        ));
         output::print_table(&rows);
     }
 

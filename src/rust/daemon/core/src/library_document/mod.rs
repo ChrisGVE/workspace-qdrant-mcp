@@ -24,8 +24,8 @@ mod xml_helpers;
 
 // Re-export all public splitter functions
 pub use format_splitters::{
-    split_pdf, split_pptx, split_docx, split_odp, split_odt, split_ods, split_rtf,
-    split_epub, split_html, split_markdown, split_plain_text,
+    split_docx, split_epub, split_html, split_markdown, split_odp, split_ods, split_odt, split_pdf,
+    split_plain_text, split_pptx, split_rtf,
 };
 
 /// Errors from library document processing
@@ -204,8 +204,7 @@ fn create_parent_for_unit(
     doc_fingerprint: &str,
     unit: &StructuralUnit,
 ) -> ParentUnitRecord {
-    let point_id =
-        parent_unit::parent_point_id(doc_id, &unit.unit_type, &unit.unit_locator);
+    let point_id = parent_unit::parent_point_id(doc_id, &unit.unit_type, &unit.unit_locator);
     ParentUnitRecord {
         point_id,
         doc_id: doc_id.to_string(),
@@ -255,8 +254,7 @@ mod tests {
     use std::path::Path;
 
     use crate::parent_unit::{
-        UNIT_TYPE_DOCX_SECTION, UNIT_TYPE_EPUB_SECTION, UNIT_TYPE_PDF_PAGE,
-        UNIT_TYPE_TEXT_SECTION,
+        UNIT_TYPE_DOCX_SECTION, UNIT_TYPE_EPUB_SECTION, UNIT_TYPE_PDF_PAGE, UNIT_TYPE_TEXT_SECTION,
     };
 
     #[test]
@@ -370,7 +368,11 @@ mod tests {
         let dir = std::env::temp_dir().join("wqm_test_lib_doc_txt");
         let _ = std::fs::create_dir_all(&dir);
         let txt_path = dir.join("test.txt");
-        std::fs::write(&txt_path, "A simple paragraph of text for testing purposes.").unwrap();
+        std::fs::write(
+            &txt_path,
+            "A simple paragraph of text for testing purposes.",
+        )
+        .unwrap();
 
         let result = process_library_document(
             &txt_path,

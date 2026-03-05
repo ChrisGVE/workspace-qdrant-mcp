@@ -85,7 +85,10 @@ async fn test_store_replaces_embedding() {
         .await
         .unwrap();
 
-    let loaded = load_project_embedding(&pool, "proj-a").await.unwrap().unwrap();
+    let loaded = load_project_embedding(&pool, "proj-a")
+        .await
+        .unwrap()
+        .unwrap();
     assert!((loaded[0] - 3.0).abs() < 1e-6);
 }
 
@@ -154,8 +157,8 @@ fn test_pairwise_orthogonal_projects() {
 fn test_pairwise_three_projects() {
     let embeddings = vec![
         ("proj-a".to_string(), vec![1.0, 0.0]),
-        ("proj-b".to_string(), vec![0.95, 0.31]),  // cos sim with a ~ 0.95
-        ("proj-c".to_string(), vec![0.0, 1.0]),     // orthogonal to a
+        ("proj-b".to_string(), vec![0.95, 0.31]), // cos sim with a ~ 0.95
+        ("proj-c".to_string(), vec![0.0, 1.0]),   // orthogonal to a
     ];
 
     let affinities = compute_pairwise_affinities(&embeddings, 0.7);
@@ -300,9 +303,7 @@ async fn test_grouper_similar_projects() {
     let groups = grouper.compute_affinity_groups().await.unwrap();
     assert_eq!(groups, 1);
 
-    let members = schema::get_group_members(&pool, "proj-a")
-        .await
-        .unwrap();
+    let members = schema::get_group_members(&pool, "proj-a").await.unwrap();
     assert_eq!(members.len(), 2);
     assert!(members.contains(&"proj-a".to_string()));
     assert!(members.contains(&"proj-b".to_string()));
@@ -360,9 +361,7 @@ async fn test_grouper_recompute_clears_old() {
     let groups = grouper.compute_affinity_groups().await.unwrap();
     assert_eq!(groups, 0);
 
-    let members = schema::get_group_members(&pool, "proj-a")
-        .await
-        .unwrap();
+    let members = schema::get_group_members(&pool, "proj-a").await.unwrap();
     assert!(members.is_empty() || members == vec!["proj-a".to_string()]);
 }
 
@@ -371,7 +370,10 @@ async fn test_grouper_get_project_groups_empty() {
     let pool = setup_pool().await;
     let grouper = AffinityGrouper::new(pool.clone(), AffinityConfig::default());
 
-    let groups = grouper.get_project_affinity_groups("nonexistent").await.unwrap();
+    let groups = grouper
+        .get_project_affinity_groups("nonexistent")
+        .await
+        .unwrap();
     assert!(groups.is_empty());
 }
 

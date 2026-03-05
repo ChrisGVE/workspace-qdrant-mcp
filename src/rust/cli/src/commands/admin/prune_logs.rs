@@ -30,7 +30,9 @@ struct PruneRow {
 }
 
 impl ColumnHints for PruneRow {
-    fn content_columns() -> &'static [usize] { &[] }
+    fn content_columns() -> &'static [usize] {
+        &[]
+    }
 }
 
 /// Prune old log files from the canonical log directory
@@ -53,16 +55,20 @@ pub fn execute(dry_run: bool, retention_hours: u64) -> Result<()> {
         return Ok(());
     }
 
-    let rows: Vec<PruneRow> = result.candidates.iter().map(|c| {
-        PruneRow {
-            file: c.path.file_name()
+    let rows: Vec<PruneRow> = result
+        .candidates
+        .iter()
+        .map(|c| PruneRow {
+            file: c
+                .path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("?")
                 .to_string(),
             size: format_bytes(c.size),
             age: wqm_common::duration_fmt::format_duration(c.age_hours * 3600.0, 0),
-        }
-    }).collect();
+        })
+        .collect();
 
     output::print_table_auto(&rows);
     output::separator();

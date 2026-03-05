@@ -1,6 +1,6 @@
 //! GitHub API types and release fetching for update command
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
 

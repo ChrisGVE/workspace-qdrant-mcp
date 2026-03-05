@@ -1,7 +1,7 @@
 //! Types for embedding generation: errors, configuration, and result structs.
 
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use thiserror::Error;
 
 /// Errors that can occur during embedding generation

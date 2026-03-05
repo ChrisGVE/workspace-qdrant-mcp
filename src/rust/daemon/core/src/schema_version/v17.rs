@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V17Migration;
 
@@ -26,7 +26,8 @@ impl Migration for V17Migration {
             )
             "#,
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_operational_state_project ON operational_state (project_id) WHERE project_id IS NOT NULL",
@@ -37,6 +38,10 @@ impl Migration for V17Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 17 }
-    fn description(&self) -> &'static str { "Create operational_state table" }
+    fn version(&self) -> i32 {
+        17
+    }
+    fn description(&self) -> &'static str {
+        "Create operational_state table"
+    }
 }

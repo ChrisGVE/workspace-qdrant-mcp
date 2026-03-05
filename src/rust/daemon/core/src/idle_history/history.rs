@@ -123,7 +123,10 @@ impl IdleHistory {
         };
 
         let avg_mode_duration_secs = if transition_count > 0 {
-            entries.iter().map(|e| e.duration_in_previous_secs).sum::<f64>()
+            entries
+                .iter()
+                .map(|e| e.duration_in_previous_secs)
+                .sum::<f64>()
                 / transition_count as f64
         } else {
             0.0
@@ -157,8 +160,7 @@ impl IdleHistory {
 
     /// Rotate the history file, removing entries older than max_age.
     pub fn rotate(&self) {
-        let cutoff = Utc::now()
-            - chrono::Duration::from_std(self.max_age).unwrap_or_default();
+        let cutoff = Utc::now() - chrono::Duration::from_std(self.max_age).unwrap_or_default();
         let entries = self.read_since(&cutoff);
 
         if entries.is_empty() {

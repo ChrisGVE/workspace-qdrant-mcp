@@ -4,9 +4,9 @@
 //! integration test suite, including configuration, result types for
 //! each Valgrind tool, and error handling.
 
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Valgrind test configuration
@@ -240,5 +240,8 @@ pub enum ValgrindError {
     ParseError { message: String },
 
     #[error("I/O error: {source}")]
-    IoError { #[from] source: std::io::Error },
+    IoError {
+        #[from]
+        source: std::io::Error,
+    },
 }

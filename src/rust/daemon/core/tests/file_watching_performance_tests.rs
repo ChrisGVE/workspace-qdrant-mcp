@@ -25,15 +25,14 @@ impl TestWatcher {
         let events_clone = Arc::clone(&events);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        let watcher =
-            notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
-                if let Ok(event) = result {
-                    if let Ok(mut events_lock) = events_clone.lock() {
-                        events_lock.push(event.clone());
-                    }
-                    let _ = event_tx.send(event);
+        let watcher = notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
+            if let Ok(event) = result {
+                if let Ok(mut events_lock) = events_clone.lock() {
+                    events_lock.push(event.clone());
                 }
-            })?;
+                let _ = event_tx.send(event);
+            }
+        })?;
 
         Ok(Self {
             _watcher: watcher,
@@ -50,11 +49,7 @@ impl TestWatcher {
         self._watcher.watch(path.as_ref(), recursive)
     }
 
-    async fn wait_for_events(
-        &mut self,
-        expected_count: usize,
-        timeout: Duration,
-    ) -> Vec<Event> {
+    async fn wait_for_events(&mut self, expected_count: usize, timeout: Duration) -> Vec<Event> {
         let mut collected_events = Vec::new();
         let start_time = Instant::now();
 
@@ -86,8 +81,7 @@ async_test!(test_memory_usage_with_many_files, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -149,8 +143,7 @@ async_test!(test_watcher_performance_baseline, {
     let temp_path = temp_dir.path();
 
     let setup_start = Instant::now();
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -199,10 +192,7 @@ async_test!(test_watcher_performance_baseline, {
     println!("  Setup time: {:?}", setup_duration);
     println!("  File creation time: {:?}", creation_duration);
     println!("  Event detection time: {:?}", detection_duration);
-    println!(
-        "  Events detected: {} out of 50 operations",
-        events.len()
-    );
+    println!("  Events detected: {} out of 50 operations", events.len());
 
     Ok(())
 });
@@ -213,8 +203,7 @@ async_test!(test_concurrent_file_operations_with_watching, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path().to_path_buf();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(&temp_path, RecursiveMode::NonRecursive)
@@ -231,14 +220,10 @@ async_test!(test_concurrent_file_operations_with_watching, {
         let temp_path = temp_path.clone();
         join_set.spawn(async move {
             for file_id in 0..files_per_task {
-                let file_path =
-                    temp_path.join(format!("concurrent_{}_{}.txt", task_id, file_id));
-                tokio::fs::write(
-                    &file_path,
-                    format!("Task {} File {}", task_id, file_id),
-                )
-                .await
-                .unwrap();
+                let file_path = temp_path.join(format!("concurrent_{}_{}.txt", task_id, file_id));
+                tokio::fs::write(&file_path, format!("Task {} File {}", task_id, file_id))
+                    .await
+                    .unwrap();
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
             task_id
@@ -304,8 +289,7 @@ async_test!(test_large_directory_tree_performance, {
     }
 
     let watch_start = Instant::now();
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::Recursive)

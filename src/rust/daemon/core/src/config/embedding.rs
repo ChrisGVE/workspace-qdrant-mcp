@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-fn default_cache_max_entries() -> usize { 1000 }
+fn default_cache_max_entries() -> usize {
+    1000
+}
 
 /// Embedding generation configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -17,8 +17,9 @@ impl QueueManager {
         queue_id: &str,
         decision: &wqm_common::queue_types::QueueDecision,
     ) -> QueueResult<()> {
-        let decision_json = serde_json::to_string(decision)
-            .map_err(|e| QueueError::InvalidOperation(format!("Failed to serialize decision: {}", e)))?;
+        let decision_json = serde_json::to_string(decision).map_err(|e| {
+            QueueError::InvalidOperation(format!("Failed to serialize decision: {}", e))
+        })?;
         let now = timestamps::now_utc();
 
         sqlx::query(
@@ -47,18 +48,25 @@ impl QueueManager {
     /// Returns the resolved overall QueueStatus.
     pub async fn check_and_finalize(&self, queue_id: &str) -> QueueResult<QueueStatus> {
         let row = sqlx::query(
-            "SELECT qdrant_status, search_status FROM unified_queue WHERE queue_id = ?1"
+            "SELECT qdrant_status, search_status FROM unified_queue WHERE queue_id = ?1",
         )
         .bind(queue_id)
         .fetch_optional(&self.pool)
         .await?;
 
         let Some(row) = row else {
-            return Err(QueueError::InvalidOperation(format!("Queue item not found: {}", queue_id)));
+            return Err(QueueError::InvalidOperation(format!(
+                "Queue item not found: {}",
+                queue_id
+            )));
         };
 
-        let qs_str: String = row.try_get::<String, _>("qdrant_status").unwrap_or_else(|_| "pending".to_string());
-        let ss_str: String = row.try_get::<String, _>("search_status").unwrap_or_else(|_| "pending".to_string());
+        let qs_str: String = row
+            .try_get::<String, _>("qdrant_status")
+            .unwrap_or_else(|_| "pending".to_string());
+        let ss_str: String = row
+            .try_get::<String, _>("search_status")
+            .unwrap_or_else(|_| "pending".to_string());
         let qs = DestinationStatus::from_str(&qs_str).unwrap_or(DestinationStatus::Pending);
         let ss = DestinationStatus::from_str(&ss_str).unwrap_or(DestinationStatus::Pending);
 
@@ -74,7 +82,7 @@ impl QueueManager {
         if overall == QueueStatus::Done || overall == QueueStatus::Failed {
             let now = timestamps::now_utc();
             sqlx::query(
-                "UPDATE unified_queue SET status = ?1, updated_at = ?2 WHERE queue_id = ?3"
+                "UPDATE unified_queue SET status = ?1, updated_at = ?2 WHERE queue_id = ?3",
             )
             .bind(overall.to_string())
             .bind(&now)
@@ -100,9 +108,12 @@ impl QueueManager {
         let column = match destination {
             "qdrant" => "qdrant_status",
             "search" => "search_status",
-            _ => return Err(QueueError::InvalidOperation(
-                format!("Unknown destination: {}", destination),
-            )),
+            _ => {
+                return Err(QueueError::InvalidOperation(format!(
+                    "Unknown destination: {}",
+                    destination
+                )))
+            }
         };
 
         let now = timestamps::now_utc();

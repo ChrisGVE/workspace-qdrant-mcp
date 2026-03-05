@@ -7,11 +7,7 @@ use anyhow::Result;
 use crate::output;
 
 /// Show instructions for searching rules via MCP.
-pub async fn search_rules(
-    query: &str,
-    scope: Option<String>,
-    limit: usize,
-) -> Result<()> {
+pub async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Result<()> {
     output::section("Search Rules");
 
     output::kv("Query", query);

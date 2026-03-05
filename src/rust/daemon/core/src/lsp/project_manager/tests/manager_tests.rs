@@ -41,8 +41,7 @@ async fn test_project_health_check_no_servers() {
     let config = ProjectLspConfig::default();
     let manager = LanguageServerManager::new(config).await.unwrap();
 
-    let (checked, restarted, failed) =
-        manager.check_project_servers_health("non-existent").await;
+    let (checked, restarted, failed) = manager.check_project_servers_health("non-existent").await;
     assert_eq!(checked, 0);
     assert_eq!(restarted, 0);
     assert_eq!(failed, 0);

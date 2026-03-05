@@ -3,8 +3,8 @@
 //! Each `with_*` method injects an optional dependency that the server factory
 //! uses when wiring up gRPC services during `start()`.
 
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use tokio::sync::{Notify, RwLock};

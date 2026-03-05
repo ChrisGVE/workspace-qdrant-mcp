@@ -158,10 +158,7 @@ impl LspServerManager {
     }
 
     /// Create a new server instance
-    pub async fn create_instance(
-        &mut self,
-        detected: DetectedServer,
-    ) -> LspResult<ServerInstance> {
+    pub async fn create_instance(&mut self, detected: DetectedServer) -> LspResult<ServerInstance> {
         let mut instance = ServerInstance::new(detected, self.config.clone()).await?;
         instance.start().await?;
 
@@ -195,14 +192,16 @@ impl LspServerManager {
         let restart_policy = instance.restart_policy();
 
         // Check if restart is enabled and we haven't exceeded max attempts
-        if !restart_policy.enabled
-            || restart_policy.current_attempts >= restart_policy.max_attempts
+        if !restart_policy.enabled || restart_policy.current_attempts >= restart_policy.max_attempts
         {
             return false;
         }
 
         // Check if server is in a failed state
-        if !matches!(metrics.status, ServerStatus::Failed | ServerStatus::Degraded) {
+        if !matches!(
+            metrics.status,
+            ServerStatus::Failed | ServerStatus::Degraded
+        ) {
             return false;
         }
 
@@ -412,7 +411,9 @@ mod tests {
             priority: 1,
         };
 
-        let mut instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+        let mut instance = ServerInstance::new(detected, LspConfig::default())
+            .await
+            .unwrap();
 
         // Disable restart and set to failed state
         instance.restart_policy_mut().enabled = false;
@@ -444,7 +445,9 @@ mod tests {
             priority: 1,
         };
 
-        let mut instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+        let mut instance = ServerInstance::new(detected, LspConfig::default())
+            .await
+            .unwrap();
 
         // Set to max attempts
         instance.restart_policy_mut().current_attempts = 5;

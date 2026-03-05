@@ -156,7 +156,7 @@ mod tests {
     fn test_select_keywords_df_penalty() {
         let candidates = vec![
             make_candidate("data", 0.9, 0.85, 2.0),   // Very common term
-            make_candidate("qdrant", 0.7, 0.65, 1.8),  // Rare term
+            make_candidate("qdrant", 0.7, 0.65, 1.8), // Rare term
         ];
         let config = KeywordSelectionConfig {
             max_keywords: 10,
@@ -173,8 +173,14 @@ mod tests {
         );
 
         // "data" should be filtered (90% > 80% max)
-        assert!(!selected.iter().any(|k| k.phrase == "data"), "'data' should be filtered by DF ratio");
-        assert!(selected.iter().any(|k| k.phrase == "qdrant"), "'qdrant' should survive");
+        assert!(
+            !selected.iter().any(|k| k.phrase == "data"),
+            "'data' should be filtered by DF ratio"
+        );
+        assert!(
+            selected.iter().any(|k| k.phrase == "qdrant"),
+            "'qdrant' should survive"
+        );
     }
 
     #[test]
@@ -193,9 +199,7 @@ mod tests {
 
     #[test]
     fn test_select_keywords_stability_count() {
-        let candidates = vec![
-            make_candidate("async runtime", 0.8, 0.7, 1.5),
-        ];
+        let candidates = vec![make_candidate("async runtime", 0.8, 0.7, 1.5)];
         let config = KeywordSelectionConfig::default();
 
         let selected = select_keywords(&candidates, |_| 0, |_| 5, &config);
@@ -209,7 +213,12 @@ mod tests {
         // Common term (df=500 out of 1000)
         let common = idf_weight(1000, 500);
 
-        assert!(rare > common, "Rare term should have higher IDF: {} vs {}", rare, common);
+        assert!(
+            rare > common,
+            "Rare term should have higher IDF: {} vs {}",
+            rare,
+            common
+        );
     }
 
     #[test]

@@ -1,8 +1,8 @@
 //! Project ID calculator with git URL normalization and hashing
 
-use std::path::Path;
-use sha2::{Sha256, Digest};
 use super::types::DisambiguationConfig;
+use sha2::{Digest, Sha256};
+use std::path::Path;
 
 /// Calculator for unique project IDs with disambiguation support
 pub struct ProjectIdCalculator {

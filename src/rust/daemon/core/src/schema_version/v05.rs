@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V05Migration;
 
@@ -15,12 +15,13 @@ impl Migration for V05Migration {
         info!("Migration v5: Creating metrics_history table");
 
         use crate::metrics_history_schema::{
-            CREATE_METRICS_HISTORY_SQL, CREATE_METRICS_HISTORY_INDEXES_SQL,
+            CREATE_METRICS_HISTORY_INDEXES_SQL, CREATE_METRICS_HISTORY_SQL,
         };
 
         debug!("Creating metrics_history table");
         sqlx::query(CREATE_METRICS_HISTORY_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         for index_sql in CREATE_METRICS_HISTORY_INDEXES_SQL {
             debug!("Creating metrics_history index");
@@ -31,6 +32,10 @@ impl Migration for V05Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 5 }
-    fn description(&self) -> &'static str { "Create metrics_history table" }
+    fn version(&self) -> i32 {
+        5
+    }
+    fn description(&self) -> &'static str {
+        "Create metrics_history table"
+    }
 }

@@ -170,8 +170,17 @@ pub async fn execute(args: GraphArgs) -> Result<()> {
             tolerance,
             top_k,
             edge_types,
-        } => pagerank::pagerank(&tenant, damping, max_iterations, tolerance, top_k, edge_types)
-            .await,
+        } => {
+            pagerank::pagerank(
+                &tenant,
+                damping,
+                max_iterations,
+                tolerance,
+                top_k,
+                edge_types,
+            )
+            .await
+        }
         GraphCommand::Communities {
             tenant,
             max_iterations,

@@ -45,11 +45,7 @@ pub(super) async fn upsert_and_track(
     // Task 555: If insert fails after old points were deleted (update path),
     // clean up stale SQLite chunk records before propagating the error.
     let qdrant_insert_failed = if !points.is_empty() {
-        info!(
-            "Inserting {} points into {}",
-            points.len(),
-            item.collection
-        );
+        info!("Inserting {} points into {}", points.len(), item.collection);
         let upsert_start = std::time::Instant::now();
         match ctx
             .storage_client
@@ -72,22 +68,11 @@ pub(super) async fn upsert_and_track(
 
     // If Qdrant insert failed, clean up stale SQLite state before propagating
     if let Some(ref qdrant_err) = qdrant_insert_failed {
-        delete::handle_qdrant_failure(
-            ctx,
-            item,
-            pool,
-            watch_folder_id,
-            relative_path,
-            qdrant_err,
-        )
-        .await;
+        delete::handle_qdrant_failure(ctx, item, pool, watch_folder_id, relative_path, qdrant_err)
+            .await;
         let _ = ctx
             .queue_manager
-            .update_destination_status(
-                &item.queue_id,
-                "qdrant",
-                DestinationStatus::Failed,
-            )
+            .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Failed)
             .await;
         return Err(UnifiedProcessorError::Storage(qdrant_err.clone()));
     }
@@ -113,10 +98,7 @@ pub(super) async fn upsert_and_track(
     )
     .await
     .map_err(|e| {
-        UnifiedProcessorError::QueueOperation(format!(
-            "tracked_files lookup failed: {}",
-            e
-        ))
+        UnifiedProcessorError::QueueOperation(format!("tracked_files lookup failed: {}", e))
     })?;
 
     // Convert ChunkRecords to the tuple format expected by insert_qdrant_chunks_tx
@@ -146,10 +128,7 @@ pub(super) async fn upsert_and_track(
     // Begin SQLite transaction for atomic tracked_files + qdrant_chunks writes
     let tx_result: Result<i64, UnifiedProcessorError> = async {
         let mut tx = pool.begin().await.map_err(|e| {
-            UnifiedProcessorError::QueueOperation(format!(
-                "Failed to begin transaction: {}",
-                e
-            ))
+            UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
         })?;
 
         let file_id = match &existing {
@@ -175,17 +154,14 @@ pub(super) async fn upsert_and_track(
                     ))
                 })?;
                 // Delete old chunks before inserting new
-                tracked_files_schema::delete_qdrant_chunks_tx(
-                    &mut tx,
-                    existing_file.file_id,
-                )
-                .await
-                .map_err(|e| {
-                    UnifiedProcessorError::QueueOperation(format!(
-                        "qdrant_chunks delete failed: {}",
-                        e
-                    ))
-                })?;
+                tracked_files_schema::delete_qdrant_chunks_tx(&mut tx, existing_file.file_id)
+                    .await
+                    .map_err(|e| {
+                        UnifiedProcessorError::QueueOperation(format!(
+                            "qdrant_chunks delete failed: {}",
+                            e
+                        ))
+                    })?;
                 existing_file.file_id
             }
             None => {
@@ -222,25 +198,18 @@ pub(super) async fn upsert_and_track(
 
         // Insert qdrant_chunks
         if !chunk_tuples.is_empty() {
-            tracked_files_schema::insert_qdrant_chunks_tx(
-                &mut tx,
-                file_id,
-                &chunk_tuples,
-            )
-            .await
-            .map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!(
-                    "qdrant_chunks insert failed: {}",
-                    e
-                ))
-            })?;
+            tracked_files_schema::insert_qdrant_chunks_tx(&mut tx, file_id, &chunk_tuples)
+                .await
+                .map_err(|e| {
+                    UnifiedProcessorError::QueueOperation(format!(
+                        "qdrant_chunks insert failed: {}",
+                        e
+                    ))
+                })?;
         }
 
         tx.commit().await.map_err(|e| {
-            UnifiedProcessorError::QueueOperation(format!(
-                "Transaction commit failed: {}",
-                e
-            ))
+            UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e))
         })?;
 
         debug!(

@@ -45,10 +45,7 @@ fn test_chunk_type_display() {
 
 #[test]
 fn test_chunk_type_from_str() {
-    assert_eq!(
-        ChunkType::from_str("function"),
-        Some(ChunkType::Function)
-    );
+    assert_eq!(ChunkType::from_str("function"), Some(ChunkType::Function));
     assert_eq!(ChunkType::from_str("METHOD"), Some(ChunkType::Method));
     assert_eq!(
         ChunkType::from_str("text_chunk"),
@@ -66,9 +63,8 @@ fn test_tracked_files_sql_is_valid() {
     assert!(CREATE_TRACKED_FILES_SQL.contains("watch_folder_id TEXT NOT NULL"));
     assert!(CREATE_TRACKED_FILES_SQL.contains("file_path TEXT NOT NULL"));
     assert!(CREATE_TRACKED_FILES_SQL.contains("file_hash TEXT NOT NULL"));
-    assert!(CREATE_TRACKED_FILES_SQL.contains(
-        "FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id)"
-    ));
+    assert!(CREATE_TRACKED_FILES_SQL
+        .contains("FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id)"));
     assert!(CREATE_TRACKED_FILES_SQL.contains("UNIQUE(watch_folder_id, file_path, branch)"));
     assert!(CREATE_TRACKED_FILES_SQL.contains("lsp_status"));
     assert!(CREATE_TRACKED_FILES_SQL.contains("treesitter_status"));
@@ -101,9 +97,8 @@ fn test_qdrant_chunks_sql_is_valid() {
     assert!(CREATE_QDRANT_CHUNKS_SQL.contains("file_id INTEGER NOT NULL"));
     assert!(CREATE_QDRANT_CHUNKS_SQL.contains("point_id TEXT NOT NULL"));
     assert!(CREATE_QDRANT_CHUNKS_SQL.contains("content_hash TEXT NOT NULL"));
-    assert!(CREATE_QDRANT_CHUNKS_SQL.contains(
-        "FOREIGN KEY (file_id) REFERENCES tracked_files(file_id) ON DELETE CASCADE"
-    ));
+    assert!(CREATE_QDRANT_CHUNKS_SQL
+        .contains("FOREIGN KEY (file_id) REFERENCES tracked_files(file_id) ON DELETE CASCADE"));
     assert!(CREATE_QDRANT_CHUNKS_SQL.contains("UNIQUE(file_id, chunk_index)"));
 }
 
@@ -190,10 +185,7 @@ fn test_qdrant_chunk_struct_serde() {
     );
     assert_eq!(deserialized.chunk_index, 0);
     assert_eq!(deserialized.chunk_type, Some(ChunkType::Function));
-    assert_eq!(
-        deserialized.symbol_name,
-        Some("process_item".to_string())
-    );
+    assert_eq!(deserialized.symbol_name, Some("process_item".to_string()));
 }
 
 #[test]
@@ -258,7 +250,10 @@ fn test_compute_content_hash() {
     let hash3 = compute_content_hash("different content");
 
     assert_eq!(hash1, hash2, "Same content should produce same hash");
-    assert_ne!(hash1, hash3, "Different content should produce different hash");
+    assert_ne!(
+        hash1, hash3,
+        "Different content should produce different hash"
+    );
     assert_eq!(hash1.len(), 64, "SHA256 hex string should be 64 chars");
 }
 

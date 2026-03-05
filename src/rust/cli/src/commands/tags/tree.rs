@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
-use crate::output;
 use super::db::{open_db, table_exists};
+use crate::output;
 
 struct TreeNode {
     id: i64,
@@ -54,7 +54,11 @@ pub(super) fn show_tree(tenant_id: &str, collection: &str) -> Result<()> {
     let roots: Vec<&TreeNode> = nodes.iter().filter(|n| n.level == 1).collect();
     for (i, root) in roots.iter().enumerate() {
         let is_last_root = i == roots.len() - 1;
-        let prefix = if is_last_root { "└── " } else { "├── " };
+        let prefix = if is_last_root {
+            "└── "
+        } else {
+            "├── "
+        };
         println!("{}{} (L1)", prefix, root.name);
 
         let children: Vec<&TreeNode> = nodes
@@ -65,7 +69,11 @@ pub(super) fn show_tree(tenant_id: &str, collection: &str) -> Result<()> {
         for (j, child) in children.iter().enumerate() {
             let is_last_child = j == children.len() - 1;
             let indent = if is_last_root { "    " } else { "│   " };
-            let child_prefix = if is_last_child { "└── " } else { "├── " };
+            let child_prefix = if is_last_child {
+                "└── "
+            } else {
+                "├── "
+            };
             println!("{}{}{} (L2)", indent, child_prefix, child.name);
 
             let grandchildren: Vec<&TreeNode> = nodes
@@ -77,7 +85,11 @@ pub(super) fn show_tree(tenant_id: &str, collection: &str) -> Result<()> {
                 let is_last_gc = k == grandchildren.len() - 1;
                 let gc_indent = if is_last_root { "    " } else { "│   " };
                 let gc_indent2 = if is_last_child { "    " } else { "│   " };
-                let gc_prefix = if is_last_gc { "└── " } else { "├── " };
+                let gc_prefix = if is_last_gc {
+                    "└── "
+                } else {
+                    "├── "
+                };
                 println!("{}{}{}{}", gc_indent, gc_indent2, gc_prefix, gc.name);
             }
         }

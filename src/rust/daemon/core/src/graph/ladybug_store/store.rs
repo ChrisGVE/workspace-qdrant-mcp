@@ -1,5 +1,4 @@
 /// LadybugDB-backed graph store implementation.
-
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -7,9 +6,9 @@ use lbug::{Connection, Database, SystemConfig, Value};
 use tokio::sync::Mutex;
 
 use crate::graph::{
-    EdgeType, GraphEdge, GraphNode, GraphStats, ImpactNode, ImpactReport, TraversalNode,
     schema::{GraphDbError, GraphDbResult},
-    GraphStore,
+    EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport,
+    TraversalNode,
 };
 
 use super::config::LadybugConfig;
@@ -121,7 +120,8 @@ impl LadybugGraphStore {
     /// This is LadybugDB-specific (not part of GraphStore trait).
     pub fn execute_cypher(&self, cypher: &str) -> GraphDbResult<Vec<Vec<String>>> {
         let conn = self.connect()?;
-        let result = conn.query(cypher)
+        let result = conn
+            .query(cypher)
             .map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {}", e)))?;
 
         let mut rows = Vec::new();
@@ -244,14 +244,17 @@ impl GraphStore for LadybugGraphStore {
         Ok(())
     }
 
-    async fn delete_edges_by_file(
-        &self,
-        tenant_id: &str,
-        file_path: &str,
-    ) -> GraphDbResult<u64> {
+    async fn delete_edges_by_file(&self, tenant_id: &str, file_path: &str) -> GraphDbResult<u64> {
         let _lock = self.write_lock.lock().await;
         let conn = self.connect()?;
-        for rel_type in &["CALLS", "CONTAINS", "IMPORTS", "USES_TYPE", "EXTENDS", "IMPLEMENTS"] {
+        for rel_type in &[
+            "CALLS",
+            "CONTAINS",
+            "IMPORTS",
+            "USES_TYPE",
+            "EXTENDS",
+            "IMPLEMENTS",
+        ] {
             let cypher = format!(
                 "MATCH (a:GraphNode)-[r:{}]->(b:GraphNode) \
                  WHERE r.tenant_id = '{}' AND r.source_file = '{}' \
@@ -268,7 +271,14 @@ impl GraphStore for LadybugGraphStore {
     async fn delete_tenant(&self, tenant_id: &str) -> GraphDbResult<u64> {
         let _lock = self.write_lock.lock().await;
         let conn = self.connect()?;
-        for rel_type in &["CALLS", "CONTAINS", "IMPORTS", "USES_TYPE", "EXTENDS", "IMPLEMENTS"] {
+        for rel_type in &[
+            "CALLS",
+            "CONTAINS",
+            "IMPORTS",
+            "USES_TYPE",
+            "EXTENDS",
+            "IMPLEMENTS",
+        ] {
             let cypher = format!(
                 "MATCH (a:GraphNode)-[r:{}]->(b:GraphNode) \
                  WHERE r.tenant_id = '{}' DELETE r",
@@ -294,7 +304,11 @@ impl GraphStore for LadybugGraphStore {
     ) -> GraphDbResult<Vec<TraversalNode>> {
         let conn = self.connect()?;
         let rel_pattern = match edge_types {
-            Some(types) => types.iter().map(|t| t.as_str()).collect::<Vec<_>>().join("|"),
+            Some(types) => types
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .join("|"),
             None => "CALLS|CONTAINS|IMPORTS|USES_TYPE|EXTENDS|IMPLEMENTS".to_string(),
         };
 
@@ -309,7 +323,8 @@ impl GraphStore for LadybugGraphStore {
             escape_cypher(tenant_id),
         );
 
-        let result = conn.query(&cypher)
+        let result = conn
+            .query(&cypher)
             .map_err(|e| GraphDbError::InvalidInput(format!("query_related: {}", e)))?;
 
         let mut nodes = Vec::new();
@@ -351,7 +366,8 @@ impl GraphStore for LadybugGraphStore {
             file_filter,
         );
 
-        let result = conn.query(&cypher)
+        let result = conn
+            .query(&cypher)
             .map_err(|e| GraphDbError::InvalidInput(format!("impact_analysis: {}", e)))?;
 
         let mut impacted = Vec::new();
@@ -382,7 +398,8 @@ impl GraphStore for LadybugGraphStore {
         };
 
         let cypher = format!("MATCH (n:GraphNode){} RETURN count(n)", filter);
-        let result = conn.query(&cypher)
+        let result = conn
+            .query(&cypher)
             .map_err(|e| GraphDbError::InvalidInput(format!("stats: {}", e)))?;
 
         let mut total_nodes = 0u64;

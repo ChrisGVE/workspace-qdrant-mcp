@@ -14,8 +14,7 @@ pub(super) fn expand_config_paths(mut config: DaemonConfig) -> DaemonConfig {
         config.log_file = Some(PathBuf::from(expand_env_vars(&path.to_string_lossy())));
     }
     if let Some(ref path) = config.project_path {
-        config.project_path =
-            Some(PathBuf::from(expand_env_vars(&path.to_string_lossy())));
+        config.project_path = Some(PathBuf::from(expand_env_vars(&path.to_string_lossy())));
     }
     if let Some(ref path) = config.embedding.model_cache_dir {
         config.embedding.model_cache_dir =
@@ -79,9 +78,7 @@ pub(super) fn validate_config(config: &DaemonConfig) -> Result<(), UnifiedConfig
         ));
     }
 
-    if !config.qdrant.url.starts_with("http://")
-        && !config.qdrant.url.starts_with("https://")
-    {
+    if !config.qdrant.url.starts_with("http://") && !config.qdrant.url.starts_with("https://") {
         return Err(UnifiedConfigError::ValidationError(
             "Qdrant URL must start with http:// or https://".to_string(),
         ));

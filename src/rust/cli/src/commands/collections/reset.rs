@@ -7,13 +7,9 @@ use anyhow::{Context as _, Result};
 use crate::grpc::client::DaemonClient;
 use crate::output;
 
-use super::{VALID_COLLECTIONS, build_client, qdrant_url};
+use super::{build_client, qdrant_url, VALID_COLLECTIONS};
 
-pub async fn reset_collections(
-    names: Vec<String>,
-    include_queue: bool,
-    yes: bool,
-) -> Result<()> {
+pub async fn reset_collections(names: Vec<String>, include_queue: bool, yes: bool) -> Result<()> {
     let validated = match validate_collection_names(&names) {
         Some(v) => v,
         None => return Ok(()),
@@ -184,11 +180,7 @@ async fn reset_single_collection(
         "field_name": "project_id",
         "field_schema": "keyword"
     });
-    let _ = client
-        .put(&index_url)
-        .json(&project_id_index)
-        .send()
-        .await;
+    let _ = client.put(&index_url).json(&project_id_index).send().await;
 
     // Libraries also get library_name index
     if name == wqm_common::constants::COLLECTION_LIBRARIES {
@@ -196,11 +188,7 @@ async fn reset_single_collection(
             "field_name": "library_name",
             "field_schema": "keyword"
         });
-        let _ = client
-            .put(&index_url)
-            .json(&library_index)
-            .send()
-            .await;
+        let _ = client.put(&index_url).json(&library_index).send().await;
     }
 
     Ok(())
@@ -208,20 +196,16 @@ async fn reset_single_collection(
 
 /// Clean pending/failed queue items for specified collections
 async fn clean_queue_items(collections: &[String]) -> Result<usize> {
-    let db_path = crate::config::get_database_path()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
         return Ok(0);
     }
 
-    let conn = rusqlite::Connection::open(&db_path)
-        .context("Failed to open state database")?;
+    let conn = rusqlite::Connection::open(&db_path).context("Failed to open state database")?;
 
     // Build placeholders for IN clause
-    let placeholders: Vec<String> = (1..=collections.len())
-        .map(|i| format!("?{}", i))
-        .collect();
+    let placeholders: Vec<String> = (1..=collections.len()).map(|i| format!("?{}", i)).collect();
     let sql = format!(
         "DELETE FROM unified_queue WHERE status IN ('pending', 'failed') AND collection IN ({})",
         placeholders.join(", ")
@@ -242,18 +226,16 @@ async fn clean_queue_items(collections: &[String]) -> Result<usize> {
 /// Try to pause daemon watchers via gRPC. Returns true if daemon was reachable.
 async fn try_pause_daemon() -> bool {
     match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            match client.system().pause_all_watchers(()).await {
-                Ok(_) => {
-                    output::info("Daemon watchers paused");
-                    true
-                }
-                Err(e) => {
-                    output::warning(format!("Failed to pause watchers: {}", e));
-                    false
-                }
+        Ok(mut client) => match client.system().pause_all_watchers(()).await {
+            Ok(_) => {
+                output::info("Daemon watchers paused");
+                true
             }
-        }
+            Err(e) => {
+                output::warning(format!("Failed to pause watchers: {}", e));
+                false
+            }
+        },
         Err(_) => {
             output::info("Daemon not running, proceeding with direct Qdrant access");
             false

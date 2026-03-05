@@ -1,5 +1,5 @@
-use super::*;
 use super::path_env::*;
+use super::*;
 use std::path::PathBuf;
 
 #[test]
@@ -150,8 +150,7 @@ fn test_expand_path_segment_empty() {
 #[test]
 fn test_expand_path_segment_unknown_var() {
     // Unknown vars should be removed (no value to substitute)
-    let expanded =
-        expand_path_segment("$WQM_TEST_NONEXISTENT_VAR_12345/bin");
+    let expanded = expand_path_segment("$WQM_TEST_NONEXISTENT_VAR_12345/bin");
     // The $VAR is consumed but env::var fails, so nothing is written
     assert_eq!(expanded, "/bin");
 }
@@ -225,10 +224,7 @@ fn test_merge_and_dedup_no_overlap() {
 #[test]
 fn test_merge_and_dedup_with_overlap() {
     let current = vec!["/usr/bin".to_string(), "/usr/local/bin".to_string()];
-    let saved = vec![
-        "/usr/bin".to_string(),
-        "/opt/bin".to_string(),
-    ];
+    let saved = vec!["/usr/bin".to_string(), "/opt/bin".to_string()];
     let result = merge_and_dedup(&current, &saved);
     // /usr/bin appears only once, from current (first occurrence wins)
     assert_eq!(result, vec!["/usr/bin", "/usr/local/bin", "/opt/bin"]);
@@ -236,11 +232,7 @@ fn test_merge_and_dedup_with_overlap() {
 
 #[test]
 fn test_merge_and_dedup_preserves_order() {
-    let current = vec![
-        "/c".to_string(),
-        "/a".to_string(),
-        "/b".to_string(),
-    ];
+    let current = vec!["/c".to_string(), "/a".to_string(), "/b".to_string()];
     let saved = vec![
         "/d".to_string(),
         "/a".to_string(), // duplicate

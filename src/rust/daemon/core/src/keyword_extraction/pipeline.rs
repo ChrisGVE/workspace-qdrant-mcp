@@ -160,8 +160,12 @@ pub async fn run_pipeline(
             Some(result) => result,
             None => {
                 return ExtractionResult {
-                    summary_vector, gist_indices, keywords,
-                    tags: Vec::new(), structural_tags: extract_structural(input), baskets: Vec::new(),
+                    summary_vector,
+                    gist_indices,
+                    keywords,
+                    tags: Vec::new(),
+                    structural_tags: extract_structural(input),
+                    baskets: Vec::new(),
                 };
             }
         };
@@ -173,7 +177,10 @@ pub async fn run_pipeline(
     };
 
     ExtractionResult {
-        summary_vector, gist_indices, keywords, tags,
+        summary_vector,
+        gist_indices,
+        keywords,
+        tags,
         structural_tags: extract_structural(input),
         baskets,
     }
@@ -185,7 +192,8 @@ fn generate_summary(
     config: &PipelineConfig,
 ) -> (Option<Vec<f32>>, Vec<usize>) {
     let summary = if input.is_code {
-        let chunk_tokens: Vec<Vec<String>> = input.chunk_texts
+        let chunk_tokens: Vec<Vec<String>> = input
+            .chunk_texts
             .iter()
             .map(|text| tokenize_for_summary(text))
             .collect();
@@ -207,17 +215,28 @@ async fn extract_and_rerank(
     embedding_generator: &EmbeddingGenerator,
     config: &PipelineConfig,
 ) -> Vec<semantic_rerank::RankedCandidate> {
-    let lexical_config = LexicalConfig { is_code: input.is_code, ..config.lexical.clone() };
+    let lexical_config = LexicalConfig {
+        is_code: input.is_code,
+        ..config.lexical.clone()
+    };
     let mut candidates = lexical_candidates::extract_candidates(input.full_text, &lexical_config);
 
     if input.is_code {
         if let Some(lang) = input.language {
             let lsp = lsp_candidates::extract_import_candidates(input.full_text, lang, &config.lsp);
-            candidates = lsp_candidates::merge_candidates(candidates, &lsp, config.lsp.priority_boost);
+            candidates =
+                lsp_candidates::merge_candidates(candidates, &lsp, config.lsp.priority_boost);
         }
     }
 
-    match semantic_rerank::rerank_candidates(candidates, parent_vector, embedding_generator, &config.rerank).await {
+    match semantic_rerank::rerank_candidates(
+        candidates,
+        parent_vector,
+        embedding_generator,
+        &config.rerank,
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("Semantic reranking failed, using empty candidates: {}", e);
@@ -232,12 +251,17 @@ fn select_keywords(
     ranked: &[semantic_rerank::RankedCandidate],
     config: &PipelineConfig,
 ) -> Vec<SelectedKeyword> {
-    let kw_config = KeywordSelectionConfig { corpus_size: input.corpus_size, ..config.keyword.clone() };
+    let kw_config = KeywordSelectionConfig {
+        corpus_size: input.corpus_size,
+        ..config.keyword.clone()
+    };
     keyword_selector::select_keywords(
         ranked,
         |phrase| input.df_lookup.get(phrase).copied().unwrap_or(0),
         |phrase| {
-            input.chunk_texts.iter()
+            input
+                .chunk_texts
+                .iter()
                 .filter(|text| text.to_lowercase().contains(&phrase.to_lowercase()))
                 .count() as u32
         },
@@ -267,13 +291,14 @@ async fn select_tags_with_diversity(
         if config.cooccurrence_weight > 0.0 {
             for candidate in &mut ranked_subset {
                 if let Some(&cent) = centrality.get(&candidate.phrase) {
-                    candidate.combined_score =
-                        config.cooccurrence_weight * cent
-                            + (1.0 - config.cooccurrence_weight) * candidate.combined_score;
+                    candidate.combined_score = config.cooccurrence_weight * cent
+                        + (1.0 - config.cooccurrence_weight) * candidate.combined_score;
                 }
             }
             ranked_subset.sort_by(|a, b| {
-                b.combined_score.partial_cmp(&a.combined_score).unwrap_or(std::cmp::Ordering::Equal)
+                b.combined_score
+                    .partial_cmp(&a.combined_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
     }
@@ -296,9 +321,13 @@ async fn build_baskets(
         embed_phrases(&keyword_phrases, embedding_generator).await,
         embed_phrases(&tag_phrases, embedding_generator).await,
     ) {
-        (Ok(kv), Ok(tv)) => {
-            Some(basket_assignment::assign_baskets(keywords, &kv, tags, &tv, &config.basket))
-        }
+        (Ok(kv), Ok(tv)) => Some(basket_assignment::assign_baskets(
+            keywords,
+            &kv,
+            tags,
+            &tv,
+            &config.basket,
+        )),
         _ => {
             tracing::warn!("Failed to embed keywords/tags for basket assignment");
             None
@@ -313,8 +342,10 @@ fn minimal_result(
     input: &PipelineInput<'_>,
 ) -> ExtractionResult {
     ExtractionResult {
-        summary_vector, gist_indices,
-        keywords: Vec::new(), tags: Vec::new(),
+        summary_vector,
+        gist_indices,
+        keywords: Vec::new(),
+        tags: Vec::new(),
         structural_tags: extract_structural(input),
         baskets: Vec::new(),
     }
@@ -332,7 +363,11 @@ fn extract_structural(input: &PipelineInput<'_>) -> Vec<SelectedTag> {
 /// Tokenize text for BM25 summary weighting.
 fn tokenize_for_summary(text: &str) -> Vec<String> {
     text.split_whitespace()
-        .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .map(|w| {
+            w.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
         .filter(|w| !w.is_empty() && w.len() >= 2)
         .collect()
 }
@@ -355,8 +390,8 @@ async fn embed_phrases(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tag_selector::TagType;
+    use super::*;
 
     #[test]
     fn test_tokenize_for_summary() {

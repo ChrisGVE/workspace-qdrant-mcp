@@ -6,9 +6,8 @@ use super::helpers::{classify_document_extension, DEFAULT_LIBRARY_PATTERNS};
 fn test_default_library_patterns_cover_all_formats() {
     // All supported document formats must be present
     let expected = [
-        "*.pdf", "*.epub", "*.docx", "*.pptx", "*.ppt", "*.pages", "*.key",
-        "*.odt", "*.odp", "*.ods", "*.rtf", "*.doc",
-        "*.md", "*.txt", "*.html", "*.htm",
+        "*.pdf", "*.epub", "*.docx", "*.pptx", "*.ppt", "*.pages", "*.key", "*.odt", "*.odp",
+        "*.ods", "*.rtf", "*.doc", "*.md", "*.txt", "*.html", "*.htm",
     ];
     for pat in &expected {
         assert!(
@@ -28,7 +27,10 @@ fn test_default_library_patterns_cover_all_formats() {
 fn test_default_patterns_used_when_none_provided() {
     let user_patterns: Vec<String> = vec![];
     let effective: Vec<String> = if user_patterns.is_empty() {
-        DEFAULT_LIBRARY_PATTERNS.iter().map(|s| s.to_string()).collect()
+        DEFAULT_LIBRARY_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     } else {
         user_patterns
     };
@@ -40,7 +42,10 @@ fn test_default_patterns_used_when_none_provided() {
 fn test_user_patterns_override_defaults() {
     let user_patterns: Vec<String> = vec!["*.pdf".to_string(), "*.md".to_string()];
     let effective: Vec<String> = if user_patterns.is_empty() {
-        DEFAULT_LIBRARY_PATTERNS.iter().map(|s| s.to_string()).collect()
+        DEFAULT_LIBRARY_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     } else {
         user_patterns.clone()
     };
@@ -57,7 +62,11 @@ fn test_classify_page_based_extensions() {
         let result = classify_document_extension(ext);
         assert!(result.is_some(), "Extension '{}' should be classified", ext);
         let (_, doc_type) = result.unwrap();
-        assert_eq!(doc_type, "page_based", "Extension '{}' should be page_based", ext);
+        assert_eq!(
+            doc_type, "page_based",
+            "Extension '{}' should be page_based",
+            ext
+        );
     }
 }
 
@@ -75,7 +84,11 @@ fn test_classify_stream_based_extensions() {
         let result = classify_document_extension(ext);
         assert!(result.is_some(), "Extension '{}' should be classified", ext);
         let (source_format, doc_type) = result.unwrap();
-        assert_eq!(doc_type, "stream_based", "Extension '{}' should be stream_based", ext);
+        assert_eq!(
+            doc_type, "stream_based",
+            "Extension '{}' should be stream_based",
+            ext
+        );
         assert_eq!(
             source_format, *expected_format,
             "Extension '{}' format mismatch",
@@ -112,7 +125,9 @@ fn test_classify_source_format_correctness() {
 fn test_all_default_patterns_classifiable() {
     // Every extension in DEFAULT_LIBRARY_PATTERNS must be classifiable
     for pattern in DEFAULT_LIBRARY_PATTERNS {
-        let ext = pattern.strip_prefix("*.").expect("Pattern must start with *.");
+        let ext = pattern
+            .strip_prefix("*.")
+            .expect("Pattern must start with *.");
         assert!(
             classify_document_extension(ext).is_some(),
             "DEFAULT_LIBRARY_PATTERNS extension '{}' is not classifiable",

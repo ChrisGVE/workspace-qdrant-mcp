@@ -115,10 +115,7 @@ pub enum WorkspaceError {
     },
 
     #[error("Authentication error: {message}")]
-    Authentication {
-        message: String,
-        service: String,
-    },
+    Authentication { message: String, service: String },
 
     #[error("Internal error: {message}")]
     Internal {
@@ -329,7 +326,12 @@ impl WorkspaceError {
             Self::Configuration { message, .. } => {
                 dict.insert("config_message".to_string(), message.clone());
             }
-            Self::Network { message, attempt, max_attempts, .. } => {
+            Self::Network {
+                message,
+                attempt,
+                max_attempts,
+                ..
+            } => {
                 dict.insert("network_message".to_string(), message.clone());
                 dict.insert("attempt".to_string(), attempt.to_string());
                 dict.insert("max_attempts".to_string(), max_attempts.to_string());
@@ -338,26 +340,48 @@ impl WorkspaceError {
                 dict.insert("qdrant_message".to_string(), message.clone());
                 dict.insert("url".to_string(), url.clone());
             }
-            Self::FileSystem { message, path, operation, .. } => {
+            Self::FileSystem {
+                message,
+                path,
+                operation,
+                ..
+            } => {
                 dict.insert("fs_message".to_string(), message.clone());
                 dict.insert("path".to_string(), path.clone());
                 dict.insert("operation".to_string(), operation.clone());
             }
-            Self::DocumentProcessing { message, file_path, document_type, .. } => {
+            Self::DocumentProcessing {
+                message,
+                file_path,
+                document_type,
+                ..
+            } => {
                 dict.insert("doc_message".to_string(), message.clone());
                 dict.insert("file_path".to_string(), file_path.clone());
                 dict.insert("document_type".to_string(), document_type.clone());
             }
-            Self::Embedding { message, model, retry_count, .. } => {
+            Self::Embedding {
+                message,
+                model,
+                retry_count,
+                ..
+            } => {
                 dict.insert("emb_message".to_string(), message.clone());
                 dict.insert("model".to_string(), model.clone());
                 dict.insert("retry_count".to_string(), retry_count.to_string());
             }
-            Self::IpcCommunication { message, endpoint, .. } => {
+            Self::IpcCommunication {
+                message, endpoint, ..
+            } => {
                 dict.insert("ipc_message".to_string(), message.clone());
                 dict.insert("endpoint".to_string(), endpoint.clone());
             }
-            Self::TaskProcessing { message, task_id, priority, .. } => {
+            Self::TaskProcessing {
+                message,
+                task_id,
+                priority,
+                ..
+            } => {
                 dict.insert("task_message".to_string(), message.clone());
                 dict.insert("task_id".to_string(), task_id.clone());
                 dict.insert("priority".to_string(), priority.clone());
@@ -368,12 +392,21 @@ impl WorkspaceError {
                     dict.insert("field".to_string(), field.clone());
                 }
             }
-            Self::Timeout { message, duration_ms, operation } => {
+            Self::Timeout {
+                message,
+                duration_ms,
+                operation,
+            } => {
                 dict.insert("timeout_message".to_string(), message.clone());
                 dict.insert("duration_ms".to_string(), duration_ms.to_string());
                 dict.insert("operation".to_string(), operation.clone());
             }
-            Self::ResourceExhaustion { message, resource_type, current_usage, limit } => {
+            Self::ResourceExhaustion {
+                message,
+                resource_type,
+                current_usage,
+                limit,
+            } => {
                 dict.insert("resource_message".to_string(), message.clone());
                 dict.insert("resource_type".to_string(), resource_type.clone());
                 if let Some(usage) = current_usage {
@@ -383,7 +416,11 @@ impl WorkspaceError {
                     dict.insert("limit".to_string(), limit.to_string());
                 }
             }
-            Self::CircuitBreakerOpen { service, failure_count, last_failure } => {
+            Self::CircuitBreakerOpen {
+                service,
+                failure_count,
+                last_failure,
+            } => {
                 dict.insert("service".to_string(), service.clone());
                 dict.insert("failure_count".to_string(), failure_count.to_string());
                 dict.insert("last_failure".to_string(), last_failure.clone());
@@ -392,7 +429,9 @@ impl WorkspaceError {
                 dict.insert("auth_message".to_string(), message.clone());
                 dict.insert("service".to_string(), service.clone());
             }
-            Self::Internal { message, component, .. } => {
+            Self::Internal {
+                message, component, ..
+            } => {
                 dict.insert("internal_message".to_string(), message.clone());
                 dict.insert("component".to_string(), component.clone());
             }

@@ -1,7 +1,6 @@
 /// EPUB image extraction from EPUB manifest.
 ///
 /// Images are referenced in the EPUB manifest with image MIME types.
-
 use std::path::Path;
 
 use tracing::{debug, warn};

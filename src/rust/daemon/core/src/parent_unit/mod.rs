@@ -53,8 +53,13 @@ mod tests {
 
     #[test]
     fn test_epub_section_no_title() {
-        let parent =
-            epub_section_parent("doc-456", "fp-xyz", "ch1", None, "Untitled chapter content.");
+        let parent = epub_section_parent(
+            "doc-456",
+            "fp-xyz",
+            "ch1",
+            None,
+            "Untitled chapter content.",
+        );
         assert_eq!(parent.unit_locator["spine_id"], "ch1");
         assert!(parent.unit_locator.get("chapter_title").is_none());
     }
@@ -73,8 +78,13 @@ mod tests {
 
     #[test]
     fn test_text_section_parent_creation() {
-        let parent =
-            text_section_parent("doc-txt", "fp-text", "Introduction", 0, "This is the introduction.");
+        let parent = text_section_parent(
+            "doc-txt",
+            "fp-text",
+            "Introduction",
+            0,
+            "This is the introduction.",
+        );
         assert_eq!(parent.unit_type, UNIT_TYPE_TEXT_SECTION);
         assert_eq!(parent.unit_locator["section_title"], "Introduction");
         assert_eq!(parent.unit_locator["section_index"], 0);
@@ -177,8 +187,8 @@ mod tests {
 
     #[test]
     fn test_is_container_type() {
-        use crate::tree_sitter::types::ChunkType;
         use crate::parent_unit::code_parents::is_container_type;
+        use crate::tree_sitter::types::ChunkType;
         assert!(is_container_type(ChunkType::Class));
         assert!(is_container_type(ChunkType::Struct));
         assert!(is_container_type(ChunkType::Trait));
@@ -199,8 +209,24 @@ mod tests {
         use crate::tree_sitter::types::{ChunkType, SemanticChunk};
         // Two top-level functions, no containers
         let chunks = vec![
-            SemanticChunk::new(ChunkType::Function, "foo", "fn foo() {}", 1, 3, "rust", "lib.rs"),
-            SemanticChunk::new(ChunkType::Function, "bar", "fn bar() {}", 5, 8, "rust", "lib.rs"),
+            SemanticChunk::new(
+                ChunkType::Function,
+                "foo",
+                "fn foo() {}",
+                1,
+                3,
+                "rust",
+                "lib.rs",
+            ),
+            SemanticChunk::new(
+                ChunkType::Function,
+                "bar",
+                "fn bar() {}",
+                5,
+                8,
+                "rust",
+                "lib.rs",
+            ),
         ];
         let mapping =
             create_code_parents("doc", "fp", "lib.rs", "fn foo() {}\nfn bar() {}", &chunks);
@@ -260,14 +286,23 @@ mod tests {
 
         // One block parent for MyClass
         assert_eq!(mapping.block_parents.len(), 1);
-        assert_eq!(mapping.block_parents[0].unit_locator["block_name"], "MyClass");
+        assert_eq!(
+            mapping.block_parents[0].unit_locator["block_name"],
+            "MyClass"
+        );
         assert_eq!(mapping.block_parents[0].unit_type, UNIT_TYPE_CODE_BLOCK);
 
         // Class chunk → file parent (the class IS a container, references file)
         assert_eq!(mapping.chunk_parent_ids[0], mapping.file_parent.point_id);
         // Methods → block parent (MyClass)
-        assert_eq!(mapping.chunk_parent_ids[1], mapping.block_parents[0].point_id);
-        assert_eq!(mapping.chunk_parent_ids[2], mapping.block_parents[0].point_id);
+        assert_eq!(
+            mapping.chunk_parent_ids[1],
+            mapping.block_parents[0].point_id
+        );
+        assert_eq!(
+            mapping.chunk_parent_ids[2],
+            mapping.block_parents[0].point_id
+        );
         // Top-level function → file parent
         assert_eq!(mapping.chunk_parent_ids[3], mapping.file_parent.point_id);
     }
@@ -330,10 +365,34 @@ mod tests {
     fn test_create_code_parents_multiple_classes() {
         use crate::tree_sitter::types::{ChunkType, SemanticChunk};
         let chunks = vec![
-            SemanticChunk::new(ChunkType::Class, "Foo", "class Foo", 1, 10, "python", "m.py"),
-            SemanticChunk::new(ChunkType::Method, "run", "def run(self):", 3, 8, "python", "m.py")
-                .with_parent("Foo"),
-            SemanticChunk::new(ChunkType::Class, "Bar", "class Bar", 12, 20, "python", "m.py"),
+            SemanticChunk::new(
+                ChunkType::Class,
+                "Foo",
+                "class Foo",
+                1,
+                10,
+                "python",
+                "m.py",
+            ),
+            SemanticChunk::new(
+                ChunkType::Method,
+                "run",
+                "def run(self):",
+                3,
+                8,
+                "python",
+                "m.py",
+            )
+            .with_parent("Foo"),
+            SemanticChunk::new(
+                ChunkType::Class,
+                "Bar",
+                "class Bar",
+                12,
+                20,
+                "python",
+                "m.py",
+            ),
             SemanticChunk::new(
                 ChunkType::Method,
                 "start",

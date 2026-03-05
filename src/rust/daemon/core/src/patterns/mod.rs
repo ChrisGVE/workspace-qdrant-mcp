@@ -8,30 +8,30 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
-pub mod manager;
 pub mod comprehensive;
 mod conversion;
 pub mod detection;
-pub mod project;
 pub mod exclusion;
+pub mod manager;
+pub mod project;
 
-pub use manager::PatternManager;
 pub use comprehensive::{
-    ComprehensivePatternManager, ComprehensiveStats, ComprehensiveResult,
-    ComprehensivePatternError, InternalConfiguration, LspServerConfig,
-    TreeSitterConfig, BuildSystemConfig, ContentSignaturesConfig
+    BuildSystemConfig, ComprehensivePatternError, ComprehensivePatternManager, ComprehensiveResult,
+    ComprehensiveStats, ContentSignaturesConfig, InternalConfiguration, LspServerConfig,
+    TreeSitterConfig,
 };
 pub use detection::{
-    LanguageDetector, DetectionResult, DetectionConfidence, DetectionMethod,
-    DetectorStats, detect_language_from_path, detect_language_from_content
-};
-pub use project::{
-    ProjectDetector, ProjectInfo, BuildSystemInfo, ProjectType, ProjectConfidence,
-    DetectionDetails, PatternMatch, analyze_project_from_files
+    detect_language_from_content, detect_language_from_path, DetectionConfidence, DetectionMethod,
+    DetectionResult, DetectorStats, LanguageDetector,
 };
 pub use exclusion::{
-    ExclusionEngine, ExclusionRule, ExclusionCategory, ExclusionResult,
-    ExclusionStats, should_exclude_file, should_exclude_file_with_context
+    should_exclude_file, should_exclude_file_with_context, ExclusionCategory, ExclusionEngine,
+    ExclusionResult, ExclusionRule, ExclusionStats,
+};
+pub use manager::PatternManager;
+pub use project::{
+    analyze_project_from_files, BuildSystemInfo, DetectionDetails, PatternMatch, ProjectConfidence,
+    ProjectDetector, ProjectInfo, ProjectType,
 };
 
 /// Errors that can occur during pattern operations
@@ -239,11 +239,19 @@ impl AllPatterns {
         ] {
             for lang_group in category.values() {
                 // Check extensions
-                if lang_group.extensions.iter().any(|ext| ext.trim_start_matches('.') == extension) {
+                if lang_group
+                    .extensions
+                    .iter()
+                    .any(|ext| ext.trim_start_matches('.') == extension)
+                {
                     return Some(lang_group);
                 }
                 // Check filenames (for exact matches like "Dockerfile")
-                if lang_group.filenames.iter().any(|filename| filename == extension) {
+                if lang_group
+                    .filenames
+                    .iter()
+                    .any(|filename| filename == extension)
+                {
                     return Some(lang_group);
                 }
             }
@@ -257,7 +265,11 @@ impl AllPatterns {
     }
 
     /// Calculate ecosystem confidence score for given indicators
-    pub fn calculate_ecosystem_confidence(&self, ecosystem_name: &str, found_patterns: &[String]) -> f32 {
+    pub fn calculate_ecosystem_confidence(
+        &self,
+        ecosystem_name: &str,
+        found_patterns: &[String],
+    ) -> f32 {
         if let Some(ecosystem) = self.ecosystem_by_name(ecosystem_name) {
             let mut total_score = 0.0;
             let mut max_possible_score = 0.0;

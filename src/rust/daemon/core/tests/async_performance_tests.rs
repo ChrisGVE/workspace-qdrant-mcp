@@ -6,28 +6,20 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use tempfile::NamedTempFile;
 use tokio::time::timeout;
 use tokio_test::io::Builder as IoBuilder;
-use tempfile::NamedTempFile;
 
 // Import core components
-use workspace_qdrant_core::{
-    DocumentProcessor,
-    logging::track_async_operation,
-};
+use workspace_qdrant_core::{logging::track_async_operation, DocumentProcessor};
 
 // Import shared test utilities
-use shared_test_utils::{
-    async_test, TestResult,
-    test_helpers::init_test_tracing,
-};
+use shared_test_utils::{async_test, test_helpers::init_test_tracing, TestResult};
 
 /// Test helper for creating test documents with various content types
 async fn create_test_document(content: &str, extension: &str) -> TestResult<NamedTempFile> {
-    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))
-        ?;
-    tokio::fs::write(temp_file.path(), content).await
-        ?;
+    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))?;
+    tokio::fs::write(temp_file.path(), content).await?;
     Ok(temp_file)
 }
 
@@ -40,14 +32,16 @@ async_test!(test_async_performance_metrics, {
 
     let processor = DocumentProcessor::new();
     let test_content = "Performance test document with substantial content to process.".repeat(100);
-    let temp_file = create_test_document(&test_content, "txt").await
+    let temp_file = create_test_document(&test_content, "txt")
+        .await
         .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
 
     // Track performance metrics
     let start_time = Instant::now();
     let result = track_async_operation("document_processing", async {
         processor.process_file(temp_file.path(), "perf_test").await
-    }).await;
+    })
+    .await;
     let total_time = start_time.elapsed();
 
     let doc_result = result?;
@@ -96,7 +90,11 @@ async_test!(test_async_throughput, {
     let documents_per_second = results.len() as f64 / total_time.as_secs_f64();
 
     // Should be able to process at least 1 document per second
-    assert!(documents_per_second >= 1.0, "Throughput too low: {} docs/sec", documents_per_second);
+    assert!(
+        documents_per_second >= 1.0,
+        "Throughput too low: {} docs/sec",
+        documents_per_second
+    );
 
     Ok(())
 });
@@ -130,9 +128,7 @@ async_test!(test_tokio_test_io_builder, {
     init_test_tracing();
 
     // Test tokio-test IO mocking capabilities
-    let mut mock_reader = IoBuilder::new()
-        .read(b"Hello, async world!")
-        .build();
+    let mut mock_reader = IoBuilder::new().read(b"Hello, async world!").build();
 
     let mut buffer = Vec::new();
     use tokio::io::AsyncReadExt;
@@ -157,7 +153,9 @@ async_test!(test_shared_utilities_integration, {
     tokio::fs::write(&test_file, "Shared utility test content").await?;
 
     let processor = DocumentProcessor::new();
-    let result = processor.process_file(&test_file, "shared_util_test").await?;
+    let result = processor
+        .process_file(&test_file, "shared_util_test")
+        .await?;
 
     // Verify processing time is reasonable
     assert!(result.processing_time_ms < 5000);

@@ -10,14 +10,9 @@ use rusqlite::Connection;
 use crate::output;
 
 use super::db::connect_readonly;
-use super::formatters::{QueueStatsSummary, StatusBreakdown, format_status};
+use super::formatters::{format_status, QueueStatsSummary, StatusBreakdown};
 
-pub async fn execute(
-    json: bool,
-    by_type: bool,
-    by_op: bool,
-    by_collection: bool,
-) -> Result<()> {
+pub async fn execute(json: bool, by_type: bool, by_op: bool, by_collection: bool) -> Result<()> {
     let conn = connect_readonly()?;
 
     let mut summary = build_summary(&conn)?;
@@ -43,8 +38,7 @@ fn build_summary(conn: &Connection) -> Result<QueueStatsSummary> {
         active_projects: 0,
     };
 
-    let mut stmt =
-        conn.prepare("SELECT status, COUNT(*) FROM unified_queue GROUP BY status")?;
+    let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM unified_queue GROUP BY status")?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     })?;
@@ -64,10 +58,7 @@ fn build_summary(conn: &Connection) -> Result<QueueStatsSummary> {
     Ok(summary)
 }
 
-fn populate_oldest_pending(
-    conn: &Connection,
-    summary: &mut QueueStatsSummary,
-) -> Result<()> {
+fn populate_oldest_pending(conn: &Connection, summary: &mut QueueStatsSummary) -> Result<()> {
     let oldest_result: Result<(String, String), _> = conn.query_row(
         "SELECT queue_id, created_at FROM unified_queue \
          WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1",
@@ -86,10 +77,7 @@ fn populate_oldest_pending(
     Ok(())
 }
 
-fn populate_active_counts(
-    conn: &Connection,
-    summary: &mut QueueStatsSummary,
-) -> Result<()> {
+fn populate_active_counts(conn: &Connection, summary: &mut QueueStatsSummary) -> Result<()> {
     summary.active_collections = conn
         .query_row(
             "SELECT COUNT(DISTINCT collection) FROM unified_queue \
@@ -163,11 +151,7 @@ fn print_text(
         summary.by_status.in_progress
     );
     println!("  {} {}", format_status("done"), summary.by_status.done);
-    println!(
-        "  {} {}",
-        format_status("failed"),
-        summary.by_status.failed
-    );
+    println!("  {} {}", format_status("failed"), summary.by_status.failed);
 
     output::separator();
     output::kv(
@@ -203,10 +187,7 @@ fn print_text(
     Ok(())
 }
 
-fn get_breakdown(
-    conn: &Connection,
-    column: &str,
-) -> Result<HashMap<String, StatusBreakdown>> {
+fn get_breakdown(conn: &Connection, column: &str) -> Result<HashMap<String, StatusBreakdown>> {
     let query = format!(
         "SELECT {}, status, COUNT(*) FROM unified_queue GROUP BY {}, status",
         column, column

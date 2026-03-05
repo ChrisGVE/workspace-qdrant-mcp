@@ -37,8 +37,7 @@ pub(super) fn write_settings(path: &Path, config: &serde_json::Value) -> Result<
     }
 
     // Write with pretty-printing
-    let content = serde_json::to_string_pretty(config)
-        .context("Failed to serialize settings")?;
+    let content = serde_json::to_string_pretty(config).context("Failed to serialize settings")?;
     std::fs::write(path, format!("{}\n", content))
         .with_context(|| format!("Failed to write {}", path.display()))?;
 
@@ -66,10 +65,8 @@ mod tests {
     #[test]
     fn test_read_settings_valid() {
         let dir = TempDir::new().unwrap();
-        let path = create_test_settings(
-            dir.path(),
-            r#"{"permissions": {"allow": []}, "hooks": {}}"#,
-        );
+        let path =
+            create_test_settings(dir.path(), r#"{"permissions": {"allow": []}, "hooks": {}}"#);
         let config = read_settings(&path).unwrap();
         assert!(config.get("permissions").is_some());
         assert!(config.get("hooks").is_some());

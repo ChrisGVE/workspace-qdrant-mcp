@@ -4,11 +4,7 @@ use std::collections::HashMap;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
-use super::super::{
-    DiscoveryResult,
-    registry::ServiceInfo,
-    health::HealthStatus,
-};
+use super::super::{health::HealthStatus, registry::ServiceInfo, DiscoveryResult};
 use super::core::DiscoveryManager;
 use super::types::{DiscoveryStrategy, ServiceDiscoveryEvent};
 
@@ -19,24 +15,35 @@ impl DiscoveryManager {
         service_name: &str,
         service_info: ServiceInfo,
     ) -> DiscoveryResult<()> {
-        info!("Registering service: {} at {}:{}", service_name, service_info.host, service_info.port);
+        info!(
+            "Registering service: {} at {}:{}",
+            service_name, service_info.host, service_info.port
+        );
 
-        self.registry.register_service(service_name, service_info.clone())?;
+        self.registry
+            .register_service(service_name, service_info.clone())?;
 
         if self.config.enable_network {
-            self.network_discovery.announce_service(service_name, &service_info).await?;
+            self.network_discovery
+                .announce_service(service_name, &service_info)
+                .await?;
         }
 
         {
             let mut known_services = self.known_services.write().await;
-            known_services.insert(service_name.to_string(), (service_info.clone(), DiscoveryStrategy::Registry));
+            known_services.insert(
+                service_name.to_string(),
+                (service_info.clone(), DiscoveryStrategy::Registry),
+            );
         }
 
-        let _ = self.event_sender.send(ServiceDiscoveryEvent::ServiceDiscovered {
-            service_name: service_name.to_string(),
-            service_info,
-            strategy: DiscoveryStrategy::Registry,
-        });
+        let _ = self
+            .event_sender
+            .send(ServiceDiscoveryEvent::ServiceDiscovered {
+                service_name: service_name.to_string(),
+                service_info,
+                strategy: DiscoveryStrategy::Registry,
+            });
 
         info!("Service {} registered successfully", service_name);
         Ok(())
@@ -67,7 +74,10 @@ impl DiscoveryManager {
     }
 
     /// Discover a specific service using all available strategies
-    pub async fn discover_service(&self, service_name: &str) -> DiscoveryResult<Option<ServiceInfo>> {
+    pub async fn discover_service(
+        &self,
+        service_name: &str,
+    ) -> DiscoveryResult<Option<ServiceInfo>> {
         info!("Discovering service: {}", service_name);
 
         if let Some(service_info) = self.try_registry_discovery(service_name).await? {
@@ -88,14 +98,18 @@ impl DiscoveryManager {
             return Ok(Some(service_info));
         }
 
-        warn!("Service {} not found using any discovery strategy", service_name);
+        warn!(
+            "Service {} not found using any discovery strategy",
+            service_name
+        );
         Ok(None)
     }
 
     /// Get all currently known services
     pub async fn get_known_services(&self) -> HashMap<String, ServiceInfo> {
         let known_services = self.known_services.read().await;
-        known_services.iter()
+        known_services
+            .iter()
             .map(|(name, (info, _))| (name.clone(), info.clone()))
             .collect()
     }
@@ -106,11 +120,18 @@ impl DiscoveryManager {
     }
 
     /// Check health of a specific service
-    pub async fn check_service_health(&self, service_name: &str) -> DiscoveryResult<Option<HealthStatus>> {
+    pub async fn check_service_health(
+        &self,
+        service_name: &str,
+    ) -> DiscoveryResult<Option<HealthStatus>> {
         let known_services = self.known_services.read().await;
 
         if let Some((service_info, _)) = known_services.get(service_name) {
-            match self.health_checker.check_service_health(service_name, service_info).await {
+            match self
+                .health_checker
+                .check_service_health(service_name, service_info)
+                .await
+            {
                 Ok(result) => Ok(Some(result.status)),
                 Err(e) => {
                     warn!("Health check failed for {}: {}", service_name, e);

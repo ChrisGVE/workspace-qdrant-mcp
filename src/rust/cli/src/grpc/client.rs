@@ -21,10 +21,8 @@ pub mod workspace_daemon {
 
 use workspace_daemon::{
     collection_service_client::CollectionServiceClient,
-    document_service_client::DocumentServiceClient,
-    graph_service_client::GraphServiceClient,
-    project_service_client::ProjectServiceClient,
-    system_service_client::SystemServiceClient,
+    document_service_client::DocumentServiceClient, graph_service_client::GraphServiceClient,
+    project_service_client::ProjectServiceClient, system_service_client::SystemServiceClient,
 };
 
 /// Default gRPC port for memexd daemon (canonical source: wqm_common::constants)

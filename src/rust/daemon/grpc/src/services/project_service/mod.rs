@@ -175,7 +175,10 @@ impl ProjectServiceImpl {
         {
             let shutdowns = self.pending_shutdowns.read().await;
             if !shutdowns.contains_key(project_id) {
-                debug!(project_id = project_id, "Shutdown already cancelled or executed");
+                debug!(
+                    project_id = project_id,
+                    "Shutdown already cancelled or executed"
+                );
                 return Ok(false);
             }
         }
@@ -266,5 +269,4 @@ impl ProjectService for ProjectServiceImpl {
         let req = request.into_inner();
         self.handle_delete_project(req).await.map(Response::new)
     }
-
 }

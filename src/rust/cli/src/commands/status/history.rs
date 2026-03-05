@@ -72,7 +72,15 @@ fn print_metric_summary(conn: &Connection, name: &str, cutoff_str: &str) {
          FROM metrics_history \
          WHERE metric_name = ?1 AND timestamp >= ?2 AND aggregation_period = 'raw'",
         rusqlite::params![name, cutoff_str],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        },
     );
 
     match stats {
@@ -112,10 +120,7 @@ fn connect_history_readonly() -> Result<Connection> {
         &db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .context(format!(
-        "Failed to open state database at {:?}",
-        db_path
-    ))?;
+    .context(format!("Failed to open state database at {:?}", db_path))?;
 
     Ok(conn)
 }

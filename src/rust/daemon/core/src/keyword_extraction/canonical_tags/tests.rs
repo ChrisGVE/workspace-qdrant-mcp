@@ -1,8 +1,8 @@
 //! Tests for canonical tag deduplication and hierarchical clustering.
 
+use super::build_hierarchy;
 use super::clustering::{average_linkage_sim, compute_centroid, merge_duplicates};
 use super::types::{CanonicalConfig, TagWithVector};
-use super::build_hierarchy;
 
 fn make_tag(phrase: &str, vector: Vec<f32>, doc_count: u32) -> TagWithVector {
     TagWithVector {
@@ -30,9 +30,9 @@ fn test_merge_duplicates_similar() {
     );
 
     // One cluster should have aliases
-    let vector_cluster = merged.iter().find(|t| {
-        t.label.contains("vector") || t.aliases.iter().any(|a| a.contains("vector"))
-    });
+    let vector_cluster = merged
+        .iter()
+        .find(|t| t.label.contains("vector") || t.aliases.iter().any(|a| a.contains("vector")));
     assert!(vector_cluster.is_some());
     let vc = vector_cluster.unwrap();
     assert_eq!(vc.doc_count, 8, "Doc counts should sum");
@@ -48,7 +48,11 @@ fn test_merge_duplicates_all_different() {
     ];
 
     let merged = merge_duplicates(&tags, 0.85);
-    assert_eq!(merged.len(), 3, "All orthogonal tags should remain separate");
+    assert_eq!(
+        merged.len(),
+        3,
+        "All orthogonal tags should remain separate"
+    );
     assert!(merged.iter().all(|t| t.aliases.is_empty()));
 }
 
@@ -137,11 +141,7 @@ fn test_average_linkage_sim() {
 
     let sim = average_linkage_sim(&[0, 1], &[2], &sim_matrix);
     // (0.1 + 0.2) / 2 = 0.15
-    assert!(
-        (sim - 0.15).abs() < 1e-6,
-        "Expected 0.15, got {}",
-        sim
-    );
+    assert!((sim - 0.15).abs() < 1e-6, "Expected 0.15, got {}", sim);
 }
 
 #[test]
@@ -230,9 +230,10 @@ fn test_parent_similarity_computed() {
 
     // All level 3 tags should have parent_similarity set
     for tag in &hierarchy.level3 {
-        let sim = tag.parent_similarity.expect(
-            &format!("Level 3 tag '{}' should have parent_similarity", tag.label),
-        );
+        let sim = tag.parent_similarity.expect(&format!(
+            "Level 3 tag '{}' should have parent_similarity",
+            tag.label
+        ));
         assert!(
             sim > 0.0 && sim <= 1.0,
             "Similarity {} should be in (0, 1] for '{}'",
@@ -243,9 +244,10 @@ fn test_parent_similarity_computed() {
 
     // All level 2 tags should have parent_similarity set
     for tag in &hierarchy.level2 {
-        let sim = tag.parent_similarity.expect(
-            &format!("Level 2 tag '{}' should have parent_similarity", tag.label),
-        );
+        let sim = tag.parent_similarity.expect(&format!(
+            "Level 2 tag '{}' should have parent_similarity",
+            tag.label
+        ));
         assert!(
             sim > 0.0 && sim <= 1.0,
             "Similarity {} should be in (0, 1] for '{}'",

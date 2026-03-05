@@ -50,7 +50,7 @@ pub async fn upsert_indexed_content(
     let now = timestamps::now_utc();
     sqlx::query(
         "INSERT OR REPLACE INTO indexed_content (file_id, content, hash, updated_at)
-         VALUES (?1, ?2, ?3, ?4)"
+         VALUES (?1, ?2, ?3, ?4)",
     )
     .bind(file_id)
     .bind(content)
@@ -90,10 +90,7 @@ pub async fn get_indexed_content(
 }
 
 /// Delete indexed content for a file (explicit, CASCADE also handles this).
-pub async fn delete_indexed_content(
-    pool: &SqlitePool,
-    file_id: i64,
-) -> Result<(), sqlx::Error> {
+pub async fn delete_indexed_content(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM indexed_content WHERE file_id = ?1")
         .bind(file_id)
         .execute(pool)
@@ -104,9 +101,7 @@ pub async fn delete_indexed_content(
 /// Get the total number of cached entries and their combined size in bytes.
 ///
 /// Useful for monitoring storage usage of the content cache.
-pub async fn get_cache_stats(
-    pool: &SqlitePool,
-) -> Result<(i64, i64), sqlx::Error> {
+pub async fn get_cache_stats(pool: &SqlitePool) -> Result<(i64, i64), sqlx::Error> {
     let row = sqlx::query(
         "SELECT COUNT(*) as cnt, COALESCE(SUM(LENGTH(content)), 0) as total_bytes FROM indexed_content"
     )
@@ -129,7 +124,7 @@ pub async fn upsert_indexed_content_tx(
     let now = timestamps::now_utc();
     sqlx::query(
         "INSERT OR REPLACE INTO indexed_content (file_id, content, hash, updated_at)
-         VALUES (?1, ?2, ?3, ?4)"
+         VALUES (?1, ?2, ?3, ?4)",
     )
     .bind(file_id)
     .bind(content)
@@ -162,19 +157,28 @@ mod tests {
 
     async fn setup_tables(pool: &SqlitePool) {
         // Enable foreign keys
-        sqlx::query("PRAGMA foreign_keys = ON").execute(pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(pool)
+            .await
+            .unwrap();
 
         // Create watch_folders (needed for FK chain)
         sqlx::query(crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
-            .execute(pool).await.unwrap();
+            .execute(pool)
+            .await
+            .unwrap();
 
         // Create tracked_files
         sqlx::query(crate::tracked_files_schema::CREATE_TRACKED_FILES_SQL)
-            .execute(pool).await.unwrap();
+            .execute(pool)
+            .await
+            .unwrap();
 
         // Create indexed_content
         sqlx::query(CREATE_INDEXED_CONTENT_SQL)
-            .execute(pool).await.unwrap();
+            .execute(pool)
+            .await
+            .unwrap();
         for idx in CREATE_INDEXED_CONTENT_INDEXES_SQL {
             sqlx::query(idx).execute(pool).await.unwrap();
         }
@@ -253,7 +257,9 @@ mod tests {
         let content = b"fn main() { println!(\"hello\"); }";
         let hash = compute_content_hash(std::str::from_utf8(content).unwrap());
 
-        upsert_indexed_content(&pool, file_id, content, &hash).await.unwrap();
+        upsert_indexed_content(&pool, file_id, content, &hash)
+            .await
+            .unwrap();
 
         let stored_hash = get_indexed_hash(&pool, file_id).await.unwrap();
         assert_eq!(stored_hash, Some(hash));
@@ -268,7 +274,9 @@ mod tests {
         let content = b"pub fn add(a: i32, b: i32) -> i32 { a + b }";
         let hash = compute_content_hash(std::str::from_utf8(content).unwrap());
 
-        upsert_indexed_content(&pool, file_id, content, &hash).await.unwrap();
+        upsert_indexed_content(&pool, file_id, content, &hash)
+            .await
+            .unwrap();
 
         let result = get_indexed_content(&pool, file_id).await.unwrap();
         assert!(result.is_some());
@@ -286,25 +294,28 @@ mod tests {
         let content_v1 = b"version 1";
         let hash_v1 = compute_content_hash("version 1");
 
-        upsert_indexed_content(&pool, file_id, content_v1, &hash_v1).await.unwrap();
+        upsert_indexed_content(&pool, file_id, content_v1, &hash_v1)
+            .await
+            .unwrap();
 
         let content_v2 = b"version 2";
         let hash_v2 = compute_content_hash("version 2");
 
-        upsert_indexed_content(&pool, file_id, content_v2, &hash_v2).await.unwrap();
+        upsert_indexed_content(&pool, file_id, content_v2, &hash_v2)
+            .await
+            .unwrap();
 
         let result = get_indexed_content(&pool, file_id).await.unwrap().unwrap();
         assert_eq!(result.0, b"version 2");
         assert_eq!(result.1, hash_v2);
 
         // Only one row should exist for this file_id
-        let count: i32 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM indexed_content WHERE file_id = ?1"
-        )
-        .bind(file_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let count: i32 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM indexed_content WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(count, 1);
     }
 
@@ -317,18 +328,26 @@ mod tests {
         let content = b"unchanged content";
         let hash = compute_content_hash("unchanged content");
 
-        upsert_indexed_content(&pool, file_id, content, &hash).await.unwrap();
+        upsert_indexed_content(&pool, file_id, content, &hash)
+            .await
+            .unwrap();
 
         // Simulate new file content arriving — compute hash and compare
         let new_content = "unchanged content";
         let new_hash = compute_content_hash(new_content);
 
         let stored_hash = get_indexed_hash(&pool, file_id).await.unwrap().unwrap();
-        assert_eq!(stored_hash, new_hash, "Same content should produce matching hash (skip)");
+        assert_eq!(
+            stored_hash, new_hash,
+            "Same content should produce matching hash (skip)"
+        );
 
         // Different content should NOT match
         let changed_hash = compute_content_hash("changed content");
-        assert_ne!(stored_hash, changed_hash, "Different content should produce different hash (process)");
+        assert_ne!(
+            stored_hash, changed_hash,
+            "Different content should produce different hash (process)"
+        );
     }
 
     #[tokio::test]
@@ -349,7 +368,9 @@ mod tests {
         setup_tables(&pool).await;
 
         let file_id = insert_test_file(&pool, "src/delete.rs").await;
-        upsert_indexed_content(&pool, file_id, b"content", "hash123").await.unwrap();
+        upsert_indexed_content(&pool, file_id, b"content", "hash123")
+            .await
+            .unwrap();
 
         assert!(get_indexed_hash(&pool, file_id).await.unwrap().is_some());
 
@@ -364,7 +385,9 @@ mod tests {
         setup_tables(&pool).await;
 
         let file_id = insert_test_file(&pool, "src/cascade.rs").await;
-        upsert_indexed_content(&pool, file_id, b"cascade test", "chash").await.unwrap();
+        upsert_indexed_content(&pool, file_id, b"cascade test", "chash")
+            .await
+            .unwrap();
 
         // Verify content exists
         assert!(get_indexed_hash(&pool, file_id).await.unwrap().is_some());
@@ -396,8 +419,12 @@ mod tests {
         let content1 = b"short";
         let content2 = b"a bit longer content here";
 
-        upsert_indexed_content(&pool, f1, content1, "h1").await.unwrap();
-        upsert_indexed_content(&pool, f2, content2, "h2").await.unwrap();
+        upsert_indexed_content(&pool, f1, content1, "h1")
+            .await
+            .unwrap();
+        upsert_indexed_content(&pool, f2, content2, "h2")
+            .await
+            .unwrap();
 
         let (count, bytes) = get_cache_stats(&pool).await.unwrap();
         assert_eq!(count, 2);
@@ -412,7 +439,9 @@ mod tests {
         let file_id = insert_test_file(&pool, "src/tx.rs").await;
 
         let mut tx = pool.begin().await.unwrap();
-        upsert_indexed_content_tx(&mut tx, file_id, b"tx content", "txhash").await.unwrap();
+        upsert_indexed_content_tx(&mut tx, file_id, b"tx content", "txhash")
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
 
         let hash = get_indexed_hash(&pool, file_id).await.unwrap();
@@ -428,7 +457,9 @@ mod tests {
 
         {
             let mut tx = pool.begin().await.unwrap();
-            upsert_indexed_content_tx(&mut tx, file_id, b"rollback content", "rbhash").await.unwrap();
+            upsert_indexed_content_tx(&mut tx, file_id, b"rollback content", "rbhash")
+                .await
+                .unwrap();
             // Drop without commit = rollback
         }
 
@@ -445,9 +476,12 @@ mod tests {
 
         // 100KB content
         let content: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
-        let hash = compute_content_hash(std::str::from_utf8(&vec![b'x'; 100_000]).unwrap_or("fallback"));
+        let hash =
+            compute_content_hash(std::str::from_utf8(&vec![b'x'; 100_000]).unwrap_or("fallback"));
 
-        upsert_indexed_content(&pool, file_id, &content, &hash).await.unwrap();
+        upsert_indexed_content(&pool, file_id, &content, &hash)
+            .await
+            .unwrap();
 
         let result = get_indexed_content(&pool, file_id).await.unwrap().unwrap();
         assert_eq!(result.0.len(), 100_000);
@@ -464,10 +498,15 @@ mod tests {
         // Content with null bytes and non-UTF8 sequences
         let content: Vec<u8> = vec![0x00, 0xFF, 0xFE, 0x01, 0x80, 0x90, 0x00, 0xAB];
 
-        upsert_indexed_content(&pool, file_id, &content, "binhash").await.unwrap();
+        upsert_indexed_content(&pool, file_id, &content, "binhash")
+            .await
+            .unwrap();
 
         let result = get_indexed_content(&pool, file_id).await.unwrap().unwrap();
-        assert_eq!(result.0, content, "Binary content should round-trip exactly");
+        assert_eq!(
+            result.0, content,
+            "Binary content should round-trip exactly"
+        );
     }
 
     #[tokio::test]

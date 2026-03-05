@@ -4,19 +4,19 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use notify::{Watcher as NotifyWatcher, RecursiveMode, EventKind};
-use tokio::sync::{mpsc, RwLock, Mutex};
+use notify::{EventKind, RecursiveMode, Watcher as NotifyWatcher};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use walkdir::WalkDir;
 
 use crate::processing::TaskSubmitter;
 
 use super::compiled_patterns::CompiledPatterns;
 use super::config::WatcherConfig;
-use super::debouncer::{EventDebouncer, EventBatcher};
+use super::debouncer::{EventBatcher, EventDebouncer};
 use super::events::{FileEvent, PausedEventBuffer};
 use super::telemetry::{TelemetryTracker, WatchingStats};
 use super::WatchingError;
@@ -68,10 +68,14 @@ pub struct FileWatcher {
 
 impl FileWatcher {
     /// Create a new file watcher with the given configuration and task submitter
-    pub fn new(config: WatcherConfig, task_submitter: TaskSubmitter) -> Result<Self, WatchingError> {
+    pub fn new(
+        config: WatcherConfig,
+        task_submitter: TaskSubmitter,
+    ) -> Result<Self, WatchingError> {
         let patterns = CompiledPatterns::new(&config)?;
         let debouncer = EventDebouncer::new(config.debounce_ms, config.max_debouncer_capacity);
-        let batcher = EventBatcher::new(config.batch_processing.clone(), config.max_batcher_capacity);
+        let batcher =
+            EventBatcher::new(config.batch_processing.clone(), config.max_batcher_capacity);
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
@@ -102,7 +106,7 @@ impl FileWatcher {
 
         if !path.exists() {
             return Err(WatchingError::Config {
-                message: format!("Path does not exist: {}", path.display())
+                message: format!("Path does not exist: {}", path.display()),
             });
         }
 
@@ -111,27 +115,23 @@ impl FileWatcher {
 
         let watcher: Box<dyn NotifyWatcher + Send + Sync> = if config.use_polling {
             let config_interval = Duration::from_millis(config.polling_interval_ms);
-            Box::new(
-                notify::PollWatcher::new(
-                    move |result| {
-                        if let Ok(event) = result {
-                            Self::handle_notify_event(event, &tx_clone);
-                        }
-                    },
-                    notify::Config::default().with_poll_interval(config_interval)
-                )?
-            )
+            Box::new(notify::PollWatcher::new(
+                move |result| {
+                    if let Ok(event) = result {
+                        Self::handle_notify_event(event, &tx_clone);
+                    }
+                },
+                notify::Config::default().with_poll_interval(config_interval),
+            )?)
         } else {
-            Box::new(
-                notify::RecommendedWatcher::new(
-                    move |result| {
-                        if let Ok(event) = result {
-                            Self::handle_notify_event(event, &tx_clone);
-                        }
-                    },
-                    notify::Config::default()
-                )?
-            )
+            Box::new(notify::RecommendedWatcher::new(
+                move |result| {
+                    if let Ok(event) = result {
+                        Self::handle_notify_event(event, &tx_clone);
+                    }
+                },
+                notify::Config::default(),
+            )?)
         };
 
         let recursive_mode = if config.recursive {
@@ -164,7 +164,11 @@ impl FileWatcher {
             self.process_existing_files(path).await?;
         }
 
-        tracing::info!("Started watching path: {} (recursive: {})", path.display(), config.recursive);
+        tracing::info!(
+            "Started watching path: {} (recursive: {})",
+            path.display(),
+            config.recursive
+        );
         Ok(())
     }
 
@@ -208,11 +212,13 @@ impl FileWatcher {
         }
         {
             let mut debouncer_lock = self.debouncer.lock().await;
-            *debouncer_lock = EventDebouncer::new(new_config.debounce_ms, new_config.max_debouncer_capacity);
+            *debouncer_lock =
+                EventDebouncer::new(new_config.debounce_ms, new_config.max_debouncer_capacity);
         }
         {
             let mut batcher_lock = self.batcher.lock().await;
-            *batcher_lock = EventBatcher::new(new_config.batch_processing, new_config.max_batcher_capacity);
+            *batcher_lock =
+                EventBatcher::new(new_config.batch_processing, new_config.max_batcher_capacity);
         }
 
         tracing::info!("Updated file watcher configuration");
@@ -251,7 +257,8 @@ impl FileWatcher {
 
                 let elapsed = tracker.last_collection.elapsed();
                 if elapsed.as_secs() >= telemetry_config.collection_interval_secs {
-                    stats.telemetry = tracker.collect_snapshot(telemetry_config, stats.current_queue_size);
+                    stats.telemetry =
+                        tracker.collect_snapshot(telemetry_config, stats.current_queue_size);
                     stats.telemetry_history = Some(tracker.get_history());
                 } else if !tracker.history.is_empty() {
                     stats.telemetry = tracker.history.back().cloned();
@@ -327,10 +334,18 @@ impl FileWatcher {
 
         let handle = tokio::spawn(async move {
             Self::event_processing_loop(
-                event_receiver, debouncer, batcher, patterns, config,
-                task_submitter, stats, telemetry_tracker, is_paused,
+                event_receiver,
+                debouncer,
+                batcher,
+                patterns,
+                config,
+                task_submitter,
+                stats,
+                telemetry_tracker,
+                is_paused,
                 paused_event_buffer,
-            ).await;
+            )
+            .await;
         });
 
         {
@@ -371,9 +386,14 @@ impl FileWatcher {
 
                     if batch_buffer.len() >= BATCH_SIZE {
                         Self::submit_batch_directly(
-                            &batch_buffer, &self.batcher, &self.config,
-                            &self.task_submitter, &self.stats, &self.telemetry_tracker,
-                        ).await;
+                            &batch_buffer,
+                            &self.batcher,
+                            &self.config,
+                            &self.task_submitter,
+                            &self.stats,
+                            &self.telemetry_tracker,
+                        )
+                        .await;
                         batch_buffer.clear();
                     }
 
@@ -382,7 +402,9 @@ impl FileWatcher {
                         tokio::task::yield_now().await;
                         last_yield = now;
                     }
-                    if now.duration_since(last_progress) >= Duration::from_secs(PROGRESS_REPORT_INTERVAL_S) {
+                    if now.duration_since(last_progress)
+                        >= Duration::from_secs(PROGRESS_REPORT_INTERVAL_S)
+                    {
                         let rate = file_count as f64 / start_time.elapsed().as_secs_f64();
                         tracing::info!(
                             "Initial scan progress: {} files processed, {} filtered ({:.1} files/sec)",
@@ -397,9 +419,14 @@ impl FileWatcher {
 
         if !batch_buffer.is_empty() {
             Self::submit_batch_directly(
-                &batch_buffer, &self.batcher, &self.config,
-                &self.task_submitter, &self.stats, &self.telemetry_tracker,
-            ).await;
+                &batch_buffer,
+                &self.batcher,
+                &self.config,
+                &self.task_submitter,
+                &self.stats,
+                &self.telemetry_tracker,
+            )
+            .await;
         }
 
         // Flush the batcher so no events are stranded
@@ -409,15 +436,27 @@ impl FileWatcher {
         };
         if let Some(batch) = ready_batch {
             Self::submit_processing_tasks(
-                batch, &self.config, &self.task_submitter, &self.stats, &self.telemetry_tracker,
-            ).await;
+                batch,
+                &self.config,
+                &self.task_submitter,
+                &self.stats,
+                &self.telemetry_tracker,
+            )
+            .await;
         }
 
         let elapsed = start_time.elapsed();
-        let rate = if elapsed.as_secs() > 0 { file_count as f64 / elapsed.as_secs_f64() } else { 0.0 };
+        let rate = if elapsed.as_secs() > 0 {
+            file_count as f64 / elapsed.as_secs_f64()
+        } else {
+            0.0
+        };
         tracing::info!(
             "Initial file scan complete: {} files processed, {} filtered in {:?} ({:.1} files/sec)",
-            file_count, filtered_count, elapsed, rate
+            file_count,
+            filtered_count,
+            elapsed,
+            rate
         );
 
         Ok(())

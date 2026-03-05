@@ -6,23 +6,22 @@
 //! This service centralizes embedding generation in the daemon, allowing the TypeScript
 //! MCP server to use the same FastEmbed model as the Rust processing pipeline.
 
-use std::collections::HashMap;
+use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use lru::LruCache;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::OnceLock;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tonic::{Request, Response, Status};
-use tracing::{debug, info, error};
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use std::sync::OnceLock;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
-use lru::LruCache;
-use std::num::NonZeroUsize;
+use tonic::{Request, Response, Status};
+use tracing::{debug, error, info};
 use workspace_qdrant_core::BM25;
 
 use crate::proto::{
-    embedding_service_server::EmbeddingService,
-    EmbedTextRequest, EmbedTextResponse,
+    embedding_service_server::EmbeddingService, EmbedTextRequest, EmbedTextResponse,
     SparseVectorRequest, SparseVectorResponse,
 };
 
@@ -80,18 +79,21 @@ impl EmbeddingServiceImpl {
         EMBEDDING_MODEL.get_or_init(|| {
             info!("Initializing FastEmbed model ({})...", DEFAULT_MODEL_NAME);
             let model = TextEmbedding::try_new(
-                InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-                    .with_show_download_progress(true)
-            ).expect("Failed to initialize FastEmbed model");
+                InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(true),
+            )
+            .expect("Failed to initialize FastEmbed model");
             info!("FastEmbed model initialized successfully");
             TokioMutex::new(model)
         });
 
         // Initialize the embedding cache
         EMBEDDING_CACHE.get_or_init(|| {
-            let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE)
-                .expect("Cache size must be non-zero");
-            info!("Initializing embedding cache with {} entries", DEFAULT_CACHE_SIZE);
+            let cache_size =
+                NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
+            info!(
+                "Initializing embedding cache with {} entries",
+                DEFAULT_CACHE_SIZE
+            );
             TokioMutex::new(LruCache::new(cache_size))
         });
 
@@ -134,7 +136,8 @@ impl EmbeddingServiceImpl {
         // Cache miss - generate embedding
         CACHE_METRICS.misses.fetch_add(1, Ordering::Relaxed);
 
-        let model = EMBEDDING_MODEL.get()
+        let model = EMBEDDING_MODEL
+            .get()
             .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
 
         let text_owned = text.to_string();
@@ -149,13 +152,16 @@ impl EmbeddingServiceImpl {
                     if embeddings.is_empty() {
                         return Err(Status::internal("FastEmbed returned empty embeddings"));
                     }
-                    embeddings.into_iter().next()
+                    embeddings
+                        .into_iter()
+                        .next()
                         .ok_or_else(|| Status::internal("FastEmbed returned no embeddings"))?
                 }
                 Err(e) => {
                     error!("FastEmbed embedding generation failed: {:?}", e);
                     return Err(Status::internal(format!(
-                        "Embedding generation failed: {}", e
+                        "Embedding generation failed: {}",
+                        e
                     )));
                 }
             }
@@ -172,10 +178,14 @@ impl EmbeddingServiceImpl {
     }
 
     /// Generate sparse vector using BM25
-    async fn generate_sparse_vector_internal(&self, text: &str) -> Result<HashMap<u32, f32>, Status> {
+    async fn generate_sparse_vector_internal(
+        &self,
+        text: &str,
+    ) -> Result<HashMap<u32, f32>, Status> {
         Self::init_embedding_model()?;
 
-        let bm25 = BM25_MODEL.get()
+        let bm25 = BM25_MODEL
+            .get()
             .ok_or_else(|| Status::internal("BM25 model not initialized"))?;
 
         let tokens = Self::tokenize(text);
@@ -196,12 +206,17 @@ impl EmbeddingServiceImpl {
             let sparse = bm25_guard.generate_sparse_vector(&tokens);
 
             // Convert to HashMap<u32, f32>
-            sparse.indices.into_iter()
+            sparse
+                .indices
+                .into_iter()
                 .zip(sparse.values.into_iter())
                 .collect()
         };
 
-        debug!("Generated sparse vector with {} non-zero entries", sparse_map.len());
+        debug!(
+            "Generated sparse vector with {} non-zero entries",
+            sparse_map.len()
+        );
         Ok(sparse_map)
     }
 }
@@ -227,10 +242,16 @@ impl EmbeddingService for EmbeddingServiceImpl {
         // Model parameter is ignored for now - only all-MiniLM-L6-v2 supported
         let model_name = req.model.unwrap_or_else(|| DEFAULT_MODEL_NAME.to_string());
         if model_name != DEFAULT_MODEL_NAME {
-            debug!("Requested model '{}' not available, using default '{}'", model_name, DEFAULT_MODEL_NAME);
+            debug!(
+                "Requested model '{}' not available, using default '{}'",
+                model_name, DEFAULT_MODEL_NAME
+            );
         }
 
-        info!("EmbedText: generating embedding for text of {} chars", req.text.len());
+        info!(
+            "EmbedText: generating embedding for text of {} chars",
+            req.text.len()
+        );
 
         match self.generate_embedding_internal(&req.text).await {
             Ok(embedding) => {
@@ -240,7 +261,8 @@ impl EmbeddingService for EmbeddingServiceImpl {
                 if dimensions != DEFAULT_VECTOR_SIZE {
                     tracing::warn!(
                         "Embedding dimension mismatch: expected {}, got {}",
-                        DEFAULT_VECTOR_SIZE, dimensions
+                        DEFAULT_VECTOR_SIZE,
+                        dimensions
                     );
                 }
 
@@ -280,7 +302,10 @@ impl EmbeddingService for EmbeddingServiceImpl {
             }));
         }
 
-        info!("GenerateSparseVector: processing text of {} chars", req.text.len());
+        info!(
+            "GenerateSparseVector: processing text of {} chars",
+            req.text.len()
+        );
 
         match self.generate_sparse_vector_internal(&req.text).await {
             Ok(sparse_map) => {
@@ -353,7 +378,10 @@ mod tests {
             model: None,
         });
 
-        let response = service.embed_text(request).await.expect("Failed to embed text");
+        let response = service
+            .embed_text(request)
+            .await
+            .expect("Failed to embed text");
         let resp = response.into_inner();
 
         assert!(resp.success);
@@ -364,7 +392,11 @@ mod tests {
 
         // Check embeddings are normalized (FastEmbed normalizes by default)
         let magnitude: f32 = resp.embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((magnitude - 1.0).abs() < 0.1, "Embedding not normalized: {}", magnitude);
+        assert!(
+            (magnitude - 1.0).abs() < 0.1,
+            "Embedding not normalized: {}",
+            magnitude
+        );
     }
 
     #[tokio::test]
@@ -389,13 +421,19 @@ mod tests {
         let request1 = Request::new(SparseVectorRequest {
             text: "machine learning algorithms for natural language processing".to_string(),
         });
-        let _ = service.generate_sparse_vector(request1).await.expect("Failed");
+        let _ = service
+            .generate_sparse_vector(request1)
+            .await
+            .expect("Failed");
 
         // Now generate sparse vector for another document
         let request2 = Request::new(SparseVectorRequest {
             text: "deep learning neural networks for image classification".to_string(),
         });
-        let response = service.generate_sparse_vector(request2).await.expect("Failed");
+        let response = service
+            .generate_sparse_vector(request2)
+            .await
+            .expect("Failed");
         let resp = response.into_inner();
 
         assert!(resp.success);
@@ -416,7 +454,10 @@ mod tests {
             text: "".to_string(),
         });
 
-        let response = service.generate_sparse_vector(request).await.expect("Should succeed");
+        let response = service
+            .generate_sparse_vector(request)
+            .await
+            .expect("Should succeed");
         let resp = response.into_inner();
 
         assert!(resp.success);
@@ -438,14 +479,22 @@ mod tests {
             text: text.to_string(),
             model: None,
         });
-        let resp1 = service.embed_text(request1).await.expect("Failed").into_inner();
+        let resp1 = service
+            .embed_text(request1)
+            .await
+            .expect("Failed")
+            .into_inner();
 
         // Second call with same text should be a cache hit
         let request2 = Request::new(EmbedTextRequest {
             text: text.to_string(),
             model: None,
         });
-        let resp2 = service.embed_text(request2).await.expect("Failed").into_inner();
+        let resp2 = service
+            .embed_text(request2)
+            .await
+            .expect("Failed")
+            .into_inner();
 
         // Embeddings should be identical
         assert_eq!(resp1.embedding, resp2.embedding);
@@ -453,7 +502,11 @@ mod tests {
         // Verify cache metrics
         let hits = CACHE_METRICS.hits.load(Ordering::Relaxed);
         let misses = CACHE_METRICS.misses.load(Ordering::Relaxed);
-        assert!(misses >= 1, "Expected at least 1 cache miss, got {}", misses);
+        assert!(
+            misses >= 1,
+            "Expected at least 1 cache miss, got {}",
+            misses
+        );
         assert!(hits >= 1, "Expected at least 1 cache hit, got {}", hits);
     }
 }

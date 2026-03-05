@@ -97,10 +97,7 @@ fn print_project_list(
         output::separator();
         output::warning(format!("Orphaned projects ({}):", orphan_ids.len()));
         for (id, count) in &orphan_ids {
-            output::kv(
-                &format!("  {} (ORPHAN)", id),
-                &format!("{} points", count),
-            );
+            output::kv(&format!("  {} (ORPHAN)", id), &format!("{} points", count));
         }
         output::info("Run: wqm admin cleanup-orphans");
     }

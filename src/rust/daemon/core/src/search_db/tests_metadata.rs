@@ -18,7 +18,10 @@ async fn test_file_metadata_table_exists() {
     .await
     .unwrap();
 
-    assert!(exists, "file_metadata table should exist after migration v4");
+    assert!(
+        exists,
+        "file_metadata table should exist after migration v4"
+    );
     manager.close().await;
 }
 
@@ -28,7 +31,10 @@ async fn test_file_metadata_indexes_exist() {
     let db_path = tmp.path().join("search.db");
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
-    for idx_name in &["idx_file_metadata_tenant", "idx_file_metadata_tenant_branch"] {
+    for idx_name in &[
+        "idx_file_metadata_tenant",
+        "idx_file_metadata_tenant_branch",
+    ] {
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?1)",
         )
@@ -63,10 +69,11 @@ async fn test_file_metadata_upsert() {
         .await
         .unwrap();
 
-    let row = sqlx::query("SELECT tenant_id, branch, file_path FROM file_metadata WHERE file_id = 1")
-        .fetch_one(manager.pool())
-        .await
-        .unwrap();
+    let row =
+        sqlx::query("SELECT tenant_id, branch, file_path FROM file_metadata WHERE file_id = 1")
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
     assert_eq!(row.get::<String, _>("tenant_id"), "project-abc");
     assert_eq!(row.get::<String, _>("branch"), "main");
     assert_eq!(row.get::<String, _>("file_path"), "/src/lib.rs");
@@ -192,16 +199,18 @@ async fn test_file_metadata_delete_by_tenant() {
         .await
         .unwrap();
 
-    let count_a: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE tenant_id = 'proj-a'")
-        .fetch_one(manager.pool())
-        .await
-        .unwrap();
+    let count_a: i32 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE tenant_id = 'proj-a'")
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
     assert_eq!(count_a, 0, "All proj-a rows should be deleted");
 
-    let count_b: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE tenant_id = 'proj-b'")
-        .fetch_one(manager.pool())
-        .await
-        .unwrap();
+    let count_b: i32 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE tenant_id = 'proj-b'")
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
     assert_eq!(count_b, 1, "proj-b should be untouched");
 
     manager.close().await;
@@ -216,20 +225,42 @@ async fn test_fts5_search_by_project() {
 
     // Insert code_lines + file_metadata for two projects
     // Project A - file 1
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn alpha() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn alpha() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(1_i64).bind("proj-a").bind("main").bind("/src/alpha.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(1_i64)
+        .bind("proj-a")
+        .bind("main")
+        .bind("/src/alpha.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     // Project B - file 2
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn alpha_beta() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn alpha_beta() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(2_i64).bind("proj-b").bind("main").bind("/src/beta.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(2_i64)
+        .bind("proj-b")
+        .bind("main")
+        .bind("/src/beta.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     manager.rebuild_fts().await.unwrap();
 
@@ -256,19 +287,37 @@ async fn test_fts5_search_by_project_branch() {
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
     // Same project, different branches
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn feature_code() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn feature_code() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(1_i64).bind("proj-a").bind("main").bind("/src/main.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(1_i64)
+        .bind("proj-a")
+        .bind("main")
+        .bind("/src/main.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn feature_code_v2() {}')")
         .execute(manager.pool()).await.unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(2_i64).bind("proj-a").bind("feature/v2").bind("/src/main.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(2_i64)
+        .bind("proj-a")
+        .bind("feature/v2")
+        .bind("/src/main.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     manager.rebuild_fts().await.unwrap();
 
@@ -294,19 +343,41 @@ async fn test_fts5_search_by_path_prefix() {
     let db_path = tmp.path().join("search.db");
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn handler() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn handler() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(1_i64).bind("proj").bind("main").bind("/src/api/handler.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(1_i64)
+        .bind("proj")
+        .bind("main")
+        .bind("/src/api/handler.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn handler_test() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn handler_test() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(2_i64).bind("proj").bind("main").bind("/tests/api_test.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(2_i64)
+        .bind("proj")
+        .bind("main")
+        .bind("/tests/api_test.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     manager.rebuild_fts().await.unwrap();
 
@@ -332,20 +403,42 @@ async fn test_fts5_search_by_project_path() {
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
     // proj-a, /src/
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn widget() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn widget() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(1_i64).bind("proj-a").bind("main").bind("/src/widget.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(1_i64)
+        .bind("proj-a")
+        .bind("main")
+        .bind("/src/widget.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     // proj-b, /src/
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn widget_v2() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn widget_v2() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-        .bind(2_i64).bind("proj-b").bind("main").bind("/src/widget.rs")
-        .bind(None::<&str>).bind(None::<&str>).bind(None::<&str>)
-        .execute(manager.pool()).await.unwrap();
+        .bind(2_i64)
+        .bind("proj-b")
+        .bind("main")
+        .bind("/src/widget.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     manager.rebuild_fts().await.unwrap();
 
@@ -391,7 +484,10 @@ async fn test_fts5_scoped_search_performance_1000_files() {
 
         for line_idx in 0..10 {
             let seq = crate::code_lines_schema::initial_seq(line_idx);
-            let content = format!("fn process_item_{}() {{ /* file {} line {} */ }}", file_idx, file_idx, line_idx);
+            let content = format!(
+                "fn process_item_{}() {{ /* file {} line {} */ }}",
+                file_idx, file_idx, line_idx
+            );
             sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (?1, ?2, ?3)")
                 .bind(file_idx)
                 .bind(seq)
@@ -416,7 +512,11 @@ async fn test_fts5_scoped_search_performance_1000_files() {
 
     // Should return ~1000 lines (100 files * 10 lines each)
     assert_eq!(rows.len(), 1000, "Should find 1000 lines for proj-0");
-    assert!(elapsed.as_millis() < 5000, "Scoped search should complete in <5s, took {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() < 5000,
+        "Scoped search should complete in <5s, took {}ms",
+        elapsed.as_millis()
+    );
 
     // Verify all results are from proj-0
     for row in &rows {

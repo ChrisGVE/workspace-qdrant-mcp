@@ -5,7 +5,6 @@
 ///
 /// This eliminates hardcoded version strings in config defaults and
 /// version_checker.rs, ensuring they always match Cargo.toml.
-
 use std::fs;
 use std::path::Path;
 
@@ -21,7 +20,10 @@ fn main() {
             if let Some(version) = extract_tree_sitter_version(&contents) {
                 println!("cargo:rustc-env=TREE_SITTER_VERSION={}", version);
                 let major_minor = extract_major_minor(&version);
-                println!("cargo:rustc-env=TREE_SITTER_VERSION_MAJOR_MINOR={}", major_minor);
+                println!(
+                    "cargo:rustc-env=TREE_SITTER_VERSION_MAJOR_MINOR={}",
+                    major_minor
+                );
             } else {
                 // Fallback: if parsing fails, don't break the build
                 println!("cargo:warning=Could not extract tree-sitter version from Cargo.lock");
@@ -31,7 +33,10 @@ fn main() {
             // Re-run if Cargo.lock changes (dependency update)
             println!("cargo:rerun-if-changed={}", lock_path.display());
         } else {
-            println!("cargo:warning=Could not read Cargo.lock at {}", lock_path.display());
+            println!(
+                "cargo:warning=Could not read Cargo.lock at {}",
+                lock_path.display()
+            );
             println!("cargo:rustc-env=TREE_SITTER_VERSION=unknown");
             println!("cargo:rustc-env=TREE_SITTER_VERSION_MAJOR_MINOR=unknown");
         }

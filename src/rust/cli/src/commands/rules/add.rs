@@ -100,9 +100,7 @@ fn try_queue_fallback_rules(
     output::info("Enqueueing rule to unified_queue for later processing...");
 
     match UnifiedQueueClient::connect() {
-        Ok(queue_client) => {
-            enqueue_rule(&queue_client, label, content, rule_type, scope, priority)
-        }
+        Ok(queue_client) => enqueue_rule(&queue_client, label, content, rule_type, scope, priority),
         Err(e) => {
             output::error(format!("Failed to connect to queue database: {}", e));
             output::info("Ensure the workspace-qdrant directory exists.");
@@ -136,9 +134,7 @@ fn enqueue_rule(
     // Rules use "rules" collection
     match queue_client.enqueue_content(
         "_global", // Rules are global
-        "rules",
-        &payload,
-        "main", // Rules are branch-agnostic
+        "rules", &payload, "main", // Rules are branch-agnostic
     ) {
         Ok(result) => {
             if result.was_duplicate {

@@ -277,8 +277,8 @@ pub(super) fn build_profiles(config: &AdaptiveResourceConfig) -> Profiles {
         burst.max_concurrent_embeddings,
         std::cmp::max(
             normal.max_concurrent_embeddings + 1,
-            (normal.max_concurrent_embeddings as f64 * config.active_concurrency_multiplier)
-                .round() as usize,
+            (normal.max_concurrent_embeddings as f64 * config.active_concurrency_multiplier).round()
+                as usize,
         ),
     );
     let active = ResourceProfile {
@@ -292,7 +292,12 @@ pub(super) fn build_profiles(config: &AdaptiveResourceConfig) -> Profiles {
         ),
         inter_item_delay_ms: (active.inter_item_delay_ms + burst.inter_item_delay_ms) / 2,
     };
-    Profiles { normal, active, elevated, burst }
+    Profiles {
+        normal,
+        active,
+        elevated,
+        burst,
+    }
 }
 
 /// Compute the resource profile for a given level.
@@ -324,12 +329,19 @@ pub(super) fn log_startup_config(config: &AdaptiveResourceConfig, p: &Profiles) 
         "Adaptive resource manager started \
          (idle_threshold={}s, confirm={}s, ramp_up={}s, ramp_down={}s, burst_hold={}s, \
          normal={}/{}, active={}/{}, elevated={}/{}, burst={}/{}, poll={}s)",
-        config.idle_threshold_secs, config.idle_confirmation_secs,
-        config.ramp_up_step_secs, config.ramp_down_step_secs, config.burst_hold_secs,
-        p.normal.max_concurrent_embeddings, p.normal.inter_item_delay_ms,
-        p.active.max_concurrent_embeddings, p.active.inter_item_delay_ms,
-        p.elevated.max_concurrent_embeddings, p.elevated.inter_item_delay_ms,
-        p.burst.max_concurrent_embeddings, p.burst.inter_item_delay_ms,
+        config.idle_threshold_secs,
+        config.idle_confirmation_secs,
+        config.ramp_up_step_secs,
+        config.ramp_down_step_secs,
+        config.burst_hold_secs,
+        p.normal.max_concurrent_embeddings,
+        p.normal.inter_item_delay_ms,
+        p.active.max_concurrent_embeddings,
+        p.active.inter_item_delay_ms,
+        p.elevated.max_concurrent_embeddings,
+        p.elevated.inter_item_delay_ms,
+        p.burst.max_concurrent_embeddings,
+        p.burst.inter_item_delay_ms,
         config.poll_interval_secs,
     );
 }
@@ -373,12 +385,15 @@ impl AdaptiveResourceState {
     }
 
     pub(super) fn set_idle_seconds(&self, secs: f64) {
-        self.idle_centiseconds.store((secs * 100.0) as u64, Ordering::Relaxed);
+        self.idle_centiseconds
+            .store((secs * 100.0) as u64, Ordering::Relaxed);
     }
 
     pub(super) fn set_profile(&self, profile: &ResourceProfile) {
-        self.max_concurrent_embeddings.store(profile.max_concurrent_embeddings as u64, Ordering::Relaxed);
-        self.inter_item_delay_ms.store(profile.inter_item_delay_ms, Ordering::Relaxed);
+        self.max_concurrent_embeddings
+            .store(profile.max_concurrent_embeddings as u64, Ordering::Relaxed);
+        self.inter_item_delay_ms
+            .store(profile.inter_item_delay_ms, Ordering::Relaxed);
     }
 
     /// Get the current resource mode.
@@ -413,7 +428,10 @@ impl std::fmt::Debug for AdaptiveResourceState {
         f.debug_struct("AdaptiveResourceState")
             .field("mode", &self.mode())
             .field("idle_seconds", &self.idle_seconds())
-            .field("max_concurrent_embeddings", &self.max_concurrent_embeddings())
+            .field(
+                "max_concurrent_embeddings",
+                &self.max_concurrent_embeddings(),
+            )
             .field("inter_item_delay_ms", &self.inter_item_delay_ms())
             .finish()
     }

@@ -35,7 +35,9 @@ async fn test_extract_from_text_chunks() {
     meta_fn.insert("calls".to_string(), "validate,transform".to_string());
 
     let text_chunk = TextChunk {
-        content: "fn calculate(input: Vec<Data>) -> Result<Report, Error> { validate(); transform(); }".to_string(),
+        content:
+            "fn calculate(input: Vec<Data>) -> Result<Report, Error> { validate(); transform(); }"
+                .to_string(),
         chunk_index: 0,
         start_char: 0,
         end_char: 82,

@@ -11,8 +11,8 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
 use rusqlite::Connection;
 
-use wqm_common::timestamps;
 use crate::config::get_database_path;
+use wqm_common::timestamps;
 
 /// Time period filter for stats queries
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -33,9 +33,21 @@ impl StatsPeriod {
     fn start_timestamp(&self) -> Option<String> {
         use chrono::{Duration, Utc};
         match self {
-            StatsPeriod::Day => Some((Utc::now() - Duration::days(1)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
-            StatsPeriod::Week => Some((Utc::now() - Duration::days(7)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
-            StatsPeriod::Month => Some((Utc::now() - Duration::days(30)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            StatsPeriod::Day => Some(
+                (Utc::now() - Duration::days(1))
+                    .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                    .to_string(),
+            ),
+            StatsPeriod::Week => Some(
+                (Utc::now() - Duration::days(7))
+                    .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                    .to_string(),
+            ),
+            StatsPeriod::Month => Some(
+                (Utc::now() - Duration::days(30))
+                    .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                    .to_string(),
+            ),
             StatsPeriod::All => None,
         }
     }
@@ -110,9 +122,12 @@ enum StatsCommand {
 pub async fn execute(args: StatsArgs) -> Result<()> {
     match args.command {
         StatsCommand::Overview { period } => overview::run(period).await,
-        StatsCommand::Processing { period, op, item_type, json } => {
-            processing::run(period, op.as_deref(), item_type.as_deref(), json).await
-        }
+        StatsCommand::Processing {
+            period,
+            op,
+            item_type,
+            json,
+        } => processing::run(period, op.as_deref(), item_type.as_deref(), json).await,
         StatsCommand::LogSearch {
             tool,
             query,
@@ -131,8 +146,7 @@ fn open_db() -> Result<Connection> {
             db_path.display()
         );
     }
-    let conn = Connection::open(&db_path)
-        .context("Failed to open state database")?;
+    let conn = Connection::open(&db_path).context("Failed to open state database")?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
         .context("Failed to set SQLite pragmas")?;
     Ok(conn)

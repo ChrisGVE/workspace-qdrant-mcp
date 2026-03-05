@@ -5,11 +5,11 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
+use super::helpers::open_db;
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
-use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
-use super::helpers::open_db;
+use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Remove a library (deletes watch config AND queues vector deletion)
 pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
@@ -18,14 +18,19 @@ pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
     let watch_id = format!("lib-{}", tag);
     let conn = open_db()?;
 
-    let exists: bool = conn.query_row(
-        "SELECT 1 FROM watch_folders WHERE watch_id = ?",
-        [&watch_id],
-        |_| Ok(true),
-    ).unwrap_or(false);
+    let exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM watch_folders WHERE watch_id = ?",
+            [&watch_id],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
 
     if !exists {
-        output::error(format!("Library '{}' not found (watch_id: {})", tag, watch_id));
+        output::error(format!(
+            "Library '{}' not found (watch_id: {})",
+            tag, watch_id
+        ));
         return Ok(());
     }
 
@@ -60,16 +65,11 @@ pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
 }
 
 /// Delete watch folder config from SQLite
-fn delete_watch_config(
-    conn: &rusqlite::Connection,
-    tag: &str,
-    watch_id: &str,
-) -> Result<()> {
+fn delete_watch_config(conn: &rusqlite::Connection, tag: &str, watch_id: &str) -> Result<()> {
     output::info("Removing watch configuration...");
-    let deleted = conn.execute(
-        "DELETE FROM watch_folders WHERE watch_id = ?",
-        [watch_id],
-    ).context("Failed to delete watch folder config")?;
+    let deleted = conn
+        .execute("DELETE FROM watch_folders WHERE watch_id = ?", [watch_id])
+        .context("Failed to delete watch folder config")?;
 
     if deleted > 0 {
         output::success(format!("Removed watch config for '{}'", tag));
@@ -85,7 +85,8 @@ fn enqueue_vector_deletion(tag: &str) {
     let collection = COLLECTION_LIBRARIES;
     let payload_json = serde_json::json!({
         "tenant_id_to_delete": tag
-    }).to_string();
+    })
+    .to_string();
 
     match UnifiedQueueClient::connect() {
         Ok(client) => {

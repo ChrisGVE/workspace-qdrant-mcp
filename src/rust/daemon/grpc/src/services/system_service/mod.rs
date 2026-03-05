@@ -6,10 +6,10 @@
 //! SendRefreshSignal, NotifyServerStatus, PauseAllWatchers, ResumeAllWatchers,
 //! RebuildIndex
 
-mod types;
-mod service_impl;
-mod rpc_handlers;
 mod rebuild;
+mod rpc_handlers;
+mod service_impl;
+mod types;
 
 // Re-export primary types
 pub use service_impl::SystemServiceImpl;

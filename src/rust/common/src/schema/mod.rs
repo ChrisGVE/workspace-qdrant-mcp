@@ -37,17 +37,26 @@ pub struct FieldDef {
 impl FieldDef {
     /// Create a new categorical field.
     pub const fn categorical(name: &'static str) -> Self {
-        Self { name, kind: FieldKind::Categorical }
+        Self {
+            name,
+            kind: FieldKind::Categorical,
+        }
     }
 
     /// Create a new content field.
     pub const fn content(name: &'static str) -> Self {
-        Self { name, kind: FieldKind::Content }
+        Self {
+            name,
+            kind: FieldKind::Content,
+        }
     }
 
     /// Create a new list field.
     pub const fn list(name: &'static str) -> Self {
-        Self { name, kind: FieldKind::List }
+        Self {
+            name,
+            kind: FieldKind::List,
+        }
     }
 }
 

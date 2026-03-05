@@ -1,5 +1,4 @@
 /// Betweenness centrality using Brandes' algorithm.
-
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -31,13 +30,17 @@ pub async fn compute_betweenness_centrality(
     let graph = load_adjacency_graph(pool, tenant_id, edge_types).await?;
 
     if graph.nodes.len() < 3 {
-        return Ok(graph.nodes.iter().map(|(id, info)| BetweennessEntry {
-            node_id: id.clone(),
-            symbol_name: info.symbol_name.clone(),
-            symbol_type: info.symbol_type.clone(),
-            file_path: info.file_path.clone(),
-            score: 0.0,
-        }).collect());
+        return Ok(graph
+            .nodes
+            .iter()
+            .map(|(id, info)| BetweennessEntry {
+                node_id: id.clone(),
+                symbol_name: info.symbol_name.clone(),
+                symbol_type: info.symbol_type.clone(),
+                file_path: info.file_path.clone(),
+                score: 0.0,
+            })
+            .collect());
     }
 
     let node_ids: Vec<&String> = graph.nodes.keys().collect();
@@ -45,8 +48,14 @@ pub async fn compute_betweenness_centrality(
     let mut neighbors: HashMap<&str, Vec<&str>> = HashMap::new();
     for (src, targets) in &graph.outgoing {
         for tgt in targets {
-            neighbors.entry(src.as_str()).or_default().push(tgt.as_str());
-            neighbors.entry(tgt.as_str()).or_default().push(src.as_str());
+            neighbors
+                .entry(src.as_str())
+                .or_default()
+                .push(tgt.as_str());
+            neighbors
+                .entry(tgt.as_str())
+                .or_default()
+                .push(src.as_str());
         }
     }
 
@@ -84,7 +93,11 @@ fn normalize_betweenness<'a>(
     sources: &[&str],
 ) -> Vec<BetweennessEntry> {
     let n = node_ids.len() as f64;
-    let normalizer = if n > 2.0 { (n - 1.0) * (n - 2.0) / 2.0 } else { 1.0 };
+    let normalizer = if n > 2.0 {
+        (n - 1.0) * (n - 2.0) / 2.0
+    } else {
+        1.0
+    };
     let sample_scale = if sources.len() < node_ids.len() {
         n / sources.len() as f64
     } else {
@@ -104,7 +117,11 @@ fn normalize_betweenness<'a>(
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results
 }
 

@@ -62,16 +62,16 @@ fn detect_notebook_language(notebook: &serde_json::Value) -> String {
         .to_string()
 }
 
-fn render_cells(
-    cells: &[serde_json::Value],
-    language: &str,
-) -> (String, usize, usize) {
+fn render_cells(cells: &[serde_json::Value], language: &str) -> (String, usize, usize) {
     let mut all_text = String::new();
     let mut code_cells = 0usize;
     let mut markdown_cells = 0usize;
 
     for cell in cells {
-        let cell_type = cell.get("cell_type").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let cell_type = cell
+            .get("cell_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         let source = read_cell_source(cell);
         if source.trim().is_empty() {
             continue;
@@ -100,7 +100,17 @@ fn render_cells(
 fn read_cell_source(cell: &serde_json::Value) -> String {
     cell.get("source")
         .and_then(|v| v.as_array())
-        .map(|lines| lines.iter().filter_map(|l| l.as_str()).collect::<Vec<&str>>().join(""))
-        .or_else(|| cell.get("source").and_then(|v| v.as_str()).map(String::from))
+        .map(|lines| {
+            lines
+                .iter()
+                .filter_map(|l| l.as_str())
+                .collect::<Vec<&str>>()
+                .join("")
+        })
+        .or_else(|| {
+            cell.get("source")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .unwrap_or_default()
 }

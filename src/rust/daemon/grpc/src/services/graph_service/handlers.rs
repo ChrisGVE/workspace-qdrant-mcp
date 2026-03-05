@@ -3,18 +3,18 @@
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 use workspace_qdrant_core::graph::algorithms::{
-    CommunityConfig, PageRankConfig, compute_betweenness_centrality, compute_pagerank,
-    detect_communities,
+    compute_betweenness_centrality, compute_pagerank, detect_communities, CommunityConfig,
+    PageRankConfig,
 };
 use workspace_qdrant_core::graph::EdgeType;
 
 use crate::proto::{
-    BetweennessNodeProto, BetweennessRequest, BetweennessResponse, CommunityMemberProto,
-    CommunityProto, CommunityRequest, CommunityResponse, GraphMigrateRequest,
-    GraphMigrateResponse, GraphStatsRequest, GraphStatsResponse, ImpactAnalysisRequest,
-    ImpactAnalysisResponse, ImpactNodeProto, PageRankNodeProto, PageRankRequest, PageRankResponse,
-    QueryRelatedRequest, QueryRelatedResponse, TraversalNodeProto,
-    graph_service_server::GraphService,
+    graph_service_server::GraphService, BetweennessNodeProto, BetweennessRequest,
+    BetweennessResponse, CommunityMemberProto, CommunityProto, CommunityRequest, CommunityResponse,
+    GraphMigrateRequest, GraphMigrateResponse, GraphStatsRequest, GraphStatsResponse,
+    ImpactAnalysisRequest, ImpactAnalysisResponse, ImpactNodeProto, PageRankNodeProto,
+    PageRankRequest, PageRankResponse, QueryRelatedRequest, QueryRelatedResponse,
+    TraversalNodeProto,
 };
 
 use super::helpers::parse_edge_type_filter;
@@ -126,11 +126,7 @@ impl GraphService for GraphServiceImpl {
 
         let result = self
             .graph_store
-            .impact_analysis(
-                &req.tenant_id,
-                &req.symbol_name,
-                req.file_path.as_deref(),
-            )
+            .impact_analysis(&req.tenant_id, &req.symbol_name, req.file_path.as_deref())
             .await;
 
         match result {
@@ -159,10 +155,7 @@ impl GraphService for GraphServiceImpl {
             }
             Err(e) => {
                 error!("GraphService.ImpactAnalysis failed: {}", e);
-                Err(Status::internal(format!(
-                    "Impact analysis failed: {}",
-                    e
-                )))
+                Err(Status::internal(format!("Impact analysis failed: {}", e)))
             }
         }
     }
@@ -175,10 +168,7 @@ impl GraphService for GraphServiceImpl {
 
         let tenant_filter = req.tenant_id.as_deref().filter(|s| !s.is_empty());
 
-        debug!(
-            "GraphService.GetGraphStats: tenant={:?}",
-            tenant_filter
-        );
+        debug!("GraphService.GetGraphStats: tenant={:?}", tenant_filter);
 
         let start = std::time::Instant::now();
 
@@ -199,10 +189,7 @@ impl GraphService for GraphServiceImpl {
             }
             Err(e) => {
                 error!("GraphService.GetGraphStats failed: {}", e);
-                Err(Status::internal(format!(
-                    "Graph stats query failed: {}",
-                    e
-                )))
+                Err(Status::internal(format!("Graph stats query failed: {}", e)))
             }
         }
     }
@@ -358,10 +345,7 @@ impl GraphService for GraphServiceImpl {
             .as_ref()
             .map(|v| v.iter().map(|s| s.as_str()).collect());
 
-        let max_samples = req
-            .max_samples
-            .filter(|&v| v > 0)
-            .map(|v| v as usize);
+        let max_samples = req.max_samples.filter(|&v| v > 0).map(|v| v as usize);
 
         debug!(
             "GraphService.ComputeBetweenness: tenant={} max_samples={:?}",
@@ -469,16 +453,13 @@ impl GraphService for GraphServiceImpl {
         // For now, import back to the same SQLite store (real ladybug migration
         // requires runtime construction of the ladybug store which needs the
         // graph config from daemon state — future enhancement)
-        let report = workspace_qdrant_core::graph::migrator::import_to_store(
-            &snapshot,
-            &*guard,
-            batch_size,
-        )
-        .await
-        .map_err(|e| {
-            error!("Migration import failed: {}", e);
-            Status::internal(format!("Import failed: {}", e))
-        })?;
+        let report =
+            workspace_qdrant_core::graph::migrator::import_to_store(&snapshot, &*guard, batch_size)
+                .await
+                .map_err(|e| {
+                    error!("Migration import failed: {}", e);
+                    Status::internal(format!("Import failed: {}", e))
+                })?;
 
         Ok(Response::new(GraphMigrateResponse {
             success: report.nodes_match && report.edges_match,

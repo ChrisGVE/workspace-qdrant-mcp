@@ -10,12 +10,9 @@ async fn setup_cascade_pool() -> (SqlitePool, QueueManager, tempfile::TempDir) {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
 
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
@@ -80,7 +77,10 @@ async fn test_delete_cascade_purges_pending_items() {
 
     // Cascade purge happens during enqueue: 3 add items purged, only the delete remains
     let stats = manager.get_unified_queue_stats().await.unwrap();
-    assert_eq!(stats.total_items, 1, "Only delete should remain after cascade purge");
+    assert_eq!(
+        stats.total_items, 1,
+        "Only delete should remain after cascade purge"
+    );
 
     // Dequeue should return the delete
     let items = manager
@@ -122,7 +122,10 @@ async fn test_delete_cascade_does_not_affect_other_tenants() {
 
     // Cascade purge removes tenant-a's 2 adds; remaining: 2 (tenant-b) + 1 (tenant-a delete) = 3
     let stats = manager.get_unified_queue_stats().await.unwrap();
-    assert_eq!(stats.total_items, 3, "tenant-a adds purged by cascade, tenant-b untouched");
+    assert_eq!(
+        stats.total_items, 3,
+        "tenant-a adds purged by cascade, tenant-b untouched"
+    );
 
     // Dequeue all
     let items = manager
@@ -152,9 +155,19 @@ async fn test_op_priority_dequeue_ordering() {
     // Order: add first, then update, scan, delete — but delete should dequeue first due to priority
     let items = vec![
         ("q-add", "file", "add", r#"{"file_path":"/test/add.rs"}"#),
-        ("q-update", "file", "update", r#"{"file_path":"/test/update.rs"}"#),
+        (
+            "q-update",
+            "file",
+            "update",
+            r#"{"file_path":"/test/update.rs"}"#,
+        ),
         ("q-scan", "tenant", "scan", r#"{"project_root":"/test"}"#),
-        ("q-delete", "tenant", "delete", r#"{"project_root":"/test2"}"#),
+        (
+            "q-delete",
+            "tenant",
+            "delete",
+            r#"{"project_root":"/test2"}"#,
+        ),
     ];
 
     for (qid, item_type, op, payload) in &items {
@@ -185,8 +198,24 @@ async fn test_op_priority_dequeue_ordering() {
     assert_eq!(dequeued.len(), 4, "All 4 items should be dequeued");
 
     // Verify ordering by op priority: delete(10) > add(5) > update(3) > scan(1)
-    assert_eq!(dequeued[0].op, UnifiedOp::Delete, "Delete should be dequeued first");
-    assert_eq!(dequeued[1].op, UnifiedOp::Add, "Add should be dequeued second");
-    assert_eq!(dequeued[2].op, UnifiedOp::Update, "Update should be dequeued third");
-    assert_eq!(dequeued[3].op, UnifiedOp::Scan, "Scan should be dequeued last");
+    assert_eq!(
+        dequeued[0].op,
+        UnifiedOp::Delete,
+        "Delete should be dequeued first"
+    );
+    assert_eq!(
+        dequeued[1].op,
+        UnifiedOp::Add,
+        "Add should be dequeued second"
+    );
+    assert_eq!(
+        dequeued[2].op,
+        UnifiedOp::Update,
+        "Update should be dequeued third"
+    );
+    assert_eq!(
+        dequeued[3].op,
+        UnifiedOp::Scan,
+        "Scan should be dequeued last"
+    );
 }

@@ -50,8 +50,24 @@ async fn test_lookup_tracked_file_null_branch() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "doc.pdf", None, None, None, "2025-01-01T00:00:00Z", "hash1", 0, None,
-        ProcessingStatus::None, ProcessingStatus::Skipped, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "doc.pdf",
+        None,
+        None,
+        None,
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        0,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::Skipped,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .expect("Insert failed");
@@ -76,16 +92,39 @@ async fn test_update_tracked_file() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/main.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "hash1", 3, Some("text"), ProcessingStatus::None,
-        ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/main.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        3,
+        Some("text"),
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .expect("Insert failed");
 
     update_tracked_file(
-        &pool, file_id, "2025-01-02T00:00:00Z", "hash2", 5, Some("tree_sitter"),
-        ProcessingStatus::Done, ProcessingStatus::Done, None, None,
+        &pool,
+        file_id,
+        "2025-01-02T00:00:00Z",
+        "hash2",
+        5,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
     )
     .await
     .expect("Update failed");
@@ -108,21 +147,46 @@ async fn test_insert_and_get_qdrant_chunks() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/lib.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "hash1", 2, Some("tree_sitter"), ProcessingStatus::Done,
-        ProcessingStatus::Done, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/lib.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        2,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
 
     let chunks = vec![
         (
-            "point-1".to_string(), 0, "chash1".to_string(), Some(ChunkType::Function),
-            Some("main".to_string()), Some(1), Some(20),
+            "point-1".to_string(),
+            0,
+            "chash1".to_string(),
+            Some(ChunkType::Function),
+            Some("main".to_string()),
+            Some(1),
+            Some(20),
         ),
         (
-            "point-2".to_string(), 1, "chash2".to_string(), Some(ChunkType::Struct),
-            Some("Config".to_string()), Some(22), Some(40),
+            "point-2".to_string(),
+            1,
+            "chash2".to_string(),
+            Some(ChunkType::Struct),
+            Some("Config".to_string()),
+            Some(22),
+            Some(40),
         ),
     ];
 
@@ -144,15 +208,36 @@ async fn test_delete_tracked_file_cascades_chunks() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/main.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "hash1", 1, None, ProcessingStatus::None,
-        ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/main.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        1,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
 
     let chunks = vec![(
-        "point-1".to_string(), 0, "chash1".to_string(), None, None, None, None,
+        "point-1".to_string(),
+        0,
+        "chash1".to_string(),
+        None,
+        None,
+        None,
+        None,
     )];
     insert_qdrant_chunks(&pool, file_id, &chunks).await.unwrap();
 
@@ -164,7 +249,11 @@ async fn test_delete_tracked_file_cascades_chunks() {
         .expect("Delete failed");
 
     let points_after = get_chunk_point_ids(&pool, file_id).await.unwrap();
-    assert_eq!(points_after.len(), 0, "Chunks should be deleted via CASCADE");
+    assert_eq!(
+        points_after.len(),
+        0,
+        "Chunks should be deleted via CASCADE"
+    );
 }
 
 #[tokio::test]
@@ -173,15 +262,47 @@ async fn test_get_tracked_file_paths() {
     setup_tables(&pool).await;
 
     insert_tracked_file(
-        &pool, "w1", "src/main.rs", Some("main"), None, None, "2025-01-01T00:00:00Z", "h1", 0,
-        None, ProcessingStatus::None, ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/main.rs",
+        Some("main"),
+        None,
+        None,
+        "2025-01-01T00:00:00Z",
+        "h1",
+        0,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
 
     insert_tracked_file(
-        &pool, "w1", "src/lib.rs", Some("main"), None, None, "2025-01-01T00:00:00Z", "h2", 0,
-        None, ProcessingStatus::None, ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/lib.rs",
+        Some("main"),
+        None,
+        None,
+        "2025-01-01T00:00:00Z",
+        "h2",
+        0,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -221,15 +342,47 @@ async fn test_delete_qdrant_chunks_explicit() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "file.rs", Some("main"), None, None, "2025-01-01T00:00:00Z", "h1", 2, None,
-        ProcessingStatus::None, ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "file.rs",
+        Some("main"),
+        None,
+        None,
+        "2025-01-01T00:00:00Z",
+        "h1",
+        2,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
 
     let chunks = vec![
-        ("p1".to_string(), 0, "c1".to_string(), None, None, None, None),
-        ("p2".to_string(), 1, "c2".to_string(), None, None, None, None),
+        (
+            "p1".to_string(),
+            0,
+            "c1".to_string(),
+            None,
+            None,
+            None,
+            None,
+        ),
+        (
+            "p2".to_string(),
+            1,
+            "c2".to_string(),
+            None,
+            None,
+            None,
+            None,
+        ),
     ];
     insert_qdrant_chunks(&pool, file_id, &chunks).await.unwrap();
 
@@ -259,8 +412,24 @@ async fn test_get_tracked_files_by_prefix() {
         ("README.md", "h5"),
     ] {
         insert_tracked_file(
-            &pool, "w1", path, Some("main"), None, None, "2025-01-01T00:00:00Z", hash, 0, None,
-            ProcessingStatus::None, ProcessingStatus::None, None, None, false, None, None, None,
+            &pool,
+            "w1",
+            path,
+            Some("main"),
+            None,
+            None,
+            "2025-01-01T00:00:00Z",
+            hash,
+            0,
+            None,
+            ProcessingStatus::None,
+            ProcessingStatus::None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -269,11 +438,7 @@ async fn test_get_tracked_files_by_prefix() {
     let result = get_tracked_files_by_prefix(&pool, "w1", "src/core")
         .await
         .unwrap();
-    assert_eq!(
-        result.len(),
-        3,
-        "Should match all 3 files under src/core/"
-    );
+    assert_eq!(result.len(), 3, "Should match all 3 files under src/core/");
     let paths: Vec<&str> = result.iter().map(|(_, p, _)| p.as_str()).collect();
     assert!(paths.contains(&"src/core/main.rs"));
     assert!(paths.contains(&"src/core/lib.rs"));
@@ -282,11 +447,7 @@ async fn test_get_tracked_files_by_prefix() {
     let result2 = get_tracked_files_by_prefix(&pool, "w1", "src/core/")
         .await
         .unwrap();
-    assert_eq!(
-        result2.len(),
-        3,
-        "Trailing slash should not affect result"
-    );
+    assert_eq!(result2.len(), 3, "Trailing slash should not affect result");
 
     let result3 = get_tracked_files_by_prefix(&pool, "w1", "src")
         .await
@@ -314,8 +475,24 @@ async fn test_get_tracked_files_by_prefix_no_false_positives() {
         ("src/core_utils/helpers.rs", "h2"),
     ] {
         insert_tracked_file(
-            &pool, "w1", path, Some("main"), None, None, "2025-01-01T00:00:00Z", hash, 0, None,
-            ProcessingStatus::None, ProcessingStatus::None, None, None, false, None, None, None,
+            &pool,
+            "w1",
+            path,
+            Some("main"),
+            None,
+            None,
+            "2025-01-01T00:00:00Z",
+            hash,
+            0,
+            None,
+            ProcessingStatus::None,
+            ProcessingStatus::None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();

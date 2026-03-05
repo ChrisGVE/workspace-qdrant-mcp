@@ -46,7 +46,10 @@ impl HierarchyBuilder {
     /// Rebuild the canonical tag hierarchy for a single tenant.
     ///
     /// Returns `None` if the tenant has fewer tags than the threshold.
-    pub async fn rebuild_tenant(&self, tenant_id: &str) -> Result<Option<RebuildResult>, HierarchyError> {
+    pub async fn rebuild_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<RebuildResult>, HierarchyError> {
         info!(tenant_id, "Starting canonical tag hierarchy rebuild");
 
         // Step 1: Collect distinct concept tags with doc counts
@@ -169,7 +172,10 @@ impl HierarchyBuilder {
     ///
     /// Spawns a background task that runs at approximately 2 AM local time.
     /// Returns a cancellation token that can be used to stop the job.
-    pub fn start_scheduled(self: Arc<Self>, cancel: CancellationToken) -> tokio::task::JoinHandle<()> {
+    pub fn start_scheduled(
+        self: Arc<Self>,
+        cancel: CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             loop {
                 let delay = delay_until_next_2am();
@@ -218,12 +224,11 @@ impl HierarchyBuilder {
             return false;
         }
 
-        let has_canonical: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM canonical_tags LIMIT 1)",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or(true); // default true to skip rebuild on error
+        let has_canonical: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM canonical_tags LIMIT 1)")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(true); // default true to skip rebuild on error
 
         !has_canonical
     }
@@ -231,13 +236,16 @@ impl HierarchyBuilder {
     // ── Internal helpers ──────────────────────────────────────────────
 
     /// Collect distinct concept tags with their doc counts for a tenant.
-    async fn collect_concept_tags(&self, tenant_id: &str) -> Result<Vec<(String, u32)>, HierarchyError> {
+    async fn collect_concept_tags(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<(String, u32)>, HierarchyError> {
         let rows = sqlx::query(
             "SELECT tag, COUNT(DISTINCT doc_id) as doc_count \
              FROM tags \
              WHERE tenant_id = ?1 AND collection = ?2 AND tag_type = 'concept' \
              GROUP BY tag \
-             ORDER BY doc_count DESC"
+             ORDER BY doc_count DESC",
         )
         .bind(tenant_id)
         .bind(&self.config.collection)
@@ -261,7 +269,7 @@ impl HierarchyBuilder {
             "SELECT DISTINCT tenant_id FROM tags \
              WHERE collection = ?1 AND tag_type = 'concept' \
              GROUP BY tenant_id \
-             HAVING COUNT(DISTINCT tag) >= ?2"
+             HAVING COUNT(DISTINCT tag) >= ?2",
         )
         .bind(&self.config.collection)
         .bind(self.config.min_tags_threshold as i64)
@@ -307,18 +315,37 @@ impl HierarchyBuilder {
         let mut edges_created = 0usize;
 
         let level1_ids = insert_level1_tags(
-            &mut tx, &hierarchy.level1, tenant_id, &self.config.collection, &now_str,
-        ).await?;
+            &mut tx,
+            &hierarchy.level1,
+            tenant_id,
+            &self.config.collection,
+            &now_str,
+        )
+        .await?;
 
         let level2_ids = insert_level_n_tags(
-            &mut tx, &hierarchy.level2, 2, &level1_ids, tenant_id,
-            &self.config.collection, &now_str, &mut edges_created,
-        ).await?;
+            &mut tx,
+            &hierarchy.level2,
+            2,
+            &level1_ids,
+            tenant_id,
+            &self.config.collection,
+            &now_str,
+            &mut edges_created,
+        )
+        .await?;
 
         insert_level_n_tags(
-            &mut tx, &hierarchy.level3, 3, &level2_ids, tenant_id,
-            &self.config.collection, &now_str, &mut edges_created,
-        ).await?;
+            &mut tx,
+            &hierarchy.level3,
+            3,
+            &level2_ids,
+            tenant_id,
+            &self.config.collection,
+            &now_str,
+            &mut edges_created,
+        )
+        .await?;
 
         tx.commit().await.map_err(HierarchyError::Database)?;
         Ok(edges_created)
@@ -338,7 +365,7 @@ async fn insert_level1_tags(
         let result = sqlx::query(
             "INSERT INTO canonical_tags \
              (canonical_name, level, parent_id, tenant_id, collection, created_at) \
-             VALUES (?1, ?2, NULL, ?3, ?4, ?5)"
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5)",
         )
         .bind(&tag.label)
         .bind(1_i32)
@@ -366,11 +393,13 @@ async fn insert_level_n_tags(
 ) -> Result<Vec<i64>, HierarchyError> {
     let mut ids = Vec::with_capacity(tags.len());
     for tag in tags {
-        let parent_id = tag.parent_index.and_then(|idx| parent_ids.get(idx).copied());
+        let parent_id = tag
+            .parent_index
+            .and_then(|idx| parent_ids.get(idx).copied());
         let result = sqlx::query(
             "INSERT INTO canonical_tags \
              (canonical_name, level, parent_id, tenant_id, collection, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )
         .bind(&tag.label)
         .bind(level)
@@ -388,7 +417,7 @@ async fn insert_level_n_tags(
             sqlx::query(
                 "INSERT OR IGNORE INTO tag_hierarchy_edges \
                  (parent_tag_id, child_tag_id, similarity_score, tenant_id) \
-                 VALUES (?1, ?2, ?3, ?4)"
+                 VALUES (?1, ?2, ?3, ?4)",
             )
             .bind(pid)
             .bind(child_id)

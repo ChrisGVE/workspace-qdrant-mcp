@@ -4,11 +4,7 @@ use tokio::time::timeout;
 use tracing::debug;
 use tracing::warn;
 
-use super::super::{
-    DiscoveryResult,
-    registry::ServiceInfo,
-    health::HealthStatus,
-};
+use super::super::{health::HealthStatus, registry::ServiceInfo, DiscoveryResult};
 use super::core::DiscoveryManager;
 use super::types::{DiscoveryStrategy, ServiceDiscoveryEvent};
 
@@ -23,13 +19,20 @@ impl DiscoveryManager {
         match self.registry.discover_service(service_name) {
             Ok(Some(service_info)) => {
                 debug!("Found {} via registry discovery", service_name);
-                self.update_known_service(service_name, service_info.clone(), DiscoveryStrategy::Registry).await;
+                self.update_known_service(
+                    service_name,
+                    service_info.clone(),
+                    DiscoveryStrategy::Registry,
+                )
+                .await;
 
-                let _ = self.event_sender.send(ServiceDiscoveryEvent::ServiceDiscovered {
-                    service_name: service_name.to_string(),
-                    service_info: service_info.clone(),
-                    strategy: DiscoveryStrategy::Registry,
-                });
+                let _ = self
+                    .event_sender
+                    .send(ServiceDiscoveryEvent::ServiceDiscovered {
+                        service_name: service_name.to_string(),
+                        service_info: service_info.clone(),
+                        strategy: DiscoveryStrategy::Registry,
+                    });
 
                 Ok(Some(service_info))
             }
@@ -40,11 +43,13 @@ impl DiscoveryManager {
             Err(e) => {
                 warn!("Registry discovery failed for {}: {}", service_name, e);
 
-                let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
-                    strategy: DiscoveryStrategy::Registry,
-                    service_name: service_name.to_string(),
-                    error: e.to_string(),
-                });
+                let _ = self
+                    .event_sender
+                    .send(ServiceDiscoveryEvent::StrategyFailed {
+                        strategy: DiscoveryStrategy::Registry,
+                        service_name: service_name.to_string(),
+                        error: e.to_string(),
+                    });
 
                 Ok(None)
             }
@@ -60,18 +65,30 @@ impl DiscoveryManager {
 
         match timeout(
             self.config.discovery_timeout,
-            self.network_discovery.discover_services(vec![service_name.to_string()], self.config.discovery_timeout),
-        ).await {
+            self.network_discovery.discover_services(
+                vec![service_name.to_string()],
+                self.config.discovery_timeout,
+            ),
+        )
+        .await
+        {
             Ok(Ok(mut discovered)) => {
                 if let Some(service_info) = discovered.remove(service_name) {
                     debug!("Found {} via network discovery", service_name);
-                    self.update_known_service(service_name, service_info.clone(), DiscoveryStrategy::Network).await;
+                    self.update_known_service(
+                        service_name,
+                        service_info.clone(),
+                        DiscoveryStrategy::Network,
+                    )
+                    .await;
 
-                    let _ = self.event_sender.send(ServiceDiscoveryEvent::ServiceDiscovered {
-                        service_name: service_name.to_string(),
-                        service_info: service_info.clone(),
-                        strategy: DiscoveryStrategy::Network,
-                    });
+                    let _ = self
+                        .event_sender
+                        .send(ServiceDiscoveryEvent::ServiceDiscovered {
+                            service_name: service_name.to_string(),
+                            service_info: service_info.clone(),
+                            strategy: DiscoveryStrategy::Network,
+                        });
 
                     Ok(Some(service_info))
                 } else {
@@ -82,22 +99,26 @@ impl DiscoveryManager {
             Ok(Err(e)) => {
                 warn!("Network discovery failed for {}: {}", service_name, e);
 
-                let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
-                    strategy: DiscoveryStrategy::Network,
-                    service_name: service_name.to_string(),
-                    error: e.to_string(),
-                });
+                let _ = self
+                    .event_sender
+                    .send(ServiceDiscoveryEvent::StrategyFailed {
+                        strategy: DiscoveryStrategy::Network,
+                        service_name: service_name.to_string(),
+                        error: e.to_string(),
+                    });
 
                 Ok(None)
             }
             Err(_) => {
                 warn!("Network discovery timeout for {}", service_name);
 
-                let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
-                    strategy: DiscoveryStrategy::Network,
-                    service_name: service_name.to_string(),
-                    error: "Timeout".to_string(),
-                });
+                let _ = self
+                    .event_sender
+                    .send(ServiceDiscoveryEvent::StrategyFailed {
+                        strategy: DiscoveryStrategy::Network,
+                        service_name: service_name.to_string(),
+                        error: "Timeout".to_string(),
+                    });
 
                 Ok(None)
             }
@@ -115,11 +136,13 @@ impl DiscoveryManager {
             Ok(config) => config,
             Err(e) => {
                 debug!("Configuration load failed: {}", e);
-                let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
-                    strategy: DiscoveryStrategy::Configuration,
-                    service_name: service_name.to_string(),
-                    error: format!("Config load failed: {}", e),
-                });
+                let _ = self
+                    .event_sender
+                    .send(ServiceDiscoveryEvent::StrategyFailed {
+                        strategy: DiscoveryStrategy::Configuration,
+                        service_name: service_name.to_string(),
+                        error: format!("Config load failed: {}", e),
+                    });
                 return Ok(None);
             }
         };
@@ -139,19 +162,30 @@ impl DiscoveryManager {
         };
 
         if let Some(service_info) = service_info {
-            match self.health_checker.check_service_health(service_name, &service_info).await {
+            match self
+                .health_checker
+                .check_service_health(service_name, &service_info)
+                .await
+            {
                 Ok(result) if result.status != HealthStatus::Unreachable => {
                     debug!(
                         "Found {} via configuration discovery at {}:{}",
                         service_name, service_info.host, service_info.port
                     );
-                    self.update_known_service(service_name, service_info.clone(), DiscoveryStrategy::Configuration).await;
+                    self.update_known_service(
+                        service_name,
+                        service_info.clone(),
+                        DiscoveryStrategy::Configuration,
+                    )
+                    .await;
 
-                    let _ = self.event_sender.send(ServiceDiscoveryEvent::ServiceDiscovered {
-                        service_name: service_name.to_string(),
-                        service_info: service_info.clone(),
-                        strategy: DiscoveryStrategy::Configuration,
-                    });
+                    let _ = self
+                        .event_sender
+                        .send(ServiceDiscoveryEvent::ServiceDiscovered {
+                            service_name: service_name.to_string(),
+                            service_info: service_info.clone(),
+                            strategy: DiscoveryStrategy::Configuration,
+                        });
 
                     Ok(Some(service_info))
                 }
@@ -160,11 +194,16 @@ impl DiscoveryManager {
                         "Configuration endpoint {}:{} not reachable for {}",
                         endpoint.host, endpoint.grpc_port, service_name
                     );
-                    let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
-                        strategy: DiscoveryStrategy::Configuration,
-                        service_name: service_name.to_string(),
-                        error: format!("Endpoint {}:{} not reachable", endpoint.host, endpoint.grpc_port),
-                    });
+                    let _ = self
+                        .event_sender
+                        .send(ServiceDiscoveryEvent::StrategyFailed {
+                            strategy: DiscoveryStrategy::Configuration,
+                            service_name: service_name.to_string(),
+                            error: format!(
+                                "Endpoint {}:{} not reachable",
+                                endpoint.host, endpoint.grpc_port
+                            ),
+                        });
                     Ok(None)
                 }
             }
@@ -188,27 +227,40 @@ impl DiscoveryManager {
         };
 
         if let Some(service_info) = default_info {
-            match self.health_checker.check_service_health(service_name, &service_info).await {
+            match self
+                .health_checker
+                .check_service_health(service_name, &service_info)
+                .await
+            {
                 Ok(result) if result.is_reachable() => {
                     debug!("Found {} via default endpoints", service_name);
-                    self.update_known_service(service_name, service_info.clone(), DiscoveryStrategy::Defaults).await;
+                    self.update_known_service(
+                        service_name,
+                        service_info.clone(),
+                        DiscoveryStrategy::Defaults,
+                    )
+                    .await;
 
-                    let _ = self.event_sender.send(ServiceDiscoveryEvent::ServiceDiscovered {
-                        service_name: service_name.to_string(),
-                        service_info: service_info.clone(),
-                        strategy: DiscoveryStrategy::Defaults,
-                    });
+                    let _ = self
+                        .event_sender
+                        .send(ServiceDiscoveryEvent::ServiceDiscovered {
+                            service_name: service_name.to_string(),
+                            service_info: service_info.clone(),
+                            strategy: DiscoveryStrategy::Defaults,
+                        });
 
                     Ok(Some(service_info))
                 }
                 _ => {
                     debug!("Default endpoint for {} not reachable", service_name);
 
-                    let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
-                        strategy: DiscoveryStrategy::Defaults,
-                        service_name: service_name.to_string(),
-                        error: "Service not reachable".to_string(),
-                    });
+                    let _ = self
+                        .event_sender
+                        .send(ServiceDiscoveryEvent::StrategyFailed {
+                            strategy: DiscoveryStrategy::Defaults,
+                            service_name: service_name.to_string(),
+                            error: "Service not reachable".to_string(),
+                        });
 
                     Ok(None)
                 }

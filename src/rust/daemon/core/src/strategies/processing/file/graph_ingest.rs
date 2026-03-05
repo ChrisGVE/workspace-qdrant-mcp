@@ -55,11 +55,7 @@ pub(super) async fn ingest_graph_edges(
 /// Delete graph edges for a file (called during file deletion).
 ///
 /// Non-blocking: errors are logged but don't fail the deletion pipeline.
-pub(super) async fn delete_graph_edges(
-    ctx: &ProcessingContext,
-    tenant_id: &str,
-    file_path: &str,
-) {
+pub(super) async fn delete_graph_edges(ctx: &ProcessingContext, tenant_id: &str, file_path: &str) {
     let Some(ref graph_store) = ctx.graph_store else {
         return;
     };
@@ -75,4 +71,3 @@ pub(super) async fn delete_graph_edges(
         );
     }
 }
-

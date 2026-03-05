@@ -88,7 +88,15 @@ mod tests {
         let item = make_item("{}");
         let result = parse_payload::<FilePayload>(&item);
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("FilePayload"), "error should mention type name, got: {}", err);
-        assert!(err.contains("test-q-1"), "error should mention queue_id, got: {}", err);
+        assert!(
+            err.contains("FilePayload"),
+            "error should mention type name, got: {}",
+            err
+        );
+        assert!(
+            err.contains("test-q-1"),
+            "error should mention queue_id, got: {}",
+            err
+        );
     }
 }

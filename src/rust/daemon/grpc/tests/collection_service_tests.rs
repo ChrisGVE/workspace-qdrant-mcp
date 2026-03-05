@@ -7,14 +7,12 @@
 //! - Error handling and validation
 //! - gRPC status code mapping
 
+use tonic::{Code, Request};
 use workspace_qdrant_grpc::proto::{
-    collection_service_server::CollectionService,
-    CreateCollectionRequest,
-    DeleteCollectionRequest, CreateAliasRequest,
-    RenameAliasRequest, CollectionConfig,
+    collection_service_server::CollectionService, CollectionConfig, CreateAliasRequest,
+    CreateCollectionRequest, DeleteCollectionRequest, RenameAliasRequest,
 };
 use workspace_qdrant_grpc::services::CollectionServiceImpl;
-use tonic::{Request, Code};
 
 /// Helper to clean up a collection created during testing.
 /// Silently ignores errors (collection may not have been created if Qdrant was unavailable).
@@ -59,9 +57,10 @@ async fn test_create_collection_success() {
             // Accept unavailable or connection errors due to no real Qdrant
             assert!(
                 status.code() == Code::Unavailable
-                || status.code() == Code::Internal
-                || status.code() == Code::AlreadyExists,
-                "Unexpected error: {:?}", status
+                    || status.code() == Code::Internal
+                    || status.code() == Code::AlreadyExists,
+                "Unexpected error: {:?}",
+                status
             );
         }
     }
@@ -217,7 +216,11 @@ async fn test_alias_canonical_name_rejection() {
         });
 
         let result = service.rename_collection_alias(request).await;
-        assert!(result.is_err(), "Rename to '{}' should be rejected", canonical);
+        assert!(
+            result.is_err(),
+            "Rename to '{}' should be rejected",
+            canonical
+        );
         assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
     }
 }
@@ -246,7 +249,8 @@ async fn test_alias_validation_errors() {
     // Either NotFound (if Qdrant is reachable) or Unavailable (if not)
     assert!(
         code == Code::NotFound || code == Code::Unavailable || code == Code::Internal,
-        "Expected NotFound/Unavailable/Internal, got {:?}", code
+        "Expected NotFound/Unavailable/Internal, got {:?}",
+        code
     );
 }
 
@@ -256,7 +260,8 @@ async fn test_various_distance_metrics() {
 
     // Test each valid metric
     let metrics = vec!["Cosine", "Euclidean", "Dot"];
-    let collection_names: Vec<String> = metrics.iter()
+    let collection_names: Vec<String> = metrics
+        .iter()
         .map(|m| format!("test_{}", m.to_lowercase()))
         .collect();
 
@@ -272,7 +277,8 @@ async fn test_various_distance_metrics() {
         if let Err(status) = result {
             assert!(
                 status.code() != Code::InvalidArgument,
-                "Metric {} should be valid but got InvalidArgument", metric
+                "Metric {} should be valid but got InvalidArgument",
+                metric
             );
         }
     }
@@ -289,9 +295,7 @@ async fn test_various_vector_sizes() {
 
     // Test standard sizes
     let sizes = vec![384, 768, 1536];
-    let collection_names: Vec<String> = sizes.iter()
-        .map(|s| format!("test_size_{}", s))
-        .collect();
+    let collection_names: Vec<String> = sizes.iter().map(|s| format!("test_size_{}", s)).collect();
 
     for size in &sizes {
         let request = Request::new(CreateCollectionRequest {
@@ -305,7 +309,8 @@ async fn test_various_vector_sizes() {
         if let Err(status) = result {
             assert!(
                 status.code() != Code::InvalidArgument,
-                "Size {} should be valid but got InvalidArgument", size
+                "Size {} should be valid but got InvalidArgument",
+                size
             );
         }
     }
@@ -341,7 +346,8 @@ async fn test_edge_case_names() {
             assert!(
                 status.code() != Code::InvalidArgument,
                 "Name '{}' should be valid but got InvalidArgument: {}",
-                name, status.message()
+                name,
+                status.message()
             );
         }
     }
@@ -353,10 +359,10 @@ async fn test_edge_case_names() {
 
     // Invalid edge cases
     let invalid_names = vec![
-        "ab".to_string(),      // Too short
-        "1abc".to_string(),    // Starts with number
-        "a.b".to_string(),     // Invalid character
-        "a".repeat(256),       // Too long
+        "ab".to_string(),   // Too short
+        "1abc".to_string(), // Starts with number
+        "a.b".to_string(),  // Invalid character
+        "a".repeat(256),    // Too long
     ];
 
     for name in &invalid_names {
@@ -369,7 +375,8 @@ async fn test_edge_case_names() {
         let result = service.create_collection(request).await;
         assert!(
             result.is_err() && result.unwrap_err().code() == Code::InvalidArgument,
-            "Name '{}' should be invalid", name
+            "Name '{}' should be invalid",
+            name
         );
     }
 }

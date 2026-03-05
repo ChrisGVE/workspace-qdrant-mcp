@@ -69,11 +69,7 @@ mod tests {
     #[test]
     fn test_calculate_project_id_local() {
         let calc = ProjectIdCalculator::new();
-        let id = calc.calculate(
-            Path::new("/home/user/project"),
-            None,
-            None,
-        );
+        let id = calc.calculate(Path::new("/home/user/project"), None, None);
 
         assert!(id.starts_with("local_"));
         assert_eq!(id.len(), 6 + 12); // "local_" + 12 char hash
@@ -190,21 +186,23 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[test]
     fn test_resolve_path_exact() {
-        let (_dir, db_path) = setup_test_db(&[
-            ("tid_abc", "/home/user/project-a"),
-        ]);
+        let (_dir, db_path) = setup_test_db(&[("tid_abc", "/home/user/project-a")]);
         let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-a"));
-        assert_eq!(result, Some(("tid_abc".into(), "/home/user/project-a".into())));
+        assert_eq!(
+            result,
+            Some(("tid_abc".into(), "/home/user/project-a".into()))
+        );
     }
 
     #[cfg(feature = "sqlite")]
     #[test]
     fn test_resolve_path_subdirectory() {
-        let (_dir, db_path) = setup_test_db(&[
-            ("tid_abc", "/home/user/project-a"),
-        ]);
+        let (_dir, db_path) = setup_test_db(&[("tid_abc", "/home/user/project-a")]);
         let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-a/src/lib"));
-        assert_eq!(result, Some(("tid_abc".into(), "/home/user/project-a".into())));
+        assert_eq!(
+            result,
+            Some(("tid_abc".into(), "/home/user/project-a".into()))
+        );
     }
 
     #[cfg(feature = "sqlite")]
@@ -215,15 +213,16 @@ mod tests {
             ("tid_child", "/home/user/project-a"),
         ]);
         let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-a/src"));
-        assert_eq!(result, Some(("tid_child".into(), "/home/user/project-a".into())));
+        assert_eq!(
+            result,
+            Some(("tid_child".into(), "/home/user/project-a".into()))
+        );
     }
 
     #[cfg(feature = "sqlite")]
     #[test]
     fn test_resolve_path_no_match() {
-        let (_dir, db_path) = setup_test_db(&[
-            ("tid_abc", "/home/user/project-a"),
-        ]);
+        let (_dir, db_path) = setup_test_db(&[("tid_abc", "/home/user/project-a")]);
         let result = resolve_path_to_project(&db_path, Path::new("/other/dir"));
         assert_eq!(result, None);
     }
@@ -231,9 +230,7 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[test]
     fn test_resolve_path_no_false_prefix() {
-        let (_dir, db_path) = setup_test_db(&[
-            ("tid_abc", "/home/user/project"),
-        ]);
+        let (_dir, db_path) = setup_test_db(&[("tid_abc", "/home/user/project")]);
         // "/home/user/project-extra" should NOT match "/home/user/project"
         let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-extra"));
         assert_eq!(result, None);

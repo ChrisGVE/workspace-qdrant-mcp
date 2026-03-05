@@ -126,11 +126,7 @@ pub fn sha256_hex(text: &str) -> String {
 /// Generate a deterministic point ID for a parent unit.
 ///
 /// Uses UUID v5 with the document ID and unit locator as input.
-pub fn parent_point_id(
-    doc_id: &str,
-    unit_type: &str,
-    unit_locator: &serde_json::Value,
-) -> String {
+pub fn parent_point_id(doc_id: &str, unit_type: &str, unit_locator: &serde_json::Value) -> String {
     let namespace = Uuid::NAMESPACE_URL;
     let input = format!("parent:{}:{}:{}", doc_id, unit_type, unit_locator);
     let uuid = Uuid::new_v5(&namespace, input.as_bytes());

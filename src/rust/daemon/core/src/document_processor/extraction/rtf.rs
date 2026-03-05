@@ -9,13 +9,16 @@ use crate::document_processor::types::{DocumentProcessorError, DocumentProcessor
 
 /// RTF groups that contain metadata rather than text content.
 const RTF_SKIP_GROUPS: &[&str] = &[
-    "fonttbl", "colortbl", "stylesheet", "info", "pict", "object",
+    "fonttbl",
+    "colortbl",
+    "stylesheet",
+    "info",
+    "pict",
+    "object",
 ];
 
 /// Extract text from RTF file by stripping RTF control codes
-pub fn extract_rtf(
-    file_path: &Path,
-) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+pub fn extract_rtf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
     let mut metadata = HashMap::new();
     metadata.insert("source_format".to_string(), "rtf".to_string());
 
@@ -74,7 +77,9 @@ fn process_rtf_backslash(
 ) {
     if next == '\'' {
         // Hex-encoded character \'XX — skip 3 chars
-        chars.next(); chars.next(); chars.next();
+        chars.next();
+        chars.next();
+        chars.next();
     } else if next == '\\' || next == '{' || next == '}' {
         result.push(chars.next().unwrap());
     } else if next == '\n' || next == '\r' {
@@ -93,9 +98,7 @@ fn process_rtf_backslash(
 }
 
 /// Consume one RTF control word (letters, optional numeric param) from the iterator.
-fn consume_rtf_control_word(
-    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-) -> String {
+fn consume_rtf_control_word(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
     let mut word = String::new();
     while let Some(&c) = chars.peek() {
         if c.is_ascii_alphabetic() {
@@ -106,7 +109,11 @@ fn consume_rtf_control_word(
             if c == '-' || c.is_ascii_digit() {
                 chars.next();
                 while let Some(&d) = chars.peek() {
-                    if d.is_ascii_digit() { chars.next(); } else { break; }
+                    if d.is_ascii_digit() {
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
             }
             // Consume optional trailing space delimiter

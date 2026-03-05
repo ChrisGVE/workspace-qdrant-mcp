@@ -23,12 +23,14 @@ pub mod ladybug_store;
 #[cfg(test)]
 mod tests;
 
-pub use factory::{GraphBackend, GraphConfig, create_sqlite_graph_store};
 #[cfg(feature = "ladybug")]
 pub use factory::create_ladybug_graph_store;
-pub use schema::{GraphDbManager, GraphDbError, GraphDbResult, GRAPH_DB_FILENAME, GRAPH_SCHEMA_VERSION};
+pub use factory::{create_sqlite_graph_store, GraphBackend, GraphConfig};
 #[cfg(feature = "ladybug")]
-pub use ladybug_store::{LadybugGraphStore, LadybugConfig};
+pub use ladybug_store::{LadybugConfig, LadybugGraphStore};
+pub use schema::{
+    GraphDbError, GraphDbManager, GraphDbResult, GRAPH_DB_FILENAME, GRAPH_SCHEMA_VERSION,
+};
 pub use shared::SharedGraphStore;
 pub use sqlite_store::SqliteGraphStore;
 
@@ -314,11 +316,7 @@ pub trait GraphStore: Send + Sync {
     async fn insert_edges(&self, edges: &[GraphEdge]) -> GraphDbResult<()>;
 
     /// Delete all edges owned by a specific file.
-    async fn delete_edges_by_file(
-        &self,
-        tenant_id: &str,
-        file_path: &str,
-    ) -> GraphDbResult<u64>;
+    async fn delete_edges_by_file(&self, tenant_id: &str, file_path: &str) -> GraphDbResult<u64>;
 
     /// Delete all nodes and edges for a tenant.
     async fn delete_tenant(&self, tenant_id: &str) -> GraphDbResult<u64>;
@@ -356,7 +354,10 @@ pub fn compute_node_id(
 ) -> String {
     let input = format!(
         "{}|{}|{}|{}",
-        tenant_id, file_path, symbol_name, symbol_type.as_str()
+        tenant_id,
+        file_path,
+        symbol_name,
+        symbol_type.as_str()
     );
     let hash = Sha256::digest(input.as_bytes());
     let mut out = String::with_capacity(32);
@@ -367,14 +368,12 @@ pub fn compute_node_id(
 }
 
 /// Compute deterministic edge ID from source, target, and type.
-pub fn compute_edge_id(
-    source_node_id: &str,
-    target_node_id: &str,
-    edge_type: EdgeType,
-) -> String {
+pub fn compute_edge_id(source_node_id: &str, target_node_id: &str, edge_type: EdgeType) -> String {
     let input = format!(
         "{}|{}|{}",
-        source_node_id, target_node_id, edge_type.as_str()
+        source_node_id,
+        target_node_id,
+        edge_type.as_str()
     );
     let hash = Sha256::digest(input.as_bytes());
     let mut out = String::with_capacity(32);

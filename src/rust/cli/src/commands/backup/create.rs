@@ -67,7 +67,10 @@ async fn trigger_snapshot(
         format!("{}/snapshots", base)
     } else {
         if !json {
-            output::info(&format!("Creating snapshot for collection '{}'...", collection));
+            output::info(&format!(
+                "Creating snapshot for collection '{}'...",
+                collection
+            ));
         }
         format!("{}/collections/{}/snapshots", base, collection)
     };
@@ -112,7 +115,10 @@ async fn download_snapshot(
     let download_url = if collection == "all" {
         format!("{}/snapshots/{}", base, snapshot.name)
     } else {
-        format!("{}/collections/{}/snapshots/{}", base, collection, snapshot.name)
+        format!(
+            "{}/collections/{}/snapshots/{}",
+            base, collection, snapshot.name
+        )
     };
 
     let resp = client
@@ -130,7 +136,8 @@ async fn download_snapshot(
     let bytes = resp.bytes().await.context("Failed to read snapshot data")?;
     let mut file = std::fs::File::create(&dest)
         .with_context(|| format!("Failed to create file: {}", dest.display()))?;
-    file.write_all(&bytes).context("Failed to write snapshot file")?;
+    file.write_all(&bytes)
+        .context("Failed to write snapshot file")?;
 
     if !json {
         output::success(format!("Downloaded to: {}", dest.display()));

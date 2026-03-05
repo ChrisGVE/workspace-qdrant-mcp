@@ -8,23 +8,22 @@
 //!
 //! Run: cargo bench --manifest-path src/rust/Cargo.toml --package workspace-qdrant-core --bench fts5_search_bench
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
-use workspace_qdrant_core::fts_batch_processor::{
-    FileChange, FtsBatchConfig, FtsBatchProcessor,
-};
+use workspace_qdrant_core::fts_batch_processor::{FileChange, FtsBatchConfig, FtsBatchProcessor};
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::text_search::{search_exact, search_regex, SearchOptions};
 
 /// Generate realistic Rust-like source code for a given file index.
 fn generate_source_file(index: usize, lines: usize) -> String {
     let mut content = Vec::with_capacity(lines);
-    content.push(format!("//! Module {} - auto-generated benchmark data", index));
+    content.push(format!(
+        "//! Module {} - auto-generated benchmark data",
+        index
+    ));
     content.push(String::new());
     content.push(format!("use std::collections::HashMap;"));
     content.push(format!("use std::sync::Arc;"));
@@ -183,7 +182,10 @@ fn bench_batch_throughput(c: &mut Criterion) {
         group.throughput(Throughput::Elements(total_lines as u64));
 
         group.bench_with_input(
-            BenchmarkId::new("batch_ingest", format!("{}_files_{}lines", file_count, lines_per_file)),
+            BenchmarkId::new(
+                "batch_ingest",
+                format!("{}_files_{}lines", file_count, lines_per_file),
+            ),
             &file_count,
             |b, &count| {
                 b.to_async(&rt).iter(|| async {

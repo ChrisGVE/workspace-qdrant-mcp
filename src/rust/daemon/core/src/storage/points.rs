@@ -6,14 +6,13 @@
 use std::time::Duration;
 
 use qdrant_client::qdrant::{
-    Condition, CountPointsBuilder, DeletePointsBuilder, Filter,
-    PointStruct, UpsertPoints,
+    Condition, CountPointsBuilder, DeletePointsBuilder, Filter, PointStruct, UpsertPoints,
 };
 use tokio::time::sleep;
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 
 use super::client::StorageClient;
-use super::convert::{convert_to_qdrant_point, convert_json_to_qdrant_value};
+use super::convert::{convert_json_to_qdrant_value, convert_to_qdrant_point};
 use super::types::{BatchStats, DocumentPoint, StorageError};
 
 impl StorageClient {
@@ -23,7 +22,10 @@ impl StorageClient {
         collection_name: &str,
         point: DocumentPoint,
     ) -> Result<(), StorageError> {
-        debug!("Inserting point {} into collection {}", point.id, collection_name);
+        debug!(
+            "Inserting point {} into collection {}",
+            point.id, collection_name
+        );
 
         let qdrant_point = convert_to_qdrant_point(point)?;
 
@@ -35,11 +37,17 @@ impl StorageClient {
         };
 
         self.retry_operation(|| async {
-            self.client.upsert_points(upsert_points.clone()).await
+            self.client
+                .upsert_points(upsert_points.clone())
+                .await
                 .map_err(|e| StorageError::Point(e.to_string()))
-        }).await?;
+        })
+        .await?;
 
-        debug!("Successfully inserted point into collection {}", collection_name);
+        debug!(
+            "Successfully inserted point into collection {}",
+            collection_name
+        );
         Ok(())
     }
 
@@ -50,7 +58,8 @@ impl StorageClient {
         points: Vec<DocumentPoint>,
         batch_size: Option<usize>,
     ) -> Result<BatchStats, StorageError> {
-        self.insert_points_batch_with_wait(collection_name, points, batch_size, false).await
+        self.insert_points_batch_with_wait(collection_name, points, batch_size, false)
+            .await
     }
 
     /// Insert points with explicit wait control.
@@ -62,7 +71,12 @@ impl StorageClient {
         batch_size: Option<usize>,
         wait: bool,
     ) -> Result<BatchStats, StorageError> {
-        info!("Inserting {} points into collection {} in batches (wait={})", points.len(), collection_name, wait);
+        info!(
+            "Inserting {} points into collection {} in batches (wait={})",
+            points.len(),
+            collection_name,
+            wait
+        );
 
         let start_time = std::time::Instant::now();
         let batch_size = batch_size.unwrap_or(100);
@@ -71,7 +85,8 @@ impl StorageClient {
         let mut failed = 0;
 
         for chunk in points.chunks(batch_size) {
-            let qdrant_points: Result<Vec<PointStruct>, _> = chunk.iter()
+            let qdrant_points: Result<Vec<PointStruct>, _> = chunk
+                .iter()
                 .map(|p| convert_to_qdrant_point(p.clone()))
                 .collect();
 
@@ -84,17 +99,22 @@ impl StorageClient {
                         ..Default::default()
                     };
 
-                    match self.retry_operation(|| async {
-                        self.client.upsert_points(upsert_points.clone()).await
-                            .map_err(|e| StorageError::Batch(e.to_string()))
-                    }).await {
+                    match self
+                        .retry_operation(|| async {
+                            self.client
+                                .upsert_points(upsert_points.clone())
+                                .await
+                                .map_err(|e| StorageError::Batch(e.to_string()))
+                        })
+                        .await
+                    {
                         Ok(_) => successful += chunk.len(),
                         Err(e) => {
                             error!("Failed to insert batch: {}", e);
                             failed += chunk.len();
                         }
                     }
-                },
+                }
                 Err(e) => {
                     error!("Failed to convert points batch: {}", e);
                     failed += chunk.len();
@@ -120,8 +140,10 @@ impl StorageClient {
             throughput,
         };
 
-        info!("Batch insertion completed: {} successful, {} failed, {:.2} points/sec",
-              successful, failed, throughput);
+        info!(
+            "Batch insertion completed: {} successful, {} failed, {:.2} points/sec",
+            successful, failed, throughput
+        );
 
         Ok(stats)
     }
@@ -152,7 +174,9 @@ impl StorageClient {
             Condition::matches("tenant_id", tenant_id.to_string()),
         ]);
 
-        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+        let count = self
+            .count_points_with_filter(collection_name, filter.clone())
+            .await?;
 
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
@@ -194,7 +218,9 @@ impl StorageClient {
         );
 
         let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
-        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+        let count = self
+            .count_points_with_filter(collection_name, filter.clone())
+            .await?;
 
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
@@ -204,7 +230,9 @@ impl StorageClient {
             self.client
                 .delete_points(delete_request.clone())
                 .await
-                .map_err(|e| StorageError::Point(format!("Failed to delete points by tenant: {}", e)))
+                .map_err(|e| {
+                    StorageError::Point(format!("Failed to delete points by tenant: {}", e))
+                })
         })
         .await?;
 
@@ -231,9 +259,9 @@ impl StorageClient {
         let qdrant_ids: Vec<qdrant_client::qdrant::PointId> = point_ids
             .iter()
             .map(|id| qdrant_client::qdrant::PointId {
-                point_id_options: Some(
-                    qdrant_client::qdrant::point_id::PointIdOptions::Uuid(id.clone()),
-                ),
+                point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(
+                    id.clone(),
+                )),
             })
             .collect();
 
@@ -247,16 +275,16 @@ impl StorageClient {
             self.client
                 .delete_points(delete_request.clone())
                 .await
-                .map_err(|e| StorageError::Point(
-                    format!("Failed to delete {} points by ID from '{}': {}", count, collection_name, e)
-                ))
+                .map_err(|e| {
+                    StorageError::Point(format!(
+                        "Failed to delete {} points by ID from '{}': {}",
+                        count, collection_name, e
+                    ))
+                })
         })
         .await?;
 
-        debug!(
-            "Deleted {} points by ID from '{}'",
-            count, collection_name
-        );
+        debug!("Deleted {} points by ID from '{}'", count, collection_name);
 
         Ok(count)
     }
@@ -280,11 +308,11 @@ impl StorageClient {
             document_id, collection_name
         );
 
-        let filter = Filter::must([
-            Condition::matches("document_id", document_id.to_string()),
-        ]);
+        let filter = Filter::must([Condition::matches("document_id", document_id.to_string())]);
 
-        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+        let count = self
+            .count_points_with_filter(collection_name, filter.clone())
+            .await?;
 
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
@@ -294,7 +322,9 @@ impl StorageClient {
             self.client
                 .delete_points(delete_request.clone())
                 .await
-                .map_err(|e| StorageError::Point(format!("Failed to delete points by document_id: {}", e)))
+                .map_err(|e| {
+                    StorageError::Point(format!("Failed to delete points by document_id: {}", e))
+                })
         })
         .await?;
 
@@ -314,9 +344,10 @@ impl StorageClient {
         field_value: &str,
     ) -> Result<u64, StorageError> {
         if field_value.trim().is_empty() {
-            return Err(StorageError::Point(
-                format!("{} must not be empty for delete operations", field_name),
-            ));
+            return Err(StorageError::Point(format!(
+                "{} must not be empty for delete operations",
+                field_name
+            )));
         }
 
         info!(
@@ -325,7 +356,9 @@ impl StorageClient {
         );
 
         let filter = Filter::must([Condition::matches(field_name, field_value.to_string())]);
-        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+        let count = self
+            .count_points_with_filter(collection_name, filter.clone())
+            .await?;
 
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
@@ -335,7 +368,9 @@ impl StorageClient {
             self.client
                 .delete_points(delete_request.clone())
                 .await
-                .map_err(|e| StorageError::Point(format!("Failed to delete points by {}: {}", field_name, e)))
+                .map_err(|e| {
+                    StorageError::Point(format!("Failed to delete points by {}: {}", field_name, e))
+                })
         })
         .await?;
 
@@ -359,15 +394,21 @@ impl StorageClient {
         use qdrant_client::qdrant::SetPayloadPointsBuilder;
 
         if !self.collection_exists(collection_name).await? {
-            return Err(StorageError::Collection(format!("Collection not found: {}", collection_name)));
+            return Err(StorageError::Collection(format!(
+                "Collection not found: {}",
+                collection_name
+            )));
         }
 
         let qdrant_payload: std::collections::HashMap<String, qdrant_client::qdrant::Value> =
-            payload.into_iter()
+            payload
+                .into_iter()
                 .map(|(k, v)| (k, convert_json_to_qdrant_value(v)))
                 .collect();
 
-        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+        let count = self
+            .count_points_with_filter(collection_name, filter.clone())
+            .await?;
         info!(
             "Updating payload on {} point(s) in collection '{}'",
             count, collection_name
@@ -403,10 +444,14 @@ impl StorageClient {
             .filter(filter)
             .exact(true);
 
-        let count = self.retry_operation(|| async {
-            self.client.count(builder.clone()).await
-                .map_err(|e| StorageError::Collection(e.to_string()))
-        }).await?;
+        let count = self
+            .retry_operation(|| async {
+                self.client
+                    .count(builder.clone())
+                    .await
+                    .map_err(|e| StorageError::Collection(e.to_string()))
+            })
+            .await?;
 
         Ok(count.result.map(|r| r.count).unwrap_or(0))
     }
@@ -417,20 +462,28 @@ impl StorageClient {
         collection_name: &str,
         tenant_id: Option<&str>,
     ) -> Result<u64, StorageError> {
-        debug!("Counting points in collection: {} (tenant: {:?})", collection_name, tenant_id);
+        debug!(
+            "Counting points in collection: {} (tenant: {:?})",
+            collection_name, tenant_id
+        );
 
         let mut builder = CountPointsBuilder::new(collection_name).exact(true);
 
         if let Some(tid) = tenant_id {
-            builder = builder.filter(Filter::must([
-                Condition::matches("tenant_id", tid.to_string()),
-            ]));
+            builder = builder.filter(Filter::must([Condition::matches(
+                "tenant_id",
+                tid.to_string(),
+            )]));
         }
 
-        let count = self.retry_operation(|| async {
-            self.client.count(builder.clone()).await
-                .map_err(|e| StorageError::Collection(e.to_string()))
-        }).await?;
+        let count = self
+            .retry_operation(|| async {
+                self.client
+                    .count(builder.clone())
+                    .await
+                    .map_err(|e| StorageError::Collection(e.to_string()))
+            })
+            .await?;
 
         Ok(count.result.map(|r| r.count).unwrap_or(0))
     }

@@ -127,19 +127,14 @@ impl GrpcServer {
         Some(ProjectServiceImpl::new(pool))
     }
 
-    async fn create_with_internal_lsp(
-        &self,
-        pool: sqlx::SqlitePool,
-    ) -> Option<ProjectServiceImpl> {
+    async fn create_with_internal_lsp(&self, pool: sqlx::SqlitePool) -> Option<ProjectServiceImpl> {
         match LanguageServerManager::new(ProjectLspConfig::default()).await {
             Ok(mut lsp_manager) => {
                 if let Err(e) = lsp_manager.initialize().await {
                     tracing::warn!("Failed to initialize LSP manager: {}", e);
                 }
                 let lsp_manager = Arc::new(RwLock::new(lsp_manager));
-                tracing::info!(
-                    "LSP lifecycle management enabled for ProjectService (internal)"
-                );
+                tracing::info!("LSP lifecycle management enabled for ProjectService (internal)");
                 Some(ProjectServiceImpl::with_lsp_manager(pool, lsp_manager))
             }
             Err(e) => {
@@ -168,9 +163,7 @@ impl GrpcServer {
         log_security_warnings(&self.config);
     }
 
-    async fn configure_transport(
-        &self,
-    ) -> Result<tonic::transport::server::Server, GrpcError> {
+    async fn configure_transport(&self) -> Result<tonic::transport::server::Server, GrpcError> {
         let mut server_builder = Server::builder()
             .timeout(self.config.timeout_config.request_timeout)
             .concurrency_limit_per_connection(
@@ -198,8 +191,7 @@ impl GrpcServer {
         use crate::proto;
 
         // Register core services
-        let system_svc =
-            proto::system_service_server::SystemServiceServer::new(system_service);
+        let system_svc = proto::system_service_server::SystemServiceServer::new(system_service);
         let collection_svc =
             proto::collection_service_server::CollectionServiceServer::new(collection_service);
         let document_svc =
@@ -227,10 +219,9 @@ impl GrpcServer {
         // Conditionally add TextSearchService
         if let Some(search_db) = self.search_db.take() {
             let text_search_svc_impl = TextSearchServiceImpl::new(search_db);
-            let text_search_svc =
-                proto::text_search_service_server::TextSearchServiceServer::new(
-                    text_search_svc_impl,
-                );
+            let text_search_svc = proto::text_search_service_server::TextSearchServiceServer::new(
+                text_search_svc_impl,
+            );
             tracing::info!("Registering TextSearchService gRPC endpoint");
             router = router.add_service(text_search_svc);
         }
@@ -238,8 +229,7 @@ impl GrpcServer {
         // Conditionally add GraphService
         if let Some(graph_store) = self.graph_store.take() {
             let graph_svc_impl = crate::services::GraphServiceImpl::new(graph_store);
-            let graph_svc =
-                proto::graph_service_server::GraphServiceServer::new(graph_svc_impl);
+            let graph_svc = proto::graph_service_server::GraphServiceServer::new(graph_svc_impl);
             tracing::info!("Registering GraphService gRPC endpoint");
             router = router.add_service(graph_svc);
         }
@@ -284,9 +274,9 @@ async fn apply_tls(
     let mut tls = ServerTlsConfig::new().identity(identity);
 
     if let Some(ca_cert_path) = &tls_config.ca_cert_path {
-        let ca_cert = tokio::fs::read(ca_cert_path).await.map_err(|e| {
-            GrpcError::Configuration(format!("Failed to read CA certificate: {e}"))
-        })?;
+        let ca_cert = tokio::fs::read(ca_cert_path)
+            .await
+            .map_err(|e| GrpcError::Configuration(format!("Failed to read CA certificate: {e}")))?;
         tls = tls.client_ca_root(tonic::transport::Certificate::from_pem(ca_cert));
     }
 
@@ -294,9 +284,9 @@ async fn apply_tls(
         tls = tls.client_auth_optional(false);
     }
 
-    server_builder.tls_config(tls).map_err(|e| {
-        GrpcError::Configuration(format!("Failed to configure TLS: {e}"))
-    })
+    server_builder
+        .tls_config(tls)
+        .map_err(|e| GrpcError::Configuration(format!("Failed to configure TLS: {e}")))
 }
 
 /// Log security warnings for the current server configuration.

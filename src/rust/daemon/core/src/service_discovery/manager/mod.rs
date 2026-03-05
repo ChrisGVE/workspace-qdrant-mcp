@@ -4,12 +4,12 @@
 //! file-based registry, network discovery, health checking, and configuration
 //! fallback mechanisms into a unified discovery system.
 
-mod core;
-mod types;
-mod lifecycle;
 mod api;
-mod strategies;
 mod background;
+mod core;
+mod lifecycle;
+mod strategies;
+mod types;
 
 pub use core::DiscoveryManager;
 pub use types::{DiscoveryStrategy, ServiceDiscoveryEvent};

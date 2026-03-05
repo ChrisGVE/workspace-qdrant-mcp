@@ -6,8 +6,8 @@
 mod graph_helpers;
 
 use graph_helpers::{
-    build_rust_file_chunks, build_rust_main_chunks, build_typescript_chunks,
-    create_factory_store, ingest_file_chunks, TENANT,
+    build_rust_file_chunks, build_rust_main_chunks, build_typescript_chunks, create_factory_store,
+    ingest_file_chunks, TENANT,
 };
 use tempfile::tempdir;
 use workspace_qdrant_core::graph::{extractor, migrator};
@@ -30,13 +30,7 @@ async fn test_migration_sqlite_to_sqlite() {
         "src/processor.rs",
     )
     .await;
-    ingest_file_chunks(
-        &store_src,
-        &build_rust_main_chunks(),
-        TENANT,
-        "src/main.rs",
-    )
-    .await;
+    ingest_file_chunks(&store_src, &build_rust_main_chunks(), TENANT, "src/main.rs").await;
 
     let src_stats = store_src.stats(Some(TENANT)).await.unwrap();
     assert!(src_stats.total_nodes > 0);
@@ -176,9 +170,9 @@ async fn test_shared_store_concurrent_readers() {
     let mut handles = Vec::new();
     for _ in 0..20 {
         let s = store.clone();
-        handles.push(tokio::spawn(async move {
-            s.stats(Some(TENANT)).await.unwrap()
-        }));
+        handles.push(tokio::spawn(
+            async move { s.stats(Some(TENANT)).await.unwrap() },
+        ));
     }
 
     let mut results = Vec::new();

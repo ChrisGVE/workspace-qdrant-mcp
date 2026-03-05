@@ -28,8 +28,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-pub use helpers::LibraryMode;
 use crate::output;
+pub use helpers::LibraryMode;
 
 /// Library command arguments
 #[derive(Args)]

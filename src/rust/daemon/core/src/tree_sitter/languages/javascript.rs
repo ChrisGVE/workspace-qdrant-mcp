@@ -36,7 +36,12 @@ impl JavaScriptExtractor {
     }
 
     /// Extract preamble (imports, requires).
-    fn extract_preamble(&self, root: &Node, source: &str, file_path: &str) -> Option<SemanticChunk> {
+    fn extract_preamble(
+        &self,
+        root: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Option<SemanticChunk> {
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
         let mut cursor = root.walk();
@@ -72,7 +77,9 @@ impl JavaScriptExtractor {
                     }
                 }
                 "comment" => {
-                    if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1 {
+                    if preamble_items.is_empty()
+                        || child.start_position().row <= last_preamble_line + 1
+                    {
                         preamble_items.push(node_text(&child, source).to_string());
                         last_preamble_line = child.end_position().row + 1;
                     }
@@ -222,7 +229,12 @@ impl ChunkExtractor for JavaScriptExtractor {
                             if let Some(value) = find_child_by_kind(&decl_child, "arrow_function")
                                 .or_else(|| find_child_by_kind(&decl_child, "function"))
                             {
-                                chunks.push(self.extract_function(&value, source, &file_path_str, None));
+                                chunks.push(self.extract_function(
+                                    &value,
+                                    source,
+                                    &file_path_str,
+                                    None,
+                                ));
                             }
                         }
                     }

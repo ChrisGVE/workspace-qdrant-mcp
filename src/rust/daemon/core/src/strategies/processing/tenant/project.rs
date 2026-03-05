@@ -11,9 +11,7 @@ use tracing::{debug, info, warn};
 use crate::context::ProcessingContext;
 use crate::specs::parse_payload;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
-use crate::unified_queue_schema::{
-    ItemType, ProjectPayload, QueueOperation, UnifiedQueueItem,
-};
+use crate::unified_queue_schema::{ItemType, ProjectPayload, QueueOperation, UnifiedQueueItem};
 use wqm_common::constants::COLLECTION_PROJECTS;
 
 /// Process project item -- create/manage project collections.
@@ -85,7 +83,11 @@ async fn insert_watch_folder(
 ) -> UnifiedProcessorResult<()> {
     let now = wqm_common::timestamps::now_utc();
     let watch_id = uuid::Uuid::new_v4().to_string();
-    let is_active: i32 = if payload.is_active.unwrap_or(false) { 1 } else { 0 };
+    let is_active: i32 = if payload.is_active.unwrap_or(false) {
+        1
+    } else {
+        0
+    };
 
     let result = sqlx::query(
         r#"INSERT OR IGNORE INTO watch_folders (
@@ -105,7 +107,9 @@ async fn insert_watch_folder(
     .bind(&git_status.commit_hash)
     .execute(ctx.queue_manager.pool())
     .await
-    .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to create watch_folder: {}", e)))?;
+    .map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!("Failed to create watch_folder: {}", e))
+    })?;
 
     if result.rows_affected() > 0 {
         info!(
@@ -114,7 +118,10 @@ async fn insert_watch_folder(
             git_status.is_git, git_status.branch, git_status.is_worktree,
         );
     } else {
-        info!("Watch folder already exists for tenant={} (idempotent)", item.tenant_id);
+        info!(
+            "Watch folder already exists for tenant={} (idempotent)",
+            item.tenant_id
+        );
     }
     Ok(())
 }
@@ -127,7 +134,10 @@ async fn enqueue_project_scan(
     let scan_payload_json = match serde_json::to_string(payload) {
         Ok(s) => s,
         Err(e) => {
-            warn!("Failed to serialize scan payload for tenant={}: {} (non-critical)", item.tenant_id, e);
+            warn!(
+                "Failed to serialize scan payload for tenant={}: {} (non-critical)",
+                item.tenant_id, e
+            );
             return;
         }
     };
@@ -146,11 +156,17 @@ async fn enqueue_project_scan(
         .await
     {
         Ok((queue_id, true)) => {
-            info!("Enqueued project scan for tenant={} queue_id={}", item.tenant_id, queue_id);
+            info!(
+                "Enqueued project scan for tenant={} queue_id={}",
+                item.tenant_id, queue_id
+            );
         }
         Ok((_, false)) => {}
         Err(e) => {
-            warn!("Failed to enqueue project scan for tenant={}: {} (non-critical)", item.tenant_id, e);
+            warn!(
+                "Failed to enqueue project scan for tenant={}: {} (non-critical)",
+                item.tenant_id, e
+            );
         }
     }
 }
@@ -170,20 +186,17 @@ async fn handle_project_scan(
     let update_result = sqlx::query(
         "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE tenant_id = ?1 AND collection = ?2"
+         WHERE tenant_id = ?1 AND collection = ?2",
     )
-        .bind(&item.tenant_id)
-        .bind(COLLECTION_PROJECTS)
-        .execute(ctx.queue_manager.pool())
-        .await;
+    .bind(&item.tenant_id)
+    .bind(COLLECTION_PROJECTS)
+    .execute(ctx.queue_manager.pool())
+    .await;
 
     match update_result {
         Ok(result) => {
             if result.rows_affected() > 0 {
-                info!(
-                    "Updated last_scan for project tenant_id={}",
-                    item.tenant_id
-                );
+                info!("Updated last_scan for project tenant_id={}", item.tenant_id);
             } else {
                 debug!(
                     "No watch_folder found for tenant_id={} (may not be watched)",
@@ -231,18 +244,17 @@ async fn handle_project_uplift(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
 ) -> UnifiedProcessorResult<()> {
-    let files: Vec<(String, String)> = sqlx::query_as(
-        "SELECT file_id, file_path FROM tracked_files WHERE tenant_id = ?1",
-    )
-    .bind(&item.tenant_id)
-    .fetch_all(ctx.queue_manager.pool())
-    .await
-    .map_err(|e| {
-        UnifiedProcessorError::ProcessingFailed(format!(
-            "Failed to query tracked_files for uplift: {}",
-            e
-        ))
-    })?;
+    let files: Vec<(String, String)> =
+        sqlx::query_as("SELECT file_id, file_path FROM tracked_files WHERE tenant_id = ?1")
+            .bind(&item.tenant_id)
+            .fetch_all(ctx.queue_manager.pool())
+            .await
+            .map_err(|e| {
+                UnifiedProcessorError::ProcessingFailed(format!(
+                    "Failed to query tracked_files for uplift: {}",
+                    e
+                ))
+            })?;
 
     let mut enqueued = 0u32;
     for (file_id, file_path) in &files {

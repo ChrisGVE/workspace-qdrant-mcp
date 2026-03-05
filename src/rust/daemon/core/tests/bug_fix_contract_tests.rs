@@ -4,10 +4,12 @@
 //! Tests cover: priority constants, document_type format, file_type format,
 //! metadata normalization, error classification, and item_type semantics.
 
-use wqm_common::constants::priority;
-use workspace_qdrant_core::file_classification::{FileType, classify_file_type, is_test_file, get_extension_for_storage};
-use workspace_qdrant_core::DocumentType;
 use std::path::Path;
+use workspace_qdrant_core::file_classification::{
+    classify_file_type, get_extension_for_storage, is_test_file, FileType,
+};
+use workspace_qdrant_core::DocumentType;
+use wqm_common::constants::priority;
 
 // =========================================================================
 // Priority constant contracts (Tasks 1-3)
@@ -16,8 +18,14 @@ use std::path::Path;
 #[test]
 fn test_priority_constants_ordering() {
     // HIGH < NORMAL < LOW (lower number = higher priority)
-    assert!(priority::HIGH < priority::NORMAL, "HIGH must be lower than NORMAL");
-    assert!(priority::NORMAL < priority::LOW, "NORMAL must be lower than LOW");
+    assert!(
+        priority::HIGH < priority::NORMAL,
+        "HIGH must be lower than NORMAL"
+    );
+    assert!(
+        priority::NORMAL < priority::LOW,
+        "NORMAL must be lower than LOW"
+    );
 }
 
 #[test]
@@ -37,7 +45,11 @@ fn test_priority_constants_are_distinct() {
 #[test]
 fn test_priority_high_is_one() {
     // Rules operations must use priority::HIGH = 1
-    assert_eq!(priority::HIGH, 1, "HIGH priority must be 1 for rules operations");
+    assert_eq!(
+        priority::HIGH,
+        1,
+        "HIGH priority must be 1 for rules operations"
+    );
 }
 
 // =========================================================================
@@ -72,8 +84,17 @@ fn test_document_type_as_str_returns_lowercase() {
 
     for (doc_type, expected) in types_and_expected {
         let result = doc_type.as_str();
-        assert_eq!(result, expected, "DocumentType::{:?} should produce '{}'", doc_type, expected);
-        assert_eq!(result, result.to_lowercase(), "DocumentType::as_str() must be lowercase: got '{}'", result);
+        assert_eq!(
+            result, expected,
+            "DocumentType::{:?} should produce '{}'",
+            doc_type, expected
+        );
+        assert_eq!(
+            result,
+            result.to_lowercase(),
+            "DocumentType::as_str() must be lowercase: got '{}'",
+            result
+        );
     }
 }
 
@@ -83,7 +104,10 @@ fn test_document_type_as_str_not_debug_format() {
     // Now it should just be "code"
     let code_type = DocumentType::Code("rust".to_string());
     let result = code_type.as_str();
-    assert!(!result.contains("Code("), "as_str() must not use Debug format");
+    assert!(
+        !result.contains("Code("),
+        "as_str() must not use Debug format"
+    );
     assert!(!result.contains('"'), "as_str() must not contain quotes");
     assert_eq!(result, "code");
 }
@@ -122,8 +146,16 @@ fn test_file_type_as_str_returns_lowercase() {
 
     for (file_type, expected) in types {
         let result = file_type.as_str();
-        assert_eq!(result, expected, "FileType::{:?} should produce '{}'", file_type, expected);
-        assert_eq!(result, result.to_lowercase(), "FileType::as_str() must be lowercase");
+        assert_eq!(
+            result, expected,
+            "FileType::{:?} should produce '{}'",
+            file_type, expected
+        );
+        assert_eq!(
+            result,
+            result.to_lowercase(),
+            "FileType::as_str() must be lowercase"
+        );
     }
 }
 
@@ -134,7 +166,10 @@ fn test_classify_file_type_common_extensions() {
     assert_eq!(classify_file_type(Path::new("lib.py")), FileType::Code);
     assert_eq!(classify_file_type(Path::new("app.ts")), FileType::Code);
     assert_eq!(classify_file_type(Path::new("README.md")), FileType::Text);
-    assert_eq!(classify_file_type(Path::new("config.yaml")), FileType::Config);
+    assert_eq!(
+        classify_file_type(Path::new("config.yaml")),
+        FileType::Config
+    );
     assert_eq!(classify_file_type(Path::new("data.json")), FileType::Data);
 }
 
@@ -192,8 +227,16 @@ fn test_enrichment_status_as_str_is_lowercase() {
 
     for (status, expected) in statuses {
         let result = status.as_str();
-        assert_eq!(result, expected, "EnrichmentStatus::{:?} must produce '{}'", status, expected);
-        assert_eq!(result, result.to_lowercase(), "EnrichmentStatus::as_str() must be lowercase");
+        assert_eq!(
+            result, expected,
+            "EnrichmentStatus::{:?} must produce '{}'",
+            status, expected
+        );
+        assert_eq!(
+            result,
+            result.to_lowercase(),
+            "EnrichmentStatus::as_str() must be lowercase"
+        );
     }
 }
 
@@ -236,7 +279,12 @@ fn test_processing_status_roundtrip() {
     for status in statuses {
         let s = status.to_string();
         let parsed = ProcessingStatus::from_str(&s);
-        assert_eq!(parsed, Some(status), "ProcessingStatus roundtrip failed for '{}'", s);
+        assert_eq!(
+            parsed,
+            Some(status),
+            "ProcessingStatus roundtrip failed for '{}'",
+            s
+        );
     }
 }
 
@@ -253,7 +301,12 @@ fn test_processing_status_display_is_lowercase() {
 
     for status in statuses {
         let s = status.to_string();
-        assert_eq!(s, s.to_lowercase(), "ProcessingStatus Display must be lowercase: got '{}'", s);
+        assert_eq!(
+            s,
+            s.to_lowercase(),
+            "ProcessingStatus Display must be lowercase: got '{}'",
+            s
+        );
     }
 }
 
@@ -305,7 +358,7 @@ fn test_item_types_are_distinct() {
 
 #[test]
 fn test_collection_constants_are_lowercase() {
-    use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES};
+    use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 
     assert_eq!(COLLECTION_PROJECTS, "projects");
     assert_eq!(COLLECTION_LIBRARIES, "libraries");
@@ -338,7 +391,10 @@ fn test_timestamp_format_utc_ends_with_z() {
 fn test_content_hash_is_sha256() {
     let hash = wqm_common::hashing::compute_content_hash("hello world");
     assert_eq!(hash.len(), 64, "SHA256 hex must be 64 chars");
-    assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "Hash must be hex");
+    assert!(
+        hash.chars().all(|c| c.is_ascii_hexdigit()),
+        "Hash must be hex"
+    );
 }
 
 #[test]

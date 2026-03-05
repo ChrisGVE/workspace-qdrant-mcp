@@ -17,8 +17,7 @@ pub(crate) fn extract_imports_from_content(
     file_path: &str,
     result: &mut ExtractionResult,
 ) {
-    let file_node_id =
-        compute_node_id(tenant_id, file_path, file_path, NodeType::File);
+    let file_node_id = compute_node_id(tenant_id, file_path, file_path, NodeType::File);
 
     for line in content.lines() {
         let line = line.trim();

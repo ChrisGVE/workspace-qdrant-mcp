@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V18Migration;
 
@@ -15,11 +15,12 @@ impl Migration for V18Migration {
         info!("Migration v18: Creating indexed_content cache table");
 
         use crate::indexed_content_schema::{
-            CREATE_INDEXED_CONTENT_SQL, CREATE_INDEXED_CONTENT_INDEXES_SQL,
+            CREATE_INDEXED_CONTENT_INDEXES_SQL, CREATE_INDEXED_CONTENT_SQL,
         };
 
         sqlx::query(CREATE_INDEXED_CONTENT_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         for index_sql in CREATE_INDEXED_CONTENT_INDEXES_SQL {
             sqlx::query(index_sql).execute(pool).await?;
@@ -29,6 +30,10 @@ impl Migration for V18Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 18 }
-    fn description(&self) -> &'static str { "Create indexed_content cache table" }
+    fn version(&self) -> i32 {
+        18
+    }
+    fn description(&self) -> &'static str {
+        "Create indexed_content cache table"
+    }
 }

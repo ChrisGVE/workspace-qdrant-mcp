@@ -7,8 +7,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    self, core::Collector, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec,
-    Opts, Registry, TextEncoder,
+    self, core::Collector, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec, Opts,
+    Registry, TextEncoder,
 };
 
 /// Global metrics registry
@@ -139,8 +139,7 @@ fn int_counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
 }
 
 fn gauge_vec(name: &str, help: &str, labels: &[&str]) -> GaugeVec {
-    GaugeVec::new(Opts::new(name, help).namespace("memexd"), labels)
-        .expect("metric can be created")
+    GaugeVec::new(Opts::new(name, help).namespace("memexd"), labels).expect("metric can be created")
 }
 
 fn histogram_vec(name: &str, help: &str, labels: &[&str], buckets: Vec<f64>) -> HistogramVec {
@@ -201,7 +200,11 @@ fn create_queue_metrics() -> (IntGaugeVec, HistogramVec, IntCounterVec) {
         "Total items processed by priority and status",
         &["priority", "status"],
     );
-    (queue_depth, queue_processing_time_seconds, queue_items_processed_total)
+    (
+        queue_depth,
+        queue_processing_time_seconds,
+        queue_items_processed_total,
+    )
 }
 
 /// Create per-tenant tracking metrics
@@ -221,16 +224,16 @@ fn create_tenant_metrics() -> (IntGaugeVec, IntCounterVec, GaugeVec) {
         "Estimated storage bytes per tenant",
         &["tenant_id"],
     );
-    (tenant_documents_total, tenant_search_requests_total, tenant_storage_bytes)
+    (
+        tenant_documents_total,
+        tenant_search_requests_total,
+        tenant_storage_bytes,
+    )
 }
 
 /// Create system-level metrics (uptime, errors, heartbeat)
 fn create_system_metrics() -> (GaugeVec, IntCounterVec, HistogramVec) {
-    let uptime_seconds = gauge_vec(
-        "memexd_uptime_seconds",
-        "Daemon uptime in seconds",
-        &[],
-    );
+    let uptime_seconds = gauge_vec("memexd_uptime_seconds", "Daemon uptime in seconds", &[]);
     let ingestion_errors_total = int_counter_vec(
         "memexd_ingestion_errors_total",
         "Total ingestion errors by error type",
@@ -242,12 +245,21 @@ fn create_system_metrics() -> (GaugeVec, IntCounterVec, HistogramVec) {
         &["project_id"],
         vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
     );
-    (uptime_seconds, ingestion_errors_total, heartbeat_latency_seconds)
+    (
+        uptime_seconds,
+        ingestion_errors_total,
+        heartbeat_latency_seconds,
+    )
 }
 
 /// Create watch error and health metrics (Task 461.12)
 fn create_watch_metrics() -> (
-    IntCounterVec, IntGaugeVec, IntGaugeVec, IntGaugeVec, HistogramVec, IntCounterVec,
+    IntCounterVec,
+    IntGaugeVec,
+    IntGaugeVec,
+    IntGaugeVec,
+    HistogramVec,
+    IntCounterVec,
 ) {
     let watch_errors_total = int_counter_vec(
         "memexd_watch_errors_total",
@@ -273,7 +285,9 @@ fn create_watch_metrics() -> (
         "memexd_watch_recovery_time_seconds",
         "Watch error recovery time in seconds",
         &["watch_id"],
-        vec![1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0],
+        vec![
+            1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0,
+        ],
     );
     let watch_events_throttled_total = int_counter_vec(
         "memexd_watch_events_throttled_total",
@@ -281,15 +295,24 @@ fn create_watch_metrics() -> (
         &["watch_id", "load_level"],
     );
     (
-        watch_errors_total, watch_consecutive_errors, watch_health_status,
-        watches_in_backoff, watch_recovery_time_seconds, watch_events_throttled_total,
+        watch_errors_total,
+        watch_consecutive_errors,
+        watch_health_status,
+        watches_in_backoff,
+        watch_recovery_time_seconds,
+        watch_events_throttled_total,
     )
 }
 
 /// Create unified queue metrics (Task 37.35)
 fn create_unified_queue_metrics() -> (
-    IntGaugeVec, HistogramVec, IntCounterVec, IntCounterVec,
-    IntCounterVec, IntGaugeVec, IntCounterVec,
+    IntGaugeVec,
+    HistogramVec,
+    IntCounterVec,
+    IntCounterVec,
+    IntCounterVec,
+    IntGaugeVec,
+    IntCounterVec,
 ) {
     let unified_queue_depth = int_gauge_vec(
         "memexd_unified_queue_depth",
@@ -300,7 +323,9 @@ fn create_unified_queue_metrics() -> (
         "memexd_unified_queue_processing_time_seconds",
         "Unified queue item processing time in seconds",
         &["item_type"],
-        vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0],
+        vec![
+            0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0,
+        ],
     );
     let unified_queue_items_total = int_counter_vec(
         "memexd_unified_queue_items_total",
@@ -328,9 +353,12 @@ fn create_unified_queue_metrics() -> (
         &["item_type"],
     );
     (
-        unified_queue_depth, unified_queue_processing_time_seconds,
-        unified_queue_items_total, unified_queue_enqueues_total,
-        unified_queue_dequeues_total, unified_queue_stale_items,
+        unified_queue_depth,
+        unified_queue_processing_time_seconds,
+        unified_queue_items_total,
+        unified_queue_enqueues_total,
+        unified_queue_dequeues_total,
+        unified_queue_stale_items,
         unified_queue_retries_total,
     )
 }
@@ -340,8 +368,7 @@ impl DaemonMetrics {
     pub fn new() -> Self {
         let registry = Registry::new();
 
-        let (active_sessions, total_sessions, session_duration_seconds) =
-            create_session_metrics();
+        let (active_sessions, total_sessions, session_duration_seconds) = create_session_metrics();
         let (queue_depth, queue_processing_time_seconds, queue_items_processed_total) =
             create_queue_metrics();
         let (tenant_documents_total, tenant_search_requests_total, tenant_storage_bytes) =
@@ -349,43 +376,53 @@ impl DaemonMetrics {
         let (uptime_seconds, ingestion_errors_total, heartbeat_latency_seconds) =
             create_system_metrics();
         let (
-            watch_errors_total, watch_consecutive_errors, watch_health_status,
-            watches_in_backoff, watch_recovery_time_seconds, watch_events_throttled_total,
+            watch_errors_total,
+            watch_consecutive_errors,
+            watch_health_status,
+            watches_in_backoff,
+            watch_recovery_time_seconds,
+            watch_events_throttled_total,
         ) = create_watch_metrics();
         let (
-            unified_queue_depth, unified_queue_processing_time_seconds,
-            unified_queue_items_total, unified_queue_enqueues_total,
-            unified_queue_dequeues_total, unified_queue_stale_items,
+            unified_queue_depth,
+            unified_queue_processing_time_seconds,
+            unified_queue_items_total,
+            unified_queue_enqueues_total,
+            unified_queue_dequeues_total,
+            unified_queue_stale_items,
             unified_queue_retries_total,
         ) = create_unified_queue_metrics();
 
-        register_all(&registry, vec![
-            Box::new(active_sessions.clone()),
-            Box::new(total_sessions.clone()),
-            Box::new(session_duration_seconds.clone()),
-            Box::new(queue_depth.clone()),
-            Box::new(queue_processing_time_seconds.clone()),
-            Box::new(queue_items_processed_total.clone()),
-            Box::new(tenant_documents_total.clone()),
-            Box::new(tenant_search_requests_total.clone()),
-            Box::new(tenant_storage_bytes.clone()),
-            Box::new(uptime_seconds.clone()),
-            Box::new(ingestion_errors_total.clone()),
-            Box::new(heartbeat_latency_seconds.clone()),
-            Box::new(watch_errors_total.clone()),
-            Box::new(watch_consecutive_errors.clone()),
-            Box::new(watch_health_status.clone()),
-            Box::new(watches_in_backoff.clone()),
-            Box::new(watch_recovery_time_seconds.clone()),
-            Box::new(watch_events_throttled_total.clone()),
-            Box::new(unified_queue_depth.clone()),
-            Box::new(unified_queue_processing_time_seconds.clone()),
-            Box::new(unified_queue_items_total.clone()),
-            Box::new(unified_queue_enqueues_total.clone()),
-            Box::new(unified_queue_dequeues_total.clone()),
-            Box::new(unified_queue_stale_items.clone()),
-            Box::new(unified_queue_retries_total.clone()),
-        ]);
+        register_all(
+            &registry,
+            vec![
+                Box::new(active_sessions.clone()),
+                Box::new(total_sessions.clone()),
+                Box::new(session_duration_seconds.clone()),
+                Box::new(queue_depth.clone()),
+                Box::new(queue_processing_time_seconds.clone()),
+                Box::new(queue_items_processed_total.clone()),
+                Box::new(tenant_documents_total.clone()),
+                Box::new(tenant_search_requests_total.clone()),
+                Box::new(tenant_storage_bytes.clone()),
+                Box::new(uptime_seconds.clone()),
+                Box::new(ingestion_errors_total.clone()),
+                Box::new(heartbeat_latency_seconds.clone()),
+                Box::new(watch_errors_total.clone()),
+                Box::new(watch_consecutive_errors.clone()),
+                Box::new(watch_health_status.clone()),
+                Box::new(watches_in_backoff.clone()),
+                Box::new(watch_recovery_time_seconds.clone()),
+                Box::new(watch_events_throttled_total.clone()),
+                Box::new(unified_queue_depth.clone()),
+                Box::new(unified_queue_processing_time_seconds.clone()),
+                Box::new(unified_queue_items_total.clone()),
+                Box::new(unified_queue_enqueues_total.clone()),
+                Box::new(unified_queue_dequeues_total.clone()),
+                Box::new(unified_queue_stale_items.clone()),
+                Box::new(unified_queue_retries_total.clone()),
+            ],
+        );
 
         Self {
             registry,
@@ -425,7 +462,6 @@ impl DaemonMetrics {
         encoder.encode(&metric_families, &mut buffer)?;
         Ok(String::from_utf8(buffer).unwrap_or_default())
     }
-
 }
 
 impl Default for DaemonMetrics {

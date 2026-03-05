@@ -3,7 +3,6 @@
 /// After retrieving candidates from Qdrant, groups results by source
 /// (tenant_id or library_name) and re-ranks to ensure diverse representation
 /// across sources within score tiers.
-
 use serde::{Deserialize, Serialize};
 
 use crate::storage::SearchResult;
@@ -43,12 +42,7 @@ fn extract_source(result: &SearchResult) -> String {
         .payload
         .get("library_name")
         .and_then(|v| v.as_str())
-        .or_else(|| {
-            result
-                .payload
-                .get("tenant_id")
-                .and_then(|v| v.as_str())
-        })
+        .or_else(|| result.payload.get("tenant_id").and_then(|v| v.as_str()))
         .unwrap_or("unknown")
         .to_string()
 }

@@ -333,8 +333,14 @@ mod tests {
 
     #[test]
     fn test_collection_from_str() {
-        assert_eq!(WatchCollection::from_str("projects"), Some(WatchCollection::Projects));
-        assert_eq!(WatchCollection::from_str("LIBRARIES"), Some(WatchCollection::Libraries));
+        assert_eq!(
+            WatchCollection::from_str("projects"),
+            Some(WatchCollection::Projects)
+        );
+        assert_eq!(
+            WatchCollection::from_str("LIBRARIES"),
+            Some(WatchCollection::Libraries)
+        );
         assert_eq!(WatchCollection::from_str("invalid"), None);
     }
 
@@ -347,7 +353,10 @@ mod tests {
     #[test]
     fn test_library_mode_from_str() {
         assert_eq!(LibraryMode::from_str("sync"), Some(LibraryMode::Sync));
-        assert_eq!(LibraryMode::from_str("INCREMENTAL"), Some(LibraryMode::Incremental));
+        assert_eq!(
+            LibraryMode::from_str("INCREMENTAL"),
+            Some(LibraryMode::Incremental)
+        );
         assert_eq!(LibraryMode::from_str("invalid"), None);
     }
 

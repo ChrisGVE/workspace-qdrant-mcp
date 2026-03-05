@@ -16,8 +16,7 @@ fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {
         required: vec!["rust".to_string(), "python".to_string()],
         auto_download,
         tree_sitter_version: "0.24".to_string(),
-        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}"
-            .to_string(),
+        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}".to_string(),
         verify_checksums: false,
         lazy_loading: true,
         check_interval_hours: 168,
@@ -82,7 +81,10 @@ fn test_large_source_chunking() {
     let result = extract_chunks(&source, path, 512);
     assert!(result.is_ok());
     let chunks = result.unwrap();
-    assert!(chunks.len() > 1, "Large file should be split into multiple chunks");
+    assert!(
+        chunks.len() > 1,
+        "Large file should be split into multiple chunks"
+    );
 }
 
 #[test]
@@ -156,7 +158,10 @@ fn test_auto_download_disabled_provider_empty() {
     let path = std::path::Path::new("test.xyz");
     let result = extract_chunks_with_provider(source, path, 1024, Some(Arc::new(provider)));
     assert!(result.is_ok());
-    assert!(!result.unwrap().is_empty(), "Should produce text chunks as fallback");
+    assert!(
+        !result.unwrap().is_empty(),
+        "Should produce text chunks as fallback"
+    );
 }
 
 #[test]
@@ -204,13 +209,8 @@ async fn test_periodic_version_check_updates_timestamps() {
     for lang in &["rust", "python"] {
         cache_paths.create_directories(lang).unwrap();
         std::fs::write(cache_paths.grammar_path(lang), "fake").unwrap();
-        let metadata = GrammarMetadata::new(
-            *lang,
-            "0.24",
-            "0.24.0",
-            &cache_paths.platform,
-            "checksum",
-        );
+        let metadata =
+            GrammarMetadata::new(*lang, "0.24", "0.24.0", &cache_paths.platform, "checksum");
         cache_paths.save_metadata(lang, &metadata).unwrap();
     }
 
@@ -222,7 +222,11 @@ async fn test_periodic_version_check_updates_timestamps() {
 
     for lang in &["rust", "python"] {
         let metadata = cache_paths.load_metadata(lang).unwrap().unwrap();
-        assert!(metadata.last_checked_at.is_some(), "last_checked_at should be set for '{}'", lang);
+        assert!(
+            metadata.last_checked_at.is_some(),
+            "last_checked_at should be set for '{}'",
+            lang
+        );
     }
 }
 
@@ -239,18 +243,16 @@ fn test_check_interval_prevents_excessive_checks() {
     for lang in &["rust", "python"] {
         cache_paths.create_directories(lang).unwrap();
         std::fs::write(cache_paths.grammar_path(lang), "fake").unwrap();
-        let mut metadata = GrammarMetadata::new(
-            *lang,
-            "0.24",
-            "0.24.0",
-            &cache_paths.platform,
-            "checksum",
-        );
+        let mut metadata =
+            GrammarMetadata::new(*lang, "0.24", "0.24.0", &cache_paths.platform, "checksum");
         metadata.mark_checked();
         cache_paths.save_metadata(lang, &metadata).unwrap();
     }
 
-    assert!(!manager.needs_periodic_check(), "Should not need check right after marking checked");
+    assert!(
+        !manager.needs_periodic_check(),
+        "Should not need check right after marking checked"
+    );
 }
 
 #[test]
@@ -261,5 +263,8 @@ fn test_check_interval_zero_disables_checks() {
         ..test_config(&temp_dir, true)
     };
     let manager = GrammarManager::new(config);
-    assert!(!manager.needs_periodic_check(), "check_interval_hours=0 should disable periodic checks");
+    assert!(
+        !manager.needs_periodic_check(),
+        "check_interval_hours=0 should disable periodic checks"
+    );
 }

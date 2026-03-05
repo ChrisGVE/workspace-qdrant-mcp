@@ -11,10 +11,8 @@ use super::types::FileRoute;
 /// (e.g., `.md`, `.txt`, `.html`) stay in `projects` because they are typically
 /// project documentation meant to be searched alongside code.
 pub(super) const LIBRARY_ROUTED_EXTENSIONS: &[&str] = &[
-    ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt",
-    ".mobi",
-    ".pptx", ".ppt", ".pages", ".key", ".odp",
-    ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
+    ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt", ".mobi", ".pptx", ".ppt", ".pages", ".key",
+    ".odp", ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
 ];
 
 /// Two-tier allowlist of file extensions for project and library ingestion.
@@ -41,13 +39,28 @@ impl Default for AllowedExtensions {
             // Python
             ".py",
             // JavaScript / TypeScript
-            ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".jsx",
+            ".mjs",
+            ".cjs",
+            ".mts",
+            ".cts",
             // Go
             ".go",
             // Java / JVM
-            ".java", ".kt", ".scala", ".groovy", ".clj", ".cljs",
+            ".java",
+            ".kt",
+            ".scala",
+            ".groovy",
+            ".clj",
+            ".cljs",
             // C / C++
-            ".c", ".cpp", ".h", ".hpp",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
             // Swift
             ".swift",
             // Ruby
@@ -55,31 +68,61 @@ impl Default for AllowedExtensions {
             // Lua
             ".lua",
             // Shell
-            ".sh", ".bash", ".zsh", ".fish",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".fish",
             // Config / Data
-            ".toml", ".yaml", ".yml", ".json", ".xml",
+            ".toml",
+            ".yaml",
+            ".yml",
+            ".json",
+            ".xml",
             // Spreadsheets and data
-            ".csv", ".tsv",
+            ".csv",
+            ".tsv",
             // Notebooks
             ".ipynb",
             // Web
-            ".html", ".css", ".scss", ".less", ".vue", ".svelte", ".astro",
+            ".html",
+            ".css",
+            ".scss",
+            ".less",
+            ".vue",
+            ".svelte",
+            ".astro",
             // SQL / GraphQL / Proto
-            ".sql", ".graphql", ".proto",
+            ".sql",
+            ".graphql",
+            ".proto",
             // Documentation
-            ".md", ".txt", ".rst", ".tex",
+            ".md",
+            ".txt",
+            ".rst",
+            ".tex",
             // Elixir / Erlang
-            ".ex", ".exs", ".erl", ".hrl",
+            ".ex",
+            ".exs",
+            ".erl",
+            ".hrl",
             // Haskell / ML / Elm
-            ".hs", ".ml", ".mli", ".elm",
+            ".hs",
+            ".ml",
+            ".mli",
+            ".elm",
             // R
-            ".r", ".R",  // note: kept separate for case-insensitive matching
+            ".r",
+            ".R", // note: kept separate for case-insensitive matching
             // Dart
             ".dart",
             // .NET
-            ".cs", ".fs", ".vb",
+            ".cs",
+            ".fs",
+            ".vb",
             // Perl / PHP
-            ".pl", ".pm", ".php",
+            ".pl",
+            ".pm",
+            ".php",
             // Nix
             ".nix",
             // Lean
@@ -89,21 +132,33 @@ impl Default for AllowedExtensions {
             // Nim
             ".nim",
             // V / Odin / D
-            ".v", ".odin", ".d",
+            ".v",
+            ".odin",
+            ".d",
             // Fortran
-            ".f90", ".f95",
+            ".f90",
+            ".f95",
             // Pascal
             ".pas",
             // COBOL
-            ".cob", ".cbl",
+            ".cob",
+            ".cbl",
             // Build / CI files (by extension)
-            ".dockerfile", ".makefile", ".cmake", ".mk",
+            ".dockerfile",
+            ".makefile",
+            ".cmake",
+            ".mk",
             // PowerShell / Batch
-            ".ps1", ".bat", ".cmd",
+            ".ps1",
+            ".bat",
+            ".cmd",
             // Text processing
-            ".awk", ".sed",
+            ".awk",
+            ".sed",
             // Build tool configs
-            ".sbt", ".gradle", ".pom",
+            ".sbt",
+            ".gradle",
+            ".pom",
         ]
         .iter()
         .map(|s| s.to_string())
@@ -113,10 +168,8 @@ impl Default for AllowedExtensions {
         // library_extensions = project_extensions ∪ library_only_extensions
         let library_only: HashSet<String> = [
             // Documents
-            ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt",
-            // Ebooks
-            ".mobi",
-            // Presentations
+            ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt",  // Ebooks
+            ".mobi", // Presentations
             ".pptx", ".ppt", ".pages", ".key", ".odp",
             // Spreadsheets (formats not already in project_extensions)
             ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
@@ -188,7 +241,12 @@ impl AllowedExtensions {
     /// * `file_path` - Path to the file being routed.
     /// * `watch_collection` - The collection configured on the watch folder (`"projects"` or `"libraries"`).
     /// * `tenant_id` - The tenant identifier (project ID or library name) for the watch folder.
-    pub fn route_file(&self, file_path: &str, watch_collection: &str, tenant_id: &str) -> FileRoute {
+    pub fn route_file(
+        &self,
+        file_path: &str,
+        watch_collection: &str,
+        tenant_id: &str,
+    ) -> FileRoute {
         let path = Path::new(file_path);
 
         // Extract extension; reject extension-less files
@@ -202,7 +260,9 @@ impl AllowedExtensions {
         if watch_collection == "libraries" {
             // Library watch folder: accept any library-allowed extension
             if self.library_extensions.contains(&dotted) {
-                FileRoute::LibraryCollection { source_project_id: None }
+                FileRoute::LibraryCollection {
+                    source_project_id: None,
+                }
             } else {
                 FileRoute::Excluded
             }

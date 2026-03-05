@@ -7,7 +7,7 @@
 
 use tonic::Status;
 use uuid::Uuid;
-use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 
 /// Validate collection name format.
 /// Rules: 3-255 chars, alphanumeric + underscore/hyphen, no leading numbers.
@@ -18,25 +18,28 @@ pub(crate) fn validate_collection_name(name: &str) -> Result<(), Status> {
 
     if name.len() < 3 {
         return Err(Status::invalid_argument(
-            "Collection name must be at least 3 characters"
+            "Collection name must be at least 3 characters",
         ));
     }
 
     if name.len() > 255 {
         return Err(Status::invalid_argument(
-            "Collection name must not exceed 255 characters"
+            "Collection name must not exceed 255 characters",
         ));
     }
 
     if name.chars().next().map(|c| c.is_numeric()).unwrap_or(false) {
         return Err(Status::invalid_argument(
-            "Collection name cannot start with a number"
+            "Collection name cannot start with a number",
         ));
     }
 
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(Status::invalid_argument(
-            "Collection name can only contain alphanumeric characters, underscores, and hyphens"
+            "Collection name can only contain alphanumeric characters, underscores, and hyphens",
         ));
     }
 
@@ -87,7 +90,9 @@ pub(crate) fn is_project_id(tenant_id: &str) -> bool {
 /// Validate collection basename format (same rules as collection name).
 fn validate_collection_basename(basename: &str) -> Result<(), Status> {
     if basename.is_empty() {
-        return Err(Status::invalid_argument("Collection basename cannot be empty"));
+        return Err(Status::invalid_argument(
+            "Collection basename cannot be empty",
+        ));
     }
     if basename.len() < 3 {
         return Err(Status::invalid_argument(
@@ -99,12 +104,20 @@ fn validate_collection_basename(basename: &str) -> Result<(), Status> {
             "Collection basename must not exceed 255 characters",
         ));
     }
-    if basename.chars().next().map(|c| c.is_numeric()).unwrap_or(false) {
+    if basename
+        .chars()
+        .next()
+        .map(|c| c.is_numeric())
+        .unwrap_or(false)
+    {
         return Err(Status::invalid_argument(
             "Collection basename cannot start with a number",
         ));
     }
-    if !basename.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+    if !basename
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(Status::invalid_argument(
             "Collection basename can only contain alphanumeric characters, underscores, and hyphens",
         ));
@@ -128,7 +141,11 @@ pub(crate) fn determine_collection_routing(
 
     // Rules collection uses single canonical name with tenant isolation via metadata
     if basename == "rules" || basename == "memory" || basename == "agent_memory" {
-        return Ok(("rules".to_string(), "project_id".to_string(), tenant_id.to_string()));
+        return Ok((
+            "rules".to_string(),
+            "project_id".to_string(),
+            tenant_id.to_string(),
+        ));
     }
 
     if is_project_id(tenant_id) {
@@ -152,9 +169,8 @@ pub(crate) fn validate_document_id(id: &str) -> Result<(), Status> {
         return Err(Status::invalid_argument("Document ID cannot be empty"));
     }
 
-    Uuid::parse_str(id).map_err(|_| {
-        Status::invalid_argument("Document ID must be a valid UUID")
-    })?;
+    Uuid::parse_str(id)
+        .map_err(|_| Status::invalid_argument("Document ID must be a valid UUID"))?;
 
     Ok(())
 }

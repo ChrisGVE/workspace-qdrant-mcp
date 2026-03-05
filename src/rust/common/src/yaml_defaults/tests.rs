@@ -2,8 +2,7 @@ use super::*;
 
 #[test]
 fn test_default_yaml_parses() {
-    let config: YamlConfig =
-        serde_yml::from_str(DEFAULT_YAML).expect("YAML should parse");
+    let config: YamlConfig = serde_yml::from_str(DEFAULT_YAML).expect("YAML should parse");
     // Spot-check key values
     assert_eq!(config.qdrant.url, "http://localhost:6333");
     assert_eq!(config.grpc.port, 50051);
@@ -81,7 +80,10 @@ fn test_git_defaults() {
 #[test]
 fn test_embedding_defaults() {
     let config = &*DEFAULT_YAML_CONFIG;
-    assert_eq!(config.embedding.model, "sentence-transformers/all-MiniLM-L6-v2");
+    assert_eq!(
+        config.embedding.model,
+        "sentence-transformers/all-MiniLM-L6-v2"
+    );
     assert!(config.embedding.enable_sparse_vectors);
     assert_eq!(config.embedding.cache_max_entries, 1000);
 }
@@ -102,9 +104,15 @@ fn test_lsp_defaults() {
 fn test_grammars_defaults() {
     let config = &*DEFAULT_YAML_CONFIG;
     assert_eq!(config.grammars.cache_dir, "~/.workspace-qdrant/grammars");
-    assert!(config.grammars.required.is_empty(), "Default required should be empty");
+    assert!(
+        config.grammars.required.is_empty(),
+        "Default required should be empty"
+    );
     assert!(config.grammars.auto_download);
-    assert_eq!(config.grammars.tree_sitter_version, env!("TREE_SITTER_VERSION_MAJOR_MINOR"));
+    assert_eq!(
+        config.grammars.tree_sitter_version,
+        env!("TREE_SITTER_VERSION_MAJOR_MINOR")
+    );
 }
 
 #[test]
@@ -178,10 +186,22 @@ fn test_grammar_download_url_is_full_template() {
     // not just a base URL prefix. This prevents grammar downloads from producing
     // incomplete artifact URLs.
     let defaults = YamlGrammarsConfig::default();
-    assert!(defaults.download_base_url.contains("{language}"), "Missing {{language}} placeholder");
-    assert!(defaults.download_base_url.contains("{version}"), "Missing {{version}} placeholder");
-    assert!(defaults.download_base_url.contains("{platform}"), "Missing {{platform}} placeholder");
-    assert!(defaults.download_base_url.contains("{ext}"), "Missing {{ext}} placeholder");
+    assert!(
+        defaults.download_base_url.contains("{language}"),
+        "Missing {{language}} placeholder"
+    );
+    assert!(
+        defaults.download_base_url.contains("{version}"),
+        "Missing {{version}} placeholder"
+    );
+    assert!(
+        defaults.download_base_url.contains("{platform}"),
+        "Missing {{platform}} placeholder"
+    );
+    assert!(
+        defaults.download_base_url.contains("{ext}"),
+        "Missing {{ext}} placeholder"
+    );
 }
 
 #[test]
@@ -190,8 +210,14 @@ fn test_tagging_tier3_defaults() {
     assert!(!config.tagging.tier3.enabled);
     assert_eq!(config.tagging.tier3.primary.provider, "anthropic");
     assert_eq!(config.tagging.tier3.primary.access_mode, "cli");
-    assert_eq!(config.tagging.tier3.primary.model, "claude-haiku-4-5-20251001");
-    assert_eq!(config.tagging.tier3.primary.api_key_env, "ANTHROPIC_API_KEY");
+    assert_eq!(
+        config.tagging.tier3.primary.model,
+        "claude-haiku-4-5-20251001"
+    );
+    assert_eq!(
+        config.tagging.tier3.primary.api_key_env,
+        "ANTHROPIC_API_KEY"
+    );
     assert!(config.tagging.tier3.primary.base_url.is_none());
     assert!(config.tagging.tier3.fallback.is_none());
     assert_eq!(config.tagging.tier3.max_chunks_per_doc, 10);

@@ -4,15 +4,15 @@
 //! items from the unified_queue with type-specific handlers for content, file,
 //! folder, project, library, and other operations.
 
-pub mod error;
 pub mod config;
+pub mod error;
 mod metrics;
 mod processing_loop;
 #[cfg(test)]
 mod tests;
 
+pub use config::{UnifiedProcessingMetrics, UnifiedProcessorConfig, WarmupState};
 pub use error::{UnifiedProcessorError, UnifiedProcessorResult};
-pub use config::{WarmupState, UnifiedProcessingMetrics, UnifiedProcessorConfig};
 
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -25,14 +25,14 @@ use tracing::{error, info, warn};
 use crate::adaptive_resources::ResourceProfile;
 use crate::allowed_extensions::AllowedExtensions;
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
-use crate::queue_health::QueueProcessorHealth;
+use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
+use crate::queue_health::QueueProcessorHealth;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
-use crate::tree_sitter::GrammarManager;
-use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
 use crate::storage::{StorageClient, StorageConfig};
-use crate::lexicon::LexiconManager;
+use crate::tree_sitter::GrammarManager;
+use crate::{DocumentProcessor, EmbeddingConfig, EmbeddingGenerator};
 
 /// Unified queue processor manages background processing of unified_queue items
 pub struct UnifiedQueueProcessor {
@@ -110,7 +110,7 @@ impl UnifiedQueueProcessor {
         };
         let embedding_generator = Arc::new(
             EmbeddingGenerator::new(embedding_config.clone())
-                .expect("Failed to create embedding generator")
+                .expect("Failed to create embedding generator"),
         );
         let storage_config = StorageConfig::default();
         let storage_client = Arc::new(StorageClient::with_config(storage_config));
@@ -133,7 +133,9 @@ impl UnifiedQueueProcessor {
         ));
 
         // Start with warmup permits, will add more when warmup ends (Task 578)
-        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
+        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(
+            config.warmup_max_concurrent_embeddings,
+        ));
         let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
         Self {
@@ -170,7 +172,10 @@ impl UnifiedQueueProcessor {
         storage_client: Arc<StorageClient>,
     ) -> Self {
         // Create lexicon manager for BM25 vocabulary persistence (Task 17)
-        let lexicon_manager = Arc::new(LexiconManager::new(pool.clone(), EmbeddingConfig::default().bm25_k1));
+        let lexicon_manager = Arc::new(LexiconManager::new(
+            pool.clone(),
+            EmbeddingConfig::default().bm25_k1,
+        ));
 
         // Create fairness scheduler with config from processor config
         let queue_manager = QueueManager::new(pool);
@@ -187,7 +192,9 @@ impl UnifiedQueueProcessor {
         ));
 
         // Start with warmup permits, will add more when warmup ends (Task 578)
-        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
+        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(
+            config.warmup_max_concurrent_embeddings,
+        ));
         let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
         Self {
@@ -234,7 +241,10 @@ impl UnifiedQueueProcessor {
     }
 
     /// Set the graph store for code relationship extraction (graph-rag)
-    pub fn with_graph_store(mut self, store: crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>) -> Self {
+    pub fn with_graph_store(
+        mut self,
+        store: crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>,
+    ) -> Self {
         self.graph_store = Some(store);
         self
     }
@@ -258,7 +268,10 @@ impl UnifiedQueueProcessor {
     }
 
     /// Set the adaptive resource profile receiver for dynamic CPU scaling
-    pub fn with_adaptive_resources(mut self, rx: tokio::sync::watch::Receiver<ResourceProfile>) -> Self {
+    pub fn with_adaptive_resources(
+        mut self,
+        rx: tokio::sync::watch::Receiver<ResourceProfile>,
+    ) -> Self {
         self.resource_profile_rx = Some(rx);
         self
     }
@@ -284,7 +297,8 @@ impl UnifiedQueueProcessor {
     /// Recover stale leases at startup (Task 37.19)
     pub async fn recover_stale_leases(&self) -> UnifiedProcessorResult<u64> {
         info!("Recovering stale unified queue leases...");
-        let count = self.queue_manager
+        let count = self
+            .queue_manager
             .recover_stale_unified_leases()
             .await
             .map_err(|e| UnifiedProcessorError::QueueOperation(e.to_string()))?;
@@ -336,7 +350,10 @@ impl UnifiedQueueProcessor {
         let task_handle = tokio::spawn(async move {
             // One-time cleanup of junk BM25 terms from sparse_vocabulary (Task 22)
             if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
-                warn!("Failed to clean junk terms from sparse_vocabulary: {} (non-critical)", e);
+                warn!(
+                    "Failed to clean junk terms from sparse_vocabulary: {} (non-critical)",
+                    e
+                );
             }
 
             if let Err(e) = Self::processing_loop(

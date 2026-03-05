@@ -34,7 +34,12 @@ impl PythonExtractor {
     }
 
     /// Extract preamble (imports, from imports, module docstring).
-    fn extract_preamble(&self, root: &Node, source: &str, file_path: &str) -> Option<SemanticChunk> {
+    fn extract_preamble(
+        &self,
+        root: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Option<SemanticChunk> {
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
         let mut cursor = root.walk();
@@ -60,7 +65,9 @@ impl PythonExtractor {
                 }
                 "comment" => {
                     // Include top-level comments in preamble
-                    if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1 {
+                    if preamble_items.is_empty()
+                        || child.start_position().row <= last_preamble_line + 1
+                    {
                         preamble_items.push(node_text(&child, source).to_string());
                         last_preamble_line = child.end_position().row + 1;
                     }
@@ -147,13 +154,7 @@ impl PythonExtractor {
         };
 
         let mut chunk = SemanticChunk::new(
-            chunk_type,
-            name,
-            content,
-            start_line,
-            end_line,
-            "python",
-            file_path,
+            chunk_type, name, content, start_line, end_line, "python", file_path,
         )
         .with_symbol_kind(symbol_kind)
         .with_calls(calls);
@@ -214,7 +215,12 @@ impl PythonExtractor {
                         if let Some(func) = find_child_by_kind(&child, "function_definition")
                             .or_else(|| find_child_by_kind(&child, "async_function_definition"))
                         {
-                            chunks.push(self.extract_function(&func, source, file_path, Some(&name)));
+                            chunks.push(self.extract_function(
+                                &func,
+                                source,
+                                file_path,
+                                Some(&name),
+                            ));
                         }
                     }
                     _ => {}
@@ -355,7 +361,10 @@ class Person:
         assert!(class_chunk.is_some());
         assert_eq!(class_chunk.unwrap().symbol_name, "Person");
 
-        let methods: Vec<_> = chunks.iter().filter(|c| c.chunk_type == ChunkType::Method).collect();
+        let methods: Vec<_> = chunks
+            .iter()
+            .filter(|c| c.chunk_type == ChunkType::Method)
+            .collect();
         assert_eq!(methods.len(), 2);
     }
 
@@ -373,7 +382,9 @@ async def fetch_data():
         let extractor = PythonExtractor::with_language(lang);
         let chunks = extractor.extract_chunks(source, &path).unwrap();
 
-        let async_chunk = chunks.iter().find(|c| c.chunk_type == ChunkType::AsyncFunction);
+        let async_chunk = chunks
+            .iter()
+            .find(|c| c.chunk_type == ChunkType::AsyncFunction);
         assert!(async_chunk.is_some());
         assert_eq!(async_chunk.unwrap().symbol_name, "fetch_data");
     }

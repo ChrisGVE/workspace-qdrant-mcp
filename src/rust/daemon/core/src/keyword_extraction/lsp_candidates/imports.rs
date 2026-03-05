@@ -49,9 +49,7 @@ fn extract_rust_imports(
         // Handle braces: use std::collections::{HashMap, HashSet}
         if let Some(brace_start) = path.find('{') {
             let prefix = &path[..brace_start];
-            let inner = path[brace_start + 1..]
-                .trim_end_matches('}')
-                .trim();
+            let inner = path[brace_start + 1..].trim_end_matches('}').trim();
             for item in inner.split(',') {
                 let item = item.trim();
                 if !item.is_empty() && item.len() >= config.min_identifier_len {

@@ -48,10 +48,7 @@ pub async fn restore_snapshot(snapshot: &str, collection: &str, force: bool) -> 
         snapshot.to_string()
     } else {
         // Assume it's a snapshot name on the server
-        format!(
-            "{}/collections/{}/snapshots/{}",
-            base, collection, snapshot
-        )
+        format!("{}/collections/{}/snapshots/{}", base, collection, snapshot)
     };
 
     let recover_url = format!("{}/collections/{}/snapshots/recover", base, collection);

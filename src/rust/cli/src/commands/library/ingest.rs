@@ -3,14 +3,14 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use wqm_common::classification::extension_to_document_type;
 use wqm_common::constants::COLLECTION_LIBRARIES;
-use wqm_common::payloads::{LibraryDocumentPayload, ChunkingConfigPayload};
+use wqm_common::payloads::{ChunkingConfigPayload, LibraryDocumentPayload};
 
-use crate::output;
-use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
 use super::helpers::{classify_document_extension, signal_daemon_ingest_queue};
+use crate::output;
+use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Ingest a single document into a library
 pub async fn execute(
@@ -32,7 +32,8 @@ pub async fn execute(
         return Ok(());
     }
 
-    let abs_path = file.canonicalize()
+    let abs_path = file
+        .canonicalize()
         .context("Could not resolve absolute path")?;
     let abs_path_str = abs_path.to_string_lossy().to_string();
 
@@ -50,8 +51,7 @@ pub async fn execute(
     output::kv("  Doc ID", &doc_id);
 
     // Calculate doc_fingerprint (SHA256 of file bytes)
-    let file_bytes = std::fs::read(&abs_path)
-        .context("Failed to read file for fingerprinting")?;
+    let file_bytes = std::fs::read(&abs_path).context("Failed to read file for fingerprinting")?;
     let mut hasher = Sha256::new();
     hasher.update(&file_bytes);
     let doc_fingerprint = format!("{:x}", hasher.finalize());
@@ -72,8 +72,8 @@ pub async fn execute(
         }),
     };
 
-    let payload_json = serde_json::to_string(&payload)
-        .context("Failed to serialize library document payload")?;
+    let payload_json =
+        serde_json::to_string(&payload).context("Failed to serialize library document payload")?;
 
     enqueue_document(library, &payload_json)?;
     signal_daemon_ingest_queue().await;

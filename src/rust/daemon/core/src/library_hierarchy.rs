@@ -9,7 +9,6 @@
 /// - library_name: "main"
 /// - library_path: "computer_science/design_patterns"
 /// - document_name: "GoF.pdf"
-
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -52,10 +51,7 @@ impl LibraryLocation {
 /// returns `library_path = "cs/patterns"` and `document_name = "GoF.pdf"`.
 ///
 /// Returns `None` if the file is not under the library root.
-pub fn extract_library_path(
-    library_root: &Path,
-    document_path: &Path,
-) -> Option<(String, String)> {
+pub fn extract_library_path(library_root: &Path, document_path: &Path) -> Option<(String, String)> {
     let relative = document_path.strip_prefix(library_root).ok()?;
 
     let document_name = relative
@@ -228,7 +224,10 @@ mod tests {
     #[test]
     fn test_normalize_prefix() {
         assert_eq!(normalize_path_prefix("  cs/patterns/  "), "cs/patterns");
-        assert_eq!(normalize_path_prefix("/leading/trailing/"), "leading/trailing");
+        assert_eq!(
+            normalize_path_prefix("/leading/trailing/"),
+            "leading/trailing"
+        );
         assert_eq!(normalize_path_prefix(""), "");
     }
 

@@ -10,9 +10,7 @@
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use workspace_qdrant_core::fts_batch_processor::{
-    FileChange, FtsBatchConfig, FtsBatchProcessor,
-};
+use workspace_qdrant_core::fts_batch_processor::{FileChange, FtsBatchConfig, FtsBatchProcessor};
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::text_search::{search_exact, SearchOptions};
 
@@ -102,22 +100,14 @@ async fn test_concurrent_search_during_writes() {
     write_handle.await.unwrap();
 
     // After all tasks complete, both functions should be searchable
-    let results = search_exact(
-        &db,
-        "existing_function",
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results = search_exact(&db, "existing_function", &SearchOptions::default())
+        .await
+        .unwrap();
     assert_eq!(results.matches.len(), 1);
 
-    let results = search_exact(
-        &db,
-        "new_concurrent_fn",
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
+    let results = search_exact(&db, "new_concurrent_fn", &SearchOptions::default())
+        .await
+        .unwrap();
     assert_eq!(results.matches.len(), 1);
 }
 
@@ -237,7 +227,10 @@ async fn test_full_lifecycle_round_trip() {
     let r3 = search_exact(&db, "step_two", &SearchOptions::default())
         .await
         .unwrap();
-    assert!(r3.matches.is_empty(), "Step 3: all content should be gone after delete");
+    assert!(
+        r3.matches.is_empty(),
+        "Step 3: all content should be gone after delete"
+    );
 
     let r3_extra = search_exact(&db, "extra_line", &SearchOptions::default())
         .await
@@ -258,7 +251,16 @@ async fn test_empty_file_searchable() {
     let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     processor
-        .full_rewrite(1, "", "proj1", Some("main"), "src/empty.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "",
+            "proj1",
+            Some("main"),
+            "src/empty.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -315,7 +317,16 @@ async fn test_large_file_searchable() {
     let content = lines.join("\n");
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/large.rs", None, None, None)
+        .full_rewrite(
+            1,
+            &content,
+            "proj1",
+            Some("main"),
+            "src/large.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -385,7 +396,12 @@ async fn test_multi_tenant_isolation() {
         )
         .await
         .unwrap();
-        assert_eq!(results.matches.len(), 1, "Tenant {} should have 1 match", tenant);
+        assert_eq!(
+            results.matches.len(),
+            1,
+            "Tenant {} should have 1 match",
+            tenant
+        );
         assert!(
             results.matches[0].content.contains(content),
             "Tenant {} match should contain the correct content",

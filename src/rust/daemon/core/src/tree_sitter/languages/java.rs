@@ -36,7 +36,12 @@ impl JavaExtractor {
     }
 
     /// Extract preamble (package, imports).
-    fn extract_preamble(&self, root: &Node, source: &str, file_path: &str) -> Option<SemanticChunk> {
+    fn extract_preamble(
+        &self,
+        root: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Option<SemanticChunk> {
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
         let mut cursor = root.walk();
@@ -48,7 +53,9 @@ impl JavaExtractor {
                     last_preamble_line = child.end_position().row + 1;
                 }
                 "line_comment" | "block_comment" => {
-                    if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1 {
+                    if preamble_items.is_empty()
+                        || child.start_position().row <= last_preamble_line + 1
+                    {
                         preamble_items.push(node_text(&child, source).to_string());
                         last_preamble_line = child.end_position().row + 1;
                     }
@@ -292,7 +299,10 @@ public class Person {
         assert!(class_chunk.is_some());
         assert_eq!(class_chunk.unwrap().symbol_name, "Person");
 
-        let methods: Vec<_> = chunks.iter().filter(|c| c.chunk_type == ChunkType::Method).collect();
+        let methods: Vec<_> = chunks
+            .iter()
+            .filter(|c| c.chunk_type == ChunkType::Method)
+            .collect();
         assert_eq!(methods.len(), 2); // constructor + greet
     }
 

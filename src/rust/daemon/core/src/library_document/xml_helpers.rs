@@ -121,7 +121,10 @@ mod tests {
     #[test]
     fn test_extract_xml_attr() {
         assert_eq!(
-            extract_xml_attr(r#"table:name="Sheet1" table:style-name="ta1""#, "table:name"),
+            extract_xml_attr(
+                r#"table:name="Sheet1" table:style-name="ta1""#,
+                "table:name"
+            ),
             Some("Sheet1".to_string())
         );
         assert_eq!(

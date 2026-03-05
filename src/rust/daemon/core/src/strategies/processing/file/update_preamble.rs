@@ -69,26 +69,18 @@ pub(super) async fn execute_update_deletion(
         .store_queue_decision(&item.queue_id, &decision)
         .await
     {
-        warn!(
-            "Failed to store QueueDecision for {}: {}",
-            item.queue_id, e
-        );
+        warn!("Failed to store QueueDecision for {}: {}", item.queue_id, e);
         // Non-fatal: proceed without stored decision
     }
 
     // Execute old point deletion only if no other references
     if delete_old {
-        let old_point_ids =
-            tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
-                .await
-                .unwrap_or_default();
+        let old_point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
+            .await
+            .unwrap_or_default();
         if !old_point_ids.is_empty() {
             ctx.storage_client
-                .delete_points_by_filter(
-                    &item.collection,
-                    &payload.file_path,
-                    &item.tenant_id,
-                )
+                .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }

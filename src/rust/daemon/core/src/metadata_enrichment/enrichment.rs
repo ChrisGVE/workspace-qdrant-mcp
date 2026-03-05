@@ -41,11 +41,7 @@ fn find_project_root(file_path: &Path) -> PathBuf {
             }
         }
         Err(e) => {
-            debug!(
-                "No Git repository found for {}: {}",
-                file_path.display(),
-                e
-            );
+            debug!("No Git repository found for {}: {}", file_path.display(), e);
         }
     }
 
@@ -131,11 +127,7 @@ pub fn enrich_metadata(
 }
 
 /// Apply PROJECT collection enrichment: project_id, branch, file_type, extension, is_test.
-fn enrich_project(
-    metadata: &mut HashMap<String, String>,
-    file_path: &Path,
-    project_id: String,
-) {
+fn enrich_project(metadata: &mut HashMap<String, String>, file_path: &Path, project_id: String) {
     let project_root = find_project_root(file_path);
 
     metadata.insert("project_id".to_string(), project_id);

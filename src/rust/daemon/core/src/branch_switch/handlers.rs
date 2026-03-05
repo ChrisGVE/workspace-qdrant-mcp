@@ -21,20 +21,31 @@ pub async fn handle_git_event(
     pool: &SqlitePool,
     queue_manager: &QueueManager,
 ) -> Result<BranchSwitchStats, String> {
-    let (project_root, collection, tenant_id) = fetch_watch_folder(pool, &event.watch_folder_id).await?;
+    let (project_root, collection, tenant_id) =
+        fetch_watch_folder(pool, &event.watch_folder_id).await?;
 
     match &event.event_type {
         GitEventType::BranchSwitch => {
             handle_branch_switch(
-                event, pool, queue_manager,
-                &project_root, &collection, &tenant_id,
-            ).await
+                event,
+                pool,
+                queue_manager,
+                &project_root,
+                &collection,
+                &tenant_id,
+            )
+            .await
         }
         GitEventType::Commit | GitEventType::Merge | GitEventType::Pull | GitEventType::Rebase => {
             handle_new_commit(
-                event, pool, queue_manager,
-                &project_root, &collection, &tenant_id,
-            ).await
+                event,
+                pool,
+                queue_manager,
+                &project_root,
+                &collection,
+                &tenant_id,
+            )
+            .await
         }
         GitEventType::Reset => {
             // Reset can change arbitrary files — enqueue a full scan
@@ -66,13 +77,14 @@ async fn handle_branch_switch(
 ) -> Result<BranchSwitchStats, String> {
     let root = Path::new(project_root);
     let new_branch = event.branch.as_deref().unwrap_or("default");
-    let old_branch = event.old_branch.as_deref()
+    let old_branch = event
+        .old_branch
+        .as_deref()
         .unwrap_or_else(|| get_current_branch(root).leak());
 
     info!(
         "Branch switch: {} -> {} for {} (old_sha={:.8}, new_sha={:.8})",
-        old_branch, new_branch, event.watch_folder_id,
-        &event.old_sha, &event.new_sha
+        old_branch, new_branch, event.watch_folder_id, &event.old_sha, &event.new_sha
     );
 
     // Get changed files between old and new commits via diff-tree
@@ -86,8 +98,14 @@ async fn handle_branch_switch(
     // 1. Batch update unchanged files: update branch in tracked_files
     //    These files have identical content — only the branch metadata changes.
     match batch_update_branch(
-        pool, &event.watch_folder_id, old_branch, new_branch, &changed_paths,
-    ).await {
+        pool,
+        &event.watch_folder_id,
+        old_branch,
+        new_branch,
+        &changed_paths,
+    )
+    .await
+    {
         Ok(count) => {
             stats.batch_updated = count;
             if count > 0 {
@@ -106,8 +124,14 @@ async fn handle_branch_switch(
     // 2. Enqueue changed files for re-ingestion
     for change in &changes {
         let result = enqueue_changed_file(
-            queue_manager, change, tenant_id, collection, project_root, new_branch,
-        ).await;
+            queue_manager,
+            change,
+            tenant_id,
+            collection,
+            project_root,
+            new_branch,
+        )
+        .await;
         match result {
             Ok(op) => match op {
                 QueueOperation::Update => stats.enqueued_changed += 1,
@@ -151,8 +175,7 @@ async fn handle_new_commit(
 
     info!(
         "New commit on branch {} for {} (old_sha={:.8}, new_sha={:.8})",
-        branch, event.watch_folder_id,
-        &event.old_sha, &event.new_sha
+        branch, event.watch_folder_id, &event.old_sha, &event.new_sha
     );
 
     let changes = diff_tree(root, &event.old_sha, &event.new_sha)
@@ -162,8 +185,14 @@ async fn handle_new_commit(
 
     for change in &changes {
         let result = enqueue_changed_file(
-            queue_manager, change, tenant_id, collection, project_root, branch,
-        ).await;
+            queue_manager,
+            change,
+            tenant_id,
+            collection,
+            project_root,
+            branch,
+        )
+        .await;
         match result {
             Ok(op) => match op {
                 QueueOperation::Update => stats.enqueued_changed += 1,
@@ -186,8 +215,11 @@ async fn handle_new_commit(
 
     info!(
         "Commit processed for {}: {} changed, {} added, {} deleted, {} errors",
-        event.watch_folder_id, stats.enqueued_changed,
-        stats.enqueued_added, stats.enqueued_deleted, stats.errors
+        event.watch_folder_id,
+        stats.enqueued_changed,
+        stats.enqueued_added,
+        stats.enqueued_deleted,
+        stats.errors
     );
 
     Ok(stats)

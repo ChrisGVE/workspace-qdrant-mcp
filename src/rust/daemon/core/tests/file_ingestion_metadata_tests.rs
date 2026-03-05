@@ -14,8 +14,8 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::fs;
 use workspace_qdrant_core::{
-    classify_file_type, FileType, Pipeline, TaskPayload, TaskPriority, TaskResult,
-    TaskResultData, TaskSource,
+    classify_file_type, FileType, Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData,
+    TaskSource,
 };
 
 const TEST_COLLECTION: &str = "test_collection";
@@ -74,7 +74,11 @@ async fn test_file_metadata_extraction_preparation() -> TestResult {
 
     // Verify file size is correct
     assert!(file_size > 0, "File size should be greater than 0");
-    assert_eq!(file_size, content.len() as u64, "File size should match content length");
+    assert_eq!(
+        file_size,
+        content.len() as u64,
+        "File size should match content length"
+    );
 
     Ok(())
 }

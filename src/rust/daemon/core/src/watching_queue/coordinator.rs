@@ -78,7 +78,10 @@ impl std::fmt::Debug for WatchQueueCoordinator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WatchQueueCoordinator")
             .field("config", &self.config)
-            .field("allocated", &self.allocated.load(std::sync::atomic::Ordering::SeqCst))
+            .field(
+                "allocated",
+                &self.allocated.load(std::sync::atomic::Ordering::SeqCst),
+            )
             .field("has_pool", &self.pool.is_some())
             .finish()
     }
@@ -154,7 +157,8 @@ impl WatchQueueCoordinator {
         allocation.held += num_items;
         allocation.requested += num_items;
         allocation.last_activity = SystemTime::now();
-        self.allocated.fetch_add(num_items, std::sync::atomic::Ordering::SeqCst);
+        self.allocated
+            .fetch_add(num_items, std::sync::atomic::Ordering::SeqCst);
 
         // Invoke metrics callback
         if let Some(ref callback) = self.metrics_callback {
@@ -178,7 +182,8 @@ impl WatchQueueCoordinator {
             allocation.held = allocation.held.saturating_sub(to_release);
             allocation.last_activity = SystemTime::now();
 
-            self.allocated.fetch_sub(to_release, std::sync::atomic::Ordering::SeqCst);
+            self.allocated
+                .fetch_sub(to_release, std::sync::atomic::Ordering::SeqCst);
 
             // Invoke metrics callback
             if let Some(ref callback) = self.metrics_callback {
@@ -237,8 +242,12 @@ impl WatchQueueCoordinator {
     pub async fn reset_watch(&self, watch_id: &str) {
         let mut allocations = self.allocations.write().await;
         if let Some(allocation) = allocations.remove(watch_id) {
-            self.allocated.fetch_sub(allocation.held, std::sync::atomic::Ordering::SeqCst);
-            info!("Reset allocation for watch {}: released {} items", watch_id, allocation.held);
+            self.allocated
+                .fetch_sub(allocation.held, std::sync::atomic::Ordering::SeqCst);
+            info!(
+                "Reset allocation for watch {}: released {} items",
+                watch_id, allocation.held
+            );
         }
     }
 
@@ -259,8 +268,12 @@ impl WatchQueueCoordinator {
 
         for watch_id in stale {
             if let Some(allocation) = allocations.remove(&watch_id) {
-                self.allocated.fetch_sub(allocation.held, std::sync::atomic::Ordering::SeqCst);
-                info!("Cleaned up stale allocation for {}: released {} items", watch_id, allocation.held);
+                self.allocated
+                    .fetch_sub(allocation.held, std::sync::atomic::Ordering::SeqCst);
+                info!(
+                    "Cleaned up stale allocation for {}: released {} items",
+                    watch_id, allocation.held
+                );
             }
         }
     }

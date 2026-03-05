@@ -205,9 +205,5 @@ pub(crate) fn extract_version_from_text(text: &str) -> String {
     }
 
     // If no pattern matches, return the first line cleaned up
-    text.lines()
-        .next()
-        .unwrap_or(text)
-        .trim()
-        .to_string()
+    text.lines().next().unwrap_or(text).trim().to_string()
 }

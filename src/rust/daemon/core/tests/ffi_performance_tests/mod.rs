@@ -9,9 +9,8 @@ mod types;
 
 pub use tester::FfiPerformanceTester;
 pub use types::{
-    AsyncOperationBenchmarks, ConcurrencyBenchmark, DataTransferBenchmark,
-    FfiPerformanceConfig, FfiPerformanceResults, FunctionCallBenchmarks,
-    MemoryCopyBenchmark, SerializationBenchmark,
+    AsyncOperationBenchmarks, ConcurrencyBenchmark, DataTransferBenchmark, FfiPerformanceConfig,
+    FfiPerformanceResults, FunctionCallBenchmarks, MemoryCopyBenchmark, SerializationBenchmark,
 };
 
 #[cfg(test)]

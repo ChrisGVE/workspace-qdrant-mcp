@@ -55,19 +55,15 @@ pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>
 
 /// Initialize test environment with proper logging and tracing
 pub fn init_test_env() {
-    use tracing_subscriber::{fmt, EnvFilter};
     use std::sync::Once;
+    use tracing_subscriber::{fmt, EnvFilter};
 
     static INIT: Once = Once::new();
 
     INIT.call_once(|| {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("debug"));
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
 
-        fmt()
-            .with_env_filter(filter)
-            .with_test_writer()
-            .init();
+        fmt().with_env_filter(filter).with_test_writer().init();
     });
 }
 
@@ -132,7 +128,8 @@ macro_rules! timed_async_test {
                 async move { $body },
                 $min_duration,
                 $max_duration,
-            ).await
+            )
+            .await
         }
     };
 }
@@ -144,10 +141,9 @@ macro_rules! concurrent_async_test {
         #[tokio::test]
         async fn $name() -> $crate::TestResult {
             $crate::init_test_env();
-            let results = $crate::test_helpers::test_concurrent_operations(
-                $operations,
-                $max_concurrent,
-            ).await?;
+            let results =
+                $crate::test_helpers::test_concurrent_operations($operations, $max_concurrent)
+                    .await?;
             Ok(results)
         }
     };
@@ -160,10 +156,7 @@ macro_rules! timeout_async_test {
         #[tokio::test]
         async fn $name() -> $crate::TestResult {
             $crate::init_test_env();
-            $crate::test_helpers::with_custom_timeout(
-                async move { $body },
-                $timeout,
-            ).await
+            $crate::test_helpers::with_custom_timeout(async move { $body }, $timeout).await
         }
     };
 }

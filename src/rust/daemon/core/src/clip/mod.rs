@@ -1,3 +1,4 @@
+mod encoder;
 /// CLIP multimodal embedding module.
 ///
 /// Provides CLIP ViT-B-32 image and text encoding via fastembed's ONNX
@@ -21,9 +22,7 @@
 /// // Cross-modal similarity
 /// let similarity = ClipEncoder::cosine_similarity(&image_vec, &text_vec);
 /// ```
-
 pub mod errors;
-mod encoder;
 
 pub use encoder::{ClipConfig, ClipEncoder, CLIP_EMBEDDING_DIM};
 pub use errors::ClipError;

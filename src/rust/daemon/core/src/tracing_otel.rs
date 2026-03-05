@@ -7,13 +7,13 @@
 //! Task 412.19: Add OpenTelemetry tracing setup for daemon-server boundary
 
 use opentelemetry::trace::TracerProvider as _;
+use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     runtime,
     trace::{BatchSpanProcessor, Config, Sampler, TracerProvider},
     Resource,
 };
-use opentelemetry::KeyValue;
-use opentelemetry_otlp::WithExportConfig;
 use std::env;
 use tracing::Subscriber;
 use tracing_subscriber::registry::LookupSpan;
@@ -68,7 +68,9 @@ impl OtelConfig {
 ///
 /// Returns a TracerProvider that can be used to get tracers for distributed tracing.
 /// If OTEL_EXPORTER_OTLP_ENDPOINT is set, uses OTLP exporter; otherwise uses a simple provider.
-pub fn init_tracer_provider(config: &OtelConfig) -> Result<TracerProvider, opentelemetry::trace::TraceError> {
+pub fn init_tracer_provider(
+    config: &OtelConfig,
+) -> Result<TracerProvider, opentelemetry::trace::TraceError> {
     let resource = Resource::new(vec![
         KeyValue::new("service.name", config.service_name.clone()),
         KeyValue::new("service.version", config.service_version.clone()),
@@ -88,7 +90,10 @@ pub fn init_tracer_provider(config: &OtelConfig) -> Result<TracerProvider, opent
 
     if let Some(endpoint) = &config.otlp_endpoint {
         // Use OTLP exporter for production
-        tracing::info!("Initializing OpenTelemetry with OTLP endpoint: {}", endpoint);
+        tracing::info!(
+            "Initializing OpenTelemetry with OTLP endpoint: {}",
+            endpoint
+        );
 
         let exporter = opentelemetry_otlp::new_exporter()
             .tonic()
@@ -108,9 +113,7 @@ pub fn init_tracer_provider(config: &OtelConfig) -> Result<TracerProvider, opent
         // Use simple provider for development (no exporter)
         tracing::info!("Initializing OpenTelemetry with no exporter (development mode)");
 
-        let provider = TracerProvider::builder()
-            .with_config(trace_config)
-            .build();
+        let provider = TracerProvider::builder().with_config(trace_config).build();
 
         Ok(provider)
     }
@@ -120,7 +123,9 @@ pub fn init_tracer_provider(config: &OtelConfig) -> Result<TracerProvider, opent
 ///
 /// This layer bridges the `tracing` crate with OpenTelemetry, allowing
 /// all `#[tracing::instrument]` spans to be exported as OpenTelemetry traces.
-pub fn otel_layer<S>(config: &OtelConfig) -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>>
+pub fn otel_layer<S>(
+    config: &OtelConfig,
+) -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {

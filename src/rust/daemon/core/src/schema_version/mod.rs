@@ -38,7 +38,7 @@ mod v26;
 mod v27;
 mod v28;
 
-use sqlx::{SqlitePool, Row, sqlite::SqliteRow};
+use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
 use thiserror::Error;
 use tracing::{debug, info};
 
@@ -59,7 +59,9 @@ pub enum SchemaError {
     #[error("Schema version mismatch: expected {expected}, found {found}")]
     VersionMismatch { expected: i32, found: i32 },
 
-    #[error("Downgrade not supported: database version {db_version} > code version {code_version}")]
+    #[error(
+        "Downgrade not supported: database version {db_version} > code version {code_version}"
+    )]
     DowngradeNotSupported { db_version: i32, code_version: i32 },
 }
 
@@ -131,11 +133,10 @@ impl SchemaManager {
 
     /// Get all applied migrations
     pub async fn get_migration_history(&self) -> Result<Vec<SchemaVersionEntry>, SchemaError> {
-        let rows: Vec<SqliteRow> = sqlx::query(
-            "SELECT version, applied_at FROM schema_version ORDER BY version ASC"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows: Vec<SqliteRow> =
+            sqlx::query("SELECT version, applied_at FROM schema_version ORDER BY version ASC")
+                .fetch_all(&self.pool)
+                .await?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -153,7 +154,10 @@ impl SchemaManager {
         self.initialize().await?;
 
         let current = self.get_current_version().await?.unwrap_or(0);
-        info!("Current schema version: {}, target: {}", current, CURRENT_SCHEMA_VERSION);
+        info!(
+            "Current schema version: {}, target: {}",
+            current, CURRENT_SCHEMA_VERSION
+        );
 
         if current > CURRENT_SCHEMA_VERSION {
             return Err(SchemaError::DowngradeNotSupported {
@@ -175,7 +179,10 @@ impl SchemaManager {
             self.record_migration(version).await?;
         }
 
-        info!("Schema migrations complete. Now at version {}", CURRENT_SCHEMA_VERSION);
+        info!(
+            "Schema migrations complete. Now at version {}",
+            CURRENT_SCHEMA_VERSION
+        );
         Ok(())
     }
 
@@ -228,7 +235,8 @@ impl SchemaManager {
         match registry.get(version) {
             Some(migration) => migration.up(&self.pool).await,
             None => Err(SchemaError::MigrationError(format!(
-                "Unknown migration version: {}", version
+                "Unknown migration version: {}",
+                version
             ))),
         }
     }
@@ -237,7 +245,7 @@ impl SchemaManager {
 /// Check if schema is initialized (for graceful degradation by MCP/CLI)
 pub async fn is_schema_initialized(pool: &SqlitePool) -> bool {
     let result: Result<bool, _> = sqlx::query_scalar(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'"
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'",
     )
     .fetch_optional(pool)
     .await

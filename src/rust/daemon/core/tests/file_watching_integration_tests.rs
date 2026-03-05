@@ -26,15 +26,14 @@ impl TestWatcher {
         let events_clone = Arc::clone(&events);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        let watcher =
-            notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
-                if let Ok(event) = result {
-                    if let Ok(mut events_lock) = events_clone.lock() {
-                        events_lock.push(event.clone());
-                    }
-                    let _ = event_tx.send(event);
+        let watcher = notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
+            if let Ok(event) = result {
+                if let Ok(mut events_lock) = events_clone.lock() {
+                    events_lock.push(event.clone());
                 }
-            })?;
+                let _ = event_tx.send(event);
+            }
+        })?;
 
         Ok(Self {
             _watcher: watcher,
@@ -55,11 +54,7 @@ impl TestWatcher {
         self._watcher.unwatch(path.as_ref())
     }
 
-    async fn wait_for_events(
-        &mut self,
-        expected_count: usize,
-        timeout: Duration,
-    ) -> Vec<Event> {
+    async fn wait_for_events(&mut self, expected_count: usize, timeout: Duration) -> Vec<Event> {
         let mut collected_events = Vec::new();
         let start_time = Instant::now();
 
@@ -93,8 +88,7 @@ serial_async_test!(test_integration_with_document_processing, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -120,9 +114,7 @@ serial_async_test!(test_integration_with_document_processing, {
     for (filename, content) in documents {
         let file_path = create_test_file(temp_path, filename, content).await?;
 
-        let process_result = processor
-            .process_file(&file_path, "test_collection")
-            .await;
+        let process_result = processor.process_file(&file_path, "test_collection").await;
         assert!(
             process_result.is_ok(),
             "Document processing should succeed for {}",
@@ -140,9 +132,7 @@ serial_async_test!(test_integration_with_document_processing, {
     for event in &events {
         for path in &event.paths {
             if path.is_file() {
-                let process_result = processor
-                    .process_file(path, "event_test_collection")
-                    .await;
+                let process_result = processor.process_file(path, "event_test_collection").await;
                 if let Err(e) = &process_result {
                     println!("Processing warning for {}: {}", path.display(), e);
                 }
@@ -202,8 +192,7 @@ async_test!(test_watch_unwatch_cycle, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     for cycle in 0..3 {
         watcher
@@ -219,8 +208,7 @@ async_test!(test_watch_unwatch_cycle, {
         )
         .await?;
 
-        let events_while_watching =
-            watcher.wait_for_events(1, Duration::from_secs(1)).await;
+        let events_while_watching = watcher.wait_for_events(1, Duration::from_secs(1)).await;
 
         watcher
             .unwatch(temp_path)
@@ -230,9 +218,8 @@ async_test!(test_watch_unwatch_cycle, {
 
         tokio::fs::write(&test_file, "modified while not watching").await?;
 
-        let events_while_not_watching = watcher
-            .wait_for_events(1, Duration::from_millis(500))
-            .await;
+        let events_while_not_watching =
+            watcher.wait_for_events(1, Duration::from_millis(500)).await;
 
         println!(
             "Cycle {}: {} events while watching, {} events while not watching",
@@ -283,27 +270,17 @@ async_test!(test_notify_config_options, {
             },
             config,
         )
-        .map_err(|e| {
-            format!("Failed to create watcher with {}: {}", config_name, e)
-        })?;
+        .map_err(|e| format!("Failed to create watcher with {}: {}", config_name, e))?;
 
         watcher
             .watch(temp_path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                format!(
-                    "Failed to start watching with {}: {}",
-                    config_name, e
-                )
-            })?;
+            .map_err(|e| format!("Failed to start watching with {}: {}", config_name, e))?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let test_file = create_test_file(
             temp_path,
-            &format!(
-                "config_test_{}.txt",
-                config_name.replace(' ', "_")
-            ),
+            &format!("config_test_{}.txt", config_name.replace(' ', "_")),
             "initial",
         )
         .await?;
@@ -334,8 +311,8 @@ async_test!(test_comprehensive_file_system_monitoring, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create comprehensive watcher: {}", e))?;
+    let mut watcher =
+        TestWatcher::new().map_err(|e| format!("Failed to create comprehensive watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::Recursive)
@@ -409,8 +386,7 @@ async_test!(test_comprehensive_file_system_monitoring, {
         "Comprehensive test should generate events"
     );
 
-    let _final_test_file =
-        create_test_file(temp_path, "final_test.txt", "final test").await?;
+    let _final_test_file = create_test_file(temp_path, "final_test.txt", "final test").await?;
     let final_events = watcher.wait_for_events(1, Duration::from_secs(2)).await;
     assert!(
         !final_events.is_empty() || total_events > 15,

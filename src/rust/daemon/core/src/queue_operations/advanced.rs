@@ -3,9 +3,7 @@
 use tracing::{error, info};
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use crate::unified_queue_schema::{
-    ItemType, ProjectPayload, QueueOperation as UnifiedOp,
-};
+use crate::unified_queue_schema::{ItemType, ProjectPayload, QueueOperation as UnifiedOp};
 
 use super::{QueueError, QueueManager, QueueResult};
 
@@ -38,24 +36,30 @@ impl QueueManager {
 
             let metadata = serde_json::json!({
                 "reason": reason,
-            }).to_string();
+            })
+            .to_string();
 
-            let (queue_id, _is_new) = self.enqueue_unified(
-                ItemType::Tenant,
-                UnifiedOp::Rename,
-                new_tenant_id,
-                collection,
-                &payload_json,
-                None,
-                Some(&metadata),
-            ).await?;
+            let (queue_id, _is_new) = self
+                .enqueue_unified(
+                    ItemType::Tenant,
+                    UnifiedOp::Rename,
+                    new_tenant_id,
+                    collection,
+                    &payload_json,
+                    None,
+                    Some(&metadata),
+                )
+                .await?;
 
             queue_ids.push(queue_id);
         }
 
         info!(
             "Enqueued {} cascade rename items: {} -> {} (reason: {})",
-            queue_ids.len(), old_tenant_id, new_tenant_id, reason
+            queue_ids.len(),
+            old_tenant_id,
+            new_tenant_id,
+            reason
         );
 
         Ok(queue_ids)
@@ -80,16 +84,15 @@ impl QueueManager {
             &payload_json,
             branch,
             None,
-        ).await
+        )
+        .await
     }
 
     /// Validate a library document payload has required fields.
     ///
     /// Called during library document processing to ensure the payload
     /// contains the document family taxonomy fields.
-    pub fn validate_library_document_payload(
-        payload: &serde_json::Value,
-    ) -> QueueResult<()> {
+    pub fn validate_library_document_payload(payload: &serde_json::Value) -> QueueResult<()> {
         let required_fields = [
             ("document_path", "Library document missing 'document_path'"),
             ("library_name", "Library document missing 'library_name'"),
@@ -99,7 +102,9 @@ impl QueueManager {
         ];
 
         for (field, msg) in &required_fields {
-            if !payload.get(*field).map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+            if !payload.get(*field).map_or(false, |v| {
+                v.is_string() && !v.as_str().unwrap_or("").is_empty()
+            }) {
                 error!("Queue validation failed: {}", msg);
                 return Err(QueueError::MissingPayloadField {
                     item_type: "file".to_string(),
@@ -112,9 +117,10 @@ impl QueueManager {
         if let Some(doc_type) = payload.get("document_type").and_then(|v| v.as_str()) {
             if doc_type != "page_based" && doc_type != "stream_based" {
                 error!("Queue validation failed: invalid document_type '{}', must be 'page_based' or 'stream_based'", doc_type);
-                return Err(QueueError::InvalidOperation(
-                    format!("Invalid document_type: '{}', must be 'page_based' or 'stream_based'", doc_type),
-                ));
+                return Err(QueueError::InvalidOperation(format!(
+                    "Invalid document_type: '{}', must be 'page_based' or 'stream_based'",
+                    doc_type
+                )));
             }
         }
 

@@ -4,10 +4,9 @@
 
 /// Common English stopwords filtered during tokenization
 pub const ENGLISH_STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-    "has", "he", "in", "is", "it", "its", "of", "on", "or", "that",
-    "the", "to", "was", "were", "will", "with", "this", "but", "they",
-    "have", "had", "what", "when", "where", "who", "which", "why", "how"
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "he", "in", "is", "it",
+    "its", "of", "on", "or", "that", "the", "to", "was", "were", "will", "with", "this", "but",
+    "they", "have", "had", "what", "when", "where", "who", "which", "why", "how",
 ];
 
 /// Simple tokenization for BM25 sparse vector generation

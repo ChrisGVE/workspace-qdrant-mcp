@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V27Migration;
 
@@ -17,7 +17,8 @@ impl Migration for V27Migration {
         // SQLite 3.35.0+ supports ALTER TABLE DROP COLUMN.
         // For older SQLite, the column will remain but is unused.
         let result = sqlx::query("ALTER TABLE unified_queue DROP COLUMN max_retries")
-            .execute(pool).await;
+            .execute(pool)
+            .await;
 
         match result {
             Ok(_) => {
@@ -25,13 +26,20 @@ impl Migration for V27Migration {
             }
             Err(e) => {
                 // Column may not exist (fresh schema) or SQLite too old
-                debug!("Migration v27: max_retries column not dropped ({}), continuing", e);
+                debug!(
+                    "Migration v27: max_retries column not dropped ({}), continuing",
+                    e
+                );
             }
         }
 
         Ok(())
     }
 
-    fn version(&self) -> i32 { 27 }
-    fn description(&self) -> &'static str { "Drop max_retries column from unified_queue" }
+    fn version(&self) -> i32 {
+        27
+    }
+    fn description(&self) -> &'static str {
+        "Drop max_retries column from unified_queue"
+    }
 }

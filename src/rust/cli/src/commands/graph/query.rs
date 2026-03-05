@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::client::workspace_daemon::QueryRelatedRequest;
+use crate::grpc::client::DaemonClient;
 use crate::output;
 
 pub async fn query_related(
@@ -43,8 +43,7 @@ pub async fn query_related(
     }
 
     // Group by depth
-    let mut by_depth: std::collections::BTreeMap<u32, Vec<_>> =
-        std::collections::BTreeMap::new();
+    let mut by_depth: std::collections::BTreeMap<u32, Vec<_>> = std::collections::BTreeMap::new();
     for node in &resp.nodes {
         by_depth.entry(node.depth).or_default().push(node);
     }

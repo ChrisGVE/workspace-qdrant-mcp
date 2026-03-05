@@ -1,5 +1,5 @@
-use super::*;
 use super::helpers::classify_and_store_pattern;
+use super::*;
 use std::collections::HashSet;
 
 #[test]
@@ -17,7 +17,11 @@ fn test_basic_exclusion() {
     assert!(engine.should_exclude(".gitignore").excluded);
 
     // Node modules
-    assert!(engine.should_exclude("node_modules/package/index.js").excluded);
+    assert!(
+        engine
+            .should_exclude("node_modules/package/index.js")
+            .excluded
+    );
 
     // Build artifacts
     assert!(engine.should_exclude("target/debug/main").excluded);
@@ -77,15 +81,36 @@ fn test_pattern_classification() {
     };
 
     // Test exact pattern
-    classify_and_store_pattern("exact", &rule, &mut exact, &mut prefix, &mut suffix, &mut contains);
+    classify_and_store_pattern(
+        "exact",
+        &rule,
+        &mut exact,
+        &mut prefix,
+        &mut suffix,
+        &mut contains,
+    );
     assert!(contains.contains(&"exact".to_string()));
 
     // Test prefix pattern
-    classify_and_store_pattern("prefix*", &rule, &mut exact, &mut prefix, &mut suffix, &mut contains);
+    classify_and_store_pattern(
+        "prefix*",
+        &rule,
+        &mut exact,
+        &mut prefix,
+        &mut suffix,
+        &mut contains,
+    );
     assert!(prefix.contains(&"prefix".to_string()));
 
     // Test suffix pattern
-    classify_and_store_pattern("*.suffix", &rule, &mut exact, &mut prefix, &mut suffix, &mut contains);
+    classify_and_store_pattern(
+        "*.suffix",
+        &rule,
+        &mut exact,
+        &mut prefix,
+        &mut suffix,
+        &mut contains,
+    );
     assert!(suffix.contains(&".suffix".to_string()));
 }
 
@@ -123,7 +148,11 @@ fn test_filename_vs_path_exclusion() {
     assert!(engine.should_exclude(".DS_Store").excluded);
 
     // Test directory patterns
-    assert!(engine.should_exclude("project/node_modules/package.json").excluded);
+    assert!(
+        engine
+            .should_exclude("project/node_modules/package.json")
+            .excluded
+    );
     assert!(engine.should_exclude("node_modules/package.json").excluded);
 }
 
@@ -138,7 +167,11 @@ fn test_hidden_files_excluded_at_all_depths() {
 
     // Hidden directories at arbitrary depth
     assert!(engine.should_exclude("src/.cache/file.txt").excluded);
-    assert!(engine.should_exclude("deep/path/.mypy_cache/file.json").excluded);
+    assert!(
+        engine
+            .should_exclude("deep/path/.mypy_cache/file.json")
+            .excluded
+    );
     assert!(engine.should_exclude("a/b/c/.hidden/file.txt").excluded);
 
     // Hidden files (not just directories)
@@ -156,7 +189,11 @@ fn test_github_directory_not_excluded() {
     // .github is explicitly allowed (useful for CI/CD understanding)
     assert!(!engine.should_exclude(".github/workflows/ci.yml").excluded);
     assert!(!engine.should_exclude(".github/CODEOWNERS").excluded);
-    assert!(!engine.should_exclude("project/.github/workflows/test.yml").excluded);
+    assert!(
+        !engine
+            .should_exclude("project/.github/workflows/test.yml")
+            .excluded
+    );
 
     // But other .g* directories should still be excluded
     assert!(engine.should_exclude(".gradle/cache/file").excluded);

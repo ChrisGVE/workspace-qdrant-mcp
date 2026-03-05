@@ -3,7 +3,6 @@
 /// Uses fastembed's CLIP ViT-B-32 models (both image and text encoders)
 /// to produce 512-dimensional embeddings in a shared vector space.
 /// Cross-modal similarity (image↔text) is supported via cosine distance.
-
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -87,17 +86,19 @@ impl ClipEncoder {
             ));
         }
 
-        let mut model = self.image_model.lock().map_err(|e| {
-            ClipError::ImageEncodingFailed(format!("lock poisoned: {e}"))
-        })?;
+        let mut model = self
+            .image_model
+            .lock()
+            .map_err(|e| ClipError::ImageEncodingFailed(format!("lock poisoned: {e}")))?;
 
         let embeddings = model
             .embed_bytes(&[image_bytes], None)
             .map_err(|e| ClipError::ImageEncodingFailed(e.to_string()))?;
 
-        let embedding = embeddings.into_iter().next().ok_or_else(|| {
-            ClipError::ImageEncodingFailed("no embedding returned".to_string())
-        })?;
+        let embedding = embeddings
+            .into_iter()
+            .next()
+            .ok_or_else(|| ClipError::ImageEncodingFailed("no embedding returned".to_string()))?;
 
         debug!(dim = embedding.len(), "CLIP image embedding generated");
         Ok(embedding)
@@ -109,9 +110,10 @@ impl ClipEncoder {
             return Ok(Vec::new());
         }
 
-        let mut model = self.image_model.lock().map_err(|e| {
-            ClipError::ImageEncodingFailed(format!("lock poisoned: {e}"))
-        })?;
+        let mut model = self
+            .image_model
+            .lock()
+            .map_err(|e| ClipError::ImageEncodingFailed(format!("lock poisoned: {e}")))?;
 
         model
             .embed_bytes(images, None)
@@ -127,22 +129,22 @@ impl ClipEncoder {
     /// This is a blocking call — wrap in `spawn_blocking` for async.
     pub fn encode_text(&self, text: &str) -> Result<Vec<f32>, ClipError> {
         if text.is_empty() {
-            return Err(ClipError::TextEncodingFailed(
-                "empty text".to_string(),
-            ));
+            return Err(ClipError::TextEncodingFailed("empty text".to_string()));
         }
 
-        let mut model = self.text_model.lock().map_err(|e| {
-            ClipError::TextEncodingFailed(format!("lock poisoned: {e}"))
-        })?;
+        let mut model = self
+            .text_model
+            .lock()
+            .map_err(|e| ClipError::TextEncodingFailed(format!("lock poisoned: {e}")))?;
 
         let embeddings = model
             .embed(vec![text], None)
             .map_err(|e| ClipError::TextEncodingFailed(e.to_string()))?;
 
-        let embedding = embeddings.into_iter().next().ok_or_else(|| {
-            ClipError::TextEncodingFailed("no embedding returned".to_string())
-        })?;
+        let embedding = embeddings
+            .into_iter()
+            .next()
+            .ok_or_else(|| ClipError::TextEncodingFailed("no embedding returned".to_string()))?;
 
         debug!(dim = embedding.len(), "CLIP text embedding generated");
         Ok(embedding)
@@ -154,9 +156,10 @@ impl ClipEncoder {
             return Ok(Vec::new());
         }
 
-        let mut model = self.text_model.lock().map_err(|e| {
-            ClipError::TextEncodingFailed(format!("lock poisoned: {e}"))
-        })?;
+        let mut model = self
+            .text_model
+            .lock()
+            .map_err(|e| ClipError::TextEncodingFailed(format!("lock poisoned: {e}")))?;
 
         let owned: Vec<String> = texts.iter().map(|s| s.to_string()).collect();
         model
@@ -181,22 +184,19 @@ impl ClipEncoder {
 
 /// Initialize the CLIP image encoder model.
 fn init_image_model(config: &ClipConfig) -> Result<ImageEmbedding, ClipError> {
-    let mut opts = ImageInitOptions::new(ImageEmbeddingModel::ClipVitB32)
-        .with_show_download_progress(true);
+    let mut opts =
+        ImageInitOptions::new(ImageEmbeddingModel::ClipVitB32).with_show_download_progress(true);
 
     if let Some(ref dir) = config.model_cache_dir {
         opts = opts.with_cache_dir(dir.clone());
     }
 
-    ImageEmbedding::try_new(opts).map_err(|e| {
-        ClipError::InitFailed(format!("image encoder: {e}"))
-    })
+    ImageEmbedding::try_new(opts).map_err(|e| ClipError::InitFailed(format!("image encoder: {e}")))
 }
 
 /// Initialize the CLIP text encoder model.
 fn init_text_model(config: &ClipConfig) -> Result<TextEmbedding, ClipError> {
-    let mut opts = InitOptions::new(EmbeddingModel::ClipVitB32)
-        .with_show_download_progress(true);
+    let mut opts = InitOptions::new(EmbeddingModel::ClipVitB32).with_show_download_progress(true);
 
     if let Some(threads) = config.num_threads {
         opts = opts.with_num_threads(threads);
@@ -205,9 +205,7 @@ fn init_text_model(config: &ClipConfig) -> Result<TextEmbedding, ClipError> {
         opts = opts.with_cache_dir(dir.clone());
     }
 
-    TextEmbedding::try_new(opts).map_err(|e| {
-        ClipError::InitFailed(format!("text encoder: {e}"))
-    })
+    TextEmbedding::try_new(opts).map_err(|e| ClipError::InitFailed(format!("text encoder: {e}")))
 }
 
 #[cfg(test)]

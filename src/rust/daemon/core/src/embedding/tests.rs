@@ -19,16 +19,29 @@ fn test_tokenize_for_bm25_splits_punctuation() {
 
 #[test]
 fn test_tokenize_for_bm25_filters_junk() {
-    let tokens = tokenize_for_bm25("version 2.0.0 hash abc123def456 num 120 path /usr/bin/test 0xff");
+    let tokens =
+        tokenize_for_bm25("version 2.0.0 hash abc123def456 num 120 path /usr/bin/test 0xff");
     assert!(tokens.contains(&"version".to_string()));
     assert!(tokens.contains(&"hash".to_string()));
     assert!(tokens.contains(&"num".to_string()));
     assert!(tokens.contains(&"path".to_string()));
     // Junk filtered
-    assert!(!tokens.contains(&"2.0.0".to_string()), "version strings should be filtered");
-    assert!(!tokens.contains(&"abc123def456".to_string()), "hex hashes should be filtered");
-    assert!(!tokens.contains(&"120".to_string()), "pure digits should be filtered");
-    assert!(!tokens.contains(&"0xff".to_string()), "hex literals should be filtered");
+    assert!(
+        !tokens.contains(&"2.0.0".to_string()),
+        "version strings should be filtered"
+    );
+    assert!(
+        !tokens.contains(&"abc123def456".to_string()),
+        "hex hashes should be filtered"
+    );
+    assert!(
+        !tokens.contains(&"120".to_string()),
+        "pure digits should be filtered"
+    );
+    assert!(
+        !tokens.contains(&"0xff".to_string()),
+        "hex literals should be filtered"
+    );
 }
 
 #[test]
@@ -45,11 +58,18 @@ fn test_tokenize_for_bm25_filters_single_chars() {
 fn test_tokenize_for_bm25_code_tokens() {
     let tokens = tokenize_for_bm25("fn process_item(queue_manager: &QueueManager) -> Result<()>");
     assert!(tokens.contains(&"fn".to_string()));
-    assert!(tokens.contains(&"process_item".to_string()) || tokens.contains(&"process".to_string()));
-    assert!(tokens.contains(&"queue_manager".to_string()) || tokens.contains(&"queuemanager".to_string()));
+    assert!(
+        tokens.contains(&"process_item".to_string()) || tokens.contains(&"process".to_string())
+    );
+    assert!(
+        tokens.contains(&"queue_manager".to_string())
+            || tokens.contains(&"queuemanager".to_string())
+    );
     assert!(tokens.contains(&"result".to_string()));
     // Should not contain angle brackets or ampersands
-    assert!(!tokens.iter().any(|t| t.contains('<') || t.contains('>') || t.contains('&')));
+    assert!(!tokens
+        .iter()
+        .any(|t| t.contains('<') || t.contains('>') || t.contains('&')));
 }
 
 #[test]
@@ -75,17 +95,26 @@ fn test_bm25_idf_common_vs_rare_terms() {
     let function_id = bm25.vocab().get("function").unwrap();
     let quantum_id = bm25.vocab().get("quantum").unwrap();
 
-    let function_score = sparse.indices.iter().zip(&sparse.values)
+    let function_score = sparse
+        .indices
+        .iter()
+        .zip(&sparse.values)
         .find(|(&idx, _)| idx == *function_id)
         .map(|(_, &v)| v);
-    let quantum_score = sparse.indices.iter().zip(&sparse.values)
+    let quantum_score = sparse
+        .indices
+        .iter()
+        .zip(&sparse.values)
         .find(|(&idx, _)| idx == *quantum_id)
         .map(|(_, &v)| v);
 
     // "quantum" (rare, df=1) should score higher than "function" (common, df=10)
-    assert!(quantum_score.unwrap() > function_score.unwrap_or(0.0),
+    assert!(
+        quantum_score.unwrap() > function_score.unwrap_or(0.0),
         "Rare term 'quantum' ({:?}) should score higher than common term 'function' ({:?})",
-        quantum_score, function_score);
+        quantum_score,
+        function_score
+    );
 }
 
 #[test]
@@ -99,14 +128,20 @@ fn test_bm25_idf_zero_for_universal_terms() {
 
     let sparse = bm25.generate_sparse_vector(&["the".to_string()]);
     let the_id = bm25.vocab().get("the").unwrap();
-    let the_score = sparse.indices.iter().zip(&sparse.values)
+    let the_score = sparse
+        .indices
+        .iter()
+        .zip(&sparse.values)
         .find(|(&idx, _)| idx == *the_id)
         .map(|(_, &v)| v);
 
     // IDF for a term in all documents: ln((5 - 5 + 0.5)/(5 + 0.5)) = ln(0.5/5.5) < 0 → clamped to 0
     // So score should be 0 (term filtered out)
-    assert!(the_score.is_none() || the_score.unwrap() == 0.0,
-        "Universal term should have zero score, got {:?}", the_score);
+    assert!(
+        the_score.is_none() || the_score.unwrap() == 0.0,
+        "Universal term should have zero score, got {:?}",
+        the_score
+    );
 }
 
 #[test]
@@ -149,17 +184,25 @@ fn test_bm25_from_persisted() {
     let test_id = *bm25.vocab().get("test").unwrap();
     let data_id = *bm25.vocab().get("data").unwrap();
 
-    let test_score = sparse.indices.iter().zip(&sparse.values)
+    let test_score = sparse
+        .indices
+        .iter()
+        .zip(&sparse.values)
         .find(|(&idx, _)| idx == test_id)
         .map(|(_, &v)| v)
         .unwrap_or(0.0);
-    let data_score = sparse.indices.iter().zip(&sparse.values)
+    let data_score = sparse
+        .indices
+        .iter()
+        .zip(&sparse.values)
         .find(|(&idx, _)| idx == data_id)
         .map(|(_, &v)| v)
         .unwrap_or(0.0);
 
-    assert!(data_score > test_score,
-        "Rarer term 'data' (df=2) should score higher than 'test' (df=5)");
+    assert!(
+        data_score > test_score,
+        "Rarer term 'data' (df=2) should score higher than 'test' (df=5)"
+    );
 }
 
 #[test]

@@ -89,7 +89,10 @@ async fn render_daemon_status(client: &mut DaemonClient, json: bool) -> Result<b
             output::kv("Active Projects", &status.active_projects.len().to_string());
 
             if let Some(metrics) = &status.metrics {
-                output::kv("Pending Operations", &metrics.pending_operations.to_string());
+                output::kv(
+                    "Pending Operations",
+                    &metrics.pending_operations.to_string(),
+                );
             }
 
             render_resource_mode(&status);
@@ -110,7 +113,10 @@ fn render_resource_mode(status: &SystemStatusResponse) {
         output::separator();
         output::kv("Resource Mode", mode);
         if let Some(idle) = status.idle_seconds {
-            output::kv("Idle Time", &wqm_common::duration_fmt::format_duration(idle, 0));
+            output::kv(
+                "Idle Time",
+                &wqm_common::duration_fmt::format_duration(idle, 0),
+            );
         }
         if let Some(max_emb) = status.current_max_embeddings {
             output::kv("Max Embeddings", &max_emb.to_string());

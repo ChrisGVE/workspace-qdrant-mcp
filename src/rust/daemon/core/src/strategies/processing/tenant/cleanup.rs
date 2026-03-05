@@ -66,10 +66,7 @@ pub(crate) async fn cleanup_excluded_files(
     let tracked_files = tracked_files_schema::get_tracked_file_paths(pool, watch_folder_id)
         .await
         .map_err(|e| {
-            error!(
-                "Failed to query tracked_files for exclusion cleanup: {}",
-                e
-            );
+            error!("Failed to query tracked_files for exclusion cleanup: {}", e);
             UnifiedProcessorError::QueueOperation(e.to_string())
         })?;
 
@@ -258,7 +255,10 @@ async fn enqueue_file_for_deletion(
     {
         Ok((_queue_id, is_new)) => Ok(is_new),
         Err(e) => {
-            warn!("Failed to queue excluded file for deletion {}: {}", file_path, e);
+            warn!(
+                "Failed to queue excluded file for deletion {}: {}",
+                file_path, e
+            );
             Ok(false)
         }
     }

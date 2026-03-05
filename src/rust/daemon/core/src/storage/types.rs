@@ -3,9 +3,9 @@
 //! Error types, document points, search results, and collection info
 //! structures used across the storage module.
 
-use std::collections::HashMap;
 use qdrant_client::QdrantError;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 
 /// Storage-related errors
@@ -159,12 +159,18 @@ pub enum HybridSearchMode {
     /// Sparse vector search only
     Sparse,
     /// Hybrid search with RRF fusion
-    Hybrid { dense_weight: f32, sparse_weight: f32 },
+    Hybrid {
+        dense_weight: f32,
+        sparse_weight: f32,
+    },
 }
 
 impl Default for HybridSearchMode {
     fn default() -> Self {
-        Self::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 }
+        Self::Hybrid {
+            dense_weight: 1.0,
+            sparse_weight: 1.0,
+        }
     }
 }
 
@@ -262,7 +268,10 @@ mod tests {
     fn test_hybrid_search_mode_default() {
         let mode = HybridSearchMode::default();
         match mode {
-            HybridSearchMode::Hybrid { dense_weight, sparse_weight } => {
+            HybridSearchMode::Hybrid {
+                dense_weight,
+                sparse_weight,
+            } => {
                 assert_eq!(dense_weight, 1.0);
                 assert_eq!(sparse_weight, 1.0);
             }
@@ -283,7 +292,7 @@ mod tests {
     #[test]
     fn test_collection_names() {
         use wqm_common::constants::{
-            COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
+            COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
         };
         // Canonical collection names (without underscore prefix)
         assert_eq!(COLLECTION_PROJECTS, "projects");

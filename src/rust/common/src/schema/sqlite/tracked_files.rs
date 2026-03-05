@@ -2,7 +2,9 @@
 
 use crate::schema::{FieldDef, TableDef};
 
-pub const TABLE: TableDef = TableDef { name: "tracked_files" };
+pub const TABLE: TableDef = TableDef {
+    name: "tracked_files",
+};
 
 pub const FILE_ID: FieldDef = FieldDef::categorical("file_id");
 pub const WATCH_FOLDER_ID: FieldDef = FieldDef::categorical("watch_folder_id");
@@ -25,11 +27,24 @@ pub const UPDATED_AT: FieldDef = FieldDef::categorical("updated_at");
 
 /// All columns in definition order.
 pub const ALL_COLUMNS: &[FieldDef] = &[
-    FILE_ID, WATCH_FOLDER_ID, FILE_PATH, BRANCH,
-    FILE_TYPE, LANGUAGE, FILE_MTIME, FILE_HASH,
-    CHUNK_COUNT, CHUNKING_METHOD, LSP_STATUS, TREESITTER_STATUS,
-    LAST_ERROR, NEEDS_RECONCILE, RECONCILE_REASON,
-    COLLECTION, CREATED_AT, UPDATED_AT,
+    FILE_ID,
+    WATCH_FOLDER_ID,
+    FILE_PATH,
+    BRANCH,
+    FILE_TYPE,
+    LANGUAGE,
+    FILE_MTIME,
+    FILE_HASH,
+    CHUNK_COUNT,
+    CHUNKING_METHOD,
+    LSP_STATUS,
+    TREESITTER_STATUS,
+    LAST_ERROR,
+    NEEDS_RECONCILE,
+    RECONCILE_REASON,
+    COLLECTION,
+    CREATED_AT,
+    UPDATED_AT,
 ];
 
 #[cfg(test)]
@@ -49,7 +64,8 @@ mod tests {
 
     #[test]
     fn content_columns_are_content() {
-        let content: Vec<&str> = ALL_COLUMNS.iter()
+        let content: Vec<&str> = ALL_COLUMNS
+            .iter()
             .filter(|f| matches!(f.kind, FieldKind::Content))
             .map(|f| f.name)
             .collect();

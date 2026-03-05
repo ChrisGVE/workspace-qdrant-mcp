@@ -3,8 +3,8 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
+use super::{format_duration_ms, open_db, percentile, table_exists, StatsPeriod};
 use crate::output;
-use super::{open_db, table_exists, format_duration_ms, percentile, StatsPeriod};
 
 /// Show processing timing statistics.
 pub(super) async fn run(
@@ -38,7 +38,10 @@ pub(super) async fn run(
         if json_output {
             println!("{{\"total\":0,\"operations\":[],\"phases\":[]}}");
         } else {
-            output::info(format!("No processing timing data for {}.", period.label().to_lowercase()));
+            output::info(format!(
+                "No processing timing data for {}.",
+                period.label().to_lowercase()
+            ));
         }
         return Ok(());
     }
@@ -110,12 +113,14 @@ fn query_operations(
     let rows: Vec<(String, String, i64, i64)> = stmt
         .query_map(
             rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
-            |row| Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, i64>(3)?,
-            )),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
         )?
         .filter_map(|r| r.ok())
         .collect();
@@ -143,14 +148,16 @@ fn query_phases(
     let rows: Vec<(String, i64, i64, f64, i64, i64)> = stmt
         .query_map(
             rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
-            |row| Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, f64>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, i64>(5)?,
-            )),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, f64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            },
         )?
         .filter_map(|r| r.ok())
         .collect();
@@ -178,8 +185,7 @@ fn compute_phase_percentiles(
             extra_where
         );
 
-        let mut pct_params: Vec<Box<dyn rusqlite::types::ToSql>> =
-            vec![Box::new(phase.clone())];
+        let mut pct_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(phase.clone())];
         for p in params {
             pct_params.push(Box::new(
                 p.as_ref()
@@ -233,7 +239,13 @@ fn print_text(
         phase_rows.iter().zip(phase_percentiles.iter())
     {
         output::kv(
-            &format!("  {} ({} records, {} total, ~{} avg)", phase, count, format_duration_ms(*total_ms), format_duration_ms(*avg_ms as i64)),
+            &format!(
+                "  {} ({} records, {} total, ~{} avg)",
+                phase,
+                count,
+                format_duration_ms(*total_ms),
+                format_duration_ms(*avg_ms as i64)
+            ),
             &format!(
                 "{} / {} / {} / {} / {}",
                 format_duration_ms(*min),

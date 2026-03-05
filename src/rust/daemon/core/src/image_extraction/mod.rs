@@ -2,7 +2,6 @@
 ///
 /// Extracts embedded images for OCR and/or CLIP embedding pipelines.
 /// Each format has a dedicated extraction function returning `EmbeddedImage`.
-
 mod docx;
 mod epub;
 mod html;
@@ -32,12 +31,10 @@ pub fn extract_images(file_path: &Path) -> Vec<EmbeddedImage> {
         "pdf" => extract_pdf_images(file_path),
         "docx" => extract_docx_images(file_path),
         "epub" => extract_epub_images(file_path),
-        "html" | "htm" => {
-            match std::fs::read_to_string(file_path) {
-                Ok(content) => extract_html_images(file_path, &content),
-                Err(_) => Vec::new(),
-            }
-        }
+        "html" | "htm" => match std::fs::read_to_string(file_path) {
+            Ok(content) => extract_html_images(file_path, &content),
+            Err(_) => Vec::new(),
+        },
         _ => Vec::new(),
     }
 }
@@ -53,11 +50,26 @@ mod tests {
 
     #[test]
     fn test_image_format_detection() {
-        assert_eq!(ImageFormat::from_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]), ImageFormat::Jpeg);
-        assert_eq!(ImageFormat::from_bytes(&[0x89, 0x50, 0x4E, 0x47]), ImageFormat::Png);
-        assert_eq!(ImageFormat::from_bytes(&[0x42, 0x4D, 0x00, 0x00]), ImageFormat::Bmp);
-        assert_eq!(ImageFormat::from_bytes(&[0x47, 0x49, 0x46, 0x38]), ImageFormat::Gif);
-        assert_eq!(ImageFormat::from_bytes(&[0x49, 0x49, 0x2A, 0x00]), ImageFormat::Tiff);
+        assert_eq!(
+            ImageFormat::from_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            ImageFormat::Jpeg
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(&[0x89, 0x50, 0x4E, 0x47]),
+            ImageFormat::Png
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(&[0x42, 0x4D, 0x00, 0x00]),
+            ImageFormat::Bmp
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(&[0x47, 0x49, 0x46, 0x38]),
+            ImageFormat::Gif
+        );
+        assert_eq!(
+            ImageFormat::from_bytes(&[0x49, 0x49, 0x2A, 0x00]),
+            ImageFormat::Tiff
+        );
         assert_eq!(ImageFormat::from_bytes(&[0x00, 0x00]), ImageFormat::Unknown);
         assert_eq!(ImageFormat::from_bytes(&[]), ImageFormat::Unknown);
     }

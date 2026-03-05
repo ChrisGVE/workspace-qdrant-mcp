@@ -50,16 +50,19 @@ pub(crate) async fn ingest_file_content(
     // Mark qdrant status as in_progress
     let _ = ctx
         .queue_manager
-        .update_destination_status(
-            &item.queue_id,
-            "qdrant",
-            DestinationStatus::InProgress,
-        )
+        .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::InProgress)
         .await;
 
     // Run the main ingest pipeline
     run_ingest_pipeline(
-        ctx, item, pool, file_path, payload, watch_folder_id, base_path, relative_path,
+        ctx,
+        item,
+        pool,
+        file_path,
+        payload,
+        watch_folder_id,
+        base_path,
+        relative_path,
     )
     .await
 }
@@ -90,11 +93,7 @@ async fn handle_retry_skip(
         {
             let _ = ctx
                 .queue_manager
-                .update_destination_status(
-                    &item.queue_id,
-                    "search",
-                    DestinationStatus::InProgress,
-                )
+                .update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress)
                 .await;
             fts5_index::update_fts5_for_file(
                 sdb,
@@ -110,20 +109,12 @@ async fn handle_retry_skip(
             .await;
             let _ = ctx
                 .queue_manager
-                .update_destination_status(
-                    &item.queue_id,
-                    "search",
-                    DestinationStatus::Done,
-                )
+                .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
                 .await;
         } else {
             let _ = ctx
                 .queue_manager
-                .update_destination_status(
-                    &item.queue_id,
-                    "search",
-                    DestinationStatus::Done,
-                )
+                .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
                 .await;
         }
     } else {
@@ -158,19 +149,42 @@ async fn run_ingest_pipeline(
         .process_file_content_with_provider(file_path, &item.collection, provider)
         .await
         .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
-    timings.push(PhaseTiming { phase: "parse", duration_ms: t0.elapsed().as_millis() as u64 });
-    info!("Extracted {} chunks from {}", document_content.chunks.len(), payload.file_path);
+    timings.push(PhaseTiming {
+        phase: "parse",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
+    info!(
+        "Extracted {} chunks from {}",
+        document_content.chunks.len(),
+        payload.file_path
+    );
 
-    let (file_document_id, file_hash, base_point) =
-        compute_file_identifiers(&item.tenant_id, &item.branch, &payload.file_path, file_path, relative_path);
+    let (file_document_id, file_hash, base_point) = compute_file_identifiers(
+        &item.tenant_id,
+        &item.branch,
+        &payload.file_path,
+        file_path,
+        relative_path,
+    );
 
     // Phase 2: embed chunks
     let t0 = Instant::now();
     let embed_result = chunk_embed::embed_chunks(
-        ctx, item, &document_content, file_path, &file_document_id,
-        relative_path, &base_point, &file_hash, payload.file_type.as_deref(),
-    ).await?;
-    timings.push(PhaseTiming { phase: "embed", duration_ms: t0.elapsed().as_millis() as u64 });
+        ctx,
+        item,
+        &document_content,
+        file_path,
+        &file_document_id,
+        relative_path,
+        &base_point,
+        &file_hash,
+        payload.file_type.as_deref(),
+    )
+    .await?;
+    timings.push(PhaseTiming {
+        phase: "embed",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
 
     let mut points = embed_result.points;
     let chunk_records = embed_result.chunk_records;
@@ -179,37 +193,88 @@ async fn run_ingest_pipeline(
 
     // Phases 3–4: keyword extraction + graph edges
     run_keyword_and_graph_phases(
-        ctx, item, pool, file_path, &document_content,
-        &file_document_id, relative_path, &mut points, &mut timings,
-    ).await;
+        ctx,
+        item,
+        pool,
+        file_path,
+        &document_content,
+        &file_document_id,
+        relative_path,
+        &mut points,
+        &mut timings,
+    )
+    .await;
 
     // Phase 5: component detection + injection
-    inject_component(ctx, pool, watch_folder_id, base_path, relative_path, &mut points).await;
+    inject_component(
+        ctx,
+        pool,
+        watch_folder_id,
+        base_path,
+        relative_path,
+        &mut points,
+    )
+    .await;
 
     // Phase 6: Qdrant upsert + tracked_files
     let t0 = Instant::now();
     let file_id = store_track::upsert_and_track(
-        ctx, item, pool, points, &chunk_records, watch_folder_id, relative_path,
-        &base_point, &file_hash, file_path, &document_content,
-        lsp_status, treesitter_status, payload.file_type.as_deref(), None,
-    ).await?;
-    timings.push(PhaseTiming { phase: "upsert", duration_ms: t0.elapsed().as_millis() as u64 });
+        ctx,
+        item,
+        pool,
+        points,
+        &chunk_records,
+        watch_folder_id,
+        relative_path,
+        &base_point,
+        &file_hash,
+        file_path,
+        &document_content,
+        lsp_status,
+        treesitter_status,
+        payload.file_type.as_deref(),
+        None,
+    )
+    .await?;
+    timings.push(PhaseTiming {
+        phase: "upsert",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
 
-    let _ = ctx.queue_manager
+    let _ = ctx
+        .queue_manager
         .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Done)
         .await;
 
     // Phase 7: FTS5 search index
     update_search_index(
-        ctx, item, pool, file_id, payload, &base_point, relative_path, &file_hash, &mut timings,
-    ).await;
+        ctx,
+        item,
+        pool,
+        file_id,
+        payload,
+        &base_point,
+        relative_path,
+        &file_hash,
+        &mut timings,
+    )
+    .await;
 
     processing_timings::record_timings(
-        pool, &item.queue_id, item.item_type.as_str(), item.op.as_str(),
-        &item.tenant_id, &item.collection, &timings,
-    ).await;
+        pool,
+        &item.queue_id,
+        item.item_type.as_str(),
+        item.op.as_str(),
+        &item.tenant_id,
+        &item.collection,
+        &timings,
+    )
+    .await;
 
-    info!("Successfully processed file item {} ({})", item.queue_id, payload.file_path);
+    info!(
+        "Successfully processed file item {} ({})",
+        item.queue_id, payload.file_path
+    );
     Ok(())
 }
 
@@ -224,9 +289,8 @@ fn compute_file_identifiers(
     let file_document_id = crate::generate_document_id(tenant_id, payload_file_path);
     let file_hash = tracked_files_schema::compute_file_hash(file_path)
         .unwrap_or_else(|_| "unknown".to_string());
-    let base_point = wqm_common::hashing::compute_base_point(
-        tenant_id, branch, relative_path, &file_hash,
-    );
+    let base_point =
+        wqm_common::hashing::compute_base_point(tenant_id, branch, relative_path, &file_hash);
     (file_document_id, file_hash, base_point)
 }
 
@@ -245,22 +309,37 @@ async fn run_keyword_and_graph_phases(
 ) {
     if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
         let t0 = Instant::now();
-        let extraction = keyword_extract::run_keyword_extraction(
-            ctx, item, file_path, document_content, points,
-        ).await;
-        timings.push(PhaseTiming { phase: "extract", duration_ms: t0.elapsed().as_millis() as u64 });
+        let extraction =
+            keyword_extract::run_keyword_extraction(ctx, item, file_path, document_content, points)
+                .await;
+        timings.push(PhaseTiming {
+            phase: "extract",
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
         if let Some(ref extraction) = extraction {
             keyword_persist::persist_extraction(
-                pool, file_document_id, &item.tenant_id, &item.collection, extraction,
-            ).await;
+                pool,
+                file_document_id,
+                &item.tenant_id,
+                &item.collection,
+                extraction,
+            )
+            .await;
         }
     }
 
     let t0 = Instant::now();
     graph_ingest::ingest_graph_edges(
-        ctx, &item.tenant_id, relative_path, &document_content.chunks,
-    ).await;
-    timings.push(PhaseTiming { phase: "graph", duration_ms: t0.elapsed().as_millis() as u64 });
+        ctx,
+        &item.tenant_id,
+        relative_path,
+        &document_content.chunks,
+    )
+    .await;
+    timings.push(PhaseTiming {
+        phase: "graph",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
 }
 
 /// Detect and inject component_id into point payloads.
@@ -307,21 +386,27 @@ async fn update_search_index(
 ) {
     let _ = ctx
         .queue_manager
-        .update_destination_status(
-            &item.queue_id,
-            "search",
-            DestinationStatus::InProgress,
-        )
+        .update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress)
         .await;
     let t0 = Instant::now();
     if let Some(sdb) = &ctx.search_db {
         fts5_index::update_fts5_for_file(
-            sdb, pool, file_id, &payload.file_path, &item.tenant_id,
-            Some(&item.branch), Some(base_point), Some(relative_path), Some(file_hash),
+            sdb,
+            pool,
+            file_id,
+            &payload.file_path,
+            &item.tenant_id,
+            Some(&item.branch),
+            Some(base_point),
+            Some(relative_path),
+            Some(file_hash),
         )
         .await;
     }
-    timings.push(PhaseTiming { phase: "fts5", duration_ms: t0.elapsed().as_millis() as u64 });
+    timings.push(PhaseTiming {
+        phase: "fts5",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
     let _ = ctx
         .queue_manager
         .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
@@ -402,12 +487,15 @@ async fn resolve_component(
         if let Err(e) =
             component_detection::persist_components(pool, watch_folder_id, &components).await
         {
-            debug!("Failed to persist components for {}: {}", watch_folder_id, e);
+            debug!(
+                "Failed to persist components for {}: {}",
+                watch_folder_id, e
+            );
         }
     }
 
-    let result = component_detection::assign_component(relative_path, &components)
-        .map(|c| c.id.clone());
+    let result =
+        component_detection::assign_component(relative_path, &components).map(|c| c.id.clone());
 
     // Cache even if empty (avoids re-detecting for projects with no workspace)
     {

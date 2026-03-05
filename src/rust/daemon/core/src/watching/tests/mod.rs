@@ -7,11 +7,11 @@
 //! - buffer_tests: PausedEventBuffer tests
 
 use super::*;
+use crate::processing::{Pipeline, TaskPriority, TaskSubmitter};
+use notify::EventKind;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
-use notify::EventKind;
-use crate::processing::{Pipeline, TaskPriority, TaskSubmitter};
 
 /// Create a test configuration for watching
 pub(super) fn test_watcher_config() -> WatcherConfig {
@@ -54,16 +54,19 @@ pub(super) fn test_watcher_config() -> WatcherConfig {
 /// Create a test task submitter and keep the pipeline alive
 pub(super) async fn create_test_task_submitter() -> (TaskSubmitter, Pipeline) {
     let mut pipeline = Pipeline::new(4);
-    pipeline.start().await.expect("Failed to start test pipeline");
+    pipeline
+        .start()
+        .await
+        .expect("Failed to start test pipeline");
     let submitter = pipeline.task_submitter();
     (submitter, pipeline)
 }
 
+#[cfg(test)]
+mod buffer_tests;
 #[cfg(test)]
 mod event_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod platform_tests;
-#[cfg(test)]
-mod buffer_tests;

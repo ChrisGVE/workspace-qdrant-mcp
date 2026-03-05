@@ -15,9 +15,7 @@ impl UnsafeCodeAuditor {
     // -----------------------------------------------------------------------
 
     #[cfg(target_os = "windows")]
-    pub(super) async fn test_windows_file_watching_safety(
-        &self,
-    ) -> Result<(), UnsafeAuditError> {
+    pub(super) async fn test_windows_file_watching_safety(&self) -> Result<(), UnsafeAuditError> {
         self.test_utf16_conversion_safety().await?;
         self.test_win32_api_safety().await?;
         self.test_handle_management_safety().await?;
@@ -28,8 +26,7 @@ impl UnsafeCodeAuditor {
     async fn test_utf16_conversion_safety(&self) -> Result<(), UnsafeAuditError> {
         let test_path = "C:\\test\\path\\with\\unicode\\\u{6D4B}\u{8BD5}";
 
-        let wide_chars: Vec<u16> =
-            test_path.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide_chars: Vec<u16> = test_path.encode_utf16().chain(std::iter::once(0)).collect();
 
         if wide_chars.last() != Some(&0) {
             self.record_violation(SafetyViolation {
@@ -72,9 +69,7 @@ impl UnsafeCodeAuditor {
     // -----------------------------------------------------------------------
 
     #[cfg(target_os = "linux")]
-    pub(super) async fn test_linux_file_watching_safety(
-        &self,
-    ) -> Result<(), UnsafeAuditError> {
+    pub(super) async fn test_linux_file_watching_safety(&self) -> Result<(), UnsafeAuditError> {
         self.test_epoll_fd_safety().await?;
         self.test_inotify_fd_safety().await?;
         Ok(())
@@ -95,9 +90,7 @@ impl UnsafeCodeAuditor {
     // -----------------------------------------------------------------------
 
     #[cfg(target_os = "macos")]
-    pub(super) async fn test_macos_file_watching_safety(
-        &self,
-    ) -> Result<(), UnsafeAuditError> {
+    pub(super) async fn test_macos_file_watching_safety(&self) -> Result<(), UnsafeAuditError> {
         self.test_fsevents_callback_safety().await?;
         self.test_kqueue_fd_safety().await?;
         Ok(())
@@ -150,15 +143,12 @@ impl UnsafeCodeAuditor {
         Ok(())
     }
 
-    pub(super) async fn test_stdio_redirection_safety(
-        &self,
-    ) -> Result<(), UnsafeAuditError> {
+    pub(super) async fn test_stdio_redirection_safety(&self) -> Result<(), UnsafeAuditError> {
         #[cfg(unix)]
         {
             let original_stdout = unsafe { libc::dup(libc::STDOUT_FILENO) };
             if original_stdout != -1 {
-                let restore_result =
-                    unsafe { libc::dup2(original_stdout, libc::STDOUT_FILENO) };
+                let restore_result = unsafe { libc::dup2(original_stdout, libc::STDOUT_FILENO) };
 
                 if restore_result == -1 {
                     self.record_violation(SafetyViolation {
@@ -166,8 +156,8 @@ impl UnsafeCodeAuditor {
                         violation_type: ViolationType::UndefinedBehavior,
                         severity: ViolationSeverity::High,
                         description: "Failed to restore stdout".to_string(),
-                        suggested_fix:
-                            "Check return values and handle restoration failure".to_string(),
+                        suggested_fix: "Check return values and handle restoration failure"
+                            .to_string(),
                         stack_trace: None,
                     });
                 }
@@ -179,9 +169,7 @@ impl UnsafeCodeAuditor {
         Ok(())
     }
 
-    pub(super) async fn test_service_discovery_safety(
-        &self,
-    ) -> Result<(), UnsafeAuditError> {
+    pub(super) async fn test_service_discovery_safety(&self) -> Result<(), UnsafeAuditError> {
         Ok(())
     }
 }

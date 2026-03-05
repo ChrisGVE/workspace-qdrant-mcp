@@ -145,10 +145,7 @@ impl MoveCorrelator {
 
         // No correlation found - this might be a create event misidentified
         // or a cross-filesystem move where we only see the destination
-        tracing::debug!(
-            "MOVED_TO without matching MOVED_FROM for {:?}",
-            new_path
-        );
+        tracing::debug!("MOVED_TO without matching MOVED_FROM for {:?}", new_path);
 
         // Treat as a new file/directory creation
         RenameAction::IntraFilesystemMove {
@@ -193,7 +190,8 @@ impl MoveCorrelator {
         let mut expired = Vec::new();
 
         // Check file ID-based pending moves
-        let expired_ids: Vec<u64> = self.pending_moves
+        let expired_ids: Vec<u64> = self
+            .pending_moves
             .iter()
             .filter(|(_, pending)| pending.timestamp.elapsed() >= timeout)
             .map(|(id, _)| *id)
@@ -209,7 +207,8 @@ impl MoveCorrelator {
         }
 
         // Check path-based pending moves
-        let expired_paths: Vec<PathBuf> = self.pending_by_path
+        let expired_paths: Vec<PathBuf> = self
+            .pending_by_path
             .iter()
             .filter(|(_, pending)| pending.timestamp.elapsed() >= timeout)
             .map(|(path, _)| path.clone())
@@ -231,19 +230,18 @@ impl MoveCorrelator {
     fn cleanup_expired(&mut self) {
         let timeout = Duration::from_secs(self.config.correlation_timeout_secs);
 
-        self.pending_moves.retain(|_, pending| {
-            pending.timestamp.elapsed() < timeout
-        });
+        self.pending_moves
+            .retain(|_, pending| pending.timestamp.elapsed() < timeout);
 
-        self.pending_by_path.retain(|_, pending| {
-            pending.timestamp.elapsed() < timeout
-        });
+        self.pending_by_path
+            .retain(|_, pending| pending.timestamp.elapsed() < timeout);
     }
 
     /// Drop the oldest pending move to make room for new ones
     fn drop_oldest_pending(&mut self) {
         // Find and remove the oldest entry from pending_moves
-        if let Some(oldest_id) = self.pending_moves
+        if let Some(oldest_id) = self
+            .pending_moves
             .iter()
             .min_by_key(|(_, pending)| pending.timestamp)
             .map(|(id, _)| *id)
@@ -253,7 +251,8 @@ impl MoveCorrelator {
         }
 
         // If no pending_moves, try pending_by_path
-        if let Some(oldest_path) = self.pending_by_path
+        if let Some(oldest_path) = self
+            .pending_by_path
             .iter()
             .min_by_key(|(_, pending)| pending.timestamp)
             .map(|(path, _)| path.clone())

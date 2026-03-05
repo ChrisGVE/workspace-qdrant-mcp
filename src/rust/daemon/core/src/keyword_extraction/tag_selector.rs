@@ -4,7 +4,7 @@
 //! Uses MMR: each subsequent tag maximizes relevance while minimizing
 //! redundancy with already-selected tags.
 
-use super::semantic_rerank::{RankedCandidate, cosine_similarity};
+use super::semantic_rerank::{cosine_similarity, RankedCandidate};
 
 /// A selected tag with scoring metadata.
 #[derive(Debug, Clone)]
@@ -144,7 +144,9 @@ pub fn select_tags(
                 let max_sim = selected
                     .iter()
                     .filter(|(s, _)| *s != *idx)
-                    .map(|(s, _)| cosine_similarity(&candidate_vectors[*idx], &candidate_vectors[*s]))
+                    .map(|(s, _)| {
+                        cosine_similarity(&candidate_vectors[*idx], &candidate_vectors[*s])
+                    })
                     .fold(0.0f64, |a, b| a.max(b));
                 1.0 - max_sim
             } else {
@@ -206,14 +208,14 @@ mod tests {
     fn test_select_tags_diversity() {
         let candidates = vec![
             make_candidate("vector search", 0.9, 0.85),
-            make_candidate("vector indexing", 0.85, 0.80),  // Very similar to first
-            make_candidate("grpc protocol", 0.6, 0.55),     // Different topic
+            make_candidate("vector indexing", 0.85, 0.80), // Very similar to first
+            make_candidate("grpc protocol", 0.6, 0.55),    // Different topic
         ];
         // Make first two very similar, third different
         let vectors = vec![
-            vec![0.95, 0.31, 0.0],  // "vector search"
-            vec![0.95, 0.30, 0.0],  // "vector indexing" - very similar
-            vec![0.0, 0.0, 1.0],    // "grpc protocol" - orthogonal
+            vec![0.95, 0.31, 0.0], // "vector search"
+            vec![0.95, 0.30, 0.0], // "vector indexing" - very similar
+            vec![0.0, 0.0, 1.0],   // "grpc protocol" - orthogonal
         ];
         let config = TagSelectionConfig {
             max_tags: 2,
@@ -227,8 +229,10 @@ mod tests {
         // "vector search" should be first (highest relevance)
         assert_eq!(tags[0].phrase, "vector search");
         // "grpc protocol" should be second (diversity over "vector indexing")
-        assert_eq!(tags[1].phrase, "grpc protocol",
-            "Should select diverse 'grpc protocol' over similar 'vector indexing'");
+        assert_eq!(
+            tags[1].phrase, "grpc protocol",
+            "Should select diverse 'grpc protocol' over similar 'vector indexing'"
+        );
     }
 
     #[test]
@@ -274,7 +278,10 @@ mod tests {
         let tags = select_tags(&candidates, &vectors, &config);
         assert_eq!(tags.len(), 1);
         assert_eq!(tags[0].phrase, "only tag");
-        assert_eq!(tags[0].diversity_score, 1.0, "Single tag should have max diversity");
+        assert_eq!(
+            tags[0].diversity_score, 1.0,
+            "Single tag should have max diversity"
+        );
     }
 
     #[test]
@@ -298,7 +305,11 @@ mod tests {
 
         let tags = select_tags(&candidates, &vectors, &config);
         // Should only select one (all others are too similar)
-        assert_eq!(tags.len(), 1, "Only first should be selected when all are identical");
+        assert_eq!(
+            tags.len(),
+            1,
+            "Only first should be selected when all are identical"
+        );
         assert_eq!(tags[0].phrase, "tag_a");
     }
 

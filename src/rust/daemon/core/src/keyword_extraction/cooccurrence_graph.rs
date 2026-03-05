@@ -21,11 +21,7 @@ use crate::cooccurrence_schema;
 ///
 /// Wraps `lsp_candidates::extract_import_candidates` and returns
 /// unique normalized phrases suitable for co-occurrence tracking.
-pub fn extract_symbols(
-    source: &str,
-    language: &str,
-    config: &LspCandidateConfig,
-) -> Vec<String> {
+pub fn extract_symbols(source: &str, language: &str, config: &LspCandidateConfig) -> Vec<String> {
     let candidates = lsp_candidates::extract_import_candidates(source, language, config);
 
     let mut seen = std::collections::HashSet::new();
@@ -126,8 +122,7 @@ impl CentralityCache {
 
         let scores =
             cooccurrence_schema::get_degree_centrality(pool, tenant_id, collection).await?;
-        self.cache
-            .insert(key, (scores.clone(), Instant::now()));
+        self.cache.insert(key, (scores.clone(), Instant::now()));
 
         Ok(scores)
     }
@@ -218,13 +213,11 @@ mod tests {
 
         // Insert data directly
         let now = wqm_common::timestamps::now_utc();
-        sqlx::query(
-            "INSERT INTO symbol_cooccurrence VALUES ('a', 'b', 't1', 'projects', 5, ?1)",
-        )
-        .bind(&now)
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO symbol_cooccurrence VALUES ('a', 'b', 't1', 'projects', 5, ?1)")
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // Second call should return cached (empty) result since TTL hasn't expired
         let scores = cache.get_or_compute(&pool, "t1", "projects").await.unwrap();
@@ -233,7 +226,10 @@ mod tests {
         // Invalidate and re-fetch
         cache.invalidate("t1", "projects");
         let scores = cache.get_or_compute(&pool, "t1", "projects").await.unwrap();
-        assert!(scores.contains_key("a"), "Should have recomputed after invalidation");
+        assert!(
+            scores.contains_key("a"),
+            "Should have recomputed after invalidation"
+        );
     }
 
     #[test]
@@ -247,8 +243,16 @@ use serde::Deserialize;
         let symbols = extract_symbols(source, "rust", &config);
 
         // Should contain normalized phrases from imports
-        assert!(symbols.iter().any(|s| s.contains("hash")), "Should contain HashMap phrase: {:?}", symbols);
-        assert!(symbols.iter().any(|s| s == "tokio"), "Should contain tokio: {:?}", symbols);
+        assert!(
+            symbols.iter().any(|s| s.contains("hash")),
+            "Should contain HashMap phrase: {:?}",
+            symbols
+        );
+        assert!(
+            symbols.iter().any(|s| s == "tokio"),
+            "Should contain tokio: {:?}",
+            symbols
+        );
     }
 
     #[test]

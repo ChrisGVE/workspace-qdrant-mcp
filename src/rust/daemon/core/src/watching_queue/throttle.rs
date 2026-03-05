@@ -128,7 +128,10 @@ impl QueueThrottleState {
         }
 
         // Also update per-collection depths (using unified_queue)
-        match queue_manager.get_unified_queue_depth_all_collections().await {
+        match queue_manager
+            .get_unified_queue_depth_all_collections()
+            .await
+        {
             Ok(depths) => {
                 let mut collection_depths = self.collection_depths.write().await;
                 *collection_depths = depths;
@@ -145,11 +148,15 @@ impl QueueThrottleState {
         match level {
             QueueLoadLevel::Normal => false,
             QueueLoadLevel::High => {
-                let count = self.event_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let count = self
+                    .event_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 count % self.config.high_skip_ratio != 0
             }
             QueueLoadLevel::Critical => {
-                let count = self.event_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let count = self
+                    .event_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 count % self.config.critical_skip_ratio != 0
             }
         }

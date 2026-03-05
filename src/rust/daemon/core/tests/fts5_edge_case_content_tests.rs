@@ -40,7 +40,16 @@ let special = "tabs	and	tabs";
 "#;
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/special.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/special.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -70,7 +79,16 @@ async fn test_quotes_and_sql_injection_safe() {
     let content = "let x = \"'; DROP TABLE code_lines; --\";\nlet y = normal_code();";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/injection.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/injection.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -78,13 +96,21 @@ async fn test_quotes_and_sql_injection_safe() {
     let results = search_exact(&db, "normal_code", &SearchOptions::default())
         .await
         .unwrap();
-    assert_eq!(results.matches.len(), 1, "File should be indexed without corruption");
+    assert_eq!(
+        results.matches.len(),
+        1,
+        "File should be indexed without corruption"
+    );
 
     // Search for the injection string should find it as content
     let results = search_exact(&db, "DROP TABLE", &SearchOptions::default())
         .await
         .unwrap();
-    assert_eq!(results.matches.len(), 1, "SQL-like content should be searchable");
+    assert_eq!(
+        results.matches.len(),
+        1,
+        "SQL-like content should be searchable"
+    );
 }
 
 #[tokio::test]
@@ -95,7 +121,16 @@ async fn test_regex_special_chars_in_exact_search() {
     let content = "fn compute(x: Vec<i32>) -> Result<(), Box<dyn Error>> {}";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/generics.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/generics.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -122,7 +157,16 @@ async fn test_file_id_reuse_after_delete() {
 
     // Create file with ID 1
     processor
-        .full_rewrite(1, "fn original_v1() {}", "proj1", Some("main"), "src/a.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "fn original_v1() {}",
+            "proj1",
+            Some("main"),
+            "src/a.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -136,7 +180,16 @@ async fn test_file_id_reuse_after_delete() {
 
     // Reuse file ID 1 for a different file
     processor
-        .full_rewrite(1, "fn replacement_v2() {}", "proj1", Some("main"), "src/b.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "fn replacement_v2() {}",
+            "proj1",
+            Some("main"),
+            "src/b.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -161,7 +214,16 @@ async fn test_overwrite_same_file_id_without_delete() {
 
     // Create file with ID 1
     processor
-        .full_rewrite(1, "fn version_one() {}", "proj1", Some("main"), "src/file.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "fn version_one() {}",
+            "proj1",
+            Some("main"),
+            "src/file.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -184,7 +246,10 @@ async fn test_overwrite_same_file_id_without_delete() {
     let v1 = search_exact(&db, "version_one", &SearchOptions::default())
         .await
         .unwrap();
-    assert!(v1.matches.is_empty(), "version_one should be gone after overwrite");
+    assert!(
+        v1.matches.is_empty(),
+        "version_one should be gone after overwrite"
+    );
 
     let v2 = search_exact(&db, "version_two", &SearchOptions::default())
         .await
@@ -204,7 +269,16 @@ async fn test_emoji_content() {
     let content = "// \u{1F680} Launch sequence\nfn rocket_launch() {\n    println!(\"\u{1F3AF} Target acquired\");\n}";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/emoji.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/emoji.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -230,7 +304,16 @@ async fn test_box_drawing_characters() {
     let content = "// \u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}\n// \u{2502} box_draw \u{2502}\n// \u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/boxdraw.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/boxdraw.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -248,14 +331,27 @@ async fn test_cjk_mixed_with_ascii() {
     let content = "// \u{5909}\u{6570}\u{306E}\u{5B9A}\u{7FA9}\nlet name = \"\u{592A}\u{90CE}\";\n// \u{95A2}\u{6570}\u{306E}\u{547C}\u{3073}\u{51FA}\u{3057}\ncall_function(name);";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/cjk.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/cjk.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
     // Search for CJK text
-    let results = search_exact(&db, "\u{5909}\u{6570}\u{306E}\u{5B9A}\u{7FA9}", &SearchOptions::default())
-        .await
-        .unwrap();
+    let results = search_exact(
+        &db,
+        "\u{5909}\u{6570}\u{306E}\u{5B9A}\u{7FA9}",
+        &SearchOptions::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(results.matches.len(), 1);
 
     // Search for ASCII mixed with CJK

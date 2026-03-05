@@ -36,7 +36,8 @@ impl StressMetrics {
 
     pub fn record_success(&self, bytes: usize, processing_time_ms: u64) {
         self.files_processed.fetch_add(1, Ordering::SeqCst);
-        self.total_bytes_processed.fetch_add(bytes, Ordering::SeqCst);
+        self.total_bytes_processed
+            .fetch_add(bytes, Ordering::SeqCst);
         let times = self.processing_times_ms.clone();
         tokio::spawn(async move {
             times.write().await.push(processing_time_ms);
@@ -139,10 +140,7 @@ impl StressTestReport {
             "Throughput:         {:.2} files/s",
             self.throughput_files_per_sec
         );
-        println!(
-            "Throughput:         {:.2} MB/s",
-            self.throughput_mb_per_sec
-        );
+        println!("Throughput:         {:.2} MB/s", self.throughput_mb_per_sec);
         println!("Avg Latency:        {:.2}ms", self.avg_latency_ms);
         println!("P50 Latency:        {}ms", self.p50_latency_ms);
         println!("P95 Latency:        {}ms", self.p95_latency_ms);

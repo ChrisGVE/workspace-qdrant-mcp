@@ -3,7 +3,6 @@
 /// Parses normalized git remote URLs to extract the organization or user
 /// component, then groups all projects sharing the same org into
 /// `project_groups` entries with `group_type = "git_org"`.
-
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, info};
 
@@ -94,10 +93,7 @@ pub async fn compute_git_org_groups(pool: &SqlitePool) -> Result<usize, sqlx::Er
         let remote_url: String = row.get("git_remote_url");
 
         if let Some(org_key) = extract_git_org(&remote_url) {
-            org_tenants
-                .entry(org_key)
-                .or_default()
-                .push(tenant_id);
+            org_tenants.entry(org_key).or_default().push(tenant_id);
         }
     }
 
@@ -106,18 +102,14 @@ pub async fn compute_git_org_groups(pool: &SqlitePool) -> Result<usize, sqlx::Er
     // Create groups for orgs with 2+ projects
     for (org_key, tenants) in &org_tenants {
         if tenants.len() < 2 {
-            debug!(
-                org = org_key.as_str(),
-                "Skipping single-project org"
-            );
+            debug!(org = org_key.as_str(), "Skipping single-project org");
             continue;
         }
 
         let group_id = org_to_group_id(org_key);
 
         for tenant_id in tenants {
-            schema::add_to_group(pool, &group_id, tenant_id, "git_org", 1.0)
-                .await?;
+            schema::add_to_group(pool, &group_id, tenant_id, "git_org", 1.0).await?;
         }
 
         debug!(
@@ -188,21 +180,15 @@ pub async fn update_project_org_group(
     remote_url: &str,
 ) -> Result<bool, sqlx::Error> {
     // Remove any existing git_org membership for this tenant
-    sqlx::query(
-        "DELETE FROM project_groups WHERE tenant_id = ? AND group_type = 'git_org'",
-    )
-    .bind(tenant_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("DELETE FROM project_groups WHERE tenant_id = ? AND group_type = 'git_org'")
+        .bind(tenant_id)
+        .execute(pool)
+        .await?;
 
     let org_key = match extract_git_org(remote_url) {
         Some(key) => key,
         None => {
-            debug!(
-                tenant_id,
-                remote_url,
-                "No org extractable from remote URL"
-            );
+            debug!(tenant_id, remote_url, "No org extractable from remote URL");
             return Ok(false);
         }
     };
@@ -210,12 +196,10 @@ pub async fn update_project_org_group(
     let group_id = org_to_group_id(&org_key);
 
     // Check if other projects share this org
-    let existing = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM project_groups WHERE group_id = ?",
-    )
-    .bind(&group_id)
-    .fetch_one(pool)
-    .await?;
+    let existing = sqlx::query("SELECT COUNT(*) as cnt FROM project_groups WHERE group_id = ?")
+        .bind(&group_id)
+        .fetch_one(pool)
+        .await?;
 
     let count: i64 = existing.get("cnt");
 
@@ -381,9 +365,7 @@ mod tests {
         let groups = compute_git_org_groups(&pool).await.unwrap();
         assert_eq!(groups, 1, "All three share the same org");
 
-        let members = schema::get_group_members(&pool, "proj-a")
-            .await
-            .unwrap();
+        let members = schema::get_group_members(&pool, "proj-a").await.unwrap();
         assert_eq!(members.len(), 3);
         assert!(members.contains(&"proj-a".to_string()));
         assert!(members.contains(&"proj-b".to_string()));
@@ -409,7 +391,10 @@ mod tests {
         insert_watch_folder(&pool, "proj-b", "https://gitlab.com/myorg/repo-b.git").await;
 
         let groups = compute_git_org_groups(&pool).await.unwrap();
-        assert_eq!(groups, 0, "Same org name but different hosts -> different groups");
+        assert_eq!(
+            groups, 0,
+            "Same org name but different hosts -> different groups"
+        );
     }
 
     #[tokio::test]
@@ -439,19 +424,14 @@ mod tests {
 
         // Register proj-b in same org
         insert_watch_folder(&pool, "proj-b", "https://github.com/MyOrg/repo-b.git").await;
-        let added = update_project_org_group(
-            &pool,
-            "proj-b",
-            "https://github.com/MyOrg/repo-b.git",
-        )
-        .await
-        .unwrap();
+        let added =
+            update_project_org_group(&pool, "proj-b", "https://github.com/MyOrg/repo-b.git")
+                .await
+                .unwrap();
         assert!(added);
 
         // Both should be in the same group
-        let members = schema::get_group_members(&pool, "proj-a")
-            .await
-            .unwrap();
+        let members = schema::get_group_members(&pool, "proj-a").await.unwrap();
         assert_eq!(members.len(), 2);
     }
 
@@ -475,9 +455,7 @@ mod tests {
         insert_watch_folder(&pool, "proj-b", "https://github.com/OrgX/repo2.git").await;
         compute_git_org_groups(&pool).await.unwrap();
 
-        let members = schema::get_group_members(&pool, "proj-a")
-            .await
-            .unwrap();
+        let members = schema::get_group_members(&pool, "proj-a").await.unwrap();
         assert_eq!(members.len(), 2);
 
         // Change proj-b's remote URL to different org
@@ -492,9 +470,11 @@ mod tests {
         let groups = compute_git_org_groups(&pool).await.unwrap();
         assert_eq!(groups, 0, "No org has 2+ projects now");
 
-        let members = schema::get_group_members(&pool, "proj-a")
-            .await
-            .unwrap();
-        assert_eq!(members.len(), 0, "proj-a has no group members after recompute");
+        let members = schema::get_group_members(&pool, "proj-a").await.unwrap();
+        assert_eq!(
+            members.len(),
+            0,
+            "proj-a has no group members after recompute"
+        );
     }
 }

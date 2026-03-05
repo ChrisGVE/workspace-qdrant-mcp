@@ -111,6 +111,6 @@ pub fn analyze_project_from_files(files: &[String]) -> ProjectInfo {
                 methods_used: Vec::new(),
                 reasoning: format!("Detector initialization failed: {}", e),
             },
-        }
+        },
     }
 }

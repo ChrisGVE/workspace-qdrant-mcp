@@ -75,7 +75,7 @@ async fn reset_in_progress_items(pool: &SqlitePool) -> Result<u64, String> {
     let result = sqlx::query(
         "UPDATE unified_queue SET status = 'pending', worker_id = NULL, lease_until = NULL, \
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE status = 'in_progress'"
+         WHERE status = 'in_progress'",
     )
     .execute(pool)
     .await
@@ -96,7 +96,7 @@ async fn purge_old_completed_items(pool: &SqlitePool) -> Result<u64, String> {
     let result = sqlx::query(
         "DELETE FROM unified_queue \
          WHERE status IN ('done', 'failed') \
-         AND updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')"
+         AND updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')",
     )
     .execute(pool)
     .await
@@ -117,7 +117,7 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     let tracked_rows = sqlx::query(
         "SELECT tf.file_id, tf.file_path, wf.path AS watch_path \
          FROM tracked_files tf \
-         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id"
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id",
     )
     .fetch_all(pool)
     .await
@@ -138,8 +138,11 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
 
     if !stale_file_ids.is_empty() {
         for chunk in stale_file_ids.chunks(500) {
-            let placeholders: String =
-                chunk.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+            let placeholders: String = chunk
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
             let delete_sql = format!(
                 "DELETE FROM tracked_files WHERE file_id IN ({})",
                 placeholders
@@ -162,7 +165,7 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
 async fn remove_orphan_chunks(pool: &SqlitePool) -> Result<u64, String> {
     info!("Cleaning orphan qdrant_chunks...");
     let result = sqlx::query(
-        "DELETE FROM qdrant_chunks WHERE file_id NOT IN (SELECT file_id FROM tracked_files)"
+        "DELETE FROM qdrant_chunks WHERE file_id NOT IN (SELECT file_id FROM tracked_files)",
     )
     .execute(pool)
     .await
@@ -185,12 +188,10 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
     let mut stats = WatchValidationStats::default();
 
     info!("Validating watch folder paths...");
-    let rows = sqlx::query(
-        "SELECT watch_id, path, is_active, enabled FROM watch_folders"
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to query watch_folders: {}", e))?;
+    let rows = sqlx::query("SELECT watch_id, path, is_active, enabled FROM watch_folders")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to query watch_folders: {}", e))?;
 
     stats.folders_checked = rows.len() as u64;
 

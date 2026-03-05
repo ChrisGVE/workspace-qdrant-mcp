@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V21Migration;
 
@@ -15,11 +15,9 @@ impl Migration for V21Migration {
         info!("Migration v21: Adding git-tracking columns, rules_mirror, and submodule junction table");
 
         use crate::watch_folders_schema::{
+            CREATE_RULES_MIRROR_SQL, CREATE_WATCH_FOLDER_SUBMODULES_INDEXES_SQL,
+            CREATE_WATCH_FOLDER_SUBMODULES_SQL, MIGRATE_V21_SUBMODULE_DATA_SQL,
             MIGRATE_V21_WATCH_FOLDERS_SQL,
-            CREATE_RULES_MIRROR_SQL,
-            CREATE_WATCH_FOLDER_SUBMODULES_SQL,
-            CREATE_WATCH_FOLDER_SUBMODULES_INDEXES_SQL,
-            MIGRATE_V21_SUBMODULE_DATA_SQL,
         };
 
         // 1. Add git-tracking columns to watch_folders
@@ -35,9 +33,10 @@ impl Migration for V21Migration {
             }
 
             let backfilled: u64 = sqlx::query(
-                "UPDATE watch_folders SET is_git_tracked = 1 WHERE git_remote_url IS NOT NULL"
+                "UPDATE watch_folders SET is_git_tracked = 1 WHERE git_remote_url IS NOT NULL",
             )
-            .execute(pool).await?
+            .execute(pool)
+            .await?
             .rows_affected();
 
             if backfilled > 0 {
@@ -48,12 +47,12 @@ impl Migration for V21Migration {
         }
 
         // 2. Create rules_mirror table
-        sqlx::query(CREATE_RULES_MIRROR_SQL)
-            .execute(pool).await?;
+        sqlx::query(CREATE_RULES_MIRROR_SQL).execute(pool).await?;
 
         // 3. Create watch_folder_submodules junction table
         sqlx::query(CREATE_WATCH_FOLDER_SUBMODULES_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         for index_sql in CREATE_WATCH_FOLDER_SUBMODULES_INDEXES_SQL {
             sqlx::query(index_sql).execute(pool).await?;
@@ -61,17 +60,25 @@ impl Migration for V21Migration {
 
         // 4. Migrate existing submodule relationships
         let migrated: u64 = sqlx::query(MIGRATE_V21_SUBMODULE_DATA_SQL)
-            .execute(pool).await?
+            .execute(pool)
+            .await?
             .rows_affected();
 
         if migrated > 0 {
-            info!("Migrated {} submodule relationships to junction table", migrated);
+            info!(
+                "Migrated {} submodule relationships to junction table",
+                migrated
+            );
         }
 
         info!("Migration v21 complete");
         Ok(())
     }
 
-    fn version(&self) -> i32 { 21 }
-    fn description(&self) -> &'static str { "Add git-tracking, rules_mirror, submodule junction" }
+    fn version(&self) -> i32 {
+        21
+    }
+    fn description(&self) -> &'static str {
+        "Add git-tracking, rules_mirror, submodule junction"
+    }
 }

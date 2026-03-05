@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use super::{
-    EnrichmentStatus, LanguageServerManager, LspEnrichment, ProjectLanguageKey,
-    ProjectLspResult, Reference, ResolvedImport, TypeInfo,
+    EnrichmentStatus, LanguageServerManager, LspEnrichment, ProjectLanguageKey, ProjectLspResult,
+    Reference, ResolvedImport, TypeInfo,
 };
 use crate::lsp::Language;
 
@@ -13,11 +13,7 @@ impl LanguageServerManager {
     ///
     /// Returns true if there is a running server instance that can handle
     /// the file's language for the given project.
-    pub async fn is_server_ready_for_file(
-        &self,
-        project_id: &str,
-        file: &Path,
-    ) -> bool {
+    pub async fn is_server_ready_for_file(&self, project_id: &str, file: &Path) -> bool {
         let file_language = file
             .extension()
             .and_then(|ext| ext.to_str())
@@ -134,8 +130,13 @@ impl LanguageServerManager {
             }
         };
 
-        let (status, error_message) =
-            Self::determine_enrichment_status(successes, &errors, &references, &type_info, &resolved_imports);
+        let (status, error_message) = Self::determine_enrichment_status(
+            successes,
+            &errors,
+            &references,
+            &type_info,
+            &resolved_imports,
+        );
 
         {
             let mut metrics = self.metrics.write().await;
@@ -240,7 +241,11 @@ impl LanguageServerManager {
             .result
             .as_ref()
             .and_then(|r| r.as_array())
-            .map(|locs| locs.iter().filter_map(|loc| Self::parse_location(loc)).collect())
+            .map(|locs| {
+                locs.iter()
+                    .filter_map(|loc| Self::parse_location(loc))
+                    .collect()
+            })
             .unwrap_or_default();
 
         tracing::debug!(file = %file.display(), line, column, count = references.len(), "Got references");
@@ -296,10 +301,7 @@ impl LanguageServerManager {
         let rpc_client = inst.rpc_client();
         drop(inst);
 
-        let response = match rpc_client
-            .send_request("textDocument/hover", params)
-            .await
-        {
+        let response = match rpc_client.send_request("textDocument/hover", params).await {
             Ok(resp) => resp,
             Err(e) => {
                 let error_msg = e.to_string();
@@ -384,7 +386,9 @@ impl LanguageServerManager {
                     if c.is_string() {
                         c.as_str().map(|s| s.to_string())
                     } else {
-                        c.get("value").and_then(|v| v.as_str()).map(|s| s.to_string())
+                        c.get("value")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
                     }
                 })
                 .collect::<Vec<_>>()

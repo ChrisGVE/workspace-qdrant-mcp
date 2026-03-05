@@ -1,22 +1,54 @@
 //! Resource limits configuration (CPU, memory, adaptive idle mode)
 use serde::{Deserialize, Serialize};
 
-fn default_nice_level() -> i32 { 10 }
-fn default_inter_item_delay_ms() -> u64 { 50 }
-fn default_max_concurrent_embeddings() -> usize { 0 } // 0 = auto-detect
-fn default_max_memory_percent() -> u8 { 70 }
-fn default_onnx_intra_threads() -> usize { 0 } // 0 = auto-detect
-fn default_idle_threshold_secs() -> u64 { 120 }
-fn default_idle_confirmation_secs() -> u64 { 300 }
-fn default_ramp_up_step_secs() -> u64 { 120 }
-fn default_ramp_down_step_secs() -> u64 { 300 }
-fn default_burst_hold_secs() -> u64 { 600 }
-fn default_burst_concurrency_multiplier() -> f64 { 2.0 }
-fn default_burst_inter_item_delay_ms() -> u64 { 0 }
-fn default_cpu_pressure_threshold() -> f64 { 0.6 }
-fn default_idle_poll_interval_secs() -> u64 { 5 }
-fn default_active_concurrency_multiplier() -> f64 { 1.5 }
-fn default_active_inter_item_delay_ms() -> u64 { 25 }
+fn default_nice_level() -> i32 {
+    10
+}
+fn default_inter_item_delay_ms() -> u64 {
+    50
+}
+fn default_max_concurrent_embeddings() -> usize {
+    0
+} // 0 = auto-detect
+fn default_max_memory_percent() -> u8 {
+    70
+}
+fn default_onnx_intra_threads() -> usize {
+    0
+} // 0 = auto-detect
+fn default_idle_threshold_secs() -> u64 {
+    120
+}
+fn default_idle_confirmation_secs() -> u64 {
+    300
+}
+fn default_ramp_up_step_secs() -> u64 {
+    120
+}
+fn default_ramp_down_step_secs() -> u64 {
+    300
+}
+fn default_burst_hold_secs() -> u64 {
+    600
+}
+fn default_burst_concurrency_multiplier() -> f64 {
+    2.0
+}
+fn default_burst_inter_item_delay_ms() -> u64 {
+    0
+}
+fn default_cpu_pressure_threshold() -> f64 {
+    0.6
+}
+fn default_idle_poll_interval_secs() -> u64 {
+    5
+}
+fn default_active_concurrency_multiplier() -> f64 {
+    1.5
+}
+fn default_active_inter_item_delay_ms() -> u64 {
+    25
+}
 
 /// Resource limits configuration section
 ///
@@ -61,7 +93,6 @@ pub struct ResourceLimitsConfig {
     pub onnx_intra_threads: usize,
 
     // --- Adaptive Idle Mode ---
-
     /// Seconds of no user input before entering idle mode.
     #[serde(default = "default_idle_threshold_secs")]
     pub idle_threshold_secs: u64,
@@ -106,7 +137,6 @@ pub struct ResourceLimitsConfig {
     // which provides proper per-level descent timing instead of a crude poll counter.
 
     // --- Active Processing Mode ---
-
     /// Multiplier for max_concurrent_embeddings when user is active but queue has work.
     /// Default: 1.5 (+50% over normal)
     #[serde(default = "default_active_concurrency_multiplier")]
@@ -165,9 +195,7 @@ impl ResourceLimitsConfig {
             // 2 is optimal for the small all-MiniLM-L6-v2 model regardless of core count.
             // The ONNX graph is narrow enough that additional threads yield diminishing returns.
             self.onnx_intra_threads = 2;
-            tracing::info!(
-                "Auto-detected onnx_intra_threads = 2 (optimal for all-MiniLM-L6-v2)"
-            );
+            tracing::info!("Auto-detected onnx_intra_threads = 2 (optimal for all-MiniLM-L6-v2)");
         }
 
         tracing::info!(
@@ -194,7 +222,10 @@ impl ResourceLimitsConfig {
             return Err("max_memory_percent must be between 20 and 95".to_string());
         }
         if self.onnx_intra_threads == 0 || self.onnx_intra_threads > 16 {
-            return Err("onnx_intra_threads must be between 1 and 16 (0 should have been auto-resolved)".to_string());
+            return Err(
+                "onnx_intra_threads must be between 1 and 16 (0 should have been auto-resolved)"
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -202,21 +233,63 @@ impl ResourceLimitsConfig {
     /// Apply environment variable overrides
     pub fn apply_env_overrides(&mut self) {
         apply_env_i32("WQM_RESOURCE_NICE_LEVEL", &mut self.nice_level);
-        apply_env_u64("WQM_RESOURCE_INTER_ITEM_DELAY_MS", &mut self.inter_item_delay_ms);
-        apply_env_usize("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS", &mut self.max_concurrent_embeddings);
-        apply_env_u8("WQM_RESOURCE_MAX_MEMORY_PERCENT", &mut self.max_memory_percent);
-        apply_env_usize("WQM_RESOURCE_ONNX_INTRA_THREADS", &mut self.onnx_intra_threads);
-        apply_env_u64("WQM_RESOURCE_IDLE_THRESHOLD_SECS", &mut self.idle_threshold_secs);
-        apply_env_u64("WQM_RESOURCE_IDLE_CONFIRMATION_SECS", &mut self.idle_confirmation_secs);
-        apply_env_u64("WQM_RESOURCE_RAMP_UP_STEP_SECS", &mut self.ramp_up_step_secs);
-        apply_env_u64("WQM_RESOURCE_RAMP_DOWN_STEP_SECS", &mut self.ramp_down_step_secs);
+        apply_env_u64(
+            "WQM_RESOURCE_INTER_ITEM_DELAY_MS",
+            &mut self.inter_item_delay_ms,
+        );
+        apply_env_usize(
+            "WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS",
+            &mut self.max_concurrent_embeddings,
+        );
+        apply_env_u8(
+            "WQM_RESOURCE_MAX_MEMORY_PERCENT",
+            &mut self.max_memory_percent,
+        );
+        apply_env_usize(
+            "WQM_RESOURCE_ONNX_INTRA_THREADS",
+            &mut self.onnx_intra_threads,
+        );
+        apply_env_u64(
+            "WQM_RESOURCE_IDLE_THRESHOLD_SECS",
+            &mut self.idle_threshold_secs,
+        );
+        apply_env_u64(
+            "WQM_RESOURCE_IDLE_CONFIRMATION_SECS",
+            &mut self.idle_confirmation_secs,
+        );
+        apply_env_u64(
+            "WQM_RESOURCE_RAMP_UP_STEP_SECS",
+            &mut self.ramp_up_step_secs,
+        );
+        apply_env_u64(
+            "WQM_RESOURCE_RAMP_DOWN_STEP_SECS",
+            &mut self.ramp_down_step_secs,
+        );
         apply_env_u64("WQM_RESOURCE_BURST_HOLD_SECS", &mut self.burst_hold_secs);
-        apply_env_f64("WQM_RESOURCE_BURST_CONCURRENCY_MULTIPLIER", &mut self.burst_concurrency_multiplier);
-        apply_env_u64("WQM_RESOURCE_BURST_INTER_ITEM_DELAY_MS", &mut self.burst_inter_item_delay_ms);
-        apply_env_f64("WQM_RESOURCE_CPU_PRESSURE_THRESHOLD", &mut self.cpu_pressure_threshold);
-        apply_env_u64("WQM_RESOURCE_IDLE_POLL_INTERVAL_SECS", &mut self.idle_poll_interval_secs);
-        apply_env_f64("WQM_RESOURCE_ACTIVE_CONCURRENCY_MULTIPLIER", &mut self.active_concurrency_multiplier);
-        apply_env_u64("WQM_RESOURCE_ACTIVE_INTER_ITEM_DELAY_MS", &mut self.active_inter_item_delay_ms);
+        apply_env_f64(
+            "WQM_RESOURCE_BURST_CONCURRENCY_MULTIPLIER",
+            &mut self.burst_concurrency_multiplier,
+        );
+        apply_env_u64(
+            "WQM_RESOURCE_BURST_INTER_ITEM_DELAY_MS",
+            &mut self.burst_inter_item_delay_ms,
+        );
+        apply_env_f64(
+            "WQM_RESOURCE_CPU_PRESSURE_THRESHOLD",
+            &mut self.cpu_pressure_threshold,
+        );
+        apply_env_u64(
+            "WQM_RESOURCE_IDLE_POLL_INTERVAL_SECS",
+            &mut self.idle_poll_interval_secs,
+        );
+        apply_env_f64(
+            "WQM_RESOURCE_ACTIVE_CONCURRENCY_MULTIPLIER",
+            &mut self.active_concurrency_multiplier,
+        );
+        apply_env_u64(
+            "WQM_RESOURCE_ACTIVE_INTER_ITEM_DELAY_MS",
+            &mut self.active_inter_item_delay_ms,
+        );
     }
 }
 
@@ -296,9 +369,15 @@ mod tests {
         let config = ResourceLimitsConfig::default();
         assert_eq!(config.nice_level, 10);
         assert_eq!(config.inter_item_delay_ms, 50);
-        assert_eq!(config.max_concurrent_embeddings, 0, "default should be 0 (auto-detect)");
+        assert_eq!(
+            config.max_concurrent_embeddings, 0,
+            "default should be 0 (auto-detect)"
+        );
         assert_eq!(config.max_memory_percent, 70);
-        assert_eq!(config.onnx_intra_threads, 0, "default should be 0 (auto-detect)");
+        assert_eq!(
+            config.onnx_intra_threads, 0,
+            "default should be 0 (auto-detect)"
+        );
     }
 
     #[test]
@@ -310,9 +389,18 @@ mod tests {
         config.resolve_auto_values();
 
         // After resolution, values should be non-zero
-        assert!(config.max_concurrent_embeddings >= 1, "auto-detected embeddings should be >= 1");
-        assert!(config.max_concurrent_embeddings <= 8, "auto-detected embeddings should be <= 8");
-        assert_eq!(config.onnx_intra_threads, 2, "onnx_intra_threads always resolves to 2");
+        assert!(
+            config.max_concurrent_embeddings >= 1,
+            "auto-detected embeddings should be >= 1"
+        );
+        assert!(
+            config.max_concurrent_embeddings <= 8,
+            "auto-detected embeddings should be <= 8"
+        );
+        assert_eq!(
+            config.onnx_intra_threads, 2,
+            "onnx_intra_threads always resolves to 2"
+        );
 
         // Validation should pass after resolution
         assert!(config.validate().is_ok());

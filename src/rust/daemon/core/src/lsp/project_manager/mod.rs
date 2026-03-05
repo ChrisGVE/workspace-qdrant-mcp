@@ -58,7 +58,10 @@ pub enum ProjectLspError {
     LanguageNotSupported { language: Language },
 
     #[error("Server unavailable for project {project_id}, language {language:?}")]
-    ServerUnavailable { project_id: String, language: Language },
+    ServerUnavailable {
+        project_id: String,
+        language: Language,
+    },
 
     #[error("Query failed: {message}")]
     QueryFailed { message: String },
@@ -166,8 +169,7 @@ impl From<LspSettings> for ProjectLspConfig {
 
         lsp_config.startup_timeout = Duration::from_secs(settings.startup_timeout_secs);
         lsp_config.request_timeout = Duration::from_secs(settings.request_timeout_secs);
-        lsp_config.health_check_interval =
-            Duration::from_secs(settings.health_check_interval_secs);
+        lsp_config.health_check_interval = Duration::from_secs(settings.health_check_interval_secs);
         lsp_config.enable_auto_restart = settings.enable_auto_restart;
         lsp_config.max_restart_attempts = settings.max_restart_attempts;
         lsp_config.restart_backoff_multiplier = settings.restart_backoff_multiplier;
@@ -340,8 +342,7 @@ pub struct LanguageServerManager {
     /// Configuration
     pub(crate) config: ProjectLspConfig,
     /// Server state by (project_id, language)
-    pub(crate) servers:
-        Arc<RwLock<HashMap<ProjectLanguageKey, ProjectServerState>>>,
+    pub(crate) servers: Arc<RwLock<HashMap<ProjectLanguageKey, ProjectServerState>>>,
     /// Running server instances by (project_id, language)
     pub(crate) instances:
         Arc<RwLock<HashMap<ProjectLanguageKey, Arc<tokio::sync::Mutex<ServerInstance>>>>>,

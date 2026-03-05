@@ -18,18 +18,14 @@ pub(super) async fn migrate_v1(_pool: &SqlitePool) -> SearchDbResult<()> {
 /// Uses gap-based seq ordering (REAL) for efficient line insertions.
 /// Line numbers derived via ROW_NUMBER() at query time.
 pub(super) async fn migrate_v2(pool: &SqlitePool) -> SearchDbResult<()> {
-    use crate::code_lines_schema::{CREATE_CODE_LINES_SQL, CREATE_CODE_LINES_INDEXES_SQL};
+    use crate::code_lines_schema::{CREATE_CODE_LINES_INDEXES_SQL, CREATE_CODE_LINES_SQL};
 
     info!("Search DB migration v2: creating code_lines table");
 
-    sqlx::query(CREATE_CODE_LINES_SQL)
-        .execute(pool)
-        .await?;
+    sqlx::query(CREATE_CODE_LINES_SQL).execute(pool).await?;
 
     for index_sql in CREATE_CODE_LINES_INDEXES_SQL {
-        sqlx::query(index_sql)
-            .execute(pool)
-            .await?;
+        sqlx::query(index_sql).execute(pool).await?;
     }
 
     Ok(())
@@ -44,9 +40,7 @@ pub(super) async fn migrate_v3(pool: &SqlitePool) -> SearchDbResult<()> {
 
     info!("Search DB migration v3: creating code_lines_fts virtual table (FTS5 trigram)");
 
-    sqlx::query(CREATE_CODE_LINES_FTS_SQL)
-        .execute(pool)
-        .await?;
+    sqlx::query(CREATE_CODE_LINES_FTS_SQL).execute(pool).await?;
 
     Ok(())
 }
@@ -56,18 +50,14 @@ pub(super) async fn migrate_v3(pool: &SqlitePool) -> SearchDbResult<()> {
 /// Denormalizes tenant_id, branch, and file_path into search.db so
 /// FTS5 queries can be scoped without cross-database JOINs.
 pub(super) async fn migrate_v4(pool: &SqlitePool) -> SearchDbResult<()> {
-    use crate::code_lines_schema::{CREATE_FILE_METADATA_SQL, CREATE_FILE_METADATA_INDEXES_SQL};
+    use crate::code_lines_schema::{CREATE_FILE_METADATA_INDEXES_SQL, CREATE_FILE_METADATA_SQL};
 
     info!("Search DB migration v4: creating file_metadata table for project/branch/path scoping");
 
-    sqlx::query(CREATE_FILE_METADATA_SQL)
-        .execute(pool)
-        .await?;
+    sqlx::query(CREATE_FILE_METADATA_SQL).execute(pool).await?;
 
     for index_sql in CREATE_FILE_METADATA_INDEXES_SQL {
-        sqlx::query(index_sql)
-            .execute(pool)
-            .await?;
+        sqlx::query(index_sql).execute(pool).await?;
     }
 
     Ok(())
@@ -85,9 +75,7 @@ pub(super) async fn migrate_v5(pool: &SqlitePool) -> SearchDbResult<()> {
     info!("Search DB migration v5: adding base_point columns to file_metadata");
 
     for alter_sql in ALTER_FILE_METADATA_V5_SQL {
-        sqlx::query(alter_sql)
-            .execute(pool)
-            .await?;
+        sqlx::query(alter_sql).execute(pool).await?;
     }
 
     sqlx::query(CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL)
@@ -116,9 +104,7 @@ pub(super) async fn migrate_v6(pool: &SqlitePool) -> SearchDbResult<()> {
     .await?;
 
     if !has_column {
-        sqlx::query(ALTER_CODE_LINES_V6_SQL)
-            .execute(pool)
-            .await?;
+        sqlx::query(ALTER_CODE_LINES_V6_SQL).execute(pool).await?;
 
         // Populate line_number for existing rows from seq ordering
         sqlx::query(POPULATE_LINE_NUMBERS_V6_SQL)

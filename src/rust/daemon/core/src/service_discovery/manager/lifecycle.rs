@@ -5,15 +5,15 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::info;
 
+use super::super::registry::ServiceInfo;
 use super::super::{
-    DiscoveryResult, DiscoveryConfig,
-    registry::ServiceRegistry,
-    network::NetworkDiscovery,
     health::{HealthChecker, HealthConfig},
+    network::NetworkDiscovery,
+    registry::ServiceRegistry,
+    DiscoveryConfig, DiscoveryResult,
 };
 use super::core::DiscoveryManager;
 use crate::unified_config::UnifiedConfigManager;
-use super::super::registry::ServiceInfo;
 
 impl DiscoveryManager {
     /// Create a new discovery manager
@@ -53,9 +53,8 @@ impl DiscoveryManager {
 
         let manager = Self {
             registry,
-            network_discovery: network_discovery.unwrap_or_else(|| {
-                NetworkDiscovery::new("239.255.42.42", 9999, None).unwrap()
-            }),
+            network_discovery: network_discovery
+                .unwrap_or_else(|| NetworkDiscovery::new("239.255.42.42", 9999, None).unwrap()),
             health_checker,
             config_manager,
             config: config.clone(),

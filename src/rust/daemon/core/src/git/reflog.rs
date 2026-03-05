@@ -72,7 +72,9 @@ pub fn read_current_branch(git_dir: &Path) -> Option<String> {
 /// Reflog format: `<old-sha> <new-sha> <author> <timestamp> \t<operation>`
 ///
 /// Returns: (old_sha, new_sha, event_type, old_branch_for_switch)
-pub fn parse_reflog_last_entry(git_dir: &Path) -> Option<(String, String, GitEventType, Option<String>)> {
+pub fn parse_reflog_last_entry(
+    git_dir: &Path,
+) -> Option<(String, String, GitEventType, Option<String>)> {
     let reflog_path = git_dir.join("logs").join("HEAD");
 
     let content = std::fs::read_to_string(&reflog_path).ok()?;
@@ -204,7 +206,8 @@ mod tests {
         let (event_type, _) = classify_reflog_operation("rebase (start): checkout origin/main");
         assert_eq!(event_type, GitEventType::Rebase);
 
-        let (event_type, _) = classify_reflog_operation("rebase (finish): returning to refs/heads/feature");
+        let (event_type, _) =
+            classify_reflog_operation("rebase (finish): returning to refs/heads/feature");
         assert_eq!(event_type, GitEventType::Rebase);
     }
 
@@ -292,7 +295,11 @@ mod tests {
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         assert_eq!(read_current_branch(git_dir), Some("main".to_string()));
 
-        std::fs::write(git_dir.join("HEAD"), "abc1234567890123456789012345678901234567\n").unwrap();
+        std::fs::write(
+            git_dir.join("HEAD"),
+            "abc1234567890123456789012345678901234567\n",
+        )
+        .unwrap();
         assert_eq!(read_current_branch(git_dir), None);
     }
 

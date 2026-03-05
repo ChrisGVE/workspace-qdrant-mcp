@@ -17,18 +17,24 @@ fn test_recovery_stats_default() {
 #[test]
 fn test_full_recovery_stats_total() {
     let mut stats = FullRecoveryStats::default();
-    stats.per_folder.push(("w1".to_string(), RecoveryStats {
-        progressive_scans_enqueued: 1,
-        files_to_delete: 2,
-        files_newly_excluded: 1,
-        ..RecoveryStats::default()
-    }));
-    stats.per_folder.push(("w2".to_string(), RecoveryStats {
-        progressive_scans_enqueued: 1,
-        files_to_delete: 3,
-        files_newly_excluded: 0,
-        ..RecoveryStats::default()
-    }));
+    stats.per_folder.push((
+        "w1".to_string(),
+        RecoveryStats {
+            progressive_scans_enqueued: 1,
+            files_to_delete: 2,
+            files_newly_excluded: 1,
+            ..RecoveryStats::default()
+        },
+    ));
+    stats.per_folder.push((
+        "w2".to_string(),
+        RecoveryStats {
+            progressive_scans_enqueued: 1,
+            files_to_delete: 3,
+            files_newly_excluded: 0,
+            ..RecoveryStats::default()
+        },
+    ));
 
     // total_queued = progressive_scans + deletes + newly_excluded
     assert_eq!(stats.total_queued(), 1 + 2 + 1 + 1 + 3 + 0);
@@ -38,15 +44,21 @@ fn test_full_recovery_stats_total() {
 fn test_compute_relative_path_for_recovery() {
     let root = Path::new("/home/user/project");
     let abs = Path::new("/home/user/project/src/main.rs");
-    let rel = abs.strip_prefix(root).unwrap().to_string_lossy().to_string();
+    let rel = abs
+        .strip_prefix(root)
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     assert_eq!(rel, "src/main.rs");
 }
 
-use std::time::Duration;
-use sqlx::sqlite::SqlitePoolOptions;
-use crate::tracked_files_schema::{self as tfs, CREATE_TRACKED_FILES_SQL, CREATE_TRACKED_FILES_INDEXES_SQL};
-use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL};
+use crate::tracked_files_schema::{
+    self as tfs, CREATE_TRACKED_FILES_INDEXES_SQL, CREATE_TRACKED_FILES_SQL,
+};
+use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL};
 use crate::watch_folders_schema;
+use sqlx::sqlite::SqlitePoolOptions;
+use std::time::Duration;
 
 async fn create_test_pool() -> SqlitePool {
     SqlitePoolOptions::new()
@@ -58,14 +70,25 @@ async fn create_test_pool() -> SqlitePool {
 }
 
 async fn setup_reconcile_tables(pool: &SqlitePool) {
-    sqlx::query("PRAGMA foreign_keys = ON").execute(pool).await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query(watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
-        .execute(pool).await.unwrap();
-    sqlx::query(CREATE_TRACKED_FILES_SQL).execute(pool).await.unwrap();
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(CREATE_TRACKED_FILES_SQL)
+        .execute(pool)
+        .await
+        .unwrap();
     for idx in CREATE_TRACKED_FILES_INDEXES_SQL {
         sqlx::query(idx).execute(pool).await.unwrap();
     }
-    sqlx::query(CREATE_UNIFIED_QUEUE_SQL).execute(pool).await.unwrap();
+    sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+        .execute(pool)
+        .await
+        .unwrap();
     for idx in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
         sqlx::query(idx).execute(pool).await.unwrap();
     }
@@ -87,7 +110,10 @@ async fn insert_reconcile_fixture(pool: &SqlitePool, base_path: &str, rel_path: 
     .bind(rel_path)
     .execute(pool).await.unwrap();
 
-    sqlx::query_scalar::<_, i64>("SELECT last_insert_rowid()").fetch_one(pool).await.unwrap()
+    sqlx::query_scalar::<_, i64>("SELECT last_insert_rowid()")
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -114,16 +140,25 @@ async fn test_reconcile_flagged_files_requeues_existing() {
 
     // Verify flag was cleared
     let flagged = tfs::get_files_needing_reconcile(&pool).await.unwrap();
-    assert!(flagged.is_empty(), "needs_reconcile should be cleared after reconciliation");
+    assert!(
+        flagged.is_empty(),
+        "needs_reconcile should be cleared after reconciliation"
+    );
 
     // Verify an item was enqueued
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE tenant_id = 'tenant-rc'")
-        .fetch_one(&pool).await.unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 1, "Should have enqueued one update item");
 
     // Verify the enqueued item is an update operation
-    let op: String = sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 'tenant-rc'")
-        .fetch_one(&pool).await.unwrap();
+    let op: String =
+        sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(op, "update");
 
     drop(tmp);
@@ -150,8 +185,11 @@ async fn test_reconcile_flagged_files_deleted_file_queues_delete() {
     assert_eq!(stats.reconcile_errors, 0);
 
     // Verify the enqueued item is a delete operation
-    let op: String = sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 'tenant-rc'")
-        .fetch_one(&pool).await.unwrap();
+    let op: String =
+        sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(op, "delete");
 }
 

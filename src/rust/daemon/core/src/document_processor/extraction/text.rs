@@ -9,7 +9,7 @@ use chardet::detect;
 use encoding_rs::Encoding;
 use tracing::warn;
 
-use crate::document_processor::types::{DocumentProcessorResult};
+use crate::document_processor::types::DocumentProcessorResult;
 
 /// Extract text file with encoding detection
 pub fn extract_text_with_encoding(
@@ -32,10 +32,7 @@ pub fn extract_text_with_encoding(
     let detection = detect(&buffer);
     let encoding_name = detection.0.to_uppercase();
     metadata.insert("encoding".to_string(), encoding_name.clone());
-    metadata.insert(
-        "encoding_confidence".to_string(),
-        detection.1.to_string(),
-    );
+    metadata.insert("encoding_confidence".to_string(), detection.1.to_string());
 
     // Try to decode using detected encoding
     if let Some(encoding) = Encoding::for_label(encoding_name.as_bytes()) {

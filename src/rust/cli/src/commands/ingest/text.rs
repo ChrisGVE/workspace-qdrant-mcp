@@ -88,12 +88,7 @@ async fn try_queue_fallback_text(
             let tenant_id = detect_tenant_id();
             let branch = detect_branch();
 
-            match queue_client.enqueue_content(
-                &tenant_id,
-                collection,
-                &payload,
-                &branch,
-            ) {
+            match queue_client.enqueue_content(&tenant_id, collection, &payload, &branch) {
                 Ok(result) => {
                     if result.was_duplicate {
                         output::warning("Content already queued (duplicate)");

@@ -26,7 +26,11 @@ fn hello() {
     let fn_chunk = fn_chunk.unwrap();
     assert_eq!(fn_chunk.symbol_name, "hello");
     assert!(fn_chunk.docstring.is_some());
-    assert!(fn_chunk.docstring.as_ref().unwrap().contains("simple function"));
+    assert!(fn_chunk
+        .docstring
+        .as_ref()
+        .unwrap()
+        .contains("simple function"));
 }
 
 #[test]

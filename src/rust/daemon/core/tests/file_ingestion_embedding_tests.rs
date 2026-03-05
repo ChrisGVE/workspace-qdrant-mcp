@@ -13,7 +13,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::fs;
-use workspace_qdrant_core::{Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskSource};
+use workspace_qdrant_core::{
+    Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskSource,
+};
 
 const TEST_COLLECTION: &str = "test_collection";
 const TASK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -127,9 +129,18 @@ async fn test_batch_embedding_generation() -> TestResult {
     // Create multiple documents with different content
     let documents = vec![
         ("doc1.txt", "The quick brown fox jumps over the lazy dog."),
-        ("doc2.txt", "Machine learning is transforming artificial intelligence."),
-        ("doc3.txt", "Rust provides memory safety without garbage collection."),
-        ("doc4.txt", "Vector databases enable semantic search capabilities."),
+        (
+            "doc2.txt",
+            "Machine learning is transforming artificial intelligence.",
+        ),
+        (
+            "doc3.txt",
+            "Rust provides memory safety without garbage collection.",
+        ),
+        (
+            "doc4.txt",
+            "Vector databases enable semantic search capabilities.",
+        ),
     ];
 
     for (filename, content) in documents.iter() {
@@ -301,7 +312,10 @@ async fn test_mixed_content_embedding_generation() -> TestResult {
 
     // Create files with different content types
     let mixed_content = vec![
-        ("technical.md", "# Technical Documentation\n\nThis is technical content."),
+        (
+            "technical.md",
+            "# Technical Documentation\n\nThis is technical content.",
+        ),
         ("code.py", "def hello():\n    print('Hello, world!')"),
         ("data.json", r#"{"key": "value", "number": 42}"#),
         ("config.yaml", "setting: value\nenabled: true"),

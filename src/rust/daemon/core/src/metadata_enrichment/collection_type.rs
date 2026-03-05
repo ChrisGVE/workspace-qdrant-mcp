@@ -65,7 +65,9 @@ impl CollectionType {
         if let Some(name_without_underscore) = collection_name.strip_prefix('_') {
             // PROJECT collections are 12-character hex hashes
             if name_without_underscore.len() == 12
-                && name_without_underscore.chars().all(|c| c.is_ascii_hexdigit())
+                && name_without_underscore
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit())
             {
                 return CollectionType::Project {
                     project_id: name_without_underscore.to_string(),

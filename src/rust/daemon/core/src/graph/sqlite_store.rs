@@ -165,18 +165,13 @@ impl GraphStore for SqliteGraphStore {
         Ok(())
     }
 
-    async fn delete_edges_by_file(
-        &self,
-        tenant_id: &str,
-        file_path: &str,
-    ) -> GraphDbResult<u64> {
-        let result = sqlx::query(
-            "DELETE FROM graph_edges WHERE tenant_id = ?1 AND source_file = ?2",
-        )
-        .bind(tenant_id)
-        .bind(file_path)
-        .execute(&self.pool)
-        .await?;
+    async fn delete_edges_by_file(&self, tenant_id: &str, file_path: &str) -> GraphDbResult<u64> {
+        let result =
+            sqlx::query("DELETE FROM graph_edges WHERE tenant_id = ?1 AND source_file = ?2")
+                .bind(tenant_id)
+                .bind(file_path)
+                .execute(&self.pool)
+                .await?;
 
         let count = result.rows_affected();
         debug!(
@@ -189,17 +184,15 @@ impl GraphStore for SqliteGraphStore {
     async fn delete_tenant(&self, tenant_id: &str) -> GraphDbResult<u64> {
         let mut tx = self.pool.begin().await?;
 
-        let edge_result =
-            sqlx::query("DELETE FROM graph_edges WHERE tenant_id = ?1")
-                .bind(tenant_id)
-                .execute(&mut *tx)
-                .await?;
+        let edge_result = sqlx::query("DELETE FROM graph_edges WHERE tenant_id = ?1")
+            .bind(tenant_id)
+            .execute(&mut *tx)
+            .await?;
 
-        let node_result =
-            sqlx::query("DELETE FROM graph_nodes WHERE tenant_id = ?1")
-                .bind(tenant_id)
-                .execute(&mut *tx)
-                .await?;
+        let node_result = sqlx::query("DELETE FROM graph_nodes WHERE tenant_id = ?1")
+            .bind(tenant_id)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
 
@@ -221,10 +214,8 @@ impl GraphStore for SqliteGraphStore {
         // Build edge type filter clause
         let type_filter = match edge_types {
             Some(types) if !types.is_empty() => {
-                let placeholders: Vec<String> = types
-                    .iter()
-                    .map(|t| format!("'{}'", t.as_str()))
-                    .collect();
+                let placeholders: Vec<String> =
+                    types.iter().map(|t| format!("'{}'", t.as_str())).collect();
                 format!("AND e.edge_type IN ({})", placeholders.join(", "))
             }
             _ => String::new(),
@@ -281,7 +272,9 @@ impl GraphStore for SqliteGraphStore {
         symbol_name: &str,
         file_path: Option<&str>,
     ) -> GraphDbResult<ImpactReport> {
-        let target_nodes = self.find_target_nodes(tenant_id, symbol_name, file_path).await?;
+        let target_nodes = self
+            .find_target_nodes(tenant_id, symbol_name, file_path)
+            .await?;
 
         if target_nodes.is_empty() {
             return Ok(ImpactReport {
@@ -442,23 +435,26 @@ impl SqliteGraphStore {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.iter().map(|row| {
-            let depth: i64 = row.get("depth");
-            let edge_type_str: String = row.get("edge_type");
-            let impact_type = match (depth, edge_type_str.as_str()) {
-                (1, "CALLS") => "direct_caller",
-                (1, "USES_TYPE") => "type_user",
-                (1, _) => "direct_reference",
-                (_, "CALLS") => "indirect_caller",
-                _ => "indirect_reference",
-            };
-            ImpactNode {
-                node_id: row.get("node_id"),
-                symbol_name: row.get("symbol_name"),
-                file_path: row.get("file_path"),
-                impact_type: impact_type.to_string(),
-                distance: depth as u32,
-            }
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let depth: i64 = row.get("depth");
+                let edge_type_str: String = row.get("edge_type");
+                let impact_type = match (depth, edge_type_str.as_str()) {
+                    (1, "CALLS") => "direct_caller",
+                    (1, "USES_TYPE") => "type_user",
+                    (1, _) => "direct_reference",
+                    (_, "CALLS") => "indirect_caller",
+                    _ => "indirect_reference",
+                };
+                ImpactNode {
+                    node_id: row.get("node_id"),
+                    symbol_name: row.get("symbol_name"),
+                    file_path: row.get("file_path"),
+                    impact_type: impact_type.to_string(),
+                    distance: depth as u32,
+                }
+            })
+            .collect())
     }
 }

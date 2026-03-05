@@ -148,16 +148,10 @@ mod tests {
 
     #[test]
     fn test_extract_version_number() {
-        assert_eq!(
-            extract_version_from_text("rust-analyzer 0.3.1"),
-            "0.3.1"
-        );
+        assert_eq!(extract_version_from_text("rust-analyzer 0.3.1"), "0.3.1");
         assert_eq!(extract_version_from_text("version 2.1.0"), "2.1.0");
         assert_eq!(extract_version_from_text("v1.2.3"), "1.2.3");
-        assert_eq!(
-            extract_version_from_text("Some program 1.0"),
-            "1.0"
-        );
+        assert_eq!(extract_version_from_text("Some program 1.0"), "1.0");
     }
 
     #[test]

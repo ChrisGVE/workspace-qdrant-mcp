@@ -1,5 +1,4 @@
 /// LadybugDB backend configuration.
-
 use std::path::PathBuf;
 
 /// LadybugDB backend configuration.

@@ -12,20 +12,28 @@ async fn test_rollback_delete_file() {
     std::fs::write(&file_path, "temporary data").unwrap();
 
     let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
-    let ckpt_id = cm.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 100.0,
-            stage: "test".into(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({}),
-        vec![],
-        vec![RollbackAction::DeleteFile { path: file_path.clone() }],
-    ).await.unwrap();
+    let ckpt_id = cm
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::DeleteFile {
+                path: file_path.clone(),
+            }],
+        )
+        .await
+        .unwrap();
 
     cm.rollback_checkpoint(&ckpt_id).await.unwrap();
-    assert!(!file_path.exists(), "File should have been deleted by rollback");
+    assert!(
+        !file_path.exists(),
+        "File should have been deleted by rollback"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -40,20 +48,23 @@ async fn test_rollback_restore_file() {
     std::fs::write(&backup, "original content").unwrap();
 
     let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
-    let ckpt_id = cm.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 100.0,
-            stage: "test".into(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({}),
-        vec![],
-        vec![RollbackAction::RestoreFile {
-            original_path: original.clone(),
-            backup_path: backup.clone(),
-        }],
-    ).await.unwrap();
+    let ckpt_id = cm
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::RestoreFile {
+                original_path: original.clone(),
+                backup_path: backup.clone(),
+            }],
+        )
+        .await
+        .unwrap();
 
     cm.rollback_checkpoint(&ckpt_id).await.unwrap();
     let content = std::fs::read_to_string(&original).unwrap();
@@ -68,23 +79,29 @@ async fn test_rollback_remove_from_collection_no_storage_client() {
     let _ = std::fs::create_dir_all(&dir);
 
     let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
-    let ckpt_id = cm.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 100.0,
-            stage: "test".into(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({}),
-        vec![],
-        vec![RollbackAction::RemoveFromCollection {
-            document_id: "doc-123".into(),
-            collection: "projects".into(),
-        }],
-    ).await.unwrap();
+    let ckpt_id = cm
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::RemoveFromCollection {
+                document_id: "doc-123".into(),
+                collection: "projects".into(),
+            }],
+        )
+        .await
+        .unwrap();
 
     let result = cm.rollback_checkpoint(&ckpt_id).await;
-    assert!(result.is_ok(), "rollback_checkpoint should succeed even if individual actions fail");
+    assert!(
+        result.is_ok(),
+        "rollback_checkpoint should succeed even if individual actions fail"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -99,17 +116,22 @@ async fn test_rollback_revert_index_no_storage_client() {
         "indexes": ["field1", "field2"]
     });
 
-    let ckpt_id = cm.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 100.0,
-            stage: "test".into(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({}),
-        vec![],
-        vec![RollbackAction::RevertIndexChanges { index_snapshot: snapshot }],
-    ).await.unwrap();
+    let ckpt_id = cm
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::RevertIndexChanges {
+                index_snapshot: snapshot,
+            }],
+        )
+        .await
+        .unwrap();
 
     let result = cm.rollback_checkpoint(&ckpt_id).await;
     assert!(result.is_ok());
@@ -141,26 +163,35 @@ async fn test_rollback_custom_handler_registered() {
     let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
     cm.register_custom_handler(
         "test_action",
-        Arc::new(TestHandler { executed: executed_clone }),
-    ).await;
+        Arc::new(TestHandler {
+            executed: executed_clone,
+        }),
+    )
+    .await;
 
-    let ckpt_id = cm.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 100.0,
-            stage: "test".into(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({}),
-        vec![],
-        vec![RollbackAction::Custom {
-            action_type: "test_action".into(),
-            data: serde_json::json!({"key": "value"}),
-        }],
-    ).await.unwrap();
+    let ckpt_id = cm
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::Custom {
+                action_type: "test_action".into(),
+                data: serde_json::json!({"key": "value"}),
+            }],
+        )
+        .await
+        .unwrap();
 
     cm.rollback_checkpoint(&ckpt_id).await.unwrap();
-    assert!(executed.load(Ordering::SeqCst), "Custom handler should have been executed");
+    assert!(
+        executed.load(Ordering::SeqCst),
+        "Custom handler should have been executed"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -170,23 +201,29 @@ async fn test_rollback_custom_handler_not_registered() {
     let _ = std::fs::create_dir_all(&dir);
 
     let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
-    let ckpt_id = cm.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 100.0,
-            stage: "test".into(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({}),
-        vec![],
-        vec![RollbackAction::Custom {
-            action_type: "unregistered_action".into(),
-            data: serde_json::json!({}),
-        }],
-    ).await.unwrap();
+    let ckpt_id = cm
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::Custom {
+                action_type: "unregistered_action".into(),
+                data: serde_json::json!({}),
+            }],
+        )
+        .await
+        .unwrap();
 
     let result = cm.rollback_checkpoint(&ckpt_id).await;
-    assert!(result.is_ok(), "rollback_checkpoint succeeds even with failed actions");
+    assert!(
+        result.is_ok(),
+        "rollback_checkpoint succeeds even with failed actions"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -199,27 +236,35 @@ async fn test_rollback_multiple_actions_continue_on_failure() {
     std::fs::write(&file_to_delete, "data").unwrap();
 
     let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
-    let ckpt_id = cm.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 100.0,
-            stage: "test".into(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({}),
-        vec![],
-        vec![
-            RollbackAction::RemoveFromCollection {
-                document_id: "doc-456".into(),
-                collection: "projects".into(),
+    let ckpt_id = cm
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
             },
-            RollbackAction::DeleteFile { path: file_to_delete.clone() },
-        ],
-    ).await.unwrap();
+            serde_json::json!({}),
+            vec![],
+            vec![
+                RollbackAction::RemoveFromCollection {
+                    document_id: "doc-456".into(),
+                    collection: "projects".into(),
+                },
+                RollbackAction::DeleteFile {
+                    path: file_to_delete.clone(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
 
     let result = cm.rollback_checkpoint(&ckpt_id).await;
     assert!(result.is_ok());
-    assert!(!file_to_delete.exists(), "DeleteFile should execute even when other actions fail");
+    assert!(
+        !file_to_delete.exists(),
+        "DeleteFile should execute even when other actions fail"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -255,14 +300,16 @@ async fn test_custom_handler_registry() {
         assert!(handlers.is_empty());
     }
 
-    cm.register_custom_handler("noop", Arc::new(NoopHandler)).await;
+    cm.register_custom_handler("noop", Arc::new(NoopHandler))
+        .await;
     {
         let handlers = cm.custom_handlers.read().await;
         assert_eq!(handlers.len(), 1);
         assert!(handlers.contains_key("noop"));
     }
 
-    cm.register_custom_handler("another", Arc::new(NoopHandler)).await;
+    cm.register_custom_handler("another", Arc::new(NoopHandler))
+        .await;
     {
         let handlers = cm.custom_handlers.read().await;
         assert_eq!(handlers.len(), 2);

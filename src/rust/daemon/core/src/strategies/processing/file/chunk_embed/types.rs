@@ -1,7 +1,7 @@
 //! Data types for chunk embedding results and tracking records.
 
-use crate::tracked_files_schema::{ChunkType as TrackedChunkType, ProcessingStatus};
 use crate::storage::DocumentPoint;
+use crate::tracked_files_schema::{ChunkType as TrackedChunkType, ProcessingStatus};
 
 /// Metadata for a single chunk tracked in SQLite `qdrant_chunks`.
 pub struct ChunkRecord {

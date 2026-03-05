@@ -3,10 +3,10 @@
 
 use std::collections::HashSet;
 
-use crate::lsp::Language;
 use crate::lsp::project_manager::{
     EnrichmentStatus, LanguageServerManager, LspMetrics, ProjectLanguageKey, ProjectLspConfig,
 };
+use crate::lsp::Language;
 
 /// Helper to create a test project LSP config
 fn create_test_project_config() -> ProjectLspConfig {
@@ -266,11 +266,7 @@ async fn test_server_running_check() {
 
     // No server should be running initially
     assert!(!manager.is_server_running("project", Language::Rust).await);
-    assert!(
-        !manager
-            .is_server_running("project", Language::Python)
-            .await
-    );
+    assert!(!manager.is_server_running("project", Language::Python).await);
     assert!(
         !manager
             .is_server_running("project", Language::TypeScript)

@@ -57,11 +57,7 @@ impl DisambiguationPathComputer {
         }
 
         for path in paths {
-            let others: Vec<_> = paths
-                .iter()
-                .filter(|p| *p != path)
-                .cloned()
-                .collect();
+            let others: Vec<_> = paths.iter().filter(|p| *p != path).cloned().collect();
 
             let disambig = Self::compute(path, &others);
             result.insert(path.clone(), disambig);

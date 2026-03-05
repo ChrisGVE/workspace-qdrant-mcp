@@ -6,8 +6,8 @@
 mod graph_helpers;
 
 use graph_helpers::{
-    build_rust_file_chunks, build_rust_main_chunks, build_typescript_chunks,
-    create_factory_store, ingest_file_chunks, TENANT,
+    build_rust_file_chunks, build_rust_main_chunks, build_typescript_chunks, create_factory_store,
+    ingest_file_chunks, TENANT,
 };
 use tempfile::tempdir;
 use workspace_qdrant_core::graph::algorithms::{self, CommunityConfig, PageRankConfig};
@@ -110,13 +110,7 @@ async fn test_community_detection_on_extracted_graph() {
         "src/processor.rs",
     )
     .await;
-    ingest_file_chunks(
-        &store,
-        &build_typescript_chunks(),
-        TENANT,
-        "src/App.tsx",
-    )
-    .await;
+    ingest_file_chunks(&store, &build_typescript_chunks(), TENANT, "src/App.tsx").await;
 
     let guard = store.read().await;
     let pool = guard.pool();

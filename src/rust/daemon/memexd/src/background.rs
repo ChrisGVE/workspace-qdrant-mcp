@@ -12,12 +12,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::{
-    MetricsServer, METRICS,
-    poll_pause_state,
-    metrics_history,
-    processing_timings,
-    check_remote_url_changes,
-    check_git_state_changes,
+    check_git_state_changes, check_remote_url_changes, metrics_history, poll_pause_state,
+    processing_timings, MetricsServer, METRICS,
 };
 
 /// Handles for all background tasks so the orchestrator can abort them on shutdown.
@@ -69,8 +65,7 @@ pub fn start_pause_polling(
             interval.tick().await;
             match poll_pause_state(&pool, &pause_flag).await {
                 Ok(true) => {
-                    let is_paused =
-                        pause_flag.load(std::sync::atomic::Ordering::SeqCst);
+                    let is_paused = pause_flag.load(std::sync::atomic::Ordering::SeqCst);
                     info!(
                         "Pause state changed via DB: watchers are now {}",
                         if is_paused { "PAUSED" } else { "ACTIVE" }
@@ -172,10 +167,8 @@ pub fn start_inactivity_timeout(pool: SqlitePool) -> JoinHandle<()> {
         .unwrap_or(43200);
 
     let handle = tokio::spawn(async move {
-        let state_mgr =
-            workspace_qdrant_core::daemon_state::DaemonStateManager::with_pool(pool);
-        let mut interval =
-            tokio::time::interval(tokio::time::Duration::from_secs(300)); // every 5 min
+        let state_mgr = workspace_qdrant_core::daemon_state::DaemonStateManager::with_pool(pool);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300)); // every 5 min
         loop {
             interval.tick().await;
             match state_mgr
@@ -190,8 +183,7 @@ pub fn start_inactivity_timeout(pool: SqlitePool) -> JoinHandle<()> {
     });
     info!(
         "Inactivity timeout polling started (5min interval, {}s timeout)",
-        std::env::var("WQM_INACTIVITY_TIMEOUT_SECS")
-            .unwrap_or_else(|_| "43200".to_string())
+        std::env::var("WQM_INACTIVITY_TIMEOUT_SECS").unwrap_or_else(|_| "43200".to_string())
     );
     handle
 }

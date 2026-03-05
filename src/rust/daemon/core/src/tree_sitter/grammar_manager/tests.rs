@@ -11,8 +11,7 @@ fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {
         required: vec!["rust".to_string(), "python".to_string()],
         auto_download,
         tree_sitter_version: "0.24".to_string(),
-        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}"
-            .to_string(),
+        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}".to_string(),
         verify_checksums: false,
         lazy_loading: true,
         check_interval_hours: 168, // Weekly
@@ -93,19 +92,13 @@ fn test_grammar_status_not_cached() {
     let manager = GrammarManager::new(config);
 
     // With auto_download, uncached grammars should need download
-    assert_eq!(
-        manager.grammar_status("rust"),
-        GrammarStatus::NeedsDownload
-    );
+    assert_eq!(manager.grammar_status("rust"), GrammarStatus::NeedsDownload);
 
     // Without auto_download, uncached grammars should be unavailable
     let temp_dir2 = TempDir::new().unwrap();
     let config2 = test_config(&temp_dir2, false);
     let manager2 = GrammarManager::new(config2);
-    assert_eq!(
-        manager2.grammar_status("rust"),
-        GrammarStatus::NotAvailable
-    );
+    assert_eq!(manager2.grammar_status("rust"), GrammarStatus::NotAvailable);
 }
 
 #[test]
@@ -350,13 +343,8 @@ fn test_needs_periodic_check_recent_metadata() {
         cache_paths.create_directories(lang).unwrap();
         std::fs::write(cache_paths.grammar_path(lang), "fake").unwrap();
 
-        let mut metadata = GrammarMetadata::new(
-            *lang,
-            "0.24",
-            "0.24.0",
-            &cache_paths.platform,
-            "checksum",
-        );
+        let mut metadata =
+            GrammarMetadata::new(*lang, "0.24", "0.24.0", &cache_paths.platform, "checksum");
         metadata.mark_checked();
         cache_paths.save_metadata(lang, &metadata).unwrap();
     }

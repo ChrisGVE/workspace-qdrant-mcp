@@ -21,8 +21,7 @@ use clap::{Args, Subcommand};
 // These were public in the original single-file module.
 #[allow(unused_imports)]
 pub use formatters::{
-    QueueDetailItem, QueueListItem, QueueListItemVerbose, QueueStatsSummary,
-    StatusBreakdown,
+    QueueDetailItem, QueueListItem, QueueListItemVerbose, QueueStatsSummary, StatusBreakdown,
 };
 
 /// Queue command arguments
@@ -160,8 +159,8 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             verbose,
         } => {
             list::execute(
-                status, collection, item_type, limit, offset, &order_by, desc,
-                json, script, no_headers, verbose,
+                status, collection, item_type, limit, offset, &order_by, desc, json, script,
+                no_headers, verbose,
             )
             .await
         }
@@ -173,9 +172,7 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             by_collection,
         } => stats::execute(json, by_type, by_op, by_collection).await,
         QueueCommand::Retry { queue_id, all } => retry::execute(queue_id, all).await,
-        QueueCommand::Clean { days, status, yes } => {
-            clean::execute(days, status, yes).await
-        }
+        QueueCommand::Clean { days, status, yes } => clean::execute(days, status, yes).await,
         QueueCommand::Remove { queue_id } => remove::execute(&queue_id).await,
     }
 }

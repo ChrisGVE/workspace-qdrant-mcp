@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::time::{Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
-use sysinfo::{System, Pid};
+use sysinfo::{Pid, System};
 
 use super::config::TelemetryConfig;
 
@@ -68,8 +68,7 @@ impl Default for TelemetrySnapshot {
 }
 
 /// Statistics for file watching operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WatchingStats {
     pub events_received: u64,
     pub events_processed: u64,
@@ -197,7 +196,9 @@ impl TelemetryTracker {
         self.system.refresh_process(self.pid);
 
         let cpu_usage_percent = if config.cpu_usage {
-            self.system.process(self.pid).map(|process| process.cpu_usage() as f64)
+            self.system
+                .process(self.pid)
+                .map(|process| process.cpu_usage() as f64)
         } else {
             None
         };
@@ -205,7 +206,8 @@ impl TelemetryTracker {
         let (memory_rss_mb, memory_heap_mb) = if config.memory_usage {
             if let Some(process) = self.system.process(self.pid) {
                 let rss_mb = process.memory() as f64 / 1024.0 / 1024.0;
-                let heap_mb = (process.virtual_memory() - process.memory()) as f64 / 1024.0 / 1024.0;
+                let heap_mb =
+                    (process.virtual_memory() - process.memory()) as f64 / 1024.0 / 1024.0;
                 (Some(rss_mb), Some(heap_mb))
             } else {
                 (None, None)
@@ -229,7 +231,8 @@ impl TelemetryTracker {
 
         let (queue_depth_avg, queue_depth_max) = if config.queue_depth {
             let avg = if !self.queue_depth_samples.is_empty() {
-                self.queue_depth_samples.iter().sum::<usize>() as f64 / self.queue_depth_samples.len() as f64
+                self.queue_depth_samples.iter().sum::<usize>() as f64
+                    / self.queue_depth_samples.len() as f64
             } else {
                 0.0
             };

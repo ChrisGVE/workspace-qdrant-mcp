@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V10Migration;
 
@@ -20,10 +20,10 @@ impl Migration for V10Migration {
         use crate::file_classification::{classify_file_type, is_test_file};
         use std::path::Path;
 
-        let rows: Vec<(i64, String)> = sqlx::query_as(
-            "SELECT rowid, file_path FROM tracked_files WHERE file_type = 'test'"
-        )
-        .fetch_all(pool).await?;
+        let rows: Vec<(i64, String)> =
+            sqlx::query_as("SELECT rowid, file_path FROM tracked_files WHERE file_type = 'test'")
+                .fetch_all(pool)
+                .await?;
 
         if rows.is_empty() {
             info!("No stale file_type='test' rows found");
@@ -34,12 +34,13 @@ impl Migration for V10Migration {
                 let file_type = classify_file_type(path);
                 let is_test = is_test_file(path);
                 sqlx::query(
-                    "UPDATE tracked_files SET file_type = ?1, is_test = ?2 WHERE rowid = ?3"
+                    "UPDATE tracked_files SET file_type = ?1, is_test = ?2 WHERE rowid = ?3",
                 )
                 .bind(file_type.as_str())
                 .bind(is_test as i32)
                 .bind(rowid)
-                .execute(pool).await?;
+                .execute(pool)
+                .await?;
             }
             info!("Reclassification complete");
         }
@@ -48,6 +49,10 @@ impl Migration for V10Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 10 }
-    fn description(&self) -> &'static str { "Fix stale file_type=test rows" }
+    fn version(&self) -> i32 {
+        10
+    }
+    fn description(&self) -> &'static str {
+        "Fix stale file_type=test rows"
+    }
 }

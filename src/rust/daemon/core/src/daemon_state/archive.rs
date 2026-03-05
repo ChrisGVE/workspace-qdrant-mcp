@@ -140,11 +140,9 @@ impl DaemonStateManager {
                 continue;
             }
 
-            let other_refs = self.count_active_submodule_references(
-                remote_hash,
-                git_remote_url,
-                parent_watch_id,
-            ).await?;
+            let other_refs = self
+                .count_active_submodule_references(remote_hash, git_remote_url, parent_watch_id)
+                .await?;
 
             if other_refs > 0 {
                 info!(

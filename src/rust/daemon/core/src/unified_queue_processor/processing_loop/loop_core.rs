@@ -1,8 +1,8 @@
 //! Main processing loop and memory pressure check for the unified queue processor.
 
+use chrono::{Duration as ChronoDuration, Utc};
 use std::sync::Arc;
 use std::time::Duration;
-use chrono::{Duration as ChronoDuration, Utc};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -10,17 +10,19 @@ use tracing::{debug, error, info, warn};
 use crate::adaptive_resources::ResourceProfile;
 use crate::allowed_extensions::AllowedExtensions;
 use crate::fairness_scheduler::FairnessScheduler;
+use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
 use crate::queue_health::QueueProcessorHealth;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
+use crate::storage::StorageClient;
 use crate::tree_sitter::GrammarManager;
 use crate::unified_queue_schema::{ItemType, QueueOperation, QueueStatus};
 use crate::{DocumentProcessor, EmbeddingGenerator};
-use crate::storage::StorageClient;
-use crate::lexicon::LexiconManager;
 
-use crate::unified_queue_processor::config::{UnifiedProcessingMetrics, UnifiedProcessorConfig, WarmupState};
+use crate::unified_queue_processor::config::{
+    UnifiedProcessingMetrics, UnifiedProcessorConfig, WarmupState,
+};
 use crate::unified_queue_processor::error::UnifiedProcessorResult;
 use crate::unified_queue_processor::UnifiedQueueProcessor;
 
@@ -92,7 +94,9 @@ impl UnifiedQueueProcessor {
             // Log warmup transition and adjust embedding semaphore (Task 577, Task 578)
             if !warmup_logged && !warmup_state.is_in_warmup() {
                 // Add permits to embedding semaphore to reach normal limit (Task 578)
-                let permits_to_add = config.max_concurrent_embeddings.saturating_sub(config.warmup_max_concurrent_embeddings);
+                let permits_to_add = config
+                    .max_concurrent_embeddings
+                    .saturating_sub(config.warmup_max_concurrent_embeddings);
                 if permits_to_add > 0 {
                     embedding_semaphore.add_permits(permits_to_add);
                 }
@@ -122,11 +126,15 @@ impl UnifiedQueueProcessor {
 
                     // Only adjust after warmup is complete
                     if warmup_logged {
-                        let current_target = adaptive_target_permits.unwrap_or(config.max_concurrent_embeddings);
+                        let current_target =
+                            adaptive_target_permits.unwrap_or(config.max_concurrent_embeddings);
                         if target > current_target {
                             let permits_to_add = target - current_target;
                             embedding_semaphore.add_permits(permits_to_add);
-                            debug!("Adaptive: added {} semaphore permits (target: {})", permits_to_add, target);
+                            debug!(
+                                "Adaptive: added {} semaphore permits (target: {})",
+                                permits_to_add, target
+                            );
                         }
                         // Note: tokio::sync::Semaphore doesn't support shrinking permits.
                         // When scaling down, in-flight operations keep their permits and
@@ -144,7 +152,10 @@ impl UnifiedQueueProcessor {
 
             // Check memory pressure before dequeuing (Task 504)
             if Self::check_memory_pressure(config.max_memory_percent).await {
-                info!("Memory pressure detected (>{}%), pausing processing for 5s", config.max_memory_percent);
+                info!(
+                    "Memory pressure detected (>{}%), pausing processing for 5s",
+                    config.max_memory_percent
+                );
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;
             }
@@ -175,7 +186,10 @@ impl UnifiedQueueProcessor {
                         // Run metadata uplift when queue is idle (Task 18)
                         let since_last = last_uplift_attempt.elapsed().as_secs();
                         if since_last >= uplift_config.min_interval_secs {
-                            debug!("Queue idle — running metadata uplift pass (gen={})", uplift_config.current_generation);
+                            debug!(
+                                "Queue idle — running metadata uplift pass (gen={})",
+                                uplift_config.current_generation
+                            );
                             let collections = vec!["projects".to_string(), "libraries".to_string()];
                             let stats = crate::metadata_uplift::run_uplift_pass(
                                 &storage_client,
@@ -232,7 +246,10 @@ impl UnifiedQueueProcessor {
                             }
                         }
 
-                        debug!("Unified queue is empty, waiting {}ms", config.poll_interval_ms);
+                        debug!(
+                            "Unified queue is empty, waiting {}ms",
+                            config.poll_interval_ms
+                        );
                         tokio::time::sleep(poll_interval).await;
                         continue;
                     }
@@ -240,7 +257,10 @@ impl UnifiedQueueProcessor {
                     // Queue has items — reset idle tracker
                     idle_since = None;
 
-                    info!("Dequeued {} unified queue items for processing", items.len());
+                    info!(
+                        "Dequeued {} unified queue items for processing",
+                        items.len()
+                    );
 
                     // Check shutdown signal before processing batch
                     if cancellation_token.is_cancelled() {
@@ -298,11 +318,13 @@ impl UnifiedQueueProcessor {
                                     .unwrap_or(QueueStatus::Done);
 
                                 if overall == QueueStatus::Done {
-                                    if let Err(e) = queue_manager
-                                        .delete_unified_item(&item.queue_id)
-                                        .await
+                                    if let Err(e) =
+                                        queue_manager.delete_unified_item(&item.queue_id).await
                                     {
-                                        error!("Failed to delete item {} from queue: {}", item.queue_id, e);
+                                        error!(
+                                            "Failed to delete item {} from queue: {}",
+                                            item.queue_id, e
+                                        );
                                     }
                                 } else {
                                     debug!(
@@ -315,7 +337,8 @@ impl UnifiedQueueProcessor {
                                     &metrics,
                                     &item_type_str,
                                     processing_time,
-                                ).await;
+                                )
+                                .await;
 
                                 if let Some(ref h) = queue_health {
                                     h.record_success(processing_time);
@@ -331,10 +354,15 @@ impl UnifiedQueueProcessor {
 
                                 // Task 12: Signal WatchManager to refresh after creating a new watch_folder.
                                 // This enables immediate file + git watcher startup for newly registered projects.
-                                if item.item_type == ItemType::Tenant && item.op == QueueOperation::Add {
+                                if item.item_type == ItemType::Tenant
+                                    && item.op == QueueOperation::Add
+                                {
                                     if let Some(ref signal) = watch_refresh_signal {
                                         signal.notify_one();
-                                        debug!("Signaled WatchManager refresh after Tenant/Add for {}", item.tenant_id);
+                                        debug!(
+                                            "Signaled WatchManager refresh after Tenant/Add for {}",
+                                            item.tenant_id
+                                        );
                                     }
                                 }
                             }
@@ -350,28 +378,40 @@ impl UnifiedQueueProcessor {
                                         "Item {} gone (type={:?}), removing from queue: {}",
                                         item.queue_id, item.item_type, e
                                     );
-                                    if let Err(del_err) = queue_manager
-                                        .delete_unified_item(&item.queue_id)
-                                        .await
+                                    if let Err(del_err) =
+                                        queue_manager.delete_unified_item(&item.queue_id).await
                                     {
-                                        error!("Failed to delete gone item {}: {}", item.queue_id, del_err);
+                                        error!(
+                                            "Failed to delete gone item {}: {}",
+                                            item.queue_id, del_err
+                                        );
                                     }
                                 } else {
                                     error!(
                                         error_category = error_category,
                                         permanent = is_permanent,
                                         "Failed to process unified item {} (type={:?}): {}",
-                                        item.queue_id, item.item_type, e
+                                        item.queue_id,
+                                        item.item_type,
+                                        e
                                     );
 
                                     // Mark item as failed (with exponential backoff for transient errors)
                                     // Prefix error message with category for observability
                                     let categorized_msg = format!("[{}] {}", error_category, e);
                                     if let Err(mark_err) = queue_manager
-                                        .mark_unified_failed(&item.queue_id, &categorized_msg, is_permanent, config.max_retries)
+                                        .mark_unified_failed(
+                                            &item.queue_id,
+                                            &categorized_msg,
+                                            is_permanent,
+                                            config.max_retries,
+                                        )
                                         .await
                                     {
-                                        error!("Failed to mark item {} as failed: {}", item.queue_id, mark_err);
+                                        error!(
+                                            "Failed to mark item {} as failed: {}",
+                                            item.queue_id, mark_err
+                                        );
                                     }
                                 }
 

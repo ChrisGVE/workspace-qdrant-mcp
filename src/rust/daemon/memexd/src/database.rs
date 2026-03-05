@@ -12,17 +12,13 @@ use sqlx::SqlitePool;
 use tracing::{info, warn};
 
 use workspace_qdrant_core::{
-    config::Config,
-    queue_config::QueueConnectionConfig,
-    SchemaManager,
+    config::Config, poll_pause_state, queue_config::QueueConnectionConfig, SchemaManager,
     SearchDbManager,
-    poll_pause_state,
 };
 
 /// Concrete graph store type used throughout the daemon.
-pub type ConcreteGraphStore = workspace_qdrant_core::graph::SharedGraphStore<
-    workspace_qdrant_core::graph::SqliteGraphStore,
->;
+pub type ConcreteGraphStore =
+    workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>;
 
 /// Result of database initialization containing all database handles.
 pub struct DatabaseHandles {
@@ -114,8 +110,7 @@ pub async fn init_graph_db(queue_pool: &SqlitePool) -> Option<ConcreteGraphStore
                 "Graph database initialized at version {}",
                 workspace_qdrant_core::graph::GRAPH_SCHEMA_VERSION
             );
-            let store =
-                workspace_qdrant_core::graph::SqliteGraphStore::new(manager.pool().clone());
+            let store = workspace_qdrant_core::graph::SqliteGraphStore::new(manager.pool().clone());
             Some(workspace_qdrant_core::graph::SharedGraphStore::new(store))
         }
         Err(e) => {

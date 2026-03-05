@@ -77,7 +77,9 @@ mod tests {
         };
 
         // Create semaphore as done in UnifiedQueueProcessor::new
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(
+            config.warmup_max_concurrent_embeddings,
+        ));
 
         // Should have exactly 1 permit available (warmup limit)
         assert_eq!(semaphore.available_permits(), 1);
@@ -100,11 +102,14 @@ mod tests {
         };
 
         // Start with warmup permits
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(
+            config.warmup_max_concurrent_embeddings,
+        ));
         assert_eq!(semaphore.available_permits(), 1);
 
         // Simulate warmup ending: add permits to reach normal limit
-        let permits_to_add = config.max_concurrent_embeddings - config.warmup_max_concurrent_embeddings;
+        let permits_to_add =
+            config.max_concurrent_embeddings - config.warmup_max_concurrent_embeddings;
         semaphore.add_permits(permits_to_add);
 
         // Should now have 3 total permits (normal limit)
@@ -181,7 +186,8 @@ mod tests {
         // Validates that the payload field is "document_id" (not "doc_id")
         // matching the validation contract in queue_operations.rs
         let item = make_delete_document_item(r#"{"document_id":"doc-abc-123"}"#);
-        let payload = item.parse_delete_document_payload()
+        let payload = item
+            .parse_delete_document_payload()
             .expect("Should parse with document_id key");
         assert_eq!(payload.document_id, "doc-abc-123");
     }
@@ -208,10 +214,10 @@ mod tests {
 
     #[test]
     fn test_delete_document_payload_with_point_ids() {
-        let item = make_delete_document_item(
-            r#"{"document_id":"doc-xyz","point_ids":["p1","p2"]}"#
-        );
-        let payload = item.parse_delete_document_payload()
+        let item =
+            make_delete_document_item(r#"{"document_id":"doc-xyz","point_ids":["p1","p2"]}"#);
+        let payload = item
+            .parse_delete_document_payload()
             .expect("Should parse with point_ids");
         assert_eq!(payload.document_id, "doc-xyz");
         assert_eq!(payload.point_ids.len(), 2);
@@ -233,7 +239,11 @@ mod tests {
         };
 
         add_lsp_enrichment_to_payload(&mut payload, &enrichment);
-        let status = payload.get("lsp_enrichment_status").unwrap().as_str().unwrap();
+        let status = payload
+            .get("lsp_enrichment_status")
+            .unwrap()
+            .as_str()
+            .unwrap();
         assert_eq!(status, "success", "lsp_enrichment_status must be lowercase");
 
         let mut payload2 = std::collections::HashMap::new();
@@ -247,36 +257,40 @@ mod tests {
         };
 
         add_lsp_enrichment_to_payload(&mut payload2, &enrichment2);
-        let status2 = payload2.get("lsp_enrichment_status").unwrap().as_str().unwrap();
+        let status2 = payload2
+            .get("lsp_enrichment_status")
+            .unwrap()
+            .as_str()
+            .unwrap();
         assert_eq!(status2, "failed", "lsp_enrichment_status must be lowercase");
     }
 
-
     #[test]
     fn test_file_chunk_tags_construction() {
-        use crate::DocumentType;
         use crate::file_classification::is_test_file;
+        use crate::DocumentType;
 
         // Simulate tag construction logic from process_file_item
-        let build_tags = |file_type: Option<&str>, doc_type: &DocumentType, file_path: &str| -> Vec<String> {
-            let mut tags = Vec::new();
-            if let Some(ft) = file_type {
-                tags.push(ft.to_lowercase());
-            }
-            if let Some(lang) = doc_type.language() {
-                tags.push(lang.to_string());
-            }
-            if let Some(ext) = std::path::Path::new(file_path)
-                .extension()
-                .and_then(|e| e.to_str())
-            {
-                tags.push(ext.to_lowercase());
-            }
-            if is_test_file(std::path::Path::new(file_path)) {
-                tags.push("test".to_string());
-            }
-            tags
-        };
+        let build_tags =
+            |file_type: Option<&str>, doc_type: &DocumentType, file_path: &str| -> Vec<String> {
+                let mut tags = Vec::new();
+                if let Some(ft) = file_type {
+                    tags.push(ft.to_lowercase());
+                }
+                if let Some(lang) = doc_type.language() {
+                    tags.push(lang.to_string());
+                }
+                if let Some(ext) = std::path::Path::new(file_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                {
+                    tags.push(ext.to_lowercase());
+                }
+                if is_test_file(std::path::Path::new(file_path)) {
+                    tags.push("test".to_string());
+                }
+                tags
+            };
 
         // Rust test file
         let tags = build_tags(
@@ -295,11 +309,7 @@ mod tests {
         assert_eq!(tags, vec!["code", "python", "py"]);
 
         // Markdown file (no language)
-        let tags = build_tags(
-            Some("docs"),
-            &DocumentType::Markdown,
-            "/project/README.md",
-        );
+        let tags = build_tags(Some("docs"), &DocumentType::Markdown, "/project/README.md");
         assert_eq!(tags, vec!["docs", "md"]);
 
         // File with uppercase extension
@@ -315,50 +325,85 @@ mod tests {
     fn test_classify_error_permanent_categories() {
         // FileNotFound -> permanent_gone
         let err = UnifiedProcessorError::FileNotFound("/missing.rs".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_gone");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "permanent_gone"
+        );
 
         // InvalidPayload -> permanent_data
         let err = UnifiedProcessorError::InvalidPayload("bad json".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_data");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "permanent_data"
+        );
 
         // QueueOperation with validation -> permanent_data
         let err = UnifiedProcessorError::QueueOperation("no watch_folder found".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_data");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "permanent_data"
+        );
 
         // ProcessingFailed with permission denied -> permanent_gone
         let err = UnifiedProcessorError::ProcessingFailed("Permission denied".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_gone");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "permanent_gone"
+        );
 
         // ProcessingFailed with unsupported -> permanent_data
         let err = UnifiedProcessorError::ProcessingFailed("Unsupported file format".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_data");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "permanent_data"
+        );
     }
 
     #[test]
     fn test_classify_error_transient_categories() {
         // Storage -> transient_infrastructure
         let err = UnifiedProcessorError::Storage("connection refused".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_infrastructure");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "transient_infrastructure"
+        );
 
         // Embedding -> transient_resource
         let err = UnifiedProcessorError::Embedding("out of memory".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_resource");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "transient_resource"
+        );
 
         // Generic ProcessingFailed -> transient_infrastructure
         let err = UnifiedProcessorError::ProcessingFailed("timeout".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_infrastructure");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "transient_infrastructure"
+        );
 
         // Generic QueueOperation -> transient_infrastructure
         let err = UnifiedProcessorError::QueueOperation("database locked".into());
-        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_infrastructure");
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "transient_infrastructure"
+        );
     }
 
     #[test]
     fn test_is_permanent_category() {
-        assert!(UnifiedQueueProcessor::is_permanent_category("permanent_gone"));
-        assert!(UnifiedQueueProcessor::is_permanent_category("permanent_data"));
-        assert!(!UnifiedQueueProcessor::is_permanent_category("transient_infrastructure"));
-        assert!(!UnifiedQueueProcessor::is_permanent_category("transient_resource"));
+        assert!(UnifiedQueueProcessor::is_permanent_category(
+            "permanent_gone"
+        ));
+        assert!(UnifiedQueueProcessor::is_permanent_category(
+            "permanent_data"
+        ));
+        assert!(!UnifiedQueueProcessor::is_permanent_category(
+            "transient_infrastructure"
+        ));
+        assert!(!UnifiedQueueProcessor::is_permanent_category(
+            "transient_resource"
+        ));
         assert!(!UnifiedQueueProcessor::is_permanent_category("partial"));
     }
 }

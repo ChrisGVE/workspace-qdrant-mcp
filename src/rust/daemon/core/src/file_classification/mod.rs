@@ -38,14 +38,23 @@ mod tests {
         assert_eq!(classify_file_type(Path::new("main.py")), FileType::Code);
         assert_eq!(classify_file_type(Path::new("lib.rs")), FileType::Code);
         assert_eq!(classify_file_type(Path::new("app.js")), FileType::Code);
-        assert_eq!(classify_file_type(Path::new("component.tsx")), FileType::Code);
+        assert_eq!(
+            classify_file_type(Path::new("component.tsx")),
+            FileType::Code
+        );
         assert_eq!(classify_file_type(Path::new("handler.go")), FileType::Code);
         assert_eq!(classify_file_type(Path::new("script.ps1")), FileType::Code);
         assert_eq!(classify_file_type(Path::new("module.d")), FileType::Code);
         assert_eq!(classify_file_type(Path::new("app.vue")), FileType::Code);
         assert_eq!(classify_file_type(Path::new("page.svelte")), FileType::Code);
-        assert_eq!(classify_file_type(Path::new("layout.astro")), FileType::Code);
-        assert_eq!(classify_file_type(Path::new("schema.proto")), FileType::Code);
+        assert_eq!(
+            classify_file_type(Path::new("layout.astro")),
+            FileType::Code
+        );
+        assert_eq!(
+            classify_file_type(Path::new("schema.proto")),
+            FileType::Code
+        );
         assert_eq!(classify_file_type(Path::new("main.zig")), FileType::Code);
         assert_eq!(classify_file_type(Path::new("app.dart")), FileType::Code);
     }
@@ -66,8 +75,14 @@ mod tests {
         assert_eq!(classify_file_type(Path::new("book.epub")), FileType::Docs);
         assert_eq!(classify_file_type(Path::new("report.docx")), FileType::Docs);
         assert_eq!(classify_file_type(Path::new("legacy.doc")), FileType::Docs);
-        assert_eq!(classify_file_type(Path::new("document.odt")), FileType::Docs);
-        assert_eq!(classify_file_type(Path::new("formatted.rtf")), FileType::Docs);
+        assert_eq!(
+            classify_file_type(Path::new("document.odt")),
+            FileType::Docs
+        );
+        assert_eq!(
+            classify_file_type(Path::new("formatted.rtf")),
+            FileType::Docs
+        );
         assert_eq!(classify_file_type(Path::new("notes.pages")), FileType::Docs);
         assert_eq!(classify_file_type(Path::new("book.mobi")), FileType::Docs);
     }
@@ -86,15 +101,30 @@ mod tests {
     #[test]
     fn test_slides_files() {
         assert_eq!(classify_file_type(Path::new("deck.pptx")), FileType::Slides);
-        assert_eq!(classify_file_type(Path::new("legacy.ppt")), FileType::Slides);
-        assert_eq!(classify_file_type(Path::new("presentation.key")), FileType::Slides);
-        assert_eq!(classify_file_type(Path::new("slides.odp")), FileType::Slides);
+        assert_eq!(
+            classify_file_type(Path::new("legacy.ppt")),
+            FileType::Slides
+        );
+        assert_eq!(
+            classify_file_type(Path::new("presentation.key")),
+            FileType::Slides
+        );
+        assert_eq!(
+            classify_file_type(Path::new("slides.odp")),
+            FileType::Slides
+        );
     }
 
     #[test]
     fn test_config_files() {
-        assert_eq!(classify_file_type(Path::new("config.yaml")), FileType::Config);
-        assert_eq!(classify_file_type(Path::new("settings.toml")), FileType::Config);
+        assert_eq!(
+            classify_file_type(Path::new("config.yaml")),
+            FileType::Config
+        );
+        assert_eq!(
+            classify_file_type(Path::new("settings.toml")),
+            FileType::Config
+        );
         assert_eq!(classify_file_type(Path::new(".env")), FileType::Config);
         assert_eq!(classify_file_type(Path::new("app.ini")), FileType::Config);
     }
@@ -117,23 +147,38 @@ mod tests {
     #[test]
     fn test_data_files() {
         assert_eq!(classify_file_type(Path::new("data.csv")), FileType::Data);
-        assert_eq!(classify_file_type(Path::new("export.parquet")), FileType::Data);
+        assert_eq!(
+            classify_file_type(Path::new("export.parquet")),
+            FileType::Data
+        );
         assert_eq!(classify_file_type(Path::new("db.sqlite")), FileType::Data);
         assert_eq!(classify_file_type(Path::new("array.npy")), FileType::Data);
     }
 
     #[test]
     fn test_build_files() {
-        assert_eq!(classify_file_type(Path::new("package.whl")), FileType::Build);
+        assert_eq!(
+            classify_file_type(Path::new("package.whl")),
+            FileType::Build
+        );
         assert_eq!(classify_file_type(Path::new("app.zip")), FileType::Build);
         assert_eq!(classify_file_type(Path::new("lib.so")), FileType::Build);
-        assert_eq!(classify_file_type(Path::new("archive.tar.gz")), FileType::Build);
-        assert_eq!(classify_file_type(Path::new("backup.tar.bz2")), FileType::Build);
+        assert_eq!(
+            classify_file_type(Path::new("archive.tar.gz")),
+            FileType::Build
+        );
+        assert_eq!(
+            classify_file_type(Path::new("backup.tar.bz2")),
+            FileType::Build
+        );
     }
 
     #[test]
     fn test_other_files() {
-        assert_eq!(classify_file_type(Path::new("unknown.xyz")), FileType::Other);
+        assert_eq!(
+            classify_file_type(Path::new("unknown.xyz")),
+            FileType::Other
+        );
         assert_eq!(classify_file_type(Path::new("data")), FileType::Other);
     }
 
@@ -166,7 +211,9 @@ mod tests {
 
         // Non-code files in test dirs are NOT tests
         assert!(!is_test_file(Path::new("/project/tests/fixture.txt")));
-        assert!(!is_test_file(Path::new("/project/__tests__/mock_data.json")));
+        assert!(!is_test_file(Path::new(
+            "/project/__tests__/mock_data.json"
+        )));
     }
 
     #[test]
@@ -179,9 +226,15 @@ mod tests {
     #[test]
     fn test_test_files_are_still_code() {
         // A test file should be classified as "code", not "test"
-        assert_eq!(classify_file_type(Path::new("test_main.py")), FileType::Code);
+        assert_eq!(
+            classify_file_type(Path::new("test_main.py")),
+            FileType::Code
+        );
         assert_eq!(classify_file_type(Path::new("app.test.js")), FileType::Code);
-        assert_eq!(classify_file_type(Path::new("component.spec.ts")), FileType::Code);
+        assert_eq!(
+            classify_file_type(Path::new("component.spec.ts")),
+            FileType::Code
+        );
 
         // But they should be detected by is_test_file
         assert!(is_test_file(Path::new("test_main.py")));
@@ -261,6 +314,9 @@ mod tests {
     fn test_compound_extension_classification() {
         // .d.ts files should be classified as code (TypeScript declarations)
         assert_eq!(classify_file_type(Path::new("types.d.ts")), FileType::Code);
-        assert_eq!(classify_file_type(Path::new("global.d.mts")), FileType::Code);
+        assert_eq!(
+            classify_file_type(Path::new("global.d.mts")),
+            FileType::Code
+        );
     }
 }

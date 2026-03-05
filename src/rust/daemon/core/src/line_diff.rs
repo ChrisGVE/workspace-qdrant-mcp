@@ -13,16 +13,13 @@
 //! Uses `imara_diff` with the Histogram algorithm for best performance
 //! on typical source code files.
 
-use imara_diff::{Algorithm, InternedInput, Diff};
+use imara_diff::{Algorithm, Diff, InternedInput};
 
 /// A single diff operation between old and new file content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffOp {
     /// Line is unchanged (exists at old_index in old, new_index in new).
-    Unchanged {
-        old_index: usize,
-        new_index: usize,
-    },
+    Unchanged { old_index: usize, new_index: usize },
     /// Line content changed (old_index in old replaced by new content at new_index).
     Changed {
         old_index: usize,
@@ -35,9 +32,7 @@ pub enum DiffOp {
         new_content: String,
     },
     /// Line was deleted (old_index in old, not present in new).
-    Deleted {
-        old_index: usize,
-    },
+    Deleted { old_index: usize },
 }
 
 /// Result of computing a diff between two file contents.
@@ -54,27 +49,41 @@ pub struct DiffResult {
 impl DiffResult {
     /// Returns true if there are no changes.
     pub fn is_empty(&self) -> bool {
-        self.ops.iter().all(|op| matches!(op, DiffOp::Unchanged { .. }))
+        self.ops
+            .iter()
+            .all(|op| matches!(op, DiffOp::Unchanged { .. }))
     }
 
     /// Count the number of changed lines (inserts + deletes + changes).
     pub fn change_count(&self) -> usize {
-        self.ops.iter().filter(|op| !matches!(op, DiffOp::Unchanged { .. })).count()
+        self.ops
+            .iter()
+            .filter(|op| !matches!(op, DiffOp::Unchanged { .. }))
+            .count()
     }
 
     /// Count inserted lines.
     pub fn insert_count(&self) -> usize {
-        self.ops.iter().filter(|op| matches!(op, DiffOp::Inserted { .. })).count()
+        self.ops
+            .iter()
+            .filter(|op| matches!(op, DiffOp::Inserted { .. }))
+            .count()
     }
 
     /// Count deleted lines.
     pub fn delete_count(&self) -> usize {
-        self.ops.iter().filter(|op| matches!(op, DiffOp::Deleted { .. })).count()
+        self.ops
+            .iter()
+            .filter(|op| matches!(op, DiffOp::Deleted { .. }))
+            .count()
     }
 
     /// Count changed (modified) lines.
     pub fn modified_count(&self) -> usize {
-        self.ops.iter().filter(|op| matches!(op, DiffOp::Changed { .. })).count()
+        self.ops
+            .iter()
+            .filter(|op| matches!(op, DiffOp::Changed { .. }))
+            .count()
     }
 }
 
@@ -219,12 +228,28 @@ mod tests {
         assert_eq!(result.delete_count(), 0);
 
         // First and last lines unchanged
-        assert!(matches!(result.ops[0], DiffOp::Unchanged { old_index: 0, new_index: 0 }));
-        assert!(matches!(result.ops[2], DiffOp::Unchanged { old_index: 2, new_index: 2 }));
+        assert!(matches!(
+            result.ops[0],
+            DiffOp::Unchanged {
+                old_index: 0,
+                new_index: 0
+            }
+        ));
+        assert!(matches!(
+            result.ops[2],
+            DiffOp::Unchanged {
+                old_index: 2,
+                new_index: 2
+            }
+        ));
 
         // Middle line changed
         match &result.ops[1] {
-            DiffOp::Changed { old_index, new_index, new_content } => {
+            DiffOp::Changed {
+                old_index,
+                new_index,
+                new_content,
+            } => {
                 assert_eq!(*old_index, 1);
                 assert_eq!(*new_index, 1);
                 assert_eq!(new_content, "modified");
@@ -243,7 +268,10 @@ mod tests {
 
         let last = result.ops.last().unwrap();
         match last {
-            DiffOp::Inserted { new_index, new_content } => {
+            DiffOp::Inserted {
+                new_index,
+                new_content,
+            } => {
                 assert_eq!(*new_index, 2);
                 assert_eq!(new_content, "line3");
             }
@@ -261,7 +289,10 @@ mod tests {
 
         let first = &result.ops[0];
         match first {
-            DiffOp::Inserted { new_index, new_content } => {
+            DiffOp::Inserted {
+                new_index,
+                new_content,
+            } => {
                 assert_eq!(*new_index, 0);
                 assert_eq!(new_content, "line1");
             }
@@ -383,7 +414,9 @@ fn process(val: i32, extra: i32) {
     #[test]
     fn test_diff_performance_300_lines_1_change() {
         // Build a 300-line file, change 1 line
-        let lines: Vec<String> = (0..300).map(|i| format!("line {} content here", i)).collect();
+        let lines: Vec<String> = (0..300)
+            .map(|i| format!("line {} content here", i))
+            .collect();
         let old = lines.join("\n");
 
         let mut new_lines = lines.clone();
@@ -406,7 +439,9 @@ fn process(val: i32, extra: i32) {
 
     #[test]
     fn test_diff_performance_1000_lines() {
-        let lines: Vec<String> = (0..1000).map(|i| format!("line {} with some content", i)).collect();
+        let lines: Vec<String> = (0..1000)
+            .map(|i| format!("line {} with some content", i))
+            .collect();
         let old = lines.join("\n");
 
         // Change 10 scattered lines
@@ -435,17 +470,37 @@ fn process(val: i32, extra: i32) {
         let result = compute_line_diff(old, new);
 
         // Verify: unchanged + changed + deleted ops consume all old lines
-        let old_consumed: usize = result.ops.iter().filter(|op| {
-            matches!(op, DiffOp::Unchanged { .. } | DiffOp::Changed { .. } | DiffOp::Deleted { .. })
-        }).count();
+        let old_consumed: usize = result
+            .ops
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    DiffOp::Unchanged { .. } | DiffOp::Changed { .. } | DiffOp::Deleted { .. }
+                )
+            })
+            .count();
 
         // Verify: unchanged + changed + inserted ops consume all new lines
-        let new_consumed: usize = result.ops.iter().filter(|op| {
-            matches!(op, DiffOp::Unchanged { .. } | DiffOp::Changed { .. } | DiffOp::Inserted { .. })
-        }).count();
+        let new_consumed: usize = result
+            .ops
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    DiffOp::Unchanged { .. } | DiffOp::Changed { .. } | DiffOp::Inserted { .. }
+                )
+            })
+            .count();
 
-        assert_eq!(old_consumed, result.old_line_count, "All old lines should be accounted for");
-        assert_eq!(new_consumed, result.new_line_count, "All new lines should be accounted for");
+        assert_eq!(
+            old_consumed, result.old_line_count,
+            "All old lines should be accounted for"
+        );
+        assert_eq!(
+            new_consumed, result.new_line_count,
+            "All new lines should be accounted for"
+        );
     }
 
     #[test]

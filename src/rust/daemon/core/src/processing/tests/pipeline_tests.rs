@@ -21,31 +21,33 @@ async fn test_task_submission_and_execution() {
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let task_handle = submitter.submit_task(
-        TaskPriority::CliCommands,
-        TaskSource::CliCommand {
-            command: "test_command".to_string(),
-        },
-        TaskPayload::Generic {
-            operation: "test".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await.expect("Failed to submit task");
+    let task_handle = submitter
+        .submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "test_command".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "test".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await
+        .expect("Failed to submit task");
 
-    let result = timeout(Duration::from_secs(10), task_handle.wait()).await
+    let result = timeout(Duration::from_secs(10), task_handle.wait())
+        .await
         .expect("Task timed out")
         .expect("Task execution failed");
 
     match result {
-        TaskResult::Success { data, .. } => {
-            match data {
-                TaskResultData::Generic { message, .. } => {
-                    assert_eq!(message, "Completed operation: test");
-                }
-                _ => panic!("Expected Generic result data"),
+        TaskResult::Success { data, .. } => match data {
+            TaskResultData::Generic { message, .. } => {
+                assert_eq!(message, "Completed operation: test");
             }
-        }
+            _ => panic!("Expected Generic result data"),
+        },
         _ => panic!("Expected successful result, got: {:?}", result),
     }
 }
@@ -57,37 +59,45 @@ async fn test_priority_ordering() {
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let low_priority_task = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher {
-            folder_path: "/tmp".to_string(),
-        },
-        TaskPayload::Generic {
-            operation: "low_priority".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(1)),
-    ).await.expect("Failed to submit low priority task");
+    let low_priority_task = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "low_priority".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        )
+        .await
+        .expect("Failed to submit low priority task");
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    let high_priority_task = submitter.submit_task(
-        TaskPriority::McpRequests,
-        TaskSource::McpServer {
-            request_id: "test_request".to_string(),
-        },
-        TaskPayload::Generic {
-            operation: "high_priority".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(1)),
-    ).await.expect("Failed to submit high priority task");
+    let high_priority_task = submitter
+        .submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "test_request".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "high_priority".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        )
+        .await
+        .expect("Failed to submit high priority task");
 
-    let high_result = timeout(Duration::from_secs(5), high_priority_task.wait()).await
+    let high_result = timeout(Duration::from_secs(5), high_priority_task.wait())
+        .await
         .expect("High priority task timed out")
         .expect("High priority task failed");
 
-    let low_result = timeout(Duration::from_secs(5), low_priority_task.wait()).await
+    let low_result = timeout(Duration::from_secs(5), low_priority_task.wait())
+        .await
         .expect("Low priority task timed out")
         .expect("Low priority task failed");
 
@@ -118,19 +128,23 @@ async fn test_task_timeout() {
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let task_handle = submitter.submit_task(
-        TaskPriority::CliCommands,
-        TaskSource::CliCommand {
-            command: "timeout_test".to_string(),
-        },
-        TaskPayload::Generic {
-            operation: "slow_operation".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_millis(1)),
-    ).await.expect("Failed to submit task");
+    let task_handle = submitter
+        .submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "timeout_test".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "slow_operation".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_millis(1)),
+        )
+        .await
+        .expect("Failed to submit task");
 
-    let result = timeout(Duration::from_secs(2), task_handle.wait()).await
+    let result = timeout(Duration::from_secs(2), task_handle.wait())
+        .await
         .expect("Test timed out")
         .expect("Task execution failed");
 
@@ -149,24 +163,28 @@ async fn test_concurrent_task_execution() {
 
     let mut handles = Vec::new();
     for i in 0..5 {
-        let handle = submitter.submit_task(
-            TaskPriority::CliCommands,
-            TaskSource::CliCommand {
-                command: format!("task_{}", i),
-            },
-            TaskPayload::Generic {
-                operation: format!("concurrent_task_{}", i),
-                parameters: HashMap::new(),
-            },
-            Some(Duration::from_secs(2)),
-        ).await.expect("Failed to submit task");
+        let handle = submitter
+            .submit_task(
+                TaskPriority::CliCommands,
+                TaskSource::CliCommand {
+                    command: format!("task_{}", i),
+                },
+                TaskPayload::Generic {
+                    operation: format!("concurrent_task_{}", i),
+                    parameters: HashMap::new(),
+                },
+                Some(Duration::from_secs(2)),
+            )
+            .await
+            .expect("Failed to submit task");
 
         handles.push(handle);
     }
 
     let mut completed_count = 0;
     for handle in handles {
-        let result = timeout(Duration::from_secs(10), handle.wait()).await
+        let result = timeout(Duration::from_secs(10), handle.wait())
+            .await
             .expect("Task timed out")
             .expect("Task execution failed");
 
@@ -189,25 +207,35 @@ async fn test_pipeline_stats() {
     assert_eq!(initial_stats.queued_tasks, 0);
     assert_eq!(initial_stats.running_tasks, 0);
 
-    let _handle1 = submitter.submit_task(
-        TaskPriority::CliCommands,
-        TaskSource::CliCommand { command: "stats_test_1".to_string() },
-        TaskPayload::Generic {
-            operation: "stats_test_1".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await.expect("Failed to submit task 1");
+    let _handle1 = submitter
+        .submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "stats_test_1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "stats_test_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await
+        .expect("Failed to submit task 1");
 
-    let _handle2 = submitter.submit_task(
-        TaskPriority::CliCommands,
-        TaskSource::CliCommand { command: "stats_test_2".to_string() },
-        TaskPayload::Generic {
-            operation: "stats_test_2".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await.expect("Failed to submit task 2");
+    let _handle2 = submitter
+        .submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "stats_test_2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "stats_test_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await
+        .expect("Failed to submit task 2");
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -218,34 +246,42 @@ async fn test_pipeline_stats() {
 
 #[tokio::test]
 async fn test_priority_system_metrics() {
-    let queue_config = QueueConfigBuilder::new()
-        .for_mcp_server()
-        .build();
+    let queue_config = QueueConfigBuilder::new().for_mcp_server().build();
 
     let mut pipeline = Pipeline::with_queue_config(2, queue_config);
     let submitter = pipeline.task_submitter();
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let _handle1 = submitter.submit_task(
-        TaskPriority::McpRequests,
-        TaskSource::McpServer { request_id: "metrics_test_1".to_string() },
-        TaskPayload::Generic {
-            operation: "metrics_test".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(1)),
-    ).await.expect("Failed to submit MCP task");
+    let _handle1 = submitter
+        .submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "metrics_test_1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "metrics_test".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        )
+        .await
+        .expect("Failed to submit MCP task");
 
-    let _handle2 = submitter.submit_task(
-        TaskPriority::CliCommands,
-        TaskSource::CliCommand { command: "metrics_cli_test".to_string() },
-        TaskPayload::Generic {
-            operation: "cli_metrics_test".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(1)),
-    ).await.expect("Failed to submit CLI task");
+    let _handle2 = submitter
+        .submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "metrics_cli_test".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "cli_metrics_test".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        )
+        .await
+        .expect("Failed to submit CLI task");
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -260,8 +296,12 @@ async fn test_priority_system_metrics() {
     assert!(!prometheus_output.is_empty());
 
     let collector = pipeline.metrics_collector();
-    collector.record_task_completion(100, TaskPriority::McpRequests).await;
-    collector.record_preemption(TaskPriority::BackgroundWatching, 50, true).await;
+    collector
+        .record_task_completion(100, TaskPriority::McpRequests)
+        .await;
+    collector
+        .record_preemption(TaskPriority::BackgroundWatching, 50, true)
+        .await;
 
     let updated_metrics = pipeline.get_priority_system_metrics().await;
     assert!(updated_metrics.pipeline.tasks_completed >= metrics.pipeline.tasks_completed);
@@ -272,28 +312,28 @@ async fn test_checkpoint_metrics_integration() {
     let checkpoint_dir = std::env::temp_dir().join("test_checkpoint_metrics");
     let _ = std::fs::create_dir_all(&checkpoint_dir);
 
-    let mut pipeline = Pipeline::with_checkpoint_config(
-        2,
-        QueueConfig::default(),
-        Some(checkpoint_dir.clone()),
-    );
+    let mut pipeline =
+        Pipeline::with_checkpoint_config(2, QueueConfig::default(), Some(checkpoint_dir.clone()));
 
     pipeline.start().await.expect("Failed to start pipeline");
 
     let checkpoint_manager = pipeline.checkpoint_manager();
     let metrics_collector = pipeline.metrics_collector();
 
-    let checkpoint_id = checkpoint_manager.create_checkpoint(
-        Uuid::new_v4(),
-        TaskProgress::Generic {
-            progress_percentage: 50.0,
-            stage: "testing".to_string(),
-            metadata: HashMap::new(),
-        },
-        serde_json::json!({"test": "data"}),
-        vec![],
-        vec![],
-    ).await.expect("Failed to create checkpoint");
+    let checkpoint_id = checkpoint_manager
+        .create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 50.0,
+                stage: "testing".to_string(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({"test": "data"}),
+            vec![],
+            vec![],
+        )
+        .await
+        .expect("Failed to create checkpoint");
 
     metrics_collector.record_checkpoint_created();
 
@@ -301,7 +341,9 @@ async fn test_checkpoint_metrics_integration() {
     assert!(metrics.checkpoints.active_checkpoints > 0);
     assert!(metrics.checkpoints.checkpoints_created > 0);
 
-    checkpoint_manager.rollback_checkpoint(&checkpoint_id).await
+    checkpoint_manager
+        .rollback_checkpoint(&checkpoint_id)
+        .await
         .expect("Failed to rollback checkpoint");
 
     metrics_collector.record_rollback_executed();

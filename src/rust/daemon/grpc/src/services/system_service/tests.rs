@@ -1,16 +1,15 @@
 //! Tests for SystemService gRPC implementation
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use tonic::Request;
 use workspace_qdrant_core::QueueProcessorHealth;
 
 use crate::proto::{
-    system_service_server::SystemService,
-    RefreshSignalRequest, ServerStatusNotification,
-    ServiceStatus, QueueType, ServerState,
+    system_service_server::SystemService, QueueType, RefreshSignalRequest, ServerState,
+    ServerStatusNotification, ServiceStatus,
 };
 
 use super::service_impl::SystemServiceImpl;
@@ -40,7 +39,10 @@ async fn test_service_with_queue_health() {
     let response = service.health(Request::new(())).await.unwrap();
     let health_response = response.into_inner();
     assert!(health_response.components.len() >= 2);
-    assert!(health_response.components.iter().any(|c| c.component_name == "queue_processor"));
+    assert!(health_response
+        .components
+        .iter()
+        .any(|c| c.component_name == "queue_processor"));
 }
 
 #[tokio::test]
@@ -112,7 +114,10 @@ async fn test_metrics_include_queue_metrics() {
     let pending = metrics.iter().find(|m| m.name == "queue_pending").unwrap();
     assert_eq!(pending.value, 10.0);
 
-    let running = metrics.iter().find(|m| m.name == "queue_processor_running").unwrap();
+    let running = metrics
+        .iter()
+        .find(|m| m.name == "queue_processor_running")
+        .unwrap();
     assert_eq!(running.value, 1.0);
 }
 
@@ -143,7 +148,9 @@ async fn test_health_status_degraded_on_high_errors() {
     let response = service.health(Request::new(())).await.unwrap();
     let health_response = response.into_inner();
 
-    let queue_comp = health_response.components.iter()
+    let queue_comp = health_response
+        .components
+        .iter()
         .find(|c| c.component_name == "queue_processor")
         .unwrap();
     assert_eq!(queue_comp.status, ServiceStatus::Degraded as i32);
@@ -158,7 +165,9 @@ async fn test_health_status_unhealthy_when_not_running() {
     let response = service.health(Request::new(())).await.unwrap();
     let health_response = response.into_inner();
 
-    let queue_comp = health_response.components.iter()
+    let queue_comp = health_response
+        .components
+        .iter()
         .find(|c| c.component_name == "queue_processor")
         .unwrap();
     assert_eq!(queue_comp.status, ServiceStatus::Unhealthy as i32);
@@ -205,7 +214,9 @@ async fn test_notify_server_status_stores_entry() {
         project_root: Some("/tmp/test-project".to_string()),
     };
 
-    let response = service.notify_server_status(Request::new(notification)).await;
+    let response = service
+        .notify_server_status(Request::new(notification))
+        .await;
     assert!(response.is_ok());
 
     // Verify the entry was stored
@@ -227,7 +238,9 @@ async fn test_notify_server_status_transitions() {
         project_name: Some("my-app".to_string()),
         project_root: Some("/home/user/my-app".to_string()),
     };
-    let response = service.notify_server_status(Request::new(up_notification)).await;
+    let response = service
+        .notify_server_status(Request::new(up_notification))
+        .await;
     assert!(response.is_ok());
 
     // Then: DOWN
@@ -236,7 +249,9 @@ async fn test_notify_server_status_transitions() {
         project_name: Some("my-app".to_string()),
         project_root: Some("/home/user/my-app".to_string()),
     };
-    let response = service.notify_server_status(Request::new(down_notification)).await;
+    let response = service
+        .notify_server_status(Request::new(down_notification))
+        .await;
     assert!(response.is_ok());
 
     // Verify the final state is DOWN
@@ -254,7 +269,9 @@ async fn test_notify_server_status_uses_project_root_as_fallback_key() {
         project_name: None,
         project_root: Some("/tmp/fallback".to_string()),
     };
-    let response = service.notify_server_status(Request::new(notification)).await;
+    let response = service
+        .notify_server_status(Request::new(notification))
+        .await;
     assert!(response.is_ok());
 
     let store = service.status_store.read().await;
@@ -270,7 +287,9 @@ async fn test_notify_server_status_unknown_fallback() {
         project_name: None,
         project_root: None,
     };
-    let response = service.notify_server_status(Request::new(notification)).await;
+    let response = service
+        .notify_server_status(Request::new(notification))
+        .await;
     assert!(response.is_ok());
 
     let store = service.status_store.read().await;
@@ -334,8 +353,14 @@ async fn test_multiple_components_tracked_independently() {
         project_root: Some("/tmp/b".to_string()),
     };
 
-    service.notify_server_status(Request::new(notification1)).await.unwrap();
-    service.notify_server_status(Request::new(notification2)).await.unwrap();
+    service
+        .notify_server_status(Request::new(notification1))
+        .await
+        .unwrap();
+    service
+        .notify_server_status(Request::new(notification2))
+        .await
+        .unwrap();
 
     let store = service.status_store.read().await;
     assert_eq!(store.len(), 2);

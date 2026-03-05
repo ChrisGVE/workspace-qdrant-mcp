@@ -10,9 +10,7 @@
 
 use tempfile::TempDir;
 
-use workspace_qdrant_core::fts_batch_processor::{
-    FileChange, FtsBatchConfig, FtsBatchProcessor,
-};
+use workspace_qdrant_core::fts_batch_processor::{FileChange, FtsBatchConfig, FtsBatchProcessor};
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::text_search::{search_exact, SearchOptions};
 
@@ -36,7 +34,16 @@ async fn test_crlf_content_indexable_and_searchable() {
     let content = "fn main() {\r\n    println!(\"hello\");\r\n}\r\n";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/main.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/main.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -94,7 +101,10 @@ async fn test_crlf_diff_update_works() {
     let old = search_exact(&db, "old_code", &SearchOptions::default())
         .await
         .unwrap();
-    assert!(old.matches.is_empty(), "old_code should be gone after update");
+    assert!(
+        old.matches.is_empty(),
+        "old_code should be gone after update"
+    );
 
     let new = search_exact(&db, "new_code", &SearchOptions::default())
         .await
@@ -111,7 +121,16 @@ async fn test_mixed_line_endings_crlf_and_lf() {
     let content = "line_one\r\nline_two\nline_three\r\nline_four\n";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/mixed.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/mixed.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -141,14 +160,32 @@ async fn test_trailing_newline_vs_no_trailing() {
     // Without trailing newline: split('\n') gives ["line1", "line2"]
     let no_trailing = "trailing_test_a\ntrailing_test_b";
     processor
-        .full_rewrite(1, no_trailing, "proj1", Some("main"), "src/no_trail.rs", None, None, None)
+        .full_rewrite(
+            1,
+            no_trailing,
+            "proj1",
+            Some("main"),
+            "src/no_trail.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
     // With trailing newline: split('\n') gives ["line1", "line2", ""]
     let with_trailing = "trailing_test_c\ntrailing_test_d\n";
     processor
-        .full_rewrite(2, with_trailing, "proj1", Some("main"), "src/with_trail.rs", None, None, None)
+        .full_rewrite(
+            2,
+            with_trailing,
+            "proj1",
+            Some("main"),
+            "src/with_trail.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -183,7 +220,16 @@ async fn test_very_long_line_indexed_and_searchable() {
     let content = format!("fn main() {{\n    {}\n}}", long_line);
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/long.rs", None, None, None)
+        .full_rewrite(
+            1,
+            &content,
+            "proj1",
+            Some("main"),
+            "src/long.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -214,7 +260,16 @@ async fn test_multiple_long_lines_searchable() {
     let content = lines.join("\n");
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/multilong.rs", None, None, None)
+        .full_rewrite(
+            1,
+            &content,
+            "proj1",
+            Some("main"),
+            "src/multilong.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -249,7 +304,16 @@ async fn test_whitespace_only_file() {
     let content = "   \n\t\t\n  \n   \t   \n";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/whitespace.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/whitespace.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -266,7 +330,16 @@ async fn test_single_space_file() {
     let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     processor
-        .full_rewrite(1, " ", "proj1", Some("main"), "src/space.rs", None, None, None)
+        .full_rewrite(
+            1,
+            " ",
+            "proj1",
+            Some("main"),
+            "src/space.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -300,7 +373,16 @@ async fn test_sparse_content_with_many_blank_lines() {
     let content = lines.join("\n");
 
     processor
-        .full_rewrite(1, &content, "proj1", Some("main"), "src/sparse.rs", None, None, None)
+        .full_rewrite(
+            1,
+            &content,
+            "proj1",
+            Some("main"),
+            "src/sparse.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 

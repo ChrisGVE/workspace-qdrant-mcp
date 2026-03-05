@@ -93,7 +93,12 @@ async fn insert_edge(pool: &SqlitePool, tenant: &str, src: &str, tgt: &str, etyp
 
 /// Build a diamond graph: A -> B, A -> C, B -> D, C -> D
 async fn build_diamond(pool: &SqlitePool) {
-    for (id, name) in &[("a", "alpha"), ("b", "beta"), ("c", "gamma"), ("d", "delta")] {
+    for (id, name) in &[
+        ("a", "alpha"),
+        ("b", "beta"),
+        ("c", "gamma"),
+        ("d", "delta"),
+    ] {
         insert_node(pool, "t1", id, name, "function").await;
     }
     insert_edge(pool, "t1", "a", "b", "CALLS").await;
@@ -116,7 +121,14 @@ async fn build_chain(pool: &SqlitePool) {
 /// Build two clusters: {A,B,C} densely connected, {D,E,F} densely connected,
 /// with one bridge B->D.
 async fn build_two_clusters(pool: &SqlitePool) {
-    for (id, name) in &[("a", "a"), ("b", "b"), ("c", "c"), ("d", "d"), ("e", "e"), ("f", "f")] {
+    for (id, name) in &[
+        ("a", "a"),
+        ("b", "b"),
+        ("c", "c"),
+        ("d", "d"),
+        ("e", "e"),
+        ("f", "f"),
+    ] {
         insert_node(pool, "t1", id, name, "function").await;
     }
     // Cluster 1: a-b-c fully connected
@@ -244,7 +256,9 @@ async fn test_pagerank_edge_type_filter() {
 async fn test_communities_empty() {
     let pool = setup_graph_pool().await;
     let config = CommunityConfig::default();
-    let communities = detect_communities(&pool, "t1", &config, None).await.unwrap();
+    let communities = detect_communities(&pool, "t1", &config, None)
+        .await
+        .unwrap();
     assert!(communities.is_empty());
 }
 
@@ -253,7 +267,14 @@ async fn test_communities_two_disconnected_clusters() {
     let pool = setup_graph_pool().await;
 
     // Two disconnected clusters: {a,b,c} and {d,e,f}
-    for (id, name) in &[("a", "a"), ("b", "b"), ("c", "c"), ("d", "d"), ("e", "e"), ("f", "f")] {
+    for (id, name) in &[
+        ("a", "a"),
+        ("b", "b"),
+        ("c", "c"),
+        ("d", "d"),
+        ("e", "e"),
+        ("f", "f"),
+    ] {
         insert_node(&pool, "t1", id, name, "function").await;
     }
     // Cluster 1
@@ -269,11 +290,14 @@ async fn test_communities_two_disconnected_clusters() {
         max_iterations: 100,
         min_community_size: 2,
     };
-    let communities = detect_communities(&pool, "t1", &config, None).await.unwrap();
+    let communities = detect_communities(&pool, "t1", &config, None)
+        .await
+        .unwrap();
 
     // Should detect exactly 2 communities
     assert_eq!(
-        communities.len(), 2,
+        communities.len(),
+        2,
         "Expected 2 disconnected communities, got {}",
         communities.len()
     );
@@ -296,7 +320,9 @@ async fn test_communities_fully_connected() {
     insert_edge(&pool, "t1", "c", "a", "CALLS").await;
 
     let config = CommunityConfig::default();
-    let communities = detect_communities(&pool, "t1", &config, None).await.unwrap();
+    let communities = detect_communities(&pool, "t1", &config, None)
+        .await
+        .unwrap();
 
     assert_eq!(communities.len(), 1);
     assert_eq!(communities[0].members.len(), 3);
@@ -316,7 +342,9 @@ async fn test_communities_min_size_filter() {
         min_community_size: 2,
         ..Default::default()
     };
-    let communities = detect_communities(&pool, "t1", &config, None).await.unwrap();
+    let communities = detect_communities(&pool, "t1", &config, None)
+        .await
+        .unwrap();
 
     // Only the {a, b} community should pass the filter
     assert_eq!(communities.len(), 1);
@@ -334,7 +362,9 @@ async fn test_communities_sorted_by_size() {
     insert_edge(&pool, "t1", "g", "a", "CALLS").await;
 
     let config = CommunityConfig::default();
-    let communities = detect_communities(&pool, "t1", &config, None).await.unwrap();
+    let communities = detect_communities(&pool, "t1", &config, None)
+        .await
+        .unwrap();
 
     if communities.len() >= 2 {
         assert!(
@@ -461,7 +491,9 @@ async fn test_load_adjacency_filtered() {
     insert_edge(&pool, "t1", "a", "b", "IMPORTS").await;
 
     // Filter to CALLS only
-    let graph = load_adjacency_graph(&pool, "t1", Some(&["CALLS"])).await.unwrap();
+    let graph = load_adjacency_graph(&pool, "t1", Some(&["CALLS"]))
+        .await
+        .unwrap();
     let out = graph.outgoing.get("a").unwrap();
     assert_eq!(out.len(), 1); // only the CALLS edge
 }

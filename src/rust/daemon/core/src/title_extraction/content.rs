@@ -4,9 +4,9 @@
 //! HTML `<title>` / `<h1>` tags, Markdown YAML frontmatter / `#` headings,
 //! and first-line detection for plain text.
 
-use regex::Regex;
-use super::metadata::extract_xml_element_text;
 use super::is_placeholder_title;
+use super::metadata::extract_xml_element_text;
+use regex::Regex;
 
 /// Extract title from document content using heuristics.
 pub fn extract_title_from_content(text: &str, source_format: &str) -> Option<String> {
@@ -31,7 +31,8 @@ pub fn extract_html_title(text: &str) -> Option<String> {
     }
 
     // Try og:title meta tag
-    let re = Regex::new(r#"<meta\s+(?:property|name)=["']og:title["']\s+content=["']([^"']+)["']"#).ok()?;
+    let re = Regex::new(r#"<meta\s+(?:property|name)=["']og:title["']\s+content=["']([^"']+)["']"#)
+        .ok()?;
     if let Some(caps) = re.captures(text) {
         let title = caps[1].trim().to_string();
         if !title.is_empty() && !is_placeholder_title(&title) {
@@ -167,7 +168,8 @@ mod tests {
 
     #[test]
     fn test_html_og_title() {
-        let text = r#"<html><head><meta property="og:title" content="Open Graph Title"></head></html>"#;
+        let text =
+            r#"<html><head><meta property="og:title" content="Open Graph Title"></head></html>"#;
         let result = extract_html_title(text);
         assert_eq!(result, Some("Open Graph Title".to_string()));
     }

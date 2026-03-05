@@ -5,8 +5,8 @@
 
 use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool};
-use wqm_common::timestamps;
 use tracing::{debug, warn};
+use wqm_common::timestamps;
 
 use crate::metrics_history_schema::{AggregationPeriod, MetricEntry};
 
@@ -57,21 +57,23 @@ pub async fn write_snapshot(pool: &SqlitePool) -> MetricsHistoryResult<usize> {
     let now = Utc::now();
     let mut entries = Vec::new();
 
+    entries.push(MetricEntry::new("uptime_seconds", snapshot.uptime_seconds).with_timestamp(now));
     entries.push(
-        MetricEntry::new("uptime_seconds", snapshot.uptime_seconds)
-            .with_timestamp(now),
+        MetricEntry::new("active_sessions", snapshot.active_sessions as f64).with_timestamp(now),
     );
     entries.push(
-        MetricEntry::new("active_sessions", snapshot.active_sessions as f64)
-            .with_timestamp(now),
+        MetricEntry::new(
+            "total_sessions_lifetime",
+            snapshot.total_sessions_lifetime as f64,
+        )
+        .with_timestamp(now),
     );
     entries.push(
-        MetricEntry::new("total_sessions_lifetime", snapshot.total_sessions_lifetime as f64)
-            .with_timestamp(now),
-    );
-    entries.push(
-        MetricEntry::new("total_items_processed", snapshot.total_items_processed as f64)
-            .with_timestamp(now),
+        MetricEntry::new(
+            "total_items_processed",
+            snapshot.total_items_processed as f64,
+        )
+        .with_timestamp(now),
     );
 
     for (priority, depth) in &snapshot.queue_depths {
@@ -202,8 +204,8 @@ pub async fn query_metrics(
             });
 
         let agg_str: String = row.get("aggregation_period");
-        let aggregation_period = AggregationPeriod::from_str(&agg_str)
-            .unwrap_or(AggregationPeriod::Raw);
+        let aggregation_period =
+            AggregationPeriod::from_str(&agg_str).unwrap_or(AggregationPeriod::Raw);
 
         results.push(MetricEntry {
             metric_id: Some(row.get("metric_id")),
@@ -274,13 +276,12 @@ pub async fn cleanup_old_metrics(
     period: AggregationPeriod,
     before: DateTime<Utc>,
 ) -> MetricsHistoryResult<u64> {
-    let result = sqlx::query(
-        "DELETE FROM metrics_history WHERE aggregation_period = ?1 AND timestamp < ?2"
-    )
-    .bind(period.as_str())
-    .bind(timestamps::format_utc(&before))
-    .execute(pool)
-    .await?;
+    let result =
+        sqlx::query("DELETE FROM metrics_history WHERE aggregation_period = ?1 AND timestamp < ?2")
+            .bind(period.as_str())
+            .bind(timestamps::format_utc(&before))
+            .execute(pool)
+            .await?;
 
     let deleted = result.rows_affected();
     if deleted > 0 {
@@ -291,11 +292,10 @@ pub async fn cleanup_old_metrics(
 
 /// Get distinct metric names in the history table
 pub async fn get_available_metrics(pool: &SqlitePool) -> MetricsHistoryResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT metric_name FROM metrics_history ORDER BY metric_name"
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT DISTINCT metric_name FROM metrics_history ORDER BY metric_name")
+            .fetch_all(pool)
+            .await?;
 
     Ok(rows.into_iter().map(|(name,)| name).collect())
 }

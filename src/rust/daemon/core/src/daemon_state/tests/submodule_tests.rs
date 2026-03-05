@@ -48,25 +48,43 @@ async fn test_submodule_archive_safety_shared_submodule() {
     manager.store_watch_folder(&sub_b).await.unwrap();
 
     // Archive project A -- submodule S1 should be SKIPPED (project B still active)
-    let (archived, skipped) = manager.archive_project_with_submodules("project-a").await.unwrap();
+    let (archived, skipped) = manager
+        .archive_project_with_submodules("project-a")
+        .await
+        .unwrap();
     assert_eq!(archived.len(), 0);
     assert_eq!(skipped.len(), 1);
     assert_eq!(skipped[0], "sub-s1-under-a");
 
     // Verify parent A is archived but submodule under A stays active
-    let a = manager.get_watch_folder("project-a").await.unwrap().unwrap();
+    let a = manager
+        .get_watch_folder("project-a")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(a.is_archived);
-    let sa = manager.get_watch_folder("sub-s1-under-a").await.unwrap().unwrap();
+    let sa = manager
+        .get_watch_folder("sub-s1-under-a")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!sa.is_archived);
     assert_eq!(sa.parent_watch_id.as_deref(), Some("project-a"));
 
     // Archive project B -- now submodule S1 should also be archived
-    let (archived, skipped) = manager.archive_project_with_submodules("project-b").await.unwrap();
+    let (archived, skipped) = manager
+        .archive_project_with_submodules("project-b")
+        .await
+        .unwrap();
     assert_eq!(archived.len(), 1);
     assert_eq!(archived[0], "sub-s1-under-b");
     assert_eq!(skipped.len(), 0);
 
-    let sb = manager.get_watch_folder("sub-s1-under-b").await.unwrap().unwrap();
+    let sb = manager
+        .get_watch_folder("sub-s1-under-b")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(sb.is_archived);
     assert_eq!(sb.parent_watch_id.as_deref(), Some("project-b"));
 }
@@ -99,10 +117,16 @@ async fn test_get_submodules_for_project() {
         manager.store_watch_folder(&sub).await.unwrap();
     }
 
-    let subs = manager.get_submodules_for_project("parent-001").await.unwrap();
+    let subs = manager
+        .get_submodules_for_project("parent-001")
+        .await
+        .unwrap();
     assert_eq!(subs.len(), 2);
 
     // No submodules for unknown parent
-    let empty = manager.get_submodules_for_project("nonexistent").await.unwrap();
+    let empty = manager
+        .get_submodules_for_project("nonexistent")
+        .await
+        .unwrap();
     assert!(empty.is_empty());
 }

@@ -92,7 +92,9 @@ fn test_get_static_language() {
 
 #[test]
 fn test_parser_creation_new() {
-    let Some(_) = get_language("rust") else { return };
+    let Some(_) = get_language("rust") else {
+        return;
+    };
     let parser = TreeSitterParser::new("rust");
     assert!(parser.is_ok());
     let parser = parser.unwrap();
@@ -104,7 +106,9 @@ fn test_parser_creation_new() {
 
 #[test]
 fn test_parser_creation_with_language() {
-    let Some(language) = get_static_language("rust") else { return };
+    let Some(language) = get_static_language("rust") else {
+        return;
+    };
     let parser = TreeSitterParser::with_language("rust", language);
     assert!(parser.is_ok());
     let parser = parser.unwrap();
@@ -126,7 +130,9 @@ fn test_parser_creation_with_provider() {
 
 #[test]
 fn test_parser_creation_with_fallback() {
-    let Some(_) = get_language("rust") else { return };
+    let Some(_) = get_language("rust") else {
+        return;
+    };
     // Static language should work without fallback
     let parser = TreeSitterParser::with_fallback("rust", None);
     assert!(parser.is_ok());
@@ -143,7 +149,9 @@ fn test_parser_creation_with_fallback() {
 
 #[test]
 fn test_parser_language_accessor() {
-    let Some(_) = get_language("rust") else { return };
+    let Some(_) = get_language("rust") else {
+        return;
+    };
     let parser = TreeSitterParser::new("rust").unwrap();
     let language = parser.language();
     // Language should be valid (can create a parser from it)
@@ -153,7 +161,9 @@ fn test_parser_language_accessor() {
 
 #[test]
 fn test_parser_reset() {
-    let Some(_) = get_language("rust") else { return };
+    let Some(_) = get_language("rust") else {
+        return;
+    };
     let mut parser = TreeSitterParser::new("rust").unwrap();
     let source = "fn test() {}";
     let _ = parser.parse(source);
@@ -167,7 +177,9 @@ fn test_parser_reset() {
 
 #[test]
 fn test_parse_rust() {
-    let Some(_) = get_language("rust") else { return };
+    let Some(_) = get_language("rust") else {
+        return;
+    };
     let mut parser = TreeSitterParser::new("rust").unwrap();
     let source = r#"
 fn hello() {
@@ -184,7 +196,9 @@ fn hello() {
 
 #[test]
 fn test_parse_python() {
-    let Some(_) = get_language("python") else { return };
+    let Some(_) = get_language("python") else {
+        return;
+    };
     let mut parser = TreeSitterParser::new("python").unwrap();
     let source = r#"
 def hello():
@@ -200,7 +214,9 @@ def hello():
 
 #[test]
 fn test_parse_javascript() {
-    let Some(_) = get_language("javascript") else { return };
+    let Some(_) = get_language("javascript") else {
+        return;
+    };
     let mut parser = TreeSitterParser::new("javascript").unwrap();
     let source = r#"
 function hello() {
@@ -213,7 +229,9 @@ function hello() {
 
 #[test]
 fn test_parse_typescript() {
-    let Some(_) = get_language("typescript") else { return };
+    let Some(_) = get_language("typescript") else {
+        return;
+    };
     let mut parser = TreeSitterParser::new("typescript").unwrap();
     let source = r#"
 function hello(): void {
@@ -241,7 +259,9 @@ func hello() {
 
 #[test]
 fn test_parse_java() {
-    let Some(_) = get_language("java") else { return };
+    let Some(_) = get_language("java") else {
+        return;
+    };
     let mut parser = TreeSitterParser::new("java").unwrap();
     let source = r#"
 public class Hello {
@@ -288,7 +308,9 @@ int main() {
 
 #[test]
 fn test_parse_incremental() {
-    let Some(_) = get_language("rust") else { return };
+    let Some(_) = get_language("rust") else {
+        return;
+    };
     let mut parser = TreeSitterParser::new("rust").unwrap();
     let source_v1 = "fn foo() { 1 }";
     let tree_v1 = parser.parse(source_v1).unwrap();

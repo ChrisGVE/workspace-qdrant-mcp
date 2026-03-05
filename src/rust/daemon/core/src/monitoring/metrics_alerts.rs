@@ -21,11 +21,20 @@ pub enum AlertType {
     /// Queue depth exceeds threshold (Task 412.15)
     HighQueueDepth { depth: i64, threshold: i64 },
     /// Orphaned session detected (Task 412.16)
-    OrphanedSession { project_id: String, last_heartbeat_secs: f64 },
+    OrphanedSession {
+        project_id: String,
+        last_heartbeat_secs: f64,
+    },
     /// Error rate exceeds threshold (Task 412.17)
-    HighErrorRate { error_rate_percent: f64, threshold_percent: f64 },
+    HighErrorRate {
+        error_rate_percent: f64,
+        threshold_percent: f64,
+    },
     /// Search latency exceeds threshold (Task 412.18)
-    SlowSearches { p95_latency_ms: f64, threshold_ms: f64 },
+    SlowSearches {
+        p95_latency_ms: f64,
+        threshold_ms: f64,
+    },
 }
 
 /// Alert structure
@@ -205,10 +214,7 @@ pub fn create_orphaned_session_alert(
 /// Check for slow searches (Task 412.18)
 ///
 /// This function should be called by the search handler with p95 latency data.
-pub fn create_slow_search_alert(
-    p95_latency_ms: f64,
-    threshold_ms: f64,
-) -> Option<Alert> {
+pub fn create_slow_search_alert(p95_latency_ms: f64, threshold_ms: f64) -> Option<Alert> {
     if p95_latency_ms > threshold_ms {
         let severity = if p95_latency_ms > threshold_ms * 2.0 {
             AlertSeverity::Critical

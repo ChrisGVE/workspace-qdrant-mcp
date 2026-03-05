@@ -1,5 +1,4 @@
 /// CLIP encoder error types.
-
 use thiserror::Error;
 
 #[derive(Error, Debug)]

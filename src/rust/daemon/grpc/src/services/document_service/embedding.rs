@@ -3,14 +3,14 @@
 //! Manages the global FastEmbed model, LRU embedding cache, and BM25 sparse
 //! vector generation. All global state is lazily initialized and thread-safe.
 
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use lru::LruCache;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
@@ -76,17 +76,20 @@ pub(crate) fn init_embedding_model() -> Result<(), Status> {
     EMBEDDING_MODEL.get_or_init(|| {
         info!("Initializing FastEmbed model (all-MiniLM-L6-v2)...");
         let model = TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-                .with_show_download_progress(true)
-        ).expect("Failed to initialize FastEmbed model");
+            InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(true),
+        )
+        .expect("Failed to initialize FastEmbed model");
         info!("FastEmbed model initialized successfully");
         TokioMutex::new(model)
     });
 
     EMBEDDING_CACHE.get_or_init(|| {
-        let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE)
-            .expect("Cache size must be non-zero");
-        info!("Initializing embedding cache with {} entries", DEFAULT_CACHE_SIZE);
+        let cache_size =
+            NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
+        info!(
+            "Initializing embedding cache with {} entries",
+            DEFAULT_CACHE_SIZE
+        );
         TokioMutex::new(LruCache::new(cache_size))
     });
 
@@ -115,7 +118,8 @@ pub(crate) fn tokenize(text: &str) -> Vec<String> {
 pub(crate) async fn generate_sparse_vector(text: &str) -> Result<HashMap<u32, f32>, Status> {
     init_embedding_model()?;
 
-    let bm25 = BM25_MODEL.get()
+    let bm25 = BM25_MODEL
+        .get()
         .ok_or_else(|| Status::internal("BM25 model not initialized"))?;
 
     let tokens = tokenize(text);
@@ -132,12 +136,17 @@ pub(crate) async fn generate_sparse_vector(text: &str) -> Result<HashMap<u32, f3
 
         let sparse = bm25_guard.generate_sparse_vector(&tokens);
 
-        sparse.indices.into_iter()
+        sparse
+            .indices
+            .into_iter()
             .zip(sparse.values.into_iter())
             .collect()
     };
 
-    debug!("Generated sparse vector with {} non-zero entries", sparse_map.len());
+    debug!(
+        "Generated sparse vector with {} non-zero entries",
+        sparse_map.len()
+    );
     Ok(sparse_map)
 }
 
@@ -159,7 +168,8 @@ pub(crate) async fn generate_embedding(text: &str) -> Result<Vec<f32>, Status> {
 
     CACHE_METRICS.misses.fetch_add(1, Ordering::Relaxed);
 
-    let model = EMBEDDING_MODEL.get()
+    let model = EMBEDDING_MODEL
+        .get()
         .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
 
     let text_owned = text.to_string();
@@ -174,13 +184,16 @@ pub(crate) async fn generate_embedding(text: &str) -> Result<Vec<f32>, Status> {
                 if embeddings.is_empty() {
                     return Err(Status::internal("FastEmbed returned empty embeddings"));
                 }
-                embeddings.into_iter().next()
+                embeddings
+                    .into_iter()
+                    .next()
                     .ok_or_else(|| Status::internal("FastEmbed returned no embeddings"))?
             }
             Err(e) => {
                 error!("FastEmbed embedding generation failed: {:?}", e);
                 return Err(Status::internal(format!(
-                    "Embedding generation failed: {}", e
+                    "Embedding generation failed: {}",
+                    e
                 )));
             }
         }
@@ -189,7 +202,8 @@ pub(crate) async fn generate_embedding(text: &str) -> Result<Vec<f32>, Status> {
     if embedding.len() != DEFAULT_VECTOR_SIZE as usize {
         warn!(
             "Embedding dimension mismatch: expected {}, got {}",
-            DEFAULT_VECTOR_SIZE, embedding.len()
+            DEFAULT_VECTOR_SIZE,
+            embedding.len()
         );
     }
 
@@ -201,7 +215,10 @@ pub(crate) async fn generate_embedding(text: &str) -> Result<Vec<f32>, Status> {
         cache_guard.put(hash, embedding.clone());
     }
 
-    debug!("Generated {}-dimensional embedding (cached)", embedding.len());
+    debug!(
+        "Generated {}-dimensional embedding (cached)",
+        embedding.len()
+    );
     Ok(embedding)
 }
 
@@ -260,22 +277,35 @@ mod tests {
     #[tokio::test]
     async fn test_generate_embedding() {
         let text = "Test text for embedding";
-        let embedding = generate_embedding(text).await
+        let embedding = generate_embedding(text)
+            .await
             .expect("Failed to generate embedding");
 
         assert_eq!(embedding.len(), DEFAULT_VECTOR_SIZE as usize);
         assert!(embedding.iter().all(|&x| x.is_finite()));
 
         let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((magnitude - 1.0).abs() < 0.1, "Embedding not normalized: {}", magnitude);
+        assert!(
+            (magnitude - 1.0).abs() < 0.1,
+            "Embedding not normalized: {}",
+            magnitude
+        );
 
-        let embedding2 = generate_embedding(text).await
+        let embedding2 = generate_embedding(text)
+            .await
             .expect("Failed to generate second embedding");
-        assert_eq!(embedding, embedding2, "Same text should produce same embedding");
+        assert_eq!(
+            embedding, embedding2,
+            "Same text should produce same embedding"
+        );
 
-        let different_embedding = generate_embedding("Different text for comparison").await
+        let different_embedding = generate_embedding("Different text for comparison")
+            .await
             .expect("Failed to generate different embedding");
-        assert_ne!(embedding, different_embedding, "Different text should produce different embedding");
+        assert_ne!(
+            embedding, different_embedding,
+            "Different text should produce different embedding"
+        );
     }
 
     #[tokio::test]
@@ -285,41 +315,60 @@ mod tests {
         CACHE_METRICS.evictions.store(0, Ordering::Relaxed);
 
         let text = "Text for cache testing";
-        let embedding1 = generate_embedding(text).await
+        let embedding1 = generate_embedding(text)
+            .await
             .expect("Failed to generate embedding");
 
-        let embedding2 = generate_embedding(text).await
+        let embedding2 = generate_embedding(text)
+            .await
             .expect("Failed to generate cached embedding");
 
-        assert_eq!(embedding1, embedding2, "Cached embedding should match original");
+        assert_eq!(
+            embedding1, embedding2,
+            "Cached embedding should match original"
+        );
 
         let (hits, misses, _evictions, _hit_rate) = get_cache_metrics();
-        assert!(misses >= 1, "Expected at least 1 cache miss, got {}", misses);
+        assert!(
+            misses >= 1,
+            "Expected at least 1 cache miss, got {}",
+            misses
+        );
         assert!(hits >= 1, "Expected at least 1 cache hit, got {}", hits);
 
-        let _embedding3 = generate_embedding("Different unique text").await
+        let _embedding3 = generate_embedding("Different unique text")
+            .await
             .expect("Failed to generate different embedding");
 
         let (_hits2, misses2, _, _) = get_cache_metrics();
-        assert!(misses2 > misses, "Expected additional cache miss for different text");
+        assert!(
+            misses2 > misses,
+            "Expected additional cache miss for different text"
+        );
     }
 
     #[tokio::test]
     async fn test_generate_sparse_vector() {
         let doc1 = "machine learning algorithms for natural language processing";
-        let _sparse1 = generate_sparse_vector(doc1).await
+        let _sparse1 = generate_sparse_vector(doc1)
+            .await
             .expect("Failed to add first document");
 
         let doc2 = "deep learning neural networks for image classification";
-        let sparse2 = generate_sparse_vector(doc2).await
+        let sparse2 = generate_sparse_vector(doc2)
+            .await
             .expect("Failed to generate sparse vector");
 
         let doc3 = "reinforcement learning algorithms for robotics control";
-        let sparse3 = generate_sparse_vector(doc3).await
+        let sparse3 = generate_sparse_vector(doc3)
+            .await
             .expect("Failed to generate third sparse vector");
 
         if !sparse2.is_empty() && !sparse3.is_empty() {
-            assert_ne!(sparse2, sparse3, "Different documents should produce different sparse vectors");
+            assert_ne!(
+                sparse2, sparse3,
+                "Different documents should produce different sparse vectors"
+            );
         }
 
         for &value in sparse2.values() {
@@ -332,12 +381,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_sparse_vector_empty_input() {
-        let sparse_vector = generate_sparse_vector("").await
+        let sparse_vector = generate_sparse_vector("")
+            .await
             .expect("Failed with empty input");
-        assert!(sparse_vector.is_empty(), "Empty text should produce empty sparse vector");
+        assert!(
+            sparse_vector.is_empty(),
+            "Empty text should produce empty sparse vector"
+        );
 
-        let stopword_only = generate_sparse_vector("the and is a").await
+        let stopword_only = generate_sparse_vector("the and is a")
+            .await
             .expect("Failed with stopwords only");
-        assert!(stopword_only.is_empty(), "Stopwords-only text should produce empty sparse vector");
+        assert!(
+            stopword_only.is_empty(),
+            "Stopwords-only text should produce empty sparse vector"
+        );
     }
 }

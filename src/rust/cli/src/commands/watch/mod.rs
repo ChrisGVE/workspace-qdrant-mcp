@@ -117,7 +117,19 @@ pub async fn execute(args: WatchArgs) -> Result<()> {
             no_headers,
             verbose,
             show_archived,
-        } => list::list(enabled, disabled, collection, json, script, no_headers, verbose, show_archived).await,
+        } => {
+            list::list(
+                enabled,
+                disabled,
+                collection,
+                json,
+                script,
+                no_headers,
+                verbose,
+                show_archived,
+            )
+            .await
+        }
         WatchCommand::Enable { watch_id } => enable_disable::enable(&watch_id).await,
         WatchCommand::Disable { watch_id } => enable_disable::disable(&watch_id).await,
         WatchCommand::Show { watch_id, json } => show::show(&watch_id, json).await,

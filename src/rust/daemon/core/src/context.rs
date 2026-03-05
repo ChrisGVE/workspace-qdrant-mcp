@@ -3,16 +3,16 @@
 //! Replaces the 11+ argument function signatures in `unified_queue_processor.rs`
 //! with a single struct that carries all shared state.
 
-use std::sync::Arc;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tokio::sync::{RwLock, Semaphore};
 
 use std::collections::HashMap;
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::component_detection::ComponentMap;
-use crate::embedding::EmbeddingGenerator;
 use crate::document_processor::DocumentProcessor;
+use crate::embedding::EmbeddingGenerator;
 use crate::graph::{SharedGraphStore, SqliteGraphStore};
 use crate::keyword_extraction::cooccurrence_graph::CentralityCache;
 use crate::lexicon::LexiconManager;

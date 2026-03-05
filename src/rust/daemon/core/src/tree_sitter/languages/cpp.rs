@@ -34,20 +34,31 @@ impl CppExtractor {
     }
 
     /// Extract preamble (includes, using, namespace declarations at top).
-    fn extract_preamble(&self, root: &Node, source: &str, file_path: &str) -> Option<SemanticChunk> {
+    fn extract_preamble(
+        &self,
+        root: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Option<SemanticChunk> {
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
         let mut cursor = root.walk();
 
         for child in root.children(&mut cursor) {
             match child.kind() {
-                "preproc_include" | "preproc_def" | "preproc_ifdef" | "preproc_ifndef"
-                | "using_declaration" | "namespace_alias_definition" => {
+                "preproc_include"
+                | "preproc_def"
+                | "preproc_ifdef"
+                | "preproc_ifndef"
+                | "using_declaration"
+                | "namespace_alias_definition" => {
                     preamble_items.push(node_text(&child, source).to_string());
                     last_preamble_line = child.end_position().row + 1;
                 }
                 "comment" => {
-                    if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1 {
+                    if preamble_items.is_empty()
+                        || child.start_position().row <= last_preamble_line + 1
+                    {
                         preamble_items.push(node_text(&child, source).to_string());
                         last_preamble_line = child.end_position().row + 1;
                     }
@@ -123,13 +134,7 @@ impl CppExtractor {
         };
 
         let mut chunk = SemanticChunk::new(
-            chunk_type,
-            name,
-            content,
-            start_line,
-            end_line,
-            "cpp",
-            file_path,
+            chunk_type, name, content, start_line, end_line, "cpp", file_path,
         )
         .with_calls(calls);
 
@@ -354,7 +359,8 @@ impl ChunkExtractor for CppExtractor {
                     // Check for class/struct definitions
                     if let Some(class_spec) = find_child_by_kind(&child, "class_specifier") {
                         chunks.extend(self.extract_class(&class_spec, source, &file_path_str));
-                    } else if let Some(struct_spec) = find_child_by_kind(&child, "struct_specifier") {
+                    } else if let Some(struct_spec) = find_child_by_kind(&child, "struct_specifier")
+                    {
                         chunks.extend(self.extract_struct(&struct_spec, source, &file_path_str));
                     }
                 }

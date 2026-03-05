@@ -3,9 +3,9 @@
 use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use crate::output;
-use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
 use super::helpers::{open_db, signal_daemon_ingest_queue, DEFAULT_LIBRARY_PATTERNS};
+use crate::output;
+use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Rescan and re-ingest a library
 pub async fn execute(tag: &str, force: bool) -> Result<()> {
@@ -44,7 +44,8 @@ pub async fn execute(tag: &str, force: bool) -> Result<()> {
                 "folder_path": lib_path,
                 "recursive": true,
                 "patterns": DEFAULT_LIBRARY_PATTERNS,
-            }).to_string();
+            })
+            .to_string();
 
             match client.enqueue(
                 ItemType::Folder,

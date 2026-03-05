@@ -11,12 +11,12 @@
 //! - `project_manager_tests`: LanguageServerManager, enrichment, metrics
 
 #[cfg(test)]
-mod language_tests;
+mod communication_tests;
 #[cfg(test)]
 mod config_tests;
 #[cfg(test)]
 mod detection_tests;
 #[cfg(test)]
-mod communication_tests;
+mod language_tests;
 #[cfg(test)]
 mod project_manager_tests;

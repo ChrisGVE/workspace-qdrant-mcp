@@ -9,8 +9,8 @@ use criterion::black_box;
 
 use super::tester::FfiPerformanceTester;
 use super::types::{
-    AsyncOperationBenchmarks, ConcurrencyBenchmark, DataTransferBenchmark,
-    FunctionCallBenchmarks, MemoryCopyBenchmark,
+    AsyncOperationBenchmarks, ConcurrencyBenchmark, DataTransferBenchmark, FunctionCallBenchmarks,
+    MemoryCopyBenchmark,
 };
 
 impl FfiPerformanceTester {
@@ -135,9 +135,7 @@ impl FfiPerformanceTester {
         })
     }
 
-    pub(super) async fn benchmark_function_calls(
-        &self,
-    ) -> anyhow::Result<FunctionCallBenchmarks> {
+    pub(super) async fn benchmark_function_calls(&self) -> anyhow::Result<FunctionCallBenchmarks> {
         let simple_start = Instant::now();
         for _ in 0..self.config.measurement_iterations {
             black_box(simple_function());

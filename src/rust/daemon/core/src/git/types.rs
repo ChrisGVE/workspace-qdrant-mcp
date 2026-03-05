@@ -104,14 +104,18 @@ pub fn detect_git_status(project_root: &Path) -> GitStatus {
     let commit_hash = head.target().map(|oid| oid.to_string());
 
     let branch = if head.is_branch() {
-        head.shorthand()
-            .unwrap_or("HEAD")
-            .to_string()
+        head.shorthand().unwrap_or("HEAD").to_string()
     } else {
         // Detached HEAD -- use short SHA or "HEAD"
         commit_hash
             .as_ref()
-            .map(|h| if h.len() >= 8 { h[..8].to_string() } else { h.clone() })
+            .map(|h| {
+                if h.len() >= 8 {
+                    h[..8].to_string()
+                } else {
+                    h.clone()
+                }
+            })
             .unwrap_or_else(|| "HEAD".to_string())
     };
 
@@ -150,14 +154,7 @@ mod tests {
         };
         {
             let tree = repo.find_tree(tree_id)?;
-            repo.commit(
-                Some("HEAD"),
-                &sig,
-                &sig,
-                "Initial commit",
-                &tree,
-                &[],
-            )?;
+            repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
         }
 
         Ok(repo)

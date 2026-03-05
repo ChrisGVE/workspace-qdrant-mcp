@@ -2,12 +2,12 @@
 
 use tracing::{debug, info};
 
-use crate::line_diff::compute_line_diff;
 use crate::code_lines_schema::initial_seq;
-use crate::search_db::{SearchDbManager, SearchDbError};
+use crate::line_diff::compute_line_diff;
+use crate::search_db::{SearchDbError, SearchDbManager};
 
-use super::{BatchStats, FtsBatchConfig, FileChange};
 use super::diff_apply::apply_diff_to_code_lines;
+use super::{BatchStats, FileChange, FtsBatchConfig};
 
 /// Adaptive batch processor for FTS5 code_lines updates.
 ///
@@ -106,7 +106,8 @@ impl<'a> FtsBatchProcessor<'a> {
         let mut stats = BatchStats::default();
 
         // Phase 1: Compute all diffs upfront (CPU-bound, no DB)
-        let mut file_diffs: Vec<(FileChange, crate::line_diff::DiffResult)> = Vec::with_capacity(changes.len());
+        let mut file_diffs: Vec<(FileChange, crate::line_diff::DiffResult)> =
+            Vec::with_capacity(changes.len());
         for change in changes {
             let diff = compute_line_diff(&change.old_content, &change.new_content);
             file_diffs.push((change, diff));
@@ -116,13 +117,9 @@ impl<'a> FtsBatchProcessor<'a> {
         let mut tx = pool.begin().await?;
 
         for (change, diff) in &file_diffs {
-            let file_stats = apply_diff_to_code_lines(
-                &mut tx,
-                change.file_id,
-                diff,
-                &change.new_content,
-            )
-            .await?;
+            let file_stats =
+                apply_diff_to_code_lines(&mut tx, change.file_id, diff, &change.new_content)
+                    .await?;
 
             stats.lines_inserted += file_stats.lines_inserted;
             stats.lines_updated += file_stats.lines_updated;
@@ -178,13 +175,9 @@ impl<'a> FtsBatchProcessor<'a> {
             // Apply diff in a per-file transaction
             let mut tx = pool.begin().await?;
 
-            let file_stats = apply_diff_to_code_lines(
-                &mut tx,
-                change.file_id,
-                &diff,
-                &change.new_content,
-            )
-            .await?;
+            let file_stats =
+                apply_diff_to_code_lines(&mut tx, change.file_id, &diff, &change.new_content)
+                    .await?;
 
             // Upsert file_metadata
             sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
@@ -317,12 +310,11 @@ impl<'a> FtsBatchProcessor<'a> {
         let pool = self.search_db.pool();
 
         // Get all file_ids for the tenant from file_metadata
-        let file_ids: Vec<i64> = sqlx::query_scalar(
-            "SELECT file_id FROM file_metadata WHERE tenant_id = ?1",
-        )
-        .bind(tenant_id)
-        .fetch_all(pool)
-        .await?;
+        let file_ids: Vec<i64> =
+            sqlx::query_scalar("SELECT file_id FROM file_metadata WHERE tenant_id = ?1")
+                .bind(tenant_id)
+                .fetch_all(pool)
+                .await?;
 
         if file_ids.is_empty() {
             return Ok(0);

@@ -44,8 +44,7 @@ pub(crate) fn resolve_project_id_or_cwd_quiet(project: Option<&str>) -> Result<(
     }
 
     // Auto-detect from CWD
-    let cwd =
-        std::env::current_dir().context("Could not determine current directory")?;
+    let cwd = std::env::current_dir().context("Could not determine current directory")?;
 
     let db_path = crate::config::get_database_path_checked()
         .map_err(|e| anyhow::anyhow!("Database not found: {}", e))?;

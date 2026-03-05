@@ -5,10 +5,10 @@
 //!
 //! For restoration, use the separate 'restore' command.
 
-mod types;
 mod create;
-mod list;
 mod delete;
+mod list;
+mod types;
 
 use std::path::PathBuf;
 
@@ -16,8 +16,8 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use create::create_backup;
-use list::list_backups;
 use delete::delete_backup;
+use list::list_backups;
 
 /// Backup command arguments
 #[derive(Args)]
@@ -98,9 +98,13 @@ pub async fn execute(args: BackupArgs) -> Result<()> {
             description,
             json,
         } => create_backup(&collection, output, description, json).await,
-        BackupCommand::List { collection, verbose, json, script, no_headers } => {
-            list_backups(collection, verbose, json, script, no_headers).await
-        }
+        BackupCommand::List {
+            collection,
+            verbose,
+            json,
+            script,
+            no_headers,
+        } => list_backups(collection, verbose, json, script, no_headers).await,
         BackupCommand::Delete {
             snapshot,
             collection,

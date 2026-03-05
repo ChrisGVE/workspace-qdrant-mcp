@@ -14,8 +14,8 @@ use tracing::warn;
 
 use super::suite::CrossPlatformTestSuite;
 use super::types::{
-    PerformanceMetrics, PerformanceRegression, TestData, UnsafeBlockResult,
-    classify_regression_severity, dummy_function,
+    classify_regression_severity, dummy_function, PerformanceMetrics, PerformanceRegression,
+    TestData, UnsafeBlockResult,
 };
 
 impl CrossPlatformTestSuite {
@@ -254,9 +254,7 @@ impl CrossPlatformTestSuite {
         })
     }
 
-    pub(crate) async fn measure_current_performance(
-        &self,
-    ) -> anyhow::Result<PerformanceMetrics> {
+    pub(crate) async fn measure_current_performance(&self) -> anyhow::Result<PerformanceMetrics> {
         let start = Instant::now();
         let operations = 1000;
 
@@ -285,8 +283,7 @@ impl CrossPlatformTestSuite {
         let mut regressions = Vec::new();
 
         // Check throughput regression
-        let throughput_change = (baseline.throughput_ops_per_sec
-            - current.throughput_ops_per_sec)
+        let throughput_change = (baseline.throughput_ops_per_sec - current.throughput_ops_per_sec)
             / baseline.throughput_ops_per_sec
             * 100.0;
 
@@ -301,9 +298,8 @@ impl CrossPlatformTestSuite {
         }
 
         // Check latency regressions
-        let latency_change = (current.latency_p95_ms - baseline.latency_p95_ms)
-            / baseline.latency_p95_ms
-            * 100.0;
+        let latency_change =
+            (current.latency_p95_ms - baseline.latency_p95_ms) / baseline.latency_p95_ms * 100.0;
 
         if latency_change > 5.0 {
             regressions.push(PerformanceRegression {

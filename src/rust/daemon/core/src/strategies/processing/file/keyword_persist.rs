@@ -49,7 +49,14 @@ async fn persist_inner(
     delete_old_records(doc_id, &mut tx).await?;
     insert_keywords(doc_id, tenant_id, collection, &extraction.keywords, &mut tx).await?;
     insert_tags(doc_id, tenant_id, collection, &extraction.tags, &mut tx).await?;
-    insert_tags(doc_id, tenant_id, collection, &extraction.structural_tags, &mut tx).await?;
+    insert_tags(
+        doc_id,
+        tenant_id,
+        collection,
+        &extraction.structural_tags,
+        &mut tx,
+    )
+    .await?;
     insert_baskets(doc_id, tenant_id, &extraction.baskets, &mut tx).await?;
 
     tx.commit().await?;
@@ -155,13 +162,12 @@ async fn insert_baskets(
             None => continue, // skip misc basket (no parent tag)
         };
 
-        let tag_id: Option<i64> = sqlx::query_scalar(
-            "SELECT tag_id FROM tags WHERE doc_id = ?1 AND tag = ?2 LIMIT 1",
-        )
-        .bind(doc_id)
-        .bind(tag_name)
-        .fetch_optional(&mut **tx)
-        .await?;
+        let tag_id: Option<i64> =
+            sqlx::query_scalar("SELECT tag_id FROM tags WHERE doc_id = ?1 AND tag = ?2 LIMIT 1")
+                .bind(doc_id)
+                .bind(tag_name)
+                .fetch_optional(&mut **tx)
+                .await?;
 
         let tag_id = match tag_id {
             Some(id) => id,
@@ -169,8 +175,7 @@ async fn insert_baskets(
         };
 
         let kw_phrases: Vec<&str> = basket.keywords.iter().map(|k| k.phrase.as_str()).collect();
-        let keywords_json =
-            serde_json::to_string(&kw_phrases).unwrap_or_else(|_| "[]".to_string());
+        let keywords_json = serde_json::to_string(&kw_phrases).unwrap_or_else(|_| "[]".to_string());
 
         sqlx::query(
             "INSERT INTO keyword_baskets (tag_id, keywords_json, tenant_id) VALUES (?1, ?2, ?3)",
@@ -205,10 +210,12 @@ pub(super) async fn delete_extraction(pool: &SqlitePool, doc_id: &str) {
 
 async fn delete_inner(pool: &SqlitePool, doc_id: &str) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM keyword_baskets WHERE tag_id IN (SELECT tag_id FROM tags WHERE doc_id = ?1)")
-        .bind(doc_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "DELETE FROM keyword_baskets WHERE tag_id IN (SELECT tag_id FROM tags WHERE doc_id = ?1)",
+    )
+    .bind(doc_id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM tags WHERE doc_id = ?1")
         .bind(doc_id)
         .execute(&mut *tx)
@@ -279,44 +286,38 @@ mod tests {
                     ngram_size: 1,
                 },
             ],
-            tags: vec![
-                SelectedTag {
-                    phrase: "concurrency".into(),
-                    tag_type: TagType::Concept,
-                    score: 0.88,
-                    diversity_score: 0.95,
-                    semantic_score: 0.9,
-                    ngram_size: 1,
-                },
-            ],
-            structural_tags: vec![
-                SelectedTag {
-                    phrase: "lang:rust".into(),
-                    tag_type: TagType::Structural,
-                    score: 1.0,
-                    diversity_score: 1.0,
-                    semantic_score: 1.0,
-                    ngram_size: 1,
-                },
-            ],
-            baskets: vec![
-                KeywordBasket {
-                    tag: Some("concurrency".into()),
-                    tag_index: Some(0),
-                    keywords: vec![
-                        AssignedKeyword {
-                            phrase: "async runtime".into(),
-                            score: 0.85,
-                            similarity_to_tag: 0.78,
-                        },
-                        AssignedKeyword {
-                            phrase: "tokio".into(),
-                            score: 0.72,
-                            similarity_to_tag: 0.65,
-                        },
-                    ],
-                },
-            ],
+            tags: vec![SelectedTag {
+                phrase: "concurrency".into(),
+                tag_type: TagType::Concept,
+                score: 0.88,
+                diversity_score: 0.95,
+                semantic_score: 0.9,
+                ngram_size: 1,
+            }],
+            structural_tags: vec![SelectedTag {
+                phrase: "lang:rust".into(),
+                tag_type: TagType::Structural,
+                score: 1.0,
+                diversity_score: 1.0,
+                semantic_score: 1.0,
+                ngram_size: 1,
+            }],
+            baskets: vec![KeywordBasket {
+                tag: Some("concurrency".into()),
+                tag_index: Some(0),
+                keywords: vec![
+                    AssignedKeyword {
+                        phrase: "async runtime".into(),
+                        score: 0.85,
+                        similarity_to_tag: 0.78,
+                    },
+                    AssignedKeyword {
+                        phrase: "tokio".into(),
+                        score: 0.72,
+                        similarity_to_tag: 0.65,
+                    },
+                ],
+            }],
         }
     }
 
@@ -334,18 +335,16 @@ mod tests {
                 .unwrap();
         assert_eq!(kw_count, 2);
 
-        let tag_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE doc_id = 'doc-1'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let tag_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE doc_id = 'doc-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(tag_count, 2); // 1 concept + 1 structural
 
-        let basket_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM keyword_baskets")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let basket_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM keyword_baskets")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(basket_count, 1);
     }
 
@@ -381,18 +380,16 @@ mod tests {
                 .unwrap();
         assert_eq!(kw_count, 0);
 
-        let tag_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE doc_id = 'doc-1'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let tag_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE doc_id = 'doc-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(tag_count, 0);
 
-        let basket_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM keyword_baskets")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let basket_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM keyword_baskets")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(basket_count, 0);
     }
 
@@ -410,11 +407,10 @@ mod tests {
 
         persist_extraction(&pool, "doc-1", "tenant-1", "projects", &extraction).await;
 
-        let kw_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM keywords")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let kw_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM keywords")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(kw_count, 0);
     }
 
@@ -467,18 +463,16 @@ mod tests {
         persist_extraction(&pool, "doc-A", "tenant-A", "projects", &extraction).await;
         persist_extraction(&pool, "doc-B", "tenant-B", "projects", &extraction).await;
 
-        let count_a: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM keywords WHERE tenant_id = 'tenant-A'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let count_b: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM keywords WHERE tenant_id = 'tenant-B'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let count_a: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM keywords WHERE tenant_id = 'tenant-A'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let count_b: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM keywords WHERE tenant_id = 'tenant-B'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(count_a, 2);
         assert_eq!(count_b, 2);

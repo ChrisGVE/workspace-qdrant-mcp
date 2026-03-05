@@ -49,7 +49,12 @@ impl TypeScriptExtractor {
     }
 
     /// Extract preamble (imports, type imports).
-    fn extract_preamble(&self, root: &Node, source: &str, file_path: &str) -> Option<SemanticChunk> {
+    fn extract_preamble(
+        &self,
+        root: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Option<SemanticChunk> {
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
         let mut cursor = root.walk();
@@ -64,7 +69,9 @@ impl TypeScriptExtractor {
                     }
                 }
                 "comment" => {
-                    if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1 {
+                    if preamble_items.is_empty()
+                        || child.start_position().row <= last_preamble_line + 1
+                    {
                         preamble_items.push(node_text(&child, source).to_string());
                         last_preamble_line = child.end_position().row + 1;
                     }
@@ -176,7 +183,12 @@ impl TypeScriptExtractor {
                         if find_child_by_kind(&child, "statement_block").is_some()
                             || find_child_by_kind(&child, "arrow_function").is_some()
                         {
-                            chunks.push(self.extract_function(&child, source, file_path, Some(&name)));
+                            chunks.push(self.extract_function(
+                                &child,
+                                source,
+                                file_path,
+                                Some(&name),
+                            ));
                         }
                     }
                     _ => {}
@@ -285,7 +297,12 @@ impl ChunkExtractor for TypeScriptExtractor {
                             if let Some(value) = find_child_by_kind(&decl_child, "arrow_function")
                                 .or_else(|| find_child_by_kind(&decl_child, "function"))
                             {
-                                chunks.push(self.extract_function(&value, source, &file_path_str, None));
+                                chunks.push(self.extract_function(
+                                    &value,
+                                    source,
+                                    &file_path_str,
+                                    None,
+                                ));
                             }
                         }
                     }
@@ -297,7 +314,8 @@ impl ChunkExtractor for TypeScriptExtractor {
                         chunks.extend(self.extract_class(&decl, source, &file_path_str));
                     } else if let Some(decl) = find_child_by_kind(&child, "interface_declaration") {
                         chunks.push(self.extract_interface(&decl, source, &file_path_str));
-                    } else if let Some(decl) = find_child_by_kind(&child, "type_alias_declaration") {
+                    } else if let Some(decl) = find_child_by_kind(&child, "type_alias_declaration")
+                    {
                         chunks.push(self.extract_type_alias(&decl, source, &file_path_str));
                     }
                 }
@@ -309,7 +327,11 @@ impl ChunkExtractor for TypeScriptExtractor {
     }
 
     fn language(&self) -> &'static str {
-        if self.is_tsx { "tsx" } else { "typescript" }
+        if self.is_tsx {
+            "tsx"
+        } else {
+            "typescript"
+        }
     }
 }
 

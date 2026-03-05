@@ -129,16 +129,13 @@ pub const MIGRATE_V19_ADD_COLUMNS_SQL: &[&str] = &[
 ];
 
 /// Index for base_point lookups (e.g., reference-counted deletion)
-pub const CREATE_BASE_POINT_INDEX_SQL: &str =
-    r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_base_point
+pub const CREATE_BASE_POINT_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_base_point
        ON tracked_files(base_point) WHERE base_point IS NOT NULL"#;
 
 /// Index for reference counting: find all files sharing a base_point across tenants
-pub const CREATE_REFCOUNT_INDEX_SQL: &str =
-    r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_refcount
+pub const CREATE_REFCOUNT_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_refcount
        ON tracked_files(base_point, watch_folder_id)"#;
 
 /// Index for quickly finding files needing reconciliation
-pub const CREATE_RECONCILE_INDEX_SQL: &str =
-    r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_reconcile
+pub const CREATE_RECONCILE_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_reconcile
        ON tracked_files(needs_reconcile) WHERE needs_reconcile = 1"#;

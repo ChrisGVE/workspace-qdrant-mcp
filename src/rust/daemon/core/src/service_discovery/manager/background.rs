@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tokio::time::interval;
 use tracing::warn;
 
-use super::super::registry::ServiceRegistry;
 use super::super::network::DiscoveryEvent;
+use super::super::registry::ServiceRegistry;
 use super::core::DiscoveryManager;
 use super::types::{DiscoveryStrategy, ServiceDiscoveryEvent};
 
@@ -19,7 +19,10 @@ impl DiscoveryManager {
         let handle = tokio::spawn(async move {
             while let Ok(event) = event_receiver.recv().await {
                 match event {
-                    DiscoveryEvent::ServiceDiscovered { service_name, service_info } => {
+                    DiscoveryEvent::ServiceDiscovered {
+                        service_name,
+                        service_info,
+                    } => {
                         {
                             let mut known = known_services.write().await;
                             known.insert(

@@ -46,13 +46,7 @@ impl TelemetryLevel {
     }
 
     /// All levels in ascending order.
-    pub const ALL: [TelemetryLevel; 5] = [
-        Self::L0,
-        Self::L1,
-        Self::L2,
-        Self::L3,
-        Self::L4,
-    ];
+    pub const ALL: [TelemetryLevel; 5] = [Self::L0, Self::L1, Self::L2, Self::L3, Self::L4];
 }
 
 impl fmt::Display for TelemetryLevel {

@@ -12,12 +12,9 @@ async fn test_unified_queue_mark_failed_retry() {
     let test_pool = pool.clone(); // Keep reference for test-only backoff reset
 
     // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
@@ -99,12 +96,9 @@ async fn test_unified_queue_mark_failed_permanent() {
     let pool = config.create_pool().await.unwrap();
 
     // Initialize schemas
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
@@ -150,12 +144,9 @@ async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
 
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
@@ -192,7 +183,10 @@ async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
         .dequeue_unified(10, "worker-2", None, None, None, None)
         .await
         .unwrap();
-    assert!(items.is_empty(), "Item should not be dequeued during backoff");
+    assert!(
+        items.is_empty(),
+        "Item should not be dequeued during backoff"
+    );
 
     // Verify item is still pending (not lost)
     let stats = manager.get_unified_queue_stats().await.unwrap();
@@ -209,12 +203,9 @@ async fn test_unified_queue_recover_stale_leases() {
     let pool = config.create_pool().await.unwrap();
 
     // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();

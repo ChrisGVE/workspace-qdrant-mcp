@@ -109,10 +109,8 @@ pub struct GrammarManager {
 impl GrammarManager {
     /// Create a new grammar manager with the given configuration.
     pub fn new(config: GrammarConfig) -> Self {
-        let cache_paths = GrammarCachePaths::with_root(
-            config.expanded_cache_dir(),
-            &config.tree_sitter_version,
-        );
+        let cache_paths =
+            GrammarCachePaths::with_root(config.expanded_cache_dir(), &config.tree_sitter_version);
 
         let loader = GrammarLoader::new(cache_paths.clone());
 

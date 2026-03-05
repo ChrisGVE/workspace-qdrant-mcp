@@ -5,27 +5,26 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use notify::EventKind;
-use tokio::sync::{mpsc, RwLock, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
-use crate::queue_operations::{QueueError, QueueManager};
-use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload};
-use crate::file_classification::classify_file_type;
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
+use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::should_exclude_file;
+use crate::queue_operations::{QueueError, QueueManager};
 use crate::tracked_files_schema;
+use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation as UnifiedOp};
 
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use super::types::{
-    WatchConfig, CompiledPatterns, FileEvent, EventDebouncer, WatchType,
-    get_current_branch,
-};
-use super::error_types::ErrorCategory;
 use super::error_state::WatchErrorTracker;
-use super::throttle::QueueThrottleState;
+use super::error_types::ErrorCategory;
 use super::file_watcher::FileWatcherQueue;
+use super::throttle::QueueThrottleState;
+use super::types::{
+    get_current_branch, CompiledPatterns, EventDebouncer, FileEvent, WatchConfig, WatchType,
+};
 
 impl FileWatcherQueue {
     /// Main event processing loop
@@ -100,7 +99,10 @@ impl FileWatcherQueue {
         queue_errors: &Arc<Mutex<u64>>,
         events_throttled: &Arc<Mutex<u64>>,
     ) {
-        { let mut count = events_received.lock().await; *count += 1; }
+        {
+            let mut count = events_received.lock().await;
+            *count += 1;
+        }
 
         // Check exclusion patterns FIRST (Task 518)
         if !matches!(event.event_kind, EventKind::Remove(_)) {
@@ -119,10 +121,14 @@ impl FileWatcherQueue {
                 match config_lock.watch_type {
                     WatchType::Library => "libraries",
                     WatchType::Project => "projects",
-                }.to_string()
+                }
+                .to_string()
             };
             let file_path_str = event.path.to_string_lossy();
-            if matches!(allowed_extensions.route_file(&file_path_str, &collection_for_check, ""), FileRoute::Excluded) {
+            if matches!(
+                allowed_extensions.route_file(&file_path_str, &collection_for_check, ""),
+                FileRoute::Excluded
+            ) {
                 let mut count = events_filtered.lock().await;
                 *count += 1;
                 return;
@@ -146,10 +152,17 @@ impl FileWatcherQueue {
         };
         if should_process {
             Self::enqueue_file_operation(
-                event, config, queue_manager, allowed_extensions,
-                error_tracker, throttle_state,
-                events_processed, queue_errors, events_throttled,
-            ).await;
+                event,
+                config,
+                queue_manager,
+                allowed_extensions,
+                error_tracker,
+                throttle_state,
+                events_processed,
+                queue_errors,
+                events_throttled,
+            )
+            .await;
         }
     }
 
@@ -185,22 +198,39 @@ impl FileWatcherQueue {
                     match config_lock.watch_type {
                         WatchType::Library => "libraries",
                         WatchType::Project => "projects",
-                    }.to_string()
+                    }
+                    .to_string()
                 };
-                if matches!(allowed_extensions.route_file(&event.path.to_string_lossy(), &collection_for_check, ""), FileRoute::Excluded) {
+                if matches!(
+                    allowed_extensions.route_file(
+                        &event.path.to_string_lossy(),
+                        &collection_for_check,
+                        ""
+                    ),
+                    FileRoute::Excluded
+                ) {
                     continue;
                 }
             }
             // Double-check patterns
             {
                 let patterns_lock = patterns.read().await;
-                if !patterns_lock.should_process(&event.path) { continue; }
+                if !patterns_lock.should_process(&event.path) {
+                    continue;
+                }
             }
             Self::enqueue_file_operation(
-                event, config, queue_manager, allowed_extensions,
-                error_tracker, throttle_state,
-                events_processed, queue_errors, events_throttled,
-            ).await;
+                event,
+                config,
+                queue_manager,
+                allowed_extensions,
+                error_tracker,
+                throttle_state,
+                events_processed,
+                queue_errors,
+                events_throttled,
+            )
+            .await;
         }
     }
 
@@ -210,8 +240,12 @@ impl FileWatcherQueue {
             EventKind::Create(_) => UnifiedOp::Add,
             EventKind::Remove(_) => UnifiedOp::Delete,
             EventKind::Modify(_) => {
-                if file_path.exists() { UnifiedOp::Update } else { UnifiedOp::Delete }
-            },
+                if file_path.exists() {
+                    UnifiedOp::Update
+                } else {
+                    UnifiedOp::Delete
+                }
+            }
             _ => UnifiedOp::Update,
         }
     }
@@ -235,18 +269,30 @@ impl FileWatcherQueue {
         }
 
         if should_exclude_file(&event.path.to_string_lossy()) {
-            debug!("File excluded by exclusion engine, skipping: {}", event.path.display());
+            debug!(
+                "File excluded by exclusion engine, skipping: {}",
+                event.path.display()
+            );
             return;
         }
 
-        let watch_id = { let c = config.read().await; c.id.clone() };
+        let watch_id = {
+            let c = config.read().await;
+            c.id.clone()
+        };
 
         if !error_tracker.can_process(&watch_id).await {
-            debug!("Watch {} is in backoff or disabled, skipping file: {}", watch_id, event.path.display());
+            debug!(
+                "Watch {} is in backoff or disabled, skipping file: {}",
+                watch_id,
+                event.path.display()
+            );
             return;
         }
 
-        if Self::should_throttle_event(throttle_state, queue_manager, events_throttled, &event).await {
+        if Self::should_throttle_event(throttle_state, queue_manager, events_throttled, &event)
+            .await
+        {
             return;
         }
 
@@ -255,9 +301,21 @@ impl FileWatcherQueue {
         if operation == UnifiedOp::Delete {
             let fp = event.path.to_string_lossy().to_string();
             match tracked_files_schema::is_incremental(queue_manager.pool(), &fp).await {
-                Ok(true) => { debug!("Skipping delete for incremental file: {}", event.path.display()); return; }
+                Ok(true) => {
+                    debug!(
+                        "Skipping delete for incremental file: {}",
+                        event.path.display()
+                    );
+                    return;
+                }
                 Ok(false) => {}
-                Err(e) => { debug!("Failed to check incremental flag for {}: {}", event.path.display(), e); }
+                Err(e) => {
+                    debug!(
+                        "Failed to check incremental flag for {}: {}",
+                        event.path.display(),
+                        e
+                    );
+                }
             }
         }
 
@@ -265,10 +323,19 @@ impl FileWatcherQueue {
             Self::resolve_routing_and_payload(&event, config, allowed_extensions).await;
 
         Self::enqueue_with_retry(
-            queue_manager, error_tracker, &watch_id,
-            operation, &final_tenant, &final_collection, &payload_json, &branch,
-            metadata.as_deref(), events_processed, queue_errors,
-        ).await;
+            queue_manager,
+            error_tracker,
+            &watch_id,
+            operation,
+            &final_tenant,
+            &final_collection,
+            &payload_json,
+            &branch,
+            metadata.as_deref(),
+            events_processed,
+            queue_errors,
+        )
+        .await;
     }
 
     /// Check and apply queue depth throttling; returns true if the event should be skipped.
@@ -283,8 +350,12 @@ impl FileWatcherQueue {
         }
         if throttle_state.should_throttle().await {
             let load_level = throttle_state.get_load_level().await;
-            debug!("Throttling event due to {} queue load (depth: {}): {}",
-                load_level.as_str(), throttle_state.get_depth().await, event.path.display());
+            debug!(
+                "Throttling event due to {} queue load (depth: {}): {}",
+                load_level.as_str(),
+                throttle_state.get_depth().await,
+                event.path.display()
+            );
             let mut count = events_throttled.lock().await;
             *count += 1;
             return true;
@@ -305,29 +376,45 @@ impl FileWatcherQueue {
                 WatchType::Project => wqm_common::constants::COLLECTION_PROJECTS.to_string(),
                 WatchType::Library => COLLECTION_LIBRARIES.to_string(),
             };
-            (coll, config_lock.tenant_id.clone(), get_current_branch(&config_lock.path))
+            (
+                coll,
+                config_lock.tenant_id.clone(),
+                get_current_branch(&config_lock.path),
+            )
         };
 
         let file_absolute_path = event.path.to_string_lossy().to_string();
 
-        let (final_collection, final_tenant, metadata) =
-            match allowed_extensions.route_file(&file_absolute_path, &collection, &tenant_id) {
-                FileRoute::LibraryCollection { source_project_id } if collection != COLLECTION_LIBRARIES => {
-                    let meta = source_project_id.as_ref().map(|pid| {
-                        crate::format_routing::routing_metadata_json(pid)
-                    });
-                    let lib_name = source_project_id.as_ref()
-                        .map(|pid| crate::format_routing::generate_library_name(pid))
-                        .unwrap_or_else(|| tenant_id.clone());
-                    debug!("Format-based routing override: {} -> libraries (source_project={}, library_name={})",
+        let (final_collection, final_tenant, metadata) = match allowed_extensions.route_file(
+            &file_absolute_path,
+            &collection,
+            &tenant_id,
+        ) {
+            FileRoute::LibraryCollection { source_project_id }
+                if collection != COLLECTION_LIBRARIES =>
+            {
+                let meta = source_project_id
+                    .as_ref()
+                    .map(|pid| crate::format_routing::routing_metadata_json(pid));
+                let lib_name = source_project_id
+                    .as_ref()
+                    .map(|pid| crate::format_routing::generate_library_name(pid))
+                    .unwrap_or_else(|| tenant_id.clone());
+                debug!("Format-based routing override: {} -> libraries (source_project={}, library_name={})",
                         file_absolute_path, tenant_id, lib_name);
-                    (COLLECTION_LIBRARIES.to_string(), lib_name, meta)
-                }
-                _ => (collection.clone(), tenant_id.clone(), None),
-            };
+                (COLLECTION_LIBRARIES.to_string(), lib_name, meta)
+            }
+            _ => (collection.clone(), tenant_id.clone(), None),
+        };
 
-        debug!("Multi-tenant routing: file={}, collection={}, tenant={}, file_type={}, branch={}",
-            file_absolute_path, final_collection, final_tenant, file_type.as_str(), branch);
+        debug!(
+            "Multi-tenant routing: file={}, collection={}, tenant={}, file_type={}, branch={}",
+            file_absolute_path,
+            final_collection,
+            final_tenant,
+            file_type.as_str(),
+            branch
+        );
 
         let file_payload = FilePayload {
             file_path: file_absolute_path,
@@ -336,9 +423,16 @@ impl FileWatcherQueue {
             size_bytes: event.path.metadata().ok().map(|m| m.len()),
             old_path: None,
         };
-        let payload_json = serde_json::to_string(&file_payload).unwrap_or_else(|_| "{}".to_string());
+        let payload_json =
+            serde_json::to_string(&file_payload).unwrap_or_else(|_| "{}".to_string());
 
-        (final_collection, final_tenant, branch, metadata, payload_json)
+        (
+            final_collection,
+            final_tenant,
+            branch,
+            metadata,
+            payload_json,
+        )
     }
 
     /// Execute enqueue with retry logic and error tracking.
@@ -360,10 +454,18 @@ impl FileWatcherQueue {
         const RETRY_DELAYS_MS: [u64; 3] = [500, 1000, 2000];
 
         for attempt in 0..MAX_RETRIES {
-            match queue_manager.enqueue_unified(
-                ItemType::File, operation, tenant, collection,
-                payload_json, Some(branch), metadata,
-            ).await {
+            match queue_manager
+                .enqueue_unified(
+                    ItemType::File,
+                    operation,
+                    tenant,
+                    collection,
+                    payload_json,
+                    Some(branch),
+                    metadata,
+                )
+                .await
+            {
                 Ok(_) => {
                     let mut count = events_processed.lock().await;
                     *count += 1;
@@ -371,13 +473,18 @@ impl FileWatcherQueue {
                     debug!("Enqueued file to unified_queue (operation={:?}, collection={}, tenant={}, branch={})",
                         operation, collection, tenant, branch);
                     return;
-                },
+                }
                 Err(QueueError::Database(ref e)) if attempt < MAX_RETRIES - 1 => {
                     let delay = RETRY_DELAYS_MS[attempt as usize];
-                    warn!("Database error enqueueing: {}. Retrying in {}ms (attempt {}/{})",
-                        e, delay, attempt + 1, MAX_RETRIES);
+                    warn!(
+                        "Database error enqueueing: {}. Retrying in {}ms (attempt {}/{})",
+                        e,
+                        delay,
+                        attempt + 1,
+                        MAX_RETRIES
+                    );
                     tokio::time::sleep(Duration::from_millis(delay)).await;
-                },
+                }
                 Err(ref e) => {
                     let mut count = queue_errors.lock().await;
                     *count += 1;
@@ -390,7 +497,12 @@ impl FileWatcherQueue {
                             e, attempt + 1, MAX_RETRIES,
                             error_category.as_str(), health_status.as_str(), backoff_delay);
                     } else {
-                        error!("Failed to enqueue: {} (attempt {}/{})", e, attempt + 1, MAX_RETRIES);
+                        error!(
+                            "Failed to enqueue: {} (attempt {}/{})",
+                            e,
+                            attempt + 1,
+                            MAX_RETRIES
+                        );
                     }
                     return;
                 }
@@ -402,6 +514,10 @@ impl FileWatcherQueue {
         let health_status = error_tracker.get_health_status(watch_id).await;
         let mut count = queue_errors.lock().await;
         *count += 1;
-        error!("Enqueue failed after {} retries (watch health: {})", MAX_RETRIES, health_status.as_str());
+        error!(
+            "Enqueue failed after {} retries (watch health: {})",
+            MAX_RETRIES,
+            health_status.as_str()
+        );
     }
 }

@@ -5,16 +5,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sqlx::{Row, SqlitePool};
-use tokio::sync::{mpsc, Notify, RwLock, Mutex};
+use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
-use crate::queue_operations::QueueManager;
 use crate::allowed_extensions::AllowedExtensions;
+use crate::queue_operations::QueueManager;
 
-use super::types::{WatchConfig, WatchType, WatchingQueueResult, WatchingQueueStats};
-use super::file_watcher::FileWatcherQueue;
 use super::error_state::WatchErrorState;
 use super::error_types::{WatchErrorSummary, WatchHealthStatus};
+use super::file_watcher::FileWatcherQueue;
+use super::types::{WatchConfig, WatchType, WatchingQueueResult, WatchingQueueStats};
 
 /// Watch manager for multiple watchers
 pub struct WatchManager {
@@ -68,19 +68,25 @@ impl WatchManager {
     }
 
     /// Load watch configurations from watch_folders table (project watches)
-    async fn load_watch_folders(&self, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
+    async fn load_watch_folders(
+        &self,
+        queue_manager: &Arc<QueueManager>,
+    ) -> WatchingQueueResult<()> {
         let rows = sqlx::query(
             r#"
             SELECT watch_id, path, collection, tenant_id,
                    COALESCE(is_git_tracked, 0) AS is_git_tracked
             FROM watch_folders
             WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
 
-        info!("Loading {} project watches from watch_folders table", rows.len());
+        info!(
+            "Loading {} project watches from watch_folders table",
+            rows.len()
+        );
 
         for row in rows {
             let id: String = row.get("watch_id");
@@ -103,7 +109,8 @@ impl WatchManager {
                 library_name: None,
             };
 
-            self.start_watcher(id.clone(), config, queue_manager.clone()).await;
+            self.start_watcher(id.clone(), config, queue_manager.clone())
+                .await;
 
             if is_git_tracked {
                 self.start_git_watcher(&id, &path).await;
@@ -123,37 +130,44 @@ impl WatchManager {
             project_root,
             self.git_event_tx.clone(),
         ) {
-            Ok(mut git_watcher) => {
-                match git_watcher.start() {
-                    Ok(()) => {
-                        info!("Started git watcher for project: {}", watch_id);
-                        let mut git_watchers = self.git_watchers.lock().await;
-                        git_watchers.insert(watch_id.to_string(), git_watcher);
-                    }
-                    Err(e) => {
-                        warn!("Failed to start git watcher for {}: {}", watch_id, e);
-                    }
+            Ok(mut git_watcher) => match git_watcher.start() {
+                Ok(()) => {
+                    info!("Started git watcher for project: {}", watch_id);
+                    let mut git_watchers = self.git_watchers.lock().await;
+                    git_watchers.insert(watch_id.to_string(), git_watcher);
                 }
-            }
+                Err(e) => {
+                    warn!("Failed to start git watcher for {}: {}", watch_id, e);
+                }
+            },
             Err(e) => {
-                debug!("No git watcher for {} (not a git repo or .git not found): {}", watch_id, e);
+                debug!(
+                    "No git watcher for {} (not a git repo or .git not found): {}",
+                    watch_id, e
+                );
             }
         }
     }
 
     /// Load library watch configurations from watch_folders table
-    async fn load_library_watches(&self, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
+    async fn load_library_watches(
+        &self,
+        queue_manager: &Arc<QueueManager>,
+    ) -> WatchingQueueResult<()> {
         let rows = sqlx::query(
             r#"
             SELECT watch_id, path, collection, tenant_id
             FROM watch_folders
             WHERE enabled = 1 AND is_archived = 0 AND collection = 'libraries'
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
 
-        info!("Loading {} library watches from watch_folders table", rows.len());
+        info!(
+            "Loading {} library watches from watch_folders table",
+            rows.len()
+        );
 
         for row in rows {
             let _watch_id: String = row.get("watch_id");
@@ -184,22 +198,34 @@ impl WatchManager {
     }
 
     /// Start a single watcher with the given configuration
-    pub(super) async fn start_watcher(&self, id: String, config: WatchConfig, queue_manager: Arc<QueueManager>) {
+    pub(super) async fn start_watcher(
+        &self,
+        id: String,
+        config: WatchConfig,
+        queue_manager: Arc<QueueManager>,
+    ) {
         match FileWatcherQueue::new(config, queue_manager, self.allowed_extensions.clone()) {
             Ok(watcher) => {
                 let watcher = Arc::new(watcher);
                 match watcher.start().await {
                     Ok(_) => {
-                        info!("Started watcher: {} (type: {:?})", id,
-                            if id.starts_with("lib_") { "library" } else { "project" });
+                        info!(
+                            "Started watcher: {} (type: {:?})",
+                            id,
+                            if id.starts_with("lib_") {
+                                "library"
+                            } else {
+                                "project"
+                            }
+                        );
                         let mut watchers = self.watchers.write().await;
                         watchers.insert(id, watcher);
-                    },
+                    }
                     Err(e) => {
                         error!("Failed to start watcher {}: {}", id, e);
                     }
                 }
-            },
+            }
             Err(e) => {
                 error!("Failed to create watcher {}: {}", id, e);
             }
@@ -233,7 +259,8 @@ impl WatchManager {
     /// Get error state for a specific watcher (Task 461.5)
     pub async fn get_error_state(&self, watch_id: &str) -> Option<WatchErrorState> {
         let watchers = self.watchers.read().await;
-        watchers.get(watch_id)
+        watchers
+            .get(watch_id)
             .and_then(|w| w.error_tracker().get_state(watch_id))
     }
 
@@ -254,7 +281,8 @@ impl WatchManager {
     /// Get watches with health status worse than healthy (Task 461.5)
     pub async fn get_unhealthy_watches(&self) -> Vec<(String, WatchErrorSummary)> {
         let summaries = self.get_all_error_summaries().await;
-        summaries.into_iter()
+        summaries
+            .into_iter()
             .filter(|(_, summary)| summary.health_status != WatchHealthStatus::Healthy)
             .collect()
     }

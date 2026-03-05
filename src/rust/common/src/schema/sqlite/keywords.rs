@@ -17,8 +17,16 @@ pub const CREATED_AT: FieldDef = FieldDef::categorical("created_at");
 
 /// All columns in definition order.
 pub const ALL_COLUMNS: &[FieldDef] = &[
-    KEYWORD_ID, DOC_ID, KEYWORD, SCORE, SEMANTIC_SCORE,
-    LEXICAL_SCORE, STABILITY_COUNT, COLLECTION, TENANT_ID, CREATED_AT,
+    KEYWORD_ID,
+    DOC_ID,
+    KEYWORD,
+    SCORE,
+    SEMANTIC_SCORE,
+    LEXICAL_SCORE,
+    STABILITY_COUNT,
+    COLLECTION,
+    TENANT_ID,
+    CREATED_AT,
 ];
 
 #[cfg(test)]

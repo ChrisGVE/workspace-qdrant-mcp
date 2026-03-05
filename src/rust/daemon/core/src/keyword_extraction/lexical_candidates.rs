@@ -6,8 +6,8 @@
 //! 3. Strong pattern-based filters (IDs, hashes, versions, paths)
 //! 4. Code and prose boilerplate stoplists
 
-use std::collections::HashMap;
 use regex::Regex;
+use std::collections::HashMap;
 
 /// A keyword candidate with its score components.
 #[derive(Debug, Clone)]
@@ -48,30 +48,149 @@ impl Default for LexicalConfig {
 
 /// English prose boilerplate terms to filter out.
 const PROSE_STOPLIST: &[&str] = &[
-    "introduction", "section", "references", "conclusion", "abstract",
-    "chapter", "appendix", "figure", "table", "example", "note",
-    "see", "also", "shall", "hereby", "therefore", "whereas",
-    "overview", "summary", "background", "related", "previous",
+    "introduction",
+    "section",
+    "references",
+    "conclusion",
+    "abstract",
+    "chapter",
+    "appendix",
+    "figure",
+    "table",
+    "example",
+    "note",
+    "see",
+    "also",
+    "shall",
+    "hereby",
+    "therefore",
+    "whereas",
+    "overview",
+    "summary",
+    "background",
+    "related",
+    "previous",
 ];
 
 /// Code boilerplate terms to filter out.
 const CODE_STOPLIST: &[&str] = &[
-    "impl", "mod", "struct", "pub", "self", "async", "let", "mut",
-    "fn", "use", "crate", "super", "return", "match", "enum", "trait",
-    "const", "static", "type", "where", "move", "ref", "dyn", "box",
-    "data", "value", "item", "result", "error", "option", "none", "some",
-    "true", "false", "null", "undefined", "var", "def", "class", "import",
-    "export", "from", "require", "module", "function", "new", "delete",
-    "void", "int", "string", "bool", "float", "double", "char", "byte",
-    "args", "kwargs", "self", "this", "super", "extends", "implements",
-    "override", "final", "abstract", "virtual", "inline", "extern",
-    "static", "const", "volatile", "register", "sizeof", "typeof",
-    "instanceof", "throw", "catch", "try", "finally", "yield", "await",
-    "break", "continue", "goto", "switch", "case", "default", "while",
-    "for", "do", "if", "else", "elif", "unless", "until", "loop",
-    "begin", "end", "then", "elsif", "rescue", "ensure", "raise",
-    "pass", "lambda", "with", "assert", "print", "println", "printf",
-    "fmt", "todo", "fixme", "hack", "xxx", "note", "warn",
+    "impl",
+    "mod",
+    "struct",
+    "pub",
+    "self",
+    "async",
+    "let",
+    "mut",
+    "fn",
+    "use",
+    "crate",
+    "super",
+    "return",
+    "match",
+    "enum",
+    "trait",
+    "const",
+    "static",
+    "type",
+    "where",
+    "move",
+    "ref",
+    "dyn",
+    "box",
+    "data",
+    "value",
+    "item",
+    "result",
+    "error",
+    "option",
+    "none",
+    "some",
+    "true",
+    "false",
+    "null",
+    "undefined",
+    "var",
+    "def",
+    "class",
+    "import",
+    "export",
+    "from",
+    "require",
+    "module",
+    "function",
+    "new",
+    "delete",
+    "void",
+    "int",
+    "string",
+    "bool",
+    "float",
+    "double",
+    "char",
+    "byte",
+    "args",
+    "kwargs",
+    "self",
+    "this",
+    "super",
+    "extends",
+    "implements",
+    "override",
+    "final",
+    "abstract",
+    "virtual",
+    "inline",
+    "extern",
+    "static",
+    "const",
+    "volatile",
+    "register",
+    "sizeof",
+    "typeof",
+    "instanceof",
+    "throw",
+    "catch",
+    "try",
+    "finally",
+    "yield",
+    "await",
+    "break",
+    "continue",
+    "goto",
+    "switch",
+    "case",
+    "default",
+    "while",
+    "for",
+    "do",
+    "if",
+    "else",
+    "elif",
+    "unless",
+    "until",
+    "loop",
+    "begin",
+    "end",
+    "then",
+    "elsif",
+    "rescue",
+    "ensure",
+    "raise",
+    "pass",
+    "lambda",
+    "with",
+    "assert",
+    "print",
+    "println",
+    "printf",
+    "fmt",
+    "todo",
+    "fixme",
+    "hack",
+    "xxx",
+    "note",
+    "warn",
 ];
 
 /// Junk pattern regexes compiled once.
@@ -92,7 +211,8 @@ impl JunkPatterns {
             version: Regex::new(r"^v?\d+\.\d+").unwrap(),
             path: Regex::new(r"^[/\\]|[/\\]").unwrap(),
             hex_literal: Regex::new(r"^0x[a-f0-9]+$").unwrap(),
-            uuid: Regex::new(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$").unwrap(),
+            uuid: Regex::new(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+                .unwrap(),
             single_letter: Regex::new(r"^[a-z]$").unwrap(),
             all_digits: Regex::new(r"^\d+$").unwrap(),
         }
@@ -318,20 +438,28 @@ mod tests {
         let config = LexicalConfig::default();
         let candidates = extract_candidates(text, &config);
 
-        let has_version = candidates.iter().any(|c| c.phrase.starts_with("v2.3") || c.phrase.starts_with("v1.0"));
+        let has_version = candidates
+            .iter()
+            .any(|c| c.phrase.starts_with("v2.3") || c.phrase.starts_with("v1.0"));
         assert!(!has_version, "Version strings should be filtered");
     }
 
     #[test]
     fn test_extract_candidates_max_limit() {
         // Generate a large text
-        let text: String = (0..1000).map(|i| format!("unique_word_{}", i)).collect::<Vec<_>>().join(" ");
+        let text: String = (0..1000)
+            .map(|i| format!("unique_word_{}", i))
+            .collect::<Vec<_>>()
+            .join(" ");
         let config = LexicalConfig {
             max_candidates: 10,
             ..LexicalConfig::default()
         };
         let candidates = extract_candidates(&text, &config);
-        assert!(candidates.len() <= 10, "Should respect max_candidates limit");
+        assert!(
+            candidates.len() <= 10,
+            "Should respect max_candidates limit"
+        );
     }
 
     #[test]
@@ -350,8 +478,14 @@ mod tests {
         let database = candidates.iter().find(|c| c.phrase == "database").unwrap();
         let search = candidates.iter().find(|c| c.phrase == "search").unwrap();
 
-        assert!(vector.tf_score > database.tf_score, "vector (tf=3) should score > database (tf=2)");
-        assert!(database.tf_score > search.tf_score, "database (tf=2) should score > search (tf=1)");
+        assert!(
+            vector.tf_score > database.tf_score,
+            "vector (tf=3) should score > database (tf=2)"
+        );
+        assert!(
+            database.tf_score > search.tf_score,
+            "database (tf=2) should score > search (tf=1)"
+        );
     }
 
     #[test]
@@ -384,7 +518,10 @@ mod tests {
         let candidates = extract_candidates(text, &config);
 
         // All words are stopwords, so no candidates should survive
-        assert!(candidates.is_empty(), "All-stopword phrases should be filtered");
+        assert!(
+            candidates.is_empty(),
+            "All-stopword phrases should be filtered"
+        );
     }
 
     #[test]

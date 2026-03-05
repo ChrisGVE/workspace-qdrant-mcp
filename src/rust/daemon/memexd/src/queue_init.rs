@@ -11,19 +11,14 @@ use tokio::sync::{Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::{
+    adaptive_resources::{AdaptiveResourceConfig, AdaptiveResourceManager, AdaptiveResourceState},
     config::Config,
     config::DaemonConfig,
-    ipc::IpcServer,
-    ProcessorConfig,
-    UnifiedQueueProcessor, UnifiedProcessorConfig, QueueProcessorHealth,
-    DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
-    StorageClient, StorageConfig,
-    LanguageServerManager,
-    AllowedExtensions,
-    SearchDbManager,
     create_grammar_manager,
-    HierarchyBuilder, HierarchyRebuildConfig,
-    adaptive_resources::{AdaptiveResourceManager, AdaptiveResourceConfig, AdaptiveResourceState},
+    ipc::IpcServer,
+    AllowedExtensions, DocumentProcessor, EmbeddingConfig, EmbeddingGenerator, HierarchyBuilder,
+    HierarchyRebuildConfig, LanguageServerManager, ProcessorConfig, QueueProcessorHealth,
+    SearchDbManager, StorageClient, StorageConfig, UnifiedProcessorConfig, UnifiedQueueProcessor,
 };
 
 use crate::database::ConcreteGraphStore;
@@ -51,9 +46,9 @@ pub async fn setup_ipc_server(
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
     let (mut ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
 
-    let ipc_spill_qm = Arc::new(
-        workspace_qdrant_core::queue_operations::QueueManager::new(queue_pool.clone()),
-    );
+    let ipc_spill_qm = Arc::new(workspace_qdrant_core::queue_operations::QueueManager::new(
+        queue_pool.clone(),
+    ));
     ipc_server.set_spill_queue(ipc_spill_qm);
 
     let ipc_rollback_storage = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
@@ -92,7 +87,10 @@ fn create_embedding_generator(
 /// Initialize multi-tenant Qdrant collections (idempotent).
 async fn init_qdrant_collections(storage_client: &StorageClient) {
     info!("Initializing Qdrant collections...");
-    match storage_client.initialize_multi_tenant_collections(None).await {
+    match storage_client
+        .initialize_multi_tenant_collections(None)
+        .await
+    {
         Ok(result) => {
             info!(
                 "Qdrant collections initialized: projects={}, libraries={}, rules={}",
@@ -103,7 +101,10 @@ async fn init_qdrant_collections(storage_client: &StorageClient) {
             }
         }
         Err(e) => {
-            warn!("Failed to initialize Qdrant collections (will retry on use): {}", e);
+            warn!(
+                "Failed to initialize Qdrant collections (will retry on use): {}",
+                e
+            );
         }
     }
 }
@@ -171,9 +172,9 @@ async fn build_core_processor(
         storage_client,
     );
 
-    let grammar_manager = Arc::new(RwLock::new(
-        create_grammar_manager(daemon_config.grammars.clone())
-    ));
+    let grammar_manager = Arc::new(RwLock::new(create_grammar_manager(
+        daemon_config.grammars.clone(),
+    )));
     info!(
         "Grammar manager created (auto_download={}, cache_dir={:?})",
         daemon_config.grammars.auto_download,
@@ -227,10 +228,16 @@ pub async fn initialize(
         &unified_config,
         embedding_generator,
         storage_client,
-    ).await;
+    )
+    .await;
 
     let mut uqp = attach_optional_components(
-        uqp, lsp_manager, &allowed_extensions, search_db, graph_store, watch_refresh_signal,
+        uqp,
+        lsp_manager,
+        &allowed_extensions,
+        search_db,
+        graph_store,
+        watch_refresh_signal,
     );
 
     // Adaptive resources + health monitoring
@@ -320,7 +327,10 @@ fn spawn_startup_recovery(
     let startup_config = daemon_config.startup.clone();
     tokio::spawn(async move {
         match workspace_qdrant_core::startup::run_startup_recovery(
-            &pool, &qm, &ext, &startup_config,
+            &pool,
+            &qm,
+            &ext,
+            &startup_config,
         )
         .await
         {
@@ -340,10 +350,7 @@ fn spawn_startup_recovery(
     });
 }
 
-fn spawn_rules_mirror_backfill(
-    uqp: &UnifiedQueueProcessor,
-    mirror_storage: &Arc<StorageClient>,
-) {
+fn spawn_rules_mirror_backfill(uqp: &UnifiedQueueProcessor, mirror_storage: &Arc<StorageClient>) {
     let pool = uqp.pool().clone();
     let storage = Arc::clone(mirror_storage);
     tokio::spawn(async move {
@@ -369,7 +376,11 @@ fn spawn_rules_mirror_backfill(
 fn spawn_component_backfill(uqp: &UnifiedQueueProcessor) {
     let pool = uqp.pool().clone();
     tokio::spawn(async move {
-        match workspace_qdrant_core::component_detection::backfill_components(&pool, 100, false, None).await {
+        match workspace_qdrant_core::component_detection::backfill_components(
+            &pool, 100, false, None,
+        )
+        .await
+        {
             Ok(stats) => {
                 if stats.files_updated > 0 {
                     info!(

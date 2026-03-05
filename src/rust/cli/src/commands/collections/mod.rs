@@ -40,8 +40,7 @@ pub(crate) fn build_client() -> Result<reqwest::Client> {
     if let Some(key) = qdrant_api_key() {
         headers.insert(
             "api-key",
-            reqwest::header::HeaderValue::from_str(&key)
-                .context("Invalid QDRANT_API_KEY value")?,
+            reqwest::header::HeaderValue::from_str(&key).context("Invalid QDRANT_API_KEY value")?,
         );
     }
     reqwest::Client::builder()
@@ -95,9 +94,11 @@ enum CollectionsCommand {
 /// Execute collections command
 pub async fn execute(args: CollectionsArgs) -> Result<()> {
     match args.command {
-        CollectionsCommand::List { json, script, no_headers } => {
-            list_collections(json, script, no_headers).await
-        }
+        CollectionsCommand::List {
+            json,
+            script,
+            no_headers,
+        } => list_collections(json, script, no_headers).await,
         CollectionsCommand::Reset {
             names,
             include_queue,

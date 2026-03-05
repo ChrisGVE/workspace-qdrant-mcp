@@ -7,20 +7,18 @@
 //! 4. Thread error detection with Helgrind
 //! 5. Data race detection with DRD
 
-mod types;
 mod suite;
+mod types;
 
 // Re-export all public types for external consumers
-pub use types::{
-    ValgrindConfig, ValgrindLeakCheck, ValgrindResults, ValgrindStatus,
-    MemcheckResults, MemoryError, ErrorSeverity,
-    CachegrindResults, PerformanceHotspot,
-    MassifResults, HeapAllocation, AllocationSnapshot,
-    HelgrindResults, RaceCondition, LockOrderViolation, ThreadApiMisuse,
-    DrdResults, DataRace, LockContention, BarrierReuse, ConditionVariableError,
-    ValgrindError,
-};
 pub use suite::ValgrindTestSuite;
+pub use types::{
+    AllocationSnapshot, BarrierReuse, CachegrindResults, ConditionVariableError, DataRace,
+    DrdResults, ErrorSeverity, HeapAllocation, HelgrindResults, LockContention, LockOrderViolation,
+    MassifResults, MemcheckResults, MemoryError, PerformanceHotspot, RaceCondition,
+    ThreadApiMisuse, ValgrindConfig, ValgrindError, ValgrindLeakCheck, ValgrindResults,
+    ValgrindStatus,
+};
 
 #[cfg(test)]
 mod tests {
@@ -38,7 +36,10 @@ mod tests {
             println!("Valgrind available on Linux: {}", available);
         } else {
             // On other platforms, it should not be available
-            assert!(!available, "Valgrind should not be available on non-Linux platforms");
+            assert!(
+                !available,
+                "Valgrind should not be available on non-Linux platforms"
+            );
         }
     }
 
@@ -53,9 +54,15 @@ mod tests {
     #[test]
     fn test_leak_check_to_string() {
         assert_eq!(suite::leak_check_to_string(&ValgrindLeakCheck::No), "no");
-        assert_eq!(suite::leak_check_to_string(&ValgrindLeakCheck::Summary), "summary");
+        assert_eq!(
+            suite::leak_check_to_string(&ValgrindLeakCheck::Summary),
+            "summary"
+        );
         assert_eq!(suite::leak_check_to_string(&ValgrindLeakCheck::Yes), "yes");
-        assert_eq!(suite::leak_check_to_string(&ValgrindLeakCheck::Full), "full");
+        assert_eq!(
+            suite::leak_check_to_string(&ValgrindLeakCheck::Full),
+            "full"
+        );
     }
 
     #[test]
@@ -103,7 +110,10 @@ mod tests {
         let serialized = serde_json::to_string(&results).unwrap();
         let deserialized: ValgrindResults = serde_json::from_str(&serialized).unwrap();
 
-        assert!(matches!(deserialized.overall_status, ValgrindStatus::Passed));
+        assert!(matches!(
+            deserialized.overall_status,
+            ValgrindStatus::Passed
+        ));
         assert!(deserialized.memcheck_results.is_some());
     }
 }

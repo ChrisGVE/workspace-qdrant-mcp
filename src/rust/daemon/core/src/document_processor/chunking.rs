@@ -76,8 +76,7 @@ pub fn chunk_by_paragraphs(
 
             chunk_index += 1;
 
-            let overlap_start =
-                current_chunk.len().saturating_sub(config.overlap_size);
+            let overlap_start = current_chunk.len().saturating_sub(config.overlap_size);
             let overlap_start = floor_char_boundary(&current_chunk, overlap_start);
             current_chunk = current_chunk[overlap_start..].to_string();
             current_start += overlap_start;
@@ -115,8 +114,7 @@ pub fn chunk_by_characters(
     let mut chunk_index = 0;
 
     while start < total_chars {
-        let end =
-            floor_char_boundary(text, (start + config.chunk_size).min(total_chars));
+        let end = floor_char_boundary(text, (start + config.chunk_size).min(total_chars));
 
         let actual_end = if end < total_chars {
             text[start..end]
@@ -132,8 +130,7 @@ pub fn chunk_by_characters(
 
         if !chunk_text.is_empty() {
             let mut chunk_metadata = base_metadata.clone();
-            chunk_metadata
-                .insert("chunk_index".to_string(), chunk_index.to_string());
+            chunk_metadata.insert("chunk_index".to_string(), chunk_index.to_string());
 
             chunks.push(TextChunk {
                 content: chunk_text,
@@ -146,10 +143,7 @@ pub fn chunk_by_characters(
             chunk_index += 1;
         }
 
-        let new_start = floor_char_boundary(
-            text,
-            actual_end.saturating_sub(config.overlap_size),
-        );
+        let new_start = floor_char_boundary(text, actual_end.saturating_sub(config.overlap_size));
         if new_start <= start {
             start = actual_end; // Guarantee forward progress
         } else {
@@ -198,29 +192,18 @@ pub fn convert_semantic_chunks_to_text_chunks(
             }
 
             // Add line range
-            metadata.insert(
-                "start_line".to_string(),
-                chunk.start_line.to_string(),
-            );
-            metadata
-                .insert("end_line".to_string(), chunk.end_line.to_string());
+            metadata.insert("start_line".to_string(), chunk.start_line.to_string());
+            metadata.insert("end_line".to_string(), chunk.end_line.to_string());
             metadata.insert("language".to_string(), chunk.language.clone());
 
             // Add fragment info if applicable
             if chunk.is_fragment {
-                metadata
-                    .insert("is_fragment".to_string(), "true".to_string());
+                metadata.insert("is_fragment".to_string(), "true".to_string());
                 if let Some(frag_idx) = chunk.fragment_index {
-                    metadata.insert(
-                        "fragment_index".to_string(),
-                        frag_idx.to_string(),
-                    );
+                    metadata.insert("fragment_index".to_string(), frag_idx.to_string());
                 }
                 if let Some(total) = chunk.total_fragments {
-                    metadata.insert(
-                        "total_fragments".to_string(),
-                        total.to_string(),
-                    );
+                    metadata.insert("total_fragments".to_string(), total.to_string());
                 }
             }
 

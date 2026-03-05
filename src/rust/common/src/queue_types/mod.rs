@@ -113,19 +113,37 @@ mod tests {
     #[test]
     fn test_queue_operation_from_str_new_values() {
         assert_eq!(QueueOperation::from_str("add"), Some(QueueOperation::Add));
-        assert_eq!(QueueOperation::from_str("update"), Some(QueueOperation::Update));
-        assert_eq!(QueueOperation::from_str("delete"), Some(QueueOperation::Delete));
+        assert_eq!(
+            QueueOperation::from_str("update"),
+            Some(QueueOperation::Update)
+        );
+        assert_eq!(
+            QueueOperation::from_str("delete"),
+            Some(QueueOperation::Delete)
+        );
         assert_eq!(QueueOperation::from_str("scan"), Some(QueueOperation::Scan));
-        assert_eq!(QueueOperation::from_str("rename"), Some(QueueOperation::Rename));
-        assert_eq!(QueueOperation::from_str("uplift"), Some(QueueOperation::Uplift));
-        assert_eq!(QueueOperation::from_str("reset"), Some(QueueOperation::Reset));
+        assert_eq!(
+            QueueOperation::from_str("rename"),
+            Some(QueueOperation::Rename)
+        );
+        assert_eq!(
+            QueueOperation::from_str("uplift"),
+            Some(QueueOperation::Uplift)
+        );
+        assert_eq!(
+            QueueOperation::from_str("reset"),
+            Some(QueueOperation::Reset)
+        );
         assert_eq!(QueueOperation::from_str("invalid"), None);
     }
 
     #[test]
     fn test_queue_operation_from_str_legacy() {
         // "ingest" → Add
-        assert_eq!(QueueOperation::from_str("ingest"), Some(QueueOperation::Add));
+        assert_eq!(
+            QueueOperation::from_str("ingest"),
+            Some(QueueOperation::Add)
+        );
     }
 
     #[test]
@@ -267,7 +285,10 @@ mod tests {
     #[test]
     fn test_queue_status_from_str() {
         assert_eq!(QueueStatus::from_str("pending"), Some(QueueStatus::Pending));
-        assert_eq!(QueueStatus::from_str("in_progress"), Some(QueueStatus::InProgress));
+        assert_eq!(
+            QueueStatus::from_str("in_progress"),
+            Some(QueueStatus::InProgress)
+        );
         assert_eq!(QueueStatus::from_str("done"), Some(QueueStatus::Done));
         assert_eq!(QueueStatus::from_str("failed"), Some(QueueStatus::Failed));
         assert_eq!(QueueStatus::from_str("invalid"), None);

@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::DocumentType;
-use crate::unified_queue_schema::{ItemType, QueueOperation, UnifiedQueueItem};
 use crate::tracked_files_schema::{ChunkType as TrackedChunkType, ProcessingStatus};
+use crate::unified_queue_schema::{ItemType, QueueOperation, UnifiedQueueItem};
+use crate::DocumentType;
 use wqm_common::queue_types::QueueStatus;
 
 use super::payload::build_chunk_payload;
@@ -128,7 +128,10 @@ fn test_build_chunk_payload_non_code_file_no_language() {
         &HashMap::new(),
     );
 
-    assert!(!payload.contains_key("language"), "PDF should not have language field");
+    assert!(
+        !payload.contains_key("language"),
+        "PDF should not have language field"
+    );
     assert_eq!(payload["document_type"], serde_json::json!("pdf"));
     assert_eq!(payload["file_extension"], serde_json::json!("pdf"));
 }

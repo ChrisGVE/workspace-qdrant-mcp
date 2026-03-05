@@ -6,11 +6,11 @@
 //! - Cross-filesystem moves (detected as delete when MOVED_TO times out)
 //! - Root folder moves (MOVE_SELF or RENAME events)
 
-mod types;
 mod correlator;
+mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub use types::{MoveDetectorError, RenameAction, MoveCorrelatorConfig, MoveCorrelatorStats};
 pub use correlator::MoveCorrelator;
+pub use types::{MoveCorrelatorConfig, MoveCorrelatorStats, MoveDetectorError, RenameAction};

@@ -72,11 +72,7 @@ async fn test_cleanup_expired_requests() {
     {
         let (tx, _rx) = oneshot::channel();
         client
-            .insert_test_pending_request(
-                1,
-                tx,
-                std::time::Instant::now() - Duration::from_secs(1),
-            )
+            .insert_test_pending_request(1, tx, std::time::Instant::now() - Duration::from_secs(1))
             .await;
     }
 

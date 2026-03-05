@@ -291,7 +291,10 @@ mod tests {
 
         assert_eq!(chunk.parent_symbol, Some("MyClass".to_string()));
         assert_eq!(chunk.docstring, Some("Process the data.".to_string()));
-        assert_eq!(chunk.signature, Some("def process(self) -> None".to_string()));
+        assert_eq!(
+            chunk.signature,
+            Some("def process(self) -> None".to_string())
+        );
         assert_eq!(chunk.calls.len(), 2);
     }
 

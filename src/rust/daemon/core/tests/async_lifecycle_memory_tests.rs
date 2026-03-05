@@ -8,24 +8,17 @@ use std::sync::Arc;
 use tempfile::{NamedTempFile, TempDir};
 
 // Import core components
-use workspace_qdrant_core::{
-    DocumentProcessor,
-    ipc::IpcServer,
-    daemon_state::DaemonStateManager,
-};
+use workspace_qdrant_core::{daemon_state::DaemonStateManager, ipc::IpcServer, DocumentProcessor};
 
 // Import shared test utilities
 use shared_test_utils::{
-    async_test, serial_async_test, TestResult,
-    test_helpers::init_test_tracing,
+    async_test, serial_async_test, test_helpers::init_test_tracing, TestResult,
 };
 
 /// Test helper for creating test documents with various content types
 async fn create_test_document(content: &str, extension: &str) -> TestResult<NamedTempFile> {
-    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))
-        ?;
-    tokio::fs::write(temp_file.path(), content).await
-        ?;
+    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))?;
+    tokio::fs::write(temp_file.path(), content).await?;
     Ok(temp_file)
 }
 

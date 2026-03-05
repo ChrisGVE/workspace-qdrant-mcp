@@ -2,9 +2,9 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::monitoring::metrics_alerts::*;
     use crate::monitoring::metrics_core::{DaemonMetrics, METRICS};
     use crate::monitoring::metrics_server::MetricsSnapshot;
-    use crate::monitoring::metrics_alerts::*;
 
     #[test]
     fn test_metrics_creation() {
@@ -188,27 +188,45 @@ mod tests {
         let metrics = DaemonMetrics::new();
 
         metrics.set_unified_queue_depth("content", "pending", 50);
-        let value = metrics.unified_queue_depth.with_label_values(&["content", "pending"]).get();
+        let value = metrics
+            .unified_queue_depth
+            .with_label_values(&["content", "pending"])
+            .get();
         assert_eq!(value, 50);
 
         metrics.unified_queue_item_processed("content", "ingest", "success", 0.5);
-        let value = metrics.unified_queue_items_total.with_label_values(&["content", "ingest", "success"]).get();
+        let value = metrics
+            .unified_queue_items_total
+            .with_label_values(&["content", "ingest", "success"])
+            .get();
         assert_eq!(value, 1);
 
         metrics.unified_queue_enqueued("mcp_store");
-        let value = metrics.unified_queue_enqueues_total.with_label_values(&["mcp_store"]).get();
+        let value = metrics
+            .unified_queue_enqueues_total
+            .with_label_values(&["mcp_store"])
+            .get();
         assert_eq!(value, 1);
 
         metrics.unified_queue_dequeued("file");
-        let value = metrics.unified_queue_dequeues_total.with_label_values(&["file"]).get();
+        let value = metrics
+            .unified_queue_dequeues_total
+            .with_label_values(&["file"])
+            .get();
         assert_eq!(value, 1);
 
         metrics.set_unified_queue_stale_items(3);
-        let value = metrics.unified_queue_stale_items.with_label_values(&[]).get();
+        let value = metrics
+            .unified_queue_stale_items
+            .with_label_values(&[])
+            .get();
         assert_eq!(value, 3);
 
         metrics.unified_queue_retry("folder");
-        let value = metrics.unified_queue_retries_total.with_label_values(&["folder"]).get();
+        let value = metrics
+            .unified_queue_retries_total
+            .with_label_values(&["folder"])
+            .get();
         assert_eq!(value, 1);
     }
 

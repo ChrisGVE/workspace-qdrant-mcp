@@ -34,9 +34,10 @@ pub async fn embed_with_sparse(
     text: &str,
     model_hint: &str,
 ) -> Result<EmbedResult, UnifiedProcessorError> {
-    let _permit = semaphore.acquire().await.map_err(|e| {
-        UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e))
-    })?;
+    let _permit = semaphore
+        .acquire()
+        .await
+        .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
 
     let embedding_result = generator
         .generate_embedding(text, model_hint)
@@ -61,9 +62,10 @@ pub async fn embed_dense_only(
     text: &str,
     model_hint: &str,
 ) -> Result<Vec<f32>, UnifiedProcessorError> {
-    let _permit = semaphore.acquire().await.map_err(|e| {
-        UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e))
-    })?;
+    let _permit = semaphore
+        .acquire()
+        .await
+        .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
 
     let embedding_result = generator
         .generate_embedding(text, model_hint)

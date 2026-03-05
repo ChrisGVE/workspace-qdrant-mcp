@@ -69,7 +69,7 @@ pub async fn poll_pause_state(
     pause_flag: &std::sync::atomic::AtomicBool,
 ) -> DaemonStateResult<bool> {
     let count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM watch_folders WHERE is_paused = 1 AND enabled = 1"
+        "SELECT COUNT(*) FROM watch_folders WHERE is_paused = 1 AND enabled = 1",
     )
     .fetch_one(pool)
     .await?;

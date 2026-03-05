@@ -7,9 +7,24 @@ async fn test_batch_insert_large_chunk_count() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/large.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "hash1", 250, Some("tree_sitter"), ProcessingStatus::Done,
-        ProcessingStatus::Done, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/large.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        250,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -48,9 +63,24 @@ async fn test_batch_insert_boundary_sizes() {
     for count in [1usize, 99, 100, 101] {
         let path = format!("src/boundary_{}.rs", count);
         let file_id = insert_tracked_file(
-            &pool, "w1", &path, Some("main"), None, None, "2025-01-01T00:00:00Z", "h1",
-            count as i32, None, ProcessingStatus::None, ProcessingStatus::None, None, None, false,
-            None, None, None,
+            &pool,
+            "w1",
+            &path,
+            Some("main"),
+            None,
+            None,
+            "2025-01-01T00:00:00Z",
+            "h1",
+            count as i32,
+            None,
+            ProcessingStatus::None,
+            ProcessingStatus::None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -90,8 +120,24 @@ async fn test_batch_insert_empty_chunks() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/empty.rs", Some("main"), None, None, "2025-01-01T00:00:00Z", "h1", 0,
-        None, ProcessingStatus::None, ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/empty.rs",
+        Some("main"),
+        None,
+        None,
+        "2025-01-01T00:00:00Z",
+        "h1",
+        0,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -111,9 +157,24 @@ async fn test_batch_insert_tx_large_count() {
 
     let mut tx = pool.begin().await.unwrap();
     let file_id = insert_tracked_file_tx(
-        &mut tx, "w1", "src/tx_large.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "hash1", 150, Some("tree_sitter"), ProcessingStatus::Done,
-        ProcessingStatus::Done, None, None, false, None, None, None,
+        &mut tx,
+        "w1",
+        "src/tx_large.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        150,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();

@@ -69,12 +69,14 @@ impl BranchEvent {
             BranchEvent::Created { branch: b, .. } => b == branch,
             BranchEvent::Deleted { branch: b } => b == branch,
             BranchEvent::Renamed { old_name, new_name } => old_name == branch || new_name == branch,
-            BranchEvent::DefaultChanged { old_default, new_default } => {
-                old_default == branch || new_default == branch
-            }
-            BranchEvent::Switched { from_branch, to_branch } => {
-                from_branch.as_deref() == Some(branch) || to_branch == branch
-            }
+            BranchEvent::DefaultChanged {
+                old_default,
+                new_default,
+            } => old_default == branch || new_default == branch,
+            BranchEvent::Switched {
+                from_branch,
+                to_branch,
+            } => from_branch.as_deref() == Some(branch) || to_branch == branch,
         }
     }
 }

@@ -1,7 +1,7 @@
 //! Metrics helpers and error classification for the unified queue processor.
 
-use std::sync::Arc;
 use chrono::Utc;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
@@ -117,10 +117,7 @@ impl UnifiedQueueProcessor {
 
         info!(
             "Unified Queue Metrics: processed={}, failed={}, queue_depth={}, avg_time={:.2}ms",
-            total_processed,
-            m.items_failed,
-            m.queue_depth,
-            m.avg_processing_time_ms,
+            total_processed, m.items_failed, m.queue_depth, m.avg_processing_time_ms,
         );
 
         if !m.items_processed_by_type.is_empty() {

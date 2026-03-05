@@ -6,11 +6,11 @@ use anyhow::{Context, Result};
 use wqm_common::constants::COLLECTION_LIBRARIES;
 use wqm_common::timestamps;
 
+use super::helpers::{mode_description, open_db, LibraryMode, DEFAULT_LIBRARY_PATTERNS};
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
-use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
-use super::helpers::{open_db, mode_description, LibraryMode, DEFAULT_LIBRARY_PATTERNS};
+use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Watch a library path for changes
 pub async fn execute(
@@ -27,7 +27,8 @@ pub async fn execute(
         return Ok(());
     }
 
-    let abs_path = path.canonicalize()
+    let abs_path = path
+        .canonicalize()
         .context("Could not resolve absolute path")?;
 
     let conn = open_db()?;
@@ -36,11 +37,13 @@ pub async fn execute(
     let abs_path_str = abs_path.to_string_lossy().to_string();
 
     // Check if library already exists
-    let exists: bool = conn.query_row(
-        "SELECT 1 FROM watch_folders WHERE watch_id = ?",
-        [&watch_id],
-        |_| Ok(true),
-    ).unwrap_or(false);
+    let exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM watch_folders WHERE watch_id = ?",
+            [&watch_id],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
 
     if exists {
         // Enable watching on existing library
@@ -48,7 +51,8 @@ pub async fn execute(
             "UPDATE watch_folders SET enabled = 1, library_mode = ?, path = ?, \
              updated_at = ?, last_activity_at = ? WHERE watch_id = ?",
             rusqlite::params![&mode.to_string(), &abs_path_str, &now, &now, &watch_id],
-        ).context("Failed to enable watch")?;
+        )
+        .context("Failed to enable watch")?;
         output::success(format!("Library '{}' watching enabled", tag));
     } else {
         // Insert new library with watching enabled
@@ -58,7 +62,8 @@ pub async fn execute(
               follow_symlinks, cleanup_on_disable, created_at, updated_at, last_activity_at) \
              VALUES (?1, ?2, 'libraries', ?3, ?4, 1, 0, 0, 0, ?5, ?5, ?5)",
             rusqlite::params![&watch_id, &abs_path_str, tag, &mode.to_string(), &now],
-        ).context("Failed to insert library watch")?;
+        )
+        .context("Failed to insert library watch")?;
         output::success(format!("Library '{}' added and watching enabled", tag));
     }
 
@@ -68,7 +73,10 @@ pub async fn execute(
 
     // Use user-provided patterns or defaults
     let effective_patterns: Vec<String> = if patterns.is_empty() {
-        DEFAULT_LIBRARY_PATTERNS.iter().map(|s| s.to_string()).collect()
+        DEFAULT_LIBRARY_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     } else {
         patterns.to_vec()
     };
@@ -89,7 +97,8 @@ fn enqueue_scan(tag: &str, abs_path_str: &str, effective_patterns: &[String]) {
                 "folder_path": abs_path_str,
                 "recursive": true,
                 "patterns": effective_patterns,
-            }).to_string();
+            })
+            .to_string();
 
             match client.enqueue(
                 ItemType::Folder,

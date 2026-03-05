@@ -1,9 +1,9 @@
 //! Performance metrics collection and async operation tracking.
 
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::time::SystemTime;
-use once_cell::sync::Lazy;
-use tracing::{error, debug};
+use tracing::{debug, error};
 
 /// Performance metrics collector for logging
 #[derive(Debug, Default)]
@@ -16,7 +16,10 @@ pub struct PerformanceMetrics {
 impl PerformanceMetrics {
     /// Record an operation performance metric
     pub fn record_operation(&mut self, operation: &str, duration_ms: f64) {
-        *self.operation_counts.entry(operation.to_string()).or_insert(0) += 1;
+        *self
+            .operation_counts
+            .entry(operation.to_string())
+            .or_insert(0) += 1;
         self.operation_durations
             .entry(operation.to_string())
             .or_default()
@@ -104,10 +107,7 @@ pub fn get_performance_metrics() -> HashMap<String, serde_json::Value> {
 }
 
 /// Performance tracking wrapper for async operations
-pub async fn track_async_operation<F, T, E>(
-    operation_name: &str,
-    operation: F,
-) -> Result<T, E>
+pub async fn track_async_operation<F, T, E>(operation_name: &str, operation: F) -> Result<T, E>
 where
     F: std::future::Future<Output = Result<T, E>>,
     E: std::fmt::Display,

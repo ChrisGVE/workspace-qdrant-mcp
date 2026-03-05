@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V20Migration;
 
@@ -17,9 +17,8 @@ impl Migration for V20Migration {
         info!("Migration v20: Adding per-destination status columns to unified_queue");
 
         use crate::unified_queue_schema::{
+            CREATE_QDRANT_STATUS_INDEX_SQL, CREATE_SEARCH_STATUS_INDEX_SQL,
             MIGRATE_V20_ADD_COLUMNS_SQL,
-            CREATE_QDRANT_STATUS_INDEX_SQL,
-            CREATE_SEARCH_STATUS_INDEX_SQL,
         };
 
         let has_qdrant_status: bool = sqlx::query_scalar(
@@ -39,24 +38,34 @@ impl Migration for V20Migration {
         // Backfill: set done items to both destinations done
         let backfilled: u64 = sqlx::query(
             "UPDATE unified_queue SET qdrant_status = 'done', search_status = 'done'
-             WHERE status = 'done' AND qdrant_status = 'pending'"
+             WHERE status = 'done' AND qdrant_status = 'pending'",
         )
-        .execute(pool).await?
+        .execute(pool)
+        .await?
         .rows_affected();
 
         if backfilled > 0 {
-            info!("Backfilled qdrant_status/search_status for {} done items", backfilled);
+            info!(
+                "Backfilled qdrant_status/search_status for {} done items",
+                backfilled
+            );
         }
 
         sqlx::query(CREATE_QDRANT_STATUS_INDEX_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
         sqlx::query(CREATE_SEARCH_STATUS_INDEX_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         info!("Migration v20 complete");
         Ok(())
     }
 
-    fn version(&self) -> i32 { 20 }
-    fn description(&self) -> &'static str { "Add per-destination status columns to unified_queue" }
+    fn version(&self) -> i32 {
+        20
+    }
+    fn description(&self) -> &'static str {
+        "Add per-destination status columns to unified_queue"
+    }
 }

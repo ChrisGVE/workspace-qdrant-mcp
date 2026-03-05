@@ -1,17 +1,29 @@
 //! Processing configuration (queue processor, startup warmup)
 
-use serde::{Deserialize, Serialize};
-use chrono::Duration as ChronoDuration;
 use crate::queue_types::ProcessorConfig;
+use chrono::Duration as ChronoDuration;
+use serde::{Deserialize, Serialize};
 
 // --- Queue Processor Settings ---
 
-fn default_batch_size() -> i32 { 10 }
-fn default_poll_interval_ms() -> u64 { 500 }
-fn default_max_retries() -> i32 { 5 }
-pub(crate) fn default_retry_delays_seconds() -> Vec<u64> { vec![60, 300, 900, 3600] }
-fn default_target_throughput() -> u64 { 1000 }
-fn default_enable_metrics() -> bool { true }
+fn default_batch_size() -> i32 {
+    10
+}
+fn default_poll_interval_ms() -> u64 {
+    500
+}
+fn default_max_retries() -> i32 {
+    5
+}
+pub(crate) fn default_retry_delays_seconds() -> Vec<u64> {
+    vec![60, 300, 900, 3600]
+}
+fn default_target_throughput() -> u64 {
+    1000
+}
+fn default_enable_metrics() -> bool {
+    true
+}
 
 /// Queue processor configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,7 +138,8 @@ impl From<QueueProcessorSettings> for ProcessorConfig {
             batch_size: settings.batch_size,
             poll_interval_ms: settings.poll_interval_ms,
             max_retries: settings.max_retries,
-            retry_delays: settings.retry_delays_seconds
+            retry_delays: settings
+                .retry_delays_seconds
                 .into_iter()
                 .map(|s| ChronoDuration::seconds(s as i64))
                 .collect(),
@@ -141,12 +154,24 @@ impl From<QueueProcessorSettings> for ProcessorConfig {
 
 // --- Startup Config ---
 
-fn default_warmup_delay_secs() -> u64 { 5 }
-fn default_warmup_window_secs() -> u64 { 30 }
-fn default_warmup_max_concurrent_embeddings() -> usize { 1 }
-fn default_warmup_inter_item_delay_ms() -> u64 { 200 }
-fn default_startup_enqueue_batch_size() -> usize { 50 }
-fn default_startup_enqueue_batch_delay_ms() -> u64 { 100 }
+fn default_warmup_delay_secs() -> u64 {
+    5
+}
+fn default_warmup_window_secs() -> u64 {
+    30
+}
+fn default_warmup_max_concurrent_embeddings() -> usize {
+    1
+}
+fn default_warmup_inter_item_delay_ms() -> u64 {
+    200
+}
+fn default_startup_enqueue_batch_size() -> usize {
+    50
+}
+fn default_startup_enqueue_batch_delay_ms() -> u64 {
+    100
+}
 
 /// Startup warmup configuration section (Task 577)
 ///

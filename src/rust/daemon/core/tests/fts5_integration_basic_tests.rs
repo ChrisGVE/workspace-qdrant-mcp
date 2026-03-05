@@ -7,9 +7,7 @@
 
 use tempfile::TempDir;
 
-use workspace_qdrant_core::fts_batch_processor::{
-    FileChange, FtsBatchConfig, FtsBatchProcessor,
-};
+use workspace_qdrant_core::fts_batch_processor::{FileChange, FtsBatchConfig, FtsBatchProcessor};
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::text_search::{search_exact, SearchOptions};
 
@@ -250,15 +248,42 @@ async fn test_tenant_delete_removes_all_project_files() {
 
     // Add files for two projects
     processor
-        .full_rewrite(1, "fn proj_a_func() {}", "proj-a", Some("main"), "src/a.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "fn proj_a_func() {}",
+            "proj-a",
+            Some("main"),
+            "src/a.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     processor
-        .full_rewrite(2, "fn proj_a_other() {}", "proj-a", Some("main"), "src/b.rs", None, None, None)
+        .full_rewrite(
+            2,
+            "fn proj_a_other() {}",
+            "proj-a",
+            Some("main"),
+            "src/b.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     processor
-        .full_rewrite(3, "fn proj_b_func() {}", "proj-b", Some("main"), "src/c.rs", None, None, None)
+        .full_rewrite(
+            3,
+            "fn proj_b_func() {}",
+            "proj-b",
+            Some("main"),
+            "src/c.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 

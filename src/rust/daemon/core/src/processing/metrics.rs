@@ -191,7 +191,8 @@ impl MetricsCollector {
     /// Record task completion
     pub async fn record_task_completion(&self, duration_ms: u64, priority: TaskPriority) {
         self.tasks_completed.fetch_add(1, AtomicOrdering::Relaxed);
-        self.total_task_duration_ms.fetch_add(duration_ms, AtomicOrdering::Relaxed);
+        self.total_task_duration_ms
+            .fetch_add(duration_ms, AtomicOrdering::Relaxed);
 
         // Update recent durations
         {
@@ -236,10 +237,12 @@ impl MetricsCollector {
         graceful: bool,
     ) {
         self.preemptions_total.fetch_add(1, AtomicOrdering::Relaxed);
-        self.total_preemption_time_ms.fetch_add(duration_ms, AtomicOrdering::Relaxed);
+        self.total_preemption_time_ms
+            .fetch_add(duration_ms, AtomicOrdering::Relaxed);
 
         if graceful {
-            self.graceful_preemptions.fetch_add(1, AtomicOrdering::Relaxed);
+            self.graceful_preemptions
+                .fetch_add(1, AtomicOrdering::Relaxed);
         } else {
             self.forced_aborts.fetch_add(1, AtomicOrdering::Relaxed);
         }
@@ -254,7 +257,8 @@ impl MetricsCollector {
 
     /// Record queue-related events
     pub async fn record_queue_time(&self, queue_time_ms: u64) {
-        self.total_queue_time_ms.fetch_add(queue_time_ms, AtomicOrdering::Relaxed);
+        self.total_queue_time_ms
+            .fetch_add(queue_time_ms, AtomicOrdering::Relaxed);
 
         let mut queue_times = self.recent_queue_times.write().await;
         if queue_times.len() >= 1000 {
@@ -265,7 +269,8 @@ impl MetricsCollector {
 
     /// Record queue overflow
     pub fn record_queue_overflow(&self) {
-        self.queue_overflow_count.fetch_add(1, AtomicOrdering::Relaxed);
+        self.queue_overflow_count
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record queue spill to SQLite
@@ -275,39 +280,42 @@ impl MetricsCollector {
 
     /// Record rate limit hit
     pub fn record_rate_limit(&self) {
-        self.rate_limited_tasks.fetch_add(1, AtomicOrdering::Relaxed);
+        self.rate_limited_tasks
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record backpressure event
     pub fn record_backpressure(&self) {
-        self.backpressure_events.fetch_add(1, AtomicOrdering::Relaxed);
+        self.backpressure_events
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record deduplication hit
     pub fn record_deduplication_hit(&self) {
-        self.deduplication_hits.fetch_add(1, AtomicOrdering::Relaxed);
+        self.deduplication_hits
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record priority boost
     pub fn record_priority_boost(&self) {
-        self.priority_boosts_applied.fetch_add(1, AtomicOrdering::Relaxed);
+        self.priority_boosts_applied
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record checkpoint creation
     pub fn record_checkpoint_created(&self) {
-        self.checkpoints_created.fetch_add(1, AtomicOrdering::Relaxed);
+        self.checkpoints_created
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record rollback execution
     pub fn record_rollback_executed(&self) {
-        self.rollbacks_executed.fetch_add(1, AtomicOrdering::Relaxed);
+        self.rollbacks_executed
+            .fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Calculate percentile from recent measurements
-    async fn calculate_percentile(
-        values: &Arc<RwLock<VecDeque<u64>>>,
-        percentile: f64,
-    ) -> f64 {
+    async fn calculate_percentile(values: &Arc<RwLock<VecDeque<u64>>>, percentile: f64) -> f64 {
         let values_lock = values.read().await;
         if values_lock.is_empty() {
             return 0.0;
@@ -350,19 +358,31 @@ impl MetricsCollector {
         let graceful_preemptions = self.graceful_preemptions.load(AtomicOrdering::Relaxed);
         let forced_aborts = self.forced_aborts.load(AtomicOrdering::Relaxed);
 
-        let (avg_task_duration, avg_queue_time, avg_preemption_time) =
-            self.compute_averages(tasks_completed, tasks_failed, tasks_cancelled, preemptions_total);
+        let (avg_task_duration, avg_queue_time, avg_preemption_time) = self.compute_averages(
+            tasks_completed,
+            tasks_failed,
+            tasks_cancelled,
+            preemptions_total,
+        );
         let p95_duration = Self::calculate_percentile(&self.recent_task_durations, 95.0).await;
         let p99_duration = Self::calculate_percentile(&self.recent_task_durations, 99.0).await;
 
         let total_tasks = tasks_completed + tasks_failed + tasks_cancelled;
-        let throughput = if uptime > 0 { tasks_completed as f64 / uptime as f64 } else { 0.0 };
+        let throughput = if uptime > 0 {
+            tasks_completed as f64 / uptime as f64
+        } else {
+            0.0
+        };
         let error_rate = if total_tasks > 0 {
             (tasks_failed as f64 / total_tasks as f64) * 100.0
-        } else { 0.0 };
+        } else {
+            0.0
+        };
         let preemption_success_rate = if preemptions_total > 0 {
             (graceful_preemptions as f64 / preemptions_total as f64) * 100.0
-        } else { 100.0 };
+        } else {
+            100.0
+        };
 
         let (preemptions_by_priority, response_times_by_priority) =
             self.collect_per_priority_metrics().await;
@@ -370,13 +390,22 @@ impl MetricsCollector {
 
         PrioritySystemMetrics {
             pipeline: self.build_pipeline_metrics(
-                queued_tasks, running_tasks, capacity,
-                tasks_completed, tasks_failed, tasks_cancelled, tasks_timed_out, uptime,
+                queued_tasks,
+                running_tasks,
+                capacity,
+                tasks_completed,
+                tasks_failed,
+                tasks_cancelled,
+                tasks_timed_out,
+                uptime,
             ),
             queue: self.build_queue_metrics(queue_stats, avg_queue_time),
             preemption: PreemptionMetrics {
-                preemptions_total, preemptions_by_priority, graceful_preemptions,
-                forced_aborts, preemption_success_rate,
+                preemptions_total,
+                preemptions_by_priority,
+                graceful_preemptions,
+                forced_aborts,
+                preemption_success_rate,
                 average_preemption_time_ms: avg_preemption_time,
                 tasks_resumed_from_checkpoints: 0,
             },
@@ -398,14 +427,24 @@ impl MetricsCollector {
     #[allow(clippy::too_many_arguments)]
     fn build_pipeline_metrics(
         &self,
-        queued_tasks: usize, running_tasks: usize, total_capacity: usize,
-        tasks_completed: u64, tasks_failed: u64, tasks_cancelled: u64,
-        tasks_timed_out: u64, uptime_seconds: u64,
+        queued_tasks: usize,
+        running_tasks: usize,
+        total_capacity: usize,
+        tasks_completed: u64,
+        tasks_failed: u64,
+        tasks_cancelled: u64,
+        tasks_timed_out: u64,
+        uptime_seconds: u64,
     ) -> PipelineMetrics {
         PipelineMetrics {
-            queued_tasks, running_tasks, total_capacity,
-            tasks_completed, tasks_failed, tasks_cancelled,
-            tasks_timed_out, uptime_seconds,
+            queued_tasks,
+            running_tasks,
+            total_capacity,
+            tasks_completed,
+            tasks_failed,
+            tasks_cancelled,
+            tasks_timed_out,
+            uptime_seconds,
         }
     }
 

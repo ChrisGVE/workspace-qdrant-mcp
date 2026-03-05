@@ -7,7 +7,7 @@ use crate::output;
 
 use super::github::{create_http_client, fetch_latest_release_for_channel, fetch_specific_release};
 use super::installer::perform_update;
-use super::platform::{get_target_triple};
+use super::platform::get_target_triple;
 use super::CURRENT_VERSION;
 
 /// Parse version string (with or without 'v' prefix)

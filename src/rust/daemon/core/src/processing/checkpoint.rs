@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::storage::StorageClient;
 use super::PriorityError;
+use crate::storage::StorageClient;
 
 /// Checkpoint data for task resumption
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,11 +54,24 @@ pub enum TaskProgress {
 /// Actions needed to rollback changes if task is cancelled
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RollbackAction {
-    DeleteFile { path: PathBuf },
-    RestoreFile { original_path: PathBuf, backup_path: PathBuf },
-    RemoveFromCollection { document_id: String, collection: String },
-    RevertIndexChanges { index_snapshot: serde_json::Value },
-    Custom { action_type: String, data: serde_json::Value },
+    DeleteFile {
+        path: PathBuf,
+    },
+    RestoreFile {
+        original_path: PathBuf,
+        backup_path: PathBuf,
+    },
+    RemoveFromCollection {
+        document_id: String,
+        collection: String,
+    },
+    RevertIndexChanges {
+        index_snapshot: serde_json::Value,
+    },
+    Custom {
+        action_type: String,
+        data: serde_json::Value,
+    },
 }
 
 /// Handler for custom rollback actions
@@ -144,7 +157,8 @@ impl CheckpointManager {
         let checkpoint_json = serde_json::to_string(&checkpoint)
             .map_err(|e| PriorityError::Checkpoint(e.to_string()))?;
 
-        tokio::fs::write(&checkpoint_file, checkpoint_json).await
+        tokio::fs::write(&checkpoint_file, checkpoint_json)
+            .await
             .map_err(|e| PriorityError::Checkpoint(e.to_string()))?;
 
         tracing::debug!("Created checkpoint {} for task {}", checkpoint_id, task_id);
@@ -168,7 +182,8 @@ impl CheckpointManager {
         // Remove from disk
         let checkpoint_file = self.checkpoint_dir.join(format!("{checkpoint_id}.json"));
         if checkpoint_file.exists() {
-            tokio::fs::remove_file(checkpoint_file).await
+            tokio::fs::remove_file(checkpoint_file)
+                .await
                 .map_err(|e| PriorityError::Checkpoint(e.to_string()))?;
         }
 
@@ -176,18 +191,15 @@ impl CheckpointManager {
     }
 
     /// Rollback changes using checkpoint data
-    pub async fn rollback_checkpoint(
-        &self,
-        checkpoint_id: &str,
-    ) -> Result<(), PriorityError> {
-        let checkpoint = self.get_checkpoint(checkpoint_id).await
-            .ok_or_else(|| PriorityError::Checkpoint(
-                format!("Checkpoint {checkpoint_id} not found"),
-            ))?;
+    pub async fn rollback_checkpoint(&self, checkpoint_id: &str) -> Result<(), PriorityError> {
+        let checkpoint = self.get_checkpoint(checkpoint_id).await.ok_or_else(|| {
+            PriorityError::Checkpoint(format!("Checkpoint {checkpoint_id} not found"))
+        })?;
 
         tracing::info!(
             "Rolling back checkpoint {} for task {}",
-            checkpoint_id, checkpoint.task_id
+            checkpoint_id,
+            checkpoint.task_id
         );
 
         // Execute rollback actions in reverse order
@@ -210,26 +222,32 @@ impl CheckpointManager {
     }
 
     /// Execute a single rollback action
-    async fn execute_rollback_action(
-        &self,
-        action: &RollbackAction,
-    ) -> Result<(), PriorityError> {
+    async fn execute_rollback_action(&self, action: &RollbackAction) -> Result<(), PriorityError> {
         match action {
             RollbackAction::DeleteFile { path } => {
                 if path.exists() {
-                    tokio::fs::remove_file(path).await
+                    tokio::fs::remove_file(path)
+                        .await
                         .map_err(|e| PriorityError::RollbackFailed(e.to_string()))?;
                 }
             }
-            RollbackAction::RestoreFile { original_path, backup_path } => {
+            RollbackAction::RestoreFile {
+                original_path,
+                backup_path,
+            } => {
                 if backup_path.exists() {
-                    tokio::fs::copy(backup_path, original_path).await
+                    tokio::fs::copy(backup_path, original_path)
+                        .await
                         .map_err(|e| PriorityError::RollbackFailed(e.to_string()))?;
                     let _ = tokio::fs::remove_file(backup_path).await;
                 }
             }
-            RollbackAction::RemoveFromCollection { document_id, collection } => {
-                self.rollback_remove_from_collection(document_id, collection).await?;
+            RollbackAction::RemoveFromCollection {
+                document_id,
+                collection,
+            } => {
+                self.rollback_remove_from_collection(document_id, collection)
+                    .await?;
             }
             RollbackAction::RevertIndexChanges { index_snapshot } => {
                 self.rollback_revert_index(index_snapshot).await;
@@ -251,31 +269,33 @@ impl CheckpointManager {
         if let Some(ref storage) = self.storage_client {
             tracing::info!(
                 "Rollback: removing document '{}' from collection '{}'",
-                document_id, collection
+                document_id,
+                collection
             );
-            match storage.delete_points_by_document_id(collection, document_id).await {
+            match storage
+                .delete_points_by_document_id(collection, document_id)
+                .await
+            {
                 Ok(count) => {
                     tracing::info!(
                         "Rollback: deleted {} points for document '{}' from '{}'",
-                        count, document_id, collection
+                        count,
+                        document_id,
+                        collection
                     );
                 }
                 Err(e) => {
-                    return Err(PriorityError::RollbackFailed(
-                        format!(
-                            "Failed to remove document '{}' from '{}': {}",
-                            document_id, collection, e
-                        ),
-                    ));
+                    return Err(PriorityError::RollbackFailed(format!(
+                        "Failed to remove document '{}' from '{}': {}",
+                        document_id, collection, e
+                    )));
                 }
             }
         } else {
-            return Err(PriorityError::RollbackFailed(
-                format!(
-                    "No storage client configured; cannot remove document '{}' from '{}'",
-                    document_id, collection
-                ),
-            ));
+            return Err(PriorityError::RollbackFailed(format!(
+                "No storage client configured; cannot remove document '{}' from '{}'",
+                document_id, collection
+            )));
         }
         Ok(())
     }
@@ -289,7 +309,9 @@ impl CheckpointManager {
                         tracing::warn!(
                             "Rollback: index revert requested for collection '{}' \
                              (status={}, points={}). Snapshot: {}",
-                            collection, info.status, info.points_count,
+                            collection,
+                            info.status,
+                            info.points_count,
                             serde_json::to_string(index_snapshot).unwrap_or_default()
                         );
                     }
@@ -327,15 +349,18 @@ impl CheckpointManager {
         let handlers = self.custom_handlers.read().await;
         if let Some(handler) = handlers.get(action_type) {
             tracing::info!("Rollback: executing custom handler '{}'", action_type);
-            handler.execute(data).await
-                .map_err(|e| PriorityError::RollbackFailed(
-                    format!("Custom rollback '{}' failed: {}", action_type, e)
-                ))?;
+            handler.execute(data).await.map_err(|e| {
+                PriorityError::RollbackFailed(format!(
+                    "Custom rollback '{}' failed: {}",
+                    action_type, e
+                ))
+            })?;
             tracing::info!("Rollback: custom handler '{}' completed", action_type);
         } else {
-            return Err(PriorityError::RollbackFailed(
-                format!("No handler registered for custom rollback type '{}'", action_type),
-            ));
+            return Err(PriorityError::RollbackFailed(format!(
+                "No handler registered for custom rollback type '{}'",
+                action_type
+            )));
         }
         Ok(())
     }

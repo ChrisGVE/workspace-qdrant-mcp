@@ -94,8 +94,7 @@ impl TextStrategy {
             Self::delete_rule_by_label(ctx, &payload.label).await?;
         }
 
-        let content_doc_id =
-            crate::generate_content_document_id(&item.tenant_id, &payload.content);
+        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
         let point_payload = build_rules_payload(item, &payload, &content_doc_id, action);
 
         let point = DocumentPoint {
@@ -141,7 +140,10 @@ impl TextStrategy {
                 .execute(pool)
                 .await
             {
-                warn!("Failed to delete rules_mirror row for label={}: {}", label, e);
+                warn!(
+                    "Failed to delete rules_mirror row for label={}: {}",
+                    label, e
+                );
             }
         }
         Ok(())
@@ -176,8 +178,7 @@ impl TextStrategy {
         let now = wqm_common::timestamps::now_utc();
 
         // Generate document ID from content hash (for idempotent updates)
-        let content_doc_id =
-            crate::generate_content_document_id(&item.tenant_id, &payload.content);
+        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
 
         // Generate embedding (semaphore-gated)
         let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
@@ -191,18 +192,9 @@ impl TextStrategy {
         // Build Qdrant payload
         let mut point_payload = HashMap::new();
         point_payload.insert("content".to_string(), serde_json::json!(payload.content));
-        point_payload.insert(
-            "document_id".to_string(),
-            serde_json::json!(content_doc_id),
-        );
-        point_payload.insert(
-            "tenant_id".to_string(),
-            serde_json::json!(item.tenant_id),
-        );
-        point_payload.insert(
-            "source_type".to_string(),
-            serde_json::json!("scratchpad"),
-        );
+        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
+        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+        point_payload.insert("source_type".to_string(), serde_json::json!("scratchpad"));
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
         point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
         point_payload.insert("created_at".to_string(), serde_json::json!(&now));
@@ -251,20 +243,13 @@ impl TextStrategy {
         )
         .await?;
 
-        let content_doc_id =
-            crate::generate_content_document_id(&item.tenant_id, &payload.content);
+        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
 
         // Build payload with metadata
         let mut point_payload = HashMap::new();
         point_payload.insert("content".to_string(), serde_json::json!(payload.content));
-        point_payload.insert(
-            "document_id".to_string(),
-            serde_json::json!(content_doc_id),
-        );
-        point_payload.insert(
-            "tenant_id".to_string(),
-            serde_json::json!(item.tenant_id),
-        );
+        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
+        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
         point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
         point_payload.insert(

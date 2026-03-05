@@ -69,10 +69,7 @@ pub async fn restore_from_backup(
         .to_string();
 
     // Upload via multipart form
-    let upload_url = format!(
-        "{}/collections/{}/snapshots/upload",
-        base, collection
-    );
+    let upload_url = format!("{}/collections/{}/snapshots/upload", base, collection);
 
     let part = reqwest::multipart::Part::bytes(file_bytes)
         .file_name(file_name)

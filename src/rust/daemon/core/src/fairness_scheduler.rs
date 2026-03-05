@@ -10,7 +10,7 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-use crate::queue_operations::{QueueManager, QueueError};
+use crate::queue_operations::{QueueError, QueueManager};
 use crate::unified_queue_schema::UnifiedQueueItem;
 
 /// Fairness scheduler errors
@@ -150,7 +150,8 @@ impl FairnessScheduler {
         max_items: i32,
         priority_descending: bool,
     ) -> FairnessResult<Vec<UnifiedQueueItem>> {
-        let items = self.queue_manager
+        let items = self
+            .queue_manager
             .dequeue_unified(
                 max_items,
                 &self.config.worker_id,
@@ -170,7 +171,8 @@ impl FairnessScheduler {
         max_items: i32,
         priority_descending: bool,
     ) -> FairnessResult<Vec<UnifiedQueueItem>> {
-        let items = self.queue_manager
+        let items = self
+            .queue_manager
             .dequeue_unified(
                 max_items,
                 &self.config.worker_id,
@@ -199,7 +201,10 @@ impl FairnessScheduler {
     /// - Asymmetric batches (~77% high, ~23% low) prevent large library files
     ///   from neutralizing the priority advantage
     /// - No items starve indefinitely
-    pub async fn dequeue_next_batch(&self, max_batch_size: i32) -> FairnessResult<Vec<UnifiedQueueItem>> {
+    pub async fn dequeue_next_batch(
+        &self,
+        max_batch_size: i32,
+    ) -> FairnessResult<Vec<UnifiedQueueItem>> {
         // If fairness is disabled, always use priority DESC
         if !self.config.enabled {
             debug!("Fairness disabled, using priority DESC");
@@ -219,12 +224,18 @@ impl FairnessScheduler {
 
         debug!(
             "Dequeuing batch with priority {} (batch_limit={})",
-            if priority_descending { "DESC (high first)" } else { "ASC (low first)" },
+            if priority_descending {
+                "DESC (high first)"
+            } else {
+                "ASC (low first)"
+            },
             current_batch_limit
         );
 
         // Dequeue items with current direction
-        let items = self.dequeue_global_batch(max_batch_size, priority_descending).await?;
+        let items = self
+            .dequeue_global_batch(max_batch_size, priority_descending)
+            .await?;
         let items_count = items.len() as u64;
 
         if items_count > 0 {
@@ -252,7 +263,11 @@ impl FairnessScheduler {
 
                 info!(
                     "Anti-starvation flip: switching to priority {} (flip #{})",
-                    if state.use_priority_descending { "DESC" } else { "ASC" },
+                    if state.use_priority_descending {
+                        "DESC"
+                    } else {
+                        "ASC"
+                    },
                     metrics.direction_flips_total
                 );
             }
@@ -291,7 +306,9 @@ impl FairnessScheduler {
             (state.use_priority_descending, limit)
         };
 
-        let items = self.dequeue_project_batch(project_id, max_batch_size, priority_descending).await?;
+        let items = self
+            .dequeue_project_batch(project_id, max_batch_size, priority_descending)
+            .await?;
         let items_count = items.len() as u64;
 
         if items_count > 0 && self.config.enabled {
@@ -315,7 +332,11 @@ impl FairnessScheduler {
 
                 info!(
                     "Anti-starvation flip: switching to priority {} (flip #{})",
-                    if state.use_priority_descending { "DESC" } else { "ASC" },
+                    if state.use_priority_descending {
+                        "DESC"
+                    } else {
+                        "ASC"
+                    },
                     metrics.direction_flips_total
                 );
             }

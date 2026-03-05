@@ -9,11 +9,7 @@ mod tests {
 
     use crate::adaptive_resources::ResourceLevel;
 
-    use crate::idle_history::{
-        history::IdleHistory,
-        tracker::ModeTracker,
-        types::StateTransition,
-    };
+    use crate::idle_history::{history::IdleHistory, tracker::ModeTracker, types::StateTransition};
 
     fn make_test_history() -> (IdleHistory, tempfile::TempDir) {
         let dir = tempdir().unwrap();

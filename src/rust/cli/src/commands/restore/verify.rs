@@ -47,10 +47,7 @@ pub async fn verify_snapshot(snapshot: &str, collection: &str) -> Result<()> {
 }
 
 /// Fetch the list of snapshots from Qdrant.
-async fn fetch_snapshot_list(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<Vec<SnapshotInfo>> {
+async fn fetch_snapshot_list(client: &reqwest::Client, url: &str) -> Result<Vec<SnapshotInfo>> {
     let resp = client
         .get(url)
         .send()
@@ -116,12 +113,7 @@ async fn verify_download_access(client: &reqwest::Client, url: &str) {
 }
 
 /// Print an error and list available snapshots when the target is not found.
-fn print_not_found(
-    snapshot: &str,
-    collection: &str,
-    is_full: bool,
-    available: &[SnapshotInfo],
-) {
+fn print_not_found(snapshot: &str, collection: &str, is_full: bool, available: &[SnapshotInfo]) {
     output::error(format!(
         "Snapshot '{}' not found in {} snapshots",
         snapshot,

@@ -24,14 +24,9 @@ fn apply_general_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfi
         config.log_file = Some(PathBuf::from(log_file));
     }
 
-    if let Ok(max_concurrent) =
-        std::env::var(format!("{}MAX_CONCURRENT_TASKS", ENV_PREFIX))
-    {
+    if let Ok(max_concurrent) = std::env::var(format!("{}MAX_CONCURRENT_TASKS", ENV_PREFIX)) {
         config.max_concurrent_tasks = Some(max_concurrent.parse().map_err(|e| {
-            UnifiedConfigError::ValidationError(format!(
-                "Invalid max_concurrent_tasks: {}",
-                e
-            ))
+            UnifiedConfigError::ValidationError(format!("Invalid max_concurrent_tasks: {}", e))
         })?);
     }
 
@@ -63,16 +58,10 @@ fn apply_general_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfi
         })?;
     }
 
-    if let Ok(metrics_interval) =
-        std::env::var(format!("{}METRICS_INTERVAL_SECS", ENV_PREFIX))
-    {
-        config.observability.collection_interval =
-            metrics_interval.parse().map_err(|e| {
-                UnifiedConfigError::ValidationError(format!(
-                    "Invalid metrics_interval_secs: {}",
-                    e
-                ))
-            })?;
+    if let Ok(metrics_interval) = std::env::var(format!("{}METRICS_INTERVAL_SECS", ENV_PREFIX)) {
+        config.observability.collection_interval = metrics_interval.parse().map_err(|e| {
+            UnifiedConfigError::ValidationError(format!("Invalid metrics_interval_secs: {}", e))
+        })?;
     }
 
     Ok(())
@@ -108,14 +97,9 @@ fn apply_qdrant_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfig
         })?;
     }
 
-    if let Ok(retry_delay) =
-        std::env::var(format!("{}QDRANT__RETRY_DELAY_MS", ENV_PREFIX))
-    {
+    if let Ok(retry_delay) = std::env::var(format!("{}QDRANT__RETRY_DELAY_MS", ENV_PREFIX)) {
         config.qdrant.retry_delay_ms = retry_delay.parse().map_err(|e| {
-            UnifiedConfigError::ValidationError(format!(
-                "Invalid qdrant retry_delay_ms: {}",
-                e
-            ))
+            UnifiedConfigError::ValidationError(format!("Invalid qdrant retry_delay_ms: {}", e))
         })?;
     }
 
@@ -131,31 +115,19 @@ fn apply_qdrant_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfig
         })?;
     }
 
-    if let Ok(vector_size) =
-        std::env::var(format!("{}QDRANT__DENSE_VECTOR_SIZE", ENV_PREFIX))
-    {
+    if let Ok(vector_size) = std::env::var(format!("{}QDRANT__DENSE_VECTOR_SIZE", ENV_PREFIX)) {
         config.qdrant.dense_vector_size = vector_size.parse().map_err(|e| {
-            UnifiedConfigError::ValidationError(format!(
-                "Invalid qdrant dense_vector_size: {}",
-                e
-            ))
+            UnifiedConfigError::ValidationError(format!("Invalid qdrant dense_vector_size: {}", e))
         })?;
     }
 
     Ok(())
 }
 
-fn apply_auto_ingestion_overrides(
-    config: &mut DaemonConfig,
-) -> Result<(), UnifiedConfigError> {
-    if let Ok(enabled) =
-        std::env::var(format!("{}AUTO_INGESTION__ENABLED", ENV_PREFIX))
-    {
+fn apply_auto_ingestion_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfigError> {
+    if let Ok(enabled) = std::env::var(format!("{}AUTO_INGESTION__ENABLED", ENV_PREFIX)) {
         config.auto_ingestion.enabled = enabled.parse().map_err(|e| {
-            UnifiedConfigError::ValidationError(format!(
-                "Invalid auto_ingestion enabled: {}",
-                e
-            ))
+            UnifiedConfigError::ValidationError(format!("Invalid auto_ingestion enabled: {}", e))
         })?;
     }
 
@@ -170,9 +142,10 @@ fn apply_auto_ingestion_overrides(
         })?;
     }
 
-    if let Ok(suffix) =
-        std::env::var(format!("{}AUTO_INGESTION__TARGET_COLLECTION_SUFFIX", ENV_PREFIX))
-    {
+    if let Ok(suffix) = std::env::var(format!(
+        "{}AUTO_INGESTION__TARGET_COLLECTION_SUFFIX",
+        ENV_PREFIX
+    )) {
         config.auto_ingestion.target_collection_suffix = suffix;
     }
 
@@ -190,9 +163,7 @@ fn apply_auto_ingestion_overrides(
     Ok(())
 }
 
-fn apply_daemon_endpoint_overrides(
-    config: &mut DaemonConfig,
-) -> Result<(), UnifiedConfigError> {
+fn apply_daemon_endpoint_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfigError> {
     if let Ok(host) = std::env::var(format!("{}DAEMON_HOST", ENV_PREFIX)) {
         config.daemon_endpoint.host = host;
     }

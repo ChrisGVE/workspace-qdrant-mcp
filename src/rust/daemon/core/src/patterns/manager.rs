@@ -5,8 +5,8 @@
 //! to parsed pattern data.
 
 use super::{
-    AllPatterns, ExcludePatterns, IncludePatterns, LanguageExtensions, PatternError,
-    PatternResult, ProjectIndicators,
+    AllPatterns, ExcludePatterns, IncludePatterns, LanguageExtensions, PatternError, PatternResult,
+    ProjectIndicators,
 };
 use once_cell::sync::Lazy;
 use std::sync::Arc;
@@ -28,16 +28,21 @@ static _EMBEDDED_PATTERNS: _EmbeddedPatterns = _EmbeddedPatterns {
 };
 
 /// Global comprehensive pattern manager - lazily initialized on first access
-static COMPREHENSIVE_MANAGER: Lazy<Result<Arc<super::comprehensive::ComprehensivePatternManager>, PatternError>> = Lazy::new(|| {
+static COMPREHENSIVE_MANAGER: Lazy<
+    Result<Arc<super::comprehensive::ComprehensivePatternManager>, PatternError>,
+> = Lazy::new(|| {
     super::comprehensive::ComprehensivePatternManager::new()
         .map(Arc::new)
-        .map_err(|e| PatternError::Validation(format!("Comprehensive pattern manager failed: {}", e)))
+        .map_err(|e| {
+            PatternError::Validation(format!("Comprehensive pattern manager failed: {}", e))
+        })
 });
 
 /// Global patterns derived from comprehensive configuration - lazily initialized
 static DERIVED_PATTERNS: Lazy<Result<Arc<AllPatterns>, PatternError>> = Lazy::new(|| {
-    let comprehensive = COMPREHENSIVE_MANAGER.as_ref()
-        .map_err(|e| PatternError::Validation(format!("Failed to load comprehensive manager: {}", e)))?;
+    let comprehensive = COMPREHENSIVE_MANAGER.as_ref().map_err(|e| {
+        PatternError::Validation(format!("Failed to load comprehensive manager: {}", e))
+    })?;
 
     let all_patterns = super::conversion::convert_comprehensive_to_patterns(comprehensive)?;
     super::conversion::validate_patterns(&all_patterns)?;
@@ -136,7 +141,9 @@ impl PatternManager {
         let mut best_ecosystem: Option<(String, f32)> = None;
 
         for ecosystem_name in self.patterns.ecosystem_names() {
-            let confidence = self.patterns.calculate_ecosystem_confidence(ecosystem_name, file_paths);
+            let confidence = self
+                .patterns
+                .calculate_ecosystem_confidence(ecosystem_name, file_paths);
 
             if confidence > 0.0 {
                 match &best_ecosystem {
@@ -188,8 +195,10 @@ impl Default for PatternManager {
 }
 
 /// Get access to the comprehensive pattern manager
-pub fn comprehensive_manager() -> PatternResult<Arc<super::comprehensive::ComprehensivePatternManager>> {
-    COMPREHENSIVE_MANAGER.as_ref()
+pub fn comprehensive_manager(
+) -> PatternResult<Arc<super::comprehensive::ComprehensivePatternManager>> {
+    COMPREHENSIVE_MANAGER
+        .as_ref()
         .map(Arc::clone)
         .map_err(|e| PatternError::Validation(format!("Comprehensive manager unavailable: {}", e)))
 }
@@ -269,7 +278,10 @@ mod tests {
     #[test]
     fn test_pattern_manager_creation() {
         let manager = PatternManager::new();
-        assert!(manager.is_ok(), "PatternManager should initialize successfully");
+        assert!(
+            manager.is_ok(),
+            "PatternManager should initialize successfully"
+        );
     }
 
     #[test]
@@ -279,9 +291,18 @@ mod tests {
 
         // These should be non-zero if patterns are loaded correctly
         assert!(stats.ecosystems_count > 0, "Should have ecosystems");
-        assert!(stats.exclude_patterns_count > 0, "Should have exclude patterns");
-        assert!(stats.include_patterns_count > 0, "Should have include patterns");
-        assert!(stats.languages_count > 0, "Should have language definitions");
+        assert!(
+            stats.exclude_patterns_count > 0,
+            "Should have exclude patterns"
+        );
+        assert!(
+            stats.include_patterns_count > 0,
+            "Should have include patterns"
+        );
+        assert!(
+            stats.languages_count > 0,
+            "Should have language definitions"
+        );
     }
 
     #[test]
@@ -329,7 +350,7 @@ mod tests {
         // Note: These tests depend on the actual patterns in the YAML files
 
         // Test with patterns that should work with our simple glob implementation
-        assert!(manager.should_include("main.rs"));  // *.rs pattern
+        assert!(manager.should_include("main.rs")); // *.rs pattern
         assert!(manager.should_include("README.md")); // *.md pattern
         assert!(manager.should_include("package.json")); // *.json pattern
 
@@ -337,7 +358,10 @@ mod tests {
         let include_patterns = manager.patterns.all_include_patterns();
         println!("Total include patterns: {}", include_patterns.len());
         for (i, pattern) in include_patterns.iter().take(5).enumerate() {
-            println!("Pattern {}: {} - {}", i, pattern.pattern, pattern.description);
+            println!(
+                "Pattern {}: {} - {}",
+                i, pattern.pattern, pattern.description
+            );
         }
     }
 
@@ -364,7 +388,13 @@ mod tests {
         ];
 
         let (ecosystem, confidence) = manager.detect_ecosystem(&rust_files).unwrap();
-        assert!(confidence > 0.0, "Should detect some ecosystem with confidence");
-        println!("Detected ecosystem: {} with confidence: {}", ecosystem, confidence);
+        assert!(
+            confidence > 0.0,
+            "Should detect some ecosystem with confidence"
+        );
+        println!(
+            "Detected ecosystem: {} with confidence: {}",
+            ecosystem, confidence
+        );
     }
 }

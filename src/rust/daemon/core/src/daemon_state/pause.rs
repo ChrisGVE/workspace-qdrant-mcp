@@ -27,19 +27,21 @@ impl DaemonStateManager {
 
     /// Get list of watch folder IDs that are currently paused
     pub async fn get_paused_watch_ids(&self) -> DaemonStateResult<Vec<String>> {
-        let rows: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(
-            "SELECT watch_id FROM watch_folders WHERE is_paused = 1 AND enabled = 1"
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.iter().map(|r| r.try_get::<String, _>("watch_id").unwrap_or_default()).collect())
+        let rows: Vec<sqlx::sqlite::SqliteRow> =
+            sqlx::query("SELECT watch_id FROM watch_folders WHERE is_paused = 1 AND enabled = 1")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows
+            .iter()
+            .map(|r| r.try_get::<String, _>("watch_id").unwrap_or_default())
+            .collect())
     }
 
     /// Check if any enabled watch folder is paused.
     /// Returns true if at least one enabled watch has is_paused=1.
     pub async fn any_watchers_paused(&self) -> DaemonStateResult<bool> {
         let count: i32 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM watch_folders WHERE is_paused = 1 AND enabled = 1"
+            "SELECT COUNT(*) FROM watch_folders WHERE is_paused = 1 AND enabled = 1",
         )
         .fetch_one(&self.pool)
         .await?;

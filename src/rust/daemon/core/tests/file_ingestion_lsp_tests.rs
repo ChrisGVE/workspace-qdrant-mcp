@@ -55,7 +55,11 @@ class Calculator:
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Code, "Python files should be classified as code");
+    assert_eq!(
+        file_type,
+        FileType::Code,
+        "Python files should be classified as code"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -115,7 +119,8 @@ export { Calculator, calculateSum };
     // Verify file classification
     let file_type = classify_file_type(&file_path);
     assert_eq!(
-        file_type, FileType::Code,
+        file_type,
+        FileType::Code,
         "JavaScript files should be classified as code"
     );
 
@@ -180,7 +185,8 @@ export { Calculator, calculateSum, CalculatorInterface };
     // Verify file classification
     let file_type = classify_file_type(&file_path);
     assert_eq!(
-        file_type, FileType::Code,
+        file_type,
+        FileType::Code,
         "TypeScript files should be classified as code"
     );
 
@@ -257,7 +263,11 @@ mod tests {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Code, "Rust files should be classified as code");
+    assert_eq!(
+        file_type,
+        FileType::Code,
+        "Rust files should be classified as code"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -321,7 +331,11 @@ func (c *Calculator) Add(x int, y int) int {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Code, "Go files should be classified as code");
+    assert_eq!(
+        file_type,
+        FileType::Code,
+        "Go files should be classified as code"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -398,7 +412,8 @@ async fn test_multiple_code_languages_concurrent() -> TestResult {
         // Verify classification
         let file_type = classify_file_type(&file_path);
         assert_eq!(
-            file_type, FileType::Code,
+            file_type,
+            FileType::Code,
             "{} files should be classified as code",
             language
         );

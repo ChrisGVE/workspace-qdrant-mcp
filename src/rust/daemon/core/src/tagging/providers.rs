@@ -19,17 +19,12 @@ impl Tier3Tagger {
     ) -> Result<Vec<String>, String> {
         match provider {
             LlmProvider::Anthropic => {
-                self.call_anthropic_api(base_url, api_key, model, prompt).await
+                self.call_anthropic_api(base_url, api_key, model, prompt)
+                    .await
             }
-            LlmProvider::OpenAi => {
-                self.call_openai_api(base_url, api_key, model, prompt).await
-            }
-            LlmProvider::Google => {
-                self.call_google_api(base_url, api_key, model, prompt).await
-            }
-            LlmProvider::Ollama => {
-                self.call_ollama_api(base_url, model, prompt).await
-            }
+            LlmProvider::OpenAi => self.call_openai_api(base_url, api_key, model, prompt).await,
+            LlmProvider::Google => self.call_google_api(base_url, api_key, model, prompt).await,
+            LlmProvider::Ollama => self.call_ollama_api(base_url, model, prompt).await,
         }
     }
 
@@ -70,9 +65,7 @@ impl Tier3Tagger {
             .await
             .map_err(|e| format!("Anthropic parse error: {}", e))?;
 
-        let text = json["content"][0]["text"]
-            .as_str()
-            .unwrap_or("");
+        let text = json["content"][0]["text"].as_str().unwrap_or("");
 
         Ok(parse_tags_from_response(text))
     }
@@ -127,10 +120,7 @@ impl Tier3Tagger {
         model: &str,
         prompt: &str,
     ) -> Result<Vec<String>, String> {
-        let url = format!(
-            "{}/v1beta/models/{}:generateContent",
-            base_url, model
-        );
+        let url = format!("{}/v1beta/models/{}:generateContent", base_url, model);
         let body = serde_json::json!({
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -226,17 +216,16 @@ impl Tier3Tagger {
         }
     }
 
-    async fn call_claude_cli(
-        &self,
-        model: &str,
-        prompt: &str,
-    ) -> Result<Vec<String>, String> {
+    async fn call_claude_cli(&self, model: &str, prompt: &str) -> Result<Vec<String>, String> {
         let output = tokio::process::Command::new("claude")
             .args([
-                "-p", prompt,
-                "--output-format", "text",
+                "-p",
+                prompt,
+                "--output-format",
+                "text",
                 "--no-input",
-                "--model", model,
+                "--model",
+                model,
             ])
             .output()
             .await
@@ -251,11 +240,7 @@ impl Tier3Tagger {
         Ok(parse_tags_from_response(&stdout))
     }
 
-    async fn call_codex_cli(
-        &self,
-        model: &str,
-        prompt: &str,
-    ) -> Result<Vec<String>, String> {
+    async fn call_codex_cli(&self, model: &str, prompt: &str) -> Result<Vec<String>, String> {
         let output = tokio::process::Command::new("codex")
             .args(["--prompt", prompt, "--quiet", "--model", model])
             .output()
@@ -271,11 +256,7 @@ impl Tier3Tagger {
         Ok(parse_tags_from_response(&stdout))
     }
 
-    async fn call_gemini_cli(
-        &self,
-        _model: &str,
-        prompt: &str,
-    ) -> Result<Vec<String>, String> {
+    async fn call_gemini_cli(&self, _model: &str, prompt: &str) -> Result<Vec<String>, String> {
         let output = tokio::process::Command::new("gemini")
             .args(["-p", prompt])
             .output()

@@ -11,8 +11,8 @@
 //! - [`services`] - Individual gRPC service implementations
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::SqlitePool;
@@ -117,11 +117,11 @@ impl Default for PerformanceConfig {
     fn default() -> Self {
         Self {
             max_concurrent_streams: 1000,
-            max_message_size: 16 * 1024 * 1024, // 16MB
-            max_connection_idle: Duration::from_secs(300),   // 5 minutes
-            max_connection_age: Duration::from_secs(3600),   // 1 hour
+            max_message_size: 16 * 1024 * 1024,            // 16MB
+            max_connection_idle: Duration::from_secs(300), // 5 minutes
+            max_connection_age: Duration::from_secs(3600), // 1 hour
             tcp_nodelay: true,
-            tcp_keepalive: Some(Duration::from_secs(600)),   // 10 minutes
+            tcp_keepalive: Some(Duration::from_secs(600)), // 10 minutes
         }
     }
 }
@@ -206,7 +206,11 @@ impl ServerConfig {
     /// Check if the configuration is secure (has TLS or requires authentication)
     pub fn is_secure(&self) -> bool {
         self.tls_config.is_some()
-            || self.auth_config.as_ref().map(|a| a.enabled).unwrap_or(false)
+            || self
+                .auth_config
+                .as_ref()
+                .map(|a| a.enabled)
+                .unwrap_or(false)
     }
 
     /// Get security warnings for the current configuration
@@ -214,9 +218,7 @@ impl ServerConfig {
         let mut warnings = Vec::new();
 
         if self.tls_config.is_none() {
-            warnings.push(
-                "TLS is not enabled - all communication will be unencrypted".to_string(),
-            );
+            warnings.push("TLS is not enabled - all communication will be unencrypted".to_string());
         }
 
         self.check_auth_warnings(&mut warnings);
@@ -239,17 +241,14 @@ impl ServerConfig {
         };
 
         if !auth.enabled {
-            warnings.push(
-                "Authentication is disabled - anyone can access the gRPC server".to_string(),
-            );
+            warnings
+                .push("Authentication is disabled - anyone can access the gRPC server".to_string());
         }
         if auth.enabled && auth.api_key.is_none() && auth.jwt_secret.is_none() {
-            warnings
-                .push("Authentication enabled but no credentials configured".to_string());
+            warnings.push("Authentication enabled but no credentials configured".to_string());
         }
         if auth.allowed_origins.contains(&"*".to_string()) {
-            warnings
-                .push("Wildcard origin allowed - CORS protection disabled".to_string());
+            warnings.push("Wildcard origin allowed - CORS protection disabled".to_string());
         }
     }
 

@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V04Migration;
 
@@ -17,9 +17,10 @@ impl Migration for V04Migration {
         use crate::watch_folders_schema::MIGRATE_V4_PAUSE_SQL;
 
         let has_is_paused: bool = sqlx::query_scalar(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'is_paused'"
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'is_paused'",
         )
-        .fetch_one(pool).await?;
+        .fetch_one(pool)
+        .await?;
 
         if !has_is_paused {
             for alter_sql in MIGRATE_V4_PAUSE_SQL {
@@ -34,6 +35,10 @@ impl Migration for V04Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 4 }
-    fn description(&self) -> &'static str { "Add pause columns to watch_folders" }
+    fn version(&self) -> i32 {
+        4
+    }
+    fn description(&self) -> &'static str {
+        "Add pause columns to watch_folders"
+    }
 }

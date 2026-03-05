@@ -93,9 +93,7 @@ pub(super) fn map_distance_metric(metric: &str) -> Result<String, Status> {
 }
 
 /// Map storage errors to gRPC Status.
-pub(super) fn map_storage_error(
-    err: workspace_qdrant_core::storage::StorageError,
-) -> Status {
+pub(super) fn map_storage_error(err: workspace_qdrant_core::storage::StorageError) -> Status {
     use workspace_qdrant_core::storage::StorageError;
 
     match err {
@@ -108,12 +106,8 @@ pub(super) fn map_storage_error(
         StorageError::Collection(msg) => {
             Status::failed_precondition(format!("Collection error: {}", msg))
         }
-        StorageError::Connection(msg) => {
-            Status::unavailable(format!("Connection error: {}", msg))
-        }
-        StorageError::Timeout(msg) => {
-            Status::deadline_exceeded(format!("Timeout: {}", msg))
-        }
+        StorageError::Connection(msg) => Status::unavailable(format!("Connection error: {}", msg)),
+        StorageError::Timeout(msg) => Status::deadline_exceeded(format!("Timeout: {}", msg)),
         StorageError::Qdrant(err) => {
             let err_msg = format!("{:?}", err);
             if err_msg.contains("rate limit") || err_msg.contains("too many requests") {

@@ -245,14 +245,7 @@ mod tests {
         };
         {
             let tree = repo.find_tree(tree_id)?;
-            repo.commit(
-                Some("HEAD"),
-                &sig,
-                &sig,
-                "Initial commit",
-                &tree,
-                &[],
-            )?;
+            repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
         }
 
         Ok(repo)

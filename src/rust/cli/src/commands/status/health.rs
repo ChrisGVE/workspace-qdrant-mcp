@@ -55,11 +55,7 @@ pub async fn health(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn print_health_json(
-    connected: bool,
-    overall: ServiceStatus,
-    components: &[ComponentHealth],
-) {
+fn print_health_json(connected: bool, overall: ServiceStatus, components: &[ComponentHealth]) {
     let components: Vec<HealthComponentJson> = components
         .iter()
         .map(|c| HealthComponentJson {

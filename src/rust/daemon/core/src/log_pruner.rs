@@ -186,7 +186,10 @@ mod tests {
         create_file_with_age(log_dir, "daemon.jsonl", 48); // active — never pruned
 
         let result = prune_now(log_dir, 36, false).unwrap();
-        assert_eq!(result.files_deleted, 1, "Should delete only the 48h old rotated file");
+        assert_eq!(
+            result.files_deleted, 1,
+            "Should delete only the 48h old rotated file"
+        );
         assert!(!log_dir.join("daemon.jsonl.1.gz").exists());
         assert!(log_dir.join("daemon.jsonl.2.gz").exists());
         assert!(log_dir.join("daemon.jsonl").exists());
@@ -203,7 +206,10 @@ mod tests {
         let result = prune_now(log_dir, 36, true).unwrap();
         assert_eq!(result.files_deleted, 0, "Dry run should not delete");
         assert_eq!(result.candidates.len(), 1, "Should identify 1 candidate");
-        assert!(log_dir.join("old.log.gz").exists(), "File should still exist in dry run");
+        assert!(
+            log_dir.join("old.log.gz").exists(),
+            "File should still exist in dry run"
+        );
     }
 
     #[test]
@@ -230,7 +236,9 @@ mod tests {
     async fn test_run_if_due_skips_when_recent() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("prune_due.db");
-        let manager = crate::daemon_state::DaemonStateManager::new(&db_path).await.unwrap();
+        let manager = crate::daemon_state::DaemonStateManager::new(&db_path)
+            .await
+            .unwrap();
         manager.initialize().await.unwrap();
         let pool = manager.pool();
 
@@ -260,7 +268,9 @@ mod tests {
         assert!(is_active_log(Path::new("/logs/mcp-server.jsonl")));
         assert!(is_active_log(Path::new("/logs/workspace.log")));
         assert!(!is_active_log(Path::new("/logs/daemon.jsonl.1.gz")));
-        assert!(!is_active_log(Path::new("/logs/workspace.2026-01-24.log.gz")));
+        assert!(!is_active_log(Path::new(
+            "/logs/workspace.2026-01-24.log.gz"
+        )));
         assert!(!is_active_log(Path::new("/logs/mcp-server.1.jsonl")));
     }
 }

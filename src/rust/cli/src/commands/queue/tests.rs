@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
 
     use crate::commands::queue::formatters::{format_relative_time, format_status};
 
@@ -68,13 +68,7 @@ mod tests {
     }
 
     /// Helper: insert a test queue item
-    fn insert_test_item(
-        conn: &Connection,
-        id: &str,
-        item_type: &str,
-        op: &str,
-        status: &str,
-    ) {
+    fn insert_test_item(conn: &Connection, id: &str, item_type: &str, op: &str, status: &str) {
         conn.execute(
             "INSERT INTO unified_queue \
              (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
@@ -109,11 +103,7 @@ mod tests {
         .unwrap();
 
         let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM unified_queue",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM unified_queue", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -188,11 +178,7 @@ mod tests {
 
         // tracked_files should be unaffected
         let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM tracked_files",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM tracked_files", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
     }

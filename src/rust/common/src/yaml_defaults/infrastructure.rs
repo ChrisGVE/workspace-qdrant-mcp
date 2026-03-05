@@ -158,9 +158,7 @@ pub struct YamlWatchingConfig {
 
 impl Default for YamlWatchingConfig {
     fn default() -> Self {
-        Self {
-            debounce_ms: None,
-        }
+        Self { debounce_ms: None }
     }
 }
 

@@ -3,8 +3,8 @@
 //! Handles extraction of document titles from embedded metadata in
 //! PDF, DOCX, PPTX, ODT, and RTF files.
 
-use std::path::Path;
 use regex::Regex;
+use std::path::Path;
 
 /// Extract metadata title directly from file (format-specific).
 pub fn extract_metadata_title_from_file(file_path: &Path, source_format: &str) -> Option<String> {
@@ -15,7 +15,7 @@ pub fn extract_metadata_title_from_file(file_path: &Path, source_format: &str) -
         "odt" | "odp" | "ods" => extract_opendocument_title(file_path),
         "rtf" => extract_rtf_title(file_path),
         "html" | "htm" => None, // HTML title extracted from content
-        "epub" => None, // EPUB metadata already extracted by epub crate
+        "epub" => None,         // EPUB metadata already extracted by epub crate
         _ => None,
     }
 }
@@ -42,13 +42,15 @@ fn extract_pdf_metadata_title(file_path: &Path) -> Option<String> {
     // Extract /Title
     let title_obj = info_dict.get(b"Title").ok()?;
     let title = match title_obj {
-        lopdf::Object::String(bytes, _) => {
-            String::from_utf8_lossy(bytes).trim().to_string()
-        }
+        lopdf::Object::String(bytes, _) => String::from_utf8_lossy(bytes).trim().to_string(),
         _ => return None,
     };
 
-    if title.is_empty() { None } else { Some(title) }
+    if title.is_empty() {
+        None
+    } else {
+        Some(title)
+    }
 }
 
 /// Extract dc:title from Office XML (DOCX/PPTX) docProps/core.xml.

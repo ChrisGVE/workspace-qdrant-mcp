@@ -28,8 +28,7 @@ struct SpladeExtras {
 /// Returns `(path, snippet)` pairs where snippet is up to 512 chars of non-empty text.
 async fn sample_files(collection: &str, sample_size: usize) -> Result<Vec<(String, String)>> {
     let db_path = get_database_path()?;
-    let conn =
-        rusqlite::Connection::open(&db_path).context("Failed to open database")?;
+    let conn = rusqlite::Connection::open(&db_path).context("Failed to open database")?;
 
     let mut stmt = conn.prepare(
         "SELECT file_path FROM tracked_files tf
@@ -86,7 +85,12 @@ fn benchmark_bm25(samples: &[(String, String)]) -> BenchmarkResult {
     };
     let stats = LatencyStats::from_latencies(&latencies);
 
-    BenchmarkResult { count, avg_dims, stats, elapsed }
+    BenchmarkResult {
+        count,
+        avg_dims,
+        stats,
+        elapsed,
+    }
 }
 
 /// Generate SPLADE++ sparse vectors for all samples, tracking per-sample latency.
@@ -138,7 +142,12 @@ async fn benchmark_splade(
     let stats = LatencyStats::from_latencies(&latencies);
 
     Some((
-        BenchmarkResult { count, avg_dims, stats, elapsed },
+        BenchmarkResult {
+            count,
+            avg_dims,
+            stats,
+            elapsed,
+        },
         SpladeExtras { first_call_ms },
     ))
 }
@@ -150,31 +159,71 @@ fn print_comparison(bm25: &BenchmarkResult, splade: &BenchmarkResult, extras: &S
     println!("-------");
     println!("{:<25} {:>12} {:>12}", "", "BM25", "SPLADE++");
     println!("{:<25} {:>12} {:>12}", "---", "----", "--------");
-    println!("{:<25} {:>12} {:>12}", "Vectors generated", bm25.count, splade.count);
-    println!("{:<25} {:>12.1} {:>12.1}", "Avg non-zero dims", bm25.avg_dims, splade.avg_dims);
+    println!(
+        "{:<25} {:>12} {:>12}",
+        "Vectors generated", bm25.count, splade.count
+    );
+    println!(
+        "{:<25} {:>12.1} {:>12.1}",
+        "Avg non-zero dims", bm25.avg_dims, splade.avg_dims
+    );
 
     if let Some(ref bs) = bm25.stats {
         let ss = splade.stats.as_ref();
-        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Median latency",
-            bs.median, ss.map_or(0.0, |s| s.median));
-        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Mean latency",
-            bs.mean, ss.map_or(0.0, |s| s.mean));
-        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Std dev",
-            bs.std_dev, ss.map_or(0.0, |s| s.std_dev));
-        println!("{:<25} {:>10.2}ms {:>10.2}ms", "P95 latency",
-            bs.p95, ss.map_or(0.0, |s| s.p95));
-        println!("{:<25} {:>10.2}ms {:>10.2}ms", "P99 latency",
-            bs.p99, ss.map_or(0.0, |s| s.p99));
-        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Min latency",
-            bs.min, ss.map_or(0.0, |s| s.min));
-        println!("{:<25} {:>10.2}ms {:>10.2}ms", "Max latency",
-            bs.max, ss.map_or(0.0, |s| s.max));
+        println!(
+            "{:<25} {:>10.2}ms {:>10.2}ms",
+            "Median latency",
+            bs.median,
+            ss.map_or(0.0, |s| s.median)
+        );
+        println!(
+            "{:<25} {:>10.2}ms {:>10.2}ms",
+            "Mean latency",
+            bs.mean,
+            ss.map_or(0.0, |s| s.mean)
+        );
+        println!(
+            "{:<25} {:>10.2}ms {:>10.2}ms",
+            "Std dev",
+            bs.std_dev,
+            ss.map_or(0.0, |s| s.std_dev)
+        );
+        println!(
+            "{:<25} {:>10.2}ms {:>10.2}ms",
+            "P95 latency",
+            bs.p95,
+            ss.map_or(0.0, |s| s.p95)
+        );
+        println!(
+            "{:<25} {:>10.2}ms {:>10.2}ms",
+            "P99 latency",
+            bs.p99,
+            ss.map_or(0.0, |s| s.p99)
+        );
+        println!(
+            "{:<25} {:>10.2}ms {:>10.2}ms",
+            "Min latency",
+            bs.min,
+            ss.map_or(0.0, |s| s.min)
+        );
+        println!(
+            "{:<25} {:>10.2}ms {:>10.2}ms",
+            "Max latency",
+            bs.max,
+            ss.map_or(0.0, |s| s.max)
+        );
     }
 
-    println!("{:<25} {:>12} {:>10.0}ms", "First call (incl init)", "~0", extras.first_call_ms);
-    println!("{:<25} {:>10.0}ms {:>10.0}ms", "Total time",
+    println!(
+        "{:<25} {:>12} {:>10.0}ms",
+        "First call (incl init)", "~0", extras.first_call_ms
+    );
+    println!(
+        "{:<25} {:>10.0}ms {:>10.0}ms",
+        "Total time",
         bm25.elapsed.as_secs_f64() * 1000.0,
-        splade.elapsed.as_secs_f64() * 1000.0);
+        splade.elapsed.as_secs_f64() * 1000.0
+    );
     println!();
     println!("Notes:");
     println!("  - SPLADE++ first call includes model download (~150MB) + initialization");
@@ -238,7 +287,9 @@ pub async fn execute(
     let samples = sample_files(collection, sample_size).await?;
 
     if samples.is_empty() {
-        output::error("No files found in the specified collection. Ensure the collection has indexed files.");
+        output::error(
+            "No files found in the specified collection. Ensure the collection has indexed files.",
+        );
         return Ok(());
     }
 

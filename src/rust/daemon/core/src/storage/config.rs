@@ -3,7 +3,7 @@
 //! Configuration for Qdrant client transport, HTTP/2 settings, and
 //! multi-tenant collection parameters.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Transport mode for Qdrant connection
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,8 +112,8 @@ impl StorageConfig {
         let mut config = Self::default();
         config.check_compatibility = false; // Disable to suppress Qdrant client output
         config.transport = TransportMode::Grpc; // gRPC is required by qdrant-client
-        // qdrant-client uses gRPC protocol - ensure we use port 6334
-        // Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
+                                                // qdrant-client uses gRPC protocol - ensure we use port 6334
+                                                // Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
         config.url = "http://127.0.0.1:6334".to_string();
         config
     }

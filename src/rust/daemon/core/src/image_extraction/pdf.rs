@@ -2,7 +2,6 @@
 ///
 /// Supports DCTDecode (JPEG) and FlateDecode (raw pixel data) streams.
 /// Skips images smaller than 100x100 pixels.
-
 use std::path::Path;
 
 use tracing::{debug, warn};
@@ -96,10 +95,16 @@ fn extract_xobject_image(
         return None;
     }
 
-    let width = stream.dict.get(b"Width").ok()
+    let width = stream
+        .dict
+        .get(b"Width")
+        .ok()
         .and_then(|v| v.as_i64().ok())
         .map(|v| v as u32);
-    let height = stream.dict.get(b"Height").ok()
+    let height = stream
+        .dict
+        .get(b"Height")
+        .ok()
         .and_then(|v| v.as_i64().ok())
         .map(|v| v as u32);
 
@@ -109,7 +114,10 @@ fn extract_xobject_image(
         }
     }
 
-    let filter = stream.dict.get(b"Filter").ok()
+    let filter = stream
+        .dict
+        .get(b"Filter")
+        .ok()
         .and_then(|v| v.as_name_str().ok())
         .unwrap_or("");
 

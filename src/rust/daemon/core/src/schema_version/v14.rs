@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V14Migration;
 
@@ -53,6 +53,10 @@ impl Migration for V14Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 14 }
-    fn description(&self) -> &'static str { "Create search_behavior view" }
+    fn version(&self) -> i32 {
+        14
+    }
+    fn description(&self) -> &'static str {
+        "Create search_behavior view"
+    }
 }

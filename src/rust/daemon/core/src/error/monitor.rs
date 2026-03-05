@@ -54,26 +54,32 @@ impl ErrorMonitor for DefaultErrorMonitor {
                 error_category = category,
                 retryable = is_retryable,
                 context = context.unwrap_or("none"),
-                "Error reported: {}", error
+                "Error reported: {}",
+                error
             ),
             ErrorSeverity::Medium => warn!(
                 error_category = category,
                 retryable = is_retryable,
                 context = context.unwrap_or("none"),
-                "Error reported: {}", error
+                "Error reported: {}",
+                error
             ),
             ErrorSeverity::High | ErrorSeverity::Critical => error!(
                 error_category = category,
                 retryable = is_retryable,
                 context = context.unwrap_or("none"),
-                "Error reported: {}", error
+                "Error reported: {}",
+                error
             ),
         }
 
         // Update statistics (in production, this would be async)
         if let Ok(mut stats) = self.stats.try_lock() {
             stats.total_errors += 1;
-            *stats.errors_by_category.entry(category.to_string()).or_insert(0) += 1;
+            *stats
+                .errors_by_category
+                .entry(category.to_string())
+                .or_insert(0) += 1;
             if is_retryable {
                 stats.retryable_errors += 1;
             } else {
@@ -104,7 +110,11 @@ impl ErrorMonitor for DefaultErrorMonitor {
             }
             "closed" => info!(circuit_breaker = name, "Circuit breaker closed"),
             "half-open" => info!(circuit_breaker = name, "Circuit breaker half-open"),
-            _ => warn!(circuit_breaker = name, state = state, "Unknown circuit breaker state"),
+            _ => warn!(
+                circuit_breaker = name,
+                state = state,
+                "Unknown circuit breaker state"
+            ),
         }
     }
 

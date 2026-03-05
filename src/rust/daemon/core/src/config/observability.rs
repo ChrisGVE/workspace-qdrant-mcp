@@ -30,9 +30,15 @@ impl Default for LoggingConfig {
 
 // --- Monitoring ---
 
-fn default_check_interval_hours() -> u64 { 24 }
-fn default_check_on_startup() -> bool { true }
-fn default_enable_monitoring() -> bool { true }
+fn default_check_interval_hours() -> u64 {
+    24
+}
+fn default_check_on_startup() -> bool {
+    true
+}
+fn default_enable_monitoring() -> bool {
+    true
+}
 
 /// Tool monitoring configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +72,8 @@ impl MonitoringConfig {
         if self.check_interval_hours == 0 {
             return Err("check_interval_hours must be greater than 0".to_string());
         }
-        if self.check_interval_hours > 8760 { // 1 year
+        if self.check_interval_hours > 8760 {
+            // 1 year
             return Err("check_interval_hours should not exceed 8760 (1 year)".to_string());
         }
 
@@ -95,9 +102,15 @@ impl MonitoringConfig {
 
 // --- Observability (metrics + telemetry) ---
 
-fn default_collection_interval() -> u64 { 60 }
-fn default_history_retention() -> usize { 120 }
-fn default_telemetry_enabled() -> bool { true }
+fn default_collection_interval() -> u64 {
+    60
+}
+fn default_history_retention() -> usize {
+    120
+}
+fn default_telemetry_enabled() -> bool {
+    true
+}
 
 /// Observability configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,8 +128,7 @@ pub struct ObservabilityConfig {
     pub telemetry: TelemetryConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetricsConfig {
     #[serde(default)]
     pub enabled: bool,

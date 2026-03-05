@@ -29,17 +29,15 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
-use wqm_common::timestamps;
 use workspace_qdrant_core::storage::StorageClient;
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
+use wqm_common::timestamps;
 
 pub use embedding::{EmbeddingCacheMetrics, CACHE_METRICS};
 
 use crate::proto::{
-    document_service_server::DocumentService,
-    IngestTextRequest, IngestTextResponse,
-    UpdateDocumentRequest, UpdateDocumentResponse,
-    DeleteDocumentRequest,
+    document_service_server::DocumentService, DeleteDocumentRequest, IngestTextRequest,
+    IngestTextResponse, UpdateDocumentRequest, UpdateDocumentResponse,
 };
 
 /// DocumentService implementation with text chunking and embedding generation
@@ -97,10 +95,7 @@ impl DocumentService for DocumentServiceImpl {
         );
 
         let (collection_name, tenant_type, tenant_value) =
-            routing::determine_collection_routing(
-                &req.collection_basename,
-                &req.tenant_id,
-            )?;
+            routing::determine_collection_routing(&req.collection_basename, &req.tenant_id)?;
 
         info!(
             "Multi-tenant routing: collection='{}', {}='{}'",
@@ -122,7 +117,10 @@ impl DocumentService for DocumentServiceImpl {
 
         let mut enriched_metadata = req.metadata.clone();
         enriched_metadata.insert(tenant_type.clone(), tenant_value.clone());
-        enriched_metadata.insert("collection_basename".to_string(), req.collection_basename.clone());
+        enriched_metadata.insert(
+            "collection_basename".to_string(),
+            req.collection_basename.clone(),
+        );
 
         let response = ingestion::ingest_text_internal(
             &self.storage_client,
@@ -133,7 +131,8 @@ impl DocumentService for DocumentServiceImpl {
             req.chunk_text,
             self.chunk_size,
             self.chunk_overlap,
-        ).await?;
+        )
+        .await?;
 
         Ok(Response::new(response))
     }
@@ -153,7 +152,7 @@ impl DocumentService for DocumentServiceImpl {
             coll_name
         } else {
             return Err(Status::invalid_argument(
-                "Collection name is required for updates"
+                "Collection name is required for updates",
             ));
         };
 
@@ -162,7 +161,8 @@ impl DocumentService for DocumentServiceImpl {
             collection_name, req.document_id
         );
 
-        match self.storage_client
+        match self
+            .storage_client
             .delete_points_by_document_id(&collection_name, &req.document_id)
             .await
         {
@@ -192,7 +192,8 @@ impl DocumentService for DocumentServiceImpl {
             true,
             self.chunk_size,
             self.chunk_overlap,
-        ).await?;
+        )
+        .await?;
 
         Ok(Response::new(UpdateDocumentResponse {
             success: response.success,
@@ -218,8 +219,7 @@ impl DocumentService for DocumentServiceImpl {
         routing::validate_document_id(&req.document_id)?;
         routing::validate_collection_name(&req.collection_name)?;
 
-        if req.collection_name == COLLECTION_PROJECTS
-            || req.collection_name == COLLECTION_LIBRARIES
+        if req.collection_name == COLLECTION_PROJECTS || req.collection_name == COLLECTION_LIBRARIES
         {
             debug!(
                 "Deleting from unified collection '{}' - document_id filter will be used",
@@ -227,22 +227,29 @@ impl DocumentService for DocumentServiceImpl {
             );
         }
 
-        match self.storage_client.collection_exists(&req.collection_name).await {
+        match self
+            .storage_client
+            .collection_exists(&req.collection_name)
+            .await
+        {
             Ok(false) => {
                 return Err(Status::not_found(format!(
-                    "Collection '{}' does not exist", req.collection_name
+                    "Collection '{}' does not exist",
+                    req.collection_name
                 )));
             }
             Err(err) => {
                 error!("Failed to check collection existence: {:?}", err);
                 return Err(Status::unavailable(format!(
-                    "Failed to check collection: {}", err
+                    "Failed to check collection: {}",
+                    err
                 )));
             }
             _ => {}
         }
 
-        match self.storage_client
+        match self
+            .storage_client
             .delete_points_by_document_id(&req.collection_name, &req.document_id)
             .await
         {
@@ -259,7 +266,8 @@ impl DocumentService for DocumentServiceImpl {
                     req.document_id, req.collection_name, err
                 );
                 Err(Status::internal(format!(
-                    "Failed to delete document: {}", err
+                    "Failed to delete document: {}",
+                    err
                 )))
             }
         }

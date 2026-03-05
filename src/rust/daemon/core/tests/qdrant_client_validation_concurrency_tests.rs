@@ -80,10 +80,7 @@ async fn test_connection_pooling() {
         return;
     }
 
-    let collection_name = format!(
-        "test_pool_{}",
-        Uuid::new_v4().to_string().replace('-', "_")
-    );
+    let collection_name = format!("test_pool_{}", Uuid::new_v4().to_string().replace('-', "_"));
 
     // Create collection
     client
@@ -222,19 +219,30 @@ async fn test_multi_tenant_architecture() {
 
         assert!(!results.is_empty(), "Each tenant should have data");
         for result in results {
-            let content = result.payload.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let content = result
+                .payload
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             assert!(
                 content.contains(&format!("Tenant {}", tenant_id)),
-                "Result should belong to correct tenant: {}", content
+                "Result should belong to correct tenant: {}",
+                content
             );
         }
     }
 
     // Cleanup and verify deletion
     for collection in &tenant_collections {
-        client.delete_collection(collection).await.expect("Should delete tenant collection");
+        client
+            .delete_collection(collection)
+            .await
+            .expect("Should delete tenant collection");
         assert!(
-            !client.collection_exists(collection).await.expect("Should check existence"),
+            !client
+                .collection_exists(collection)
+                .await
+                .expect("Should check existence"),
             "Collection should be deleted"
         );
     }
@@ -247,8 +255,14 @@ async fn setup_workflow_collection(client: &StorageClient) -> String {
         Uuid::new_v4().to_string().replace('-', "_")
     );
 
-    client.create_collection(&collection_name, Some(384), None).await.expect("Should create collection");
-    assert!(client.collection_exists(&collection_name).await.expect("Should check existence"));
+    client
+        .create_collection(&collection_name, Some(384), None)
+        .await
+        .expect("Should create collection");
+    assert!(client
+        .collection_exists(&collection_name)
+        .await
+        .expect("Should check existence"));
 
     let documents = vec![
         create_test_document("doc1", "Rust systems programming language"),
@@ -292,20 +306,35 @@ async fn test_comprehensive_workflow() {
         filter: None,
     };
 
-    let results = client.search(&collection_name, search_params).await.expect("Search should succeed");
+    let results = client
+        .search(&collection_name, search_params)
+        .await
+        .expect("Search should succeed");
     assert!(!results.is_empty(), "Should find relevant documents");
     assert!(results.len() <= 3, "Should respect search limit");
 
     for result in &results {
         assert!(!result.id.is_empty(), "Should have document ID");
         assert!(result.score >= 0.1, "Should meet score threshold");
-        assert!(result.payload.contains_key("content"), "Should have content");
+        assert!(
+            result.payload.contains_key("content"),
+            "Should have content"
+        );
     }
 
     let stats = client.get_stats().await.expect("Should get client stats");
-    assert!(stats["total_requests"] > 0, "Should have processed requests");
+    assert!(
+        stats["total_requests"] > 0,
+        "Should have processed requests"
+    );
     tracing::info!("Workflow completed. Stats: {:?}", stats);
 
-    client.delete_collection(&collection_name).await.expect("Should delete collection");
-    assert!(!client.collection_exists(&collection_name).await.expect("Should check existence"));
+    client
+        .delete_collection(&collection_name)
+        .await
+        .expect("Should delete collection");
+    assert!(!client
+        .collection_exists(&collection_name)
+        .await
+        .expect("Should check existence"));
 }

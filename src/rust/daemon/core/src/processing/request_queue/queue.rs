@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::processing::{PriorityError, PriorityTask, TaskPayload, TaskPriority};
 
 use super::config::QueueConfig;
-use super::types::{QueuedRequest, QueueStats};
+use super::types::{QueueStats, QueuedRequest};
 
 /// Request queue manager with timeout and capacity management
 pub struct RequestQueue {
@@ -50,10 +50,7 @@ impl RequestQueue {
     ///
     /// Returns `Some(hash)` if deduplication is enabled and no duplicate found,
     /// `None` if deduplication is disabled, or an error if a duplicate exists.
-    async fn check_dedup(
-        &self,
-        task: &PriorityTask,
-    ) -> Result<Option<u64>, PriorityError> {
+    async fn check_dedup(&self, task: &PriorityTask) -> Result<Option<u64>, PriorityError> {
         if !self.config.enable_deduplication {
             return Ok(None);
         }

@@ -10,15 +10,15 @@
 //! - `proptest_checks` -- property-based tests for unsafe patterns
 //! - `unit_tests` -- deterministic unit tests for the audit infrastructure
 
-pub mod types;
 pub mod auditor;
 mod proptest_checks;
+pub mod types;
 #[cfg(test)]
 mod unit_tests;
 
 // Re-export public API expected by the parent tests/mod.rs
-pub use types::{
-    UnsafeAuditResults, SafetyViolation, ViolationType, ViolationSeverity,
-    MemoryAccessPattern, InvariantValidation, BoundaryTest, ConcurrencySafety, FfiSafety,
-};
 pub use auditor::UnsafeCodeAuditor;
+pub use types::{
+    BoundaryTest, ConcurrencySafety, FfiSafety, InvariantValidation, MemoryAccessPattern,
+    SafetyViolation, UnsafeAuditResults, ViolationSeverity, ViolationType,
+};

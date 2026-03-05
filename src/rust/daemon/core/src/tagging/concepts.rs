@@ -123,11 +123,16 @@ pub fn extract_pip_concepts(content: &str) -> Vec<SelectedTag> {
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#') && !l.starts_with('-'))
         .filter_map(|l| {
             // Extract package name before version specifier
-            let name = l.split(|c: char| c == '=' || c == '>' || c == '<' || c == '!' || c == '[')
+            let name = l
+                .split(|c: char| c == '=' || c == '>' || c == '<' || c == '!' || c == '[')
                 .next()?
                 .trim()
                 .to_string();
-            if name.is_empty() { None } else { Some(name) }
+            if name.is_empty() {
+                None
+            } else {
+                Some(name)
+            }
         })
         .collect();
 
@@ -240,8 +245,16 @@ my-internal-crate = "0.1"
         let tags = extract_pip_concepts(reqs);
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
         assert!(phrases.contains(&"dep:data-analysis"), "Got: {:?}", phrases);
-        assert!(phrases.contains(&"dep:numerical-computing"), "Got: {:?}", phrases);
-        assert!(phrases.contains(&"dep:machine-learning"), "Got: {:?}", phrases);
+        assert!(
+            phrases.contains(&"dep:numerical-computing"),
+            "Got: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"dep:machine-learning"),
+            "Got: {:?}",
+            phrases
+        );
         assert!(phrases.contains(&"dep:web-framework"), "Got: {:?}", phrases);
     }
 
@@ -276,12 +289,12 @@ require (
 
     #[test]
     fn test_map_deps_deduplication() {
-        let deps = vec![
-            "actix-web".to_string(),
-            "axum".to_string(),
-        ];
+        let deps = vec!["actix-web".to_string(), "axum".to_string()];
         let tags = map_deps_to_concepts(&deps);
-        let web_count = tags.iter().filter(|t| t.phrase == "dep:web-framework").count();
+        let web_count = tags
+            .iter()
+            .filter(|t| t.phrase == "dep:web-framework")
+            .count();
         assert_eq!(web_count, 1, "Duplicate concepts should be deduplicated");
     }
 }

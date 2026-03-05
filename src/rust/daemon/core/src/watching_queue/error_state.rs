@@ -259,7 +259,8 @@ impl WatchErrorState {
         }
 
         // Exponential backoff: base_delay * 2^(level-1)
-        let exponential_delay = config.base_delay_ms
+        let exponential_delay = config
+            .base_delay_ms
             .saturating_mul(1u64 << (self.backoff_level.saturating_sub(1) as u64).min(10));
 
         // Cap at max delay
@@ -351,7 +352,9 @@ impl WatchErrorTracker {
     /// Returns the backoff delay in milliseconds.
     pub async fn record_error(&self, watch_id: &str, error_message: &str) -> u64 {
         let mut states = self.states.write().await;
-        let state = states.entry(watch_id.to_string()).or_insert_with(WatchErrorState::new);
+        let state = states
+            .entry(watch_id.to_string())
+            .or_insert_with(WatchErrorState::new);
         let delay = state.record_error(error_message, &self.config);
 
         debug!(
@@ -367,7 +370,9 @@ impl WatchErrorTracker {
     /// Returns true if health status improved.
     pub async fn record_success(&self, watch_id: &str) -> bool {
         let mut states = self.states.write().await;
-        let state = states.entry(watch_id.to_string()).or_insert_with(WatchErrorState::new);
+        let state = states
+            .entry(watch_id.to_string())
+            .or_insert_with(WatchErrorState::new);
         let improved = state.record_success(&self.config);
 
         if improved {
@@ -383,33 +388,45 @@ impl WatchErrorTracker {
     /// Check if a watch can process (not in backoff and not disabled)
     pub async fn can_process(&self, watch_id: &str) -> bool {
         let states = self.states.read().await;
-        states.get(watch_id).map(|s| s.can_process()).unwrap_or(true)
+        states
+            .get(watch_id)
+            .map(|s| s.can_process())
+            .unwrap_or(true)
     }
 
     /// Get health status for a watch
     pub async fn get_health_status(&self, watch_id: &str) -> WatchHealthStatus {
         let states = self.states.read().await;
-        states.get(watch_id).map(|s| s.health_status).unwrap_or(WatchHealthStatus::Healthy)
+        states
+            .get(watch_id)
+            .map(|s| s.health_status)
+            .unwrap_or(WatchHealthStatus::Healthy)
     }
 
     /// Get all watch health statuses
     pub async fn get_all_health_statuses(&self) -> HashMap<String, WatchHealthStatus> {
         let states = self.states.read().await;
-        states.iter().map(|(k, v)| (k.clone(), v.health_status)).collect()
+        states
+            .iter()
+            .map(|(k, v)| (k.clone(), v.health_status))
+            .collect()
     }
 
     /// Get error summary for all watches
     pub async fn get_error_summary(&self) -> Vec<WatchErrorSummary> {
         let states = self.states.read().await;
-        states.iter().map(|(id, state)| WatchErrorSummary {
-            watch_id: id.clone(),
-            health_status: state.health_status,
-            consecutive_errors: state.consecutive_errors,
-            total_errors: state.total_errors,
-            backoff_level: state.backoff_level,
-            remaining_backoff_ms: state.remaining_backoff_ms(),
-            last_error_message: state.last_error_message.clone(),
-        }).collect()
+        states
+            .iter()
+            .map(|(id, state)| WatchErrorSummary {
+                watch_id: id.clone(),
+                health_status: state.health_status,
+                consecutive_errors: state.consecutive_errors,
+                total_errors: state.total_errors,
+                backoff_level: state.backoff_level,
+                remaining_backoff_ms: state.remaining_backoff_ms(),
+                last_error_message: state.last_error_message.clone(),
+            })
+            .collect()
     }
 
     /// Reset error state for a watch (manual recovery)
@@ -429,7 +446,10 @@ impl WatchErrorTracker {
 
     /// Get error state for a specific watch (Task 461.5)
     pub fn get_state(&self, watch_id: &str) -> Option<WatchErrorState> {
-        self.states.try_read().ok().and_then(|states| states.get(watch_id).cloned())
+        self.states
+            .try_read()
+            .ok()
+            .and_then(|states| states.get(watch_id).cloned())
     }
 
     /// Set error state for a specific watch (Task 461.5)
@@ -439,7 +459,10 @@ impl WatchErrorTracker {
                 states.insert(watch_id.to_string(), state);
             }
             Err(_) => {
-                warn!("Could not set error state for watch {} - lock contention", watch_id);
+                warn!(
+                    "Could not set error state for watch {} - lock contention",
+                    watch_id
+                );
             }
         }
     }

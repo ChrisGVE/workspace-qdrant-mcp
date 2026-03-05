@@ -3,11 +3,11 @@
 //! Wraps `PayloadBuilder` and adds dense/sparse vector fields to produce
 //! a complete `DocumentPoint` ready for Qdrant upsert.
 
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
-use crate::storage::DocumentPoint;
 use super::payload_builder::PayloadBuilder;
+use crate::storage::DocumentPoint;
 
 /// Fluent builder for `DocumentPoint` construction.
 ///
@@ -125,11 +125,7 @@ mod tests {
     fn test_point_builder_with_payload_builder() {
         let point = PointBuilder::new("p3")
             .dense_vector(vec![0.5])
-            .with_payload_builder(
-                PayloadBuilder::new()
-                    .tenant_id("t")
-                    .item_type("file"),
-            )
+            .with_payload_builder(PayloadBuilder::new().tenant_id("t").item_type("file"))
             .build();
 
         assert_eq!(point.payload["tenant_id"], serde_json::json!("t"));

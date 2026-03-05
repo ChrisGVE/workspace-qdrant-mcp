@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use crate::embedding::{EmbeddingGenerator, EmbeddingError};
+use crate::embedding::{EmbeddingError, EmbeddingGenerator};
 use crate::keyword_extraction::semantic_rerank::cosine_similarity;
 use crate::keyword_extraction::tag_selector::{SelectedTag, TagType};
 
@@ -77,10 +77,7 @@ impl Tier2Tagger {
         let results = embedding_generator
             .generate_embeddings_batch(&terms, "all-MiniLM-L6-v2")
             .await?;
-        let embeddings: Vec<Vec<f32>> = results
-            .into_iter()
-            .map(|r| r.dense.vector)
-            .collect();
+        let embeddings: Vec<Vec<f32>> = results.into_iter().map(|r| r.dense.vector).collect();
 
         Ok(Self {
             entries,
@@ -311,9 +308,7 @@ mod tests {
                 category: format!("category-{}", i),
             })
             .collect();
-        let embeddings: Vec<Vec<f32>> = (0..20)
-            .map(|_| vec![1.0, 0.0, 0.0])
-            .collect();
+        let embeddings: Vec<Vec<f32>> = (0..20).map(|_| vec![1.0, 0.0, 0.0]).collect();
         let config = Tier2Config {
             similarity_threshold: 0.5,
             max_tags: 3,
@@ -406,8 +401,7 @@ mod tests {
         let entries = sample_taxonomy();
         let n = entries.len();
         let embeddings = mock_embeddings(n, 10);
-        let tagger =
-            Tier2Tagger::from_precomputed(entries, embeddings, Tier2Config::default());
+        let tagger = Tier2Tagger::from_precomputed(entries, embeddings, Tier2Config::default());
         assert_eq!(tagger.taxonomy_size(), 5);
     }
 }

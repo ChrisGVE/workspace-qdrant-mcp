@@ -11,33 +11,40 @@ async fn test_preemption_logic() {
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let low_priority_handle = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher {
-            folder_path: "/tmp/background".to_string(),
-        },
-        TaskPayload::Generic {
-            operation: "long_running_background".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await.expect("Failed to submit low priority task");
+    let low_priority_handle = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/background".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_running_background".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await
+        .expect("Failed to submit low priority task");
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let high_priority_handle = submitter.submit_task(
-        TaskPriority::McpRequests,
-        TaskSource::McpServer {
-            request_id: "urgent_request".to_string(),
-        },
-        TaskPayload::Generic {
-            operation: "urgent_mcp_task".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(2)),
-    ).await.expect("Failed to submit high priority task");
+    let high_priority_handle = submitter
+        .submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "urgent_request".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "urgent_mcp_task".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        )
+        .await
+        .expect("Failed to submit high priority task");
 
-    let high_result = timeout(Duration::from_secs(3), high_priority_handle.wait()).await
+    let high_result = timeout(Duration::from_secs(3), high_priority_handle.wait())
+        .await
         .expect("High priority task should not timeout")
         .expect("High priority task should succeed");
 
@@ -50,7 +57,8 @@ async fn test_preemption_logic() {
         other => panic!("Expected success, got: {:?}", other),
     }
 
-    let low_result = timeout(Duration::from_millis(100), low_priority_handle.wait()).await
+    let low_result = timeout(Duration::from_millis(100), low_priority_handle.wait())
+        .await
         .expect("Low priority task should complete quickly after preemption")
         .expect("Low priority task should have result");
 
@@ -73,37 +81,52 @@ async fn test_queue_metrics_and_timeouts() {
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let _handle1 = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher { folder_path: "/tmp/test1".to_string() },
-        TaskPayload::Generic {
-            operation: "long_background_task".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(10)),
-    ).await.expect("Failed to submit task 1");
+    let _handle1 = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_background_task".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(10)),
+        )
+        .await
+        .expect("Failed to submit task 1");
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let _handle2 = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher { folder_path: "/tmp/test2".to_string() },
-        TaskPayload::Generic {
-            operation: "queued_task_1".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await.expect("Failed to submit task 2");
+    let _handle2 = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "queued_task_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await
+        .expect("Failed to submit task 2");
 
-    let _handle3 = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher { folder_path: "/tmp/test3".to_string() },
-        TaskPayload::Generic {
-            operation: "queued_task_2".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await.expect("Failed to submit task 3");
+    let _handle3 = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test3".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "queued_task_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await
+        .expect("Failed to submit task 3");
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -116,22 +139,28 @@ async fn test_queue_metrics_and_timeouts() {
             || metrics.pipeline.running_tasks > 0
     );
     assert!(
-        queue_stats.queued_by_priority.contains_key(&TaskPriority::BackgroundWatching)
+        queue_stats
+            .queued_by_priority
+            .contains_key(&TaskPriority::BackgroundWatching)
             || metrics.pipeline.running_tasks > 0
     );
 
     let cleaned_count = submitter.cleanup_queue_timeouts().await;
     tracing::info!("Cleaned {} timed out requests", cleaned_count);
 
-    let duplicate_result = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher { folder_path: "/tmp/test3".to_string() },
-        TaskPayload::Generic {
-            operation: "queued_task_2".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await;
+    let duplicate_result = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test3".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "queued_task_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await;
 
     match duplicate_result {
         Ok(_) => tracing::info!("Duplicate task was allowed"),
@@ -146,53 +175,75 @@ async fn test_bulk_preemption_for_mcp_requests() {
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let bg_task1 = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher { folder_path: "/tmp/bg1".to_string() },
-        TaskPayload::Generic {
-            operation: "long_background_task_1".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(10)),
-    ).await.expect("Failed to submit bg task 1");
+    let bg_task1 = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/bg1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_background_task_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(10)),
+        )
+        .await
+        .expect("Failed to submit bg task 1");
 
-    let bg_task2 = submitter.submit_task(
-        TaskPriority::BackgroundWatching,
-        TaskSource::BackgroundWatcher { folder_path: "/tmp/bg2".to_string() },
-        TaskPayload::Generic {
-            operation: "long_background_task_2".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(10)),
-    ).await.expect("Failed to submit bg task 2");
+    let bg_task2 = submitter
+        .submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/bg2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_background_task_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(10)),
+        )
+        .await
+        .expect("Failed to submit bg task 2");
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let mcp_task1 = submitter.submit_task(
-        TaskPriority::McpRequests,
-        TaskSource::McpServer { request_id: "mcp_req_1".to_string() },
-        TaskPayload::Generic {
-            operation: "mcp_operation_1".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(2)),
-    ).await.expect("Failed to submit MCP task 1");
+    let mcp_task1 = submitter
+        .submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "mcp_req_1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "mcp_operation_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        )
+        .await
+        .expect("Failed to submit MCP task 1");
 
-    let mcp_task2 = submitter.submit_task(
-        TaskPriority::McpRequests,
-        TaskSource::McpServer { request_id: "mcp_req_2".to_string() },
-        TaskPayload::Generic {
-            operation: "mcp_operation_2".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(2)),
-    ).await.expect("Failed to submit MCP task 2");
+    let mcp_task2 = submitter
+        .submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "mcp_req_2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "mcp_operation_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        )
+        .await
+        .expect("Failed to submit MCP task 2");
 
-    let mcp1_result = timeout(Duration::from_secs(3), mcp_task1.wait()).await
+    let mcp1_result = timeout(Duration::from_secs(3), mcp_task1.wait())
+        .await
         .expect("MCP task 1 should not timeout")
         .expect("MCP task 1 should succeed");
 
-    let mcp2_result = timeout(Duration::from_secs(3), mcp_task2.wait()).await
+    let mcp2_result = timeout(Duration::from_secs(3), mcp_task2.wait())
+        .await
         .expect("MCP task 2 should not timeout")
         .expect("MCP task 2 should succeed");
 
@@ -219,7 +270,10 @@ async fn test_bulk_preemption_for_mcp_requests() {
             Ok(Ok(other)) => panic!("{} task unexpected result: {:?}", label, other),
             Ok(Err(e)) => panic!("{} task failed: {}", label, e),
             Err(_) => {
-                tracing::info!("{} task still running; skipping cancellation assertion", label);
+                tracing::info!(
+                    "{} task still running; skipping cancellation assertion",
+                    label
+                );
             }
         }
     }
@@ -237,33 +291,45 @@ async fn test_graceful_preemption_vs_abort() {
 
     pipeline.start().await.expect("Failed to start pipeline");
 
-    let graceful_task = submitter.submit_task(
-        TaskPriority::CliCommands,
-        TaskSource::CliCommand { command: "graceful_task".to_string() },
-        TaskPayload::Generic {
-            operation: "graceful_operation".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(5)),
-    ).await.expect("Failed to submit graceful task");
+    let graceful_task = submitter
+        .submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "graceful_task".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "graceful_operation".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        )
+        .await
+        .expect("Failed to submit graceful task");
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let preempting_task = submitter.submit_task(
-        TaskPriority::McpRequests,
-        TaskSource::McpServer { request_id: "preempting_request".to_string() },
-        TaskPayload::Generic {
-            operation: "preempting_operation".to_string(),
-            parameters: HashMap::new(),
-        },
-        Some(Duration::from_secs(2)),
-    ).await.expect("Failed to submit preempting task");
+    let preempting_task = submitter
+        .submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "preempting_request".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "preempting_operation".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        )
+        .await
+        .expect("Failed to submit preempting task");
 
-    let preempting_result = timeout(Duration::from_secs(3), preempting_task.wait()).await
+    let preempting_result = timeout(Duration::from_secs(3), preempting_task.wait())
+        .await
         .expect("Preempting task should not timeout")
         .expect("Preempting task should succeed");
 
-    let graceful_result = timeout(Duration::from_millis(100), graceful_task.wait()).await
+    let graceful_result = timeout(Duration::from_millis(100), graceful_task.wait())
+        .await
         .expect("Graceful task should complete quickly")
         .expect("Graceful task should have result");
 
@@ -289,7 +355,9 @@ async fn test_task_result_handle_is_completed_when_sender_alive() {
             priority: TaskPriority::BackgroundWatching,
             created_at: chrono::Utc::now(),
             timeout_ms: None,
-            source: TaskSource::Generic { operation: "test".into() },
+            source: TaskSource::Generic {
+                operation: "test".into(),
+            },
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing: false,
@@ -312,7 +380,9 @@ async fn test_task_result_handle_is_completed_when_sender_dropped() {
             priority: TaskPriority::BackgroundWatching,
             created_at: chrono::Utc::now(),
             timeout_ms: None,
-            source: TaskSource::Generic { operation: "test".into() },
+            source: TaskSource::Generic {
+                operation: "test".into(),
+            },
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing: false,
@@ -335,7 +405,9 @@ async fn test_task_result_handle_is_completed_when_value_sent() {
             priority: TaskPriority::BackgroundWatching,
             created_at: chrono::Utc::now(),
             timeout_ms: None,
-            source: TaskSource::Generic { operation: "test".into() },
+            source: TaskSource::Generic {
+                operation: "test".into(),
+            },
             metadata: HashMap::new(),
             checkpoint_id: None,
             supports_checkpointing: false,

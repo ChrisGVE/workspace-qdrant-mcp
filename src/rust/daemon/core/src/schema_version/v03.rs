@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V03Migration;
 
@@ -14,7 +14,7 @@ impl Migration for V03Migration {
     async fn up(&self, pool: &SqlitePool) -> Result<(), SchemaError> {
         info!("Migration v3: Adding needs_reconcile columns to tracked_files");
 
-        use crate::tracked_files_schema::{MIGRATE_V3_SQL, CREATE_RECONCILE_INDEX_SQL};
+        use crate::tracked_files_schema::{CREATE_RECONCILE_INDEX_SQL, MIGRATE_V3_SQL};
 
         let has_reconcile: bool = sqlx::query_scalar(
             "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'needs_reconcile'"
@@ -32,12 +32,17 @@ impl Migration for V03Migration {
 
         debug!("Creating reconcile index");
         sqlx::query(CREATE_RECONCILE_INDEX_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         info!("Migration v3 complete");
         Ok(())
     }
 
-    fn version(&self) -> i32 { 3 }
-    fn description(&self) -> &'static str { "Add needs_reconcile columns to tracked_files" }
+    fn version(&self) -> i32 {
+        3
+    }
+    fn description(&self) -> &'static str {
+        "Add needs_reconcile columns to tracked_files"
+    }
 }

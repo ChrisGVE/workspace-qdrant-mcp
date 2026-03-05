@@ -23,8 +23,7 @@ pub fn build_client() -> Result<reqwest::Client> {
     if let Some(key) = qdrant_api_key() {
         headers.insert(
             "api-key",
-            reqwest::header::HeaderValue::from_str(&key)
-                .context("Invalid QDRANT_API_KEY value")?,
+            reqwest::header::HeaderValue::from_str(&key).context("Invalid QDRANT_API_KEY value")?,
         );
     }
     reqwest::Client::builder()
@@ -68,7 +67,9 @@ pub struct SnapshotRow {
 
 impl ColumnHints for SnapshotRow {
     // All categorical
-    fn content_columns() -> &'static [usize] { &[] }
+    fn content_columns() -> &'static [usize] {
+        &[]
+    }
 }
 
 impl From<&SnapshotInfo> for SnapshotRow {
@@ -76,13 +77,12 @@ impl From<&SnapshotInfo> for SnapshotRow {
         Self {
             name: s.name.clone(),
             size: output::format_bytes(s.size),
-            created: s.creation_time.as_deref()
+            created: s
+                .creation_time
+                .as_deref()
                 .map(wqm_common::timestamp_fmt::format_local)
                 .unwrap_or_else(|| "unknown".into()),
-            checksum: s
-                .checksum
-                .clone()
-                .unwrap_or_else(|| "none".into()),
+            checksum: s.checksum.clone().unwrap_or_else(|| "none".into()),
         }
     }
 }

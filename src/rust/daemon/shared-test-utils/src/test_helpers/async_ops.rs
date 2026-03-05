@@ -88,7 +88,9 @@ where
         tokio::time::sleep(poll_interval).await;
     }
 
-    Err(Box::<dyn std::error::Error + Send + Sync>::from("Condition was not met within timeout"))
+    Err(Box::<dyn std::error::Error + Send + Sync>::from(
+        "Condition was not met within timeout",
+    ))
 }
 
 /// Wait for an async condition to become true
@@ -208,10 +210,7 @@ where
         let sem = semaphore.clone();
         let handle = tokio::spawn(async move {
             let _permit = sem.acquire().await.map_err(|e| {
-                Box::<dyn std::error::Error + Send + Sync>::from(format!(
-                    "Semaphore error: {}",
-                    e
-                ))
+                Box::<dyn std::error::Error + Send + Sync>::from(format!("Semaphore error: {}", e))
             })?;
             op.await
         });
@@ -220,11 +219,9 @@ where
 
     let mut results = Vec::new();
     for handle in handles {
-        let result = handle
-            .await
-            .map_err(|e| {
-                Box::<dyn std::error::Error + Send + Sync>::from(format!("Join error: {}", e))
-            })??;
+        let result = handle.await.map_err(|e| {
+            Box::<dyn std::error::Error + Send + Sync>::from(format!("Join error: {}", e))
+        })??;
         results.push(result);
     }
 

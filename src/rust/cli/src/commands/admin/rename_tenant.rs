@@ -4,10 +4,10 @@ use std::io::Write as _;
 
 use anyhow::{Context, Result};
 
+use super::VALID_COLLECTIONS;
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::RenameTenantRequest;
 use crate::output;
-use super::VALID_COLLECTIONS;
 
 /// Rename a tenant_id across SQLite (via daemon gRPC) and verify
 pub async fn execute(old_id: String, new_id: String, yes: bool) -> Result<()> {
@@ -93,36 +93,39 @@ async fn handle_rename_fallback(old_id: &str, new_id: &str) {
 
 /// Direct SQLite rename (fallback when daemon is not running)
 async fn rename_direct(old_id: &str, new_id: &str) -> Result<usize> {
-    let db_path = crate::config::get_database_path()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
         anyhow::bail!("Database not found at {}", db_path.display());
     }
 
-    let conn = rusqlite::Connection::open(&db_path)
-        .context("Failed to open state database")?;
+    let conn = rusqlite::Connection::open(&db_path).context("Failed to open state database")?;
 
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
         .context("Failed to set SQLite pragmas")?;
 
-    let tx = conn.unchecked_transaction()
+    let tx = conn
+        .unchecked_transaction()
         .context("Failed to begin transaction")?;
 
     let mut total = 0usize;
 
     // Update watch_folders
-    let count = tx.execute(
-        "UPDATE watch_folders SET tenant_id = ?1 WHERE tenant_id = ?2",
-        rusqlite::params![new_id, old_id],
-    ).context("Failed to update watch_folders")?;
+    let count = tx
+        .execute(
+            "UPDATE watch_folders SET tenant_id = ?1 WHERE tenant_id = ?2",
+            rusqlite::params![new_id, old_id],
+        )
+        .context("Failed to update watch_folders")?;
     total += count;
 
     // Update unified_queue
-    let count = tx.execute(
-        "UPDATE unified_queue SET tenant_id = ?1 WHERE tenant_id = ?2",
-        rusqlite::params![new_id, old_id],
-    ).context("Failed to update unified_queue")?;
+    let count = tx
+        .execute(
+            "UPDATE unified_queue SET tenant_id = ?1 WHERE tenant_id = ?2",
+            rusqlite::params![new_id, old_id],
+        )
+        .context("Failed to update unified_queue")?;
     total += count;
 
     // Update tracked_files (may not exist)

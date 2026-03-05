@@ -4,13 +4,12 @@
 //! ensuring the same input always produces the same ID for deduplication
 //! and surgical updates.
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Namespace UUID for document IDs (UUID v5).
 /// Generated deterministically from the DNS namespace + "workspace-qdrant-mcp.document".
 const DOCUMENT_ID_NAMESPACE: uuid::Uuid = uuid::Uuid::from_bytes([
-    0x7a, 0x3b, 0x9c, 0x4d, 0xe5, 0xf6, 0x47, 0x8a,
-    0xb1, 0xc2, 0xd3, 0xe4, 0xf5, 0x06, 0x17, 0x28,
+    0x7a, 0x3b, 0x9c, 0x4d, 0xe5, 0xf6, 0x47, 0x8a, 0xb1, 0xc2, 0xd3, 0xe4, 0xf5, 0x06, 0x17, 0x28,
 ]);
 
 /// Generate a stable document ID from tenant_id and file path.
@@ -38,7 +37,12 @@ pub fn generate_document_id(tenant_id: &str, file_path: &str) -> String {
 /// point IDs, enabling proper branch isolation in Qdrant.
 ///
 /// Path normalization is applied to `file_path` for cross-platform consistency.
-pub fn generate_point_id(tenant_id: &str, branch: &str, file_path: &str, chunk_index: usize) -> String {
+pub fn generate_point_id(
+    tenant_id: &str,
+    branch: &str,
+    file_path: &str,
+    chunk_index: usize,
+) -> String {
     let normalized = normalize_path_for_id(file_path);
     let input = format!("{}|{}|{}|{}", tenant_id, branch, normalized, chunk_index);
     let hash = Sha256::digest(input.as_bytes());
@@ -95,7 +99,11 @@ mod tests {
     #[test]
     fn test_generate_document_id_is_valid_uuid() {
         let id = generate_document_id("tenant", "/some/file.rs");
-        assert!(uuid::Uuid::parse_str(&id).is_ok(), "Must be valid UUID: {}", id);
+        assert!(
+            uuid::Uuid::parse_str(&id).is_ok(),
+            "Must be valid UUID: {}",
+            id
+        );
         let parsed = uuid::Uuid::parse_str(&id).unwrap();
         assert_eq!(parsed.get_version_num(), 5, "Must be UUID v5");
     }
@@ -121,21 +129,31 @@ mod tests {
     fn test_generate_point_id_uniqueness_across_files() {
         let p1 = generate_point_id("tenant", "main", "/file1.rs", 0);
         let p2 = generate_point_id("tenant", "main", "/file2.rs", 0);
-        assert_ne!(p1, p2, "Same chunk index but different files must produce different point IDs");
+        assert_ne!(
+            p1, p2,
+            "Same chunk index but different files must produce different point IDs"
+        );
     }
 
     #[test]
     fn test_generate_point_id_branch_isolation() {
         let p_main = generate_point_id("tenant", "main", "/file.rs", 0);
         let p_dev = generate_point_id("tenant", "dev", "/file.rs", 0);
-        assert_ne!(p_main, p_dev, "Same file on different branches must produce different point IDs");
+        assert_ne!(
+            p_main, p_dev,
+            "Same file on different branches must produce different point IDs"
+        );
     }
 
     #[test]
     fn test_generate_point_id_is_hex_string() {
         let point_id = generate_point_id("tenant", "main", "/file.rs", 42);
         assert_eq!(point_id.len(), 32, "Point ID should be 32-char hex string");
-        assert!(point_id.chars().all(|c| c.is_ascii_hexdigit()), "Point ID must be hex: {}", point_id);
+        assert!(
+            point_id.chars().all(|c| c.is_ascii_hexdigit()),
+            "Point ID must be hex: {}",
+            point_id
+        );
     }
 
     #[test]
@@ -160,8 +178,14 @@ mod tests {
 
     #[test]
     fn test_normalize_path_for_id() {
-        assert_eq!(normalize_path_for_id("/home/user/file.rs"), "/home/user/file.rs");
-        assert_eq!(normalize_path_for_id("C:\\Users\\user\\file.rs"), "C:/Users/user/file.rs");
+        assert_eq!(
+            normalize_path_for_id("/home/user/file.rs"),
+            "/home/user/file.rs"
+        );
+        assert_eq!(
+            normalize_path_for_id("C:\\Users\\user\\file.rs"),
+            "C:/Users/user/file.rs"
+        );
         assert_eq!(normalize_path_for_id("/home/user/dir/"), "/home/user/dir");
         assert_eq!(normalize_path_for_id(""), "");
     }
@@ -170,7 +194,10 @@ mod tests {
     fn test_document_id_path_normalization() {
         let id1 = generate_document_id("tenant", "/home/user/file.rs");
         let id2 = generate_document_id("tenant", "\\home\\user\\file.rs");
-        assert_eq!(id1, id2, "Forward and back slashes should produce same document_id");
+        assert_eq!(
+            id1, id2,
+            "Forward and back slashes should produce same document_id"
+        );
     }
 
     #[test]

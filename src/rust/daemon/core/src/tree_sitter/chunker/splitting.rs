@@ -49,10 +49,7 @@ pub(super) fn handle_oversized_chunks(
 ///
 /// All byte-offset arithmetic uses `safe_char_boundary` to avoid panics
 /// on multi-byte UTF-8 characters (e.g., box-drawing chars, CJK, emoji).
-fn split_chunk_with_overlap(
-    chunk: &SemanticChunk,
-    max_chunk_size: usize,
-) -> Vec<SemanticChunk> {
+fn split_chunk_with_overlap(chunk: &SemanticChunk, max_chunk_size: usize) -> Vec<SemanticChunk> {
     let content = &chunk.content;
     let target_size = max_chunk_size * 4; // Convert tokens to chars (approximate)
 

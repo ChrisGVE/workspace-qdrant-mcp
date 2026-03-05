@@ -25,7 +25,11 @@ impl std::fmt::Display for MissingTool {
                 write!(f, "LSP server unavailable for language: {}", language)
             }
             MissingTool::TreeSitterParser { language } => {
-                write!(f, "Tree-sitter parser unavailable for language: {}", language)
+                write!(
+                    f,
+                    "Tree-sitter parser unavailable for language: {}",
+                    language
+                )
             }
             MissingTool::EmbeddingModel { reason } => {
                 write!(f, "Embedding model unavailable: {}", reason)
@@ -81,8 +85,8 @@ impl Default for ProcessorConfig {
             ],
             target_throughput: 1000, // 1000+ docs/min
             enable_metrics: true,
-            worker_count: 4,  // Default to 4 parallel workers
-            backpressure_threshold: 1000,  // Start backpressure at 1000 items
+            worker_count: 4,              // Default to 4 parallel workers
+            backpressure_threshold: 1000, // Start backpressure at 1000 items
         }
     }
 }

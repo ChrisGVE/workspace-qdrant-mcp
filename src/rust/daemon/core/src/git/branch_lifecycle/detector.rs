@@ -8,8 +8,8 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::{mpsc, RwLock};
 use tracing::{info, warn};
 
-use crate::git::types::{GitError, GitResult};
 use super::{BranchEvent, BranchLifecycleConfig, BranchLifecycleStats};
+use crate::git::types::{GitError, GitResult};
 
 /// State of a tracked branch in the lifecycle detector
 #[derive(Debug, Clone)]
@@ -73,10 +73,7 @@ impl BranchLifecycleDetector {
         tracked.clear();
 
         for (name, commit_hash, _modified) in branches {
-            tracked.insert(
-                name.clone(),
-                TrackedBranch { commit_hash },
-            );
+            tracked.insert(name.clone(), TrackedBranch { commit_hash });
         }
 
         let default = self.detect_default_branch()?;
@@ -109,12 +106,13 @@ impl BranchLifecycleDetector {
 
         let mut branches = Vec::new();
 
-        for branch in repo.branches(Some(git2::BranchType::Local)).map_err(|e| {
-            GitError::RepositoryError {
-                message: "Failed to list branches".to_string(),
-                source: e,
-            }
-        })? {
+        for branch in
+            repo.branches(Some(git2::BranchType::Local))
+                .map_err(|e| GitError::RepositoryError {
+                    message: "Failed to list branches".to_string(),
+                    source: e,
+                })?
+        {
             let (branch, _) = branch.map_err(|e| GitError::RepositoryError {
                 message: "Failed to read branch".to_string(),
                 source: e,
@@ -143,19 +141,17 @@ impl BranchLifecycleDetector {
     pub fn detect_default_branch(&self) -> GitResult<String> {
         let head_path = self.repo_path.join(".git/HEAD");
 
-        let head_content = std::fs::read_to_string(&head_path).map_err(|e| {
-            GitError::RepositoryError {
+        let head_content =
+            std::fs::read_to_string(&head_path).map_err(|e| GitError::RepositoryError {
                 message: format!("Failed to read .git/HEAD: {}", e),
                 source: git2::Error::from_str(&e.to_string()),
-            }
-        })?;
+            })?;
 
         if let Some(stripped) = head_content.strip_prefix("ref: refs/heads/") {
             Ok(stripped.trim().to_string())
         } else {
-            self.get_remote_default_branch().or_else(|_| {
-                Ok("main".to_string())
-            })
+            self.get_remote_default_branch()
+                .or_else(|_| Ok("main".to_string()))
         }
     }
 
@@ -196,7 +192,8 @@ impl BranchLifecycleDetector {
     /// Scan for branch changes
     pub async fn scan_for_changes(&self) -> GitResult<Vec<BranchEvent>> {
         let current_branches = self.list_all_branches()?;
-        let current_names: HashSet<String> = current_branches.iter().map(|(n, _, _)| n.clone()).collect();
+        let current_names: HashSet<String> =
+            current_branches.iter().map(|(n, _, _)| n.clone()).collect();
 
         let mut events = Vec::new();
         let mut tracked = self.tracked_branches.write().await;
@@ -204,7 +201,14 @@ impl BranchLifecycleDetector {
         let rename_timeout = Duration::from_millis(self.config.rename_correlation_timeout_ms);
         let mut pending = self.pending_deletes.write().await;
 
-        self.detect_new_branches(&current_branches, &tracked_names, &mut tracked, &mut pending, rename_timeout, &mut events);
+        self.detect_new_branches(
+            &current_branches,
+            &tracked_names,
+            &mut tracked,
+            &mut pending,
+            rename_timeout,
+            &mut events,
+        );
         self.detect_deleted_branches(&current_names, &tracked_names, &mut tracked, &mut pending);
         self.emit_expired_deletes(&mut pending, rename_timeout, &mut events);
 
@@ -247,7 +251,11 @@ impl BranchLifecycleDetector {
                     old_name: old_delete.branch,
                     new_name: name.clone(),
                 };
-                info!("Detected branch rename: {} -> {}", event.branch_name(), name);
+                info!(
+                    "Detected branch rename: {} -> {}",
+                    event.branch_name(),
+                    name
+                );
                 events.push(event);
             } else {
                 let event = BranchEvent::Created {
@@ -257,7 +265,12 @@ impl BranchLifecycleDetector {
                 info!("Detected new branch: {}", name);
                 events.push(event);
             }
-            tracked.insert(name.clone(), TrackedBranch { commit_hash: commit_hash.clone() });
+            tracked.insert(
+                name.clone(),
+                TrackedBranch {
+                    commit_hash: commit_hash.clone(),
+                },
+            );
         }
     }
 
@@ -297,15 +310,9 @@ impl BranchLifecycleDetector {
         }
     }
 
-
     /// Get the current list of tracked branches
     pub async fn get_tracked_branches(&self) -> Vec<String> {
-        self.tracked_branches
-            .read()
-            .await
-            .keys()
-            .cloned()
-            .collect()
+        self.tracked_branches.read().await.keys().cloned().collect()
     }
 
     /// Get the current default branch
@@ -344,7 +351,10 @@ fn emit_default_branch_change(
 ) {
     if let Some(old) = old_default {
         if old != current_default {
-            info!("Detected default branch change: {} -> {}", old, current_default);
+            info!(
+                "Detected default branch change: {} -> {}",
+                old, current_default
+            );
             events.push(BranchEvent::DefaultChanged {
                 old_default: old.to_string(),
                 new_default: current_default.to_string(),

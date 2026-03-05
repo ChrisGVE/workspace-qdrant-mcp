@@ -20,7 +20,9 @@ pub(super) struct EventDebouncer {
 impl EventDebouncer {
     pub(super) fn new(debounce_ms: u64, capacity: usize) -> Self {
         Self {
-            events: LruCache::new(NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(10_000).unwrap())),
+            events: LruCache::new(
+                NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(10_000).unwrap()),
+            ),
             debounce_duration: Duration::from_millis(debounce_ms),
             evictions: 0,
         }
@@ -40,7 +42,9 @@ impl EventDebouncer {
                 let evicted = self.events.push(path, event);
                 if evicted.is_some() {
                     self.evictions += 1;
-                    tracing::warn!("EventDebouncer at capacity, flushing oldest event to prevent data loss");
+                    tracing::warn!(
+                        "EventDebouncer at capacity, flushing oldest event to prevent data loss"
+                    );
                 }
                 return (false, evicted.map(|(_, event)| event));
             }
@@ -50,7 +54,9 @@ impl EventDebouncer {
         let evicted = self.events.push(path, event);
         if evicted.is_some() {
             self.evictions += 1;
-            tracing::warn!("EventDebouncer at capacity, flushing oldest event to prevent data loss");
+            tracing::warn!(
+                "EventDebouncer at capacity, flushing oldest event to prevent data loss"
+            );
         }
         (true, evicted.map(|(_, event)| event))
     }
@@ -130,7 +136,10 @@ impl EventBatcher {
         // Check if we're at capacity - evict oldest event and submit immediately
         let evicted_batch = if self.current_total_size >= self.max_total_capacity {
             self.evict_oldest_event().map(|evicted| {
-                tracing::info!("Batcher at capacity, submitting evicted event immediately: {}", evicted.path.display());
+                tracing::info!(
+                    "Batcher at capacity, submitting evicted event immediately: {}",
+                    evicted.path.display()
+                );
                 vec![evicted]
             })
         } else {
@@ -138,7 +147,9 @@ impl EventBatcher {
         };
 
         let key = if self.config.group_by_type {
-            event.path.extension()
+            event
+                .path
+                .extension()
                 .and_then(|ext| ext.to_str())
                 .unwrap_or("unknown")
                 .to_string()
@@ -165,7 +176,9 @@ impl EventBatcher {
 
         // Check if max wait time has elapsed
         let now = Instant::now();
-        if now.duration_since(self.last_flush) >= Duration::from_millis(self.config.max_batch_wait_ms) {
+        if now.duration_since(self.last_flush)
+            >= Duration::from_millis(self.config.max_batch_wait_ms)
+        {
             return self.flush_all();
         }
 

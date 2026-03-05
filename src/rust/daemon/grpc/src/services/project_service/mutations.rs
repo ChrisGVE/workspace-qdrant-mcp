@@ -9,8 +9,8 @@ use crate::proto::{
     DeleteProjectRequest, DeleteProjectResponse, RenameTenantRequest, RenameTenantResponse,
 };
 
-use wqm_common::constants::COLLECTION_PROJECTS;
 use workspace_qdrant_core::{ItemType, ProjectPayload, QueueManager, UnifiedQueueOp};
+use wqm_common::constants::COLLECTION_PROJECTS;
 
 use super::ProjectServiceImpl;
 
@@ -44,12 +44,20 @@ impl ProjectServiceImpl {
 
         let mut total_rows = 0i32;
 
-        total_rows +=
-            Self::rename_table(&mut tx, "watch_folders", &req.old_tenant_id, &req.new_tenant_id)
-                .await?;
-        total_rows +=
-            Self::rename_table(&mut tx, "unified_queue", &req.old_tenant_id, &req.new_tenant_id)
-                .await?;
+        total_rows += Self::rename_table(
+            &mut tx,
+            "watch_folders",
+            &req.old_tenant_id,
+            &req.new_tenant_id,
+        )
+        .await?;
+        total_rows += Self::rename_table(
+            &mut tx,
+            "unified_queue",
+            &req.old_tenant_id,
+            &req.new_tenant_id,
+        )
+        .await?;
 
         // tracked_files may not exist in all deployments
         match Self::rename_table(
@@ -163,8 +171,7 @@ impl ProjectServiceImpl {
             old_tenant_id: None,
             is_active: None,
         };
-        let payload_json =
-            serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
         match queue_manager
             .enqueue_unified(
@@ -196,9 +203,7 @@ impl ProjectServiceImpl {
             }
             Err(e) => {
                 error!("Failed to enqueue project deletion: {e}");
-                Err(Status::internal(format!(
-                    "Failed to enqueue deletion: {e}"
-                )))
+                Err(Status::internal(format!("Failed to enqueue deletion: {e}")))
             }
         }
     }

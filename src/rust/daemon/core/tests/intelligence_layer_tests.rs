@@ -7,17 +7,17 @@
 //! - Metadata uplift: UpliftConfig, UpliftStats, candidate identification
 //! - Keyword extraction pipeline configuration
 
-use workspace_qdrant_core::{
-    embedding::BM25,
-    lexicon::LexiconManager,
-    metadata_uplift::{UpliftConfig, UpliftStats},
-    keyword_extraction::pipeline::{PipelineConfig, ExtractionResult},
-    keyword_extraction::tag_selector::{SelectedTag, TagType},
-    keyword_extraction::keyword_selector::SelectedKeyword,
-};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::time::Duration;
+use workspace_qdrant_core::{
+    embedding::BM25,
+    keyword_extraction::keyword_selector::SelectedKeyword,
+    keyword_extraction::pipeline::{ExtractionResult, PipelineConfig},
+    keyword_extraction::tag_selector::{SelectedTag, TagType},
+    lexicon::LexiconManager,
+    metadata_uplift::{UpliftConfig, UpliftStats},
+};
 
 /// Create in-memory SQLite pool with lexicon tables
 async fn create_lexicon_pool() -> SqlitePool {
@@ -66,19 +66,28 @@ async fn test_lexicon_tracks_code_identifiers() {
 
     // Simulate ingesting Rust source files
     let doc1_tokens: Vec<String> = vec![
-        "fn", "main", "let", "result", "qdrant", "client", "search",
-        "fn", "test", "assert", "result",
-    ].into_iter().map(String::from).collect();
+        "fn", "main", "let", "result", "qdrant", "client", "search", "fn", "test", "assert",
+        "result",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
 
     let doc2_tokens: Vec<String> = vec![
-        "fn", "process", "let", "data", "qdrant", "insert", "batch",
-        "fn", "validate", "assert", "data",
-    ].into_iter().map(String::from).collect();
+        "fn", "process", "let", "data", "qdrant", "insert", "batch", "fn", "validate", "assert",
+        "data",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
 
     let doc3_tokens: Vec<String> = vec![
-        "fn", "cleanup", "let", "config", "tokio", "spawn", "async",
-        "fn", "monitor", "tracing", "info",
-    ].into_iter().map(String::from).collect();
+        "fn", "cleanup", "let", "config", "tokio", "spawn", "async", "fn", "monitor", "tracing",
+        "info",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
 
     mgr.add_document("projects", &doc1_tokens).await.unwrap();
     mgr.add_document("projects", &doc2_tokens).await.unwrap();
@@ -107,10 +116,18 @@ async fn test_lexicon_persist_survives_reload() {
     // First session: build vocabulary
     {
         let mgr = LexiconManager::new(pool.clone(), 1.2);
-        mgr.add_document("projects", &["vector".into(), "search".into(), "qdrant".into()])
-            .await.unwrap();
-        mgr.add_document("projects", &["vector".into(), "embed".into(), "model".into()])
-            .await.unwrap();
+        mgr.add_document(
+            "projects",
+            &["vector".into(), "search".into(), "qdrant".into()],
+        )
+        .await
+        .unwrap();
+        mgr.add_document(
+            "projects",
+            &["vector".into(), "embed".into(), "model".into()],
+        )
+        .await
+        .unwrap();
         mgr.persist("projects").await.unwrap();
     }
 
@@ -132,9 +149,11 @@ async fn test_lexicon_multi_collection_isolation() {
     let mgr = LexiconManager::new(pool, 1.2);
 
     mgr.add_document("projects", &["rust".into(), "tokio".into()])
-        .await.unwrap();
+        .await
+        .unwrap();
     mgr.add_document("libraries", &["python".into(), "django".into()])
-        .await.unwrap();
+        .await
+        .unwrap();
 
     // Each collection is isolated
     assert_eq!(mgr.document_frequency("projects", "rust").await, 1);
@@ -168,20 +187,32 @@ fn test_bm25_idf_downweights_common_terms() {
     let function_id = *vocab.get("function").unwrap();
     let qdrant_id = *vocab.get("qdrant_search").unwrap();
 
-    let function_weight = sparse.indices.iter().zip(sparse.values.iter())
+    let function_weight = sparse
+        .indices
+        .iter()
+        .zip(sparse.values.iter())
         .find(|(&idx, _)| idx == function_id)
         .map(|(_, &val)| val);
-    let qdrant_weight = sparse.indices.iter().zip(sparse.values.iter())
+    let qdrant_weight = sparse
+        .indices
+        .iter()
+        .zip(sparse.values.iter())
         .find(|(&idx, _)| idx == qdrant_id)
         .map(|(_, &val)| val);
 
     // Common term "function" gets zero IDF (floored), so excluded from sparse vector
-    assert!(function_weight.is_none() || function_weight.unwrap() == 0.0,
-        "Ubiquitous term should have zero or no weight: {:?}", function_weight);
+    assert!(
+        function_weight.is_none() || function_weight.unwrap() == 0.0,
+        "Ubiquitous term should have zero or no weight: {:?}",
+        function_weight
+    );
 
     // Rare term "qdrant_search" should have positive weight
-    assert!(qdrant_weight.is_some() && qdrant_weight.unwrap() > 0.0,
-        "Rare term should have positive weight: {:?}", qdrant_weight);
+    assert!(
+        qdrant_weight.is_some() && qdrant_weight.unwrap() > 0.0,
+        "Rare term should have positive weight: {:?}",
+        qdrant_weight
+    );
 }
 
 #[test]
@@ -192,7 +223,10 @@ fn test_bm25_empty_corpus_uses_tf_only() {
     let sparse = bm25.generate_sparse_vector(&["hello".into(), "world".into()]);
 
     // With empty corpus, unknown terms won't have vocab IDs, so vector is empty
-    assert!(sparse.indices.is_empty(), "Terms not in vocab should produce empty vector");
+    assert!(
+        sparse.indices.is_empty(),
+        "Terms not in vocab should produce empty vector"
+    );
 }
 
 #[test]
@@ -208,24 +242,45 @@ fn test_bm25_tf_saturation() {
 
     // Repeated term: tf=5
     let sparse_repeated = bm25.generate_sparse_vector(&[
-        "test".into(), "test".into(), "test".into(), "test".into(), "test".into(),
+        "test".into(),
+        "test".into(),
+        "test".into(),
+        "test".into(),
+        "test".into(),
     ]);
     // Single occurrence: tf=1
     let sparse_single = bm25.generate_sparse_vector(&["test".into()]);
 
     // Find "test" weight in each vector
     let test_id = *bm25.vocab().get("test").unwrap();
-    let repeated_weight = sparse_repeated.indices.iter().zip(sparse_repeated.values.iter())
-        .find(|(&i, _)| i == test_id).map(|(_, &v)| v).unwrap_or(0.0);
-    let single_weight = sparse_single.indices.iter().zip(sparse_single.values.iter())
-        .find(|(&i, _)| i == test_id).map(|(_, &v)| v).unwrap_or(0.0);
+    let repeated_weight = sparse_repeated
+        .indices
+        .iter()
+        .zip(sparse_repeated.values.iter())
+        .find(|(&i, _)| i == test_id)
+        .map(|(_, &v)| v)
+        .unwrap_or(0.0);
+    let single_weight = sparse_single
+        .indices
+        .iter()
+        .zip(sparse_single.values.iter())
+        .find(|(&i, _)| i == test_id)
+        .map(|(_, &v)| v)
+        .unwrap_or(0.0);
 
-    assert!(single_weight > 0.0, "Single occurrence should have positive weight");
-    assert!(repeated_weight > single_weight, "Higher TF should give higher weight");
+    assert!(
+        single_weight > 0.0,
+        "Single occurrence should have positive weight"
+    );
+    assert!(
+        repeated_weight > single_weight,
+        "Higher TF should give higher weight"
+    );
     assert!(
         repeated_weight < single_weight * 3.0,
         "BM25 k1 saturation should prevent linear scaling (repeated={}, single={})",
-        repeated_weight, single_weight
+        repeated_weight,
+        single_weight
     );
 }
 
@@ -242,16 +297,20 @@ async fn test_lexicon_sparse_vector_uses_persisted_idf() {
     // Both df < N/2 so both have positive IDF
     for _ in 0..15 {
         mgr.add_document("projects", &["other".into(), "terms".into()])
-            .await.unwrap();
+            .await
+            .unwrap();
     }
     for _ in 0..3 {
         mgr.add_document("projects", &["return".into(), "more".into()])
-            .await.unwrap();
+            .await
+            .unwrap();
     }
     mgr.add_document("projects", &["return".into(), "custom_handler".into()])
-        .await.unwrap();
+        .await
+        .unwrap();
     mgr.add_document("projects", &["return".into(), "custom_handler".into()])
-        .await.unwrap();
+        .await
+        .unwrap();
 
     let df_custom = mgr.document_frequency("projects", "custom_handler").await;
     let df_return = mgr.document_frequency("projects", "return").await;
@@ -260,13 +319,19 @@ async fn test_lexicon_sparse_vector_uses_persisted_idf() {
 
     // Generate sparse vector for "return" and "custom_handler"
     // Both should have positive IDF since both df < N/2
-    let sparse = mgr.generate_sparse_vector(
-        "projects",
-        &["return".into(), "custom_handler".into()],
-    ).await;
+    let sparse = mgr
+        .generate_sparse_vector("projects", &["return".into(), "custom_handler".into()])
+        .await;
 
-    assert!(!sparse.indices.is_empty(), "Should produce non-empty sparse vector");
-    assert_eq!(sparse.indices.len(), 2, "Both terms should have positive weight");
+    assert!(
+        !sparse.indices.is_empty(),
+        "Should produce non-empty sparse vector"
+    );
+    assert_eq!(
+        sparse.indices.len(),
+        2,
+        "Both terms should have positive weight"
+    );
 
     // custom_handler (df=2) should have higher weight than return (df=5)
     let mut weights: Vec<f32> = sparse.values.clone();
@@ -274,7 +339,8 @@ async fn test_lexicon_sparse_vector_uses_persisted_idf() {
     assert!(
         weights[0] > weights[1],
         "Rarer term should have higher weight: max={}, min={}",
-        weights[0], weights[1]
+        weights[0],
+        weights[1]
     );
 }
 
@@ -283,8 +349,13 @@ async fn test_lexicon_sparse_vector_empty_for_unknown_collection() {
     let pool = create_lexicon_pool().await;
     let mgr = LexiconManager::new(pool, 1.2);
 
-    let sparse = mgr.generate_sparse_vector("unknown", &["test".into()]).await;
-    assert!(sparse.indices.is_empty(), "Unknown collection should return empty sparse vector");
+    let sparse = mgr
+        .generate_sparse_vector("unknown", &["test".into()])
+        .await;
+    assert!(
+        sparse.indices.is_empty(),
+        "Unknown collection should return empty sparse vector"
+    );
 }
 
 // ── Metadata Uplift Tests ──
@@ -316,8 +387,14 @@ fn test_pipeline_config_defaults_are_sane() {
 
     assert!(config.keyword.max_keywords > 0, "Should have keyword limit");
     assert!(config.tag.max_tags > 0, "Should have tag limit");
-    assert!(config.basket.min_similarity > 0.0, "Should have minimum similarity");
-    assert!(config.basket.min_similarity < 1.0, "Minimum similarity should be < 1");
+    assert!(
+        config.basket.min_similarity > 0.0,
+        "Should have minimum similarity"
+    );
+    assert!(
+        config.basket.min_similarity < 1.0,
+        "Minimum similarity should be < 1"
+    );
 }
 
 #[test]
@@ -343,16 +420,14 @@ fn test_extraction_result_accessors() {
                 ngram_size: 1,
             },
         ],
-        tags: vec![
-            SelectedTag {
-                phrase: "search".to_string(),
-                tag_type: TagType::Concept,
-                score: 0.9,
-                diversity_score: 1.0,
-                semantic_score: 0.85,
-                ngram_size: 1,
-            },
-        ],
+        tags: vec![SelectedTag {
+            phrase: "search".to_string(),
+            tag_type: TagType::Concept,
+            score: 0.9,
+            diversity_score: 1.0,
+            semantic_score: 0.85,
+            ngram_size: 1,
+        }],
         structural_tags: vec![
             SelectedTag {
                 phrase: "language:rust".to_string(),
@@ -383,8 +458,14 @@ fn test_extraction_result_accessors() {
     assert_eq!(tag_phrases, vec!["search"]);
 
     let struct_map = result.structural_tags_map();
-    assert_eq!(struct_map.get("language").unwrap(), &vec!["rust".to_string()]);
-    assert_eq!(struct_map.get("framework").unwrap(), &vec!["tokio".to_string()]);
+    assert_eq!(
+        struct_map.get("language").unwrap(),
+        &vec!["rust".to_string()]
+    );
+    assert_eq!(
+        struct_map.get("framework").unwrap(),
+        &vec!["tokio".to_string()]
+    );
 
     assert_eq!(result.gist_indices.len(), 3);
     assert!(result.summary_vector.is_some());
@@ -400,12 +481,25 @@ async fn test_lexicon_and_bm25_consistency() {
     // Build corpus: N=20, "async" df=4 (<N/2), "tokio" df=2 (<N/2)
     // Both will have positive IDF
     for _ in 0..16 {
-        mgr.add_document("projects", &["other".into(), "stuff".into()]).await.unwrap();
+        mgr.add_document("projects", &["other".into(), "stuff".into()])
+            .await
+            .unwrap();
     }
-    mgr.add_document("projects", &["async".into(), "await".into()]).await.unwrap();
-    mgr.add_document("projects", &["async".into(), "fn".into()]).await.unwrap();
-    mgr.add_document("projects", &["async".into(), "tokio".into(), "runtime".into()]).await.unwrap();
-    mgr.add_document("projects", &["async".into(), "tokio".into()]).await.unwrap();
+    mgr.add_document("projects", &["async".into(), "await".into()])
+        .await
+        .unwrap();
+    mgr.add_document("projects", &["async".into(), "fn".into()])
+        .await
+        .unwrap();
+    mgr.add_document(
+        "projects",
+        &["async".into(), "tokio".into(), "runtime".into()],
+    )
+    .await
+    .unwrap();
+    mgr.add_document("projects", &["async".into(), "tokio".into()])
+        .await
+        .unwrap();
     mgr.persist("projects").await.unwrap();
 
     // Verify DF
@@ -415,9 +509,18 @@ async fn test_lexicon_and_bm25_consistency() {
     assert_eq!(df_tokio, 2, "tokio in 2 documents");
 
     // Both terms should have positive IDF (df < N/2 = 10)
-    let sparse = mgr.generate_sparse_vector("projects", &["async".into(), "tokio".into()]).await;
-    assert!(!sparse.indices.is_empty(), "Sparse vector should have entries");
-    assert_eq!(sparse.indices.len(), 2, "Both terms should have positive IDF weight");
+    let sparse = mgr
+        .generate_sparse_vector("projects", &["async".into(), "tokio".into()])
+        .await;
+    assert!(
+        !sparse.indices.is_empty(),
+        "Sparse vector should have entries"
+    );
+    assert_eq!(
+        sparse.indices.len(),
+        2,
+        "Both terms should have positive IDF weight"
+    );
 
     // tokio (df=2) should have higher weight than async (df=4)
     let mut weights: Vec<f32> = sparse.values.clone();
@@ -425,7 +528,8 @@ async fn test_lexicon_and_bm25_consistency() {
     assert!(
         weights[0] > weights[1],
         "Rarer term should have higher weight: max={}, min={}",
-        weights[0], weights[1]
+        weights[0],
+        weights[1]
     );
 }
 
@@ -435,14 +539,17 @@ async fn test_lexicon_incremental_corpus_growth() {
     let mgr = LexiconManager::new(pool, 1.2);
 
     // Phase 1: small corpus
-    mgr.add_document("projects", &["hello".into(), "world".into()]).await.unwrap();
+    mgr.add_document("projects", &["hello".into(), "world".into()])
+        .await
+        .unwrap();
     let size1 = mgr.corpus_size("projects").await;
     assert_eq!(size1, 1);
 
     // Phase 2: corpus grows
     for i in 0..10 {
         mgr.add_document("projects", &[format!("term_{}", i), "hello".into()])
-            .await.unwrap();
+            .await
+            .unwrap();
     }
     let size2 = mgr.corpus_size("projects").await;
     assert_eq!(size2, 11);

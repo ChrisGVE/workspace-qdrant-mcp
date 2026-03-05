@@ -5,13 +5,13 @@
 //! externally (cross-filesystem move), this validator detects the orphaned project
 //! and triggers cleanup.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::RwLock;
 
 /// Errors that can occur during path validation
 #[derive(Error, Debug)]
@@ -164,10 +164,7 @@ impl PathValidator {
         let mut pending = self.pending_orphans.write().await;
 
         // Create a set of pending project IDs for quick lookup
-        let pending_ids: HashSet<String> = pending
-            .iter()
-            .map(|o| o.project_id.clone())
-            .collect();
+        let pending_ids: HashSet<String> = pending.iter().map(|o| o.project_id.clone()).collect();
 
         // Limit the number of paths to validate
         let projects_to_check: Vec<_> = projects
@@ -183,7 +180,10 @@ impl PathValidator {
                 pending.retain(|o| o.project_id != project.project_id);
             } else {
                 // Path doesn't exist
-                if let Some(existing) = pending.iter_mut().find(|o| o.project_id == project.project_id) {
+                if let Some(existing) = pending
+                    .iter_mut()
+                    .find(|o| o.project_id == project.project_id)
+                {
                     // Already pending - check grace period
                     existing.failure_count += 1;
 
@@ -222,7 +222,11 @@ impl PathValidator {
         }
 
         // Remove confirmed orphans from pending
-        pending.retain(|o| !confirmed_orphans.iter().any(|c| c.project_id == o.project_id));
+        pending.retain(|o| {
+            !confirmed_orphans
+                .iter()
+                .any(|c| c.project_id == o.project_id)
+        });
 
         // Add new pending orphans
         pending.extend(new_pending);
@@ -293,7 +297,10 @@ impl OrphanCleanupActions {
         // per docs/specs/06-file-watching.md
         vec![
             ("unified_queue", format!("tenant_id = '{}'", project_id)),
-            ("watch_folders", format!("path = '{}' OR path LIKE '{}/%'", path_str, path_str)),
+            (
+                "watch_folders",
+                format!("path = '{}' OR path LIKE '{}/%'", path_str, path_str),
+            ),
         ]
     }
 
@@ -306,8 +313,8 @@ impl OrphanCleanupActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::thread::sleep;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_new_validator() {
@@ -461,8 +468,12 @@ mod tests {
         assert_eq!(statements.len(), 2);
 
         // Check that statements contain expected tables
-        assert!(statements.iter().any(|(table, _)| *table == "unified_queue"));
-        assert!(statements.iter().any(|(table, _)| *table == "watch_folders"));
+        assert!(statements
+            .iter()
+            .any(|(table, _)| *table == "unified_queue"));
+        assert!(statements
+            .iter()
+            .any(|(table, _)| *table == "watch_folders"));
     }
 
     #[tokio::test]

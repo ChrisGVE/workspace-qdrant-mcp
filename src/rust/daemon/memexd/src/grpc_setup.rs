@@ -11,16 +11,13 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use workspace_qdrant_core::{
-    adaptive_resources::AdaptiveResourceState,
-    LanguageServerManager, ProjectLspConfig,
-    QueueProcessorHealth,
-    SearchDbManager,
-    HierarchyBuilder,
+    adaptive_resources::AdaptiveResourceState, HierarchyBuilder, LanguageServerManager,
+    ProjectLspConfig, QueueProcessorHealth, SearchDbManager,
 };
 use workspace_qdrant_grpc::{GrpcServer, ServerConfig as GrpcServerConfig};
 
-use crate::DaemonArgs;
 use crate::database::ConcreteGraphStore;
+use crate::DaemonArgs;
 
 /// Initialize the LSP lifecycle manager (Task 1.1).
 pub async fn init_lsp_manager(

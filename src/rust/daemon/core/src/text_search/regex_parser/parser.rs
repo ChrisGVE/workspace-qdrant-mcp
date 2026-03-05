@@ -14,8 +14,7 @@ pub(super) fn extract_literals_recursive(pattern: &str, result: &mut RegexLitera
                 if let Some(&next) = chars.peek() {
                     match next {
                         // Metacharacter classes — end the current literal run
-                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B'
-                        | 'A' | 'z' | 'Z' | 'G' => {
+                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B' | 'A' | 'z' | 'Z' | 'G' => {
                             flush_to_mandatory(&mut current, &mut result.mandatory);
                             chars.next();
                         }
@@ -136,8 +135,9 @@ pub(super) fn collect_literal_suffix(
                 lookahead.next();
                 if let Some(&next) = lookahead.peek() {
                     match next {
-                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B'
-                        | 'A' | 'z' | 'Z' | 'G' => break,
+                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B' | 'A' | 'z' | 'Z' | 'G' => {
+                            break
+                        }
                         _ => {
                             chars.next();
                             chars.next();
@@ -242,8 +242,9 @@ fn is_all_literal(s: &str) -> bool {
             '\\' => {
                 if let Some(next) = chars.next() {
                     match next {
-                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B'
-                        | 'A' | 'z' | 'Z' | 'G' => return false,
+                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B' | 'A' | 'z' | 'Z' | 'G' => {
+                            return false
+                        }
                         _ => {}
                     }
                 }

@@ -9,7 +9,17 @@ use crate::output::{self, ServiceStatus};
 use super::helpers::{get_lsp_server_info, which_cmd};
 
 const ALL_LANGUAGES: &[&str] = &[
-    "rust", "python", "typescript", "go", "java", "c", "cpp", "ruby", "php", "shell", "html",
+    "rust",
+    "python",
+    "typescript",
+    "go",
+    "java",
+    "c",
+    "cpp",
+    "ruby",
+    "php",
+    "shell",
+    "html",
 ];
 
 /// Show language support status (LSP + grammar availability).
@@ -54,7 +64,11 @@ fn print_grammar_config_summary(
     println!("{}", "Tree-sitter Grammar Settings".cyan().bold());
     output::kv(
         "  Auto-download",
-        if config.auto_download { "enabled" } else { "disabled" },
+        if config.auto_download {
+            "enabled"
+        } else {
+            "disabled"
+        },
     );
     output::kv(
         "  Cached grammars",

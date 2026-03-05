@@ -1,7 +1,7 @@
 //! FTS5 pattern escaping, LIKE pattern escaping, and glob handling.
 
-use crate::search_db::SearchDbError;
 use super::types::SearchOptions;
+use crate::search_db::SearchDbError;
 
 // ---------------------------------------------------------------------------
 // FTS5 pattern escaping
@@ -82,7 +82,9 @@ pub(crate) fn expand_braces(glob: &str) -> Vec<String> {
 /// Compile a glob pattern (with optional brace expansion) into a matcher.
 ///
 /// Returns a closure that tests whether a file path matches the glob.
-pub(crate) fn compile_glob_matcher(glob_pattern: &str) -> Result<Box<dyn Fn(&str) -> bool + Send + Sync>, SearchDbError> {
+pub(crate) fn compile_glob_matcher(
+    glob_pattern: &str,
+) -> Result<Box<dyn Fn(&str) -> bool + Send + Sync>, SearchDbError> {
     let patterns = expand_braces(glob_pattern);
     let compiled: Vec<glob::Pattern> = patterns
         .iter()
@@ -150,10 +152,7 @@ mod tests {
 
     #[test]
     fn test_escape_fts5_pattern_exactly_3() {
-        assert_eq!(
-            escape_fts5_pattern("abc"),
-            Some("\"abc\"".to_string())
-        );
+        assert_eq!(escape_fts5_pattern("abc"), Some("\"abc\"".to_string()));
     }
 
     #[test]
@@ -169,7 +168,10 @@ mod tests {
     #[test]
     fn test_extract_glob_prefix_with_prefix() {
         assert_eq!(extract_glob_prefix("src/**/*.rs"), Some("src/".to_string()));
-        assert_eq!(extract_glob_prefix("src/rust/*.rs"), Some("src/rust/".to_string()));
+        assert_eq!(
+            extract_glob_prefix("src/rust/*.rs"),
+            Some("src/rust/".to_string())
+        );
     }
 
     #[test]
@@ -181,7 +183,10 @@ mod tests {
 
     #[test]
     fn test_extract_glob_prefix_no_metacharacters() {
-        assert_eq!(extract_glob_prefix("src/main.rs"), Some("src/main.rs".to_string()));
+        assert_eq!(
+            extract_glob_prefix("src/main.rs"),
+            Some("src/main.rs".to_string())
+        );
     }
 
     #[test]

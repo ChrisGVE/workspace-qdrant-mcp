@@ -11,12 +11,9 @@ async fn test_unified_queue_enqueue_dequeue() {
     let pool = config.create_pool().await.unwrap();
 
     // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
@@ -76,12 +73,9 @@ async fn test_dequeue_fifo_ordering() {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
 
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
@@ -137,12 +131,9 @@ async fn test_dequeue_lifo_ordering() {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
 
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();

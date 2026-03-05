@@ -5,11 +5,9 @@ use std::path::Path;
 
 use once_cell::sync::Lazy;
 
-use crate::patterns::comprehensive::{ComprehensivePatternManager, ComprehensiveResult};
-use super::{
-    ExclusionCategory, ExclusionResult, ExclusionRule, ExclusionStats,
-};
 use super::helpers::{classify_and_store_pattern, get_critical_exclusion_patterns};
+use super::{ExclusionCategory, ExclusionResult, ExclusionRule, ExclusionStats};
+use crate::patterns::comprehensive::{ComprehensivePatternManager, ComprehensiveResult};
 
 /// Global exclusion engine instance
 static EXCLUSION_ENGINE: Lazy<Result<ExclusionEngine, String>> = Lazy::new(|| {
@@ -43,28 +41,48 @@ impl ExclusionEngine {
         let exclusions = &config.exclusion_patterns;
 
         register_patterns(
-            &exclusions.version_control, ExclusionCategory::VersionControl,
-            "Version control metadata", true,
-            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
-            &mut contains_patterns, &mut all_rules,
+            &exclusions.version_control,
+            ExclusionCategory::VersionControl,
+            "Version control metadata",
+            true,
+            &mut exact_matches,
+            &mut prefix_patterns,
+            &mut suffix_patterns,
+            &mut contains_patterns,
+            &mut all_rules,
         );
         register_patterns(
-            &exclusions.build_outputs, ExclusionCategory::BuildArtifacts,
-            "Build artifacts and generated files", false,
-            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
-            &mut contains_patterns, &mut all_rules,
+            &exclusions.build_outputs,
+            ExclusionCategory::BuildArtifacts,
+            "Build artifacts and generated files",
+            false,
+            &mut exact_matches,
+            &mut prefix_patterns,
+            &mut suffix_patterns,
+            &mut contains_patterns,
+            &mut all_rules,
         );
         register_patterns(
-            &exclusions.cache_directories, ExclusionCategory::Cache,
-            "Cache and temporary files", false,
-            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
-            &mut contains_patterns, &mut all_rules,
+            &exclusions.cache_directories,
+            ExclusionCategory::Cache,
+            "Cache and temporary files",
+            false,
+            &mut exact_matches,
+            &mut prefix_patterns,
+            &mut suffix_patterns,
+            &mut contains_patterns,
+            &mut all_rules,
         );
         register_patterns(
-            &exclusions.ide_files, ExclusionCategory::IdeFiles,
-            "IDE and editor configuration", false,
-            &mut exact_matches, &mut prefix_patterns, &mut suffix_patterns,
-            &mut contains_patterns, &mut all_rules,
+            &exclusions.ide_files,
+            ExclusionCategory::IdeFiles,
+            "IDE and editor configuration",
+            false,
+            &mut exact_matches,
+            &mut prefix_patterns,
+            &mut suffix_patterns,
+            &mut contains_patterns,
+            &mut all_rules,
         );
 
         // Critical patterns have per-entry reasons; handle them separately
@@ -77,20 +95,31 @@ impl ExclusionEngine {
                 case_sensitive: true,
             };
             classify_and_store_pattern(
-                &pattern, &rule,
-                &mut exact_matches, &mut prefix_patterns,
-                &mut suffix_patterns, &mut contains_patterns,
+                &pattern,
+                &rule,
+                &mut exact_matches,
+                &mut prefix_patterns,
+                &mut suffix_patterns,
+                &mut contains_patterns,
             );
             all_rules.push(rule);
         }
 
         tracing::debug!(
             "Exclusion engine initialized: {} exact, {} prefix, {} suffix, {} contains patterns",
-            exact_matches.len(), prefix_patterns.len(),
-            suffix_patterns.len(), contains_patterns.len()
+            exact_matches.len(),
+            prefix_patterns.len(),
+            suffix_patterns.len(),
+            contains_patterns.len()
         );
 
-        Ok(Self { exact_matches, prefix_patterns, suffix_patterns, contains_patterns, all_rules })
+        Ok(Self {
+            exact_matches,
+            prefix_patterns,
+            suffix_patterns,
+            contains_patterns,
+            all_rules,
+        })
     }
 
     /// Get the global exclusion engine instance
@@ -179,7 +208,11 @@ impl ExclusionEngine {
     }
 
     /// Check if a file should be excluded with detailed context
-    pub fn check_with_context(&self, file_path: &str, project_type: Option<&str>) -> ExclusionResult {
+    pub fn check_with_context(
+        &self,
+        file_path: &str,
+        project_type: Option<&str>,
+    ) -> ExclusionResult {
         let base_result = self.should_exclude(file_path);
 
         if base_result.excluded {
@@ -208,7 +241,9 @@ impl ExclusionEngine {
     pub fn stats(&self) -> ExclusionStats {
         let mut category_counts = std::collections::HashMap::new();
         for rule in &self.all_rules {
-            *category_counts.entry(format!("{:?}", rule.category)).or_insert(0) += 1;
+            *category_counts
+                .entry(format!("{:?}", rule.category))
+                .or_insert(0) += 1;
         }
 
         ExclusionStats {
@@ -223,7 +258,8 @@ impl ExclusionEngine {
 
     /// Find the rule that matches a specific pattern
     fn find_rule_for_pattern(&self, pattern: &str) -> Option<ExclusionRule> {
-        self.all_rules.iter()
+        self.all_rules
+            .iter()
             .find(|rule| rule.pattern == pattern)
             .cloned()
     }
@@ -267,7 +303,11 @@ impl ExclusionEngine {
     }
 
     /// Check for contextual exclusions based on project type
-    fn check_contextual_exclusion(&self, file_path: &str, project_type: &str) -> Option<ExclusionRule> {
+    fn check_contextual_exclusion(
+        &self,
+        file_path: &str,
+        project_type: &str,
+    ) -> Option<ExclusionRule> {
         match project_type {
             "rust" => {
                 if file_path.starts_with("target/") || file_path.contains("/target/") {
@@ -279,7 +319,7 @@ impl ExclusionEngine {
                         case_sensitive: true,
                     });
                 }
-            },
+            }
             "javascript" | "typescript" => {
                 if file_path.starts_with("node_modules/") || file_path.contains("/node_modules/") {
                     return Some(ExclusionRule {
@@ -290,7 +330,7 @@ impl ExclusionEngine {
                         case_sensitive: true,
                     });
                 }
-            },
+            }
             "python" => {
                 if file_path.contains("__pycache__") || file_path.ends_with(".pyc") {
                     return Some(ExclusionRule {
@@ -301,8 +341,8 @@ impl ExclusionEngine {
                         case_sensitive: true,
                     });
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
         None
     }
@@ -330,8 +370,12 @@ fn register_patterns(
             case_sensitive,
         };
         classify_and_store_pattern(
-            pattern, &rule,
-            exact_matches, prefix_patterns, suffix_patterns, contains_patterns,
+            pattern,
+            &rule,
+            exact_matches,
+            prefix_patterns,
+            suffix_patterns,
+            contains_patterns,
         );
         all_rules.push(rule);
     }

@@ -76,7 +76,9 @@ impl From<crate::lifecycle::WatchFolderLifecycleError> for PriorityError {
     fn from(err: crate::lifecycle::WatchFolderLifecycleError) -> Self {
         match err {
             crate::lifecycle::WatchFolderLifecycleError::Database(e) => Self::Database(e),
-            crate::lifecycle::WatchFolderLifecycleError::NotFound(msg) => Self::ProjectNotFound(msg),
+            crate::lifecycle::WatchFolderLifecycleError::NotFound(msg) => {
+                Self::ProjectNotFound(msg)
+            }
         }
     }
 }

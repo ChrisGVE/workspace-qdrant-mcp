@@ -46,12 +46,12 @@ impl StorageClient {
                             builder = builder.offset(offset_id);
                         }
 
-                        self.client
-                            .scroll(builder)
-                            .await
-                            .map_err(|e| StorageError::Search(
-                                format!("Scroll point IDs for tenant failed: {}", e)
+                        self.client.scroll(builder).await.map_err(|e| {
+                            StorageError::Search(format!(
+                                "Scroll point IDs for tenant failed: {}",
+                                e
                             ))
+                        })
                     }
                 })
                 .await?;
@@ -79,7 +79,9 @@ impl StorageClient {
 
         debug!(
             "Scrolled {} point IDs for tenant_id='{}' in '{}'",
-            all_ids.len(), tenant_id, collection_name
+            all_ids.len(),
+            tenant_id,
+            collection_name
         );
 
         Ok(all_ids)
@@ -131,7 +133,8 @@ impl StorageClient {
 
             for point in &response.result {
                 if let Some(value) = point.payload.get("file_path") {
-                    if let Some(qdrant_client::qdrant::value::Kind::StringValue(path)) = &value.kind {
+                    if let Some(qdrant_client::qdrant::value::Kind::StringValue(path)) = &value.kind
+                    {
                         file_paths.push(path.clone());
                     }
                 }
@@ -145,7 +148,9 @@ impl StorageClient {
 
         debug!(
             "Scrolled {} file paths for tenant_id='{}' in '{}'",
-            file_paths.len(), tenant_id, collection_name
+            file_paths.len(),
+            tenant_id,
+            collection_name
         );
 
         Ok(file_paths)
@@ -177,10 +182,9 @@ impl StorageClient {
                         builder = builder.offset(offset_id);
                     }
 
-                    self.client
-                        .scroll(builder)
-                        .await
-                        .map_err(|e| StorageError::Search(format!("Scroll with filter failed: {}", e)))
+                    self.client.scroll(builder).await.map_err(|e| {
+                        StorageError::Search(format!("Scroll with filter failed: {}", e))
+                    })
                 }
             })
             .await?;

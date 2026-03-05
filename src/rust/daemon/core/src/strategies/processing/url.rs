@@ -80,10 +80,7 @@ impl UrlStrategy {
             .to_string();
 
         let body = response.text().await.map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to read response body: {}",
-                e
-            ))
+            UnifiedProcessorError::ProcessingFailed(format!("Failed to read response body: {}", e))
         })?;
 
         let is_html = content_type.contains("text/html");
@@ -111,10 +108,7 @@ impl UrlStrategy {
         };
 
         if extracted_text.trim().is_empty() {
-            warn!(
-                "URL {} yielded empty content after extraction",
-                payload.url
-            );
+            warn!("URL {} yielded empty content after extraction", payload.url);
             return Ok(());
         }
 
@@ -137,41 +131,17 @@ impl UrlStrategy {
 
         // Build Qdrant payload
         let mut point_payload = std::collections::HashMap::new();
-        point_payload.insert(
-            "content".to_string(),
-            serde_json::json!(extracted_text),
-        );
-        point_payload.insert(
-            "document_id".to_string(),
-            serde_json::json!(document_id),
-        );
-        point_payload.insert(
-            "tenant_id".to_string(),
-            serde_json::json!(item.tenant_id),
-        );
-        point_payload.insert(
-            "source_url".to_string(),
-            serde_json::json!(payload.url),
-        );
+        point_payload.insert("content".to_string(), serde_json::json!(extracted_text));
+        point_payload.insert("document_id".to_string(), serde_json::json!(document_id));
+        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+        point_payload.insert("source_url".to_string(), serde_json::json!(payload.url));
         point_payload.insert("title".to_string(), serde_json::json!(title));
-        point_payload.insert(
-            "source_type".to_string(),
-            serde_json::json!("web"),
-        );
-        point_payload.insert(
-            "item_type".to_string(),
-            serde_json::json!("url"),
-        );
-        point_payload.insert(
-            "branch".to_string(),
-            serde_json::json!(item.branch),
-        );
+        point_payload.insert("source_type".to_string(), serde_json::json!("web"));
+        point_payload.insert("item_type".to_string(), serde_json::json!("url"));
+        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
 
         if let Some(ref lib_name) = payload.library_name {
-            point_payload.insert(
-                "library_name".to_string(),
-                serde_json::json!(lib_name),
-            );
+            point_payload.insert("library_name".to_string(), serde_json::json!(lib_name));
         }
 
         let point = DocumentPoint {

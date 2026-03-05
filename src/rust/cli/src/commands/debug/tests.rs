@@ -287,10 +287,26 @@ mod tests {
         let log_path = dir.path().join("test.jsonl");
         {
             let mut f = File::create(&log_path).unwrap();
-            writeln!(f, r#"{{"timestamp":"2025-06-15T10:00:00Z","level":"INFO","msg":"info line"}}"#).unwrap();
-            writeln!(f, r#"{{"timestamp":"2025-06-15T10:01:00Z","level":"ERROR","msg":"error line"}}"#).unwrap();
-            writeln!(f, r#"{{"timestamp":"2025-06-15T10:02:00Z","level":"WARN","msg":"warn line"}}"#).unwrap();
-            writeln!(f, r#"{{"timestamp":"2025-06-15T10:03:00Z","level":"DEBUG","msg":"debug line"}}"#).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"2025-06-15T10:00:00Z","level":"INFO","msg":"info line"}}"#
+            )
+            .unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"2025-06-15T10:01:00Z","level":"ERROR","msg":"error line"}}"#
+            )
+            .unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"2025-06-15T10:02:00Z","level":"WARN","msg":"warn line"}}"#
+            )
+            .unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"2025-06-15T10:03:00Z","level":"DEBUG","msg":"debug line"}}"#
+            )
+            .unwrap();
         }
 
         let filter = LogFilter {
@@ -311,10 +327,19 @@ mod tests {
         {
             let mut f = File::create(&log_path).unwrap();
             // Old entry (2020)
-            writeln!(f, r#"{{"timestamp":"2020-01-01T00:00:00Z","level":"INFO","msg":"old"}}"#).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"2020-01-01T00:00:00Z","level":"INFO","msg":"old"}}"#
+            )
+            .unwrap();
             // Recent entry
             let recent = Utc::now().to_rfc3339();
-            writeln!(f, r#"{{"timestamp":"{}","level":"INFO","msg":"recent"}}"#, recent).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"{}","level":"INFO","msg":"recent"}}"#,
+                recent
+            )
+            .unwrap();
         }
 
         let filter = LogFilter {
@@ -334,7 +359,12 @@ mod tests {
         {
             let mut f = File::create(&log_path).unwrap();
             for i in 0..20 {
-                writeln!(f, r#"{{"timestamp":"2025-06-15T10:{:02}:00Z","level":"INFO","msg":"line {}"}}"#, i, i).unwrap();
+                writeln!(
+                    f,
+                    r#"{{"timestamp":"2025-06-15T10:{:02}:00Z","level":"INFO","msg":"line {}"}}"#,
+                    i, i
+                )
+                .unwrap();
             }
         }
 
@@ -357,13 +387,22 @@ mod tests {
         // Write old entries to rotated file
         {
             let mut f = File::create(dir.path().join("test.jsonl.1")).unwrap();
-            writeln!(f, r#"{{"timestamp":"2025-06-15T08:00:00Z","level":"ERROR","msg":"old error"}}"#).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"2025-06-15T08:00:00Z","level":"ERROR","msg":"old error"}}"#
+            )
+            .unwrap();
         }
         // Write recent entries to current file
         {
             let mut f = File::create(dir.path().join("test.jsonl")).unwrap();
             let recent = Utc::now().to_rfc3339();
-            writeln!(f, r#"{{"timestamp":"{}","level":"ERROR","msg":"new error"}}"#, recent).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"{}","level":"ERROR","msg":"new error"}}"#,
+                recent
+            )
+            .unwrap();
         }
 
         // With --since, should read from both files
@@ -385,13 +424,27 @@ mod tests {
         {
             let mut f = File::create(&log_path).unwrap();
             // Old error
-            writeln!(f, r#"{{"timestamp":"2020-01-01T00:00:00Z","level":"ERROR","msg":"old error"}}"#).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"2020-01-01T00:00:00Z","level":"ERROR","msg":"old error"}}"#
+            )
+            .unwrap();
             // Recent info
             let recent = Utc::now().to_rfc3339();
-            writeln!(f, r#"{{"timestamp":"{}","level":"INFO","msg":"recent info"}}"#, recent).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"{}","level":"INFO","msg":"recent info"}}"#,
+                recent
+            )
+            .unwrap();
             // Recent error
             let recent2 = Utc::now().to_rfc3339();
-            writeln!(f, r#"{{"timestamp":"{}","level":"ERROR","msg":"recent error"}}"#, recent2).unwrap();
+            writeln!(
+                f,
+                r#"{{"timestamp":"{}","level":"ERROR","msg":"recent error"}}"#,
+                recent2
+            )
+            .unwrap();
         }
 
         let filter = LogFilter {

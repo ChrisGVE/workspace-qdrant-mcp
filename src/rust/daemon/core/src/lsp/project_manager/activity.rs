@@ -1,6 +1,6 @@
 //! Project activation and deactivation tracking.
 
-use super::{LanguageServerManager, Language, ProjectLspResult};
+use super::{Language, LanguageServerManager, ProjectLspResult};
 
 impl LanguageServerManager {
     /// Mark a project as active (Task 1.18)

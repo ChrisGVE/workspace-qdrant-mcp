@@ -5,14 +5,14 @@ use tokio::sync::RwLock;
 use tracing::debug;
 
 use crate::allowed_extensions::AllowedExtensions;
+use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
+use crate::storage::StorageClient;
 use crate::tree_sitter::GrammarManager;
 use crate::unified_queue_schema::{ItemType, UnifiedQueueItem};
 use crate::{DocumentProcessor, EmbeddingGenerator};
-use crate::storage::StorageClient;
-use crate::lexicon::LexiconManager;
 
 use crate::unified_queue_processor::config::UnifiedProcessorConfig;
 use crate::unified_queue_processor::error::UnifiedProcessorResult;

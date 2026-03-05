@@ -1,11 +1,11 @@
 //! Tests for project auto-watch lifecycle and watcher restart behavior
 
+use super::tests::{create_test_task_submitter, test_watcher_config};
 use super::*;
 use shared_test_utils::*;
 use std::fs;
 use std::time::Duration;
 use tempfile::TempDir;
-use super::tests::{test_watcher_config, create_test_task_submitter};
 
 #[cfg(test)]
 mod project_auto_watch_tests {
@@ -108,7 +108,10 @@ mod project_auto_watch_tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         let stats = watcher.stats().await;
-        assert!(stats.events_received > 0, "Should detect events in nested structures");
+        assert!(
+            stats.events_received > 0,
+            "Should detect events in nested structures"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -138,7 +141,10 @@ mod project_auto_watch_tests {
         tokio::time::sleep(Duration::from_millis(1000)).await;
 
         let stats = watcher.stats().await;
-        assert!(stats.tasks_submitted >= 3, "Should process existing files on startup");
+        assert!(
+            stats.tasks_submitted >= 3,
+            "Should process existing files on startup"
+        );
 
         watcher.stop_watching().await?;
         Ok(())

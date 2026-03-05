@@ -109,7 +109,9 @@ impl ErrorRecovery {
         strategy: ErrorRecoveryStrategy,
     ) -> std::result::Result<T, WorkspaceError>
     where
-        F: Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<T, E>> + Send + 'static>>,
+        F: Fn() -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = std::result::Result<T, E>> + Send + 'static>,
+        >,
         E: std::error::Error + Send + Sync + 'static,
     {
         let mut attempt = 1;
@@ -125,19 +127,19 @@ impl ErrorRecovery {
                 }
             }
 
-            let result = if let Some(circuit_breaker) = self.circuit_breakers.get_mut(operation_name)
-            {
-                circuit_breaker.execute(operation()).await
-            } else {
-                match operation().await {
-                    Ok(value) => Ok(value),
-                    Err(error) => Err(WorkspaceError::Internal {
-                        message: format!("Operation failed: {}", error),
-                        component: operation_name.to_string(),
-                        source: Some(Box::new(error)),
-                    }),
-                }
-            };
+            let result =
+                if let Some(circuit_breaker) = self.circuit_breakers.get_mut(operation_name) {
+                    circuit_breaker.execute(operation()).await
+                } else {
+                    match operation().await {
+                        Ok(value) => Ok(value),
+                        Err(error) => Err(WorkspaceError::Internal {
+                            message: format!("Operation failed: {}", error),
+                            component: operation_name.to_string(),
+                            source: Some(Box::new(error)),
+                        }),
+                    }
+                };
 
             match result {
                 Ok(value) => {
@@ -159,7 +161,8 @@ impl ErrorRecovery {
                         attempt = attempt,
                         max_attempts = strategy.max_retries,
                         delay_ms = delay.as_millis(),
-                        "Retrying operation after error: {}", error
+                        "Retrying operation after error: {}",
+                        error
                     );
 
                     tokio::time::sleep(delay).await;

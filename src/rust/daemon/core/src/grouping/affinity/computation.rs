@@ -1,5 +1,4 @@
 /// Pairwise affinity computation and group formation algorithms.
-
 use crate::keyword_extraction::semantic_rerank::cosine_similarity;
 use crate::tagging::aggregate_document_embedding;
 

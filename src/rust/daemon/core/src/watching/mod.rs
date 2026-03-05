@@ -6,38 +6,37 @@
 use glob::PatternError;
 use thiserror::Error;
 
-pub mod config;
 mod compiled_patterns;
+pub mod config;
 mod debouncer;
 pub mod events;
 pub mod telemetry;
 pub mod watcher;
 mod watcher_processing;
 
-pub mod platform;
+pub mod file_watcher;
 pub mod move_detector;
 pub mod path_validator;
-pub mod file_watcher;
+pub mod platform;
 
 // Re-export primary types
-pub use config::{WatcherConfig, TelemetryConfig, BatchConfig};
+pub use config::{BatchConfig, TelemetryConfig, WatcherConfig};
 pub use events::{FileEvent, PausedEventBuffer};
 pub use telemetry::{TelemetrySnapshot, WatchingStats};
 pub use watcher::FileWatcher;
 
-pub use platform::{PlatformWatcherConfig, PlatformWatcherFactory, PlatformWatchingStats};
+pub use file_watcher::{
+    EnhancedFileWatcher, EnhancedWatcherConfig, EnhancedWatcherError, EnhancedWatcherStats,
+    WatchEvent, WatcherHandle,
+};
 pub use move_detector::{
-    MoveCorrelator, MoveCorrelatorConfig, MoveCorrelatorStats,
-    MoveDetectorError, RenameAction,
+    MoveCorrelator, MoveCorrelatorConfig, MoveCorrelatorStats, MoveDetectorError, RenameAction,
 };
 pub use path_validator::{
-    PathValidator, PathValidatorConfig, PathValidatorStats, PathValidatorError,
-    OrphanedProject, RegisteredProject, OrphanCleanupActions,
+    OrphanCleanupActions, OrphanedProject, PathValidator, PathValidatorConfig, PathValidatorError,
+    PathValidatorStats, RegisteredProject,
 };
-pub use file_watcher::{
-    EnhancedFileWatcher, EnhancedWatcherConfig, EnhancedWatcherError,
-    EnhancedWatcherStats, WatcherHandle, WatchEvent,
-};
+pub use platform::{PlatformWatcherConfig, PlatformWatcherFactory, PlatformWatchingStats};
 
 /// Errors that can occur during file watching
 #[derive(Error, Debug)]

@@ -3,7 +3,6 @@
 /// Provides configurable routing rules that determine which Qdrant collection
 /// a file should be ingested into, and enriches the queue metadata with
 /// `routing_reason`, `source_project_id`, and `library_name` for traceability.
-
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -230,10 +229,7 @@ mod tests {
     #[test]
     fn test_generate_library_name() {
         assert_eq!(generate_library_name("my-project"), "my-project-refs");
-        assert_eq!(
-            generate_library_name("abc123def456"),
-            "abc123def456-refs"
-        );
+        assert_eq!(generate_library_name("abc123def456"), "abc123def456-refs");
     }
 
     // ─── Routing metadata tests ─────────────────────────────────────────
@@ -260,11 +256,8 @@ mod tests {
     #[test]
     fn test_route_pdf_to_libraries() {
         let config = RoutingConfig::default();
-        let decision = route_project_file(
-            Path::new("/project/docs/manual.pdf"),
-            "my-proj",
-            &config,
-        );
+        let decision =
+            route_project_file(Path::new("/project/docs/manual.pdf"), "my-proj", &config);
         assert_eq!(
             decision,
             RoutingDecision::Libraries {
@@ -277,22 +270,14 @@ mod tests {
     #[test]
     fn test_route_rust_stays_in_projects() {
         let config = RoutingConfig::default();
-        let decision = route_project_file(
-            Path::new("/project/src/main.rs"),
-            "my-proj",
-            &config,
-        );
+        let decision = route_project_file(Path::new("/project/src/main.rs"), "my-proj", &config);
         assert_eq!(decision, RoutingDecision::Projects);
     }
 
     #[test]
     fn test_route_no_extension_excluded() {
         let config = RoutingConfig::default();
-        let decision = route_project_file(
-            Path::new("/project/Makefile"),
-            "my-proj",
-            &config,
-        );
+        let decision = route_project_file(Path::new("/project/Makefile"), "my-proj", &config);
         assert_eq!(decision, RoutingDecision::Excluded);
     }
 
@@ -300,11 +285,7 @@ mod tests {
     fn test_route_docx_configurable() {
         // Default: docx → libraries
         let default_config = RoutingConfig::default();
-        let decision = route_project_file(
-            Path::new("/project/spec.docx"),
-            "proj",
-            &default_config,
-        );
+        let decision = route_project_file(Path::new("/project/spec.docx"), "proj", &default_config);
         assert!(matches!(decision, RoutingDecision::Libraries { .. }));
 
         // Override: docx → projects
@@ -312,22 +293,15 @@ mod tests {
             route_docx_to: "projects".into(),
             ..Default::default()
         };
-        let decision = route_project_file(
-            Path::new("/project/spec.docx"),
-            "proj",
-            &override_config,
-        );
+        let decision =
+            route_project_file(Path::new("/project/spec.docx"), "proj", &override_config);
         assert_eq!(decision, RoutingDecision::Projects);
     }
 
     #[test]
     fn test_route_case_insensitive() {
         let config = RoutingConfig::default();
-        let decision = route_project_file(
-            Path::new("/project/MANUAL.PDF"),
-            "proj",
-            &config,
-        );
+        let decision = route_project_file(Path::new("/project/MANUAL.PDF"), "proj", &config);
         assert!(matches!(decision, RoutingDecision::Libraries { .. }));
     }
 
@@ -335,18 +309,10 @@ mod tests {
     fn test_route_spreadsheets() {
         let config = RoutingConfig::default();
 
-        let xlsx = route_project_file(
-            Path::new("/project/data.xlsx"),
-            "proj",
-            &config,
-        );
+        let xlsx = route_project_file(Path::new("/project/data.xlsx"), "proj", &config);
         assert!(matches!(xlsx, RoutingDecision::Libraries { .. }));
 
-        let ods = route_project_file(
-            Path::new("/project/data.ods"),
-            "proj",
-            &config,
-        );
+        let ods = route_project_file(Path::new("/project/data.ods"), "proj", &config);
         assert!(matches!(ods, RoutingDecision::Libraries { .. }));
     }
 }

@@ -8,13 +8,10 @@ use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration as StdDuration;
 
 use workspace_qdrant_core::metrics_history::{
-    self, write_metrics_batch, query_metrics, query_aggregated,
-    run_aggregation, apply_retention,
-    run_maintenance, MetricsHistoryQuery, RetentionConfig,
+    self, apply_retention, query_aggregated, query_metrics, run_aggregation, run_maintenance,
+    write_metrics_batch, MetricsHistoryQuery, RetentionConfig,
 };
-use workspace_qdrant_core::metrics_history_schema::{
-    AggregationPeriod, MetricEntry,
-};
+use workspace_qdrant_core::metrics_history_schema::{AggregationPeriod, MetricEntry};
 use workspace_qdrant_core::schema_version::SchemaManager;
 
 async fn setup_test_pool() -> sqlx::SqlitePool {
@@ -27,7 +24,10 @@ async fn setup_test_pool() -> sqlx::SqlitePool {
 
     // Run full schema migrations (creates all tables including metrics_history)
     let manager = SchemaManager::new(pool.clone());
-    manager.run_migrations().await.expect("Failed to run migrations");
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run migrations");
 
     pool
 }
@@ -49,8 +49,8 @@ async fn test_full_metrics_lifecycle() {
     assert_eq!(written, 10);
 
     // 2. Query raw metrics
-    let query = MetricsHistoryQuery::new("queue_depth")
-        .with_time_range(now - Duration::hours(2), now);
+    let query =
+        MetricsHistoryQuery::new("queue_depth").with_time_range(now - Duration::hours(2), now);
     let results = query_metrics(&pool, &query).await.unwrap();
     assert_eq!(results.len(), 10);
 
@@ -107,8 +107,7 @@ async fn test_aggregation_pipeline() {
     assert!(count > 0);
 
     // Verify hourly aggregate exists
-    let query = MetricsHistoryQuery::new("sessions")
-        .with_aggregation(AggregationPeriod::Hourly);
+    let query = MetricsHistoryQuery::new("sessions").with_aggregation(AggregationPeriod::Hourly);
     let hourly = query_metrics(&pool, &query).await.unwrap();
     assert_eq!(hourly.len(), 1);
 
@@ -123,15 +122,12 @@ async fn test_retention_with_aggregation() {
 
     // Insert old raw metrics (2 days old) and recent ones (1 hour old)
     let old_entries = vec![
-        MetricEntry::new("old_metric", 1.0)
-            .with_timestamp(now - Duration::days(2)),
+        MetricEntry::new("old_metric", 1.0).with_timestamp(now - Duration::days(2)),
         MetricEntry::new("old_metric", 2.0)
             .with_timestamp(now - Duration::days(2) + Duration::minutes(30)),
     ];
-    let new_entries = vec![
-        MetricEntry::new("new_metric", 10.0)
-            .with_timestamp(now - Duration::minutes(30)),
-    ];
+    let new_entries =
+        vec![MetricEntry::new("new_metric", 10.0).with_timestamp(now - Duration::minutes(30))];
     write_metrics_batch(&pool, &old_entries).await.unwrap();
     write_metrics_batch(&pool, &new_entries).await.unwrap();
 
@@ -157,9 +153,7 @@ async fn test_maintenance_runs_without_error() {
     let now = Utc::now();
 
     // Insert some metrics
-    let entries = vec![
-        MetricEntry::new("test_metric", 42.0).with_timestamp(now),
-    ];
+    let entries = vec![MetricEntry::new("test_metric", 42.0).with_timestamp(now)];
     write_metrics_batch(&pool, &entries).await.unwrap();
 
     // Run maintenance - should not error even with minimal data
@@ -172,16 +166,19 @@ async fn test_schema_v5_creates_metrics_history() {
 
     // Verify metrics_history table exists after migrations
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metrics_history')"
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metrics_history')",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(exists, "metrics_history table should exist after v5 migration");
+    assert!(
+        exists,
+        "metrics_history table should exist after v5 migration"
+    );
 
     // Verify indexes
     let idx_count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx_metrics_%'"
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx_metrics_%'",
     )
     .fetch_one(&pool)
     .await
@@ -222,20 +219,21 @@ async fn test_labeled_metrics_across_lifecycle() {
     assert_eq!(count, 2); // Two label groups
 
     // Query hourly
-    let query = MetricsHistoryQuery::new("errors")
-        .with_aggregation(AggregationPeriod::Hourly);
+    let query = MetricsHistoryQuery::new("errors").with_aggregation(AggregationPeriod::Hourly);
     let results = query_metrics(&pool, &query).await.unwrap();
     assert_eq!(results.len(), 2);
 
     // Find parse errors aggregate (avg of 5,3 = 4.0)
-    let parse_agg = results.iter().find(|r| {
-        r.metric_labels.as_deref() == Some(r#"{"type":"parse"}"#)
-    }).expect("Should find parse label group");
+    let parse_agg = results
+        .iter()
+        .find(|r| r.metric_labels.as_deref() == Some(r#"{"type":"parse"}"#))
+        .expect("Should find parse label group");
     assert!((parse_agg.metric_value - 4.0).abs() < 0.001);
 
     // Find network errors aggregate (avg of 1 = 1.0)
-    let net_agg = results.iter().find(|r| {
-        r.metric_labels.as_deref() == Some(r#"{"type":"network"}"#)
-    }).expect("Should find network label group");
+    let net_agg = results
+        .iter()
+        .find(|r| r.metric_labels.as_deref() == Some(r#"{"type":"network"}"#))
+        .expect("Should find network label group");
     assert!((net_agg.metric_value - 1.0).abs() < 0.001);
 }

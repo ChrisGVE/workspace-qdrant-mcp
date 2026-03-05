@@ -52,10 +52,7 @@ pub enum CompatibilityStatus {
     /// Grammar is fully compatible with the runtime.
     Compatible,
     /// Grammar uses an older but still compatible ABI version.
-    CompatibleOldAbi {
-        grammar_abi: u32,
-        current_abi: u32,
-    },
+    CompatibleOldAbi { grammar_abi: u32, current_abi: u32 },
     /// Grammar is incompatible with the runtime.
     Incompatible(VersionError),
 }
@@ -251,26 +248,34 @@ mod tests {
     fn test_tree_sitter_version_string() {
         let version = tree_sitter_version_string();
         // Must not be the fallback value
-        assert_ne!(version, "unknown", "build.rs should extract version from Cargo.lock");
+        assert_ne!(
+            version, "unknown",
+            "build.rs should extract version from Cargo.lock"
+        );
         // Must start with expected major version
-        assert!(version.starts_with("0."), "Expected 0.x.y, got: {}", version);
+        assert!(
+            version.starts_with("0."),
+            "Expected 0.x.y, got: {}",
+            version
+        );
         // Must be a full semver triple (e.g., "0.24.7"), not just "0.24"
         let (major, minor, patch) = parse_version_string(version).unwrap();
         assert_eq!(major, 0);
         assert!(minor > 0, "Minor version should be positive");
-        assert!(patch.is_some(), "Expected full semver triple from Cargo.lock");
+        assert!(
+            patch.is_some(),
+            "Expected full semver triple from Cargo.lock"
+        );
     }
 
     #[test]
     fn test_compatibility_status_is_compatible() {
         assert!(CompatibilityStatus::Compatible.is_compatible());
-        assert!(
-            CompatibilityStatus::CompatibleOldAbi {
-                grammar_abi: 13,
-                current_abi: 14
-            }
-            .is_compatible()
-        );
+        assert!(CompatibilityStatus::CompatibleOldAbi {
+            grammar_abi: 13,
+            current_abi: 14
+        }
+        .is_compatible());
         assert!(!CompatibilityStatus::Incompatible(VersionError::AbiTooOld {
             grammar_abi: 10,
             min_compatible: 13,
@@ -282,13 +287,11 @@ mod tests {
     #[test]
     fn test_compatibility_status_is_fully_compatible() {
         assert!(CompatibilityStatus::Compatible.is_fully_compatible());
-        assert!(
-            !CompatibilityStatus::CompatibleOldAbi {
-                grammar_abi: 13,
-                current_abi: 14
-            }
-            .is_fully_compatible()
-        );
+        assert!(!CompatibilityStatus::CompatibleOldAbi {
+            grammar_abi: 13,
+            current_abi: 14
+        }
+        .is_fully_compatible());
     }
 
     #[test]

@@ -199,8 +199,7 @@ mod tests {
         for p in &paths {
             let s = p.to_string_lossy();
             assert!(
-                !s.ends_with(".workspace-qdrant.yaml")
-                    && !s.ends_with(".workspace-qdrant.yml"),
+                !s.ends_with(".workspace-qdrant.yaml") && !s.ends_with(".workspace-qdrant.yml"),
                 "Should not search project-local config: {:?}",
                 p
             );

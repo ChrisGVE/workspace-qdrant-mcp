@@ -4,7 +4,6 @@
 /// system libraries. Install via:
 ///   macOS: `brew install tesseract`
 ///   Linux: `apt-get install tesseract-ocr libtesseract-dev`
-
 pub mod errors;
 
 #[cfg(feature = "ocr")]

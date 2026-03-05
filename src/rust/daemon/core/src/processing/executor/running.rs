@@ -5,8 +5,8 @@ use std::time::Instant;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use super::super::{TaskContext, TaskResult};
 use super::super::checkpoint::TaskCheckpoint;
+use super::super::{TaskContext, TaskResult};
 
 /// Information about a currently running task
 #[derive(Debug)]
@@ -26,7 +26,9 @@ pub(crate) struct RunningTask {
 
 /// Clean up completed running tasks
 pub(crate) async fn cleanup_completed_tasks(
-    running_tasks: &std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<Uuid, RunningTask>>>,
+    running_tasks: &std::sync::Arc<
+        tokio::sync::RwLock<std::collections::HashMap<Uuid, RunningTask>>,
+    >,
 ) {
     let mut to_remove = Vec::new();
 

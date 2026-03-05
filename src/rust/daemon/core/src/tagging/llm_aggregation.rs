@@ -11,10 +11,7 @@ use crate::keyword_extraction::tag_selector::{SelectedTag, TagType};
 ///
 /// Tags are ranked by how many chunks mention them. The top `max_tags`
 /// are returned as `SelectedTag` with `"llm:"` prefix.
-pub(super) fn aggregate_llm_tags(
-    chunk_tags: &[Vec<String>],
-    max_tags: usize,
-) -> Vec<SelectedTag> {
+pub(super) fn aggregate_llm_tags(chunk_tags: &[Vec<String>], max_tags: usize) -> Vec<SelectedTag> {
     if chunk_tags.is_empty() {
         return Vec::new();
     }

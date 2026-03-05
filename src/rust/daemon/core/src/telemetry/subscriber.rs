@@ -37,20 +37,13 @@ impl TelemetryLayer {
     ///
     /// Because the config is behind an `Arc`, callers must build a new
     /// `TelemetryLayer` and swap the subscriber layer to apply updates.
-    pub fn with_config(
-        mut self,
-        config: Arc<GranularTelemetryConfig>,
-    ) -> Self {
+    pub fn with_config(mut self, config: Arc<GranularTelemetryConfig>) -> Self {
         self.config = config;
         self
     }
 
     /// Check whether a telemetry level is permitted for the given module.
-    fn is_level_enabled(
-        &self,
-        level: TelemetryLevel,
-        module_path: &str,
-    ) -> bool {
+    fn is_level_enabled(&self, level: TelemetryLevel, module_path: &str) -> bool {
         if !self.config.enabled {
             return false;
         }
@@ -67,11 +60,7 @@ impl<S> Filter<S> for TelemetryLayer
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
-    fn enabled(
-        &self,
-        meta: &Metadata<'_>,
-        _cx: &Context<'_, S>,
-    ) -> bool {
+    fn enabled(&self, meta: &Metadata<'_>, _cx: &Context<'_, S>) -> bool {
         // Non-telemetry items always pass through.
         let name = meta.name();
         if !name.starts_with("tel::") {
@@ -90,10 +79,7 @@ where
         true
     }
 
-    fn callsite_enabled(
-        &self,
-        meta: &'static Metadata<'static>,
-    ) -> tracing::subscriber::Interest {
+    fn callsite_enabled(&self, meta: &'static Metadata<'static>) -> tracing::subscriber::Interest {
         if !self.config.enabled {
             // When telemetry is globally off, only pass through non-tel items.
             if meta.name().starts_with("tel::") {
@@ -103,11 +89,7 @@ where
         tracing::subscriber::Interest::sometimes()
     }
 
-    fn event_enabled(
-        &self,
-        event: &Event<'_>,
-        _cx: &Context<'_, S>,
-    ) -> bool {
+    fn event_enabled(&self, event: &Event<'_>, _cx: &Context<'_, S>) -> bool {
         if !self.config.enabled {
             // Allow non-telemetry events
             return !has_telemetry_level_field(event.metadata());
@@ -119,10 +101,7 @@ where
 
         match visitor.level {
             Some(level) => {
-                let module = event
-                    .metadata()
-                    .module_path()
-                    .unwrap_or("unknown");
+                let module = event.metadata().module_path().unwrap_or("unknown");
                 self.is_level_enabled(level, module)
             }
             // Not a telemetry event -- always pass through.
@@ -130,12 +109,7 @@ where
         }
     }
 
-    fn on_new_span(
-        &self,
-        attrs: &Attributes<'_>,
-        _id: &tracing::span::Id,
-        _ctx: Context<'_, S>,
-    ) {
+    fn on_new_span(&self, attrs: &Attributes<'_>, _id: &tracing::span::Id, _ctx: Context<'_, S>) {
         // We do not suppress spans here; the macro-level feature gating
         // ensures disabled-level spans are `Span::none()` at compile time.
         // Runtime filtering is handled via `event_enabled` for events.
@@ -194,9 +168,7 @@ mod tests {
         let layer = TelemetryLayer::new(config);
         // Default level is L0, so L0 should pass, L1 should not.
         assert!(layer.is_level_enabled(TelemetryLevel::L0, "storage"));
-        assert!(
-            !layer.is_level_enabled(TelemetryLevel::L1, "storage")
-        );
+        assert!(!layer.is_level_enabled(TelemetryLevel::L1, "storage"));
     }
 
     #[test]
@@ -208,13 +180,9 @@ mod tests {
 
         assert!(layer.is_level_enabled(TelemetryLevel::L2, "storage"));
         assert!(layer.is_level_enabled(TelemetryLevel::L3, "storage"));
-        assert!(
-            !layer.is_level_enabled(TelemetryLevel::L4, "storage")
-        );
+        assert!(!layer.is_level_enabled(TelemetryLevel::L4, "storage"));
         // Other modules still at L0
-        assert!(
-            !layer.is_level_enabled(TelemetryLevel::L1, "processing")
-        );
+        assert!(!layer.is_level_enabled(TelemetryLevel::L1, "processing"));
     }
 
     #[test]
@@ -224,9 +192,7 @@ mod tests {
             ..Default::default()
         };
         let layer = TelemetryLayer::new(Arc::new(cfg));
-        assert!(
-            !layer.is_level_enabled(TelemetryLevel::L0, "anything")
-        );
+        assert!(!layer.is_level_enabled(TelemetryLevel::L0, "anything"));
     }
 
     #[test]
@@ -265,16 +231,10 @@ mod tests {
         let cfg2 = Arc::new(cfg2_inner);
 
         let layer = TelemetryLayer::new(cfg1);
-        assert_eq!(
-            layer.config.default_level,
-            TelemetryLevel::L0
-        );
+        assert_eq!(layer.config.default_level, TelemetryLevel::L0);
 
         let layer = layer.with_config(cfg2);
-        assert_eq!(
-            layer.config.default_level,
-            TelemetryLevel::L4
-        );
+        assert_eq!(layer.config.default_level, TelemetryLevel::L4);
     }
 
     #[test]

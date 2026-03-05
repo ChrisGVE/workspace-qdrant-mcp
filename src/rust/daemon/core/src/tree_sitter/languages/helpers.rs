@@ -98,13 +98,7 @@ pub(super) fn build_function_chunk(
     };
 
     let mut chunk = SemanticChunk::new(
-        chunk_type,
-        name,
-        content,
-        start_line,
-        end_line,
-        language,
-        file_path,
+        chunk_type, name, content, start_line, end_line, language, file_path,
     )
     .with_calls(calls);
 

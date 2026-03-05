@@ -1,7 +1,7 @@
 //! Unit tests for the LexiconManager.
 
-use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use std::time::Duration;
 use wqm_common::timestamps;
 
@@ -125,29 +125,23 @@ async fn test_persist_all() {
     setup_tables(&pool).await;
 
     let mgr = LexiconManager::new(pool.clone(), 1.2);
-    mgr.add_document("projects", &["a".into()])
-        .await
-        .unwrap();
-    mgr.add_document("libraries", &["b".into()])
-        .await
-        .unwrap();
+    mgr.add_document("projects", &["a".into()]).await.unwrap();
+    mgr.add_document("libraries", &["b".into()]).await.unwrap();
     mgr.persist_all().await.unwrap();
 
     // Verify both persisted
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 1);
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'libraries'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'libraries'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 1);
 }
 
@@ -163,12 +157,11 @@ async fn test_persist_is_idempotent() {
     mgr.persist("projects").await.unwrap();
     mgr.persist("projects").await.unwrap(); // Second persist should not error
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 1);
 }
 
@@ -215,22 +208,34 @@ async fn test_generate_sparse_vector_with_idf() {
     let mgr = LexiconManager::new(pool, 1.2);
 
     // Add documents: "function" appears in all 3, "qdrant" in 1
-    mgr.add_document("projects", &["function".into(), "return".into(), "test".into()])
-        .await
-        .unwrap();
-    mgr.add_document("projects", &["function".into(), "return".into(), "qdrant".into()])
-        .await
-        .unwrap();
-    mgr.add_document("projects", &["function".into(), "hello".into(), "world".into()])
-        .await
-        .unwrap();
+    mgr.add_document(
+        "projects",
+        &["function".into(), "return".into(), "test".into()],
+    )
+    .await
+    .unwrap();
+    mgr.add_document(
+        "projects",
+        &["function".into(), "return".into(), "qdrant".into()],
+    )
+    .await
+    .unwrap();
+    mgr.add_document(
+        "projects",
+        &["function".into(), "hello".into(), "world".into()],
+    )
+    .await
+    .unwrap();
 
     // Generate sparse vector for a query with both common and rare terms
     let sparse = mgr
         .generate_sparse_vector("projects", &["function".into(), "qdrant".into()])
         .await;
 
-    assert!(!sparse.indices.is_empty(), "Should produce non-empty sparse vector");
+    assert!(
+        !sparse.indices.is_empty(),
+        "Should produce non-empty sparse vector"
+    );
     assert_eq!(sparse.indices.len(), sparse.values.len());
 
     // "qdrant" (df=1) should have a higher BM25 score than "function" (df=3)
@@ -240,11 +245,17 @@ async fn test_generate_sparse_vector_with_idf() {
     let qdrant_id = *bm25.vocab().get("qdrant").unwrap();
     let function_id = *bm25.vocab().get("function").unwrap();
 
-    let qdrant_score = sparse.indices.iter().zip(sparse.values.iter())
+    let qdrant_score = sparse
+        .indices
+        .iter()
+        .zip(sparse.values.iter())
         .find(|(&idx, _)| idx == qdrant_id)
         .map(|(_, &val)| val)
         .unwrap_or(0.0);
-    let function_score = sparse.indices.iter().zip(sparse.values.iter())
+    let function_score = sparse
+        .indices
+        .iter()
+        .zip(sparse.values.iter())
         .find(|(&idx, _)| idx == function_id)
         .map(|(_, &val)| val)
         .unwrap_or(0.0);
@@ -264,11 +275,12 @@ async fn test_generate_sparse_vector_empty_collection() {
     let mgr = LexiconManager::new(pool, 1.2);
 
     // Empty collection should return empty sparse vector (fallback to TF-only in caller)
-    let sparse = mgr
-        .generate_sparse_vector("empty", &["hello".into()])
-        .await;
+    let sparse = mgr.generate_sparse_vector("empty", &["hello".into()]).await;
 
-    assert!(sparse.indices.is_empty(), "Empty collection should produce empty sparse vector");
+    assert!(
+        sparse.indices.is_empty(),
+        "Empty collection should produce empty sparse vector"
+    );
 }
 
 #[tokio::test]
@@ -281,14 +293,14 @@ async fn test_cleanup_junk_terms() {
     // Insert a mix of valid and junk terms
     let terms = vec![
         (0, "function", "projects"),     // valid
-        (1, "120", "projects"),           // junk: pure digits
-        (2, "2.0.0", "projects"),         // junk: version string
-        (3, "abc123def456", "projects"),  // junk: hex hash (12 chars)
-        (4, "0xff", "projects"),          // junk: hex literal
-        (5, "usr/bin", "projects"),       // junk: contains path separator
-        (6, "a", "projects"),             // junk: single char
-        (7, "hello", "projects"),         // valid
-        (8, "v1.2.3", "projects"),        // junk: version with v prefix
+        (1, "120", "projects"),          // junk: pure digits
+        (2, "2.0.0", "projects"),        // junk: version string
+        (3, "abc123def456", "projects"), // junk: hex hash (12 chars)
+        (4, "0xff", "projects"),         // junk: hex literal
+        (5, "usr/bin", "projects"),      // junk: contains path separator
+        (6, "a", "projects"),            // junk: single char
+        (7, "hello", "projects"),        // valid
+        (8, "v1.2.3", "projects"),       // junk: version with v prefix
     ];
 
     for (id, term, collection) in &terms {
@@ -308,15 +320,18 @@ async fn test_cleanup_junk_terms() {
     let removed = mgr.cleanup_junk_terms().await.unwrap();
 
     // Should have removed 7 junk terms (120, 2.0.0, abc123def456, 0xff, usr/bin, a, v1.2.3)
-    assert_eq!(removed, 7, "Should remove 7 junk terms, removed {}", removed);
+    assert_eq!(
+        removed, 7,
+        "Should remove 7 junk terms, removed {}",
+        removed
+    );
 
     // Verify valid terms remain
-    let remaining: Vec<(String,)> = sqlx::query_as(
-        "SELECT term FROM sparse_vocabulary ORDER BY term"
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let remaining: Vec<(String,)> =
+        sqlx::query_as("SELECT term FROM sparse_vocabulary ORDER BY term")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
 
     let remaining_terms: Vec<&str> = remaining.iter().map(|(t,)| t.as_str()).collect();
     assert_eq!(remaining_terms, vec!["function", "hello"]);

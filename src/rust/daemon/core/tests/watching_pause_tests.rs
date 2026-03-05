@@ -7,12 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tempfile::tempdir;
 
-use workspace_qdrant_core::{
-    DaemonStateManager,
-    poll_pause_state,
-    daemon_state::WatchFolderRecord,
-};
 use chrono::Utc;
+use workspace_qdrant_core::{
+    daemon_state::WatchFolderRecord, poll_pause_state, DaemonStateManager,
+};
 
 /// Helper to create a test DaemonStateManager with initialized schema
 async fn setup_test_db() -> (DaemonStateManager, tempfile::TempDir) {
@@ -57,8 +55,14 @@ async fn test_pause_resume_full_lifecycle() {
     let (manager, _dir) = setup_test_db().await;
 
     // Register two watch folders
-    manager.store_watch_folder(&test_watch_record("watch-a", "/projects/a")).await.unwrap();
-    manager.store_watch_folder(&test_watch_record("watch-b", "/projects/b")).await.unwrap();
+    manager
+        .store_watch_folder(&test_watch_record("watch-a", "/projects/a"))
+        .await
+        .unwrap();
+    manager
+        .store_watch_folder(&test_watch_record("watch-b", "/projects/b"))
+        .await
+        .unwrap();
 
     // Verify not paused initially
     assert!(!manager.any_watchers_paused().await.unwrap());
@@ -99,7 +103,10 @@ async fn test_pause_only_affects_enabled_watchers() {
     let (manager, _dir) = setup_test_db().await;
 
     // Register one enabled, one disabled
-    manager.store_watch_folder(&test_watch_record("enabled-watch", "/projects/enabled")).await.unwrap();
+    manager
+        .store_watch_folder(&test_watch_record("enabled-watch", "/projects/enabled"))
+        .await
+        .unwrap();
     let mut disabled = test_watch_record("disabled-watch", "/projects/disabled");
     disabled.enabled = false;
     manager.store_watch_folder(&disabled).await.unwrap();
@@ -109,14 +116,21 @@ async fn test_pause_only_affects_enabled_watchers() {
     assert_eq!(count, 1); // Only enabled one paused
 
     // Verify disabled watch is not paused
-    let disabled_folder = manager.get_watch_folder("disabled-watch").await.unwrap().unwrap();
+    let disabled_folder = manager
+        .get_watch_folder("disabled-watch")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!disabled_folder.is_paused);
 }
 
 #[tokio::test]
 async fn test_idempotent_pause_resume() {
     let (manager, _dir) = setup_test_db().await;
-    manager.store_watch_folder(&test_watch_record("idem-watch", "/projects/idem")).await.unwrap();
+    manager
+        .store_watch_folder(&test_watch_record("idem-watch", "/projects/idem"))
+        .await
+        .unwrap();
 
     // First pause
     let count1 = manager.pause_all_watchers().await.unwrap();
@@ -138,7 +152,10 @@ async fn test_idempotent_pause_resume() {
 #[tokio::test]
 async fn test_poll_pause_state_sync() {
     let (manager, _dir) = setup_test_db().await;
-    manager.store_watch_folder(&test_watch_record("poll-watch", "/projects/poll")).await.unwrap();
+    manager
+        .store_watch_folder(&test_watch_record("poll-watch", "/projects/poll"))
+        .await
+        .unwrap();
 
     let flag = Arc::new(AtomicBool::new(false));
 
@@ -152,7 +169,7 @@ async fn test_poll_pause_state_sync() {
         "UPDATE watch_folders SET is_paused = 1, \
          pause_start_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE watch_id = 'poll-watch'"
+         WHERE watch_id = 'poll-watch'",
     )
     .execute(manager.pool())
     .await
@@ -171,7 +188,7 @@ async fn test_poll_pause_state_sync() {
     sqlx::query(
         "UPDATE watch_folders SET is_paused = 0, pause_start_time = NULL, \
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE watch_id = 'poll-watch'"
+         WHERE watch_id = 'poll-watch'",
     )
     .execute(manager.pool())
     .await
@@ -192,7 +209,10 @@ async fn test_pause_state_persists_across_manager_instances() {
     {
         let manager = DaemonStateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
-        manager.store_watch_folder(&test_watch_record("persist-watch", "/projects/persist")).await.unwrap();
+        manager
+            .store_watch_folder(&test_watch_record("persist-watch", "/projects/persist"))
+            .await
+            .unwrap();
         manager.pause_all_watchers().await.unwrap();
     }
 

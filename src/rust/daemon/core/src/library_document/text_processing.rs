@@ -323,9 +323,7 @@ pub(super) fn strip_rtf_control_codes(rtf: &str) -> String {
                             i += 1;
                         }
                         // Skip optional numeric parameter
-                        while i < chars.len()
-                            && (chars[i].is_ascii_digit() || chars[i] == '-')
-                        {
+                        while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
                             i += 1;
                         }
                         // Skip trailing space delimiter
@@ -456,7 +454,10 @@ mod tests {
         let long_para = "A".repeat(1500);
         let text = format!("{}\n\n{}\n\n{}", long_para, long_para, long_para);
         let units = split_text_by_paragraphs(&text).unwrap();
-        assert!(units.len() >= 2, "Long text should split into multiple sections");
+        assert!(
+            units.len() >= 2,
+            "Long text should split into multiple sections"
+        );
     }
 
     #[test]

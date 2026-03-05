@@ -25,8 +25,7 @@ pub(super) async fn run_keyword_extraction(
     document_content: &crate::DocumentContent,
     points: &mut [DocumentPoint],
 ) -> Option<ExtractionResult> {
-    let chunk_vectors: Vec<Vec<f32>> =
-        points.iter().map(|p| p.dense_vector.clone()).collect();
+    let chunk_vectors: Vec<Vec<f32>> = points.iter().map(|p| p.dense_vector.clone()).collect();
     let chunk_texts: Vec<String> = document_content
         .chunks
         .iter()
@@ -36,10 +35,7 @@ pub(super) async fn run_keyword_extraction(
     let language = document_content.document_type.language();
 
     // Fetch corpus size and build DF lookup from lexicon (Task 17)
-    let corpus_size = ctx
-        .lexicon_manager
-        .corpus_size(&item.collection)
-        .await;
+    let corpus_size = ctx.lexicon_manager.corpus_size(&item.collection).await;
     let full_text = chunk_texts.join("\n");
 
     // Build per-document DF lookup for unique terms in this document
@@ -66,7 +62,10 @@ pub(super) async fn run_keyword_extraction(
     // Fetch co-occurrence centrality scores for code files (Task 31)
     let centrality_scores = if is_code {
         let mut cache = ctx.cooccurrence_cache.lock().await;
-        match cache.get_or_compute(&ctx.pool, &item.tenant_id, &item.collection).await {
+        match cache
+            .get_or_compute(&ctx.pool, &item.tenant_id, &item.collection)
+            .await
+        {
             Ok(scores) if !scores.is_empty() => Some(scores),
             Ok(_) => None,
             Err(e) => {
@@ -116,20 +115,14 @@ pub(super) async fn run_keyword_extraction(
         .add_document(&item.collection, &tokens)
         .await
     {
-        warn!(
-            "Failed to update lexicon for {}: {}",
-            item.collection, e
-        );
+        warn!("Failed to update lexicon for {}: {}", item.collection, e);
     }
 
     // Update co-occurrence graph with symbols from this file (Task 31)
     if is_code {
         if let Some(lang) = language {
-            let symbols = cooccurrence_graph::extract_symbols(
-                &full_text,
-                lang,
-                &pipeline_config.lsp,
-            );
+            let symbols =
+                cooccurrence_graph::extract_symbols(&full_text, lang, &pipeline_config.lsp);
             if symbols.len() >= 2 {
                 if let Err(e) = cooccurrence_graph::update_graph(
                     &ctx.pool,
@@ -158,22 +151,19 @@ pub(super) async fn run_keyword_extraction(
                 .insert("keywords".to_string(), serde_json::json!(kw_phrases));
         }
         if !tag_phrases.is_empty() {
-            point.payload.insert(
-                "concept_tags".to_string(),
-                serde_json::json!(tag_phrases),
-            );
+            point
+                .payload
+                .insert("concept_tags".to_string(), serde_json::json!(tag_phrases));
         }
         if !struct_map.is_empty() {
-            point.payload.insert(
-                "structural_tags".to_string(),
-                serde_json::json!(struct_map),
-            );
+            point
+                .payload
+                .insert("structural_tags".to_string(), serde_json::json!(struct_map));
         }
         if !basket_map.is_empty() {
-            point.payload.insert(
-                "keyword_baskets".to_string(),
-                serde_json::json!(basket_map),
-            );
+            point
+                .payload
+                .insert("keyword_baskets".to_string(), serde_json::json!(basket_map));
         }
     }
 

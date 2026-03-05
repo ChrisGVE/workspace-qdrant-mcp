@@ -6,16 +6,15 @@
 use std::collections::HashMap;
 
 use qdrant_client::qdrant::{
-    Distance, VectorParams, VectorsConfig,
-    CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, FieldType,
-    HnswConfigDiffBuilder, VectorParamsBuilder, VectorParamsMap,
-    SparseVectorConfig, SparseVectorParams, vectors_config,
+    vectors_config, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, Distance,
+    FieldType, HnswConfigDiffBuilder, SparseVectorConfig, SparseVectorParams, VectorParams,
+    VectorParamsBuilder, VectorParamsMap, VectorsConfig,
 };
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use wqm_common::constants::{
-    COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES,
-    COLLECTION_SCRATCHPAD, COLLECTION_IMAGES,
+    COLLECTION_IMAGES, COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES,
+    COLLECTION_SCRATCHPAD,
 };
 
 use super::super::client::StorageClient;
@@ -40,7 +39,10 @@ impl StorageClient {
 
         // Check if collection already exists (idempotency)
         if self.collection_exists(collection_name).await? {
-            info!("Collection {} already exists, skipping creation", collection_name);
+            info!(
+                "Collection {} already exists, skipping creation",
+                collection_name
+            );
             return Ok(());
         }
 
@@ -64,10 +66,13 @@ impl StorageClient {
         };
 
         let mut sparse_vectors_map = HashMap::new();
-        sparse_vectors_map.insert("sparse".to_string(), SparseVectorParams {
-            index: None,
-            modifier: None,
-        });
+        sparse_vectors_map.insert(
+            "sparse".to_string(),
+            SparseVectorParams {
+                index: None,
+                modifier: None,
+            },
+        );
 
         let sparse_config = SparseVectorConfig {
             map: sparse_vectors_map,
@@ -107,7 +112,10 @@ impl StorageClient {
         );
 
         if self.collection_exists(COLLECTION_IMAGES).await? {
-            info!("Collection {} already exists, skipping creation", COLLECTION_IMAGES);
+            info!(
+                "Collection {} already exists, skipping creation",
+                COLLECTION_IMAGES
+            );
             return Ok(());
         }
 
@@ -115,11 +123,10 @@ impl StorageClient {
             .m(config.hnsw_m)
             .ef_construct(config.hnsw_ef_construct);
 
-        let dense_vector_params: VectorParams =
-            VectorParamsBuilder::new(512, Distance::Cosine)
-                .hnsw_config(hnsw_config)
-                .on_disk(false)
-                .build();
+        let dense_vector_params: VectorParams = VectorParamsBuilder::new(512, Distance::Cosine)
+            .hnsw_config(hnsw_config)
+            .on_disk(false)
+            .build();
 
         let mut dense_vectors_map = HashMap::new();
         dense_vectors_map.insert("dense".to_string(), dense_vector_params);
@@ -160,20 +167,19 @@ impl StorageClient {
             collection_name, field_name
         );
 
-        let index_request = CreateFieldIndexCollectionBuilder::new(
-            collection_name,
-            field_name,
-            FieldType::Keyword,
-        );
+        let index_request =
+            CreateFieldIndexCollectionBuilder::new(collection_name, field_name, FieldType::Keyword);
 
         self.retry_operation(|| async {
             self.client
                 .create_field_index(index_request.clone())
                 .await
-                .map_err(|e| StorageError::Collection(format!(
-                    "Failed to create payload index on {}.{}: {}",
-                    collection_name, field_name, e
-                )))
+                .map_err(|e| {
+                    StorageError::Collection(format!(
+                        "Failed to create payload index on {}.{}: {}",
+                        collection_name, field_name, e
+                    ))
+                })
         })
         .await?;
 
@@ -193,14 +199,18 @@ impl StorageClient {
         config: Option<MultiTenantConfig>,
     ) -> Result<MultiTenantInitResult, StorageError> {
         let config = config.unwrap_or_default();
-        info!("Initializing multi-tenant collections with config: {:?}", config);
+        info!(
+            "Initializing multi-tenant collections with config: {:?}",
+            config
+        );
 
         let mut result = MultiTenantInitResult::default();
 
         self.init_projects_collection(&config, &mut result).await?;
         self.init_libraries_collection(&config, &mut result).await?;
         self.init_rules_collection(&config, &mut result).await?;
-        self.init_scratchpad_collection(&config, &mut result).await?;
+        self.init_scratchpad_collection(&config, &mut result)
+            .await?;
         self.init_images_collection(&config, &mut result).await?;
 
         info!("Multi-tenant collections initialized: {:?}", result);
@@ -219,10 +229,16 @@ impl StorageClient {
                 e
             })?;
         result.projects_created = true;
-        match self.create_payload_index(COLLECTION_PROJECTS, "project_id").await {
+        match self
+            .create_payload_index(COLLECTION_PROJECTS, "project_id")
+            .await
+        {
             Ok(()) => result.projects_indexed = true,
             Err(e) => {
-                warn!("Could not create project_id index (may already exist): {}", e);
+                warn!(
+                    "Could not create project_id index (may already exist): {}",
+                    e
+                );
                 result.projects_indexed = true;
             }
         }
@@ -237,14 +253,23 @@ impl StorageClient {
         self.create_multi_tenant_collection(COLLECTION_LIBRARIES, config)
             .await
             .map_err(|e| {
-                error!("Failed to create {} collection: {}", COLLECTION_LIBRARIES, e);
+                error!(
+                    "Failed to create {} collection: {}",
+                    COLLECTION_LIBRARIES, e
+                );
                 e
             })?;
         result.libraries_created = true;
-        match self.create_payload_index(COLLECTION_LIBRARIES, "library_name").await {
+        match self
+            .create_payload_index(COLLECTION_LIBRARIES, "library_name")
+            .await
+        {
             Ok(()) => result.libraries_indexed = true,
             Err(e) => {
-                warn!("Could not create library_name index (may already exist): {}", e);
+                warn!(
+                    "Could not create library_name index (may already exist): {}",
+                    e
+                );
                 result.libraries_indexed = true;
             }
         }
@@ -274,11 +299,17 @@ impl StorageClient {
         self.create_multi_tenant_collection(COLLECTION_SCRATCHPAD, config)
             .await
             .map_err(|e| {
-                error!("Failed to create {} collection: {}", COLLECTION_SCRATCHPAD, e);
+                error!(
+                    "Failed to create {} collection: {}",
+                    COLLECTION_SCRATCHPAD, e
+                );
                 e
             })?;
         result.scratchpad_created = true;
-        if let Err(e) = self.create_payload_index(COLLECTION_SCRATCHPAD, "tenant_id").await {
+        if let Err(e) = self
+            .create_payload_index(COLLECTION_SCRATCHPAD, "tenant_id")
+            .await
+        {
             warn!(
                 "Could not create tenant_id index on scratchpad (may already exist): {}",
                 e
@@ -292,15 +323,19 @@ impl StorageClient {
         config: &MultiTenantConfig,
         result: &mut MultiTenantInitResult,
     ) -> Result<(), StorageError> {
-        self.create_image_collection(config)
-            .await
-            .map_err(|e| {
-                error!("Failed to create {} collection: {}", COLLECTION_IMAGES, e);
-                e
-            })?;
+        self.create_image_collection(config).await.map_err(|e| {
+            error!("Failed to create {} collection: {}", COLLECTION_IMAGES, e);
+            e
+        })?;
         result.images_created = true;
-        if let Err(e) = self.create_payload_index(COLLECTION_IMAGES, "tenant_id").await {
-            warn!("Could not create tenant_id index on images (may already exist): {}", e);
+        if let Err(e) = self
+            .create_payload_index(COLLECTION_IMAGES, "tenant_id")
+            .await
+        {
+            warn!(
+                "Could not create tenant_id index on images (may already exist): {}",
+                e
+            );
         }
         if let Err(e) = self
             .create_payload_index(COLLECTION_IMAGES, "source_document_id")

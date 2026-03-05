@@ -19,6 +19,6 @@ mod tests;
 pub use bm25::{tokenize_for_bm25, BM25};
 pub use generator::{EmbeddingGenerator, TextPreprocessor};
 pub use types::{
-    DenseEmbedding, EmbeddingConfig, EmbeddingError, EmbeddingResult,
-    PreprocessedText, SparseEmbedding,
+    DenseEmbedding, EmbeddingConfig, EmbeddingError, EmbeddingResult, PreprocessedText,
+    SparseEmbedding,
 };

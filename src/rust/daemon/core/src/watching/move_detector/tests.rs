@@ -22,7 +22,12 @@ fn test_simple_rename_same_directory() {
     let result = correlator.handle_moved_to(new_path.clone(), false, Some(12345));
 
     assert!(matches!(result, RenameAction::SimpleRename { .. }));
-    if let RenameAction::SimpleRename { old_path: op, new_path: np, is_directory } = result {
+    if let RenameAction::SimpleRename {
+        old_path: op,
+        new_path: np,
+        is_directory,
+    } = result
+    {
         assert_eq!(op, old_path);
         assert_eq!(np, new_path);
         assert!(!is_directory);
@@ -44,7 +49,12 @@ fn test_intra_filesystem_move() {
     let result = correlator.handle_moved_to(new_path.clone(), false, Some(12345));
 
     assert!(matches!(result, RenameAction::IntraFilesystemMove { .. }));
-    if let RenameAction::IntraFilesystemMove { old_path: op, new_path: np, is_directory } = result {
+    if let RenameAction::IntraFilesystemMove {
+        old_path: op,
+        new_path: np,
+        is_directory,
+    } = result
+    {
         assert_eq!(op, old_path);
         assert_eq!(np, new_path);
         assert!(!is_directory);
@@ -66,7 +76,12 @@ fn test_directory_rename() {
     let result = correlator.handle_moved_to(new_path.clone(), true, Some(12345));
 
     assert!(matches!(result, RenameAction::SimpleRename { .. }));
-    if let RenameAction::SimpleRename { old_path: op, new_path: np, is_directory } = result {
+    if let RenameAction::SimpleRename {
+        old_path: op,
+        new_path: np,
+        is_directory,
+    } = result
+    {
         assert_eq!(op, old_path);
         assert_eq!(np, new_path);
         assert!(is_directory);
@@ -106,8 +121,15 @@ fn test_expired_moves_become_cross_filesystem() {
     let expired = correlator.get_expired_moves();
 
     assert_eq!(expired.len(), 1);
-    assert!(matches!(expired[0], RenameAction::CrossFilesystemMove { .. }));
-    if let RenameAction::CrossFilesystemMove { deleted_path, is_directory } = &expired[0] {
+    assert!(matches!(
+        expired[0],
+        RenameAction::CrossFilesystemMove { .. }
+    ));
+    if let RenameAction::CrossFilesystemMove {
+        deleted_path,
+        is_directory,
+    } = &expired[0]
+    {
         assert_eq!(deleted_path, &old_path);
         assert!(!is_directory);
     }

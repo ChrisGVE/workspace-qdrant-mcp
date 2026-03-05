@@ -355,8 +355,7 @@ mod tests {
         assert!(python_config.is_some());
         assert!(!python_config.unwrap().preferred_servers.is_empty());
 
-        let unknown_config =
-            config.get_language_config(&Language::Other("unknown".to_string()));
+        let unknown_config = config.get_language_config(&Language::Other("unknown".to_string()));
         assert!(unknown_config.is_none());
     }
 

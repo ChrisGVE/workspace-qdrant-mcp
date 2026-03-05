@@ -2,8 +2,7 @@
 ///
 /// Generates 64x64 pixel thumbnails from raw image bytes, then
 /// base64-encodes for storage in Qdrant payload fields.
-
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::imageops::FilterType;
 use image::ImageReader;
 use std::io::Cursor;

@@ -5,12 +5,12 @@
 
 use std::collections::HashMap;
 
-use super::{
-    AllPatterns, ConfidenceLevel, Ecosystem, ExcludePatterns, IncludePatterns,
-    LanguageExtensions, LanguageGroup, PatternError, PatternResult, PatternWithMetadata,
-    ProjectIndicator, ProjectIndicators,
-};
 use super::comprehensive::ComprehensivePatternManager;
+use super::{
+    AllPatterns, ConfidenceLevel, Ecosystem, ExcludePatterns, IncludePatterns, LanguageExtensions,
+    LanguageGroup, PatternError, PatternResult, PatternWithMetadata, ProjectIndicator,
+    ProjectIndicators,
+};
 
 /// Convert comprehensive configuration to the AllPatterns structure.
 pub(super) fn convert_comprehensive_to_patterns(
@@ -116,9 +116,7 @@ fn build_project_indicators(
 
 // --- Exclude patterns ---
 
-fn build_exclude_patterns(
-    config: &super::comprehensive::InternalConfiguration,
-) -> ExcludePatterns {
+fn build_exclude_patterns(config: &super::comprehensive::InternalConfiguration) -> ExcludePatterns {
     let exclusions = &config.exclusion_patterns;
 
     let all_exclude_patterns: Vec<PatternWithMetadata> = [
@@ -161,9 +159,7 @@ fn build_exclude_patterns(
 
 // --- Include patterns ---
 
-fn build_include_patterns(
-    config: &super::comprehensive::InternalConfiguration,
-) -> IncludePatterns {
+fn build_include_patterns(config: &super::comprehensive::InternalConfiguration) -> IncludePatterns {
     let source_code_patterns: Vec<PatternWithMetadata> = config
         .file_extensions
         .keys()
@@ -297,10 +293,11 @@ fn categorize_language(language: &str) -> String {
     match language {
         "rust" | "go" | "python" | "java" | "cpp" | "c" | "csharp" | "swift" | "kotlin"
         | "scala" | "clojure" | "haskell" | "ocaml" | "julia" | "dart" | "crystal" | "nim"
-        | "zig" | "fortran" | "cobol" | "ada" | "d" | "elixir" | "erlang" | "fsharp"
-        | "groovy" | "lua" | "perl" | "php" | "r" | "ruby" => "programming".to_string(),
-        "javascript" | "typescript" | "css" | "scss" | "sass" | "less" | "html" | "jsx"
-        | "tsx" => "web".to_string(),
+        | "zig" | "fortran" | "cobol" | "ada" | "d" | "elixir" | "erlang" | "fsharp" | "groovy"
+        | "lua" | "perl" | "php" | "r" | "ruby" => "programming".to_string(),
+        "javascript" | "typescript" | "css" | "scss" | "sass" | "less" | "html" | "jsx" | "tsx" => {
+            "web".to_string()
+        }
         "markdown" | "asciidoc" | "restructuredtext" | "latex" | "xml" => "markup".to_string(),
         "json" | "yaml" | "toml" | "ini" | "cfg" | "conf" => "config".to_string(),
         "bash" | "zsh" | "fish" | "powershell" | "bat" | "cmd" => "shell".to_string(),

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
-use crate::processing::{TaskPayload, TaskPriority, TaskSource};
 use super::{EngineSettings, IpcError, IpcRequest, IpcResponse};
+use crate::processing::{TaskPayload, TaskPriority, TaskSource};
 
 /// IPC client for sending requests to the Rust engine
 pub struct IpcClient {
@@ -44,7 +44,8 @@ impl IpcClient {
             request_id: request_id.clone(),
         };
 
-        self.request_sender.send(request)
+        self.request_sender
+            .send(request)
             .map_err(|_| IpcError::ChannelClosed)?;
 
         Ok(request_id)
@@ -58,7 +59,8 @@ impl IpcClient {
             request_id: request_id.clone(),
         };
 
-        self.request_sender.send(request)
+        self.request_sender
+            .send(request)
             .map_err(|_| IpcError::ChannelClosed)?;
 
         Ok(request_id)
@@ -72,7 +74,8 @@ impl IpcClient {
             request_id: request_id.clone(),
         };
 
-        self.request_sender.send(request)
+        self.request_sender
+            .send(request)
             .map_err(|_| IpcError::ChannelClosed)?;
 
         Ok(request_id)
@@ -87,14 +90,19 @@ impl IpcClient {
             request_id: request_id.clone(),
         };
 
-        self.request_sender.send(request)
+        self.request_sender
+            .send(request)
             .map_err(|_| IpcError::ChannelClosed)?;
 
         Ok(request_id)
     }
 
     /// Shutdown the engine
-    pub async fn shutdown(&self, graceful: bool, timeout_ms: Option<u64>) -> Result<String, IpcError> {
+    pub async fn shutdown(
+        &self,
+        graceful: bool,
+        timeout_ms: Option<u64>,
+    ) -> Result<String, IpcError> {
         let request_id = Uuid::new_v4().to_string();
 
         let request = IpcRequest::Shutdown {
@@ -103,7 +111,8 @@ impl IpcClient {
             request_id: request_id.clone(),
         };
 
-        self.request_sender.send(request)
+        self.request_sender
+            .send(request)
             .map_err(|_| IpcError::ChannelClosed)?;
 
         Ok(request_id)

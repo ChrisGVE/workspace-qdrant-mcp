@@ -272,8 +272,7 @@ fn test_extract_jupyter_invalid_json() {
 
 #[test]
 fn test_extract_jupyter_no_cells() {
-    let notebook =
-        serde_json::json!({ "metadata": {}, "nbformat": 4 }).to_string();
+    let notebook = serde_json::json!({ "metadata": {}, "nbformat": 4 }).to_string();
     let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
     write!(tmp, "{}", &notebook).unwrap();
     let result = extract_jupyter(tmp.path());
@@ -418,8 +417,7 @@ mod ocr_integration_tests {
             Err(_) => return,
         };
 
-        let processor =
-            DocumentProcessor::with_ocr(ChunkingConfig::default(), engine);
+        let processor = DocumentProcessor::with_ocr(ChunkingConfig::default(), engine);
         assert!(processor.ocr_engine.is_some());
     }
 

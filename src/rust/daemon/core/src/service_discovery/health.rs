@@ -19,16 +19,16 @@ use super::registry::ServiceInfo;
 pub enum HealthError {
     #[error("HTTP request failed: {0}")]
     HttpError(#[from] reqwest::Error),
-    
+
     #[error("Health check timeout")]
     Timeout,
-    
+
     #[error("Invalid health response: {0}")]
     InvalidResponse(String),
-    
+
     #[error("Service unreachable: {0}")]
     ServiceUnreachable(String),
-    
+
     #[error("Process validation failed: PID {0} not running")]
     ProcessNotRunning(u32),
 }
@@ -56,19 +56,19 @@ pub enum HealthStatus {
 pub struct HealthCheckResult {
     /// Service name
     pub service_name: String,
-    
+
     /// Health status
     pub status: HealthStatus,
-    
+
     /// Response time in milliseconds
     pub response_time_ms: Option<u64>,
-    
+
     /// Health check timestamp
     pub timestamp: SystemTime,
-    
+
     /// Additional health metrics
     pub metrics: HashMap<String, String>,
-    
+
     /// Error message if unhealthy
     pub error_message: Option<String>,
 }
@@ -78,16 +78,16 @@ pub struct HealthCheckResult {
 pub struct HealthConfig {
     /// HTTP request timeout
     pub request_timeout: Duration,
-    
+
     /// Health check interval
     pub check_interval: Duration,
-    
+
     /// Maximum consecutive failures before marking unhealthy
     pub max_failures: u32,
-    
+
     /// Enable process validation
     pub validate_process: bool,
-    
+
     /// Custom HTTP headers for health checks
     pub custom_headers: HashMap<String, String>,
 }
@@ -109,13 +109,13 @@ impl Default for HealthConfig {
 pub struct HealthChecker {
     /// HTTP client for health checks
     client: reqwest::Client,
-    
+
     /// Health check configuration
     config: HealthConfig,
-    
+
     /// Service health status cache
     health_cache: Arc<RwLock<HashMap<String, HealthCheckResult>>>,
-    
+
     /// Failure counters for services
     failure_counters: Arc<RwLock<HashMap<String, u32>>>,
 }
@@ -124,13 +124,16 @@ impl HealthChecker {
     /// Create a new health checker instance
     pub fn new(config: HealthConfig) -> Result<Self, HealthError> {
         let mut headers = reqwest::header::HeaderMap::new();
-        
+
         // Add custom headers
         for (key, value) in &config.custom_headers {
-            let header_name = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                .map_err(|_| HealthError::InvalidResponse(format!("Invalid header name: {}", key)))?;
-            let header_value = reqwest::header::HeaderValue::from_str(value)
-                .map_err(|_| HealthError::InvalidResponse(format!("Invalid header value: {}", value)))?;
+            let header_name =
+                reqwest::header::HeaderName::from_bytes(key.as_bytes()).map_err(|_| {
+                    HealthError::InvalidResponse(format!("Invalid header name: {}", key))
+                })?;
+            let header_value = reqwest::header::HeaderValue::from_str(value).map_err(|_| {
+                HealthError::InvalidResponse(format!("Invalid header value: {}", value))
+            })?;
             headers.insert(header_name, header_value);
         }
 
@@ -139,7 +142,10 @@ impl HealthChecker {
             .default_headers(headers)
             .build()?;
 
-        info!("Health checker initialized with timeout: {:?}", config.request_timeout);
+        info!(
+            "Health checker initialized with timeout: {:?}",
+            config.request_timeout
+        );
 
         Ok(Self {
             client,
@@ -156,7 +162,7 @@ impl HealthChecker {
         service_info: &ServiceInfo,
     ) -> Result<HealthCheckResult, HealthError> {
         debug!("Checking health for service: {}", service_name);
-        
+
         let start_time = Instant::now();
         let mut metrics = HashMap::new();
 
@@ -173,10 +179,10 @@ impl HealthChecker {
         }
 
         // Step 2: Perform HTTP health check
-        let health_url = format!("http://{}:{}{}",
-                               service_info.host,
-                               service_info.port,
-                               service_info.health_endpoint);
+        let health_url = format!(
+            "http://{}:{}{}",
+            service_info.host, service_info.port, service_info.health_endpoint
+        );
 
         let (status, error_message) = self
             .perform_http_check(service_name, &health_url, start_time, &mut metrics)
@@ -194,7 +200,10 @@ impl HealthChecker {
         // Cache the result
         self.cache_health_result(&result).await;
 
-        debug!("Health check completed for {}: {:?}", service_name, result.status);
+        debug!(
+            "Health check completed for {}: {:?}",
+            service_name, result.status
+        );
         Ok(result)
     }
 
@@ -208,11 +217,19 @@ impl HealthChecker {
         start_time: Instant,
         metrics: &mut HashMap<String, String>,
     ) -> (HealthStatus, Option<String>) {
-        match timeout(self.config.request_timeout, self.client.get(health_url).send()).await {
+        match timeout(
+            self.config.request_timeout,
+            self.client.get(health_url).send(),
+        )
+        .await
+        {
             Ok(Ok(response)) => {
                 let response_time = start_time.elapsed().as_millis() as u64;
                 metrics.insert("response_time_ms".to_string(), response_time.to_string());
-                metrics.insert("status_code".to_string(), response.status().as_u16().to_string());
+                metrics.insert(
+                    "status_code".to_string(),
+                    response.status().as_u16().to_string(),
+                );
 
                 if response.status().is_success() {
                     if let Ok(body) = response.text().await {
@@ -239,7 +256,10 @@ impl HealthChecker {
             }
             Err(_) => {
                 self.increment_failure_counter(service_name).await;
-                (HealthStatus::Unreachable, Some("Health check timeout".to_string()))
+                (
+                    HealthStatus::Unreachable,
+                    Some("Health check timeout".to_string()),
+                )
             }
         }
     }
@@ -251,18 +271,18 @@ impl HealthChecker {
     ) -> tokio::task::JoinHandle<()> {
         let health_checker = Self::new(self.config.clone()).unwrap();
         let check_interval = self.config.check_interval;
-        
+
         tokio::spawn(async move {
             let mut interval = interval(check_interval);
-            
+
             loop {
                 interval.tick().await;
-                
+
                 for (service_name, service_info) in &services {
                     let checker = health_checker.clone();
                     let name = service_name.clone();
                     let info = service_info.clone();
-                    
+
                     tokio::spawn(async move {
                         match checker.check_service_health(&name, &info).await {
                             Ok(result) => {
@@ -321,10 +341,12 @@ impl HealthChecker {
         let mut counters_guard = self.failure_counters.write().await;
         let count = counters_guard.entry(service_name.to_string()).or_insert(0);
         *count += 1;
-        
+
         if *count >= self.config.max_failures {
-            warn!("Service {} has exceeded maximum failures ({}/{})", 
-                  service_name, count, self.config.max_failures);
+            warn!(
+                "Service {} has exceeded maximum failures ({}/{})",
+                service_name, count, self.config.max_failures
+            );
         }
     }
 
@@ -350,9 +372,7 @@ fn is_process_running(pid: u32) -> bool {
             Err(_) => return false,
         };
 
-        unsafe {
-            libc::kill(pid as i32, 0) == 0
-        }
+        unsafe { libc::kill(pid as i32, 0) == 0 }
     }
 
     #[cfg(windows)]
@@ -384,7 +404,10 @@ impl HealthCheckResult {
 
     /// Check if this health result indicates the service is reachable
     pub fn is_reachable(&self) -> bool {
-        !matches!(self.status, HealthStatus::Unreachable | HealthStatus::ProcessDead)
+        !matches!(
+            self.status,
+            HealthStatus::Unreachable | HealthStatus::ProcessDead
+        )
     }
 
     /// Get age of this health check result

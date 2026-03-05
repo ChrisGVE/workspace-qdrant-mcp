@@ -12,10 +12,12 @@
 //! - Network drives: Supported with appropriate timeout handling
 
 use super::*;
-use notify::{RecommendedWatcher, Watcher, RecursiveMode, Event, EventKind, Config as NotifyConfig};
-use std::time::{Instant, SystemTime};
+use notify::{
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::{Instant, SystemTime};
 
 /// Windows file watcher using ReadDirectoryChangesW via the notify crate
 ///
@@ -35,10 +37,7 @@ impl WindowsWatcher {
     /// # Arguments
     /// * `config` - Windows-specific configuration (buffer size, filters)
     /// * `_buffer_size` - Event buffer size (used for channel capacity)
-    pub fn new(
-        config: WindowsConfig,
-        _buffer_size: usize,
-    ) -> Result<Self, PlatformWatchingError> {
+    pub fn new(config: WindowsConfig, _buffer_size: usize) -> Result<Self, PlatformWatchingError> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         Ok(Self {
@@ -125,7 +124,9 @@ impl WindowsWatcher {
                     Ok(event) => {
                         // Filter events based on config
                         let should_process = match &event.kind {
-                            EventKind::Create(_) => config.monitor_file_name || config.monitor_dir_name,
+                            EventKind::Create(_) => {
+                                config.monitor_file_name || config.monitor_dir_name
+                            }
                             EventKind::Modify(modify_kind) => {
                                 use notify::event::ModifyKind;
                                 match modify_kind {
@@ -135,7 +136,9 @@ impl WindowsWatcher {
                                     _ => true,
                                 }
                             }
-                            EventKind::Remove(_) => config.monitor_file_name || config.monitor_dir_name,
+                            EventKind::Remove(_) => {
+                                config.monitor_file_name || config.monitor_dir_name
+                            }
                             EventKind::Access(_) => false, // Skip access events
                             EventKind::Other => true,
                             EventKind::Any => true,
@@ -155,7 +158,8 @@ impl WindowsWatcher {
                 }
             },
             notify_config,
-        ).map_err(|e| PlatformWatchingError::ReadDirectoryChanges(e.to_string()))?;
+        )
+        .map_err(|e| PlatformWatchingError::ReadDirectoryChanges(e.to_string()))?;
 
         self.watcher = Some(watcher);
         tracing::info!("Windows ReadDirectoryChangesW watcher initialized");
@@ -187,17 +191,19 @@ impl PlatformWatcher for WindowsWatcher {
 
         // Verify path exists and is accessible
         if !normalized_path.exists() {
-            return Err(PlatformWatchingError::ReadDirectoryChanges(
-                format!("Path does not exist: {}", normalized_path.display())
-            ));
+            return Err(PlatformWatchingError::ReadDirectoryChanges(format!(
+                "Path does not exist: {}",
+                normalized_path.display()
+            )));
         }
 
         // Check permissions
         if let Err(e) = std::fs::read_dir(&normalized_path) {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
-                return Err(PlatformWatchingError::ReadDirectoryChanges(
-                    format!("Permission denied: {}", normalized_path.display())
-                ));
+                return Err(PlatformWatchingError::ReadDirectoryChanges(format!(
+                    "Permission denied: {}",
+                    normalized_path.display()
+                )));
             }
         }
 
@@ -210,7 +216,8 @@ impl PlatformWatcher for WindowsWatcher {
 
         // Add path to watcher
         if let Some(ref mut watcher) = self.watcher {
-            watcher.watch(&normalized_path, recursive_mode)
+            watcher
+                .watch(&normalized_path, recursive_mode)
                 .map_err(|e| PlatformWatchingError::ReadDirectoryChanges(e.to_string()))?;
 
             self.watched_paths.push(normalized_path.clone());

@@ -13,8 +13,6 @@ mod migrations;
 pub mod types;
 
 #[cfg(test)]
-mod tests_schema;
-#[cfg(test)]
 mod tests_code_lines;
 #[cfg(test)]
 mod tests_fts;
@@ -24,14 +22,19 @@ mod tests_metadata;
 mod tests_rebalance;
 #[cfg(test)]
 mod tests_rebalance_stress;
+#[cfg(test)]
+mod tests_schema;
 
 pub use types::{
-    InsertedLine, RebalanceResult, SearchDbError, SearchDbResult,
-    search_db_path_from_state, SEARCH_DB_FILENAME, SEARCH_SCHEMA_VERSION,
+    search_db_path_from_state, InsertedLine, RebalanceResult, SearchDbError, SearchDbResult,
+    SEARCH_DB_FILENAME, SEARCH_SCHEMA_VERSION,
 };
 
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use std::path::{Path, PathBuf};
-use sqlx::{SqlitePool, sqlite::{SqliteConnectOptions, SqlitePoolOptions}};
 use tracing::{debug, info, warn};
 
 use types::SearchDbResult as Result;
@@ -68,10 +71,9 @@ impl SearchDbManager {
             .await?;
 
         // Verify WAL mode is active
-        let journal_mode: String =
-            sqlx::query_scalar("PRAGMA journal_mode")
-                .fetch_one(&pool)
-                .await?;
+        let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&pool)
+            .await?;
         if journal_mode.to_lowercase() != "wal" {
             warn!(
                 "Expected WAL journal mode, got '{}'. Performance may be degraded.",

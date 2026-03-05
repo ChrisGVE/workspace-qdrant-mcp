@@ -79,9 +79,7 @@ async fn start_systemd() -> Result<()> {
 async fn start_windows() -> Result<()> {
     #[cfg(windows)]
     {
-        let status = Command::new("sc.exe")
-            .args(["start", "memexd"])
-            .status()?;
+        let status = Command::new("sc.exe").args(["start", "memexd"]).status()?;
 
         if status.success() {
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;

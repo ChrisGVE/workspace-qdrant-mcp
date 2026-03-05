@@ -170,9 +170,8 @@ impl GrammarCachePaths {
         }
 
         let content = std::fs::read_to_string(&metadata_path)?;
-        let metadata: GrammarMetadata = serde_json::from_str(&content).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let metadata: GrammarMetadata = serde_json::from_str(&content)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         Ok(Some(metadata))
     }
 
@@ -182,9 +181,8 @@ impl GrammarCachePaths {
         std::fs::create_dir_all(&language_dir)?;
 
         let metadata_path = self.metadata_path(language);
-        let content = serde_json::to_string_pretty(metadata).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let content = serde_json::to_string_pretty(metadata)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         std::fs::write(&metadata_path, content)
     }
 
@@ -198,7 +196,12 @@ impl GrammarCachePaths {
 fn current_platform() -> String {
     // Use Rust's built-in target triple
     // This matches what cargo uses for building
-    format!("{}-{}-{}", std::env::consts::ARCH, os_family(), std::env::consts::OS)
+    format!(
+        "{}-{}-{}",
+        std::env::consts::ARCH,
+        os_family(),
+        std::env::consts::OS
+    )
 }
 
 /// Get the OS family component for platform triple.
@@ -300,13 +303,8 @@ mod tests {
 
     #[test]
     fn test_grammar_metadata_new() {
-        let metadata = GrammarMetadata::new(
-            "rust",
-            "0.24.0",
-            "0.23.0",
-            "x86_64-apple-darwin",
-            "abc123",
-        );
+        let metadata =
+            GrammarMetadata::new("rust", "0.24.0", "0.23.0", "x86_64-apple-darwin", "abc123");
         assert_eq!(metadata.language, "rust");
         assert_eq!(metadata.tree_sitter_version, "0.24.0");
         assert_eq!(metadata.grammar_version, "0.23.0");
@@ -358,13 +356,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24.0");
 
-        let metadata = GrammarMetadata::new(
-            "rust",
-            "0.24.0",
-            "0.23.0",
-            &paths.platform,
-            "checksum123",
-        );
+        let metadata =
+            GrammarMetadata::new("rust", "0.24.0", "0.23.0", &paths.platform, "checksum123");
 
         paths.save_metadata("rust", &metadata).unwrap();
         let loaded = paths.load_metadata("rust").unwrap().unwrap();

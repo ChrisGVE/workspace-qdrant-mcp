@@ -135,7 +135,11 @@ mod tests {
     fn test_build_fts5_query_with_alternation() {
         let lits = RegexLiterals {
             mandatory: vec!["use ".to_string()],
-            alternations: vec![vec!["std".to_string(), "tokio".to_string(), "serde".to_string()]],
+            alternations: vec![vec![
+                "std".to_string(),
+                "tokio".to_string(),
+                "serde".to_string(),
+            ]],
         };
         let query = build_fts5_query(&lits);
         assert_eq!(
@@ -195,9 +199,7 @@ mod tests {
         let query = build_fts5_query(&lits);
         assert_eq!(
             query,
-            Some(
-                "(\"use std::\" OR \"use tokio::\" OR \"use serde::\")".to_string()
-            )
+            Some("(\"use std::\" OR \"use tokio::\" OR \"use serde::\")".to_string())
         );
     }
 

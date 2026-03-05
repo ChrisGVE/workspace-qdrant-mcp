@@ -23,9 +23,7 @@ use workspace_qdrant_core::{
     DocumentProcessor,
 };
 
-use stress::{
-    create_test_file_with_size, generate_code_content, setup_test_db, StressMetrics,
-};
+use stress::{create_test_file_with_size, generate_code_content, setup_test_db, StressMetrics};
 
 /// Spawn processing tasks for a batch of files, recording metrics.
 fn spawn_process_batch(
@@ -51,8 +49,7 @@ fn spawn_process_batch(
                             .ok()
                             .map(|m| m.len() as usize)
                             .unwrap_or(0);
-                        metrics_clone
-                            .record_success(size, start.elapsed().as_millis() as u64);
+                        metrics_clone.record_success(size, start.elapsed().as_millis() as u64);
                     }
                     Err(_) => metrics_clone.record_failure(),
                 }
@@ -99,7 +96,12 @@ async fn stress_test_code_analysis() -> TestResult {
 
     println!("Analyzing code files...");
     let document_processor = Arc::new(DocumentProcessor::new());
-    let tasks = spawn_process_batch(&file_paths, &document_processor, &metrics, "code_analysis_test");
+    let tasks = spawn_process_batch(
+        &file_paths,
+        &document_processor,
+        &metrics,
+        "code_analysis_test",
+    );
 
     for task in tasks {
         let _ = task.await;
@@ -127,13 +129,9 @@ async fn stress_test_queue_depth() -> TestResult {
     let queue_manager = QueueManager::new(pool.clone());
     let temp_dir = tempdir()?;
 
-    println!(
-        "\nStarting queue depth stress test: {} items",
-        QUEUE_SIZE
-    );
+    println!("\nStarting queue depth stress test: {} items", QUEUE_SIZE);
 
-    let test_file =
-        create_test_file_with_size(temp_dir.path(), "queue_test.txt", 5).await?;
+    let test_file = create_test_file_with_size(temp_dir.path(), "queue_test.txt", 5).await?;
     let base_path = test_file.to_string_lossy().to_string();
 
     println!("Enqueueing {} items...", QUEUE_SIZE);
@@ -148,8 +146,7 @@ async fn stress_test_queue_depth() -> TestResult {
             size_bytes: Some(5 * 1024),
             old_path: None,
         };
-        let payload_json =
-            serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
         queue_manager
             .enqueue_unified(
@@ -175,9 +172,7 @@ async fn stress_test_queue_depth() -> TestResult {
         enqueue_time.as_secs_f64()
     );
 
-    let depth = queue_manager
-        .get_unified_queue_depth(None, None)
-        .await?;
+    let depth = queue_manager.get_unified_queue_depth(None, None).await?;
     assert_eq!(
         depth, QUEUE_SIZE as i64,
         "Queue depth should match enqueued items"
@@ -212,17 +207,34 @@ async fn stress_test_mixed_workload() -> TestResult {
     // Small files (1-5KB)
     println!("Creating small files...");
     let small_paths = create_sized_file_batch(temp_dir.path(), "small", SMALL_FILES, 1..6).await?;
-    tasks.extend(spawn_process_batch(&small_paths, &document_processor, &metrics, "mixed_test"));
+    tasks.extend(spawn_process_batch(
+        &small_paths,
+        &document_processor,
+        &metrics,
+        "mixed_test",
+    ));
 
     // Medium files (50-100KB)
     println!("Creating medium files...");
-    let medium_paths = create_sized_file_batch(temp_dir.path(), "medium", MEDIUM_FILES, 50..101).await?;
-    tasks.extend(spawn_process_batch(&medium_paths, &document_processor, &metrics, "mixed_test"));
+    let medium_paths =
+        create_sized_file_batch(temp_dir.path(), "medium", MEDIUM_FILES, 50..101).await?;
+    tasks.extend(spawn_process_batch(
+        &medium_paths,
+        &document_processor,
+        &metrics,
+        "mixed_test",
+    ));
 
     // Large files (1-5MB)
     println!("Creating large files...");
-    let large_paths = create_sized_file_batch(temp_dir.path(), "large", LARGE_FILES, 1024..5120).await?;
-    tasks.extend(spawn_process_batch(&large_paths, &document_processor, &metrics, "mixed_test"));
+    let large_paths =
+        create_sized_file_batch(temp_dir.path(), "large", LARGE_FILES, 1024..5120).await?;
+    tasks.extend(spawn_process_batch(
+        &large_paths,
+        &document_processor,
+        &metrics,
+        "mixed_test",
+    ));
 
     // Code files
     println!("Creating code files...");
@@ -236,7 +248,12 @@ async fn stress_test_mixed_workload() -> TestResult {
         drop(file);
         code_paths.push(file_path);
     }
-    tasks.extend(spawn_process_batch(&code_paths, &document_processor, &metrics, "mixed_test"));
+    tasks.extend(spawn_process_batch(
+        &code_paths,
+        &document_processor,
+        &metrics,
+        "mixed_test",
+    ));
 
     println!("Processing mixed workload...");
     for task in tasks {
@@ -265,7 +282,8 @@ async fn create_sized_file_batch(
     let mut paths = Vec::with_capacity(count);
     for i in 0..count {
         let size_kb = fastrand::usize(size_range_kb.clone());
-        let path = create_test_file_with_size(dir, &format!("{}_{:03}.txt", prefix, i), size_kb).await?;
+        let path =
+            create_test_file_with_size(dir, &format!("{}_{:03}.txt", prefix, i), size_kb).await?;
         paths.push(path);
     }
     Ok(paths)

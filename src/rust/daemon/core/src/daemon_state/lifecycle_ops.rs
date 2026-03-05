@@ -3,8 +3,8 @@
 use tracing::{info, warn};
 use wqm_common::constants::COLLECTION_PROJECTS;
 
-use crate::lifecycle::WatchFolderLifecycle;
 use super::{DaemonStateManager, DaemonStateResult};
+use crate::lifecycle::WatchFolderLifecycle;
 
 impl DaemonStateManager {
     /// Activate a project and all descendant submodules via recursive junction table traversal (Task 14)
@@ -33,7 +33,9 @@ impl DaemonStateManager {
         tenant_id: &str,
     ) -> DaemonStateResult<(u64, Option<String>)> {
         // Find the main watch folder for this tenant
-        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS).await?;
+        let watch_folder = self
+            .get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS)
+            .await?;
 
         match watch_folder {
             Some(folder) => {
@@ -52,7 +54,9 @@ impl DaemonStateManager {
         tenant_id: &str,
     ) -> DaemonStateResult<(u64, Option<String>)> {
         // Find the main watch folder for this tenant
-        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS).await?;
+        let watch_folder = self
+            .get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS)
+            .await?;
 
         match watch_folder {
             Some(folder) => {
@@ -94,7 +98,9 @@ impl DaemonStateManager {
         tenant_id: &str,
     ) -> DaemonStateResult<(u64, Option<String>)> {
         // Find the main watch folder for this tenant
-        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS).await?;
+        let watch_folder = self
+            .get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS)
+            .await?;
 
         match watch_folder {
             Some(folder) => {
@@ -135,14 +141,18 @@ impl DaemonStateManager {
 
         info!(
             "Inactivity timeout: deactivating {} project(s) inactive for >{}s",
-            stale_watches.len(), timeout_secs
+            stale_watches.len(),
+            timeout_secs
         );
 
         let mut deactivated = 0u64;
         for watch_id in &stale_watches {
             match self.deactivate_project_group(watch_id).await {
                 Ok(affected) => {
-                    info!("Deactivated project group {} ({} watch folders)", watch_id, affected);
+                    info!(
+                        "Deactivated project group {} ({} watch folders)",
+                        watch_id, affected
+                    );
                     deactivated += 1;
                 }
                 Err(e) => {

@@ -3,8 +3,8 @@
 use anyhow::Result;
 use tabled::Tabled;
 
-use crate::output;
 use super::db::{open_db, table_exists};
+use crate::output;
 
 #[derive(Tabled, serde::Serialize)]
 pub(super) struct TagSearchRow {
@@ -62,7 +62,11 @@ pub(super) fn search_tags(
     } else if script {
         output::print_script(&rows, !no_headers);
     } else {
-        output::info(format!("Tags matching '{}' ({} results)", query, rows.len()));
+        output::info(format!(
+            "Tags matching '{}' ({} results)",
+            query,
+            rows.len()
+        ));
         output::print_table(&rows);
     }
 
@@ -75,12 +79,7 @@ struct BasketOutput {
     keywords: Vec<String>,
 }
 
-pub(super) fn show_baskets(
-    doc_id: &str,
-    json: bool,
-    script: bool,
-    no_headers: bool,
-) -> Result<()> {
+pub(super) fn show_baskets(doc_id: &str, json: bool, script: bool, no_headers: bool) -> Result<()> {
     let conn = open_db()?;
     if !table_exists(&conn, "keyword_baskets") {
         anyhow::bail!("Keyword baskets table not found. Ensure daemon schema v16+ is applied.");

@@ -15,7 +15,7 @@ mod tests;
 
 use tracing::debug;
 
-use crate::search_db::{SearchDbManager, SearchDbError};
+use crate::search_db::{SearchDbError, SearchDbManager};
 use crate::text_search::{SearchOptions, SearchResults};
 
 /// FTS5 candidate count above which we fall back to grep-searcher.
@@ -68,7 +68,10 @@ pub async fn search_regex_via_grep(
     );
 
     if file_paths.is_empty() {
-        return Ok(empty_grep_result(pattern, start.elapsed().as_millis() as u64));
+        return Ok(empty_grep_result(
+            pattern,
+            start.elapsed().as_millis() as u64,
+        ));
     }
 
     let max_results = if options.max_results > 0 {

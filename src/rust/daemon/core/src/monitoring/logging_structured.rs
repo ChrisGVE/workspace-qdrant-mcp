@@ -5,10 +5,10 @@
 //! search queries, and error tracking.
 
 use std::collections::HashMap;
-use tracing::{error, info, warn, debug, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
-use crate::error::{WorkspaceError, ErrorSeverity, ErrorMonitor};
-use super::logging_perf::{record_operation_metric, record_error_metric};
+use super::logging_perf::{record_error_metric, record_operation_metric};
+use crate::error::{ErrorMonitor, ErrorSeverity, WorkspaceError};
 
 /// Error tracking with context information
 pub fn log_error_with_context(error: &WorkspaceError, context: &str) {
@@ -60,11 +60,7 @@ pub fn log_configuration_event(event_type: &str, config: &serde_json::Value) {
 
 /// Structured logging for security events
 #[instrument]
-pub fn log_security_event(
-    event_type: &str,
-    severity: &str,
-    details: &HashMap<String, String>,
-) {
+pub fn log_security_event(event_type: &str, severity: &str, details: &HashMap<String, String>) {
     warn!(
         event_type = event_type,
         severity = severity,
@@ -384,11 +380,7 @@ pub fn log_search_request(ctx: &SearchContext, query_text: &str) {
 }
 
 /// Log search result
-pub fn log_search_result(
-    ctx: &SearchContext,
-    duration_ms: f64,
-    result_count: usize,
-) {
+pub fn log_search_result(ctx: &SearchContext, duration_ms: f64, result_count: usize) {
     debug!(
         collection = %ctx.collection,
         tenant_id = ctx.tenant_id.as_deref().unwrap_or(""),
@@ -437,17 +429,33 @@ impl ErrorMonitor for LoggingErrorMonitor {
     fn report_circuit_breaker_state(&self, name: &str, state: &str) {
         match state {
             "open" => {
-                warn!(circuit_breaker = name, state = state, "Circuit breaker opened");
+                warn!(
+                    circuit_breaker = name,
+                    state = state,
+                    "Circuit breaker opened"
+                );
                 record_error_metric("circuit_breaker_open");
             }
             "closed" => {
-                info!(circuit_breaker = name, state = state, "Circuit breaker closed");
+                info!(
+                    circuit_breaker = name,
+                    state = state,
+                    "Circuit breaker closed"
+                );
             }
             "half-open" => {
-                info!(circuit_breaker = name, state = state, "Circuit breaker half-open");
+                info!(
+                    circuit_breaker = name,
+                    state = state,
+                    "Circuit breaker half-open"
+                );
             }
             _ => {
-                warn!(circuit_breaker = name, state = state, "Unknown circuit breaker state");
+                warn!(
+                    circuit_breaker = name,
+                    state = state,
+                    "Unknown circuit breaker state"
+                );
             }
         }
     }

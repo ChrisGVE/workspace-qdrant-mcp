@@ -5,15 +5,14 @@ use std::path::Path;
 
 use once_cell::sync::Lazy;
 
-use crate::patterns::comprehensive::{ComprehensivePatternManager, ComprehensiveResult};
-use super::{
-    BuildSystemInfo, DetectionDetails, PatternMatch, ProjectConfidence,
-    ProjectInfo, ProjectType,
-};
 use super::helpers::{
-    calculate_build_system_weight, detect_frameworks_for_language,
-    file_matches_pattern, get_framework_patterns,
+    calculate_build_system_weight, detect_frameworks_for_language, file_matches_pattern,
+    get_framework_patterns,
 };
+use super::{
+    BuildSystemInfo, DetectionDetails, PatternMatch, ProjectConfidence, ProjectInfo, ProjectType,
+};
+use crate::patterns::comprehensive::{ComprehensivePatternManager, ComprehensiveResult};
 
 /// High-performance project detector
 #[derive(Debug)]
@@ -88,12 +87,14 @@ impl ProjectDetector {
         // Create ecosystem patterns for major languages
         for language in config.file_extensions.values() {
             if !language_ecosystems.contains_key(language) {
-                let indicators = config.project_indicators.language_ecosystems
+                let indicators = config
+                    .project_indicators
+                    .language_ecosystems
                     .iter()
                     .filter(|indicator| {
                         // Match indicators that likely belong to this language
-                        indicator.contains(&language.to_lowercase()) ||
-                        indicator.to_lowercase().contains(&language.to_lowercase())
+                        indicator.contains(&language.to_lowercase())
+                            || indicator.to_lowercase().contains(&language.to_lowercase())
                     })
                     .cloned()
                     .collect();
@@ -136,15 +137,21 @@ impl ProjectDetector {
 
         // 1. Detect build systems
         let build_systems = self.detect_build_systems(files, &mut detection_details);
-        detection_details.methods_used.push("build_system_detection".to_string());
+        detection_details
+            .methods_used
+            .push("build_system_detection".to_string());
 
         // 2. Detect languages from file extensions
         let languages = self.detect_languages(files, &mut detection_details);
-        detection_details.methods_used.push("language_detection".to_string());
+        detection_details
+            .methods_used
+            .push("language_detection".to_string());
 
         // 3. Detect frameworks
         let frameworks = self.detect_frameworks(files, &languages, &mut detection_details);
-        detection_details.methods_used.push("framework_detection".to_string());
+        detection_details
+            .methods_used
+            .push("framework_detection".to_string());
 
         // 4. Determine primary language
         let primary_language = self.determine_primary_language(&languages, &build_systems);
@@ -176,7 +183,11 @@ impl ProjectDetector {
     }
 
     /// Detect build systems from file patterns
-    fn detect_build_systems(&self, files: &[String], details: &mut DetectionDetails) -> Vec<BuildSystemInfo> {
+    fn detect_build_systems(
+        &self,
+        files: &[String],
+        details: &mut DetectionDetails,
+    ) -> Vec<BuildSystemInfo> {
         let mut detected_systems = Vec::new();
         let _file_set: HashSet<&str> = files.iter().map(|f| f.as_str()).collect();
 
@@ -223,12 +234,19 @@ impl ProjectDetector {
 
         // Sort by confidence and weight
         detected_systems.sort_by(|a, b| {
-            b.confidence.cmp(&a.confidence)
-                .then_with(|| {
-                    let weight_a = self.build_system_patterns.get(&a.name).map(|p| p.weight).unwrap_or(0);
-                    let weight_b = self.build_system_patterns.get(&b.name).map(|p| p.weight).unwrap_or(0);
-                    weight_b.cmp(&weight_a)
-                })
+            b.confidence.cmp(&a.confidence).then_with(|| {
+                let weight_a = self
+                    .build_system_patterns
+                    .get(&a.name)
+                    .map(|p| p.weight)
+                    .unwrap_or(0);
+                let weight_b = self
+                    .build_system_patterns
+                    .get(&b.name)
+                    .map(|p| p.weight)
+                    .unwrap_or(0);
+                weight_b.cmp(&weight_a)
+            })
         });
 
         detected_systems
@@ -275,7 +293,12 @@ impl ProjectDetector {
     }
 
     /// Detect frameworks based on file patterns and languages
-    fn detect_frameworks(&self, files: &[String], _languages: &[String], details: &mut DetectionDetails) -> Vec<String> {
+    fn detect_frameworks(
+        &self,
+        files: &[String],
+        _languages: &[String],
+        details: &mut DetectionDetails,
+    ) -> Vec<String> {
         let mut frameworks = Vec::new();
 
         let framework_patterns = get_framework_patterns();
@@ -309,7 +332,11 @@ impl ProjectDetector {
     }
 
     /// Determine the primary language of the project
-    fn determine_primary_language(&self, languages: &[String], build_systems: &[BuildSystemInfo]) -> Option<String> {
+    fn determine_primary_language(
+        &self,
+        languages: &[String],
+        build_systems: &[BuildSystemInfo],
+    ) -> Option<String> {
         // If we have build systems, prefer their language
         if let Some(build_system) = build_systems.first() {
             if build_system.confidence >= ProjectConfidence::High {
@@ -322,24 +349,44 @@ impl ProjectDetector {
     }
 
     /// Classify the project type based on detected patterns
-    fn classify_project_type(&self, files: &[String], build_systems: &[BuildSystemInfo], languages: &[String]) -> ProjectType {
+    fn classify_project_type(
+        &self,
+        files: &[String],
+        build_systems: &[BuildSystemInfo],
+        languages: &[String],
+    ) -> ProjectType {
         // Check for documentation projects
-        let doc_files = files.iter().filter(|f| {
-            f.ends_with(".md") || f.ends_with(".rst") || f.ends_with(".adoc") ||
-            f.contains("docs/") || f.contains("documentation/")
-        }).count();
+        let doc_files = files
+            .iter()
+            .filter(|f| {
+                f.ends_with(".md")
+                    || f.ends_with(".rst")
+                    || f.ends_with(".adoc")
+                    || f.contains("docs/")
+                    || f.contains("documentation/")
+            })
+            .count();
 
         if doc_files > files.len() / 2 {
             return ProjectType::Documentation;
         }
 
         // Check for configuration projects
-        let config_files = files.iter().filter(|f| {
-            f.ends_with(".yml") || f.ends_with(".yaml") || f.ends_with(".toml") ||
-            f.ends_with(".json") || f.ends_with(".ini") || f.ends_with(".conf") ||
-            f.contains("ansible") || f.contains("terraform") || f.contains("k8s") ||
-            f.contains("kubernetes")
-        }).count();
+        let config_files = files
+            .iter()
+            .filter(|f| {
+                f.ends_with(".yml")
+                    || f.ends_with(".yaml")
+                    || f.ends_with(".toml")
+                    || f.ends_with(".json")
+                    || f.ends_with(".ini")
+                    || f.ends_with(".conf")
+                    || f.contains("ansible")
+                    || f.contains("terraform")
+                    || f.contains("k8s")
+                    || f.contains("kubernetes")
+            })
+            .count();
 
         if config_files > files.len() / 3 {
             return ProjectType::Configuration;
@@ -352,9 +399,14 @@ impl ProjectDetector {
 
         // Check for library patterns
         let has_lib_indicators = files.iter().any(|f| {
-            f.contains("lib/") || f.contains("src/lib") ||
-            f.ends_with(".gemspec") || f.contains("setup.py") ||
-            f.contains("package.json") && files.iter().any(|other| other.contains("index.js") || other.contains("lib/"))
+            f.contains("lib/")
+                || f.contains("src/lib")
+                || f.ends_with(".gemspec")
+                || f.contains("setup.py")
+                || f.contains("package.json")
+                    && files
+                        .iter()
+                        .any(|other| other.contains("index.js") || other.contains("lib/"))
         });
 
         if has_lib_indicators {
@@ -366,7 +418,12 @@ impl ProjectDetector {
     }
 
     /// Calculate overall confidence based on detection results
-    fn calculate_overall_confidence(&self, build_systems: &[BuildSystemInfo], languages: &[String], frameworks: &[String]) -> ProjectConfidence {
+    fn calculate_overall_confidence(
+        &self,
+        build_systems: &[BuildSystemInfo],
+        languages: &[String],
+        frameworks: &[String],
+    ) -> ProjectConfidence {
         let mut confidence_score = 0;
 
         // Build system confidence
@@ -415,7 +472,10 @@ impl ProjectDetector {
         }
 
         for build_system in build_systems {
-            reasoning.push(format!("Build system: {} ({})", build_system.name, build_system.language));
+            reasoning.push(format!(
+                "Build system: {} ({})",
+                build_system.name, build_system.language
+            ));
         }
 
         if !frameworks.is_empty() {

@@ -2,20 +2,20 @@
 //!
 //! Provides LoggingConfig, PerformanceMetrics, and the initialize_logging function.
 
+use atty::Stream;
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
-use atty::Stream;
 
-use logroller::{LogRollerBuilder, Rotation, RotationSize, Compression};
+use logroller::{Compression, LogRollerBuilder, Rotation, RotationSize};
 use tracing::{info, Level, Subscriber};
 use tracing_subscriber::{
+    filter::LevelFilter,
     fmt::{self, time::ChronoUtc},
-    layer::{SubscriberExt, Layer},
+    layer::{Layer, SubscriberExt},
     registry::LookupSpan,
     util::SubscriberInitExt,
     EnvFilter, Registry,
-    filter::LevelFilter,
 };
 
 use crate::error::WorkspaceError;
@@ -131,9 +131,7 @@ impl LoggingConfig {
 
         for (key, value) in env::vars() {
             if key.starts_with("WQM_LOG_FIELD_") {
-                let field_name = key.strip_prefix("WQM_LOG_FIELD_")
-                    .unwrap()
-                    .to_lowercase();
+                let field_name = key.strip_prefix("WQM_LOG_FIELD_").unwrap().to_lowercase();
                 config.global_fields.insert(field_name, value);
             }
         }
@@ -216,7 +214,9 @@ fn build_log_roller(
     log_file_path: &PathBuf,
     config: &LoggingConfig,
 ) -> Result<logroller::LogRoller, WorkspaceError> {
-    let parent = log_file_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let parent = log_file_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     let filename = log_file_path
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("daemon.jsonl"))
@@ -233,7 +233,9 @@ fn build_log_roller(
     let filename_str: &str = filename.as_ref();
     let filename_path = std::path::Path::new(filename_str);
     let mut builder = LogRollerBuilder::new(parent, filename_path)
-        .rotation(Rotation::SizeBased(RotationSize::MB(config.rotation_size_mb)))
+        .rotation(Rotation::SizeBased(RotationSize::MB(
+            config.rotation_size_mb,
+        )))
         .max_keep_files(config.rotation_count as u64);
 
     if config.compress_rotated {
@@ -269,7 +271,9 @@ fn determine_disable_ansi(daemon_mode: bool, force_disable_ansi: Option<bool>) -
             .unwrap_or(false);
         let service_check = daemon_mode
             || xpc_is_service
-            || env::var("_").map(|v| v.contains("launchd")).unwrap_or(false)
+            || env::var("_")
+                .map(|v| v.contains("launchd"))
+                .unwrap_or(false)
             || env::var("INVOCATION_ID").is_ok()
             || env::var("UPSTART_JOB").is_ok()
             || env::var("SYSTEMD_EXEC_PID").is_ok()
@@ -279,10 +283,7 @@ fn determine_disable_ansi(daemon_mode: bool, force_disable_ansi: Option<bool>) -
 }
 
 /// Build a console tracing layer, choosing JSON or pretty format.
-fn build_console_layer<S>(
-    json_format: bool,
-    disable_ansi: bool,
-) -> Box<dyn Layer<S> + Send + Sync>
+fn build_console_layer<S>(json_format: bool, disable_ansi: bool) -> Box<dyn Layer<S> + Send + Sync>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
@@ -346,11 +347,18 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
         })?;
         let non_blocking = build_non_blocking_writer(log_file_path, &config)?;
         let console_layer = build_console_layer(config.json_format, disable_ansi);
-        let file_layer = fmt::layer().json()
+        let file_layer = fmt::layer()
+            .json()
             .with_writer(non_blocking)
             .with_timer(ChronoUtc::rfc_3339())
-            .with_target(true).with_thread_ids(true).with_thread_names(true);
-        registry.with(env_filter).with(console_layer).with(file_layer).init();
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_thread_names(true);
+        registry
+            .with(env_filter)
+            .with(console_layer)
+            .with(file_layer)
+            .init();
     } else if config.console_output {
         let console_layer = build_console_layer(config.json_format, disable_ansi);
         registry.with(env_filter).with(console_layer).init();
@@ -359,10 +367,13 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
             WorkspaceError::configuration("File logging enabled but no log file path specified")
         })?;
         let non_blocking = build_non_blocking_writer(log_file_path, &config)?;
-        let file_layer = fmt::layer().json()
+        let file_layer = fmt::layer()
+            .json()
             .with_writer(non_blocking)
             .with_timer(ChronoUtc::rfc_3339())
-            .with_target(true).with_thread_ids(true).with_thread_names(true);
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_thread_names(true);
         registry.with(env_filter).with(file_layer).init();
     } else if daemon_mode {
         let null_writer = || std::io::sink();
@@ -382,7 +393,10 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
 
 /// Detect if running in daemon mode based on multiple indicators
 fn is_daemon_mode() -> bool {
-    if env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) {
+    if env::var("WQM_SERVICE_MODE")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         return true;
     }
     if let Ok(xpc_name) = env::var("XPC_SERVICE_NAME") {
@@ -390,13 +404,15 @@ fn is_daemon_mode() -> bool {
             return true;
         }
     }
-    env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
-        env::var("INVOCATION_ID").is_ok() ||
-        env::var("UPSTART_JOB").is_ok() ||
-        env::var("SYSTEMD_EXEC_PID").is_ok() ||
-        env::var("XPC_FLAGS").map(|v| v == "1").unwrap_or(false) ||
-        env::var("SYSLOG_IDENTIFIER").is_ok() ||
-        env::var("LOGNAME").map(|v| v == "root").unwrap_or(false)
+    env::var("_")
+        .map(|v| v.contains("launchd"))
+        .unwrap_or(false)
+        || env::var("INVOCATION_ID").is_ok()
+        || env::var("UPSTART_JOB").is_ok()
+        || env::var("SYSTEMD_EXEC_PID").is_ok()
+        || env::var("XPC_FLAGS").map(|v| v == "1").unwrap_or(false)
+        || env::var("SYSLOG_IDENTIFIER").is_ok()
+        || env::var("LOGNAME").map(|v| v == "root").unwrap_or(false)
 }
 
 /// Initialize complete output suppression for daemon mode
@@ -428,7 +444,7 @@ macro_rules! instrument_async {
                 start_time = tracing::field::Empty,
                 duration_ms = tracing::field::Empty,
                 success = tracing::field::Empty,
-            )
+            ),
         )
     };
 }

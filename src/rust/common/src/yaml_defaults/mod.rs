@@ -14,8 +14,7 @@ use serde::Deserialize;
 use std::sync::LazyLock;
 
 /// The raw default configuration YAML, embedded at compile time.
-pub static DEFAULT_YAML: &str =
-    include_str!("../../../../../assets/default_configuration.yaml");
+pub static DEFAULT_YAML: &str = include_str!("../../../../../assets/default_configuration.yaml");
 
 /// Parsed default configuration, initialized once on first access.
 pub static DEFAULT_YAML_CONFIG: LazyLock<YamlConfig> = LazyLock::new(|| {

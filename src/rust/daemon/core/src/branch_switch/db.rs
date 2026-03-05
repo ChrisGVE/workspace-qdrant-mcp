@@ -23,7 +23,7 @@ pub async fn batch_update_branch(
     let files: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
         "SELECT file_id, file_path, COALESCE(file_hash, ''), relative_path
          FROM tracked_files
-         WHERE watch_folder_id = ?1 AND branch = ?2"
+         WHERE watch_folder_id = ?1 AND branch = ?2",
     )
     .bind(watch_folder_id)
     .bind(old_branch)
@@ -36,15 +36,16 @@ pub async fn batch_update_branch(
     }
 
     // Look up tenant_id for base_point computation
-    let tenant_id: String = sqlx::query_scalar(
-        "SELECT tenant_id FROM watch_folders WHERE watch_id = ?1"
-    )
-    .bind(watch_folder_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| format!("Failed to query tenant_id: {}", e))?;
+    let tenant_id: String =
+        sqlx::query_scalar("SELECT tenant_id FROM watch_folders WHERE watch_id = ?1")
+            .bind(watch_folder_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("Failed to query tenant_id: {}", e))?;
 
-    let mut tx = pool.begin().await
+    let mut tx = pool
+        .begin()
+        .await
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
     let mut updated = 0u64;
@@ -57,14 +58,13 @@ pub async fn batch_update_branch(
         }
 
         // Recompute base_point with new branch
-        let new_bp = wqm_common::hashing::compute_base_point(
-            &tenant_id, new_branch, rel, file_hash,
-        );
+        let new_bp =
+            wqm_common::hashing::compute_base_point(&tenant_id, new_branch, rel, file_hash);
 
         sqlx::query(
             "UPDATE tracked_files
              SET branch = ?1, base_point = ?2, updated_at = ?3
-             WHERE file_id = ?4"
+             WHERE file_id = ?4",
         )
         .bind(new_branch)
         .bind(&new_bp)
@@ -77,7 +77,8 @@ pub async fn batch_update_branch(
         updated += 1;
     }
 
-    tx.commit().await
+    tx.commit()
+        .await
         .map_err(|e| format!("Failed to commit batch branch update: {}", e))?;
 
     Ok(updated)
@@ -91,7 +92,7 @@ pub async fn update_last_commit_hash(
 ) -> Result<(), String> {
     let now = timestamps::now_utc();
     sqlx::query(
-        "UPDATE watch_folders SET last_commit_hash = ?1, updated_at = ?2 WHERE watch_id = ?3"
+        "UPDATE watch_folders SET last_commit_hash = ?1, updated_at = ?2 WHERE watch_id = ?3",
     )
     .bind(commit_hash)
     .bind(&now)
@@ -108,7 +109,7 @@ pub async fn fetch_watch_folder(
     watch_folder_id: &str,
 ) -> Result<(String, String, String), String> {
     sqlx::query_as::<_, (String, String, String)>(
-        "SELECT path, collection, tenant_id FROM watch_folders WHERE watch_id = ?1"
+        "SELECT path, collection, tenant_id FROM watch_folders WHERE watch_id = ?1",
     )
     .bind(watch_folder_id)
     .fetch_optional(pool)

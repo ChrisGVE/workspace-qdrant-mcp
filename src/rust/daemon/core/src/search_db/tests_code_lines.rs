@@ -133,9 +133,11 @@ async fn test_code_lines_unique_constraint() {
         .unwrap();
 
     // Inserting same (file_id, seq) should fail
-    let result = sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'duplicate')")
-        .execute(manager.pool())
-        .await;
+    let result = sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'duplicate')",
+    )
+    .execute(manager.pool())
+    .await;
 
     assert!(result.is_err(), "Should reject duplicate (file_id, seq)");
 

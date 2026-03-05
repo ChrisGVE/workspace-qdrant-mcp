@@ -8,13 +8,10 @@ use wqm_common::timestamps;
 
 use crate::metrics::METRICS;
 use crate::queue_types::MissingTool;
-use crate::unified_queue_schema::{
-    FilePayload, ItemType, QueueOperation as UnifiedOp,
-};
+use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation as UnifiedOp};
 
 use super::{
-    CollectionMetadata, CollectionType, MissingMetadataItem,
-    QueueError, QueueManager, QueueResult,
+    CollectionMetadata, CollectionType, MissingMetadataItem, QueueError, QueueManager, QueueResult,
 };
 
 impl QueueManager {
@@ -33,24 +30,33 @@ impl QueueManager {
             .map(|d| serde_json::to_string(d))
             .transpose()?;
 
-        let error_message_id =
-            insert_error_message(&mut tx, error_type, error_message, error_details_json, file_path)
-                .await?;
-
-        let row = sqlx::query(
-            "SELECT retry_count FROM ingestion_queue WHERE file_absolute_path = ?1",
+        let error_message_id = insert_error_message(
+            &mut tx,
+            error_type,
+            error_message,
+            error_details_json,
+            file_path,
         )
-        .bind(file_path)
-        .fetch_optional(&mut *tx)
         .await?;
+
+        let row =
+            sqlx::query("SELECT retry_count FROM ingestion_queue WHERE file_absolute_path = ?1")
+                .bind(file_path)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if let Some(row) = row {
             let current_retry_count: i32 = row.try_get("retry_count")?;
             let new_retry_count = current_retry_count + 1;
             let will_retry = new_retry_count < max_retries;
             update_ingestion_queue_on_error(
-                &mut tx, file_path, error_type, error_message_id,
-                new_retry_count, max_retries, will_retry,
+                &mut tx,
+                file_path,
+                error_type,
+                error_message_id,
+                new_retry_count,
+                max_retries,
+                will_retry,
             )
             .await?;
             tx.commit().await?;
@@ -61,7 +67,6 @@ impl QueueManager {
             Ok((false, error_message_id))
         }
     }
-
 
     /// Get items from missing_metadata_queue
     pub async fn get_missing_metadata_items(
@@ -78,17 +83,13 @@ impl QueueManager {
             LIMIT ?1
         "#;
 
-        let rows = sqlx::query(query)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(query).bind(limit).fetch_all(&self.pool).await?;
 
         let mut items = Vec::new();
 
         for row in rows {
             let operation_str: String = row.try_get("operation")?;
-            let operation = UnifiedOp::from_str(&operation_str)
-                .unwrap_or(UnifiedOp::Add);
+            let operation = UnifiedOp::from_str(&operation_str).unwrap_or(UnifiedOp::Add);
 
             let missing_tools_json: String = row.try_get("missing_tools")?;
             let missing_tools: Vec<MissingTool> = serde_json::from_str(&missing_tools_json)?;
@@ -171,10 +172,19 @@ impl QueueManager {
             tx.commit().await?;
 
             self.enqueue_and_update_retry(
-                queue_id, &file_path, &collection, &tenant_id, &branch, unified_op,
-            ).await
+                queue_id,
+                &file_path,
+                &collection,
+                &tenant_id,
+                &branch,
+                unified_op,
+            )
+            .await
         } else {
-            warn!("Queue item not found in missing_metadata_queue: {}", queue_id);
+            warn!(
+                "Queue item not found in missing_metadata_queue: {}",
+                queue_id
+            );
             Ok(false)
         }
     }
@@ -198,15 +208,18 @@ impl QueueManager {
         };
         let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
-        match self.enqueue_unified(
-            ItemType::File,
-            unified_op,
-            tenant_id,
-            collection,
-            &payload_json,
-            Some(branch),
-            None,
-        ).await {
+        match self
+            .enqueue_unified(
+                ItemType::File,
+                unified_op,
+                tenant_id,
+                collection,
+                &payload_json,
+                Some(branch),
+                None,
+            )
+            .await
+        {
             Ok((new_queue_id, _is_new)) => {
                 sqlx::query(
                     "UPDATE missing_metadata_queue \
@@ -220,7 +233,8 @@ impl QueueManager {
 
                 tracing::info!(
                     "Retrying item from missing_metadata_queue: {} -> unified_queue {}",
-                    file_path, new_queue_id
+                    file_path,
+                    new_queue_id
                 );
                 Ok(true)
             }
@@ -245,7 +259,10 @@ impl QueueManager {
         if deleted {
             debug!("Removed from missing_metadata_queue: {}", queue_id);
         } else {
-            warn!("Queue item not found in missing_metadata_queue: {}", queue_id);
+            warn!(
+                "Queue item not found in missing_metadata_queue: {}",
+                queue_id
+            );
         }
 
         Ok(deleted)
@@ -354,7 +371,10 @@ async fn update_ingestion_queue_on_error(
         .await?;
 
         METRICS.ingestion_error(error_type);
-        debug!("Updated error for {}: retry {}/{}", file_path, new_retry_count, max_retries);
+        debug!(
+            "Updated error for {}: retry {}/{}",
+            file_path, new_retry_count, max_retries
+        );
     } else {
         sqlx::query("DELETE FROM ingestion_queue WHERE file_absolute_path = ?1")
             .bind(file_path)
@@ -363,7 +383,10 @@ async fn update_ingestion_queue_on_error(
 
         METRICS.queue_item_processed("normal", "failure", 0.0);
         METRICS.ingestion_error(error_type);
-        warn!("Max retries ({}) reached for {}, removing from queue", max_retries, file_path);
+        warn!(
+            "Max retries ({}) reached for {}, removing from queue",
+            max_retries, file_path
+        );
     }
     Ok(())
 }

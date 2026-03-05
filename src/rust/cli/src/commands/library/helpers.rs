@@ -33,9 +33,8 @@ impl std::fmt::Display for LibraryMode {
 /// Default file patterns for library collections.
 /// Covers all supported document formats in `AllowedExtensions::library_extensions`.
 pub const DEFAULT_LIBRARY_PATTERNS: &[&str] = &[
-    "*.pdf", "*.epub", "*.docx", "*.pptx", "*.ppt", "*.pages", "*.key",
-    "*.odt", "*.odp", "*.ods", "*.rtf", "*.doc",
-    "*.md", "*.txt", "*.html", "*.htm",
+    "*.pdf", "*.epub", "*.docx", "*.pptx", "*.ppt", "*.pages", "*.key", "*.odt", "*.odp", "*.ods",
+    "*.rtf", "*.doc", "*.md", "*.txt", "*.html", "*.htm",
 ];
 
 /// Get SQLite database path (canonical: ~/.workspace-qdrant/state.db)
@@ -52,8 +51,7 @@ pub fn open_db() -> Result<Connection> {
             db_path.display()
         );
     }
-    let conn = Connection::open(&db_path)
-        .context("Failed to open state database")?;
+    let conn = Connection::open(&db_path).context("Failed to open state database")?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
         .context("Failed to set SQLite pragmas")?;
     Ok(conn)

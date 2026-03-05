@@ -58,9 +58,7 @@ pub(crate) async fn scroll_qdrant_rules(
 }
 
 /// Index Qdrant points by their label field.
-fn index_points_by_label(
-    points: &[RetrievedPoint],
-) -> HashMap<String, Vec<QdrantRuleEntry>> {
+fn index_points_by_label(points: &[RetrievedPoint]) -> HashMap<String, Vec<QdrantRuleEntry>> {
     let mut by_label: HashMap<String, Vec<QdrantRuleEntry>> = HashMap::new();
 
     for point in points {
@@ -275,8 +273,10 @@ async fn enqueue_rule_ingestion(
         "label": label,
     });
     let payload_str = payload.to_string();
-    let idem_key =
-        wqm_common::hashing::compute_content_hash(&format!("text|add|{}|rules|{}", tid, payload_str));
+    let idem_key = wqm_common::hashing::compute_content_hash(&format!(
+        "text|add|{}|rules|{}",
+        tid, payload_str
+    ));
 
     let _ = sqlx::query(
         "INSERT OR IGNORE INTO unified_queue \

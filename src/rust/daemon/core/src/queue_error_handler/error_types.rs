@@ -50,9 +50,7 @@ impl ErrorType {
             | ErrorType::TemporaryFailure
             | ErrorType::DatabaseLocked => ErrorCategory::Transient,
 
-            ErrorType::RateLimitExceeded | ErrorType::TooManyRequests => {
-                ErrorCategory::RateLimit
-            }
+            ErrorType::RateLimitExceeded | ErrorType::TooManyRequests => ErrorCategory::RateLimit,
 
             ErrorType::OutOfMemory | ErrorType::DiskFull | ErrorType::QuotaExceeded => {
                 ErrorCategory::Resource

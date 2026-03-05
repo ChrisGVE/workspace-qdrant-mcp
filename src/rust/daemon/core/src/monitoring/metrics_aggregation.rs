@@ -4,11 +4,11 @@
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use sqlx::{Row, SqlitePool};
-use wqm_common::timestamps;
 use tracing::debug;
+use wqm_common::timestamps;
 
+use super::metrics_history::{cleanup_old_metrics, write_metrics_batch, MetricsHistoryResult};
 use crate::metrics_history_schema::{AggregationPeriod, MetricEntry};
-use super::metrics_history::{write_metrics_batch, cleanup_old_metrics, MetricsHistoryResult};
 
 /// Retention configuration for metrics history
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -141,10 +141,7 @@ pub async fn aggregate_hourly(
 }
 
 /// Run daily aggregation for the previous day
-pub async fn aggregate_daily(
-    pool: &SqlitePool,
-    now: DateTime<Utc>,
-) -> MetricsHistoryResult<usize> {
+pub async fn aggregate_daily(pool: &SqlitePool, now: DateTime<Utc>) -> MetricsHistoryResult<usize> {
     let day_start = (now - chrono::Duration::days(1))
         .with_hour(0)
         .unwrap()
@@ -233,10 +230,7 @@ pub async fn apply_retention(
 
 /// Run all due aggregations and retention cleanup.
 /// Call this periodically (e.g., every hour) from the daemon.
-pub async fn run_maintenance(
-    pool: &SqlitePool,
-    now: DateTime<Utc>,
-) -> MetricsHistoryResult<()> {
+pub async fn run_maintenance(pool: &SqlitePool, now: DateTime<Utc>) -> MetricsHistoryResult<()> {
     let hourly = aggregate_hourly(pool, now).await?;
     if hourly > 0 {
         debug!("Hourly aggregation produced {} entries", hourly);

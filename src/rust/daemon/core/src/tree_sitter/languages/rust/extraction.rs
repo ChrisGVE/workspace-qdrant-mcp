@@ -22,7 +22,9 @@ impl RustExtractor {
         // Collect all preamble items (use, extern crate, mod without body, attributes)
         for child in root.children(&mut cursor) {
             match child.kind() {
-                "use_declaration" | "extern_crate_declaration" | "attribute_item"
+                "use_declaration"
+                | "extern_crate_declaration"
+                | "attribute_item"
                 | "inner_attribute_item" => {
                     preamble_items.push(node_text(&child, source).to_string());
                     last_preamble_line = child.end_position().row + 1;
@@ -81,12 +83,9 @@ impl RustExtractor {
         // Determine if async - tree-sitter-rust represents async in function_modifiers
         // or directly as a modifier child. We check both the text and any modifier nodes.
         let is_async = node_text(node, source).trim_start().starts_with("async ")
-            || node
-                .children(&mut node.walk())
-                .any(|c| {
-                    c.kind() == "function_modifiers"
-                        && node_text(&c, source).contains("async")
-                });
+            || node.children(&mut node.walk()).any(|c| {
+                c.kind() == "function_modifiers" && node_text(&c, source).contains("async")
+            });
 
         let chunk_type = if is_async {
             ChunkType::AsyncFunction
@@ -116,13 +115,7 @@ impl RustExtractor {
         };
 
         let mut chunk = SemanticChunk::new(
-            chunk_type,
-            name,
-            content,
-            start_line,
-            end_line,
-            "rust",
-            file_path,
+            chunk_type, name, content, start_line, end_line, "rust", file_path,
         )
         .with_calls(calls);
 
@@ -282,12 +275,7 @@ impl RustExtractor {
     }
 
     /// Extract an enum definition.
-    pub(crate) fn extract_enum(
-        &self,
-        node: &Node,
-        source: &str,
-        file_path: &str,
-    ) -> SemanticChunk {
+    pub(crate) fn extract_enum(&self, node: &Node, source: &str, file_path: &str) -> SemanticChunk {
         let name = find_child_by_kind(node, "type_identifier")
             .map(|n| node_text(&n, source))
             .unwrap_or("anonymous");
@@ -418,11 +406,7 @@ impl RustExtractor {
     }
 
     /// Extract preceding doc comments (`///` or `/** */`).
-    pub(crate) fn extract_preceding_docstring(
-        &self,
-        node: &Node,
-        source: &str,
-    ) -> Option<String> {
+    pub(crate) fn extract_preceding_docstring(&self, node: &Node, source: &str) -> Option<String> {
         let mut prev = node.prev_sibling();
         let mut doc_lines = Vec::new();
 

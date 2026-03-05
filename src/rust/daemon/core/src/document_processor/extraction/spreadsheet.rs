@@ -76,9 +76,7 @@ pub fn extract_spreadsheet(
 }
 
 /// Extract text from CSV/TSV files
-pub fn extract_csv(
-    file_path: &Path,
-) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+pub fn extract_csv(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
     let mut metadata = HashMap::new();
     let ext = file_path
         .extension()
@@ -114,8 +112,7 @@ pub fn extract_csv(
     }
 
     for result in reader.records() {
-        let record =
-            result.map_err(|e| DocumentProcessorError::CsvExtraction(e.to_string()))?;
+        let record = result.map_err(|e| DocumentProcessorError::CsvExtraction(e.to_string()))?;
         row_count += 1;
         let fields: Vec<&str> = record.iter().collect();
         all_text.push_str(&fields.join("\t"));

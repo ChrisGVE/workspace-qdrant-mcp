@@ -35,7 +35,7 @@ pub use escaping::{escape_fts5_pattern, escape_like_pattern};
 pub use exact_search::search_exact;
 pub use regex_parser::extract_literals_from_regex;
 pub use regex_search::search_regex;
-pub use types::{SearchMatch, SearchOptions, SearchResults, RegexLiterals};
+pub use types::{RegexLiterals, SearchMatch, SearchOptions, SearchResults};
 
 // Crate-internal API (used by grep_search)
 pub(crate) use escaping::{compile_glob_matcher, resolve_path_filter};

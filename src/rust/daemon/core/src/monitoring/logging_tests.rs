@@ -2,10 +2,10 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::error::WorkspaceError;
     use crate::monitoring::logging_config::*;
     use crate::monitoring::logging_perf::*;
     use crate::monitoring::logging_structured::*;
-    use crate::error::WorkspaceError;
     use serde_json::Value;
     use serial_test::serial;
     use std::env;
@@ -27,10 +27,7 @@ mod tests {
             "WQM_LOG_FIELD_TEAM",
         ];
 
-        let previous: Vec<Option<String>> = keys
-            .iter()
-            .map(|key| env::var(key).ok())
-            .collect();
+        let previous: Vec<Option<String>> = keys.iter().map(|key| env::var(key).ok()).collect();
 
         env::remove_var("WQM_LOG_LEVEL");
         env::set_var("RUST_LOG", "debug");

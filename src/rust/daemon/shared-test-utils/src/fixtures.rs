@@ -69,7 +69,8 @@ impl DocumentFixtures {
                 "hybrid_search": true,
                 "caching": true
             }
-        }).to_string()
+        })
+        .to_string()
     }
 }
 
@@ -156,11 +157,26 @@ impl EmbeddingFixtures {
     /// Generate embeddings for test documents
     pub fn test_document_embeddings() -> Vec<(String, Vec<f32>)> {
         vec![
-            ("Machine learning is a subset of artificial intelligence".to_string(), Self::random_embedding()),
-            ("Natural language processing enables computers to understand text".to_string(), Self::random_embedding()),
-            ("Vector databases store high-dimensional data efficiently".to_string(), Self::random_embedding()),
-            ("Semantic search finds meaning rather than exact matches".to_string(), Self::random_embedding()),
-            ("Document chunking splits text into manageable pieces".to_string(), Self::random_embedding()),
+            (
+                "Machine learning is a subset of artificial intelligence".to_string(),
+                Self::random_embedding(),
+            ),
+            (
+                "Natural language processing enables computers to understand text".to_string(),
+                Self::random_embedding(),
+            ),
+            (
+                "Vector databases store high-dimensional data efficiently".to_string(),
+                Self::random_embedding(),
+            ),
+            (
+                "Semantic search finds meaning rather than exact matches".to_string(),
+                Self::random_embedding(),
+            ),
+            (
+                "Document chunking splits text into manageable pieces".to_string(),
+                Self::random_embedding(),
+            ),
         ]
     }
 

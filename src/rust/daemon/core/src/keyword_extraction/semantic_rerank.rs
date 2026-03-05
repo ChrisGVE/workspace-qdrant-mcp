@@ -3,8 +3,8 @@
 //! Scores each candidate phrase by cosine similarity to the parent document's
 //! summary vector. Combines semantic score with lexical (TF) score for final ranking.
 
-use crate::embedding::{EmbeddingGenerator, EmbeddingError};
 use super::lexical_candidates::LexicalCandidate;
+use crate::embedding::{EmbeddingError, EmbeddingGenerator};
 
 /// A candidate after semantic reranking with combined scores.
 #[derive(Debug, Clone)]
@@ -180,7 +180,11 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![1.0, 0.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim - 1.0).abs() < 1e-6, "Identical vectors should have similarity ~1.0, got {}", sim);
+        assert!(
+            (sim - 1.0).abs() < 1e-6,
+            "Identical vectors should have similarity ~1.0, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -188,7 +192,11 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![0.0, 1.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!(sim.abs() < 1e-6, "Orthogonal vectors should have similarity ~0.0, got {}", sim);
+        assert!(
+            sim.abs() < 1e-6,
+            "Orthogonal vectors should have similarity ~0.0, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -196,7 +204,11 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![-1.0, 0.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim + 1.0).abs() < 1e-6, "Opposite vectors should have similarity ~-1.0, got {}", sim);
+        assert!(
+            (sim + 1.0).abs() < 1e-6,
+            "Opposite vectors should have similarity ~-1.0, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -223,10 +235,7 @@ mod tests {
 
     #[test]
     fn test_weighted_mean_vector_basic() {
-        let vectors = vec![
-            (vec![1.0, 0.0, 0.0], 1.0),
-            (vec![0.0, 1.0, 0.0], 1.0),
-        ];
+        let vectors = vec![(vec![1.0, 0.0, 0.0], 1.0), (vec![0.0, 1.0, 0.0], 1.0)];
         let mean = weighted_mean_vector(&vectors).unwrap();
         assert_eq!(mean.len(), 3);
         assert!((mean[0] - 0.5).abs() < 1e-5);
@@ -236,13 +245,18 @@ mod tests {
 
     #[test]
     fn test_weighted_mean_vector_weighted() {
-        let vectors = vec![
-            (vec![1.0, 0.0], 3.0),
-            (vec![0.0, 1.0], 1.0),
-        ];
+        let vectors = vec![(vec![1.0, 0.0], 3.0), (vec![0.0, 1.0], 1.0)];
         let mean = weighted_mean_vector(&vectors).unwrap();
-        assert!((mean[0] - 0.75).abs() < 1e-5, "Expected 0.75, got {}", mean[0]);
-        assert!((mean[1] - 0.25).abs() < 1e-5, "Expected 0.25, got {}", mean[1]);
+        assert!(
+            (mean[0] - 0.75).abs() < 1e-5,
+            "Expected 0.75, got {}",
+            mean[0]
+        );
+        assert!(
+            (mean[1] - 0.25).abs() < 1e-5,
+            "Expected 0.25, got {}",
+            mean[1]
+        );
     }
 
     #[test]
@@ -253,10 +267,7 @@ mod tests {
 
     #[test]
     fn test_weighted_mean_vector_zero_weights() {
-        let vectors = vec![
-            (vec![1.0, 0.0], 0.0),
-            (vec![0.0, 1.0], 0.0),
-        ];
+        let vectors = vec![(vec![1.0, 0.0], 0.0), (vec![0.0, 1.0], 0.0)];
         assert!(weighted_mean_vector(&vectors).is_none());
     }
 

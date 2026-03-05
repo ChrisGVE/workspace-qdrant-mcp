@@ -49,7 +49,8 @@ impl PausedEventBuffer {
             if self.evictions % 1000 == 1 {
                 tracing::warn!(
                     "Paused event buffer overflow: {} events evicted (capacity={})",
-                    self.evictions, self.capacity
+                    self.evictions,
+                    self.capacity
                 );
             }
         }

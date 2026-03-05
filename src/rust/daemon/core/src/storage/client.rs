@@ -9,10 +9,10 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
-use qdrant_client::Qdrant;
 use qdrant_client::config::QdrantConfig;
+use qdrant_client::Qdrant;
 use tokio::time::sleep;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 use super::config::{StorageConfig, TransportMode};
 use super::types::StorageError;
@@ -52,11 +52,17 @@ impl StorageClient {
             .open("/tmp/storage_debug.log")
         {
             use std::io::Write;
-            let _ = writeln!(f, "StorageClient::with_config called: url={}, check_compat={}",
-                config.url, config.check_compatibility);
+            let _ = writeln!(
+                f,
+                "StorageClient::with_config called: url={}, check_compat={}",
+                config.url, config.check_compatibility
+            );
         }
 
-        info!("Initializing Qdrant client with transport: {:?}", config.transport);
+        info!(
+            "Initializing Qdrant client with transport: {:?}",
+            config.transport
+        );
 
         let connection_url = build_connection_url(&config);
         info!("Connecting to Qdrant at: {}", connection_url);
@@ -73,12 +79,15 @@ impl StorageClient {
 
         let client = match client {
             Ok(client) => {
-                info!("Successfully created Qdrant client with {:?} transport", config.transport);
+                info!(
+                    "Successfully created Qdrant client with {:?} transport",
+                    config.transport
+                );
                 Arc::new(client)
-            },
+            }
             Err(e) if matches!(config.transport, TransportMode::Grpc) => {
                 create_fallback_client(&config, &connection_url, e)
-            },
+            }
             Err(e) => {
                 error!("Failed to build Qdrant client: {}", e);
                 panic!("Failed to build Qdrant client: {}", e);
@@ -99,12 +108,14 @@ impl StorageClient {
         match self.client.health_check().await {
             Ok(_) => {
                 info!("Successfully connected to Qdrant server");
-                self.update_stats(|stats| stats.successful_connections += 1).await;
+                self.update_stats(|stats| stats.successful_connections += 1)
+                    .await;
                 Ok(true)
-            },
+            }
             Err(e) => {
                 error!("Failed to connect to Qdrant server: {}", e);
-                self.update_stats(|stats| stats.failed_connections += 1).await;
+                self.update_stats(|stats| stats.failed_connections += 1)
+                    .await;
                 Err(StorageError::Connection(e.to_string()))
             }
         }
@@ -115,9 +126,15 @@ impl StorageClient {
         let stats = self.stats.lock().await;
         let mut result = HashMap::new();
 
-        result.insert("successful_connections".to_string(), stats.successful_connections);
+        result.insert(
+            "successful_connections".to_string(),
+            stats.successful_connections,
+        );
         result.insert("failed_connections".to_string(), stats.failed_connections);
-        result.insert("active_connections".to_string(), stats.active_connections as u64);
+        result.insert(
+            "active_connections".to_string(),
+            stats.active_connections as u64,
+        );
         result.insert("total_requests".to_string(), stats.total_requests);
         result.insert("total_errors".to_string(), stats.total_errors);
 
@@ -142,13 +159,14 @@ impl StorageClient {
                     }
                     self.update_stats(|stats| stats.total_requests += 1).await;
                     return Ok(result);
-                },
+                }
                 Err(e) => {
                     attempt += 1;
                     self.update_stats(|stats| {
                         stats.total_requests += 1;
                         stats.total_errors += 1;
-                    }).await;
+                    })
+                    .await;
 
                     if attempt >= max_retries {
                         error!("Operation failed after {} attempts: {}", attempt, e);
@@ -160,7 +178,10 @@ impl StorageClient {
                     let jitter = Duration::from_millis(fastrand::u64(0..=100));
                     let total_delay = delay + jitter;
 
-                    warn!("Operation failed (attempt {}), retrying in {:?}: {}", attempt, total_delay, e);
+                    warn!(
+                        "Operation failed (attempt {}), retrying in {:?}: {}",
+                        attempt, total_delay, e
+                    );
                     sleep(total_delay).await;
                 }
             }
@@ -197,7 +218,7 @@ fn build_connection_url(config: &StorageConfig) -> String {
             } else {
                 config.url.clone()
             }
-        },
+        }
         TransportMode::Http => {
             if config.url.starts_with("http://") || config.url.starts_with("https://") {
                 config.url.clone()
@@ -266,7 +287,11 @@ fn log_http2_config(config: &StorageConfig) {
 }
 
 /// Create a fallback HTTP client when gRPC fails
-fn create_fallback_client(config: &StorageConfig, connection_url: &str, original_error: qdrant_client::QdrantError) -> Arc<Qdrant> {
+fn create_fallback_client(
+    config: &StorageConfig,
+    connection_url: &str,
+    original_error: qdrant_client::QdrantError,
+) -> Arc<Qdrant> {
     error!("Failed to create gRPC client: {}", original_error);
     warn!("Attempting fallback to HTTP transport...");
 
@@ -284,7 +309,7 @@ fn create_fallback_client(config: &StorageConfig, connection_url: &str, original
         Ok(client) => {
             warn!("Successfully created fallback HTTP client");
             Arc::new(client)
-        },
+        }
         Err(fallback_error) => {
             error!("Fallback to HTTP also failed: {}", fallback_error);
             panic!(
@@ -298,7 +323,10 @@ fn create_fallback_client(config: &StorageConfig, connection_url: &str, original
 /// Detect if running in daemon mode for MCP stdio compliance
 fn is_daemon_mode() -> bool {
     // Primary explicit indicator
-    if env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) {
+    if env::var("WQM_SERVICE_MODE")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         return true;
     }
 
@@ -311,9 +339,9 @@ fn is_daemon_mode() -> bool {
     }
 
     // Linux systemd indicators
-    env::var("SYSTEMD_EXEC_PID").is_ok() ||
-        env::var("SYSLOG_IDENTIFIER").is_ok() ||
-        env::var("LOGNAME").map(|v| v == "root").unwrap_or(false)
+    env::var("SYSTEMD_EXEC_PID").is_ok()
+        || env::var("SYSLOG_IDENTIFIER").is_ok()
+        || env::var("LOGNAME").map(|v| v == "root").unwrap_or(false)
 }
 
 /// Temporarily suppress stdout and stderr during a function call for MCP compliance
@@ -371,11 +399,11 @@ where
         unsafe {
             winapi::um::processenv::SetStdHandle(
                 winapi::um::winbase::STD_OUTPUT_HANDLE,
-                null_file.as_raw_handle() as *mut std::ffi::c_void
+                null_file.as_raw_handle() as *mut std::ffi::c_void,
             );
             winapi::um::processenv::SetStdHandle(
                 winapi::um::winbase::STD_ERROR_HANDLE,
-                null_file.as_raw_handle() as *mut std::ffi::c_void
+                null_file.as_raw_handle() as *mut std::ffi::c_void,
             );
         }
     }

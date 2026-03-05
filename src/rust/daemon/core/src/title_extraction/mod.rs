@@ -14,8 +14,8 @@ mod types;
 
 pub use types::{TitleResult, TitleSource};
 
-use std::path::Path;
 use regex::Regex;
+use std::path::Path;
 use tracing::debug;
 
 use content::extract_title_from_content;
@@ -45,7 +45,11 @@ pub fn extract_title(
         let title = title.trim().to_string();
         if !title.is_empty() && !is_placeholder_title(&title) {
             debug!("Title from metadata: {:?}", title);
-            return TitleResult { title, source: TitleSource::Metadata, authors };
+            return TitleResult {
+                title,
+                source: TitleSource::Metadata,
+                authors,
+            };
         }
     }
 
@@ -53,20 +57,32 @@ pub fn extract_title(
     if let Some(title) = extract_metadata_title_from_file(file_path, source_format) {
         if !is_placeholder_title(&title) {
             debug!("Title from file metadata: {:?}", title);
-            return TitleResult { title, source: TitleSource::Metadata, authors };
+            return TitleResult {
+                title,
+                source: TitleSource::Metadata,
+                authors,
+            };
         }
     }
 
     // Priority 2: Content heuristics
     if let Some(title) = extract_title_from_content(raw_text, source_format) {
         debug!("Title from content heuristic: {:?}", title);
-        return TitleResult { title, source: TitleSource::ContentHeuristic, authors };
+        return TitleResult {
+            title,
+            source: TitleSource::ContentHeuristic,
+            authors,
+        };
     }
 
     // Priority 3: Filename fallback
     let title = title_from_filename(file_path);
     debug!("Title from filename fallback: {:?}", title);
-    TitleResult { title, source: TitleSource::FilenameFallback, authors }
+    TitleResult {
+        title,
+        source: TitleSource::FilenameFallback,
+        authors,
+    }
 }
 
 /// Check if a title is a known placeholder pattern.
@@ -75,8 +91,13 @@ pub fn is_placeholder_title(title: &str) -> bool {
 
     // Common auto-generated titles
     let placeholder_patterns = [
-        "untitled", "document", "presentation", "slide",
-        "book", "new document", "noname",
+        "untitled",
+        "document",
+        "presentation",
+        "slide",
+        "book",
+        "new document",
+        "noname",
     ];
     for pattern in &placeholder_patterns {
         if title_lower == *pattern {
@@ -85,7 +106,10 @@ pub fn is_placeholder_title(title: &str) -> bool {
     }
 
     // Numbered placeholders: "Document1", "Presentation2", "Slide 3"
-    let re = Regex::new(r"(?i)^(microsoft\s+word\s*[-–—]\s*|document|presentation|slide|book|untitled)\s*\d*$").unwrap();
+    let re = Regex::new(
+        r"(?i)^(microsoft\s+word\s*[-–—]\s*|document|presentation|slide|book|untitled)\s*\d*$",
+    )
+    .unwrap();
     if re.is_match(title.trim()) {
         return true;
     }
@@ -106,9 +130,7 @@ pub fn title_from_filename(file_path: &Path) -> String {
         .unwrap_or("Untitled");
 
     // Replace underscores and hyphens with spaces
-    let cleaned = stem
-        .replace('_', " ")
-        .replace('-', " ");
+    let cleaned = stem.replace('_', " ").replace('-', " ");
 
     // Simple title case: capitalize first letter of each word
     cleaned
@@ -136,11 +158,23 @@ fn parse_authors(author_str: &str) -> Vec<String> {
 
     // Split on semicolons first, then commas, then " and "
     if author_str.contains(';') {
-        author_str.split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        author_str
+            .split(';')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     } else if author_str.contains(',') {
-        author_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        author_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     } else if author_str.contains(" and ") {
-        author_str.split(" and ").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        author_str
+            .split(" and ")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     } else {
         vec![author_str.trim().to_string()]
     }
@@ -299,12 +333,7 @@ mod tests {
         let mut metadata = HashMap::new();
         metadata.insert("title".to_string(), "A Paper".to_string());
         metadata.insert("author".to_string(), "Alice; Bob".to_string());
-        let result = extract_title(
-            Path::new("paper.pdf"),
-            &metadata,
-            "",
-            "pdf",
-        );
+        let result = extract_title(Path::new("paper.pdf"), &metadata, "", "pdf");
         assert_eq!(result.title, "A Paper");
         assert_eq!(result.authors, vec!["Alice", "Bob"]);
     }

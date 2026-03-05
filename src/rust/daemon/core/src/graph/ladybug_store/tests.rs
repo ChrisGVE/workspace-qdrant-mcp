@@ -1,5 +1,4 @@
 /// Tests for the LadybugDB graph store.
-
 use std::path::PathBuf;
 
 use crate::graph::{EdgeType, GraphEdge, GraphNode, GraphStore};
@@ -56,7 +55,9 @@ async fn test_ladybug_upsert_and_stats() {
     let store = LadybugGraphStore::new(config).unwrap();
 
     let node = GraphNode::new(
-        "test-tenant", "src/main.rs", "main",
+        "test-tenant",
+        "src/main.rs",
+        "main",
         crate::graph::NodeType::Function,
     );
     let result = store.upsert_node(&node).await;
@@ -76,17 +77,19 @@ async fn test_ladybug_insert_edge() {
     };
     let store = LadybugGraphStore::new(config).unwrap();
 
-    let node_a = GraphNode::new(
-        "t1", "a.rs", "foo", crate::graph::NodeType::Function,
-    );
-    let node_b = GraphNode::new(
-        "t1", "b.rs", "bar", crate::graph::NodeType::Function,
-    );
-    store.upsert_nodes(&[node_a.clone(), node_b.clone()]).await.unwrap();
+    let node_a = GraphNode::new("t1", "a.rs", "foo", crate::graph::NodeType::Function);
+    let node_b = GraphNode::new("t1", "b.rs", "bar", crate::graph::NodeType::Function);
+    store
+        .upsert_nodes(&[node_a.clone(), node_b.clone()])
+        .await
+        .unwrap();
 
     let edge = GraphEdge::new(
-        "t1", &node_a.node_id, &node_b.node_id,
-        EdgeType::Calls, "a.rs",
+        "t1",
+        &node_a.node_id,
+        &node_b.node_id,
+        EdgeType::Calls,
+        "a.rs",
     );
     let result = store.insert_edge(&edge).await;
     assert!(result.is_ok(), "insert_edge failed: {:?}", result.err());

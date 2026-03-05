@@ -20,25 +20,25 @@ use uuid::Uuid;
 pub enum RegistryError {
     #[error("Registry file not found: {0}")]
     FileNotFound(PathBuf),
-    
+
     #[error("Invalid registry format: {0}")]
     InvalidFormat(String),
-    
+
     #[error("File lock timeout")]
     LockTimeout,
-    
+
     #[error("Permission denied: {0}")]
     PermissionDenied(PathBuf),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
-    
+
     #[error("Service already registered: {0}")]
     ServiceAlreadyExists(String),
-    
+
     #[error("Process validation failed for PID {0}")]
     ProcessValidationFailed(u32),
 }
@@ -58,34 +58,34 @@ pub enum ServiceStatus {
 pub struct ServiceInfo {
     /// Service hostname or IP address
     pub host: String,
-    
+
     /// Primary service port
     pub port: u16,
-    
+
     /// Process ID of the service
     pub pid: u32,
-    
+
     /// Service startup timestamp (ISO 8601)
     pub startup_time: String,
-    
+
     /// Authentication token for secure communication
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_token: Option<String>,
-    
+
     /// Health check endpoint path
     pub health_endpoint: String,
-    
+
     /// Additional service-specific ports
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub additional_ports: HashMap<String, u16>,
-    
+
     /// Current service status
     pub status: ServiceStatus,
-    
+
     /// Last health check timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_health_check: Option<String>,
-    
+
     /// Service metadata
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
@@ -128,18 +128,24 @@ impl ServiceRegistry {
             std::fs::create_dir_all(parent)?;
         }
 
-        info!("Service registry initialized at: {}", registry_path.display());
+        info!(
+            "Service registry initialized at: {}",
+            registry_path.display()
+        );
 
         Ok(Self { registry_path })
     }
 
     /// Get default registry path (~/.workspace-qdrant/services.json)
     fn default_registry_path() -> Result<PathBuf, RegistryError> {
-        let home_dir = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))
-            .map_err(|_| RegistryError::IoError(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Unable to determine home directory"
-            )))?;
+        let home_dir = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| {
+                RegistryError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Unable to determine home directory",
+                ))
+            })?;
 
         Ok(PathBuf::from(home_dir)
             .join(".workspace-qdrant")
@@ -148,11 +154,14 @@ impl ServiceRegistry {
 
     /// Register a service in the registry
     pub fn register_service(
-        &self, 
-        service_name: &str, 
-        service_info: ServiceInfo
+        &self,
+        service_name: &str,
+        service_info: ServiceInfo,
     ) -> Result<(), RegistryError> {
-        debug!("Registering service: {} at {}:{}", service_name, service_info.host, service_info.port);
+        debug!(
+            "Registering service: {} at {}:{}",
+            service_name, service_info.host, service_info.port
+        );
 
         // Validate process is running
         if !is_process_running(service_info.pid) {
@@ -160,15 +169,20 @@ impl ServiceRegistry {
         }
 
         let mut registry = self.load_or_create_registry()?;
-        
+
         // Check if service already exists with different PID
         if let Some(existing) = registry.services.get(service_name) {
             if existing.pid != service_info.pid {
-                warn!("Service {} already registered with different PID. Updating.", service_name);
+                warn!(
+                    "Service {} already registered with different PID. Updating.",
+                    service_name
+                );
             }
         }
 
-        registry.services.insert(service_name.to_string(), service_info);
+        registry
+            .services
+            .insert(service_name.to_string(), service_info);
         registry.last_updated = current_iso_timestamp();
 
         self.save_registry(&registry)?;
@@ -183,7 +197,7 @@ impl ServiceRegistry {
 
         let mut registry = self.load_or_create_registry()?;
         let existed = registry.services.remove(service_name).is_some();
-        
+
         if existed {
             registry.last_updated = current_iso_timestamp();
             self.save_registry(&registry)?;
@@ -196,16 +210,25 @@ impl ServiceRegistry {
     }
 
     /// Discover a specific service by name
-    pub fn discover_service(&self, service_name: &str) -> Result<Option<ServiceInfo>, RegistryError> {
+    pub fn discover_service(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<ServiceInfo>, RegistryError> {
         let registry = self.load_registry()?;
-        
+
         if let Some(service_info) = registry.services.get(service_name) {
             // Validate the service process is still running
             if is_process_running(service_info.pid) {
-                debug!("Service {} discovered at {}:{}", service_name, service_info.host, service_info.port);
+                debug!(
+                    "Service {} discovered at {}:{}",
+                    service_name, service_info.host, service_info.port
+                );
                 Ok(Some(service_info.clone()))
             } else {
-                warn!("Service {} found but process {} is not running", service_name, service_info.pid);
+                warn!(
+                    "Service {} found but process {} is not running",
+                    service_name, service_info.pid
+                );
                 // Clean up stale entry
                 let _ = self.deregister_service(service_name);
                 Ok(None)
@@ -226,20 +249,23 @@ impl ServiceRegistry {
 
     /// Update service status
     pub fn update_service_status(
-        &self, 
-        service_name: &str, 
-        status: ServiceStatus
+        &self,
+        service_name: &str,
+        status: ServiceStatus,
     ) -> Result<bool, RegistryError> {
         let mut registry = self.load_or_create_registry()?;
-        
+
         if let Some(service_info) = registry.services.get_mut(service_name) {
             service_info.status = status;
             service_info.last_health_check = Some(current_iso_timestamp());
             registry.last_updated = current_iso_timestamp();
-            
+
             let status_debug = service_info.status.clone();
             self.save_registry(&registry)?;
-            debug!("Updated status for service {} to {:?}", service_name, status_debug);
+            debug!(
+                "Updated status for service {} to {:?}",
+                service_name, status_debug
+            );
             Ok(true)
         } else {
             debug!("Service {} not found for status update", service_name);
@@ -251,10 +277,13 @@ impl ServiceRegistry {
     pub fn cleanup_stale_entries(&self) -> Result<Vec<String>, RegistryError> {
         let mut registry = self.load_or_create_registry()?;
         let mut removed_services = Vec::new();
-        
+
         registry.services.retain(|service_name, service_info| {
             if !is_process_running(service_info.pid) {
-                warn!("Removing stale service {} (PID {} not running)", service_name, service_info.pid);
+                warn!(
+                    "Removing stale service {} (PID {} not running)",
+                    service_name, service_info.pid
+                );
                 removed_services.push(service_name.clone());
                 false
             } else {
@@ -265,7 +294,10 @@ impl ServiceRegistry {
         if !removed_services.is_empty() {
             registry.last_updated = current_iso_timestamp();
             self.save_registry(&registry)?;
-            info!("Cleaned up {} stale service entries", removed_services.len());
+            info!(
+                "Cleaned up {} stale service entries",
+                removed_services.len()
+            );
         }
 
         Ok(removed_services)
@@ -293,7 +325,7 @@ impl ServiceRegistry {
 
         let file = File::open(&self.registry_path)?;
         let reader = BufReader::new(file);
-        
+
         let registry: RegistryFile = serde_json::from_reader(reader)
             .map_err(|e| RegistryError::InvalidFormat(e.to_string()))?;
 
@@ -304,14 +336,14 @@ impl ServiceRegistry {
     fn save_registry(&self, registry: &RegistryFile) -> Result<(), RegistryError> {
         // Create temporary file for atomic write
         let temp_path = self.registry_path.with_extension("tmp");
-        
+
         {
             let temp_file = OpenOptions::new()
                 .write(true)
                 .create(true)
                 .truncate(true)
                 .open(&temp_path)?;
-                
+
             let writer = BufWriter::new(temp_file);
             serde_json::to_writer_pretty(writer, registry)?;
         }
@@ -334,9 +366,7 @@ fn is_process_running(pid: u32) -> bool {
             Err(_) => return false,
         };
 
-        unsafe {
-            libc::kill(pid as i32, 0) == 0
-        }
+        unsafe { libc::kill(pid as i32, 0) == 0 }
     }
 
     #[cfg(windows)]

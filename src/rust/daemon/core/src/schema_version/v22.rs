@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V22Migration;
 
@@ -18,15 +18,15 @@ impl Migration for V22Migration {
         info!("Migration v22: Remove unused priority column from unified_queue");
 
         use crate::unified_queue_schema::{
-            CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL,
             CREATE_QDRANT_STATUS_INDEX_SQL, CREATE_SEARCH_STATUS_INDEX_SQL,
+            CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
         };
 
         sqlx::query("DROP TABLE IF EXISTS unified_queue")
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
-        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
-            .execute(pool).await?;
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL).execute(pool).await?;
 
         for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
             sqlx::query(index_sql).execute(pool).await?;
@@ -34,14 +34,20 @@ impl Migration for V22Migration {
 
         // Recreate v20 indexes
         sqlx::query(CREATE_QDRANT_STATUS_INDEX_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
         sqlx::query(CREATE_SEARCH_STATUS_INDEX_SQL)
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         info!("Migration v22 complete");
         Ok(())
     }
 
-    fn version(&self) -> i32 { 22 }
-    fn description(&self) -> &'static str { "Remove unused priority column from unified_queue" }
+    fn version(&self) -> i32 {
+        22
+    }
+    fn description(&self) -> &'static str {
+        "Remove unused priority column from unified_queue"
+    }
 }

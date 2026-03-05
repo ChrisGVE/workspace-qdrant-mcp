@@ -100,9 +100,7 @@ struct _ToolAvailability {
 ///
 /// Returns a map from `(tool_type, language)` to the list of queue IDs that
 /// depend on that tool. Non-tool missing entries are skipped.
-fn group_items_by_tool(
-    items: &[MissingMetadataItem],
-) -> HashMap<(String, String), Vec<String>> {
+fn group_items_by_tool(items: &[MissingMetadataItem]) -> HashMap<(String, String), Vec<String>> {
     let mut tools_to_check: HashMap<(String, String), Vec<String>> = HashMap::new();
 
     for item in items {
@@ -135,10 +133,7 @@ async fn requeue_items_for_tool(
     stats: &mut RequeueStats,
 ) {
     for queue_id in queue_ids {
-        match queue_manager
-            .retry_missing_metadata_item(&queue_id)
-            .await
-        {
+        match queue_manager.retry_missing_metadata_item(&queue_id).await {
             Ok(true) => {
                 stats.items_requeued += 1;
             }
@@ -172,11 +167,7 @@ pub struct ToolMonitor {
 
 impl ToolMonitor {
     /// Create a new tool monitor
-    pub fn new(
-        config: MonitoringConfig,
-        db_pool: SqlitePool,
-        queue_manager: QueueManager,
-    ) -> Self {
+    pub fn new(config: MonitoringConfig, db_pool: SqlitePool, queue_manager: QueueManager) -> Self {
         Self {
             config,
             db_pool,
@@ -191,7 +182,10 @@ impl ToolMonitor {
     /// **DEPRECATED**: This method creates the tool_availability table which
     /// violates 3-table SQLite compliance. Do not call this method.
     /// Tool availability should be tracked in-memory instead.
-    #[deprecated(since = "0.1.0-beta1", note = "Violates 3-table SQLite compliance. Use in-memory state instead.")]
+    #[deprecated(
+        since = "0.1.0-beta1",
+        note = "Violates 3-table SQLite compliance. Use in-memory state instead."
+    )]
     pub async fn initialize_schema(&self) -> MonitoringResult<()> {
         warn!("initialize_schema() is deprecated - tool_availability table violates 3-table compliance");
         // Return Ok without creating the table to avoid schema violations
@@ -283,8 +277,7 @@ impl ToolMonitor {
         }
 
         // Create periodic interval
-        let interval_duration =
-            std::time::Duration::from_secs(config.check_interval_hours * 3600);
+        let interval_duration = std::time::Duration::from_secs(config.check_interval_hours * 3600);
         let mut interval = tokio::time::interval(interval_duration);
 
         // Skip first tick (we already did startup check)
@@ -340,7 +333,10 @@ impl ToolMonitor {
             return Ok(stats);
         }
 
-        info!("Checking {} items from missing_metadata_queue", missing_items.len());
+        info!(
+            "Checking {} items from missing_metadata_queue",
+            missing_items.len()
+        );
 
         let tools_to_check = group_items_by_tool(&missing_items);
         stats.tools_checked = tools_to_check.len();
@@ -351,7 +347,10 @@ impl ToolMonitor {
                 Ok(Some(tool_path)) => {
                     info!(
                         "Tool now available: {} for {} ({}), requeuing {} items",
-                        tool_type, language, tool_path, queue_ids.len()
+                        tool_type,
+                        language,
+                        tool_path,
+                        queue_ids.len()
                     );
                     stats.tools_now_available += 1;
                     requeue_items_for_tool(queue_manager, queue_ids, &mut stats).await;
@@ -396,7 +395,11 @@ impl ToolMonitor {
             "Tool check: {} for {} - {}",
             tool_type,
             language,
-            if is_available { "AVAILABLE" } else { "NOT AVAILABLE" }
+            if is_available {
+                "AVAILABLE"
+            } else {
+                "NOT AVAILABLE"
+            }
         );
 
         Ok(tool_path)

@@ -18,7 +18,9 @@ pub enum SearchDbError {
     #[error("Schema migration error: {0}")]
     Migration(String),
 
-    #[error("Downgrade not supported: database version {db_version} > code version {code_version}")]
+    #[error(
+        "Downgrade not supported: database version {db_version} > code version {code_version}"
+    )]
     DowngradeNotSupported { db_version: i32, code_version: i32 },
 
     #[error("IO error: {0}")]

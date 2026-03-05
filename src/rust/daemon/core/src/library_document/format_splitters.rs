@@ -90,11 +90,10 @@ pub fn split_pdf(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumen
 /// Split a PPTX into per-slide structural units.
 pub fn split_pptx(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
     let file = File::open(file_path)?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
-            format: "pptx".into(),
-            message: e.to_string(),
-        })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
+        format: "pptx".into(),
+        message: e.to_string(),
+    })?;
 
     // Collect and sort slide file names
     let mut slide_names: Vec<String> = (0..archive.len())
@@ -140,11 +139,10 @@ pub fn split_pptx(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocume
 /// If no section boundaries found, treats entire document as one section.
 pub fn split_docx(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
     let file = File::open(file_path)?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
-            format: "docx".into(),
-            message: e.to_string(),
-        })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
+        format: "docx".into(),
+        message: e.to_string(),
+    })?;
 
     let mut xml_content = String::new();
     if let Ok(mut doc_file) = archive.by_name("word/document.xml") {
@@ -207,11 +205,10 @@ pub fn split_odp(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumen
 /// document as one section.
 pub fn split_odt(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
     let file = File::open(file_path)?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
-            format: "odt".into(),
-            message: e.to_string(),
-        })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
+        format: "odt".into(),
+        message: e.to_string(),
+    })?;
 
     let mut xml_content = String::new();
     if let Ok(mut content_file) = archive.by_name("content.xml") {
@@ -265,11 +262,10 @@ pub fn split_odt(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumen
 /// Split an ODS (OpenDocument Spreadsheet) into per-sheet structural units.
 pub fn split_ods(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
     let file = File::open(file_path)?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
-            format: "ods".into(),
-            message: e.to_string(),
-        })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
+        format: "ods".into(),
+        message: e.to_string(),
+    })?;
 
     let mut xml_content = String::new();
     if let Ok(mut content_file) = archive.by_name("content.xml") {
@@ -335,12 +331,11 @@ pub fn split_rtf(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumen
 
 /// Split an EPUB into per-chapter structural units.
 pub fn split_epub(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
-    let mut doc = epub::doc::EpubDoc::new(file_path).map_err(|e| {
-        LibraryDocumentError::Extraction {
+    let mut doc =
+        epub::doc::EpubDoc::new(file_path).map_err(|e| LibraryDocumentError::Extraction {
             format: "epub".into(),
             message: e.to_string(),
-        }
-    })?;
+        })?;
 
     let mut units = Vec::new();
     let mut spine_index = 0usize;
@@ -427,11 +422,10 @@ fn split_opendocument_pages(
     locator_key: &str,
 ) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
     let file = File::open(file_path)?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
-            format: format_name.into(),
-            message: e.to_string(),
-        })?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| LibraryDocumentError::Extraction {
+        format: format_name.into(),
+        message: e.to_string(),
+    })?;
 
     let mut xml_content = String::new();
     if let Ok(mut content_file) = archive.by_name("content.xml") {

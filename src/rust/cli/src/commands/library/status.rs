@@ -2,9 +2,9 @@
 
 use anyhow::{Context, Result};
 
+use super::helpers::open_db;
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
-use super::helpers::open_db;
 
 /// Show watch status for all libraries
 pub async fn execute() -> Result<()> {
@@ -59,10 +59,12 @@ fn show_library_status() -> Result<()> {
         }
     };
 
-    let mut stmt = conn.prepare(
-        "SELECT tenant_id, path, library_mode, enabled \
-         FROM watch_folders WHERE collection = 'libraries' ORDER BY tenant_id"
-    ).context("Failed to query watch_folders")?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT tenant_id, path, library_mode, enabled \
+         FROM watch_folders WHERE collection = 'libraries' ORDER BY tenant_id",
+        )
+        .context("Failed to query watch_folders")?;
 
     let libraries: Vec<(String, String, Option<String>, bool)> = stmt
         .query_map([], |row| {

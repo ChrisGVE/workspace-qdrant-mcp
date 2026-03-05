@@ -1,7 +1,6 @@
 /// Tesseract OCR engine wrapper.
 ///
 /// Provides thread-safe text extraction from image bytes using leptess.
-
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -89,14 +88,13 @@ impl OcrEngine {
     /// for async contexts.
     pub fn extract_text(&self, image_bytes: &[u8]) -> Result<OcrResult, OcrError> {
         if image_bytes.is_empty() {
-            return Err(OcrError::ExtractionFailed(
-                "empty image data".to_string(),
-            ));
+            return Err(OcrError::ExtractionFailed("empty image data".to_string()));
         }
 
-        let mut lt = self.inner.lock().map_err(|e| {
-            OcrError::ExtractionFailed(format!("lock poisoned: {e}"))
-        })?;
+        let mut lt = self
+            .inner
+            .lock()
+            .map_err(|e| OcrError::ExtractionFailed(format!("lock poisoned: {e}")))?;
 
         lt.set_image_from_mem(image_bytes)
             .map_err(|e| OcrError::ExtractionFailed(format!("failed to load image: {e}")))?;
@@ -247,7 +245,10 @@ mod tests {
         let result = engine.extract_text(&bytes).unwrap();
 
         // Should extract some text (likely "Hello World" or similar)
-        assert!(!result.text.is_empty(), "OCR should extract text from image");
+        assert!(
+            !result.text.is_empty(),
+            "OCR should extract text from image"
+        );
         assert!(result.confidence > 0.0, "confidence should be positive");
     }
 

@@ -80,10 +80,7 @@ mod tests {
     fn format_utc_matches_expected_pattern() {
         let ts = now_utc();
         // YYYY-MM-DDTHH:MM:SS.mmmZ
-        let re = regex_lite::Regex::new(
-            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$",
-        )
-        .unwrap();
+        let re = regex_lite::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$").unwrap();
         assert!(re.is_match(&ts), "Timestamp doesn't match pattern: {}", ts);
     }
 

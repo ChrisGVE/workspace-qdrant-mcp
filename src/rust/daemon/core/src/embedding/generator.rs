@@ -1,15 +1,17 @@
 //! Embedding generator and text preprocessor using FastEmbed.
 
+use fastembed::{
+    EmbeddingModel, InitOptions, SparseInitOptions, SparseModel, SparseTextEmbedding, TextEmbedding,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel, SparseTextEmbedding, SparseInitOptions, SparseModel};
 
 use super::bm25::{tokenize_for_bm25, BM25};
 use super::types::{
-    DenseEmbedding, EmbeddingConfig, EmbeddingError, EmbeddingResult,
-    PreprocessedText, SparseEmbedding,
+    DenseEmbedding, EmbeddingConfig, EmbeddingError, EmbeddingResult, PreprocessedText,
+    SparseEmbedding,
 };
 
 /// Embedding generator using FastEmbed
@@ -28,7 +30,10 @@ impl std::fmt::Debug for EmbeddingGenerator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmbeddingGenerator")
             .field("config", &self.config)
-            .field("initialized", &self.initialized.load(std::sync::atomic::Ordering::SeqCst))
+            .field(
+                "initialized",
+                &self.initialized.load(std::sync::atomic::Ordering::SeqCst),
+            )
             .field("sparse_mode", &self.config.sparse_vector_mode)
             .finish()
     }
@@ -59,8 +64,8 @@ impl EmbeddingGenerator {
         }
 
         // Build InitOptions with optional cache directory and thread count
-        let mut init_options = InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-            .with_show_download_progress(true);
+        let mut init_options =
+            InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(true);
 
         if let Some(threads) = self.config.num_threads {
             info!("ONNX intra-op threads: {}", threads);
@@ -68,19 +73,24 @@ impl EmbeddingGenerator {
         }
 
         if let Some(ref cache_dir) = self.model_cache_dir {
-            info!("Initializing FastEmbed model (all-MiniLM-L6-v2) with cache dir: {}", cache_dir.display());
+            info!(
+                "Initializing FastEmbed model (all-MiniLM-L6-v2) with cache dir: {}",
+                cache_dir.display()
+            );
             init_options = init_options.with_cache_dir(cache_dir.clone());
         } else {
             info!("Initializing FastEmbed model (all-MiniLM-L6-v2) with default cache dir...");
         }
 
-        let model = TextEmbedding::try_new(init_options)
-            .map_err(|e| EmbeddingError::InitializationError {
+        let model = TextEmbedding::try_new(init_options).map_err(|e| {
+            EmbeddingError::InitializationError {
                 message: format!("Failed to initialize FastEmbed: {}", e),
-            })?;
+            }
+        })?;
 
         *model_guard = Some(model);
-        self.initialized.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.initialized
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         info!("FastEmbed model initialized successfully");
         Ok(())
     }
@@ -97,23 +107,28 @@ impl EmbeddingGenerator {
         self.ensure_initialized().await?;
 
         let mut model_guard = self.model.lock().await;
-        let model = model_guard.as_mut().ok_or_else(|| EmbeddingError::InitializationError {
-            message: "Model not initialized".to_string(),
-        })?;
+        let model = model_guard
+            .as_mut()
+            .ok_or_else(|| EmbeddingError::InitializationError {
+                message: "Model not initialized".to_string(),
+            })?;
 
         // Generate dense embedding
         let documents = vec![text];
-        let embeddings = model.embed(documents, None).map_err(|e| {
-            EmbeddingError::GenerationError {
-                message: format!("Embedding generation failed: {}", e),
-            }
-        })?;
+        let embeddings =
+            model
+                .embed(documents, None)
+                .map_err(|e| EmbeddingError::GenerationError {
+                    message: format!("Embedding generation failed: {}", e),
+                })?;
 
-        let dense_vector = embeddings.into_iter().next().ok_or_else(|| {
-            EmbeddingError::GenerationError {
-                message: "No embedding returned".to_string(),
-            }
-        })?;
+        let dense_vector =
+            embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| EmbeddingError::GenerationError {
+                    message: "No embedding returned".to_string(),
+                })?;
 
         // Generate sparse embedding using BM25
         let tokens = tokenize_for_bm25(text);
@@ -194,8 +209,8 @@ impl EmbeddingGenerator {
         let mut guard = self.splade_model.lock().await;
         if guard.is_none() {
             info!("Initializing SPLADE++ model (first call, ~150MB download)...");
-            let mut init_opts = SparseInitOptions::new(SparseModel::SPLADEPPV1)
-                .with_show_download_progress(true);
+            let mut init_opts =
+                SparseInitOptions::new(SparseModel::SPLADEPPV1).with_show_download_progress(true);
             if let Some(ref cache_dir) = self.model_cache_dir {
                 init_opts = init_opts.with_cache_dir(cache_dir.clone());
             }
@@ -209,17 +224,19 @@ impl EmbeddingGenerator {
         }
 
         let model = guard.as_mut().unwrap();
-        let results = model
-            .embed(vec![text.to_string()], None)
-            .map_err(|e| EmbeddingError::GenerationError {
-                message: format!("SPLADE++ embedding failed: {}", e),
-            })?;
-
-        let fe_sparse = results.into_iter().next().ok_or_else(|| {
+        let results = model.embed(vec![text.to_string()], None).map_err(|e| {
             EmbeddingError::GenerationError {
-                message: "SPLADE++ returned no embeddings".to_string(),
+                message: format!("SPLADE++ embedding failed: {}", e),
             }
         })?;
+
+        let fe_sparse =
+            results
+                .into_iter()
+                .next()
+                .ok_or_else(|| EmbeddingError::GenerationError {
+                    message: "SPLADE++ returned no embeddings".to_string(),
+                })?;
 
         // Convert fastembed usize indices to our u32 indices
         Ok(SparseEmbedding {
@@ -238,7 +255,9 @@ pub struct TextPreprocessor {
 
 impl TextPreprocessor {
     pub fn new(enable_preprocessing: bool) -> Self {
-        Self { enable_preprocessing }
+        Self {
+            enable_preprocessing,
+        }
     }
 
     pub fn preprocess(&self, text: &str) -> PreprocessedText {

@@ -64,8 +64,7 @@ impl MemoryTracker {
 
     /// End memory tracking and log difference
     pub fn end(self) -> Option<isize> {
-        if let (Some(initial), Some(final_memory)) =
-            (self.initial_memory, Self::get_memory_usage())
+        if let (Some(initial), Some(final_memory)) = (self.initial_memory, Self::get_memory_usage())
         {
             let diff = final_memory as isize - initial as isize;
             tracing::info!(
@@ -77,7 +76,10 @@ impl MemoryTracker {
             );
             Some(diff)
         } else {
-            tracing::warn!("Memory tracking not available for '{}'", self.operation_name);
+            tracing::warn!(
+                "Memory tracking not available for '{}'",
+                self.operation_name
+            );
             None
         }
     }

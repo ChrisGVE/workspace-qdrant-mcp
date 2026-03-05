@@ -17,7 +17,7 @@ pub(crate) fn classify_and_store_pattern(
         // Complex patterns - analyze for optimization
         if pattern.starts_with('*') && pattern.ends_with('*') && pattern.len() > 2 {
             // *pattern* -> contains
-            let inner = &pattern[1..pattern.len()-1];
+            let inner = &pattern[1..pattern.len() - 1];
             contains_patterns.push(inner.to_string());
         } else if pattern.starts_with('*') && pattern.len() > 1 {
             // *pattern -> suffix
@@ -25,7 +25,7 @@ pub(crate) fn classify_and_store_pattern(
             suffix_patterns.push(suffix.to_string());
         } else if pattern.ends_with('*') && pattern.len() > 1 {
             // pattern* -> prefix
-            let prefix = &pattern[..pattern.len()-1];
+            let prefix = &pattern[..pattern.len() - 1];
             prefix_patterns.push(prefix.to_string());
         } else if pattern.ends_with('/') {
             // directory pattern
@@ -44,10 +44,15 @@ pub(crate) fn classify_and_store_pattern(
 pub(crate) fn get_critical_exclusion_patterns() -> Vec<(String, String)> {
     vec![
         // System files
-        ("Thumbs.db".to_string(), "Windows thumbnail cache".to_string()),
+        (
+            "Thumbs.db".to_string(),
+            "Windows thumbnail cache".to_string(),
+        ),
         (".DS_Store".to_string(), "macOS folder metadata".to_string()),
-        ("desktop.ini".to_string(), "Windows folder settings".to_string()),
-
+        (
+            "desktop.ini".to_string(),
+            "Windows folder settings".to_string(),
+        ),
         // Temporary files
         ("~$".to_string(), "Office temporary files".to_string()),
         (".tmp".to_string(), "Temporary files".to_string()),
@@ -55,15 +60,19 @@ pub(crate) fn get_critical_exclusion_patterns() -> Vec<(String, String)> {
         (".swp".to_string(), "Vim swap files".to_string()),
         (".swo".to_string(), "Vim swap files".to_string()),
         (".orig".to_string(), "Merge conflict backup".to_string()),
-
         // Security sensitive
-        (".env".to_string(), "Environment variables (potentially sensitive)".to_string()),
-        (".env.local".to_string(), "Local environment variables".to_string()),
+        (
+            ".env".to_string(),
+            "Environment variables (potentially sensitive)".to_string(),
+        ),
+        (
+            ".env.local".to_string(),
+            "Local environment variables".to_string(),
+        ),
         ("id_rsa".to_string(), "SSH private key".to_string()),
         ("id_dsa".to_string(), "SSH private key".to_string()),
         ("id_ecdsa".to_string(), "SSH private key".to_string()),
         ("id_ed25519".to_string(), "SSH private key".to_string()),
-
         // Large binaries
         (".dmg".to_string(), "macOS disk image".to_string()),
         (".iso".to_string(), "Disk image".to_string()),

@@ -11,8 +11,8 @@ pub mod debug;
 
 // Content Management
 pub mod library;
-pub mod rules;
 pub mod project;
+pub mod rules;
 pub mod scratch;
 
 // Search & Queue
@@ -27,11 +27,11 @@ pub mod language;
 
 // System Administration
 pub mod admin;
-pub mod rebuild;
-pub mod config_cmd;
 pub mod backup;
 pub mod collections;
+pub mod config_cmd;
 pub mod ingest;
+pub mod rebuild;
 pub mod restore;
 pub mod update;
 pub mod watch;

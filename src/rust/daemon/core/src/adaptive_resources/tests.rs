@@ -1,9 +1,9 @@
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::ResourceLimitsConfig;
-use super::*;
 use super::idle_detection::is_cpu_under_pressure;
+use super::*;
+use crate::config::ResourceLimitsConfig;
 
 fn test_limits() -> ResourceLimitsConfig {
     ResourceLimitsConfig {
@@ -22,9 +22,18 @@ fn test_limits() -> ResourceLimitsConfig {
 
 #[test]
 fn test_resource_profile_equality() {
-    let a = ResourceProfile { max_concurrent_embeddings: 2, inter_item_delay_ms: 50 };
-    let b = ResourceProfile { max_concurrent_embeddings: 2, inter_item_delay_ms: 50 };
-    let c = ResourceProfile { max_concurrent_embeddings: 4, inter_item_delay_ms: 0 };
+    let a = ResourceProfile {
+        max_concurrent_embeddings: 2,
+        inter_item_delay_ms: 50,
+    };
+    let b = ResourceProfile {
+        max_concurrent_embeddings: 2,
+        inter_item_delay_ms: 50,
+    };
+    let c = ResourceProfile {
+        max_concurrent_embeddings: 4,
+        inter_item_delay_ms: 0,
+    };
     assert_eq!(a, b);
     assert_ne!(a, c);
 }
@@ -74,10 +83,22 @@ fn test_resource_mode_as_str() {
 
 #[test]
 fn test_resource_mode_from_level() {
-    assert_eq!(ResourceMode::from(ResourceLevel::Normal), ResourceMode::Normal);
-    assert_eq!(ResourceMode::from(ResourceLevel::Active), ResourceMode::Active);
-    assert_eq!(ResourceMode::from(ResourceLevel::Elevated), ResourceMode::RampingUp(2));
-    assert_eq!(ResourceMode::from(ResourceLevel::Burst), ResourceMode::Burst);
+    assert_eq!(
+        ResourceMode::from(ResourceLevel::Normal),
+        ResourceMode::Normal
+    );
+    assert_eq!(
+        ResourceMode::from(ResourceLevel::Active),
+        ResourceMode::Active
+    );
+    assert_eq!(
+        ResourceMode::from(ResourceLevel::Elevated),
+        ResourceMode::RampingUp(2)
+    );
+    assert_eq!(
+        ResourceMode::from(ResourceLevel::Burst),
+        ResourceMode::Burst
+    );
 }
 
 // --- AdaptiveResourceConfig tests ---
@@ -166,15 +187,39 @@ fn test_mode_encoding_all_variants() {
 
 #[test]
 fn test_profile_for_level() {
-    let normal = ResourceProfile { max_concurrent_embeddings: 2, inter_item_delay_ms: 50 };
-    let active = ResourceProfile { max_concurrent_embeddings: 3, inter_item_delay_ms: 25 };
-    let elevated = ResourceProfile { max_concurrent_embeddings: 3, inter_item_delay_ms: 12 };
-    let burst = ResourceProfile { max_concurrent_embeddings: 4, inter_item_delay_ms: 0 };
+    let normal = ResourceProfile {
+        max_concurrent_embeddings: 2,
+        inter_item_delay_ms: 50,
+    };
+    let active = ResourceProfile {
+        max_concurrent_embeddings: 3,
+        inter_item_delay_ms: 25,
+    };
+    let elevated = ResourceProfile {
+        max_concurrent_embeddings: 3,
+        inter_item_delay_ms: 12,
+    };
+    let burst = ResourceProfile {
+        max_concurrent_embeddings: 4,
+        inter_item_delay_ms: 0,
+    };
 
-    assert_eq!(profile_for_level(ResourceLevel::Normal, &normal, &active, &elevated, &burst), normal);
-    assert_eq!(profile_for_level(ResourceLevel::Active, &normal, &active, &elevated, &burst), active);
-    assert_eq!(profile_for_level(ResourceLevel::Elevated, &normal, &active, &elevated, &burst), elevated);
-    assert_eq!(profile_for_level(ResourceLevel::Burst, &normal, &active, &elevated, &burst), burst);
+    assert_eq!(
+        profile_for_level(ResourceLevel::Normal, &normal, &active, &elevated, &burst),
+        normal
+    );
+    assert_eq!(
+        profile_for_level(ResourceLevel::Active, &normal, &active, &elevated, &burst),
+        active
+    );
+    assert_eq!(
+        profile_for_level(ResourceLevel::Elevated, &normal, &active, &elevated, &burst),
+        elevated
+    );
+    assert_eq!(
+        profile_for_level(ResourceLevel::Burst, &normal, &active, &elevated, &burst),
+        burst
+    );
 }
 
 // --- Manager lifecycle tests ---

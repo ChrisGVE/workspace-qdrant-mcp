@@ -398,7 +398,7 @@ mod tests {
         assert!(config.monitoring.enable_monitoring);
         assert!(config.git.enable_branch_detection);
         assert_eq!(config.git.cache_ttl_seconds, 5); // from YAML branch_scan_interval_seconds
-        // Embedding settings defaults
+                                                     // Embedding settings defaults
         assert_eq!(config.embedding.cache_max_entries, 1000);
         assert!(config.embedding.model_cache_dir.is_none());
     }
@@ -416,9 +416,15 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(config.resource_limits.nice_level, 10);
         assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
-        assert_eq!(config.resource_limits.max_concurrent_embeddings, 0, "default is 0 (auto-detect)");
+        assert_eq!(
+            config.resource_limits.max_concurrent_embeddings, 0,
+            "default is 0 (auto-detect)"
+        );
         assert_eq!(config.resource_limits.max_memory_percent, 70);
-        assert_eq!(config.resource_limits.onnx_intra_threads, 0, "default is 0 (auto-detect)");
+        assert_eq!(
+            config.resource_limits.onnx_intra_threads, 0,
+            "default is 0 (auto-detect)"
+        );
     }
 
     #[test]

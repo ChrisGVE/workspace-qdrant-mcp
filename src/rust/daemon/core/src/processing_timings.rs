@@ -109,27 +109,37 @@ mod tests {
         .unwrap();
 
         let timings = vec![
-            PhaseTiming { phase: "parse", duration_ms: 42 },
-            PhaseTiming { phase: "embed", duration_ms: 150 },
-            PhaseTiming { phase: "upsert", duration_ms: 30 },
+            PhaseTiming {
+                phase: "parse",
+                duration_ms: 42,
+            },
+            PhaseTiming {
+                phase: "embed",
+                duration_ms: 150,
+            },
+            PhaseTiming {
+                phase: "upsert",
+                duration_ms: 30,
+            },
         ];
 
-        record_timings(&pool, "q-123", "file", "add", "tenant-1", "projects", &timings).await;
+        record_timings(
+            &pool, "q-123", "file", "add", "tenant-1", "projects", &timings,
+        )
+        .await;
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM processing_timings")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM processing_timings")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 3);
 
         // Verify phases
-        let phases: Vec<String> = sqlx::query_scalar(
-            "SELECT phase FROM processing_timings ORDER BY timing_id",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+        let phases: Vec<String> =
+            sqlx::query_scalar("SELECT phase FROM processing_timings ORDER BY timing_id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         assert_eq!(phases, vec!["parse", "embed", "upsert"]);
     }
 
@@ -144,7 +154,10 @@ mod tests {
     async fn test_record_timings_missing_table_no_panic() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         // Table doesn't exist — should log error but not panic
-        let timings = vec![PhaseTiming { phase: "parse", duration_ms: 10 }];
+        let timings = vec![PhaseTiming {
+            phase: "parse",
+            duration_ms: 10,
+        }];
         record_timings(&pool, "q-123", "file", "add", "t", "projects", &timings).await;
     }
 
@@ -190,11 +203,10 @@ mod tests {
 
         cleanup_old_timings(&pool, 30).await;
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM processing_timings")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM processing_timings")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 1); // Only the recent one remains
     }
 }

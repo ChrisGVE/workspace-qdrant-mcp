@@ -25,7 +25,9 @@ pub enum GraphDbError {
     #[error("Schema migration error: {0}")]
     Migration(String),
 
-    #[error("Downgrade not supported: database version {db_version} > code version {code_version}")]
+    #[error(
+        "Downgrade not supported: database version {db_version} > code version {code_version}"
+    )]
     DowngradeNotSupported { db_version: i32, code_version: i32 },
 
     #[error("IO error: {0}")]
@@ -231,11 +233,9 @@ impl GraphDbManager {
         sqlx::query("CREATE INDEX idx_edges_target ON graph_edges(target_node_id)")
             .execute(&mut *tx)
             .await?;
-        sqlx::query(
-            "CREATE INDEX idx_edges_source_file ON graph_edges(tenant_id, source_file)",
-        )
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("CREATE INDEX idx_edges_source_file ON graph_edges(tenant_id, source_file)")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("CREATE INDEX idx_edges_type ON graph_edges(edge_type)")
             .execute(&mut *tx)
             .await?;

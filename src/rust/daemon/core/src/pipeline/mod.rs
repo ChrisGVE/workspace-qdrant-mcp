@@ -12,9 +12,9 @@
 //! - `handlers/` — individual chain handlers
 
 use async_trait::async_trait;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde_json::Value;
 
 /// Result of a single pipeline handler invocation.
 pub enum PipelineResult {
@@ -123,7 +123,10 @@ impl Pipeline {
     }
 
     /// Run all handlers in order. Stops on `Skip` or `Abort`.
-    pub async fn run(&self, ctx: &mut PipelineContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn run(
+        &self,
+        ctx: &mut PipelineContext,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         for handler in &self.handlers {
             tracing::debug!("Pipeline handler: {}", handler.name());
             match handler.handle(ctx).await {
@@ -172,10 +175,7 @@ mod tests {
     #[async_trait]
     impl PipelineHandler for CountHandler {
         async fn handle(&self, ctx: &mut PipelineContext) -> PipelineResult {
-            let count = ctx
-                .get_state("count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let count = ctx.get_state("count").and_then(|v| v.as_u64()).unwrap_or(0);
             ctx.set_state("count", serde_json::json!(count + 1));
             PipelineResult::Continue
         }

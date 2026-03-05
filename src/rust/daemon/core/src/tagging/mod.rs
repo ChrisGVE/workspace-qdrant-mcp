@@ -18,22 +18,19 @@ pub mod tier3;
 pub mod tier3_config;
 
 // ── Tier 1 re-exports ────────────────────────────────────────────────────
-pub use tier1::{
-    extract_path_tags, extract_pdf_metadata_tags, extract_tier1_tags,
-    pdf_metadata_to_tags, PdfMetadataTags,
-};
 pub use concepts::{
-    extract_cargo_concepts, extract_gomod_concepts, extract_npm_concepts,
-    extract_pip_concepts,
+    extract_cargo_concepts, extract_gomod_concepts, extract_npm_concepts, extract_pip_concepts,
+};
+pub use tier1::{
+    extract_path_tags, extract_pdf_metadata_tags, extract_tier1_tags, pdf_metadata_to_tags,
+    PdfMetadataTags,
 };
 
 // ── Tier 2 re-exports ────────────────────────────────────────────────────
-pub use taxonomy::{load_taxonomy, load_taxonomy_from_file, TaxonomyEntry};
-pub use tier2::{Tier2Config, Tier2Tagger, TaxonomyMatch};
 pub use aggregation::{aggregate_document_embedding, aggregate_document_embedding_weighted};
+pub use taxonomy::{load_taxonomy, load_taxonomy_from_file, TaxonomyEntry};
+pub use tier2::{TaxonomyMatch, Tier2Config, Tier2Tagger};
 
 // ── Tier 3 re-exports ────────────────────────────────────────────────────
-pub use tier3_config::{
-    AccessMode, LlmProvider, ProviderConfig, Tier3Config,
-};
 pub use tier3::Tier3Tagger;
+pub use tier3_config::{AccessMode, LlmProvider, ProviderConfig, Tier3Config};

@@ -28,10 +28,7 @@ pub fn enrich_text_with_ocr(
             // No OCR engine configured -- still record image count metadata
             let images = extract_images(file_path);
             if !images.is_empty() {
-                metadata.insert(
-                    "images_detected".to_string(),
-                    images.len().to_string(),
-                );
+                metadata.insert("images_detected".to_string(), images.len().to_string());
             }
             return raw_text;
         }
@@ -43,10 +40,7 @@ pub fn enrich_text_with_ocr(
         return raw_text;
     }
 
-    metadata.insert(
-        "images_detected".to_string(),
-        images.len().to_string(),
-    );
+    metadata.insert("images_detected".to_string(), images.len().to_string());
 
     let mut ocr_texts: Vec<String> = Vec::new();
     let mut total_confidence: f32 = 0.0;
@@ -111,7 +105,10 @@ fn append_ocr_texts(
     metadata.insert("has_ocr_content".to_string(), "true".to_string());
     metadata.insert("ocr_images_processed".to_string(), ocr_count.to_string());
     let avg_confidence = total_confidence / ocr_count as f32;
-    metadata.insert("ocr_confidence".to_string(), format!("{:.2}", avg_confidence));
+    metadata.insert(
+        "ocr_confidence".to_string(),
+        format!("{:.2}", avg_confidence),
+    );
 
     debug!(
         path = %file_path.display(),

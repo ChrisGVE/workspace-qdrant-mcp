@@ -7,7 +7,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use wqm_common::constants::{
-    COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
+    COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
 };
 
 mod cleanup_orphans;
@@ -16,11 +16,8 @@ mod prune_logs;
 mod rename_tenant;
 
 /// Canonical collection names (validated against wqm-common constants)
-pub(super) const VALID_COLLECTIONS: &[&str] = &[
-    COLLECTION_PROJECTS,
-    COLLECTION_LIBRARIES,
-    COLLECTION_RULES,
-];
+pub(super) const VALID_COLLECTIONS: &[&str] =
+    &[COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES];
 
 /// All 4 canonical collections for orphan scanning
 pub(super) const ALL_COLLECTIONS: &[&str] = &[
@@ -103,20 +100,23 @@ enum AdminCommand {
 /// Execute admin command
 pub async fn execute(args: AdminArgs) -> Result<()> {
     match args.command {
-        AdminCommand::RenameTenant { old_id, new_id, yes } => {
-            rename_tenant::execute(old_id, new_id, yes).await
-        }
-        AdminCommand::IdleHistory { hours, script, no_headers } => {
-            idle_history::execute(hours, script, no_headers)
-        }
-        AdminCommand::PruneLogs { dry_run, retention_hours } => {
-            prune_logs::execute(dry_run, retention_hours)
-        }
+        AdminCommand::RenameTenant {
+            old_id,
+            new_id,
+            yes,
+        } => rename_tenant::execute(old_id, new_id, yes).await,
+        AdminCommand::IdleHistory {
+            hours,
+            script,
+            no_headers,
+        } => idle_history::execute(hours, script, no_headers),
+        AdminCommand::PruneLogs {
+            dry_run,
+            retention_hours,
+        } => prune_logs::execute(dry_run, retention_hours),
         AdminCommand::CleanupOrphans { delete, collection } => {
             cleanup_orphans::execute(delete, collection).await
         }
-        AdminCommand::RecoverState { confirm } => {
-            super::recover_state::execute(confirm).await
-        }
+        AdminCommand::RecoverState { confirm } => super::recover_state::execute(confirm).await,
     }
 }

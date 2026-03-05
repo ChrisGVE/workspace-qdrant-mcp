@@ -15,9 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::processing::{
-    PipelineStats, TaskPayload, TaskPriority, TaskResult, TaskSource,
-};
+use crate::processing::{PipelineStats, TaskPayload, TaskPriority, TaskResult, TaskSource};
 
 /// IPC communication errors
 #[derive(Error, Debug)]
@@ -88,7 +86,10 @@ pub enum IpcRequest {
 #[serde(tag = "type", content = "data")]
 pub enum IpcResponse {
     /// Task submitted successfully
-    TaskSubmitted { task_id: uuid::Uuid, request_id: String },
+    TaskSubmitted {
+        task_id: uuid::Uuid,
+        request_id: String,
+    },
 
     /// Task completed
     TaskCompleted {

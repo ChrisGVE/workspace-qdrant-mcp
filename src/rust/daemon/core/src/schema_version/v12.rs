@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V12Migration;
 
@@ -15,11 +15,10 @@ impl Migration for V12Migration {
         info!("Migration v12: Creating search_events table");
 
         use crate::search_events_schema::{
-            CREATE_SEARCH_EVENTS_SQL, CREATE_SEARCH_EVENTS_INDEXES_SQL,
+            CREATE_SEARCH_EVENTS_INDEXES_SQL, CREATE_SEARCH_EVENTS_SQL,
         };
 
-        sqlx::query(CREATE_SEARCH_EVENTS_SQL)
-            .execute(pool).await?;
+        sqlx::query(CREATE_SEARCH_EVENTS_SQL).execute(pool).await?;
 
         for index_sql in CREATE_SEARCH_EVENTS_INDEXES_SQL {
             sqlx::query(index_sql).execute(pool).await?;
@@ -29,6 +28,10 @@ impl Migration for V12Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 12 }
-    fn description(&self) -> &'static str { "Create search_events table" }
+    fn version(&self) -> i32 {
+        12
+    }
+    fn description(&self) -> &'static str {
+        "Create search_events table"
+    }
 }

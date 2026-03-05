@@ -52,8 +52,7 @@ fn spawn_process_batch_concurrent(
                             .ok()
                             .map(|m| m.len() as usize)
                             .unwrap_or(0);
-                        metrics_clone
-                            .record_success(size, start.elapsed().as_millis() as u64);
+                        metrics_clone.record_success(size, start.elapsed().as_millis() as u64);
                     }
                     Err(_) => metrics_clone.record_failure(),
                 }
@@ -74,10 +73,7 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
     let (pool, _db_dir) = setup_test_db().await;
     let queue_manager = QueueManager::new(pool.clone());
 
-    println!(
-        "\n Starting high volume stress test: {} files",
-        FILE_COUNT
-    );
+    println!("\n Starting high volume stress test: {} files", FILE_COUNT);
 
     // Create test files
     println!("Creating {} test files...", FILE_COUNT);
@@ -96,10 +92,7 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
     println!("Enqueueing files...");
     for (i, file_path) in file_paths.iter().enumerate() {
         let file_path_str = file_path.to_string_lossy().to_string();
-        let file_size = tokio::fs::metadata(&file_path)
-            .await
-            .ok()
-            .map(|m| m.len());
+        let file_size = tokio::fs::metadata(&file_path).await.ok().map(|m| m.len());
         let payload = FilePayload {
             file_path: file_path_str.clone(),
             file_type: Some("text".to_string()),
@@ -107,8 +100,7 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
             size_bytes: file_size,
             old_path: None,
         };
-        let payload_json =
-            serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
         queue_manager
             .enqueue_unified(
@@ -180,12 +172,8 @@ async fn stress_test_high_rate_ingestion() -> TestResult {
     println!("Pre-creating {} test files...", TOTAL_FILES);
     let mut file_paths = Vec::new();
     for i in 0..TOTAL_FILES {
-        let file_path = create_test_file_with_size(
-            temp_dir.path(),
-            &format!("rapid_{:05}.txt", i),
-            2,
-        )
-        .await?;
+        let file_path =
+            create_test_file_with_size(temp_dir.path(), &format!("rapid_{:05}.txt", i), 2).await?;
         file_paths.push(file_path);
     }
 
@@ -216,8 +204,7 @@ async fn stress_test_high_rate_ingestion() -> TestResult {
                         .ok()
                         .map(|m| m.len() as usize)
                         .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
+                    metrics_clone.record_success(size, start.elapsed().as_millis() as u64);
                 }
                 Err(_) => {
                     metrics_clone.record_failure();
@@ -295,8 +282,7 @@ async fn stress_test_multiple_watchers() -> TestResult {
                             .ok()
                             .map(|m| m.len() as usize)
                             .unwrap_or(0);
-                        metrics_clone
-                            .record_success(size, start.elapsed().as_millis() as u64);
+                        metrics_clone.record_success(size, start.elapsed().as_millis() as u64);
                     }
                     Err(_) => {
                         metrics_clone.record_failure();
@@ -372,18 +358,14 @@ async fn stress_test_large_files() -> TestResult {
 
         let task = tokio::spawn(async move {
             let start = Instant::now();
-            match processor
-                .process_file(&path, "large_files_test")
-                .await
-            {
+            match processor.process_file(&path, "large_files_test").await {
                 Ok(_) => {
                     let size = tokio::fs::metadata(&path)
                         .await
                         .ok()
                         .map(|m| m.len() as usize)
                         .unwrap_or(0);
-                    metrics_clone
-                        .record_success(size, start.elapsed().as_millis() as u64);
+                    metrics_clone.record_success(size, start.elapsed().as_millis() as u64);
                     println!(
                         "  Processed large file: {:.2}MB in {:.2}s",
                         size as f64 / 1_048_576.0,
@@ -411,8 +393,7 @@ async fn stress_test_large_files() -> TestResult {
         "Should process at least 80% of large files"
     );
     assert!(
-        report.total_bytes_processed
-            >= (FILE_SIZE_MB * 1024 * 1024 * FILE_COUNT * 80 / 100),
+        report.total_bytes_processed >= (FILE_SIZE_MB * 1024 * 1024 * FILE_COUNT * 80 / 100),
         "Should process at least 80% of total bytes"
     );
 
@@ -431,10 +412,7 @@ async fn stress_test_memory_constraints() -> TestResult {
     let temp_dir = tempdir()?;
 
     println!("\nStarting memory constraints stress test");
-    println!(
-        "   {} files, max {} concurrent",
-        FILE_COUNT, MAX_CONCURRENT
-    );
+    println!("   {} files, max {} concurrent", FILE_COUNT, MAX_CONCURRENT);
 
     println!("Creating test files...");
     let mut file_paths = Vec::new();

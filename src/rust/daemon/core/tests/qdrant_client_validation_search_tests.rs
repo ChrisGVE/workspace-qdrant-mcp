@@ -77,15 +77,30 @@ async fn setup_search_collection(client: &StorageClient) -> String {
         .expect("Should create test collection");
 
     let docs = vec![
-        create_test_document("rust_doc", "Rust programming language is memory safe and fast"),
-        create_test_document("python_doc", "Python is a high-level programming language for data science"),
-        create_test_document("ml_doc", "Machine learning and artificial intelligence applications"),
-        create_test_document("web_doc", "Web development with modern JavaScript frameworks"),
+        create_test_document(
+            "rust_doc",
+            "Rust programming language is memory safe and fast",
+        ),
+        create_test_document(
+            "python_doc",
+            "Python is a high-level programming language for data science",
+        ),
+        create_test_document(
+            "ml_doc",
+            "Machine learning and artificial intelligence applications",
+        ),
+        create_test_document(
+            "web_doc",
+            "Web development with modern JavaScript frameworks",
+        ),
         create_test_document("db_doc", "Database systems and vector storage technologies"),
     ];
 
     for doc in docs {
-        client.insert_point(&collection_name, doc).await.expect("Should insert doc");
+        client
+            .insert_point(&collection_name, doc)
+            .await
+            .expect("Should insert doc");
     }
 
     sleep(Duration::from_secs(1)).await;
@@ -127,7 +142,10 @@ async fn test_search_operations() {
 
     // Test basic dense search
     let results = client
-        .search(&collection_name, dense_search_params(search_vector.clone(), 3, Some(0.0)))
+        .search(
+            &collection_name,
+            dense_search_params(search_vector.clone(), 3, Some(0.0)),
+        )
         .await
         .expect("Dense search should succeed");
 
@@ -136,29 +154,47 @@ async fn test_search_operations() {
     for result in &results {
         assert!(!result.id.is_empty(), "Result should have valid ID");
         assert!(result.score >= 0.0, "Score should be non-negative");
-        assert!(result.payload.contains_key("content"), "Payload should contain content");
+        assert!(
+            result.payload.contains_key("content"),
+            "Payload should contain content"
+        );
     }
 
     // Test search with high score threshold
     let thresholded = client
-        .search(&collection_name, dense_search_params(search_vector.clone(), 10, Some(0.8)))
+        .search(
+            &collection_name,
+            dense_search_params(search_vector.clone(), 10, Some(0.8)),
+        )
         .await
         .expect("Threshold search should succeed");
     for result in &thresholded {
-        assert!(result.score >= 0.8, "All results should meet score threshold");
+        assert!(
+            result.score >= 0.8,
+            "All results should meet score threshold"
+        );
     }
 
     // Test hybrid search mode
     let hybrid_search = SearchParams {
         dense_vector: Some(search_vector),
         sparse_vector: None,
-        search_mode: HybridSearchMode::Hybrid { dense_weight: 0.7, sparse_weight: 0.3 },
+        search_mode: HybridSearchMode::Hybrid {
+            dense_weight: 0.7,
+            sparse_weight: 0.3,
+        },
         limit: 5,
         score_threshold: None,
         filter: None,
     };
-    let hybrid_res = client.search(&collection_name, hybrid_search).await.expect("Hybrid search should succeed");
-    assert!(!hybrid_res.is_empty(), "Hybrid search should return results");
+    let hybrid_res = client
+        .search(&collection_name, hybrid_search)
+        .await
+        .expect("Hybrid search should succeed");
+    assert!(
+        !hybrid_res.is_empty(),
+        "Hybrid search should return results"
+    );
 
     let _ = client.delete_collection(&collection_name).await;
 }

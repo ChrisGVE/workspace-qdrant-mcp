@@ -1,5 +1,4 @@
 /// AffinityGrouper: main entry point for computing and storing affinity groups.
-
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, info};
 
@@ -65,8 +64,7 @@ impl AffinityGrouper {
             return Ok(0);
         }
 
-        let affinities =
-            compute_pairwise_affinities(&embeddings, self.config.similarity_threshold);
+        let affinities = compute_pairwise_affinities(&embeddings, self.config.similarity_threshold);
 
         if affinities.is_empty() {
             info!("No project pairs exceed affinity threshold");
@@ -85,14 +83,8 @@ impl AffinityGrouper {
             let mean_sim = compute_group_mean_similarity(members, &affinities);
 
             for tenant_id in members {
-                schema::add_to_group(
-                    &self.pool,
-                    &group_id,
-                    tenant_id,
-                    "affinity",
-                    mean_sim,
-                )
-                .await?;
+                schema::add_to_group(&self.pool, &group_id, tenant_id, "affinity", mean_sim)
+                    .await?;
             }
 
             debug!(

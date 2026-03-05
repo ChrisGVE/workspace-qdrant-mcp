@@ -1,21 +1,22 @@
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
-use workspace_qdrant_core::{DocumentProcessor, DocumentType, ChunkingConfig};
+use workspace_qdrant_core::{ChunkingConfig, DocumentProcessor, DocumentType};
 
 /// Create a temporary file with the given content and extension
 async fn create_temp_file(content: &str, extension: &str) -> NamedTempFile {
     let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))
         .expect("Failed to create temporary file");
-    
-    let mut file = tokio::fs::File::create(temp_file.path()).await
+
+    let mut file = tokio::fs::File::create(temp_file.path())
+        .await
         .expect("Failed to open temp file for writing");
-    
-    file.write_all(content.as_bytes()).await
+
+    file.write_all(content.as_bytes())
+        .await
         .expect("Failed to write content to temp file");
-    
-    file.flush().await
-        .expect("Failed to flush temp file");
-    
+
+    file.flush().await.expect("Failed to flush temp file");
+
     temp_file
 }
 
@@ -65,12 +66,14 @@ async fn test_document_type_detection() {
 async fn test_text_file_processing() {
     let processor = DocumentProcessor::new();
     let content = "Hello, world!\nThis is a test document.\nIt has multiple lines.";
-    
+
     let temp_file = create_temp_file(content, "txt").await;
-    
-    let result = processor.process_file(temp_file.path(), "test_collection").await;
+
+    let result = processor
+        .process_file(temp_file.path(), "test_collection")
+        .await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "test_collection");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
@@ -104,12 +107,14 @@ fn hello() {
 ## Conclusion
 
 This concludes the test document."#;
-    
+
     let temp_file = create_temp_file(content, "md").await;
-    
-    let result = processor.process_file(temp_file.path(), "markdown_collection").await;
+
+    let result = processor
+        .process_file(temp_file.path(), "markdown_collection")
+        .await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "markdown_collection");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
@@ -155,12 +160,14 @@ pub fn main() {
     // FIXME: This needs proper error handling
     let _map: HashMap<String, i32> = HashMap::new();
 }"#;
-    
+
     let temp_file = create_temp_file(content, "rs").await;
-    
-    let result = processor.process_file(temp_file.path(), "rust_collection").await;
+
+    let result = processor
+        .process_file(temp_file.path(), "rust_collection")
+        .await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "rust_collection");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
@@ -210,10 +217,12 @@ def main():
 
 if __name__ == "__main__":
     main()"#;
-    
+
     let temp_file = create_temp_file(content, "py").await;
 
-    let result = processor.process_file(temp_file.path(), "python_collection").await;
+    let result = processor
+        .process_file(temp_file.path(), "python_collection")
+        .await;
     assert!(result.is_ok());
 
     let doc_result = result.unwrap();
@@ -246,12 +255,14 @@ async fn test_json_file_processing() {
     "processing"
   ]
 }"#;
-    
+
     let temp_file = create_temp_file(content, "json").await;
-    
-    let result = processor.process_file(temp_file.path(), "json_collection").await;
+
+    let result = processor
+        .process_file(temp_file.path(), "json_collection")
+        .await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "json_collection");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
@@ -265,15 +276,17 @@ async fn test_chunking_configuration() {
         preserve_paragraphs: false,
         ..ChunkingConfig::default()
     };
-    
+
     let processor = DocumentProcessor::with_chunking_config(custom_config);
     let content = "This is a test document with many words that should be split into multiple small chunks for testing the chunking functionality.";
-    
+
     let temp_file = create_temp_file(content, "txt").await;
-    
-    let result = processor.process_file(temp_file.path(), "chunking_test").await;
+
+    let result = processor
+        .process_file(temp_file.path(), "chunking_test")
+        .await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "chunking_test");
     // With small chunk size, we should get multiple chunks
@@ -283,14 +296,16 @@ async fn test_chunking_configuration() {
 #[tokio::test]
 async fn test_encoding_detection() {
     let processor = DocumentProcessor::new();
-    
+
     // Test with UTF-8 content
     let utf8_content = "Hello, world! 🦀 Rust is awesome! 日本語もサポート";
     let temp_file = create_temp_file(utf8_content, "txt").await;
-    
-    let result = processor.process_file(temp_file.path(), "encoding_test").await;
+
+    let result = processor
+        .process_file(temp_file.path(), "encoding_test")
+        .await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "encoding_test");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
@@ -300,12 +315,12 @@ async fn test_encoding_detection() {
 async fn test_empty_file_handling() {
     let processor = DocumentProcessor::new();
     let content = "";
-    
+
     let temp_file = create_temp_file(content, "txt").await;
-    
+
     let result = processor.process_file(temp_file.path(), "empty_test").await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "empty_test");
     assert_eq!(doc_result.chunks_created.unwrap_or(0), 0); // Empty file should create no chunks
@@ -339,11 +354,11 @@ async fn test_large_document_chunking() {
 #[tokio::test]
 async fn test_docx_placeholder() {
     let processor = DocumentProcessor::new();
-    
+
     // Create a fake DOCX file (won't be valid, but tests the detection)
     let content = "This is not a real DOCX file";
     let temp_file = create_temp_file(content, "docx").await;
-    
+
     // The extraction will fail, but the document type detection should work
     let doc_type = processor.detect_document_type(temp_file.path());
     assert!(doc_type.is_ok());

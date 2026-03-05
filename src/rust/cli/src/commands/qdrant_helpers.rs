@@ -32,8 +32,7 @@ pub fn build_qdrant_http_client() -> Result<reqwest::Client> {
 
 /// Open the state database in read-only mode.
 pub fn open_state_db() -> Result<rusqlite::Connection> {
-    let db_path = crate::config::get_database_path()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
         anyhow::bail!("Database not found at {}", db_path.display());
@@ -70,9 +69,7 @@ pub fn get_known_tenants_for_collection(
         .context("Failed to query watch_folders")?;
 
     let rows: Vec<String> = stmt
-        .query_map(rusqlite::params![collection], |row| {
-            row.get::<_, String>(0)
-        })
+        .query_map(rusqlite::params![collection], |row| row.get::<_, String>(0))
         .context("Failed to read watch_folders rows")?
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse watch_folders rows")?;
@@ -82,9 +79,7 @@ pub fn get_known_tenants_for_collection(
     match conn.prepare("SELECT DISTINCT tenant_id FROM tracked_files WHERE collection = ?1") {
         Ok(mut stmt2) => {
             let rows2: Vec<String> = stmt2
-                .query_map(rusqlite::params![collection], |row| {
-                    row.get::<_, String>(0)
-                })
+                .query_map(rusqlite::params![collection], |row| row.get::<_, String>(0))
                 .context("Failed to read tracked_files rows")?
                 .collect::<Result<Vec<_>, _>>()
                 .context("Failed to parse tracked_files rows")?;
@@ -126,10 +121,7 @@ pub async fn scroll_unique_field_values(
             .json(&body)
             .send()
             .await
-            .context(format!(
-                "Failed to scroll Qdrant {} collection",
-                collection
-            ))?;
+            .context(format!("Failed to scroll Qdrant {} collection", collection))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -205,10 +197,7 @@ pub async fn scroll_tenant_point_counts(
             .json(&body)
             .send()
             .await
-            .context(format!(
-                "Failed to scroll Qdrant {} collection",
-                collection
-            ))?;
+            .context(format!("Failed to scroll Qdrant {} collection", collection))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -306,10 +295,7 @@ pub async fn scroll_all_points(
             .json(&body)
             .send()
             .await
-            .context(format!(
-                "Failed to scroll Qdrant {} collection",
-                collection
-            ))?;
+            .context(format!("Failed to scroll Qdrant {} collection", collection))?;
 
         if !resp.status().is_success() {
             let status = resp.status();

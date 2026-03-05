@@ -15,10 +15,34 @@ use super::concepts;
 
 /// Directories that are structural (not semantically meaningful).
 const SKIP_DIRS: &[&str] = &[
-    "src", "lib", "test", "tests", "spec", "specs", "utils", "util",
-    "docs", "doc", "build", "dist", "out", "bin", "target", "vendor",
-    "node_modules", ".git", ".github", ".vscode", "assets", "static",
-    "public", "private", "internal", "pkg", "cmd", "include",
+    "src",
+    "lib",
+    "test",
+    "tests",
+    "spec",
+    "specs",
+    "utils",
+    "util",
+    "docs",
+    "doc",
+    "build",
+    "dist",
+    "out",
+    "bin",
+    "target",
+    "vendor",
+    "node_modules",
+    ".git",
+    ".github",
+    ".vscode",
+    "assets",
+    "static",
+    "public",
+    "private",
+    "internal",
+    "pkg",
+    "cmd",
+    "include",
 ];
 
 // ── Path-derived tags ────────────────────────────────────────────────────
@@ -39,7 +63,11 @@ pub fn extract_path_tags(file_path: &Path) -> Vec<SelectedTag> {
         let name_str = name.as_ref();
 
         // Skip the filename itself (last component)
-        if file_path.file_name().map(|f| f == component.as_os_str()).unwrap_or(false) {
+        if file_path
+            .file_name()
+            .map(|f| f == component.as_os_str())
+            .unwrap_or(false)
+        {
             continue;
         }
 
@@ -198,7 +226,11 @@ fn pdf_object_to_string(obj: &lopdf::Object) -> Option<String> {
     match obj {
         lopdf::Object::String(bytes, _) => {
             let s = String::from_utf8_lossy(bytes).trim().to_string();
-            if s.is_empty() { None } else { Some(s) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
         }
         _ => None,
     }
@@ -299,8 +331,16 @@ mod tests {
         let path = PathBuf::from("computer_science/design_patterns/observer.pdf");
         let tags = extract_path_tags(&path);
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
-        assert!(phrases.contains(&"path:computer-science"), "Got: {:?}", phrases);
-        assert!(phrases.contains(&"path:design-patterns"), "Got: {:?}", phrases);
+        assert!(
+            phrases.contains(&"path:computer-science"),
+            "Got: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"path:design-patterns"),
+            "Got: {:?}",
+            phrases
+        );
         assert_eq!(tags.len(), 2);
     }
 
@@ -308,8 +348,11 @@ mod tests {
     fn test_path_tags_skip_structural() {
         let path = PathBuf::from("src/lib/utils/helpers.rs");
         let tags = extract_path_tags(&path);
-        assert!(tags.is_empty(), "Structural dirs should be skipped: {:?}",
-            tags.iter().map(|t| &t.phrase).collect::<Vec<_>>());
+        assert!(
+            tags.is_empty(),
+            "Structural dirs should be skipped: {:?}",
+            tags.iter().map(|t| &t.phrase).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -351,7 +394,10 @@ mod tests {
     #[test]
     fn test_pdf_metadata_to_tags_populated() {
         let meta = PdfMetadataTags {
-            keyword_tags: vec!["machine-learning".to_string(), "neural-networks".to_string()],
+            keyword_tags: vec![
+                "machine-learning".to_string(),
+                "neural-networks".to_string(),
+            ],
             subject_tag: Some("artificial-intelligence".to_string()),
             author: Some("John Doe".to_string()),
         };

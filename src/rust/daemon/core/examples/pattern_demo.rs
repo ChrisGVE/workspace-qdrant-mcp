@@ -34,7 +34,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for file in &test_files {
         let excluded = manager.should_exclude(file);
-        let status = if excluded { "❌ EXCLUDED" } else { "✅ allowed" };
+        let status = if excluded {
+            "❌ EXCLUDED"
+        } else {
+            "✅ allowed"
+        };
         println!("  {} {}", status, file);
     }
 
@@ -42,7 +46,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n✅ File Inclusion Tests:");
     for file in &test_files {
         let included = manager.should_include(file);
-        let status = if included { "✅ INCLUDED" } else { "❌ ignored" };
+        let status = if included {
+            "✅ INCLUDED"
+        } else {
+            "❌ ignored"
+        };
         println!("  {} {}", status, file);
     }
 
@@ -60,16 +68,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test ecosystem detection
     println!("\n🌍 Ecosystem Detection:");
     let test_projects = [
-        ("Rust project", vec!["Cargo.toml", "src/main.rs", "Cargo.lock"]),
-        ("Node.js project", vec!["package.json", "node_modules/", "src/app.js"]),
-        ("Python project", vec!["requirements.txt", "setup.py", "src/__init__.py"]),
+        (
+            "Rust project",
+            vec!["Cargo.toml", "src/main.rs", "Cargo.lock"],
+        ),
+        (
+            "Node.js project",
+            vec!["package.json", "node_modules/", "src/app.js"],
+        ),
+        (
+            "Python project",
+            vec!["requirements.txt", "setup.py", "src/__init__.py"],
+        ),
         ("Mixed project", vec!["README.md", "LICENSE"]),
     ];
 
     for (project_name, files) in &test_projects {
         let files_str: Vec<String> = files.iter().map(|s| s.to_string()).collect();
         if let Some((ecosystem, confidence)) = manager.detect_ecosystem(&files_str) {
-            println!("  {} → {} ({:.1}% confidence)", project_name, ecosystem, confidence * 100.0);
+            println!(
+                "  {} → {} ({:.1}% confidence)",
+                project_name,
+                ecosystem,
+                confidence * 100.0
+            );
         } else {
             println!("  {} → ❓ No ecosystem detected", project_name);
         }

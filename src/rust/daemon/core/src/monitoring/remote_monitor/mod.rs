@@ -16,9 +16,9 @@ use git2::Repository;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
-use wqm_common::constants::COLLECTION_PROJECTS;
 use crate::project_disambiguation::ProjectIdCalculator;
 use crate::queue_operations::QueueManager;
+use wqm_common::constants::COLLECTION_PROJECTS;
 
 /// Result of a single remote URL change detection cycle
 #[derive(Debug, Default)]
@@ -52,9 +52,15 @@ pub async fn check_remote_url_changes(
 ) -> Result<RemoteCheckResult, String> {
     let mut result = RemoteCheckResult::default();
 
-    let watches: Vec<(String, String, String, String, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            r#"
+    let watches: Vec<(
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"
             SELECT watch_id, path, tenant_id, git_remote_url,
                    remote_hash, disambiguation_path
             FROM watch_folders
@@ -64,16 +70,15 @@ pub async fn check_remote_url_changes(
               AND parent_watch_id IS NULL
               AND git_remote_url IS NOT NULL
             "#,
-        )
-        .bind(COLLECTION_PROJECTS)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("Failed to query watch_folders: {}", e))?;
+    )
+    .bind(COLLECTION_PROJECTS)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to query watch_folders: {}", e))?;
 
     let calculator = ProjectIdCalculator::new();
 
-    for (watch_id, path, old_tenant_id, stored_url, _stored_hash, disambiguation_path) in &watches
-    {
+    for (watch_id, path, old_tenant_id, stored_url, _stored_hash, disambiguation_path) in &watches {
         result.projects_checked += 1;
 
         let current_url = match get_git_remote_url(path) {
@@ -142,10 +147,19 @@ async fn process_remote_change(
         disambiguation_path,
     );
 
-    update_watch_folders_remote(pool, watch_id, current_url, &new_remote_hash, &new_tenant_id)
-        .await?;
+    update_watch_folders_remote(
+        pool,
+        watch_id,
+        current_url,
+        &new_remote_hash,
+        &new_tenant_id,
+    )
+    .await?;
 
-    let reason = format!("Remote URL changed: {} -> {}", normalized_stored, normalized_current);
+    let reason = format!(
+        "Remote URL changed: {} -> {}",
+        normalized_stored, normalized_current
+    );
     enqueue_cascade_rename(queue_manager, old_tenant_id, &new_tenant_id, &reason).await;
 
     Ok(())
@@ -155,8 +169,7 @@ async fn process_remote_change(
 ///
 /// Tries "origin" first, then "upstream", then any available remote.
 fn get_git_remote_url(repo_path: &str) -> Result<String, String> {
-    let repo = Repository::open(repo_path)
-        .map_err(|e| format!("Not a git repository: {}", e))?;
+    let repo = Repository::open(repo_path).map_err(|e| format!("Not a git repository: {}", e))?;
 
     // Try origin first, then upstream
     let remote = repo
@@ -297,8 +310,8 @@ pub async fn check_git_state_changes(
 
     let calculator = ProjectIdCalculator::new();
 
-    for (watch_id, path, old_tenant_id, stored_git_tracked, stored_remote, disambiguation_path)
-        in &watches
+    for (watch_id, path, old_tenant_id, stored_git_tracked, stored_remote, disambiguation_path) in
+        &watches
     {
         result.projects_checked += 1;
         let project_path = std::path::Path::new(path.as_str());
@@ -314,23 +327,40 @@ pub async fn check_git_state_changes(
         let had_remote = stored_remote.is_some();
 
         let Some(transition) = detect_git_transition(
-            watch_id, was_git, had_remote, git_status.is_git, current_remote.is_some(),
+            watch_id,
+            was_git,
+            had_remote,
+            git_status.is_git,
+            current_remote.is_some(),
         ) else {
             continue;
         };
 
-        info!("Git state transition detected for {}: {} (path={})", watch_id, transition, path);
+        info!(
+            "Git state transition detected for {}: {} (path={})",
+            watch_id, transition, path
+        );
 
         match apply_git_state_transition(
-            pool, queue_manager, &calculator, watch_id, project_path,
-            old_tenant_id, disambiguation_path.as_deref(),
-            git_status.is_git, &current_remote, transition,
+            pool,
+            queue_manager,
+            &calculator,
+            watch_id,
+            project_path,
+            old_tenant_id,
+            disambiguation_path.as_deref(),
+            git_status.is_git,
+            &current_remote,
+            transition,
         )
         .await
         {
             Ok(()) => result.transitions_detected += 1,
             Err(e) => {
-                warn!("Failed to apply git state transition for {}: {}", watch_id, e);
+                warn!(
+                    "Failed to apply git state transition for {}: {}",
+                    watch_id, e
+                );
                 result.errors += 1;
             }
         }
@@ -350,9 +380,9 @@ fn detect_git_transition(
     has_remote_now: bool,
 ) -> Option<&'static str> {
     match (was_git, had_remote, is_now_git, has_remote_now) {
-        (false, false, false, false) => None,          // local -> local
-        (true, false, true, false) => None,            // local-git -> local-git
-        (true, true, true, true) => None,              // remote-git -> remote-git
+        (false, false, false, false) => None, // local -> local
+        (true, false, true, false) => None,   // local-git -> local-git
+        (true, true, true, true) => None,     // remote-git -> remote-git
         (false, _, true, false) => Some("local → local-git"),
         (false, _, true, true) => Some("local → remote-git"),
         (true, false, true, true) => Some("local-git → remote-git"),

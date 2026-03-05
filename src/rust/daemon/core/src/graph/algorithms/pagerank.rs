@@ -1,5 +1,4 @@
 /// PageRank algorithm for code relationship graphs.
-
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -76,7 +75,12 @@ fn run_pagerank_iterations(
     for iteration in 0..config.max_iterations {
         let dangling_sum: f64 = node_ids
             .iter()
-            .filter(|id| graph.outgoing.get(id.as_str()).map_or(true, |v| v.is_empty()))
+            .filter(|id| {
+                graph
+                    .outgoing
+                    .get(id.as_str())
+                    .map_or(true, |v| v.is_empty())
+            })
             .map(|id| scores[id.as_str()])
             .sum();
         let dangling_contrib = config.damping * dangling_sum / n as f64;
@@ -84,12 +88,22 @@ fn run_pagerank_iterations(
         let mut new_scores: HashMap<&str, f64> = HashMap::with_capacity(n);
         for id in node_ids {
             let incoming_sum: f64 = graph.incoming.get(id.as_str()).map_or(0.0, |preds| {
-                preds.iter().map(|pred| {
-                    let out_degree = graph.outgoing.get(pred.as_str()).map(|v| v.len()).unwrap_or(1);
-                    scores.get(pred.as_str()).unwrap_or(&0.0) / out_degree as f64
-                }).sum()
+                preds
+                    .iter()
+                    .map(|pred| {
+                        let out_degree = graph
+                            .outgoing
+                            .get(pred.as_str())
+                            .map(|v| v.len())
+                            .unwrap_or(1);
+                        scores.get(pred.as_str()).unwrap_or(&0.0) / out_degree as f64
+                    })
+                    .sum()
             });
-            new_scores.insert(id.as_str(), teleport + config.damping * incoming_sum + dangling_contrib);
+            new_scores.insert(
+                id.as_str(),
+                teleport + config.damping * incoming_sum + dangling_contrib,
+            );
         }
 
         let max_diff = node_ids
@@ -104,7 +118,10 @@ fn run_pagerank_iterations(
         }
     }
 
-    scores.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+    scores
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
 }
 
 fn build_pagerank_results(
@@ -125,7 +142,15 @@ fn build_pagerank_results(
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-    info!(tenant_id, nodes = results.len(), "PageRank computation complete");
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    info!(
+        tenant_id,
+        nodes = results.len(),
+        "PageRank computation complete"
+    );
     results
 }

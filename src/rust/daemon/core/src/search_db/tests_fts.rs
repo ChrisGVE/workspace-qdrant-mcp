@@ -18,7 +18,10 @@ async fn test_fts5_table_exists() {
     .await
     .unwrap();
 
-    assert!(exists, "code_lines_fts virtual table should exist after migration v3");
+    assert!(
+        exists,
+        "code_lines_fts virtual table should exist after migration v3"
+    );
     manager.close().await;
 }
 
@@ -56,7 +59,10 @@ async fn test_fts5_match_basic() {
         .unwrap();
 
     assert_eq!(rows.len(), 1, "Should find exactly 1 line with 'println'");
-    assert_eq!(rows[0].get::<String, _>("content"), "    println!(\"hello world\");");
+    assert_eq!(
+        rows[0].get::<String, _>("content"),
+        "    println!(\"hello world\");"
+    );
 
     manager.close().await;
 }
@@ -109,11 +115,19 @@ async fn test_fts5_search_by_file() {
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
     // File 1
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn hello() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn hello() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     // File 2
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn hello_world() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (2, 1000.0, 'fn hello_world() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
 
     manager.rebuild_fts().await.unwrap();
 
@@ -138,8 +152,12 @@ async fn test_fts5_no_results() {
     let db_path = tmp.path().join("search.db");
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn main() {}')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'fn main() {}')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
 
     manager.rebuild_fts().await.unwrap();
 
@@ -163,7 +181,9 @@ async fn test_fts5_rebuild_after_insert() {
 
     // Insert and rebuild
     sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'first line')")
-        .execute(manager.pool()).await.unwrap();
+        .execute(manager.pool())
+        .await
+        .unwrap();
     manager.rebuild_fts().await.unwrap();
 
     // Verify first line is findable
@@ -176,14 +196,20 @@ async fn test_fts5_rebuild_after_insert() {
 
     // Insert more without rebuild -- FTS won't see it yet
     sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 2000.0, 'second line')")
-        .execute(manager.pool()).await.unwrap();
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     let rows_before = sqlx::query(crate::code_lines_schema::FTS5_SEARCH_SQL)
         .bind("second")
         .fetch_all(manager.pool())
         .await
         .unwrap();
-    assert_eq!(rows_before.len(), 0, "New content not visible before rebuild");
+    assert_eq!(
+        rows_before.len(),
+        0,
+        "New content not visible before rebuild"
+    );
 
     // Rebuild and verify
     manager.rebuild_fts().await.unwrap();
@@ -204,8 +230,12 @@ async fn test_fts5_rebuild_after_delete() {
     let db_path = tmp.path().join("search.db");
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
-    sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'deletable line')")
-        .execute(manager.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'deletable line')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
     manager.rebuild_fts().await.unwrap();
 
     // Verify it's findable
@@ -218,7 +248,9 @@ async fn test_fts5_rebuild_after_delete() {
 
     // Delete and rebuild
     sqlx::query("DELETE FROM code_lines WHERE file_id = 1")
-        .execute(manager.pool()).await.unwrap();
+        .execute(manager.pool())
+        .await
+        .unwrap();
     manager.rebuild_fts().await.unwrap();
 
     let rows_after = sqlx::query(crate::code_lines_schema::FTS5_SEARCH_SQL)
@@ -226,7 +258,11 @@ async fn test_fts5_rebuild_after_delete() {
         .fetch_all(manager.pool())
         .await
         .unwrap();
-    assert_eq!(rows_after.len(), 0, "Deleted content should not appear after rebuild");
+    assert_eq!(
+        rows_after.len(),
+        0,
+        "Deleted content should not appear after rebuild"
+    );
 
     manager.close().await;
 }
@@ -367,12 +403,11 @@ async fn test_fts5_external_content_linkage() {
     sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'external content test')")
         .execute(manager.pool()).await.unwrap();
 
-    let line_id: i64 = sqlx::query_scalar(
-        "SELECT line_id FROM code_lines WHERE file_id = 1 AND seq = 1000.0"
-    )
-    .fetch_one(manager.pool())
-    .await
-    .unwrap();
+    let line_id: i64 =
+        sqlx::query_scalar("SELECT line_id FROM code_lines WHERE file_id = 1 AND seq = 1000.0")
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
 
     manager.rebuild_fts().await.unwrap();
 
@@ -384,8 +419,11 @@ async fn test_fts5_external_content_linkage() {
         .unwrap();
 
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].get::<i64, _>("line_id"), line_id,
-        "FTS5 should return the correct line_id from external content table");
+    assert_eq!(
+        rows[0].get::<i64, _>("line_id"),
+        line_id,
+        "FTS5 should return the correct line_id from external content table"
+    );
 
     manager.close().await;
 }

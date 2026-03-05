@@ -5,17 +5,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use notify::EventKind;
 use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
+use notify::EventKind;
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, DebouncedEvent};
-use tokio::sync::{mpsc, RwLock, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
+use super::handle::WatcherHandle;
+use super::{EnhancedWatcherConfig, EnhancedWatcherError, WatchEntry, WatchEvent};
 use crate::watching::move_detector::{MoveCorrelator, RenameAction};
 use crate::watching::path_validator::PathValidator;
-use super::{
-    EnhancedWatcherConfig, EnhancedWatcherError, WatchEntry, WatchEvent,
-};
-use super::handle::WatcherHandle;
 
 /// Enhanced file watcher with rename correlation
 pub struct EnhancedFileWatcher {
@@ -40,10 +38,7 @@ pub struct EnhancedFileWatcher {
 
 impl EnhancedFileWatcher {
     /// Create a new enhanced file watcher
-    pub fn new(
-        config: EnhancedWatcherConfig,
-        event_sender: mpsc::Sender<WatchEvent>,
-    ) -> Self {
+    pub fn new(config: EnhancedWatcherConfig, event_sender: mpsc::Sender<WatchEvent>) -> Self {
         let move_correlator = MoveCorrelator::with_config(config.move_correlator.clone());
         let path_validator = PathValidator::with_config(config.path_validator.clone());
 
@@ -58,9 +53,7 @@ impl EnhancedFileWatcher {
     }
 
     /// Start the file watcher
-    pub async fn start(
-        self: Arc<Self>,
-    ) -> Result<WatcherHandle, EnhancedWatcherError> {
+    pub async fn start(self: Arc<Self>) -> Result<WatcherHandle, EnhancedWatcherError> {
         let debounce_delay = Duration::from_millis(self.config.debounce_delay_ms);
 
         let event_sender = self.event_sender.clone();
@@ -70,11 +63,11 @@ impl EnhancedFileWatcher {
 
         let (tx, mut rx) = mpsc::channel::<Vec<DebouncedEvent>>(1000);
 
-        let debouncer = new_debouncer(
-            debounce_delay,
-            None,
-            move |result: DebounceEventResult| {
-                match result {
+        let debouncer =
+            new_debouncer(
+                debounce_delay,
+                None,
+                move |result: DebounceEventResult| match result {
                     Ok(events) => {
                         let _ = tx.blocking_send(events);
                     }
@@ -83,9 +76,8 @@ impl EnhancedFileWatcher {
                             tracing::error!("Debouncer error: {:?}", error);
                         }
                     }
-                }
-            },
-        )?;
+                },
+            )?;
 
         {
             let mut running = self.running.write().await;
@@ -149,11 +141,17 @@ impl EnhancedFileWatcher {
         drop(correlator);
 
         for action in expired {
-            if let RenameAction::CrossFilesystemMove { deleted_path, is_directory } = action {
-                let _ = event_sender.send(WatchEvent::CrossFilesystemMove {
-                    deleted_path,
-                    is_directory,
-                }).await;
+            if let RenameAction::CrossFilesystemMove {
+                deleted_path,
+                is_directory,
+            } = action
+            {
+                let _ = event_sender
+                    .send(WatchEvent::CrossFilesystemMove {
+                        deleted_path,
+                        is_directory,
+                    })
+                    .await;
             }
         }
 
@@ -178,10 +176,12 @@ impl EnhancedFileWatcher {
                 EventKind::Create(kind) => {
                     let is_directory = matches!(kind, CreateKind::Folder);
                     for path in paths {
-                        let _ = event_sender.send(WatchEvent::Created {
-                            path: path.clone(),
-                            is_directory,
-                        }).await;
+                        let _ = event_sender
+                            .send(WatchEvent::Created {
+                                path: path.clone(),
+                                is_directory,
+                            })
+                            .await;
                     }
                 }
 
@@ -190,9 +190,7 @@ impl EnhancedFileWatcher {
                         continue;
                     }
 
-                    let is_directory = paths.first()
-                        .map(|p| p.is_dir())
-                        .unwrap_or(false);
+                    let is_directory = paths.first().map(|p| p.is_dir()).unwrap_or(false);
 
                     if let ModifyKind::Name(rename_mode) = kind {
                         Self::handle_rename_event(
@@ -203,13 +201,16 @@ impl EnhancedFileWatcher {
                             move_correlator,
                             watch_entries,
                             path_validator,
-                        ).await;
+                        )
+                        .await;
                     } else {
                         for path in paths {
-                            let _ = event_sender.send(WatchEvent::Modified {
-                                path: path.clone(),
-                                is_directory,
-                            }).await;
+                            let _ = event_sender
+                                .send(WatchEvent::Modified {
+                                    path: path.clone(),
+                                    is_directory,
+                                })
+                                .await;
                         }
                     }
                 }
@@ -217,10 +218,12 @@ impl EnhancedFileWatcher {
                 EventKind::Remove(kind) => {
                     let is_directory = matches!(kind, RemoveKind::Folder);
                     for path in paths {
-                        let _ = event_sender.send(WatchEvent::Deleted {
-                            path: path.clone(),
-                            is_directory,
-                        }).await;
+                        let _ = event_sender
+                            .send(WatchEvent::Deleted {
+                                path: path.clone(),
+                                is_directory,
+                            })
+                            .await;
                     }
                 }
 
@@ -261,7 +264,14 @@ impl EnhancedFileWatcher {
                     let action = correlator.handle_moved_to(path.clone(), is_directory, None);
                     drop(correlator);
 
-                    Self::emit_rename_event(action, event_sender, watch_entries, path_validator, is_directory).await;
+                    Self::emit_rename_event(
+                        action,
+                        event_sender,
+                        watch_entries,
+                        path_validator,
+                        is_directory,
+                    )
+                    .await;
                 }
             }
 
@@ -278,16 +288,25 @@ impl EnhancedFileWatcher {
                     );
                     drop(correlator);
 
-                    Self::emit_rename_event(action, event_sender, watch_entries, path_validator, is_directory).await;
+                    Self::emit_rename_event(
+                        action,
+                        event_sender,
+                        watch_entries,
+                        path_validator,
+                        is_directory,
+                    )
+                    .await;
                 }
             }
 
             RenameMode::Any | RenameMode::Other => {
                 for path in paths {
-                    let _ = event_sender.send(WatchEvent::Modified {
-                        path: path.clone(),
-                        is_directory,
-                    }).await;
+                    let _ = event_sender
+                        .send(WatchEvent::Modified {
+                            path: path.clone(),
+                            is_directory,
+                        })
+                        .await;
                 }
             }
         }
@@ -302,21 +321,33 @@ impl EnhancedFileWatcher {
         _is_directory: bool,
     ) {
         match action {
-            RenameAction::SimpleRename { old_path, new_path, is_directory } |
-            RenameAction::IntraFilesystemMove { old_path, new_path, is_directory } => {
+            RenameAction::SimpleRename {
+                old_path,
+                new_path,
+                is_directory,
+            }
+            | RenameAction::IntraFilesystemMove {
+                old_path,
+                new_path,
+                is_directory,
+            } => {
                 let entries = watch_entries.read().await;
                 if let Some(entry) = entries.get(&old_path) {
-                    let _ = event_sender.send(WatchEvent::RootRenamed {
-                        old_path: old_path.clone(),
-                        new_path: new_path.clone(),
-                        tenant_id: entry.tenant_id.clone(),
-                    }).await;
+                    let _ = event_sender
+                        .send(WatchEvent::RootRenamed {
+                            old_path: old_path.clone(),
+                            new_path: new_path.clone(),
+                            tenant_id: entry.tenant_id.clone(),
+                        })
+                        .await;
                 } else {
-                    let _ = event_sender.send(WatchEvent::Renamed {
-                        old_path,
-                        new_path,
-                        is_directory,
-                    }).await;
+                    let _ = event_sender
+                        .send(WatchEvent::Renamed {
+                            old_path,
+                            new_path,
+                            is_directory,
+                        })
+                        .await;
                 }
 
                 if is_directory {
@@ -324,11 +355,16 @@ impl EnhancedFileWatcher {
                 }
             }
 
-            RenameAction::CrossFilesystemMove { deleted_path, is_directory } => {
-                let _ = event_sender.send(WatchEvent::CrossFilesystemMove {
-                    deleted_path,
-                    is_directory,
-                }).await;
+            RenameAction::CrossFilesystemMove {
+                deleted_path,
+                is_directory,
+            } => {
+                let _ = event_sender
+                    .send(WatchEvent::CrossFilesystemMove {
+                        deleted_path,
+                        is_directory,
+                    })
+                    .await;
             }
 
             RenameAction::Pending => {}

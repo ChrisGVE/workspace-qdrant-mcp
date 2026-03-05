@@ -1,14 +1,12 @@
-use super::create_backfill_schema;
 use super::super::*;
+use super::create_backfill_schema;
 use std::fs;
 use tempfile::TempDir;
 
 /// Create an in-memory pool with backfill schema, insert a watch folder, and
 /// return the pool plus the stringified path of the temp dir.
 async fn setup_backfill_pool(dir: &TempDir) -> (sqlx::SqlitePool, String) {
-    let pool = sqlx::SqlitePool::connect("sqlite::memory:")
-        .await
-        .unwrap();
+    let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
     create_backfill_schema(&pool).await;
 
     let path_str = dir.path().to_string_lossy().to_string();
@@ -60,8 +58,12 @@ async fn test_backfill_components() {
     fs::create_dir_all(dir.path().join("beta")).unwrap();
 
     let (pool, path_str) = setup_backfill_pool(&dir).await;
-    insert_tracked_files(&pool, &path_str, &["alpha/src/lib.rs", "beta/src/main.rs", "README.md"])
-        .await;
+    insert_tracked_files(
+        &pool,
+        &path_str,
+        &["alpha/src/lib.rs", "beta/src/main.rs", "README.md"],
+    )
+    .await;
 
     let stats = backfill_components(&pool, 100, false, None).await.unwrap();
     assert_eq!(stats.folders_processed, 1);
@@ -84,12 +86,11 @@ async fn test_backfill_components() {
     .unwrap();
     assert_eq!(row.0.as_deref(), Some("beta"));
 
-    let row: (Option<String>,) = sqlx::query_as(
-        "SELECT component FROM tracked_files WHERE relative_path = 'README.md'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row: (Option<String>,) =
+        sqlx::query_as("SELECT component FROM tracked_files WHERE relative_path = 'README.md'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(row.0.is_none());
 
     let count: (i64,) =
@@ -215,19 +216,17 @@ async fn test_backfill_components_tenant_filter() {
     assert_eq!(stats.folders_processed, 1);
     assert_eq!(stats.files_updated, 1);
 
-    let row: (Option<String>,) = sqlx::query_as(
-        "SELECT component FROM tracked_files WHERE watch_folder_id = 'wf_a'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row: (Option<String>,) =
+        sqlx::query_as("SELECT component FROM tracked_files WHERE watch_folder_id = 'wf_a'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(row.0.as_deref(), Some("crate-x"));
 
-    let row: (Option<String>,) = sqlx::query_as(
-        "SELECT component FROM tracked_files WHERE watch_folder_id = 'wf_b'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row: (Option<String>,) =
+        sqlx::query_as("SELECT component FROM tracked_files WHERE watch_folder_id = 'wf_b'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(row.0.is_none());
 }

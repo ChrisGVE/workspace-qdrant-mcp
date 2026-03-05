@@ -64,9 +64,10 @@ pub(super) async fn embed_chunks(
 
     for (chunk_idx, chunk) in document_content.chunks.iter().enumerate() {
         // Semaphore-gated embedding generation (Task 504)
-        let _permit = ctx.embedding_semaphore.acquire().await.map_err(|e| {
-            UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e))
-        })?;
+        let _permit =
+            ctx.embedding_semaphore.acquire().await.map_err(|e| {
+                UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e))
+            })?;
         let embedding_result = ctx
             .embedding_generator
             .generate_embedding(&chunk.content, "bge-small-en-v1.5")
@@ -113,10 +114,7 @@ pub(super) async fn embed_chunks(
                 .and_then(|ext| ext.to_str())
                 .map(crate::lsp::Language::from_extension);
 
-            if file_lang
-                .as_ref()
-                .map_or(false, |l| l.has_lsp_support())
-            {
+            if file_lang.as_ref().map_or(false, |l| l.has_lsp_support()) {
                 let mgr = lsp_mgr.read().await;
 
                 let sym_name = chunk
@@ -156,10 +154,7 @@ pub(super) async fn embed_chunks(
                     );
                     // Keep lsp_status as None (not Done) so tracked_files reflects incomplete state
                 } else {
-                    lsp_payload::add_lsp_enrichment_to_payload(
-                        &mut point_payload,
-                        &enrichment,
-                    );
+                    lsp_payload::add_lsp_enrichment_to_payload(&mut point_payload, &enrichment);
                     lsp_status = ProcessingStatus::Done;
                 }
             } else {
@@ -172,14 +167,17 @@ pub(super) async fn embed_chunks(
             }
         }
 
-        let point_id =
-            wqm_common::hashing::compute_point_id(base_point, chunk_idx as u32);
+        let point_id = wqm_common::hashing::compute_point_id(base_point, chunk_idx as u32);
         let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
 
         // Generate sparse vector based on configured mode (bm25 or splade)
         let sparse = if ctx.embedding_generator.sparse_vector_mode() == "splade" {
             // SPLADE++ learned sparse vectors (Task 38)
-            match ctx.embedding_generator.generate_splade_sparse_vector(&chunk.content).await {
+            match ctx
+                .embedding_generator
+                .generate_splade_sparse_vector(&chunk.content)
+                .await
+            {
                 Ok(s) => s,
                 Err(e) => {
                     debug!("SPLADE++ fallback to BM25: {}", e);

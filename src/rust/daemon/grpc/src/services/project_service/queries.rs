@@ -88,11 +88,7 @@ impl ProjectServiceImpl {
             .try_get("is_active")
             .map_err(|e| Status::internal(format!("Failed to get is_active: {e}")))?;
 
-        let priority = if is_active_int == 1 {
-            "high"
-        } else {
-            "normal"
-        };
+        let priority = if is_active_int == 1 { "high" } else { "normal" };
 
         let path: String = row
             .try_get("path")
@@ -189,11 +185,7 @@ impl ProjectServiceImpl {
             .try_get("is_active")
             .map_err(|e| Status::internal(format!("Failed to get is_active: {e}")))?;
 
-        let priority = if is_active_int == 1 {
-            "high"
-        } else {
-            "normal"
-        };
+        let priority = if is_active_int == 1 { "high" } else { "normal" };
 
         let path: String = row
             .try_get("path")

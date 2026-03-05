@@ -15,10 +15,9 @@ use super::{
 async fn test_queue_depth_returns_zero_for_empty_queue() {
     let (pool, _temp_dir) = setup_test_db_with_queue().await;
 
-    let depth =
-        super::super::lsp_lifecycle::get_project_queue_depth(&pool, "test123456ab")
-            .await
-            .unwrap();
+    let depth = super::super::lsp_lifecycle::get_project_queue_depth(&pool, "test123456ab")
+        .await
+        .unwrap();
     assert_eq!(depth, 0);
 }
 
@@ -41,10 +40,9 @@ async fn test_queue_depth_counts_pending_items() {
     .await
     .unwrap();
 
-    let depth =
-        super::super::lsp_lifecycle::get_project_queue_depth(&pool, "test123456ab")
-            .await
-            .unwrap();
+    let depth = super::super::lsp_lifecycle::get_project_queue_depth(&pool, "test123456ab")
+        .await
+        .unwrap();
     assert_eq!(depth, 2);
 }
 
@@ -123,8 +121,7 @@ async fn test_reactivation_cancels_deferred_shutdown() {
 async fn test_queue_depth_handles_missing_table() {
     let (pool, _temp_dir) = setup_test_db().await;
 
-    let result =
-        super::super::lsp_lifecycle::get_project_queue_depth(&pool, "test123456ab").await;
+    let result = super::super::lsp_lifecycle::get_project_queue_depth(&pool, "test123456ab").await;
     match result {
         Ok(depth) => assert_eq!(depth, 0),
         Err(status) => {

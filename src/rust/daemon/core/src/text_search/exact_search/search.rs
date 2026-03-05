@@ -7,11 +7,11 @@ use futures::TryStreamExt;
 use sqlx::Row;
 use tracing::debug;
 
-use crate::search_db::{SearchDbManager, SearchDbError};
-use super::super::escaping::{escape_fts5_pattern, compile_glob_matcher, resolve_path_filter};
+use super::super::escaping::{compile_glob_matcher, escape_fts5_pattern, resolve_path_filter};
 use super::super::types::{SearchMatch, SearchOptions, SearchResults};
 use super::context::attach_context_lines;
 use super::query_builder::build_search_query;
+use crate::search_db::{SearchDbError, SearchDbManager};
 
 /// Search code_lines for an exact substring pattern.
 ///
@@ -50,14 +50,25 @@ pub async fn search_exact(
     debug!(
         "FTS5 search: pattern={:?}, fts5={:?}, use_fts={}, tenant={:?}, branch={:?}, \
          path_prefix={:?}, path_glob={:?}",
-        pattern, fts5_pattern, use_fts,
-        effective_options.tenant_id, effective_options.branch,
-        effective_options.path_prefix, options.path_glob,
+        pattern,
+        fts5_pattern,
+        use_fts,
+        effective_options.tenant_id,
+        effective_options.branch,
+        effective_options.path_prefix,
+        options.path_glob,
     );
 
     // Pre-compute owned bindings (temporary strings must outlive the query borrow)
-    let instr_pattern = if options.case_insensitive { pattern.to_lowercase() } else { pattern.to_string() };
-    let path_prefix_arg = effective_options.path_prefix.as_ref().map(|p| format!("{}%", p));
+    let instr_pattern = if options.case_insensitive {
+        pattern.to_lowercase()
+    } else {
+        pattern.to_string()
+    };
+    let path_prefix_arg = effective_options
+        .path_prefix
+        .as_ref()
+        .map(|p| format!("{}%", p));
 
     let mut query = sqlx::query(&sql);
     if use_fts {
@@ -74,9 +85,8 @@ pub async fn search_exact(
         query = query.bind(prefix_arg);
     }
 
-    let (matches, truncated) = collect_matches(
-        search_db.pool(), query, &glob_matcher, options.max_results,
-    ).await?;
+    let (matches, truncated) =
+        collect_matches(search_db.pool(), query, &glob_matcher, options.max_results).await?;
 
     let mut matches = matches;
     if options.context_lines > 0 {
@@ -86,7 +96,10 @@ pub async fn search_exact(
     let query_time_ms = start.elapsed().as_millis() as u64;
     debug!(
         "FTS5 search complete: {} matches in {}ms (pattern={:?}, truncated={})",
-        matches.len(), query_time_ms, pattern, truncated
+        matches.len(),
+        query_time_ms,
+        pattern,
+        truncated
     );
 
     Ok(SearchResults {
@@ -105,7 +118,11 @@ async fn collect_matches<'q>(
     glob_matcher: &Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
     max_results: usize,
 ) -> Result<(Vec<SearchMatch>, bool), SearchDbError> {
-    let max = if max_results > 0 { max_results } else { usize::MAX };
+    let max = if max_results > 0 {
+        max_results
+    } else {
+        usize::MAX
+    };
     let mut stream = query.fetch(pool);
     let mut matches = Vec::new();
     let mut truncated = false;

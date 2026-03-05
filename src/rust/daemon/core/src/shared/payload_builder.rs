@@ -3,8 +3,8 @@
 //! Replaces scattered `HashMap::new()` + manual `.insert()` chains
 //! with a fluent builder API that enforces field name consistency.
 
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// Fluent builder for Qdrant point payloads.
 ///
@@ -40,8 +40,7 @@ impl PayloadBuilder {
     }
 
     pub fn content(mut self, text: &str) -> Self {
-        self.inner
-            .insert("content".into(), serde_json::json!(text));
+        self.inner.insert("content".into(), serde_json::json!(text));
         self
     }
 
@@ -57,8 +56,7 @@ impl PayloadBuilder {
     }
 
     pub fn item_type(mut self, t: &str) -> Self {
-        self.inner
-            .insert("item_type".into(), serde_json::json!(t));
+        self.inner.insert("item_type".into(), serde_json::json!(t));
         self
     }
 
@@ -71,8 +69,7 @@ impl PayloadBuilder {
     // ── File-specific fields ────────────────────────────────────────
 
     pub fn file_path(mut self, p: &str) -> Self {
-        self.inner
-            .insert("file_path".into(), serde_json::json!(p));
+        self.inner.insert("file_path".into(), serde_json::json!(p));
         self
     }
 
@@ -150,14 +147,12 @@ impl PayloadBuilder {
     // ── Tag fields ──────────────────────────────────────────────────
 
     pub fn main_tag(mut self, tag: &str) -> Self {
-        self.inner
-            .insert("main_tag".into(), serde_json::json!(tag));
+        self.inner.insert("main_tag".into(), serde_json::json!(tag));
         self
     }
 
     pub fn full_tag(mut self, tag: &str) -> Self {
-        self.inner
-            .insert("full_tag".into(), serde_json::json!(tag));
+        self.inner.insert("full_tag".into(), serde_json::json!(tag));
         self
     }
 
@@ -238,10 +233,7 @@ mod tests {
         extra.insert("chunk_symbol".to_string(), serde_json::json!("main"));
         extra.insert("chunk_start_line".to_string(), serde_json::json!(1));
 
-        let payload = PayloadBuilder::new()
-            .tenant_id("t")
-            .extend(extra)
-            .build();
+        let payload = PayloadBuilder::new().tenant_id("t").extend(extra).build();
 
         assert_eq!(payload["chunk_symbol"], serde_json::json!("main"));
         assert_eq!(payload["chunk_start_line"], serde_json::json!(1));

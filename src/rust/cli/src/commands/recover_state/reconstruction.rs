@@ -58,18 +58,11 @@ pub(super) fn reconstruct_project_state(
 
         let file_groups = group_points_by_file(points);
         for ((file_path, branch), file_points) in &file_groups {
-            let file_id = insert_project_tracked_file(
-                &tx,
-                &watch_id,
-                file_path,
-                branch,
-                file_points,
-                &now,
-            )?;
+            let file_id =
+                insert_project_tracked_file(&tx, &watch_id, file_path, branch, file_points, &now)?;
             if let Some(fid) = file_id {
                 stats.tracked_files += 1;
-                stats.chunks +=
-                    insert_qdrant_chunks_with_metadata(&tx, fid, file_points, &now)?;
+                stats.chunks += insert_qdrant_chunks_with_metadata(&tx, fid, file_points, &now)?;
             }
         }
     }
@@ -147,23 +140,24 @@ pub(super) fn reconstruct_library_state(
                 .unwrap_or("main")
                 .to_string();
 
-            let result = tx.execute(
-                "INSERT OR IGNORE INTO tracked_files \
+            let result = tx
+                .execute(
+                    "INSERT OR IGNORE INTO tracked_files \
                  (watch_folder_id, file_path, branch, file_mtime, file_hash, chunk_count, \
                   collection, created_at, updated_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'libraries', ?7, ?8)",
-                params![
-                    watch_id,
-                    file_path,
-                    branch,
-                    now,
-                    file_hash,
-                    doc_points.len() as i64,
-                    now,
-                    now
-                ],
-            )
-            .context("Failed to insert library tracked_file")?;
+                    params![
+                        watch_id,
+                        file_path,
+                        branch,
+                        now,
+                        file_hash,
+                        doc_points.len() as i64,
+                        now,
+                        now
+                    ],
+                )
+                .context("Failed to insert library tracked_file")?;
 
             if result == 0 {
                 continue;
@@ -176,8 +170,7 @@ pub(super) fn reconstruct_library_state(
                 let Some(point_id_str) = extract_point_id(point) else {
                     continue;
                 };
-                let chunk_index =
-                    point["payload"]["chunk_index"].as_u64().unwrap_or(0) as i64;
+                let chunk_index = point["payload"]["chunk_index"].as_u64().unwrap_or(0) as i64;
                 let content = point["payload"]["content"].as_str().unwrap_or("");
                 let content_hash = wqm_common::hashing::compute_content_hash(content);
 
@@ -185,13 +178,7 @@ pub(super) fn reconstruct_library_state(
                     "INSERT OR IGNORE INTO qdrant_chunks \
                      (file_id, point_id, chunk_index, content_hash, created_at) \
                      VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![
-                        file_id,
-                        point_id_str,
-                        chunk_index,
-                        &content_hash[..32],
-                        now
-                    ],
+                    params![file_id, point_id_str, chunk_index, &content_hash[..32], now],
                 )
                 .context("Failed to insert library qdrant_chunk")?;
                 chunks_created += 1;
@@ -305,7 +292,9 @@ fn insert_project_tracked_file(
         .unwrap_or("")
         .to_string();
     let language = first["payload"]["language"].as_str().map(|s| s.to_string());
-    let file_type = first["payload"]["file_type"].as_str().map(|s| s.to_string());
+    let file_type = first["payload"]["file_type"]
+        .as_str()
+        .map(|s| s.to_string());
     let base_point = first["payload"]["base_point"]
         .as_str()
         .map(|s| s.to_string());

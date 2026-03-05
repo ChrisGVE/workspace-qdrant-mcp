@@ -3,10 +3,10 @@
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
+use super::export::export_sqlite;
+use super::{GraphSnapshot, MigrationReport, DEFAULT_BATCH_SIZE};
 use crate::graph::schema::GraphDbResult;
 use crate::graph::GraphStore;
-use super::{GraphSnapshot, MigrationReport, DEFAULT_BATCH_SIZE};
-use super::export::export_sqlite;
 
 /// Import a graph snapshot into a target store in batches.
 pub async fn import_to_store<S: GraphStore>(
@@ -104,10 +104,7 @@ pub async fn migrate_from_sqlite<S: GraphStore>(
     tenant_id: Option<&str>,
     batch_size: usize,
 ) -> GraphDbResult<MigrationReport> {
-    info!(
-        "Starting SQLite export (tenant: {:?})",
-        tenant_id
-    );
+    info!("Starting SQLite export (tenant: {:?})", tenant_id);
     let snapshot = export_sqlite(source_pool, tenant_id).await?;
     info!(
         "Exported {} nodes, {} edges from SQLite",
@@ -127,10 +124,7 @@ pub async fn migrate_from_ladybug<S: GraphStore>(
 ) -> GraphDbResult<MigrationReport> {
     use super::export::export_ladybug;
 
-    info!(
-        "Starting LadybugDB export (tenant: {:?})",
-        tenant_id
-    );
+    info!("Starting LadybugDB export (tenant: {:?})", tenant_id);
     let snapshot = export_ladybug(source, tenant_id)?;
     info!(
         "Exported {} nodes, {} edges from LadybugDB",
@@ -149,29 +143,23 @@ pub async fn validate_migration<S: GraphStore>(
     // Count source
     let (source_nodes, source_edges) = match tenant_id {
         Some(tid) => {
-            let n: (i64,) = sqlx::query_as(
-                "SELECT COUNT(*) FROM graph_nodes WHERE tenant_id = ?1",
-            )
-            .bind(tid)
-            .fetch_one(source_pool)
-            .await?;
-            let e: (i64,) = sqlx::query_as(
-                "SELECT COUNT(*) FROM graph_edges WHERE tenant_id = ?1",
-            )
-            .bind(tid)
-            .fetch_one(source_pool)
-            .await?;
+            let n: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM graph_nodes WHERE tenant_id = ?1")
+                .bind(tid)
+                .fetch_one(source_pool)
+                .await?;
+            let e: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM graph_edges WHERE tenant_id = ?1")
+                .bind(tid)
+                .fetch_one(source_pool)
+                .await?;
             (n.0 as u64, e.0 as u64)
         }
         None => {
-            let n: (i64,) =
-                sqlx::query_as("SELECT COUNT(*) FROM graph_nodes")
-                    .fetch_one(source_pool)
-                    .await?;
-            let e: (i64,) =
-                sqlx::query_as("SELECT COUNT(*) FROM graph_edges")
-                    .fetch_one(source_pool)
-                    .await?;
+            let n: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM graph_nodes")
+                .fetch_one(source_pool)
+                .await?;
+            let e: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM graph_edges")
+                .fetch_one(source_pool)
+                .await?;
             (n.0 as u64, e.0 as u64)
         }
     };

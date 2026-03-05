@@ -13,14 +13,10 @@ pub mod recovery;
 pub mod rules_backfill;
 
 // Re-export all public items for backward-compatible imports via `crate::startup::*`
-pub use recovery::{
-    check_base_point_migration, run_startup_recovery,
-    RecoveryStats, FullRecoveryStats,
-};
 pub use reconciliation::{
-    clean_stale_state, validate_watch_folders,
-    StaleCleanupStats, WatchValidationStats,
+    clean_stale_state, validate_watch_folders, StaleCleanupStats, WatchValidationStats,
 };
-pub use rules_backfill::{
-    backfill_rules_mirror, RulesBackfillStats,
+pub use recovery::{
+    check_base_point_migration, run_startup_recovery, FullRecoveryStats, RecoveryStats,
 };
+pub use rules_backfill::{backfill_rules_mirror, RulesBackfillStats};

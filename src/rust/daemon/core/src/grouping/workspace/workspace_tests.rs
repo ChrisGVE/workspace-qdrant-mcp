@@ -180,11 +180,7 @@ fn test_no_go_workspace() {
     let root = tmp.path();
 
     // go.mod only (no go.work) -> not a workspace
-    fs::write(
-        root.join("go.mod"),
-        "module example.com/myapp\n\ngo 1.21\n",
-    )
-    .unwrap();
+    fs::write(root.join("go.mod"), "module example.com/myapp\n\ngo 1.21\n").unwrap();
 
     assert!(detect_go_workspace(root).is_none());
 }
@@ -268,25 +264,21 @@ async fn test_compute_workspace_groups_cargo() {
     let app_path = root.join("app").to_string_lossy().to_string();
     let lib_path = root.join("lib").to_string_lossy().to_string();
 
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)",
-    )
-    .bind("w1")
-    .bind(&app_path)
-    .bind("tenant-app")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+        .bind("w1")
+        .bind(&app_path)
+        .bind("tenant-app")
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)",
-    )
-    .bind("w2")
-    .bind(&lib_path)
-    .bind("tenant-lib")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+        .bind("w2")
+        .bind(&lib_path)
+        .bind("tenant-lib")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let groups = compute_workspace_groups(&pool).await.unwrap();
     assert_eq!(groups, 1);
@@ -316,27 +308,23 @@ async fn test_update_single_project_workspace() {
 
     // Register svc-a first
     let svc_a_path = root.join("svc-a").to_string_lossy().to_string();
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)",
-    )
-    .bind("w1")
-    .bind(&svc_a_path)
-    .bind("tenant-a")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+        .bind("w1")
+        .bind(&svc_a_path)
+        .bind("tenant-a")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Then register svc-b and update groups
     let svc_b_path = root.join("svc-b").to_string_lossy().to_string();
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)",
-    )
-    .bind("w2")
-    .bind(&svc_b_path)
-    .bind("tenant-b")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+        .bind("w2")
+        .bind(&svc_b_path)
+        .bind("tenant-b")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let added = update_project_workspace_group(&pool, "tenant-b", &root.join("svc-b"))
         .await
@@ -344,9 +332,7 @@ async fn test_update_single_project_workspace() {
     assert!(added);
 
     // Both should be in the same group
-    let members = schema::get_group_members(&pool, "tenant-a")
-        .await
-        .unwrap();
+    let members = schema::get_group_members(&pool, "tenant-a").await.unwrap();
     assert_eq!(members.len(), 2);
 }
 
@@ -359,15 +345,13 @@ async fn test_no_workspace_no_group() {
     let pool = setup_pool().await;
 
     let path = root.to_string_lossy().to_string();
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)",
-    )
-    .bind("w1")
-    .bind(&path)
-    .bind("tenant-solo")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+        .bind("w1")
+        .bind(&path)
+        .bind("tenant-solo")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let groups = compute_workspace_groups(&pool).await.unwrap();
     assert_eq!(groups, 0);

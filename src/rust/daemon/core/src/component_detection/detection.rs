@@ -177,7 +177,11 @@ fn detect_npm_workspace(project_path: &Path) -> ComponentMap {
     for ws_path in &workspace_paths {
         if ws_path.contains('*') {
             // Resolve glob: "packages/*" → list actual subdirectories
-            let base_dir = ws_path.split('*').next().unwrap_or("").trim_end_matches('/');
+            let base_dir = ws_path
+                .split('*')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('/');
             let full_base = project_path.join(base_dir);
 
             if let Ok(entries) = fs::read_dir(&full_base) {

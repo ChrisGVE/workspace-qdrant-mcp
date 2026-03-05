@@ -7,8 +7,8 @@ use std::collections::HashMap;
 
 use sqlx::Row;
 
-use crate::search_db::{SearchDbManager, SearchDbError};
 use super::super::types::SearchMatch;
+use crate::search_db::{SearchDbError, SearchDbManager};
 
 /// Attach context lines (before/after) to search matches.
 ///
@@ -64,7 +64,12 @@ ORDER BY line_number"#,
 
         let line_map: HashMap<i64, String> = rows
             .iter()
-            .map(|row| (row.get::<i64, _>("line_number"), row.get::<String, _>("content")))
+            .map(|row| {
+                (
+                    row.get::<i64, _>("line_number"),
+                    row.get::<String, _>("content"),
+                )
+            })
             .collect();
 
         for &idx in match_indices {

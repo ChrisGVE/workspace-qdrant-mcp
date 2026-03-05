@@ -5,7 +5,6 @@
 ///
 /// Gated behind the `ladybug` feature flag. Requires C++ compiler (Clang/LLVM)
 /// at build time.
-
 pub mod config;
 pub mod store;
 

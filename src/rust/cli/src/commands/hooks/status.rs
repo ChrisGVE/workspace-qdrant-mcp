@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::output;
 
-use super::matchers::{SESSION_START_MATCHER, group_has_wqm_command, is_our_matcher};
+use super::matchers::{group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER};
 use super::settings::{get_claude_settings_path, read_settings};
 
 /// Check if hooks are installed
@@ -23,7 +23,10 @@ pub(super) async fn status_hooks() -> Result<()> {
         .get("hooks")
         .and_then(|h| h.get("SessionStart"))
         .and_then(|arr| arr.as_array())
-        .map(|arr| arr.iter().any(|e| is_our_matcher(e) && group_has_wqm_command(e)))
+        .map(|arr| {
+            arr.iter()
+                .any(|e| is_our_matcher(e) && group_has_wqm_command(e))
+        })
         .unwrap_or(false);
 
     if installed {

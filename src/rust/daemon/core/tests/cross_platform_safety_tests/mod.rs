@@ -8,15 +8,15 @@
 //! 5. Thread safety testing
 //! 6. Performance regression detection
 
-pub mod types;
-pub mod suite;
-mod platform_tests;
 mod benchmarks;
+mod platform_tests;
+pub mod suite;
 mod tests;
+pub mod types;
 
 // Re-export public types for use by parent module and integration tests
 pub use suite::CrossPlatformTestSuite;
 pub use types::{
-    CrossPlatformTestConfig, CrossPlatformResults, MemorySafetyResults,
-    FFIPerformanceResults, ThreadSafetyResults, PerformanceRegressionResults,
+    CrossPlatformResults, CrossPlatformTestConfig, FFIPerformanceResults, MemorySafetyResults,
+    PerformanceRegressionResults, ThreadSafetyResults,
 };

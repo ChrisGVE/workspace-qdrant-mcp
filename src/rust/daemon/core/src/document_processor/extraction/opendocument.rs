@@ -17,11 +17,7 @@ pub fn extract_opendocument(
 
     let file = std::fs::File::open(file_path)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| {
-        DocumentProcessorError::DocxExtraction(format!(
-            "{}: {}",
-            format_name.to_uppercase(),
-            e
-        ))
+        DocumentProcessorError::DocxExtraction(format!("{}: {}", format_name.to_uppercase(), e))
     })?;
 
     let mut text = String::new();

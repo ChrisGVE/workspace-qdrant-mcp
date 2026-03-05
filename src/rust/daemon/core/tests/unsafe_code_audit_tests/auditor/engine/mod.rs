@@ -8,10 +8,10 @@ mod platform_checks;
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use super::trackers::{ConcurrencyTracker, MemoryTracker};
 use super::super::types::{
     ConcurrencySafety, FfiSafety, SafetyViolation, UnsafeAuditError, UnsafeAuditResults,
 };
+use super::trackers::{ConcurrencyTracker, MemoryTracker};
 
 /// Main unsafe code audit suite
 pub struct UnsafeCodeAuditor {
@@ -40,8 +40,7 @@ impl UnsafeCodeAuditor {
         let boundary_tests = self.test_boundary_conditions().await?;
         let concurrency_safety = self.analyze_concurrency_safety().await?;
         let ffi_safety = self.analyze_ffi_safety().await?;
-        let overall_safety_score =
-            self.calculate_safety_score(&concurrency_safety, &ffi_safety);
+        let overall_safety_score = self.calculate_safety_score(&concurrency_safety, &ffi_safety);
 
         let violations = self.violations.lock().unwrap();
 

@@ -7,16 +7,15 @@
 //! - Progressive scanning queue growth
 //! - Submodule detection at folder boundaries
 
-use workspace_qdrant_core::{
-    QueueManager,
-    unified_queue_schema::{
-        ItemType, QueueOperation,
-        CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL,
-    },
-    fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig},
-};
 use sqlx::SqlitePool;
 use tempfile::TempDir;
+use workspace_qdrant_core::{
+    fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig},
+    unified_queue_schema::{
+        ItemType, QueueOperation, CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
+    },
+    QueueManager,
+};
 
 mod priority_tests;
 mod scanning_tests;
@@ -33,7 +32,9 @@ pub async fn create_test_database() -> SqlitePool {
         .expect("Failed to create unified_queue table");
 
     for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
-        sqlx::query(index_sql).execute(&pool).await
+        sqlx::query(index_sql)
+            .execute(&pool)
+            .await
             .expect("Failed to create unified_queue index");
     }
 
@@ -56,7 +57,7 @@ pub async fn create_test_database() -> SqlitePool {
             updated_at TEXT NOT NULL,
             UNIQUE(path, collection)
         )
-        "#
+        "#,
     )
     .execute(&pool)
     .await
@@ -78,7 +79,7 @@ pub async fn create_test_database() -> SqlitePool {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
-        "#
+        "#,
     )
     .execute(&pool)
     .await
@@ -88,7 +89,14 @@ pub async fn create_test_database() -> SqlitePool {
 }
 
 /// Insert a watch folder with given activity status
-pub async fn insert_watch_folder(pool: &SqlitePool, watch_id: &str, path: &str, tenant_id: &str, collection: &str, is_active: bool) {
+pub async fn insert_watch_folder(
+    pool: &SqlitePool,
+    watch_id: &str,
+    path: &str,
+    tenant_id: &str,
+    collection: &str,
+    is_active: bool,
+) {
     let now = wqm_common::timestamps::now_utc();
     sqlx::query(
         r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)

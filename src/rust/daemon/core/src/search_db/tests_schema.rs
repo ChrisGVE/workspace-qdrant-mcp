@@ -25,11 +25,10 @@ async fn test_wal_mode_enabled() {
 
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
-    let mode: String =
-        sqlx::query_scalar("PRAGMA journal_mode")
-            .fetch_one(manager.pool())
-            .await
-            .unwrap();
+    let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+        .fetch_one(manager.pool())
+        .await
+        .unwrap();
 
     assert_eq!(mode.to_lowercase(), "wal");
 
@@ -43,11 +42,10 @@ async fn test_foreign_keys_enabled() {
 
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
-    let fk: i32 =
-        sqlx::query_scalar("PRAGMA foreign_keys")
-            .fetch_one(manager.pool())
-            .await
-            .unwrap();
+    let fk: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(manager.pool())
+        .await
+        .unwrap();
 
     assert_eq!(fk, 1, "foreign_keys should be enabled");
 
@@ -138,11 +136,10 @@ async fn test_concurrent_reads_during_write() {
 
     // Concurrent read should succeed (WAL mode)
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    let count: i32 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM test_data")
-            .fetch_one(manager.pool())
-            .await
-            .unwrap();
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM test_data")
+        .fetch_one(manager.pool())
+        .await
+        .unwrap();
 
     // Should see at least the first row (WAL snapshot isolation)
     assert!(count >= 1, "Should read at least 1 row concurrently");
@@ -158,7 +155,11 @@ async fn test_schema_version_is_current() {
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
     let version = manager.get_schema_version().await.unwrap();
-    assert_eq!(version, Some(SEARCH_SCHEMA_VERSION), "Schema version should be current");
+    assert_eq!(
+        version,
+        Some(SEARCH_SCHEMA_VERSION),
+        "Schema version should be current"
+    );
 
     manager.close().await;
 }

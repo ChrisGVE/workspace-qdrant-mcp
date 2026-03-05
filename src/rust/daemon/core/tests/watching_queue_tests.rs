@@ -2,17 +2,15 @@
 //!
 //! Updated per Task 21 to use unified_queue instead of legacy ingestion_queue.
 
-use workspace_qdrant_core::{
-    AllowedExtensions,
-    FileWatcherQueue, WatchManager, WatchConfig,
-    QueueManager, WatchType,
-    unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload},
-};
+use sqlx::{Row, SqlitePool};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
-use sqlx::{Row, SqlitePool};
 use tokio::time::{sleep, Duration};
+use workspace_qdrant_core::{
+    unified_queue_schema::{FilePayload, ItemType, QueueOperation as UnifiedOp},
+    AllowedExtensions, FileWatcherQueue, QueueManager, WatchConfig, WatchManager, WatchType,
+};
 
 /// Helper to create in-memory SQLite database with queue schema
 async fn create_test_database() -> SqlitePool {
@@ -91,7 +89,7 @@ async fn create_test_database() -> SqlitePool {
             health_status TEXT DEFAULT 'healthy',
             FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
         )
-        "#
+        "#,
     )
     .execute(&pool)
     .await
@@ -158,7 +156,7 @@ async fn test_watch_manager_with_configuration() {
             watch_id, path, collection, tenant_id, patterns, ignore_patterns,
             recursive, debounce_seconds, enabled
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-        "#
+        "#,
     )
     .bind("test-watch-1")
     .bind(&watch_path)
@@ -178,7 +176,11 @@ async fn test_watch_manager_with_configuration() {
 
     // Start all watches
     let result = manager.start_all_watches().await;
-    assert!(result.is_ok(), "Failed to start watches: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to start watches: {:?}",
+        result.err()
+    );
 
     // Give the watcher a moment to start
     sleep(Duration::from_millis(100)).await;
@@ -209,15 +211,17 @@ async fn test_unified_queue_enqueue_operation() {
     let payload_json = serde_json::to_string(&payload).unwrap();
 
     // Test unified queue operations
-    let result = queue_manager.enqueue_unified(
-        ItemType::File,
-        UnifiedOp::Add,
-        "test-tenant",
-        "projects",
-        &payload_json,
-        Some("main"),
-        None,
-    ).await;
+    let result = queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "test-tenant",
+            "projects",
+            &payload_json,
+            Some("main"),
+            None,
+        )
+        .await;
 
     assert!(result.is_ok(), "Failed to enqueue file: {:?}", result.err());
     let (queue_id, is_new) = result.unwrap();
@@ -263,15 +267,18 @@ async fn test_unified_queue_multiple_operations() {
         size_bytes: None,
         old_path: None,
     };
-    queue_manager.enqueue_unified(
-        ItemType::File,
-        UnifiedOp::Add,
-        "tenant",
-        "projects",
-        &serde_json::to_string(&payload1).unwrap(),
-        Some("main"),
-        None,
-    ).await.expect("Failed to enqueue ingest");
+    queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant",
+            "projects",
+            &serde_json::to_string(&payload1).unwrap(),
+            Some("main"),
+            None,
+        )
+        .await
+        .expect("Failed to enqueue ingest");
 
     let payload2 = FilePayload {
         file_path: "/tmp/update.txt".to_string(),
@@ -280,15 +287,18 @@ async fn test_unified_queue_multiple_operations() {
         size_bytes: None,
         old_path: None,
     };
-    queue_manager.enqueue_unified(
-        ItemType::File,
-        UnifiedOp::Update,
-        "tenant",
-        "projects",
-        &serde_json::to_string(&payload2).unwrap(),
-        Some("main"),
-        None,
-    ).await.expect("Failed to enqueue update");
+    queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Update,
+            "tenant",
+            "projects",
+            &serde_json::to_string(&payload2).unwrap(),
+            Some("main"),
+            None,
+        )
+        .await
+        .expect("Failed to enqueue update");
 
     let payload3 = FilePayload {
         file_path: "/tmp/delete.txt".to_string(),
@@ -297,15 +307,18 @@ async fn test_unified_queue_multiple_operations() {
         size_bytes: None,
         old_path: None,
     };
-    queue_manager.enqueue_unified(
-        ItemType::File,
-        UnifiedOp::Delete,
-        "tenant",
-        "projects",
-        &serde_json::to_string(&payload3).unwrap(),
-        Some("main"),
-        None,
-    ).await.expect("Failed to enqueue delete");
+    queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Delete,
+            "tenant",
+            "projects",
+            &serde_json::to_string(&payload3).unwrap(),
+            Some("main"),
+            None,
+        )
+        .await
+        .expect("Failed to enqueue delete");
 
     // Verify all three items were enqueued with correct ops
     let rows = sqlx::query("SELECT file_path, op FROM unified_queue ORDER BY file_path")
@@ -315,7 +328,10 @@ async fn test_unified_queue_multiple_operations() {
 
     assert_eq!(rows.len(), 3);
 
-    let ops: Vec<String> = rows.iter().map(|r| r.try_get::<String, _>("op").unwrap()).collect();
+    let ops: Vec<String> = rows
+        .iter()
+        .map(|r| r.try_get::<String, _>("op").unwrap())
+        .collect();
     assert!(ops.contains(&"delete".to_string()));
     assert!(ops.contains(&"add".to_string()));
     assert!(ops.contains(&"update".to_string()));
@@ -337,31 +353,40 @@ async fn test_unified_queue_idempotency() {
     let payload_json = serde_json::to_string(&payload).unwrap();
 
     // First enqueue
-    let (queue_id1, is_new1) = queue_manager.enqueue_unified(
-        ItemType::File,
-        UnifiedOp::Add,
-        "tenant",
-        "projects",
-        &payload_json,
-        Some("main"),
-        None,
-    ).await.expect("Failed to enqueue first time");
+    let (queue_id1, is_new1) = queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant",
+            "projects",
+            &payload_json,
+            Some("main"),
+            None,
+        )
+        .await
+        .expect("Failed to enqueue first time");
 
     assert!(is_new1, "First enqueue should be new");
 
     // Second enqueue with same payload (should be idempotent)
-    let (queue_id2, is_new2) = queue_manager.enqueue_unified(
-        ItemType::File,
-        UnifiedOp::Add,
-        "tenant",
-        "projects",
-        &payload_json,
-        Some("main"),
-        None,
-    ).await.expect("Failed to enqueue second time");
+    let (queue_id2, is_new2) = queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant",
+            "projects",
+            &payload_json,
+            Some("main"),
+            None,
+        )
+        .await
+        .expect("Failed to enqueue second time");
 
     assert!(!is_new2, "Second enqueue should not be new (idempotent)");
-    assert_eq!(queue_id1, queue_id2, "Queue IDs should match for idempotent enqueue");
+    assert_eq!(
+        queue_id1, queue_id2,
+        "Queue IDs should match for idempotent enqueue"
+    );
 
     // Verify only one item in queue
     let row = sqlx::query("SELECT COUNT(*) as count FROM unified_queue")

@@ -34,9 +34,7 @@ impl PlatformWatcher {
 pub struct PlatformWatcherFactory;
 
 impl PlatformWatcherFactory {
-    pub fn create_watcher(
-        _config: PlatformWatcherConfig,
-    ) -> anyhow::Result<PlatformWatcher> {
+    pub fn create_watcher(_config: PlatformWatcherConfig) -> anyhow::Result<PlatformWatcher> {
         Ok(PlatformWatcher)
     }
 }

@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V26Migration;
 
@@ -29,7 +29,8 @@ impl Migration for V26Migration {
             )
             "#,
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_processing_timings_op_phase ON processing_timings (op, phase)",
@@ -50,6 +51,10 @@ impl Migration for V26Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 26 }
-    fn description(&self) -> &'static str { "Create processing_timings table" }
+    fn version(&self) -> i32 {
+        26
+    }
+    fn description(&self) -> &'static str {
+        "Create processing_timings table"
+    }
 }

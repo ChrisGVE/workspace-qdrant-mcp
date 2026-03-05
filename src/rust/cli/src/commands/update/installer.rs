@@ -1,6 +1,6 @@
 //! Binary download, checksum verification, and daemon lifecycle for update command
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -32,7 +32,9 @@ pub async fn download_file(client: &Client, url: &str, path: &PathBuf) -> Result
         .await
         .context("Failed to create file")?;
 
-    file.write_all(&bytes).await.context("Failed to write file")?;
+    file.write_all(&bytes)
+        .await
+        .context("Failed to write file")?;
 
     Ok(())
 }
@@ -125,8 +127,7 @@ pub async fn start_daemon() -> Result<()> {
 fn replace_binary(temp_binary: &PathBuf, install_path: &PathBuf) -> Result<()> {
     let backup_path = install_path.with_extension("bak");
     if install_path.exists() {
-        std::fs::rename(install_path, &backup_path)
-            .context("Failed to backup existing binary")?;
+        std::fs::rename(install_path, &backup_path).context("Failed to backup existing binary")?;
     }
 
     #[cfg(unix)]
@@ -136,8 +137,7 @@ fn replace_binary(temp_binary: &PathBuf, install_path: &PathBuf) -> Result<()> {
         std::fs::set_permissions(temp_binary, permissions)?;
     }
 
-    std::fs::rename(temp_binary, install_path)
-        .context("Failed to install new binary")?;
+    std::fs::rename(temp_binary, install_path).context("Failed to install new binary")?;
 
     let _ = std::fs::remove_file(&backup_path);
     Ok(())
@@ -153,7 +153,10 @@ pub async fn perform_update(client: &Client, release: &GitHubRelease, _force: bo
         .assets
         .iter()
         .find(|a| a.name == binary_name)
-        .context(format!("No binary found for platform: {}", get_target_triple()))?;
+        .context(format!(
+            "No binary found for platform: {}",
+            get_target_triple()
+        ))?;
 
     // Find the checksum asset (optional)
     let checksum_asset = release.assets.iter().find(|a| a.name == checksum_name);

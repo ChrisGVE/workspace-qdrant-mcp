@@ -2,7 +2,6 @@
 ///
 /// Orchestrates: image extraction → thumbnail generation → CLIP embedding
 /// → Qdrant storage. Processes images in batches for efficient CLIP encoding.
-
 use std::collections::HashMap;
 
 use serde_json::json;
@@ -60,9 +59,7 @@ pub fn process_document_images(
 
     // Process in batches for CLIP encoding
     for batch in images_to_process.chunks(config.batch_size) {
-        let batch_points = process_image_batch(
-            batch, source, clip_encoder, config, &mut stats,
-        );
+        let batch_points = process_image_batch(batch, source, clip_encoder, config, &mut stats);
         points.extend(batch_points);
     }
 
@@ -156,14 +153,8 @@ pub(super) fn process_image_batch(
         let timestamp = now_utc();
 
         let mut payload = HashMap::new();
-        payload.insert(
-            field::TENANT_ID.to_string(),
-            json!(source.tenant_id),
-        );
-        payload.insert(
-            field::DOCUMENT_ID.to_string(),
-            json!(point_id),
-        );
+        payload.insert(field::TENANT_ID.to_string(), json!(source.tenant_id));
+        payload.insert(field::DOCUMENT_ID.to_string(), json!(point_id));
         payload.insert(
             field::SOURCE_DOCUMENT_ID.to_string(),
             json!(source.document_id),
@@ -172,41 +163,17 @@ pub(super) fn process_image_batch(
             field::SOURCE_COLLECTION.to_string(),
             json!(source.source_collection),
         );
-        payload.insert(
-            field::FILE_PATH.to_string(),
-            json!(source.file_path),
-        );
-        payload.insert(
-            field::IMAGE_WIDTH.to_string(),
-            json!(thumb.width),
-        );
-        payload.insert(
-            field::IMAGE_HEIGHT.to_string(),
-            json!(thumb.height),
-        );
-        payload.insert(
-            field::IMAGE_FORMAT.to_string(),
-            json!(thumb.format),
-        );
-        payload.insert(
-            field::THUMBNAIL_B64.to_string(),
-            json!(thumb.base64),
-        );
-        payload.insert(
-            field::IMAGE_INDEX.to_string(),
-            json!(img.position_in_page),
-        );
-        payload.insert(
-            field::INGESTION_TIMESTAMP.to_string(),
-            json!(timestamp),
-        );
+        payload.insert(field::FILE_PATH.to_string(), json!(source.file_path));
+        payload.insert(field::IMAGE_WIDTH.to_string(), json!(thumb.width));
+        payload.insert(field::IMAGE_HEIGHT.to_string(), json!(thumb.height));
+        payload.insert(field::IMAGE_FORMAT.to_string(), json!(thumb.format));
+        payload.insert(field::THUMBNAIL_B64.to_string(), json!(thumb.base64));
+        payload.insert(field::IMAGE_INDEX.to_string(), json!(img.position_in_page));
+        payload.insert(field::INGESTION_TIMESTAMP.to_string(), json!(timestamp));
 
         // Optional positional metadata
         if let Some(page) = img.page_number {
-            payload.insert(
-                field::PAGE_NUMBER.to_string(),
-                json!(page),
-            );
+            payload.insert(field::PAGE_NUMBER.to_string(), json!(page));
         }
 
         points.push(DocumentPoint {

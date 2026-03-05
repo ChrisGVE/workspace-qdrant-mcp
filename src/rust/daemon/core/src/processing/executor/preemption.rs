@@ -72,7 +72,8 @@ pub(crate) fn handle_preemption_checkpoint(
         if let Some(checkpoint) = &running_task.current_checkpoint {
             tracing::info!(
                 "Task {} has existing checkpoint: {}",
-                task_id, checkpoint.checkpoint_id
+                task_id,
+                checkpoint.checkpoint_id
             );
         } else {
             tracing::debug!("Creating checkpoint for preempted task {}", task_id);
@@ -90,17 +91,21 @@ pub(crate) async fn try_preempt_lower_priority_task(
 
     let best_candidate = find_best_preemption_candidate(&running_lock, new_priority);
 
-    if let Some((task_id, old_priority, _, supports_checkpointing, is_preemptible)) =
-        best_candidate
+    if let Some((task_id, old_priority, _, supports_checkpointing, is_preemptible)) = best_candidate
     {
         if let Some(running_task) = running_lock.remove(&task_id) {
             tracing::info!(
                 "Preempting task {} (priority {:?}) for higher priority task (priority {:?})",
-                task_id, old_priority, new_priority
+                task_id,
+                old_priority,
+                new_priority
             );
 
             handle_preemption_checkpoint(
-                &running_task, task_id, supports_checkpointing, is_preemptible,
+                &running_task,
+                task_id,
+                supports_checkpointing,
+                is_preemptible,
             );
 
             // Gracefully cancel the task
@@ -127,7 +132,8 @@ pub(crate) async fn try_preempt_lower_priority_task(
                         {
                             tracing::error!(
                                 "Failed to rollback checkpoint for aborted task {}: {}",
-                                task_id, e
+                                task_id,
+                                e
                             );
                         }
                     }

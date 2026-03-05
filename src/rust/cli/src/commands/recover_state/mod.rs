@@ -14,8 +14,8 @@ use wqm_common::constants::{
     COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
 };
 
-use crate::output;
 use super::qdrant_helpers;
+use crate::output;
 
 use reconstruction::{
     reconstruct_library_state, reconstruct_project_state, reconstruct_rules_state,
@@ -44,8 +44,7 @@ async fn reconstruct_all_collections(
 
     for collection in ALL_COLLECTIONS {
         output::info(format!("Scrolling {}...", collection));
-        let points =
-            qdrant_helpers::scroll_all_points(http_client, base_url, collection).await?;
+        let points = qdrant_helpers::scroll_all_points(http_client, base_url, collection).await?;
 
         let count = points.len();
         total_points += count as u64;
@@ -77,7 +76,13 @@ async fn reconstruct_all_collections(
         }
     }
 
-    Ok((total_points, total_watch_folders, total_tracked_files, total_chunks, total_rules))
+    Ok((
+        total_points,
+        total_watch_folders,
+        total_tracked_files,
+        total_chunks,
+        total_rules,
+    ))
 }
 
 /// Execute recover-state command

@@ -10,9 +10,7 @@
 //!
 //! Run with: cargo bench --bench stress_benchmarks
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -401,8 +399,8 @@ fn bench_large_files(c: &mut Criterion) {
                     let file = create_test_file(file_size_mb * 1024).await.unwrap();
                     let path = file.path();
 
-                    let result = ingest_file_pipeline(path, &processor, &embedding_gen, &storage)
-                        .await;
+                    let result =
+                        ingest_file_pipeline(path, &processor, &embedding_gen, &storage).await;
 
                     drop(file);
                     black_box(result)

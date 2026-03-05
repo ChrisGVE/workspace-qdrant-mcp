@@ -23,12 +23,7 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 use tracing::{debug, error, info};
 
-use workspace_qdrant_core::{
-    config::Config,
-    config::DaemonConfig,
-    WatchManager,
-    HierarchyBuilder,
-};
+use workspace_qdrant_core::{config::Config, config::DaemonConfig, HierarchyBuilder, WatchManager};
 
 pub use startup::DaemonArgs;
 
@@ -82,8 +77,15 @@ async fn run_daemon(
     daemon_config: DaemonConfig,
     args: DaemonArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let suffix = args.project_id.as_deref().map_or(String::new(), |id| format!(" for project {id}"));
-    info!("Starting memexd daemon (version {} ({})){suffix}", env!("CARGO_PKG_VERSION"), env!("BUILD_NUMBER"));
+    let suffix = args
+        .project_id
+        .as_deref()
+        .map_or(String::new(), |id| format!(" for project {id}"));
+    info!(
+        "Starting memexd daemon (version {} ({})){suffix}",
+        env!("CARGO_PKG_VERSION"),
+        env!("BUILD_NUMBER")
+    );
 
     // Phase 1: Startup
     let (config, _cleanup_guard) = run_phase1(&args, &daemon_config)?;
@@ -91,7 +93,9 @@ async fn run_daemon(
     let db_handles = database::initialize_all(&config).await?;
     // Phase 3: Background tasks
     let mut bg_handles = background::spawn_all(
-        &db_handles.queue_pool, &db_handles.pause_flag, args.metrics_port,
+        &db_handles.queue_pool,
+        &db_handles.pause_flag,
+        args.metrics_port,
     );
     // Phase 4: LSP manager
     let lsp_manager = grpc_setup::init_lsp_manager(&daemon_config).await;
@@ -100,17 +104,30 @@ async fn run_daemon(
     // Phase 5: IPC + Queue processor
     let _ipc_server = queue_init::setup_ipc_server(&config, &db_handles.queue_pool).await?;
     let mut qc = queue_init::initialize(
-        &config, &daemon_config, db_handles.queue_pool.clone(),
-        &db_handles.search_db, &db_handles.graph_store, &lsp_manager, &watch_refresh_signal,
+        &config,
+        &daemon_config,
+        db_handles.queue_pool.clone(),
+        &db_handles.search_db,
+        &db_handles.graph_store,
+        &lsp_manager,
+        &watch_refresh_signal,
     )
     .await?;
 
     // Phase 6: gRPC server + queue start + recovery
-    bg_handles.grpc_handle =
-        Some(wire_grpc(&args, &db_handles, &qc, &lsp_manager, &watch_refresh_signal)?);
+    bg_handles.grpc_handle = Some(wire_grpc(
+        &args,
+        &db_handles,
+        &qc,
+        &lsp_manager,
+        &watch_refresh_signal,
+    )?);
     queue_init::start_processor(&mut qc.unified_queue_processor, &daemon_config).await?;
     queue_init::spawn_recovery_tasks(
-        &qc.unified_queue_processor, &qc.allowed_extensions, &qc.mirror_storage, &daemon_config,
+        &qc.unified_queue_processor,
+        &qc.allowed_extensions,
+        &qc.mirror_storage,
+        &daemon_config,
     );
 
     // Phase 6b: File watching + hierarchy
@@ -121,7 +138,10 @@ async fn run_daemon(
         Arc::clone(&qc.hierarchy_builder).start_scheduled(hierarchy_cancel.clone());
     info!("Canonical tag hierarchy rebuild scheduled (nightly at 2 AM)");
     spawn_hierarchy_bootstrap(&qc.hierarchy_builder);
-    info!("memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.", args.grpc_port);
+    info!(
+        "memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.",
+        args.grpc_port
+    );
 
     // Phase 7: Wait for shutdown signal, then clean up
     if let Err(e) = shutdown::wait_for_signal().await {
@@ -214,17 +234,13 @@ fn spawn_hierarchy_bootstrap(hierarchy_builder: &Arc<HierarchyBuilder>) {
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
         if builder.needs_rebuild().await {
-            info!(
-                "Bootstrap: tags exist but no canonical hierarchy -- running initial rebuild"
-            );
+            info!("Bootstrap: tags exist but no canonical hierarchy -- running initial rebuild");
             match builder.rebuild_all().await {
                 Ok(result) => {
                     info!(
                         "Bootstrap hierarchy rebuild complete: {} tenants, \
                          {} canonical tags, {} edges",
-                        result.tenants_processed,
-                        result.total_canonical_tags,
-                        result.total_edges
+                        result.tenants_processed, result.total_canonical_tags, result.total_edges
                     );
                 }
                 Err(e) => {
@@ -239,8 +255,8 @@ fn spawn_hierarchy_bootstrap(hierarchy_builder: &Arc<HierarchyBuilder>) {
 fn redirect_stderr_for_daemon() {
     #[cfg(unix)]
     {
-        use std::os::unix::io::AsRawFd;
         use std::fs::OpenOptions;
+        use std::os::unix::io::AsRawFd;
 
         if let Ok(null_file) = OpenOptions::new().write(true).open("/dev/null") {
             unsafe {

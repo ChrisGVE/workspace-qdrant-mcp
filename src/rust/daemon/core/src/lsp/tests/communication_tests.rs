@@ -5,8 +5,7 @@ use crate::lsp::{JsonRpcClient, JsonRpcMessage};
 #[test]
 fn test_json_rpc_message_parsing() {
     // Test request parsing
-    let request_json =
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"foo":"bar"}}"#;
+    let request_json = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"foo":"bar"}}"#;
     let message = JsonRpcMessage::parse(request_json).unwrap();
 
     match message {
@@ -32,8 +31,7 @@ fn test_json_rpc_message_parsing() {
     }
 
     // Test notification parsing
-    let notification_json =
-        r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{}}"#;
+    let notification_json = r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{}}"#;
     let message = JsonRpcMessage::parse(notification_json).unwrap();
 
     match message {
@@ -45,8 +43,7 @@ fn test_json_rpc_message_parsing() {
     }
 
     // Test error response parsing
-    let error_json =
-        r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Test error"}}"#;
+    let error_json = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Test error"}}"#;
     let message = JsonRpcMessage::parse(error_json).unwrap();
 
     match message {

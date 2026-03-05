@@ -290,8 +290,16 @@ fn main() {
 "#;
         let tags = extract_structural_tags(Path::new("src/main.rs"), source, Some("rust"));
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
-        assert!(phrases.contains(&"framework:tokio"), "Should detect tokio: {:?}", phrases);
-        assert!(phrases.contains(&"framework:serde"), "Should detect serde: {:?}", phrases);
+        assert!(
+            phrases.contains(&"framework:tokio"),
+            "Should detect tokio: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"framework:serde"),
+            "Should detect serde: {:?}",
+            phrases
+        );
     }
 
     #[test]
@@ -306,8 +314,7 @@ fn main() {
     #[test]
     fn test_framework_js_react() {
         let source = "import React from 'react';\nimport axios from 'axios';\n";
-        let tags =
-            extract_structural_tags(Path::new("src/App.tsx"), source, Some("typescript"));
+        let tags = extract_structural_tags(Path::new("src/App.tsx"), source, Some("typescript"));
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
         assert!(phrases.contains(&"framework:react"));
         assert!(phrases.contains(&"framework:axios"));
@@ -329,44 +336,40 @@ fn main() {
 
     #[test]
     fn test_layer_test() {
-        let tags = extract_structural_tags(
-            Path::new("src/tests/test_auth.py"),
-            "",
-            Some("python"),
-        );
+        let tags = extract_structural_tags(Path::new("src/tests/test_auth.py"), "", Some("python"));
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
-        assert!(phrases.contains(&"layer:test"), "Should detect test layer: {:?}", phrases);
+        assert!(
+            phrases.contains(&"layer:test"),
+            "Should detect test layer: {:?}",
+            phrases
+        );
     }
 
     #[test]
     fn test_layer_api() {
-        let tags = extract_structural_tags(
-            Path::new("src/api/routes.rs"),
-            "",
-            Some("rust"),
-        );
+        let tags = extract_structural_tags(Path::new("src/api/routes.rs"), "", Some("rust"));
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
-        assert!(phrases.contains(&"layer:api"), "Should detect api layer: {:?}", phrases);
+        assert!(
+            phrases.contains(&"layer:api"),
+            "Should detect api layer: {:?}",
+            phrases
+        );
     }
 
     #[test]
     fn test_layer_grpc() {
-        let tags = extract_structural_tags(
-            Path::new("src/grpc/service.rs"),
-            "",
-            Some("rust"),
-        );
+        let tags = extract_structural_tags(Path::new("src/grpc/service.rs"), "", Some("rust"));
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
-        assert!(phrases.contains(&"layer:api"), "gRPC should map to api layer: {:?}", phrases);
+        assert!(
+            phrases.contains(&"layer:api"),
+            "gRPC should map to api layer: {:?}",
+            phrases
+        );
     }
 
     #[test]
     fn test_layer_data_access() {
-        let tags = extract_structural_tags(
-            Path::new("src/storage/database.rs"),
-            "",
-            Some("rust"),
-        );
+        let tags = extract_structural_tags(Path::new("src/storage/database.rs"), "", Some("rust"));
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
         assert!(
             phrases.contains(&"layer:data-access"),
@@ -379,7 +382,11 @@ fn main() {
     fn test_no_language_no_source() {
         let tags = extract_structural_tags(Path::new("README.md"), "", None);
         // Should have no tags (no language, no build system, no layer)
-        assert!(tags.is_empty(), "README.md should have no structural tags: {:?}", tags);
+        assert!(
+            tags.is_empty(),
+            "README.md should have no structural tags: {:?}",
+            tags
+        );
     }
 
     #[test]
@@ -402,11 +409,7 @@ fn main() {
         assert!(tags.iter().any(|t| t.phrase == "layer:test"));
 
         // JS spec
-        let tags = extract_structural_tags(
-            Path::new("src/auth.spec.ts"),
-            "",
-            Some("typescript"),
-        );
+        let tags = extract_structural_tags(Path::new("src/auth.spec.ts"), "", Some("typescript"));
         assert!(tags.iter().any(|t| t.phrase == "layer:test"));
 
         // Go test
@@ -417,11 +420,8 @@ fn main() {
     #[test]
     fn test_java_spring() {
         let source = "import org.springframework.boot.SpringApplication;\n";
-        let tags = extract_structural_tags(
-            Path::new("src/main/java/App.java"),
-            source,
-            Some("java"),
-        );
+        let tags =
+            extract_structural_tags(Path::new("src/main/java/App.java"), source, Some("java"));
         let phrases: Vec<&str> = tags.iter().map(|t| t.phrase.as_str()).collect();
         assert!(phrases.contains(&"framework:spring"));
     }

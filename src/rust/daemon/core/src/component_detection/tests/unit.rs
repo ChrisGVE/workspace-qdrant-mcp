@@ -4,7 +4,10 @@ use super::super::*;
 fn test_path_to_component_id() {
     assert_eq!(path_to_component_id("daemon/core"), "daemon.core");
     assert_eq!(path_to_component_id("cli"), "cli");
-    assert_eq!(path_to_component_id("src/typescript/mcp"), "src.typescript.mcp");
+    assert_eq!(
+        path_to_component_id("src/typescript/mcp"),
+        "src.typescript.mcp"
+    );
     assert_eq!(path_to_component_id("trailing/"), "trailing");
     assert_eq!(path_to_component_id("/leading"), "leading");
 }

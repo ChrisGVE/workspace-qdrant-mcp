@@ -47,18 +47,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use uuid::Uuid;
 
 use workspace_qdrant_core::{
-    EmbeddingGenerator, EmbeddingConfig,
-    StorageClient, StorageConfig, DocumentPoint,
+    DocumentPoint, EmbeddingConfig, EmbeddingGenerator, StorageClient, StorageConfig,
 };
 
 /// Namespace UUID for benchmark point IDs (deterministic)
 const BENCH_UUID_NAMESPACE: Uuid = Uuid::from_bytes([
-    0xb6, 0x43, 0x1a, 0x2e, 0x7f, 0x8c, 0x4d, 0x1a,
-    0x9e, 0x3b, 0x5c, 0x2d, 0x4e, 0x6f, 0x7a, 0x8b,
+    0xb6, 0x43, 0x1a, 0x2e, 0x7f, 0x8c, 0x4d, 0x1a, 0x9e, 0x3b, 0x5c, 0x2d, 0x4e, 0x6f, 0x7a, 0x8b,
 ]);
 
 /// Default PDF path relative to the project root
@@ -93,8 +91,7 @@ fn resolve_pdf_path() -> Option<PathBuf> {
 
 /// Extract text from a PDF file
 fn extract_pdf_text(path: &PathBuf) -> Result<String, String> {
-    pdf_extract::extract_text(path)
-        .map_err(|e| format!("PDF extraction failed: {}", e))
+    pdf_extract::extract_text(path).map_err(|e| format!("PDF extraction failed: {}", e))
 }
 
 /// Clean extracted text: collapse whitespace, remove control chars
@@ -155,9 +152,9 @@ impl Drop for BenchCleanupGuard {
         eprintln!("\nCleaning up benchmark collection: {}", self.collection);
         let client = self.storage_client.clone();
         let collection = self.collection;
-        let _ = self.rt.block_on(async {
-            client.delete_collection(collection).await
-        });
+        let _ = self
+            .rt
+            .block_on(async { client.delete_collection(collection).await });
     }
 }
 
@@ -181,7 +178,10 @@ async fn run_iteration(
             .await
             .map_err(|e| format!("Embedding failed: {}", e))?;
 
-        let sparse_map: HashMap<u32, f32> = result.sparse.indices.iter()
+        let sparse_map: HashMap<u32, f32> = result
+            .sparse
+            .indices
+            .iter()
             .zip(result.sparse.values.iter())
             .map(|(&idx, &val)| (idx, val))
             .collect();
@@ -271,9 +271,7 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
     let storage_config = StorageConfig::daemon_mode();
     let storage_client = Arc::new(StorageClient::with_config(storage_config));
 
-    let connected = rt.block_on(async {
-        storage_client.test_connection().await.unwrap_or(false)
-    });
+    let connected = rt.block_on(async { storage_client.test_connection().await.unwrap_or(false) });
 
     if !connected {
         eprintln!("WARNING: Qdrant not available at localhost:6334. Skipping benchmark.");
@@ -296,7 +294,10 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
     });
 
     if !collection_created {
-        eprintln!("WARNING: Failed to create benchmark collection '{}'. Skipping.", BENCH_COLLECTION);
+        eprintln!(
+            "WARNING: Failed to create benchmark collection '{}'. Skipping.",
+            BENCH_COLLECTION
+        );
         let mut group = c.benchmark_group("qdrant_ingestion_vs_deletion");
         group.bench_function("skipped_collection_error", |b| {
             b.iter(|| std::thread::sleep(Duration::from_millis(1)))
@@ -304,7 +305,10 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
         group.finish();
         return;
     }
-    eprintln!("Created dedicated benchmark collection: {}", BENCH_COLLECTION);
+    eprintln!(
+        "Created dedicated benchmark collection: {}",
+        BENCH_COLLECTION
+    );
 
     // Guard ensures cleanup even on panic or Ctrl+C
     let _cleanup_guard = BenchCleanupGuard {
@@ -316,8 +320,7 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
     // --- Initialize embedding model ---
     let embedding_config = EmbeddingConfig::default();
     let embedding_gen = Arc::new(
-        EmbeddingGenerator::new(embedding_config)
-            .expect("Failed to create embedding generator")
+        EmbeddingGenerator::new(embedding_config).expect("Failed to create embedding generator"),
     );
 
     eprintln!("Warming up embedding model...");
@@ -395,28 +398,29 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
             &bench_chunks,
             |b, chunks| {
                 let mut iteration = 0;
-                b.to_async(tokio::runtime::Runtime::new().unwrap()).iter(|| {
-                    let eg = eg.clone();
-                    let sc = sc.clone();
-                    let ch = chunks.clone();
-                    iteration += 1;
-                    async move {
-                        match run_iteration(&eg, &sc, &ch, iteration).await {
-                            Ok((embed, ingest, delete)) => {
-                                let ratio = if delete > 0 {
-                                    ingest as f64 / delete as f64
-                                } else {
-                                    f64::INFINITY
-                                };
-                                eprintln!(
+                b.to_async(tokio::runtime::Runtime::new().unwrap())
+                    .iter(|| {
+                        let eg = eg.clone();
+                        let sc = sc.clone();
+                        let ch = chunks.clone();
+                        iteration += 1;
+                        async move {
+                            match run_iteration(&eg, &sc, &ch, iteration).await {
+                                Ok((embed, ingest, delete)) => {
+                                    let ratio = if delete > 0 {
+                                        ingest as f64 / delete as f64
+                                    } else {
+                                        f64::INFINITY
+                                    };
+                                    eprintln!(
                                     "  [{} chunks] embed={}ms ingest={}ms delete={}ms ratio={:.1}x",
                                     ch.len(), embed, ingest, delete, ratio,
                                 );
+                                }
+                                Err(e) => eprintln!("  ERROR: {}", e),
                             }
-                            Err(e) => eprintln!("  ERROR: {}", e),
                         }
-                    }
-                });
+                    });
             },
         );
     }
@@ -425,7 +429,10 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
     // --- Detailed report ---
     eprintln!("\n=== Detailed Benchmark Report (PDF content) ===");
     eprintln!("Source: {}", pdf_path.display());
-    eprintln!("Total text: {} bytes, {} chars", full_text_bytes, full_text_chars);
+    eprintln!(
+        "Total text: {} bytes, {} chars",
+        full_text_bytes, full_text_chars
+    );
 
     rt.block_on(async {
         for (label, chunks) in &sliced_chunks {
@@ -454,12 +461,33 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
             let avg_ingest = ingest_times.iter().sum::<u64>() as f64 / n;
             let avg_delete = delete_times.iter().sum::<u64>() as f64 / n;
             let chunk_count = chunks.len();
-            let ratio = if avg_delete > 0.0 { avg_ingest / avg_delete } else { f64::INFINITY };
+            let ratio = if avg_delete > 0.0 {
+                avg_ingest / avg_delete
+            } else {
+                f64::INFINITY
+            };
 
-            eprintln!("\n--- {} ({} chunks, {} iterations) ---", label, chunk_count, embed_times.len());
-            eprintln!("  Embedding:  {:.0}ms avg ({:.2}ms/chunk)", avg_embed, avg_embed / chunk_count as f64);
-            eprintln!("  Ingestion:  {:.0}ms avg ({:.2}ms/chunk)", avg_ingest, avg_ingest / chunk_count as f64);
-            eprintln!("  Deletion:   {:.0}ms avg ({:.2}ms/chunk)", avg_delete, avg_delete / chunk_count as f64);
+            eprintln!(
+                "\n--- {} ({} chunks, {} iterations) ---",
+                label,
+                chunk_count,
+                embed_times.len()
+            );
+            eprintln!(
+                "  Embedding:  {:.0}ms avg ({:.2}ms/chunk)",
+                avg_embed,
+                avg_embed / chunk_count as f64
+            );
+            eprintln!(
+                "  Ingestion:  {:.0}ms avg ({:.2}ms/chunk)",
+                avg_ingest,
+                avg_ingest / chunk_count as f64
+            );
+            eprintln!(
+                "  Deletion:   {:.0}ms avg ({:.2}ms/chunk)",
+                avg_delete,
+                avg_delete / chunk_count as f64
+            );
             eprintln!("  Ratio:      {:.1}x (ingestion/deletion)", ratio);
         }
     });
@@ -518,8 +546,7 @@ fn chunk_size_optimization_benchmark(c: &mut Criterion) {
     // --- Initialize embedding model ---
     let embedding_config = EmbeddingConfig::default();
     let embedding_gen = Arc::new(
-        EmbeddingGenerator::new(embedding_config)
-            .expect("Failed to create embedding generator")
+        EmbeddingGenerator::new(embedding_config).expect("Failed to create embedding generator"),
     );
 
     // Warm up
@@ -532,13 +559,13 @@ fn chunk_size_optimization_benchmark(c: &mut Criterion) {
     // --- Test chunk sizes ---
     // overlap = 10% of chunk size (rounded)
     let chunk_configs: Vec<(usize, usize)> = vec![
-        (128, 13),    // 128 chars, 13 overlap
-        (256, 26),    // 256 chars, 26 overlap
-        (384, 38),    // 384 chars, 38 overlap
-        (512, 50),    // 512 chars, 50 overlap (current default)
-        (768, 77),    // 768 chars, 77 overlap
-        (1024, 102),  // 1024 chars, 102 overlap
-        (2048, 205),  // 2048 chars, 205 overlap
+        (128, 13),   // 128 chars, 13 overlap
+        (256, 26),   // 256 chars, 26 overlap
+        (384, 38),   // 384 chars, 38 overlap
+        (512, 50),   // 512 chars, 50 overlap (current default)
+        (768, 77),   // 768 chars, 77 overlap
+        (1024, 102), // 1024 chars, 102 overlap
+        (2048, 205), // 2048 chars, 205 overlap
     ];
 
     // --- Criterion benchmark group ---
@@ -555,17 +582,16 @@ fn chunk_size_optimization_benchmark(c: &mut Criterion) {
             BenchmarkId::new("embed", format!("{}c_{}o", chunk_size, overlap)),
             &chunks,
             |b, chunks| {
-                b.to_async(tokio::runtime::Runtime::new().unwrap()).iter(|| {
-                    let eg = eg.clone();
-                    let ch = chunks.clone();
-                    async move {
-                        for chunk in &ch {
-                            let _ = eg
-                                .generate_embedding(chunk, "all-MiniLM-L6-v2")
-                                .await;
+                b.to_async(tokio::runtime::Runtime::new().unwrap())
+                    .iter(|| {
+                        let eg = eg.clone();
+                        let ch = chunks.clone();
+                        async move {
+                            for chunk in &ch {
+                                let _ = eg.generate_embedding(chunk, "all-MiniLM-L6-v2").await;
+                            }
                         }
-                    }
-                });
+                    });
             },
         );
     }
@@ -573,8 +599,10 @@ fn chunk_size_optimization_benchmark(c: &mut Criterion) {
 
     // --- Detailed report with ms/KB metric ---
     eprintln!("\n=== Chunk Size Optimization Report (500KB, embedding-only) ===");
-    eprintln!("{:<10} {:<8} {:<8} {:<12} {:<12} {:<12}",
-        "ChunkSz", "Overlap", "Chunks", "Total(ms)", "ms/chunk", "ms/KB");
+    eprintln!(
+        "{:<10} {:<8} {:<8} {:<12} {:<12} {:<12}",
+        "ChunkSz", "Overlap", "Chunks", "Total(ms)", "ms/chunk", "ms/KB"
+    );
     eprintln!("{}", "-".repeat(70));
 
     rt.block_on(async {
@@ -598,11 +626,17 @@ fn chunk_size_optimization_benchmark(c: &mut Criterion) {
             let ms_per_chunk = avg_total / chunk_count as f64;
             let ms_per_kb = avg_total / slice_kb;
 
-            eprintln!("{:<10} {:<8} {:<8} {:<12.0} {:<12.2} {:<12.2}",
-                chunk_size, overlap, chunk_count, avg_total, ms_per_chunk, ms_per_kb);
+            eprintln!(
+                "{:<10} {:<8} {:<8} {:<12.0} {:<12.2} {:<12.2}",
+                chunk_size, overlap, chunk_count, avg_total, ms_per_chunk, ms_per_kb
+            );
         }
     });
 }
 
-criterion_group!(benches, qdrant_ingestion_benchmark, chunk_size_optimization_benchmark);
+criterion_group!(
+    benches,
+    qdrant_ingestion_benchmark,
+    chunk_size_optimization_benchmark
+);
 criterion_main!(benches);

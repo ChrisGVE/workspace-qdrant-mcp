@@ -82,7 +82,7 @@ fn libraries_config() -> PipelineConfig {
         },
         tag: TagSelectionConfig {
             max_tags: 12,
-            lambda: 0.6, // higher diversity for broad documentation
+            lambda: 0.6,               // higher diversity for broad documentation
             min_stability_for_code: 1, // lower threshold (docs are prose)
             stability_chunk_threshold: 3,
             ..TagSelectionConfig::default()

@@ -33,11 +33,7 @@ pub struct CheckSummary {
     pub files: Vec<FileCheckEntry>,
 }
 
-pub(super) async fn check_project(
-    project: Option<&str>,
-    verbose: bool,
-    json: bool,
-) -> Result<()> {
+pub(super) async fn check_project(project: Option<&str>, verbose: bool, json: bool) -> Result<()> {
     let (project_id, auto_detected) = resolve_project_id_or_cwd_quiet(project)?;
     if auto_detected && !json {
         output::info(format!("Auto-detected project: {}", project_id));
@@ -71,13 +67,22 @@ pub(super) async fn check_project(
     let mut files = Vec::new();
     if verbose || json {
         for p in &to_add {
-            files.push(FileCheckEntry { path: p.clone(), status: "add" });
+            files.push(FileCheckEntry {
+                path: p.clone(),
+                status: "add",
+            });
         }
         for p in &to_update {
-            files.push(FileCheckEntry { path: p.clone(), status: "update" });
+            files.push(FileCheckEntry {
+                path: p.clone(),
+                status: "update",
+            });
         }
         for p in &to_delete {
-            files.push(FileCheckEntry { path: p.clone(), status: "delete" });
+            files.push(FileCheckEntry {
+                path: p.clone(),
+                status: "delete",
+            });
         }
     }
 
@@ -138,9 +143,8 @@ fn load_tracked_files(
     conn: &rusqlite::Connection,
     watch_id: &str,
 ) -> Result<HashMap<String, String>> {
-    let mut stmt = conn.prepare(
-        "SELECT file_path, file_hash FROM tracked_files WHERE watch_folder_id = ?1",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT file_path, file_hash FROM tracked_files WHERE watch_folder_id = ?1")?;
     let rows: Vec<(String, String)> = stmt
         .query_map(rusqlite::params![watch_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

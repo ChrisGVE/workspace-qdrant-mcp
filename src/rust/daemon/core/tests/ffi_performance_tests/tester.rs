@@ -230,9 +230,7 @@ impl FfiPerformanceTester {
 
                 let deserialize_start = Instant::now();
                 for _ in 0..self.config.measurement_iterations {
-                    black_box(
-                        serde_json::from_str::<TestSerializationData>(&serialized).unwrap(),
-                    );
+                    black_box(serde_json::from_str::<TestSerializationData>(&serialized).unwrap());
                 }
                 let deserialize_ns = deserialize_start.elapsed().as_nanos() as u64
                     / self.config.measurement_iterations as u64;

@@ -152,8 +152,8 @@ mod tests {
 
     #[test]
     fn test_metric_entry_builder() {
-        let entry = MetricEntry::new("queue_depth", 42.0)
-            .with_labels(r#"{"collection":"projects"}"#);
+        let entry =
+            MetricEntry::new("queue_depth", 42.0).with_labels(r#"{"collection":"projects"}"#);
         assert_eq!(entry.metric_name, "queue_depth");
         assert_eq!(entry.metric_value, 42.0);
         assert!(entry.metric_labels.is_some());

@@ -3,7 +3,6 @@
 /// Parses dependency manifests (Cargo.toml, package.json, pyproject.toml,
 /// requirements.txt, go.mod) and groups projects with Jaccard similarity
 /// >= 0.3 into `project_groups` entries with type `dependency`.
-
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -149,7 +148,11 @@ fn parse_pyproject_toml(content: &str) -> Vec<(String, String)> {
                 in_deps = false;
                 continue;
             }
-            let cleaned = trimmed.trim_matches(',').trim_matches('"').trim_matches('\'').trim();
+            let cleaned = trimmed
+                .trim_matches(',')
+                .trim_matches('"')
+                .trim_matches('\'')
+                .trim();
             if let Some(name) = normalize_python_dep(cleaned) {
                 deps.push((name, "python".to_string()));
             }
@@ -357,14 +360,8 @@ pub async fn compute_dependency_groups(
                 pair.sort();
                 let group_id = format!("dep:{}+{}", pair[0], pair[1]);
 
-                schema::add_to_group(
-                    pool, &group_id, tenants[i], "dependency", sim,
-                )
-                .await?;
-                schema::add_to_group(
-                    pool, &group_id, tenants[j], "dependency", sim,
-                )
-                .await?;
+                schema::add_to_group(pool, &group_id, tenants[i], "dependency", sim).await?;
+                schema::add_to_group(pool, &group_id, tenants[j], "dependency", sim).await?;
 
                 debug!(
                     tenant_a = tenants[i].as_str(),

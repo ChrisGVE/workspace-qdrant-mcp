@@ -46,10 +46,7 @@ pub async fn delete_backup(
     let url = if collection == "all" {
         format!("{}/snapshots/{}", base, snapshot)
     } else {
-        format!(
-            "{}/collections/{}/snapshots/{}",
-            base, collection, snapshot
-        )
+        format!("{}/collections/{}/snapshots/{}", base, collection, snapshot)
     };
 
     if !json {

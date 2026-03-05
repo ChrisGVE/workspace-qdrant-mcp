@@ -10,11 +10,13 @@ use std::sync::Arc;
 use tonic::Status;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+use workspace_qdrant_core::storage::{
+    DocumentPoint, MultiTenantConfig, StorageClient, StorageError,
+};
 use wqm_common::timestamps;
-use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError, MultiTenantConfig};
 
-use crate::proto::IngestTextResponse;
 use super::embedding;
+use crate::proto::IngestTextResponse;
 
 /// Default chunk size in characters for text chunking
 pub(crate) const DEFAULT_CHUNK_SIZE: usize = 1000;
@@ -81,7 +83,10 @@ pub(crate) async fn ensure_collection_exists(
             Ok(())
         }
         Ok(false) => {
-            info!("Creating collection '{}' with multi-tenant config (dense+sparse)", collection_name);
+            info!(
+                "Creating collection '{}' with multi-tenant config (dense+sparse)",
+                collection_name
+            );
             let config = MultiTenantConfig::default();
             storage_client
                 .create_multi_tenant_collection(collection_name, &config)
@@ -109,12 +114,8 @@ pub(crate) fn map_storage_error(err: StorageError) -> Status {
         StorageError::Collection(msg) => {
             Status::failed_precondition(format!("Collection error: {}", msg))
         }
-        StorageError::Connection(msg) => {
-            Status::unavailable(format!("Connection error: {}", msg))
-        }
-        StorageError::Timeout(msg) => {
-            Status::deadline_exceeded(format!("Timeout: {}", msg))
-        }
+        StorageError::Connection(msg) => Status::unavailable(format!("Connection error: {}", msg)),
+        StorageError::Timeout(msg) => Status::deadline_exceeded(format!("Timeout: {}", msg)),
         StorageError::Qdrant(err) => {
             let err_msg = format!("{:?}", err);
             if err_msg.contains("rate limit") || err_msg.contains("too many requests") {
@@ -167,18 +168,27 @@ pub(crate) async fn ingest_text_internal(
             Some(sparse_vector)
         };
 
-        let mut chunk_metadata: HashMap<String, serde_json::Value> = metadata.iter()
+        let mut chunk_metadata: HashMap<String, serde_json::Value> = metadata
+            .iter()
             .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
             .collect();
 
-        chunk_metadata.insert("document_id".to_string(), serde_json::json!(document_id.clone()));
+        chunk_metadata.insert(
+            "document_id".to_string(),
+            serde_json::json!(document_id.clone()),
+        );
         chunk_metadata.insert("chunk_index".to_string(), serde_json::json!(chunk_index));
         chunk_metadata.insert("total_chunks".to_string(), serde_json::json!(total_chunks));
-        chunk_metadata.insert("created_at".to_string(), serde_json::json!(created_at.clone()));
-        chunk_metadata.insert("content".to_string(), serde_json::json!(chunk_content.clone()));
+        chunk_metadata.insert(
+            "created_at".to_string(),
+            serde_json::json!(created_at.clone()),
+        );
+        chunk_metadata.insert(
+            "content".to_string(),
+            serde_json::json!(chunk_content.clone()),
+        );
 
-        let namespace = Uuid::parse_str(&document_id)
-            .unwrap_or_else(|_| Uuid::new_v4());
+        let namespace = Uuid::parse_str(&document_id).unwrap_or_else(|_| Uuid::new_v4());
         let point_id = Uuid::new_v5(&namespace, chunk_index.to_string().as_bytes()).to_string();
 
         let point = DocumentPoint {
@@ -256,7 +266,11 @@ mod tests {
 
         let chunks = chunk_text(text, true, 50, 10);
 
-        assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() > 1,
+            "Expected multiple chunks, got {}",
+            chunks.len()
+        );
 
         for (i, (_, index)) in chunks.iter().enumerate() {
             assert_eq!(*index, i, "Chunk index mismatch");

@@ -75,9 +75,11 @@ pub(super) async fn uninstall_hooks() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::matchers::{SESSION_START_MATCHER, build_wqm_hook_command, group_has_wqm_command};
+    use super::super::matchers::{
+        build_wqm_hook_command, group_has_wqm_command, SESSION_START_MATCHER,
+    };
     use super::super::settings::{read_settings, write_settings};
+    use super::*;
     use serde_json::json;
     use std::path::Path;
     use tempfile::TempDir;
@@ -244,7 +246,9 @@ mod tests {
         // Verify installed
         let config = read_settings(&path).unwrap();
         let ss = config["hooks"]["SessionStart"].as_array().unwrap();
-        assert!(ss.iter().any(|e| is_our_matcher(e) && group_has_wqm_command(e)));
+        assert!(ss
+            .iter()
+            .any(|e| is_our_matcher(e) && group_has_wqm_command(e)));
 
         // Verify PostToolUse preserved
         assert!(config["hooks"]["PostToolUse"].is_array());
@@ -273,6 +277,9 @@ mod tests {
 
         // PostToolUse still preserved
         assert!(config["hooks"]["PostToolUse"].is_array());
-        assert!(!config["hooks"]["PostToolUse"].as_array().unwrap().is_empty());
+        assert!(!config["hooks"]["PostToolUse"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 }

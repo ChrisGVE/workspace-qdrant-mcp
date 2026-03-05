@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V28Migration;
 
@@ -18,14 +18,16 @@ impl Migration for V28Migration {
 
         // Add component column to tracked_files
         let has_component: bool = sqlx::query_scalar(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'component'"
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'component'",
         )
-        .fetch_one(pool).await?;
+        .fetch_one(pool)
+        .await?;
 
         if !has_component {
             debug!("Adding component column to tracked_files");
             sqlx::query(MIGRATE_V28_ADD_COMPONENT_SQL)
-                .execute(pool).await?;
+                .execute(pool)
+                .await?;
         } else {
             debug!("component column already exists, skipping ALTER TABLE");
         }
@@ -43,26 +45,33 @@ impl Migration for V28Migration {
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
                 UNIQUE(watch_folder_id, component_name)
-            )"
+            )",
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_project_components_watch_folder
-             ON project_components(watch_folder_id)"
+             ON project_components(watch_folder_id)",
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_tracked_files_component
-             ON tracked_files(component)"
+             ON tracked_files(component)",
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         info!("Migration v28 complete");
         Ok(())
     }
 
-    fn version(&self) -> i32 { 28 }
-    fn description(&self) -> &'static str { "Add component column and project_components table" }
+    fn version(&self) -> i32 {
+        28
+    }
+    fn description(&self) -> &'static str {
+        "Add component column and project_components table"
+    }
 }

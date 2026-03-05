@@ -90,10 +90,8 @@ impl SemanticChunker {
         language: &str,
     ) -> Result<Vec<SemanticChunk>, DaemonError> {
         // Try to get dynamic grammar first if provider is available
-        let dynamic_lang = strategy::get_language_from_provider(
-            self.language_provider.as_deref(),
-            language,
-        );
+        let dynamic_lang =
+            strategy::get_language_from_provider(self.language_provider.as_deref(), language);
 
         // Get the appropriate extractor
         let extractor = match strategy::create_extractor(language, dynamic_lang) {

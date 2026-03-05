@@ -1,8 +1,7 @@
 /// Database query helpers for resolving file paths before grep scanning.
-
 use sqlx::Row;
 
-use crate::search_db::{SearchDbManager, SearchDbError};
+use crate::search_db::{SearchDbError, SearchDbManager};
 use crate::text_search::{compile_glob_matcher, resolve_path_filter, SearchOptions};
 
 use super::types::FileInfo;
@@ -13,9 +12,7 @@ pub(super) async fn query_file_paths(
     options: &SearchOptions,
     glob_matcher: Option<&Box<dyn Fn(&str) -> bool + Send + Sync>>,
 ) -> Result<Vec<FileInfo>, SearchDbError> {
-    let mut sql = String::from(
-        "SELECT file_path, tenant_id, branch FROM file_metadata WHERE 1=1",
-    );
+    let mut sql = String::from("SELECT file_path, tenant_id, branch FROM file_metadata WHERE 1=1");
     let mut next_param = 1;
 
     if options.tenant_id.is_some() {
@@ -70,7 +67,10 @@ pub(super) async fn query_file_paths(
 pub(super) fn resolve_and_compile(
     options: &SearchOptions,
 ) -> Result<
-    (SearchOptions, Option<Box<dyn Fn(&str) -> bool + Send + Sync>>),
+    (
+        SearchOptions,
+        Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
+    ),
     SearchDbError,
 > {
     let (glob_pattern, effective_options) = resolve_path_filter(options);

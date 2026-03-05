@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V09Migration;
 
@@ -17,13 +17,15 @@ impl Migration for V09Migration {
     async fn up(&self, pool: &SqlitePool) -> Result<(), SchemaError> {
         info!("Migration v9: Adding 'url' item_type to unified_queue CHECK constraint");
 
-        use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL};
+        use crate::unified_queue_schema::{
+            CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
+        };
 
         sqlx::query("ALTER TABLE unified_queue RENAME TO unified_queue_old")
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
-        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
-            .execute(pool).await?;
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL).execute(pool).await?;
 
         // Copy all existing data
         sqlx::query(
@@ -38,12 +40,14 @@ impl Migration for V09Migration {
                 status, created_at, updated_at, lease_until, worker_id,
                 idempotency_key, payload_json, retry_count, max_retries,
                 error_message, last_error_at, branch, metadata, file_path
-            FROM unified_queue_old"
+            FROM unified_queue_old",
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
 
         sqlx::query("DROP TABLE unified_queue_old")
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
             sqlx::query(index_sql).execute(pool).await?;
@@ -53,6 +57,10 @@ impl Migration for V09Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 9 }
-    fn description(&self) -> &'static str { "Add url item_type to unified_queue" }
+    fn version(&self) -> i32 {
+        9
+    }
+    fn description(&self) -> &'static str {
+        "Add url item_type to unified_queue"
+    }
 }

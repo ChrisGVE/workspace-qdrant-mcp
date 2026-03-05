@@ -32,9 +32,18 @@ fn test_all_supported_languages_parsing() {
     for (lang, source, filename) in test_cases {
         let path = std::path::Path::new(filename);
         let result = extract_chunks(source, path, 1024);
-        assert!(result.is_ok(), "Should successfully parse {} code (file: {})", lang, filename);
+        assert!(
+            result.is_ok(),
+            "Should successfully parse {} code (file: {})",
+            lang,
+            filename
+        );
         let chunks = result.unwrap();
-        assert!(!chunks.is_empty(), "Should extract chunks from {} code", lang);
+        assert!(
+            !chunks.is_empty(),
+            "Should extract chunks from {} code",
+            lang
+        );
     }
 }
 
@@ -141,17 +150,32 @@ fn test_chunker_language_provider_snapshot() {
 fn test_known_grammar_languages_list() {
     let known = known_grammar_languages();
     assert!(known.contains(&"rust"), "rust should be in known grammars");
-    assert!(known.contains(&"python"), "python should be in known grammars");
-    assert!(known.contains(&"javascript"), "javascript should be in known grammars");
-    assert!(known.contains(&"typescript"), "typescript should be in known grammars");
+    assert!(
+        known.contains(&"python"),
+        "python should be in known grammars"
+    );
+    assert!(
+        known.contains(&"javascript"),
+        "javascript should be in known grammars"
+    );
+    assert!(
+        known.contains(&"typescript"),
+        "typescript should be in known grammars"
+    );
     assert!(known.contains(&"tsx"), "tsx should be in known grammars");
     assert!(known.contains(&"jsx"), "jsx should be in known grammars");
     assert!(known.contains(&"go"), "go should be in known grammars");
     assert!(known.contains(&"java"), "java should be in known grammars");
     assert!(known.contains(&"c"), "c should be in known grammars");
     assert!(known.contains(&"cpp"), "cpp should be in known grammars");
-    assert!(!known.contains(&"json"), "json should not be in known grammars");
-    assert!(!known.contains(&"unknown"), "unknown should not be in known grammars");
+    assert!(
+        !known.contains(&"json"),
+        "json should not be in known grammars"
+    );
+    assert!(
+        !known.contains(&"unknown"),
+        "unknown should not be in known grammars"
+    );
 }
 
 #[test]
@@ -236,5 +260,8 @@ def farewell(name):
     let path = std::path::Path::new("test.py");
     let result = extract_chunks_with_provider(source, path, 1024, Some(Arc::new(provider)));
     assert!(result.is_ok());
-    assert!(!result.unwrap().is_empty(), "Should produce chunks from Python source");
+    assert!(
+        !result.unwrap().is_empty(),
+        "Should produce chunks from Python source"
+    );
 }

@@ -38,7 +38,12 @@ impl GoExtractor {
     }
 
     /// Extract preamble (package, imports).
-    fn extract_preamble(&self, root: &Node, source: &str, file_path: &str) -> Option<SemanticChunk> {
+    fn extract_preamble(
+        &self,
+        root: &Node,
+        source: &str,
+        file_path: &str,
+    ) -> Option<SemanticChunk> {
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
         let mut cursor = root.walk();
@@ -50,7 +55,9 @@ impl GoExtractor {
                     last_preamble_line = child.end_position().row + 1;
                 }
                 "comment" => {
-                    if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1 {
+                    if preamble_items.is_empty()
+                        || child.start_position().row <= last_preamble_line + 1
+                    {
                         preamble_items.push(node_text(&child, source).to_string());
                         last_preamble_line = child.end_position().row + 1;
                     }
@@ -246,9 +253,17 @@ impl ChunkExtractor for GoExtractor {
                     for type_child in child.children(&mut type_cursor) {
                         if type_child.kind() == "type_spec" {
                             if find_child_by_kind(&type_child, "struct_type").is_some() {
-                                chunks.push(self.extract_struct(&type_child, source, &file_path_str));
+                                chunks.push(self.extract_struct(
+                                    &type_child,
+                                    source,
+                                    &file_path_str,
+                                ));
                             } else if find_child_by_kind(&type_child, "interface_type").is_some() {
-                                chunks.push(self.extract_interface(&type_child, source, &file_path_str));
+                                chunks.push(self.extract_interface(
+                                    &type_child,
+                                    source,
+                                    &file_path_str,
+                                ));
                             }
                         }
                     }

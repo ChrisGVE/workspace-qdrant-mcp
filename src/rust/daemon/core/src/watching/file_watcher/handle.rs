@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use notify::{RecursiveMode, RecommendedWatcher};
+use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{Debouncer, RecommendedCache};
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock};
 
 use super::{EnhancedWatcherError, WatchEntry};
 
@@ -48,10 +48,13 @@ impl WatcherHandle {
         tenant_id: String,
         recursive: bool,
     ) -> Result<(), EnhancedWatcherError> {
-        let canonical = path.canonicalize()
-            .map_err(|e| EnhancedWatcherError::Path(format!(
-                "Failed to canonicalize path {}: {}", path.display(), e
-            )))?;
+        let canonical = path.canonicalize().map_err(|e| {
+            EnhancedWatcherError::Path(format!(
+                "Failed to canonicalize path {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
 
         let mode = if recursive {
             RecursiveMode::Recursive
@@ -66,10 +69,13 @@ impl WatcherHandle {
 
         {
             let mut entries = self.watch_entries.write().await;
-            entries.insert(canonical, WatchEntry {
-                tenant_id,
-                recursive,
-            });
+            entries.insert(
+                canonical,
+                WatchEntry {
+                    tenant_id,
+                    recursive,
+                },
+            );
         }
 
         Ok(())
@@ -77,10 +83,13 @@ impl WatcherHandle {
 
     /// Remove a path from watching
     pub async fn unwatch(&self, path: &Path) -> Result<(), EnhancedWatcherError> {
-        let canonical = path.canonicalize()
-            .map_err(|e| EnhancedWatcherError::Path(format!(
-                "Failed to canonicalize path {}: {}", path.display(), e
-            )))?;
+        let canonical = path.canonicalize().map_err(|e| {
+            EnhancedWatcherError::Path(format!(
+                "Failed to canonicalize path {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
 
         {
             let mut debouncer = self.debouncer.lock().await;
@@ -108,7 +117,8 @@ impl WatcherHandle {
 
         if let Some(entry) = entry {
             self.unwatch(old_path).await.ok();
-            self.watch(new_path, entry.tenant_id, entry.recursive).await?;
+            self.watch(new_path, entry.tenant_id, entry.recursive)
+                .await?;
         }
 
         Ok(())

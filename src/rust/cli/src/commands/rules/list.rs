@@ -85,9 +85,7 @@ pub async fn list_rules(
 }
 
 /// Render rules as JSON array to stdout.
-fn print_json_output(
-    points: &[super::helpers::QdrantPoint],
-) -> Result<()> {
+fn print_json_output(points: &[super::helpers::QdrantPoint]) -> Result<()> {
     let rules: Vec<RuleJson> = points
         .iter()
         .filter_map(|p| p.payload.as_ref())

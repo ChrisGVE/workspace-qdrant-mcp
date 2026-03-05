@@ -3,7 +3,6 @@
 ///
 /// This ensures YAML config defaults always match the actual dependency version
 /// without manual synchronization.
-
 use std::fs;
 use std::path::Path;
 
@@ -17,14 +16,20 @@ fn main() {
         if let Ok(contents) = fs::read_to_string(&lock_path) {
             if let Some(version) = extract_tree_sitter_version(&contents) {
                 let major_minor = extract_major_minor(&version);
-                println!("cargo:rustc-env=TREE_SITTER_VERSION_MAJOR_MINOR={}", major_minor);
+                println!(
+                    "cargo:rustc-env=TREE_SITTER_VERSION_MAJOR_MINOR={}",
+                    major_minor
+                );
             } else {
                 println!("cargo:warning=Could not extract tree-sitter version from Cargo.lock");
                 println!("cargo:rustc-env=TREE_SITTER_VERSION_MAJOR_MINOR=unknown");
             }
             println!("cargo:rerun-if-changed={}", lock_path.display());
         } else {
-            println!("cargo:warning=Could not read Cargo.lock at {}", lock_path.display());
+            println!(
+                "cargo:warning=Could not read Cargo.lock at {}",
+                lock_path.display()
+            );
             println!("cargo:rustc-env=TREE_SITTER_VERSION_MAJOR_MINOR=unknown");
         }
     } else {

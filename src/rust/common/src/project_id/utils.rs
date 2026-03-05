@@ -1,7 +1,7 @@
 //! Free utility functions for project ID resolution
 
-use std::path::Path;
 use super::calculator::ProjectIdCalculator;
+use std::path::Path;
 
 /// Detect git remote URL for a project using `git` CLI
 ///
@@ -9,7 +9,13 @@ use super::calculator::ProjectIdCalculator;
 pub fn detect_git_remote(project_root: &Path) -> Option<String> {
     for remote_name in &["origin", "upstream"] {
         if let Ok(output) = std::process::Command::new("git")
-            .args(["-C", &project_root.to_string_lossy(), "remote", "get-url", remote_name])
+            .args([
+                "-C",
+                &project_root.to_string_lossy(),
+                "remote",
+                "get-url",
+                remote_name,
+            ])
             .output()
         {
             if output.status.success() {

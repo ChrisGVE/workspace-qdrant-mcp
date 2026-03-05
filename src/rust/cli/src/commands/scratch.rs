@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
 use crate::grpc::client::DaemonClient;
-use crate::grpc::proto::{RefreshSignalRequest, QueueType};
+use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output::{self, ColumnHints};
 use crate::queue::{ScratchpadPayload, UnifiedQueueClient};
 
@@ -100,7 +100,12 @@ async fn add_entry(
     let tenant_id = resolve_tenant_id(project.as_deref())?;
 
     let tag_vec: Vec<String> = tags
-        .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .map(|t| {
+            t.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     let payload = ScratchpadPayload {
@@ -179,7 +184,9 @@ struct ScratchRow {
 }
 
 impl ColumnHints for ScratchRow {
-    fn content_columns() -> &'static [usize] { &[0] }
+    fn content_columns() -> &'static [usize] {
+        &[0]
+    }
 }
 
 #[derive(Tabled)]
@@ -197,7 +204,9 @@ struct ScratchRowVerbose {
 }
 
 impl ColumnHints for ScratchRowVerbose {
-    fn content_columns() -> &'static [usize] { &[0, 3] }
+    fn content_columns() -> &'static [usize] {
+        &[0, 3]
+    }
 }
 
 #[derive(Serialize)]
@@ -211,18 +220,25 @@ struct ScratchJson {
 }
 
 fn payload_str(payload: &serde_json::Value, key: &str) -> String {
-    payload.get(key)
+    payload
+        .get(key)
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string()
 }
 
 fn payload_tags(payload: &serde_json::Value) -> Vec<String> {
-    payload.get("tags")
+    payload
+        .get("tags")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .or_else(|| {
-            payload.get("tags")
+            payload
+                .get("tags")
                 .and_then(|v| v.as_str())
                 .map(|s| s.split(',').map(String::from).collect())
         })
@@ -236,15 +252,13 @@ fn qdrant_url() -> String {
 }
 
 fn build_qdrant_client() -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10));
+    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10));
 
     if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "api-key",
-            reqwest::header::HeaderValue::from_str(&api_key)
-                .context("Invalid QDRANT_API_KEY")?,
+            reqwest::header::HeaderValue::from_str(&api_key).context("Invalid QDRANT_API_KEY")?,
         );
         builder = builder.default_headers(headers);
     }
@@ -353,9 +367,10 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(","),
                 content: payload_str(payload, "content"),
-                created_at: wqm_common::timestamp_fmt::format_local(
-                    &payload_str(payload, "created_at"),
-                ),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
+                    payload,
+                    "created_at",
+                )),
             })
             .collect();
         output::print_script(&rows, !no_headers);
@@ -367,9 +382,10 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
                 title: payload_str(payload, "title"),
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(","),
-                created_at: wqm_common::timestamp_fmt::format_local(
-                    &payload_str(payload, "created_at"),
-                ),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
+                    payload,
+                    "created_at",
+                )),
             })
             .collect();
         output::print_script(&rows, !no_headers);
@@ -393,9 +409,10 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(", "),
                 content: payload_str(payload, "content"),
-                created_at: wqm_common::timestamp_fmt::format_local(
-                    &payload_str(payload, "created_at"),
-                ),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
+                    payload,
+                    "created_at",
+                )),
             })
             .collect();
         output::print_table_auto(&rows);
@@ -407,9 +424,10 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
                 title: payload_str(payload, "title"),
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(", "),
-                created_at: wqm_common::timestamp_fmt::format_local(
-                    &payload_str(payload, "created_at"),
-                ),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
+                    payload,
+                    "created_at",
+                )),
             })
             .collect();
         output::print_table_auto(&rows);

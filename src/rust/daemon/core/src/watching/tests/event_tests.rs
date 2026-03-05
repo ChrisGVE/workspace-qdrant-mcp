@@ -1,11 +1,11 @@
 //! Tests for file event detection, filtering, and the PausedEventBuffer
 
+use super::tests::{create_test_task_submitter, test_watcher_config};
 use super::*;
 use shared_test_utils::*;
 use std::fs;
 use std::time::Duration;
 use tempfile::TempDir;
-use super::tests::{test_watcher_config, create_test_task_submitter};
 
 #[cfg(test)]
 mod single_folder_watch_tests {
@@ -59,7 +59,10 @@ mod single_folder_watch_tests {
 
         // Verify event was detected
         let stats = watcher.stats().await;
-        assert!(stats.events_received > 0, "Expected at least one event received");
+        assert!(
+            stats.events_received > 0,
+            "Expected at least one event received"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -101,7 +104,10 @@ mod single_folder_watch_tests {
                 break;
             }
         }
-        assert!(detected, "Expected modification event to be detected within 10 seconds");
+        assert!(
+            detected,
+            "Expected modification event to be detected within 10 seconds"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -202,7 +208,10 @@ mod single_folder_watch_tests {
         tokio::time::sleep(Duration::from_millis(800)).await;
 
         let stats = watcher.stats().await;
-        assert!(stats.events_received >= 3, "Expected at least 3 events received");
+        assert!(
+            stats.events_received >= 3,
+            "Expected at least 3 events received"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -237,12 +246,20 @@ mod single_folder_watch_tests {
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
-        }).await;
+        })
+        .await;
 
         let elapsed = start_time.elapsed();
 
-        assert!(detected.is_ok(), "Event should be detected within 2 seconds");
-        assert!(elapsed < Duration::from_secs(2), "Detection took too long: {:?}", elapsed);
+        assert!(
+            detected.is_ok(),
+            "Event should be detected within 2 seconds"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "Detection took too long: {:?}",
+            elapsed
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -272,7 +289,10 @@ mod single_folder_watch_tests {
 
         let stats = watcher.stats().await;
         // Excluded file should increase filtered count
-        assert!(stats.events_filtered > 0, "Expected some events to be filtered");
+        assert!(
+            stats.events_filtered > 0,
+            "Expected some events to be filtered"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -303,7 +323,10 @@ mod single_folder_watch_tests {
         tokio::time::sleep(Duration::from_millis(800)).await;
 
         let stats = watcher.stats().await;
-        assert!(stats.events_received >= 3, "Expected events for all file types");
+        assert!(
+            stats.events_received >= 3,
+            "Expected events for all file types"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -335,7 +358,10 @@ mod single_folder_watch_tests {
 
         let stats = watcher.stats().await;
         // Large file should be filtered
-        assert!(stats.events_filtered > 0, "Expected large file to be filtered");
+        assert!(
+            stats.events_filtered > 0,
+            "Expected large file to be filtered"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
@@ -434,10 +460,12 @@ mod edge_cases_tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         let stats = watcher.stats().await;
-        assert!(stats.events_received > 0, "Should detect events in subdirectories");
+        assert!(
+            stats.events_received > 0,
+            "Should detect events in subdirectories"
+        );
 
         watcher.stop_watching().await?;
         Ok(())
     }
 }
-

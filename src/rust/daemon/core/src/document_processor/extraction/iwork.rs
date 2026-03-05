@@ -13,10 +13,7 @@ pub fn extract_iwork(
     format_name: &str,
 ) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
     let mut metadata = HashMap::new();
-    metadata.insert(
-        "source_format".to_string(),
-        format_name.to_lowercase(),
-    );
+    metadata.insert("source_format".to_string(), format_name.to_lowercase());
 
     let file = std::fs::File::open(file_path)?;
     let archive_result = zip::ZipArchive::new(file);

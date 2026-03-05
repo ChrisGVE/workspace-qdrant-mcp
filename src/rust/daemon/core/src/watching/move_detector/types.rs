@@ -1,8 +1,8 @@
 //! Types for move detection: errors, actions, configuration, and internal state.
 
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Instant;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Errors that can occur during move detection

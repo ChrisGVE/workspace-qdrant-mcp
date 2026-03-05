@@ -2,7 +2,6 @@
 ///
 /// Only extracts images from local file paths (no remote URLs).
 /// Validates that paths don't traverse outside the HTML file's directory.
-
 use std::path::Path;
 
 use tracing::{debug, warn};
@@ -13,10 +12,7 @@ use super::types::{EmbeddedImage, ImageFormat};
 ///
 /// Only extracts images from local file paths (no remote URLs).
 /// Validates that paths don't traverse outside the HTML file's directory.
-pub fn extract_html_images(
-    html_path: &Path,
-    html_content: &str,
-) -> Vec<EmbeddedImage> {
+pub fn extract_html_images(html_path: &Path, html_content: &str) -> Vec<EmbeddedImage> {
     let base_dir = match html_path.parent() {
         Some(dir) => dir,
         None => return Vec::new(),
@@ -58,10 +54,7 @@ pub fn extract_html_images(
                     Err(_) => continue,
                 };
                 if !canonical.starts_with(&canonical_base) {
-                    warn!(
-                        src,
-                        "Skipping HTML image: path traversal detected"
-                    );
+                    warn!(src, "Skipping HTML image: path traversal detected");
                     continue;
                 }
 

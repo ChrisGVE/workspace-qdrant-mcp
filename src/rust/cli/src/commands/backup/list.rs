@@ -32,13 +32,11 @@ pub async fn list_backups(
             display_collection_snapshots(&snapshots, verbose, json, script, no_headers);
         }
         None => {
-            let all_snapshots =
-                fetch_all_snapshots(&client, &base, json, verbose).await?;
+            let all_snapshots = fetch_all_snapshots(&client, &base, json, verbose).await?;
             if json {
                 output::print_json(&all_snapshots);
             } else if script {
-                let rows: Vec<SnapshotRow> =
-                    all_snapshots.iter().map(SnapshotRow::from).collect();
+                let rows: Vec<SnapshotRow> = all_snapshots.iter().map(SnapshotRow::from).collect();
                 output::print_script(&rows, !no_headers);
             }
         }
@@ -155,9 +153,7 @@ async fn fetch_per_collection_snapshots(
         let snap_resp = client.get(&snap_url).send().await;
         if let Ok(resp) = snap_resp {
             if resp.status().is_success() {
-                if let Ok(snap_result) =
-                    resp.json::<QdrantResponse<Vec<SnapshotInfo>>>().await
-                {
+                if let Ok(snap_result) = resp.json::<QdrantResponse<Vec<SnapshotInfo>>>().await {
                     display_per_collection_entry(
                         &entry.name,
                         &snap_result.result,

@@ -3,9 +3,7 @@
 //! Comprehensive benchmarks to validate queue processor performance against
 //! the 1000+ docs/min throughput target and identify performance bottlenecks.
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -95,7 +93,10 @@ impl MockStorageClient {
     }
 
     async fn create_collection(&self, name: &str) {
-        self.collections.lock().await.insert(name.to_string(), Vec::new());
+        self.collections
+            .lock()
+            .await
+            .insert(name.to_string(), Vec::new());
     }
 
     async fn insert_points(&self, collection: &str, points: Vec<MockPoint>) {
@@ -204,12 +205,7 @@ fn throughput_benchmark(c: &mut Criterion) {
                             let stor = &storage;
                             async move {
                                 process_queue_item(
-                                    &file_path,
-                                    "ingest",
-                                    doc_proc,
-                                    emb_gen,
-                                    stor,
-                                    collection,
+                                    &file_path, "ingest", doc_proc, emb_gen, stor, collection,
                                 )
                                 .await;
                             }
@@ -255,12 +251,7 @@ fn concurrent_processing_benchmark(c: &mut Criterion) {
                                 let stor = &storage;
                                 async move {
                                     process_queue_item(
-                                        &file_path,
-                                        "ingest",
-                                        doc_proc,
-                                        emb_gen,
-                                        stor,
-                                        collection,
+                                        &file_path, "ingest", doc_proc, emb_gen, stor, collection,
                                     )
                                     .await;
                                 }
@@ -351,12 +342,7 @@ fn operation_type_benchmark(c: &mut Criterion) {
                             let stor = &storage;
                             async move {
                                 process_queue_item(
-                                    &file_path,
-                                    &operation,
-                                    doc_proc,
-                                    emb_gen,
-                                    stor,
-                                    collection,
+                                    &file_path, &operation, doc_proc, emb_gen, stor, collection,
                                 )
                                 .await;
                             }
@@ -510,12 +496,7 @@ fn validate_throughput_target(c: &mut Criterion) {
                     let stor = &storage;
                     async move {
                         process_queue_item(
-                            &file_path,
-                            "ingest",
-                            doc_proc,
-                            emb_gen,
-                            stor,
-                            collection,
+                            &file_path, "ingest", doc_proc, emb_gen, stor, collection,
                         )
                         .await;
                     }

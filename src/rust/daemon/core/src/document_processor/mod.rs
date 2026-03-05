@@ -199,7 +199,13 @@ impl DocumentProcessor {
         let result = tokio::task::spawn_blocking(move || {
             #[cfg(feature = "ocr")]
             {
-                process_file_sync_with_provider(&path, &collection, &chunking_config, provider, ocr.as_deref())
+                process_file_sync_with_provider(
+                    &path,
+                    &collection,
+                    &chunking_config,
+                    provider,
+                    ocr.as_deref(),
+                )
             }
             #[cfg(not(feature = "ocr"))]
             {
@@ -407,8 +413,14 @@ fn process_file_sync_inner(
     metadata.insert("collection".to_string(), collection.to_string());
 
     // Generate chunks
-    let chunks =
-        generate_chunks(&raw_text, file_path, &document_type, &metadata, chunking_config, provider);
+    let chunks = generate_chunks(
+        &raw_text,
+        file_path,
+        &document_type,
+        &metadata,
+        chunking_config,
+        provider,
+    );
 
     Ok(DocumentContent {
         raw_text,

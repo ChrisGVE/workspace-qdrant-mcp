@@ -14,10 +14,8 @@ pub fn aggregate_document_embedding(chunk_embeddings: &[Vec<f32>]) -> Option<Vec
         return None;
     }
 
-    let weighted: Vec<(Vec<f32>, f64)> = chunk_embeddings
-        .iter()
-        .map(|e| (e.clone(), 1.0))
-        .collect();
+    let weighted: Vec<(Vec<f32>, f64)> =
+        chunk_embeddings.iter().map(|e| (e.clone(), 1.0)).collect();
 
     weighted_mean_vector(&weighted)
 }

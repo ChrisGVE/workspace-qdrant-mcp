@@ -103,9 +103,18 @@ dependencies = [
 
 #[test]
 fn test_normalize_python_dep() {
-    assert_eq!(normalize_python_dep("Flask>=2.0"), Some("flask".to_string()));
-    assert_eq!(normalize_python_dep("my_package"), Some("my-package".to_string()));
-    assert_eq!(normalize_python_dep("pandas[sql]>=1.5"), Some("pandas".to_string()));
+    assert_eq!(
+        normalize_python_dep("Flask>=2.0"),
+        Some("flask".to_string())
+    );
+    assert_eq!(
+        normalize_python_dep("my_package"),
+        Some("my-package".to_string())
+    );
+    assert_eq!(
+        normalize_python_dep("pandas[sql]>=1.5"),
+        Some("pandas".to_string())
+    );
     assert_eq!(normalize_python_dep(""), None);
 }
 
@@ -136,8 +145,14 @@ fn test_jaccard_disjoint() {
 
 #[test]
 fn test_jaccard_partial_overlap() {
-    let a: HashSet<String> = ["serde", "tokio", "anyhow"].iter().map(|s| s.to_string()).collect();
-    let b: HashSet<String> = ["serde", "tokio", "reqwest"].iter().map(|s| s.to_string()).collect();
+    let a: HashSet<String> = ["serde", "tokio", "anyhow"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let b: HashSet<String> = ["serde", "tokio", "reqwest"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     // Intersection: 2, Union: 4 -> 0.5
     assert!((jaccard_similarity(&a, &b) - 0.5).abs() < 1e-6);
 }
@@ -242,9 +257,7 @@ async fn test_compute_groups_similar_projects() {
     assert_eq!(groups, 1);
 
     // Verify they share a group
-    let members = schema::get_group_members(&pool, "proj-a")
-        .await
-        .unwrap();
+    let members = schema::get_group_members(&pool, "proj-a").await.unwrap();
     assert!(members.contains(&"proj-b".to_string()));
 }
 
@@ -255,7 +268,10 @@ async fn test_compute_groups_dissimilar_projects() {
     store_dependencies(
         &pool,
         "proj-a",
-        &[("serde".into(), "rust".into()), ("tokio".into(), "rust".into())],
+        &[
+            ("serde".into(), "rust".into()),
+            ("tokio".into(), "rust".into()),
+        ],
     )
     .await
     .unwrap();
@@ -263,7 +279,10 @@ async fn test_compute_groups_dissimilar_projects() {
     store_dependencies(
         &pool,
         "proj-b",
-        &[("express".into(), "npm".into()), ("lodash".into(), "npm".into())],
+        &[
+            ("express".into(), "npm".into()),
+            ("lodash".into(), "npm".into()),
+        ],
     )
     .await
     .unwrap();

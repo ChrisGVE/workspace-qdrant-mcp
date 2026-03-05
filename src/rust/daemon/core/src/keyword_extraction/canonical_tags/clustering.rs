@@ -119,11 +119,8 @@ pub(super) fn cluster_tags(
                     continue;
                 }
                 // Average linkage: mean similarity between all pairs
-                let avg_sim = average_linkage_sim(
-                    &cluster_members[i],
-                    &cluster_members[j],
-                    &sim_matrix,
-                );
+                let avg_sim =
+                    average_linkage_sim(&cluster_members[i], &cluster_members[j], &sim_matrix);
                 if avg_sim > best_sim {
                     best_sim = avg_sim;
                     best_pair = (i, j);
@@ -199,8 +196,7 @@ pub(super) fn cluster_tags(
         // Set parent_index and parent_similarity on each input tag
         for &m in members {
             tags[m].parent_index = Some(parent_idx);
-            tags[m].parent_similarity =
-                Some(cosine_similarity(&tags[m].centroid, &centroid));
+            tags[m].parent_similarity = Some(cosine_similarity(&tags[m].centroid, &centroid));
         }
 
         result.push(CanonicalTag {

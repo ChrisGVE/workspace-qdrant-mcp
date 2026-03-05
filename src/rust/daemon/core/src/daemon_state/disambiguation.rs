@@ -119,7 +119,11 @@ impl DaemonStateManager {
                         let new_tenant_id = calculator.calculate(
                             &clone_path,
                             clone.git_remote_url.as_deref(),
-                            if new_disambig.is_empty() { None } else { Some(new_disambig) },
+                            if new_disambig.is_empty() {
+                                None
+                            } else {
+                                Some(new_disambig)
+                            },
                         );
 
                         // Record the alias (old_id -> new_id)

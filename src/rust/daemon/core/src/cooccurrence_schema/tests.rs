@@ -3,11 +3,11 @@
 #[cfg(test)]
 mod tests {
     use super::super::{
-        schema::{CREATE_COOCCURRENCE_INDEXES_SQL, CREATE_SYMBOL_COOCCURRENCE_SQL},
         operations::{
             find_clusters, get_betweenness_centrality, get_degree_centrality, get_neighbors,
             upsert_cooccurrences,
         },
+        schema::{CREATE_COOCCURRENCE_INDEXES_SQL, CREATE_SYMBOL_COOCCURRENCE_SQL},
     };
 
     #[test]
@@ -41,7 +41,9 @@ mod tests {
         ];
 
         // First insert
-        upsert_cooccurrences(&pool, "t1", "projects", &pairs).await.unwrap();
+        upsert_cooccurrences(&pool, "t1", "projects", &pairs)
+            .await
+            .unwrap();
 
         let count: i64 = sqlx::query_scalar(
             "SELECT cooccurrence_count FROM symbol_cooccurrence WHERE symbol_a = 'alpha' AND symbol_b = 'beta'"
@@ -52,7 +54,9 @@ mod tests {
         assert_eq!(count, 1);
 
         // Second insert should increment
-        upsert_cooccurrences(&pool, "t1", "projects", &pairs).await.unwrap();
+        upsert_cooccurrences(&pool, "t1", "projects", &pairs)
+            .await
+            .unwrap();
 
         let count: i64 = sqlx::query_scalar(
             "SELECT cooccurrence_count FROM symbol_cooccurrence WHERE symbol_a = 'alpha' AND symbol_b = 'beta'"
@@ -74,17 +78,25 @@ mod tests {
         // Create a small graph: A-B(3), A-C(1), B-C(2)
         // A degree = 3+1=4, B degree = 3+2=5, C degree = 1+2=3
         let now = wqm_common::timestamps::now_utc();
-        sqlx::query(
-            "INSERT INTO symbol_cooccurrence VALUES ('a', 'b', 't1', 'projects', 3, ?1)"
-        ).bind(&now).execute(&pool).await.unwrap();
-        sqlx::query(
-            "INSERT INTO symbol_cooccurrence VALUES ('a', 'c', 't1', 'projects', 1, ?1)"
-        ).bind(&now).execute(&pool).await.unwrap();
-        sqlx::query(
-            "INSERT INTO symbol_cooccurrence VALUES ('b', 'c', 't1', 'projects', 2, ?1)"
-        ).bind(&now).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO symbol_cooccurrence VALUES ('a', 'b', 't1', 'projects', 3, ?1)")
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO symbol_cooccurrence VALUES ('a', 'c', 't1', 'projects', 1, ?1)")
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO symbol_cooccurrence VALUES ('b', 'c', 't1', 'projects', 2, ?1)")
+            .bind(&now)
+            .execute(&pool)
+            .await
+            .unwrap();
 
-        let centrality = get_degree_centrality(&pool, "t1", "projects").await.unwrap();
+        let centrality = get_degree_centrality(&pool, "t1", "projects")
+            .await
+            .unwrap();
 
         // B has max degree (5), so B=1.0
         assert!((centrality["b"] - 1.0).abs() < 1e-6);
@@ -102,7 +114,9 @@ mod tests {
             .await
             .unwrap();
 
-        let centrality = get_degree_centrality(&pool, "t1", "projects").await.unwrap();
+        let centrality = get_degree_centrality(&pool, "t1", "projects")
+            .await
+            .unwrap();
         assert!(centrality.is_empty());
     }
 
@@ -141,10 +155,7 @@ mod tests {
 
         // min_count=2 should find clusters from edges with weight >= 2
         let clusters = find_clusters(&pool, "t1", "projects", 2, 2).await.unwrap();
-        assert!(
-            !clusters.is_empty(),
-            "Should find at least one cluster"
-        );
+        assert!(!clusters.is_empty(), "Should find at least one cluster");
         // The high-weight cluster should contain symbols from edges >= 2
         let all_symbols: Vec<&str> = clusters
             .iter()
@@ -196,7 +207,9 @@ mod tests {
         setup_graph(&pool).await;
 
         // Neighbors of 'c' with min_count=1
-        let neighbors = get_neighbors(&pool, "t1", "projects", "c", 1).await.unwrap();
+        let neighbors = get_neighbors(&pool, "t1", "projects", "c", 1)
+            .await
+            .unwrap();
         let names: Vec<&str> = neighbors.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"a"), "c co-occurs with a");
         assert!(names.contains(&"b"), "c co-occurs with b");
@@ -214,7 +227,9 @@ mod tests {
         setup_graph(&pool).await;
 
         // Neighbors of 'c' with min_count=3: only c-d(4)
-        let neighbors = get_neighbors(&pool, "t1", "projects", "c", 3).await.unwrap();
+        let neighbors = get_neighbors(&pool, "t1", "projects", "c", 3)
+            .await
+            .unwrap();
         let names: Vec<&str> = neighbors.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"d"), "c-d has weight 4 >= 3");
         assert!(!names.contains(&"a"), "c-a has weight 1 < 3");
@@ -230,8 +245,9 @@ mod tests {
             .unwrap();
         setup_graph(&pool).await;
 
-        let centrality =
-            get_betweenness_centrality(&pool, "t1", "projects", 1).await.unwrap();
+        let centrality = get_betweenness_centrality(&pool, "t1", "projects", 1)
+            .await
+            .unwrap();
         // Symbols that appear on many 2-hop paths should have high centrality
         assert!(!centrality.is_empty(), "Should compute centrality scores");
     }
@@ -244,8 +260,9 @@ mod tests {
             .await
             .unwrap();
 
-        let centrality =
-            get_betweenness_centrality(&pool, "t1", "projects", 1).await.unwrap();
+        let centrality = get_betweenness_centrality(&pool, "t1", "projects", 1)
+            .await
+            .unwrap();
         assert!(centrality.is_empty());
     }
 
@@ -258,11 +275,19 @@ mod tests {
             .unwrap();
 
         let pairs = vec![("x".to_string(), "y".to_string())];
-        upsert_cooccurrences(&pool, "t1", "projects", &pairs).await.unwrap();
-        upsert_cooccurrences(&pool, "t2", "projects", &pairs).await.unwrap();
+        upsert_cooccurrences(&pool, "t1", "projects", &pairs)
+            .await
+            .unwrap();
+        upsert_cooccurrences(&pool, "t2", "projects", &pairs)
+            .await
+            .unwrap();
 
-        let c1 = get_degree_centrality(&pool, "t1", "projects").await.unwrap();
-        let c2 = get_degree_centrality(&pool, "t2", "projects").await.unwrap();
+        let c1 = get_degree_centrality(&pool, "t1", "projects")
+            .await
+            .unwrap();
+        let c2 = get_degree_centrality(&pool, "t2", "projects")
+            .await
+            .unwrap();
 
         // Both should have entries, isolated by tenant
         assert!(c1.contains_key("x"));
@@ -270,7 +295,7 @@ mod tests {
 
         // Count should be 1 each (not 2)
         let count: i64 = sqlx::query_scalar(
-            "SELECT cooccurrence_count FROM symbol_cooccurrence WHERE tenant_id = 't1'"
+            "SELECT cooccurrence_count FROM symbol_cooccurrence WHERE tenant_id = 't1'",
         )
         .fetch_one(&pool)
         .await

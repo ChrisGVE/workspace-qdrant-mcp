@@ -14,8 +14,9 @@ use tracing::{error, info, warn};
 
 use workspace_qdrant_core::{
     config::DaemonConfig,
-    initialize_logging, LoggingConfig,
-    unified_config::{UnifiedConfigManager, UnifiedConfigError},
+    initialize_logging,
+    unified_config::{UnifiedConfigError, UnifiedConfigManager},
+    LoggingConfig,
 };
 
 /// Command-line arguments for memexd daemon.
@@ -57,7 +58,12 @@ impl Default for DaemonArgs {
 /// Define all CLI arguments for the memexd command.
 fn build_cli(is_daemon: bool) -> Command {
     Command::new("memexd")
-        .version(concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_NUMBER"), ")"))
+        .version(concat!(
+            env!("CARGO_PKG_VERSION"),
+            " (",
+            env!("BUILD_NUMBER"),
+            ")"
+        ))
         .author("Christian C. Berclaz <christian.berclaz@mac.com>")
         .about("Memory eXchange Daemon - Document processing and embedding generation service")
         .disable_help_flag(is_daemon)
@@ -183,9 +189,7 @@ pub fn detect_daemon_mode() -> bool {
         return false;
     }
 
-    let is_daemon = !args
-        .iter()
-        .any(|arg| arg == "--foreground" || arg == "-f");
+    let is_daemon = !args.iter().any(|arg| arg == "--foreground" || arg == "-f");
 
     let xpc_is_service = std::env::var("XPC_SERVICE_NAME")
         .map(|v| !v.is_empty() && v != "0")
@@ -422,10 +426,7 @@ fn load_from_file(
 }
 
 /// Auto-discover config or fall back to defaults.
-fn load_auto_discover(
-    config_manager: &UnifiedConfigManager,
-    is_daemon_mode: bool,
-) -> DaemonConfig {
+fn load_auto_discover(config_manager: &UnifiedConfigManager, is_daemon_mode: bool) -> DaemonConfig {
     info!("Auto-discovering configuration files");
     match config_manager.load_config(None) {
         Ok(daemon_config) => {

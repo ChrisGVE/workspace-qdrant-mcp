@@ -1,8 +1,8 @@
 // Comprehensive error handler for queue operations
 
+use serde::Serialize;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
-use serde::Serialize;
 
 use crate::queue_operations::QueueManager;
 
@@ -74,8 +74,7 @@ impl ErrorHandler {
             ErrorType::FileNotFound
         } else if error_lower.contains("invalid format") {
             ErrorType::InvalidFormat
-        } else if error_lower.contains("permission denied")
-            || error_lower.contains("access denied")
+        } else if error_lower.contains("permission denied") || error_lower.contains("access denied")
         {
             ErrorType::PermissionDenied
         } else if error_lower.contains("validation error") {
@@ -83,7 +82,10 @@ impl ErrorHandler {
         } else if error_lower.contains("malformed") {
             ErrorType::MalformedData
         } else {
-            warn!("Unknown error type, classifying as temporary: {}", error_message);
+            warn!(
+                "Unknown error type, classifying as temporary: {}",
+                error_message
+            );
             ErrorType::TemporaryFailure
         }
     }
@@ -127,7 +129,10 @@ impl ErrorHandler {
     ) -> (bool, ErrorType) {
         let error_type = self.classify_and_update_metrics(error_message);
 
-        if !self.check_and_handle_circuit_breaker(file_path, error_type, error_message, collection).await {
+        if !self
+            .check_and_handle_circuit_breaker(file_path, error_type, error_message, collection)
+            .await
+        {
             return (false, error_type);
         }
 
@@ -138,12 +143,21 @@ impl ErrorHandler {
                 error_type.as_str(),
                 file_path
             );
-            self.move_to_dead_letter_queue(file_path, error_type, error_message, context).await;
+            self.move_to_dead_letter_queue(file_path, error_type, error_message, context)
+                .await;
             self.record_circuit_breaker_failure(collection);
             return (false, error_type);
         }
 
-        self.record_error_and_retry(file_path, error_type, error_message, collection, context, retry_count).await
+        self.record_error_and_retry(
+            file_path,
+            error_type,
+            error_message,
+            collection,
+            context,
+            retry_count,
+        )
+        .await
     }
 
     fn classify_and_update_metrics(&mut self, error_message: &str) -> ErrorType {
@@ -167,7 +181,10 @@ impl ErrorHandler {
     ) -> bool {
         let (can_proceed, _) = self.check_circuit_breaker(collection);
         if !can_proceed {
-            warn!("Circuit breaker open for {}, moving to dead letter queue", collection);
+            warn!(
+                "Circuit breaker open for {}, moving to dead letter queue",
+                collection
+            );
             self.move_to_dead_letter_queue(
                 file_path,
                 error_type,
@@ -199,7 +216,13 @@ impl ErrorHandler {
 
         let result = self
             .queue_manager
-            .mark_error(file_path, error_type.as_str(), error_message, context, max_retries)
+            .mark_error(
+                file_path,
+                error_type.as_str(),
+                error_message,
+                context,
+                max_retries,
+            )
             .await;
 
         match result {
@@ -209,12 +232,19 @@ impl ErrorHandler {
                     let delay = self.calculate_retry_delay(retry_count, error_type);
                     info!(
                         "Retrying {} after {:.2}s (attempt {}/{})",
-                        file_path, delay, retry_count + 1, max_retries
+                        file_path,
+                        delay,
+                        retry_count + 1,
+                        max_retries
                     );
                     (true, error_type)
                 } else {
-                    warn!("Max retries exceeded for {}, moving to dead letter queue", file_path);
-                    self.move_to_dead_letter_queue(file_path, error_type, error_message, context).await;
+                    warn!(
+                        "Max retries exceeded for {}, moving to dead letter queue",
+                        file_path
+                    );
+                    self.move_to_dead_letter_queue(file_path, error_type, error_message, context)
+                        .await;
                     self.record_circuit_breaker_failure(collection);
                     (false, error_type)
                 }

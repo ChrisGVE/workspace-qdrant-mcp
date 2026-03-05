@@ -11,7 +11,9 @@ use tabled::{Table, Tabled};
 
 use super::formatters::strip_ansi;
 use super::messages::info;
-use super::peakers::{COLUMN_MIN_WIDTHS, CONTENT_COLUMNS, ExpandContentOnly, ShrinkCategoricalFirst};
+use super::peakers::{
+    ExpandContentOnly, ShrinkCategoricalFirst, COLUMN_MIN_WIDTHS, CONTENT_COLUMNS,
+};
 use crate::config::OutputFormat;
 
 /// Cell padding used by `Style::rounded()` (1 space each side).
@@ -47,11 +49,7 @@ fn compute_column_min_widths<T: Tabled>(data: &[T], content_columns: &[usize]) -
             if i >= num_cols || content_columns.contains(&i) {
                 continue; // Content columns keep header width as min
             }
-            let widest = field
-                .split_whitespace()
-                .map(|s| s.len())
-                .max()
-                .unwrap_or(0);
+            let widest = field.split_whitespace().map(|s| s.len()).max().unwrap_or(0);
             min_widths[i] = min_widths[i].max(widest);
         }
     }
@@ -350,7 +348,7 @@ mod tests {
         let mins = compute_column_min_widths(&data, &[1]);
         assert_eq!(mins[0], 3 + CELL_PADDING); // "abc" > "ID"(2)
         assert_eq!(mins[1], 5 + CELL_PADDING); // content column, stays at header width
-        // "verylongtag," (with trailing comma) = 12 > "Tags"(4)
+                                               // "verylongtag," (with trailing comma) = 12 > "Tags"(4)
         assert_eq!(mins[2], 12 + CELL_PADDING);
     }
 
@@ -358,13 +356,25 @@ mod tests {
     fn test_compute_column_min_widths_across_rows() {
         // Min width should be the max across all rows
         let data = vec![
-            TestRow { id: "1".into(), title: "x".into(), tags: "a, b".into() },
-            TestRow { id: "42".into(), title: "y".into(), tags: "longvalue,".into() },
-            TestRow { id: "7".into(), title: "z".into(), tags: "c".into() },
+            TestRow {
+                id: "1".into(),
+                title: "x".into(),
+                tags: "a, b".into(),
+            },
+            TestRow {
+                id: "42".into(),
+                title: "y".into(),
+                tags: "longvalue,".into(),
+            },
+            TestRow {
+                id: "7".into(),
+                title: "z".into(),
+                tags: "c".into(),
+            },
         ];
         let mins = compute_column_min_widths(&data, &[1]);
         assert_eq!(mins[0], 2 + CELL_PADDING); // "42" = 2, "ID" = 2
-        // "longvalue," = 10 (no whitespace, so entire string is one word)
+                                               // "longvalue," = 10 (no whitespace, so entire string is one word)
         assert_eq!(mins[2], 10 + CELL_PADDING);
     }
 }

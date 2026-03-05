@@ -4,8 +4,9 @@ use super::*;
 
 // -- Helper: build a call chain a -> b -> c -> d --
 
-async fn build_call_chain(store: &SqliteGraphStore) -> (GraphNode, GraphNode, GraphNode, GraphNode)
-{
+async fn build_call_chain(
+    store: &SqliteGraphStore,
+) -> (GraphNode, GraphNode, GraphNode, GraphNode) {
     let a = GraphNode::new(TENANT, "a.rs", "a", NodeType::Function);
     let b = GraphNode::new(TENANT, "b.rs", "b", NodeType::Function);
     let c = GraphNode::new(TENANT, "c.rs", "c", NodeType::Function);
@@ -261,10 +262,7 @@ async fn test_stats_all_tenants() {
 
     let node_a = GraphNode::new("tenant-a", "a.rs", "x", NodeType::Function);
     let node_b = GraphNode::new("tenant-b", "b.rs", "y", NodeType::Function);
-    store
-        .upsert_nodes(&[node_a, node_b])
-        .await
-        .unwrap();
+    store.upsert_nodes(&[node_a, node_b]).await.unwrap();
 
     let stats = store.stats(None).await.unwrap();
     assert_eq!(stats.total_nodes, 2);

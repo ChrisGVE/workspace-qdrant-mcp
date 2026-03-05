@@ -2,7 +2,9 @@
 
 use crate::schema::{FieldDef, TableDef};
 
-pub const TABLE: TableDef = TableDef { name: "unified_queue" };
+pub const TABLE: TableDef = TableDef {
+    name: "unified_queue",
+};
 
 pub const QUEUE_ID: FieldDef = FieldDef::categorical("queue_id");
 pub const ITEM_TYPE: FieldDef = FieldDef::categorical("item_type");
@@ -25,11 +27,24 @@ pub const FILE_PATH: FieldDef = FieldDef::content("file_path");
 
 /// All columns in definition order.
 pub const ALL_COLUMNS: &[FieldDef] = &[
-    QUEUE_ID, ITEM_TYPE, OP, TENANT_ID, COLLECTION,
-    STATUS, CREATED_AT, UPDATED_AT,
-    LEASE_UNTIL, WORKER_ID, IDEMPOTENCY_KEY,
-    PAYLOAD_JSON, RETRY_COUNT,
-    ERROR_MESSAGE, LAST_ERROR_AT, BRANCH, METADATA, FILE_PATH,
+    QUEUE_ID,
+    ITEM_TYPE,
+    OP,
+    TENANT_ID,
+    COLLECTION,
+    STATUS,
+    CREATED_AT,
+    UPDATED_AT,
+    LEASE_UNTIL,
+    WORKER_ID,
+    IDEMPOTENCY_KEY,
+    PAYLOAD_JSON,
+    RETRY_COUNT,
+    ERROR_MESSAGE,
+    LAST_ERROR_AT,
+    BRANCH,
+    METADATA,
+    FILE_PATH,
 ];
 
 #[cfg(test)]
@@ -49,7 +64,8 @@ mod tests {
 
     #[test]
     fn content_columns_are_content() {
-        let content: Vec<&str> = ALL_COLUMNS.iter()
+        let content: Vec<&str> = ALL_COLUMNS
+            .iter()
             .filter(|f| matches!(f.kind, FieldKind::Content))
             .map(|f| f.name)
             .collect();

@@ -18,10 +18,7 @@ use napi_derive::napi;
 /// Uses SHA256 hashing on the normalized git URL (or path for local projects).
 /// Returns a 12-character hex string (or "local_" + 12 chars for non-git projects).
 #[napi]
-pub fn calculate_project_id(
-    project_root: String,
-    git_remote: Option<String>,
-) -> String {
+pub fn calculate_project_id(project_root: String, git_remote: Option<String>) -> String {
     let calc = wqm_common::project_id::ProjectIdCalculator::new();
     calc.calculate(
         std::path::Path::new(&project_root),

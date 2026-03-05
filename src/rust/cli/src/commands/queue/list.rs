@@ -5,9 +5,7 @@ use anyhow::Result;
 use crate::output;
 
 use super::db::connect_readonly;
-use super::formatters::{
-    QueueListItem, QueueListItemVerbose, format_relative_time, format_status,
-};
+use super::formatters::{format_relative_time, format_status, QueueListItem, QueueListItemVerbose};
 
 pub async fn execute(
     status: Option<String>,
@@ -26,8 +24,7 @@ pub async fn execute(
     let (query, params_vec) =
         build_list_query(status, collection, item_type, order_by, desc, limit, offset);
 
-    let params_slice: Vec<&dyn rusqlite::ToSql> =
-        params_vec.iter().map(|p| p.as_ref()).collect();
+    let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
 
     let mut stmt = conn.prepare(&query)?;
     let rows = stmt.query_map(params_slice.as_slice(), |row| {
@@ -47,7 +44,11 @@ pub async fn execute(
     let items: Vec<_> = rows.filter_map(|r| r.ok()).collect();
 
     if items.is_empty() {
-        if json { println!("[]"); } else { output::info("No queue items found"); }
+        if json {
+            println!("[]");
+        } else {
+            output::info("No queue items found");
+        }
         return Ok(());
     }
 
@@ -127,7 +128,17 @@ fn print_verbose(items: &[RowTuple], json: bool, script: bool, no_headers: bool)
     let display_items: Vec<QueueListItemVerbose> = items
         .iter()
         .map(
-            |(queue_id, idempotency_key, item_type, op, collection, status, created_at, retry_count, worker_id)| {
+            |(
+                queue_id,
+                idempotency_key,
+                item_type,
+                op,
+                collection,
+                status,
+                created_at,
+                retry_count,
+                worker_id,
+            )| {
                 QueueListItemVerbose {
                     queue_id: queue_id.clone(),
                     idempotency_key: idempotency_key.clone(),
@@ -157,7 +168,17 @@ fn print_compact(items: &[RowTuple], json: bool, script: bool, no_headers: bool)
     let display_items: Vec<QueueListItem> = items
         .iter()
         .map(
-            |(queue_id, _idempotency_key, item_type, op, collection, status, created_at, retry_count, _worker_id)| {
+            |(
+                queue_id,
+                _idempotency_key,
+                item_type,
+                op,
+                collection,
+                status,
+                created_at,
+                retry_count,
+                _worker_id,
+            )| {
                 QueueListItem {
                     queue_id: queue_id.clone(),
                     item_type: item_type.clone(),

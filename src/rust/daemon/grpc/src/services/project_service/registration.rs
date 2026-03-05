@@ -11,11 +11,11 @@ use tracing::{debug, error, info, warn};
 
 use crate::proto::{RegisterProjectRequest, RegisterProjectResponse};
 
-use wqm_common::constants::COLLECTION_PROJECTS;
 use workspace_qdrant_core::{
     project_disambiguation::ProjectIdCalculator, ItemType, ProjectPayload, QueueManager,
     UnifiedQueueOp,
 };
+use wqm_common::constants::COLLECTION_PROJECTS;
 
 use super::ProjectServiceImpl;
 
@@ -28,9 +28,7 @@ enum RegistrationAction {
     /// Project not found, caller did not request auto-registration
     NotFoundSkipped,
     /// New project enqueued for creation
-    NewlyEnqueued {
-        is_high_priority: bool,
-    },
+    NewlyEnqueued { is_high_priority: bool },
 }
 
 impl ProjectServiceImpl {
@@ -93,7 +91,9 @@ impl ProjectServiceImpl {
                 is_active: false,
                 newly_registered: false,
             }),
-            RegistrationAction::NewlyEnqueued { is_high_priority: hp } => {
+            RegistrationAction::NewlyEnqueued {
+                is_high_priority: hp,
+            } => {
                 if hp {
                     self.activate_project(&project_id, &req.path).await;
                 }
@@ -131,8 +131,8 @@ impl ProjectServiceImpl {
             Ok(generated)
         } else {
             let is_local = req.project_id.starts_with("local_");
-            let is_hex = req.project_id.len() == 12
-                && req.project_id.chars().all(|c| c.is_ascii_hexdigit());
+            let is_hex =
+                req.project_id.len() == 12 && req.project_id.chars().all(|c| c.is_ascii_hexdigit());
             if !is_local && !is_hex {
                 return Err(Status::invalid_argument(
                     "project_id must be a 12-character hexadecimal string or start with 'local_'",
@@ -237,8 +237,7 @@ impl ProjectServiceImpl {
 
     /// Activate project: cancel deferred shutdown, start LSP, set watch folders active
     async fn activate_project(&self, project_id: &str, path: &str) {
-        if super::lsp_lifecycle::cancel_deferred_shutdown(&self.pending_shutdowns, project_id)
-            .await
+        if super::lsp_lifecycle::cancel_deferred_shutdown(&self.pending_shutdowns, project_id).await
         {
             debug!(
                 project_id = %project_id,

@@ -95,15 +95,25 @@ enum RebuildCommand {
 /// Execute rebuild command
 pub async fn execute(args: RebuildArgs) -> Result<()> {
     let (target, tenant, collection, force) = match args.command {
-        RebuildCommand::Tags { tenant, collection } => ("tags".to_string(), tenant, Some(collection), false),
+        RebuildCommand::Tags { tenant, collection } => {
+            ("tags".to_string(), tenant, Some(collection), false)
+        }
         RebuildCommand::Search => ("search".to_string(), None, None, false),
-        RebuildCommand::Vocabulary { collection } => ("vocabulary".to_string(), None, Some(collection), false),
-        RebuildCommand::Keywords { tenant, collection } => ("keywords".to_string(), tenant, Some(collection), false),
+        RebuildCommand::Vocabulary { collection } => {
+            ("vocabulary".to_string(), None, Some(collection), false)
+        }
+        RebuildCommand::Keywords { tenant, collection } => {
+            ("keywords".to_string(), tenant, Some(collection), false)
+        }
         RebuildCommand::Rules => ("rules".to_string(), None, None, false),
         RebuildCommand::Projects { tenant } => ("projects".to_string(), tenant, None, false),
         RebuildCommand::Libraries { tenant } => ("libraries".to_string(), tenant, None, false),
-        RebuildCommand::Components { tenant, force } => ("components".to_string(), tenant, None, force),
-        RebuildCommand::All { tenant, collection } => ("all".to_string(), tenant, Some(collection), false),
+        RebuildCommand::Components { tenant, force } => {
+            ("components".to_string(), tenant, None, force)
+        }
+        RebuildCommand::All { tenant, collection } => {
+            ("all".to_string(), tenant, Some(collection), false)
+        }
     };
 
     let mut client = DaemonClient::connect_default()

@@ -15,8 +15,8 @@
 //! - Watch limit exhaustion: Returns error with clear message
 
 use super::*;
-use inotify::{Inotify, WatchMask, WatchDescriptor};
-use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode, DataChange};
+use inotify::{Inotify, WatchDescriptor, WatchMask};
+use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
 use notify::EventKind;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -45,10 +45,7 @@ impl LinuxWatcher {
     /// # Arguments
     /// * `config` - Linux-specific configuration (buffer size, event types)
     /// * `_buffer_size` - Event buffer size (used for channel capacity)
-    pub fn new(
-        config: LinuxConfig,
-        _buffer_size: usize,
-    ) -> Result<Self, PlatformWatchingError> {
+    pub fn new(config: LinuxConfig, _buffer_size: usize) -> Result<Self, PlatformWatchingError> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         Ok(Self {
@@ -87,8 +84,8 @@ impl LinuxWatcher {
     fn setup_inotify(&mut self, path: &Path) -> Result<(), PlatformWatchingError> {
         // Initialize inotify if not already done
         if self.inotify.is_none() {
-            let inotify = Inotify::init()
-                .map_err(|e| PlatformWatchingError::Inotify(e.to_string()))?;
+            let inotify =
+                Inotify::init().map_err(|e| PlatformWatchingError::Inotify(e.to_string()))?;
             self.inotify = Some(inotify);
         }
 
@@ -179,7 +176,8 @@ impl LinuxWatcher {
                     break;
                 }
 
-                if !process_inotify_events(&mut inotify, &mut buffer, &watch_descriptors, &event_tx) {
+                if !process_inotify_events(&mut inotify, &mut buffer, &watch_descriptors, &event_tx)
+                {
                     break;
                 }
             }
@@ -254,7 +252,7 @@ fn process_inotify_events(
             }
             true
         }
-        Err(e) if e.kind() == ErrorKind::Interrupted => true,  // EINTR — retry
+        Err(e) if e.kind() == ErrorKind::Interrupted => true, // EINTR — retry
         Err(e) if e.kind() == ErrorKind::WouldBlock => {
             std::thread::sleep(std::time::Duration::from_millis(50));
             true

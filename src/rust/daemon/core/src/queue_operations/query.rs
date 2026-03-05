@@ -6,8 +6,8 @@ use tracing::{debug, info};
 use wqm_common::timestamps;
 
 use crate::unified_queue_schema::{
-    DestinationStatus, ItemType, QueueOperation as UnifiedOp, QueueStatus,
-    UnifiedQueueItem, UnifiedQueueStats,
+    DestinationStatus, ItemType, QueueOperation as UnifiedOp, QueueStatus, UnifiedQueueItem,
+    UnifiedQueueStats,
 };
 
 use super::{QueueError, QueueManager, QueueResult};
@@ -37,18 +37,16 @@ impl QueueManager {
             .await?;
 
         // Get counts by item_type
-        let type_rows: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT item_type, COUNT(*) FROM unified_queue GROUP BY item_type"
-        )
-            .fetch_all(&self.pool)
-            .await?;
+        let type_rows: Vec<(String, i64)> =
+            sqlx::query_as("SELECT item_type, COUNT(*) FROM unified_queue GROUP BY item_type")
+                .fetch_all(&self.pool)
+                .await?;
 
         // Get counts by operation
-        let op_rows: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT op, COUNT(*) FROM unified_queue GROUP BY op"
-        )
-            .fetch_all(&self.pool)
-            .await?;
+        let op_rows: Vec<(String, i64)> =
+            sqlx::query_as("SELECT op, COUNT(*) FROM unified_queue GROUP BY op")
+                .fetch_all(&self.pool)
+                .await?;
 
         Ok(UnifiedQueueStats {
             total_items: row.try_get("total_items")?,
@@ -111,7 +109,9 @@ impl QueueManager {
     ///
     /// Returns a HashMap mapping collection names to their pending item counts.
     /// Used for queue depth monitoring and throttling decisions.
-    pub async fn get_unified_queue_depth_all_collections(&self) -> QueueResult<HashMap<String, i64>> {
+    pub async fn get_unified_queue_depth_all_collections(
+        &self,
+    ) -> QueueResult<HashMap<String, i64>> {
         let rows: Vec<(String, i64)> = sqlx::query_as(
             "SELECT collection, COUNT(*) as depth FROM unified_queue WHERE status = 'pending' GROUP BY collection",
         )

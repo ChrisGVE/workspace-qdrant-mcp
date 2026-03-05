@@ -14,7 +14,14 @@ async fn test_enrich_chunk_increments_metrics() {
     let manager = LanguageServerManager::new(config).await.unwrap();
 
     let _enrichment = manager
-        .enrich_chunk("test-project", Path::new("/test/file.rs"), "test_function", 10, 20, false)
+        .enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_function",
+            10,
+            20,
+            false,
+        )
         .await;
 
     let metrics = manager.get_metrics().await;
@@ -28,7 +35,14 @@ async fn test_enrich_chunk_runs_regardless_of_activity_state() {
     let manager = LanguageServerManager::new(config).await.unwrap();
 
     let result = manager
-        .enrich_chunk("test-project", Path::new("/test/file.rs"), "test_symbol", 10, 20, false)
+        .enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_symbol",
+            10,
+            20,
+            false,
+        )
         .await;
 
     assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
@@ -45,7 +59,14 @@ async fn test_enrich_chunk_returns_enrichment_structure() {
     let manager = LanguageServerManager::new(config).await.unwrap();
 
     let result = manager
-        .enrich_chunk("test-project", Path::new("/test/file.rs"), "test_symbol", 10, 20, true)
+        .enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_symbol",
+            10,
+            20,
+            true,
+        )
         .await;
 
     assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
@@ -61,7 +82,14 @@ async fn test_enrich_chunk_skipped_includes_language_info() {
     let manager = LanguageServerManager::new(config).await.unwrap();
 
     let result = manager
-        .enrich_chunk("test-project", Path::new("/test/file.rs"), "test_symbol", 10, 20, true)
+        .enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_symbol",
+            10,
+            20,
+            true,
+        )
         .await;
 
     assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
@@ -109,7 +137,10 @@ async fn test_restore_project_servers_returns_empty() {
     let config = ProjectLspConfig::default();
     let manager = LanguageServerManager::new(config).await.unwrap();
 
-    let restored = manager.restore_project_servers("test-project").await.unwrap();
+    let restored = manager
+        .restore_project_servers("test-project")
+        .await
+        .unwrap();
     assert!(restored.is_empty());
 }
 
@@ -153,8 +184,13 @@ async fn test_handle_potential_crash_marks_server_failed() {
         );
     }
 
-    let result = manager.handle_potential_crash(&key, "simulated error").await;
-    assert!(!result, "Should return false when no instance exists to check");
+    let result = manager
+        .handle_potential_crash(&key, "simulated error")
+        .await;
+    assert!(
+        !result,
+        "Should return false when no instance exists to check"
+    );
 }
 
 #[tokio::test]

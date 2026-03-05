@@ -9,9 +9,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::proto::{
     collection_service_server::CollectionService, CollectionConfig, CollectionInfo,
-    CreateAliasRequest, CreateCollectionRequest, CreateCollectionResponse,
-    DeleteAliasRequest, DeleteCollectionRequest, GetCollectionRequest, GetCollectionResponse,
-    ListCollectionsResponse, RenameAliasRequest,
+    CreateAliasRequest, CreateCollectionRequest, CreateCollectionResponse, DeleteAliasRequest,
+    DeleteCollectionRequest, GetCollectionRequest, GetCollectionResponse, ListCollectionsResponse,
+    RenameAliasRequest,
 };
 
 use super::{
@@ -35,9 +35,9 @@ impl CollectionService for CollectionServiceImpl {
 
         validate_collection_name(&req.collection_name)?;
 
-        let config = req.config.ok_or_else(|| {
-            Status::invalid_argument("Collection configuration is required")
-        })?;
+        let config = req
+            .config
+            .ok_or_else(|| Status::invalid_argument("Collection configuration is required"))?;
 
         validate_vector_size(config.vector_size)?;
         let _distance_metric = map_distance_metric(&config.distance_metric)?;
@@ -52,10 +52,7 @@ impl CollectionService for CollectionServiceImpl {
             .await
         {
             Ok(_) => {
-                info!(
-                    "Successfully created collection: {}",
-                    req.collection_name
-                );
+                info!("Successfully created collection: {}", req.collection_name);
                 Ok(Response::new(CreateCollectionResponse {
                     success: true,
                     error_message: String::new(),
@@ -121,10 +118,7 @@ impl CollectionService for CollectionServiceImpl {
             .await
         {
             Ok(_) => {
-                info!(
-                    "Successfully deleted collection: {}",
-                    req.collection_name
-                );
+                info!("Successfully deleted collection: {}", req.collection_name);
                 Ok(Response::new(()))
             }
             Err(err) => {
@@ -302,20 +296,13 @@ impl CollectionService for CollectionServiceImpl {
 
         validate_collection_name(&req.alias_name)?;
 
-        match self
-            .storage_client
-            .delete_alias(&req.alias_name)
-            .await
-        {
+        match self.storage_client.delete_alias(&req.alias_name).await {
             Ok(_) => {
                 info!("Successfully deleted alias '{}'", req.alias_name);
                 Ok(Response::new(()))
             }
             Err(err) => {
-                error!(
-                    "Failed to delete alias '{}': {:?}",
-                    req.alias_name, err
-                );
+                error!("Failed to delete alias '{}': {:?}", req.alias_name, err);
                 Err(map_storage_error(err))
             }
         }

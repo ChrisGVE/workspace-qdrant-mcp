@@ -4,14 +4,14 @@
 //! and detects performance regressions in critical paths.
 
 use criterion::{
-    black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput,
-    PlotConfiguration, AxisScale
+    black_box, criterion_group, criterion_main, AxisScale, BatchSize, BenchmarkId, Criterion,
+    PlotConfiguration, Throughput,
 };
-use std::time::Duration;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::path::Path;
+use std::time::Duration;
 use tempfile::TempDir;
 
 // Test modules - we'll import from our test modules
@@ -48,16 +48,12 @@ fn bench_memory_operations(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(size as u64));
 
         // Benchmark allocation
-        group.bench_with_input(
-            BenchmarkId::new("allocation", size),
-            &size,
-            |b, &size| {
-                b.iter(|| {
-                    let data = black_box(vec![0u8; size]);
-                    data
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("allocation", size), &size, |b, &size| {
+            b.iter(|| {
+                let data = black_box(vec![0u8; size]);
+                data
+            });
+        });
 
         // Benchmark allocation and deallocation
         group.bench_with_input(
@@ -73,30 +69,20 @@ fn bench_memory_operations(c: &mut Criterion) {
         );
 
         // Benchmark cloning
-        group.bench_with_input(
-            BenchmarkId::new("clone", size),
-            &size,
-            |b, &size| {
-                let original_data = vec![0u8; size];
-                b.iter(|| {
-                    black_box(original_data.clone())
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("clone", size), &size, |b, &size| {
+            let original_data = vec![0u8; size];
+            b.iter(|| black_box(original_data.clone()));
+        });
 
         // Benchmark memory copy
-        group.bench_with_input(
-            BenchmarkId::new("memory_copy", size),
-            &size,
-            |b, &size| {
-                let source_data = vec![0u8; size];
-                b.iter(|| {
-                    let mut dest = Vec::with_capacity(size);
-                    dest.extend_from_slice(&source_data);
-                    black_box(dest);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("memory_copy", size), &size, |b, &size| {
+            let source_data = vec![0u8; size];
+            b.iter(|| {
+                let mut dest = Vec::with_capacity(size);
+                dest.extend_from_slice(&source_data);
+                black_box(dest);
+            });
+        });
     }
 
     group.finish();
@@ -118,39 +104,31 @@ fn bench_filesystem_operations(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(size as u64));
 
         // Benchmark file creation and writing
-        group.bench_with_input(
-            BenchmarkId::new("file_write", size),
-            &size,
-            |b, &_size| {
-                b.iter_batched(
-                    || {
-                        let file_path = temp_path.join(format!("test_file_{}.dat", fastrand::u64(..)));
-                        (file_path, test_data.clone())
-                    },
-                    |(file_path, data)| {
-                        std::fs::write(&file_path, &data).unwrap();
-                        black_box(file_path);
-                    },
-                    BatchSize::SmallInput,
-                );
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("file_write", size), &size, |b, &_size| {
+            b.iter_batched(
+                || {
+                    let file_path = temp_path.join(format!("test_file_{}.dat", fastrand::u64(..)));
+                    (file_path, test_data.clone())
+                },
+                |(file_path, data)| {
+                    std::fs::write(&file_path, &data).unwrap();
+                    black_box(file_path);
+                },
+                BatchSize::SmallInput,
+            );
+        });
 
         // Benchmark file reading
-        group.bench_with_input(
-            BenchmarkId::new("file_read", size),
-            &size,
-            |b, &_size| {
-                // Pre-create file for reading
-                let file_path = temp_path.join(format!("read_test_{}.dat", size));
-                std::fs::write(&file_path, &test_data).unwrap();
+        group.bench_with_input(BenchmarkId::new("file_read", size), &size, |b, &_size| {
+            // Pre-create file for reading
+            let file_path = temp_path.join(format!("read_test_{}.dat", size));
+            std::fs::write(&file_path, &test_data).unwrap();
 
-                b.iter(|| {
-                    let content = std::fs::read(&file_path).unwrap();
-                    black_box(content);
-                });
-            },
-        );
+            b.iter(|| {
+                let content = std::fs::read(&file_path).unwrap();
+                black_box(content);
+            });
+        });
     }
 
     group.finish();
@@ -276,9 +254,7 @@ fn bench_string_operations(c: &mut Criterion) {
             BenchmarkId::new("string_clone", size),
             &test_string,
             |b, test_string| {
-                b.iter(|| {
-                    black_box(test_string.clone())
-                });
+                b.iter(|| black_box(test_string.clone()));
             },
         );
 
@@ -418,19 +394,15 @@ fn bench_data_structure_operations(c: &mut Criterion) {
         group.throughput(Throughput::Elements(size as u64));
 
         // Vector operations
-        group.bench_with_input(
-            BenchmarkId::new("vec_push", size),
-            &size,
-            |b, &size| {
-                b.iter(|| {
-                    let mut vec = Vec::new();
-                    for i in 0..size {
-                        vec.push(i);
-                    }
-                    black_box(vec);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("vec_push", size), &size, |b, &size| {
+            b.iter(|| {
+                let mut vec = Vec::new();
+                for i in 0..size {
+                    vec.push(i);
+                }
+                black_box(vec);
+            });
+        });
 
         group.bench_with_input(
             BenchmarkId::new("vec_with_capacity", size),

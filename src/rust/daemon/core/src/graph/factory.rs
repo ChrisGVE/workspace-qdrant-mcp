@@ -193,6 +193,10 @@ max_threads: 4
     async fn test_create_sqlite_graph_store() {
         let dir = tempfile::tempdir().unwrap();
         let store = create_sqlite_graph_store(dir.path()).await;
-        assert!(store.is_ok(), "Should create SQLite graph store: {:?}", store.err());
+        assert!(
+            store.is_ok(),
+            "Should create SQLite graph store: {:?}",
+            store.err()
+        );
     }
 }

@@ -4,11 +4,11 @@
 //! comprehensive internal configuration with 500+ languages. Uses efficient
 //! data structures for fast lookups and multi-stage detection strategies.
 
-mod types;
 mod detector;
+mod types;
 
-pub use types::{DetectionConfidence, DetectionMethod, DetectionResult, DetectorStats};
 pub use detector::LanguageDetector;
+pub use types::{DetectionConfidence, DetectionMethod, DetectionResult, DetectorStats};
 
 use std::path::Path;
 
@@ -21,7 +21,7 @@ pub fn detect_language_from_path(file_path: &Path) -> DetectionResult {
             confidence: DetectionConfidence::Unknown,
             detection_method: DetectionMethod::None,
             details: format!("Detector initialization failed: {}", e),
-        }
+        },
     }
 }
 
@@ -34,7 +34,7 @@ pub fn detect_language_from_content(content: &str, file_path: Option<&Path>) -> 
             confidence: DetectionConfidence::Unknown,
             detection_method: DetectionMethod::None,
             details: format!("Detector initialization failed: {}", e),
-        }
+        },
     }
 }
 
@@ -50,8 +50,14 @@ mod tests {
 
         let detector = detector.unwrap();
         let stats = detector.stats();
-        assert!(stats.total_extensions > 0, "Should have at least one extension");
-        assert!(stats.unique_languages > 0, "Should support at least one language");
+        assert!(
+            stats.total_extensions > 0,
+            "Should have at least one extension"
+        );
+        assert!(
+            stats.unique_languages > 0,
+            "Should support at least one language"
+        );
     }
 
     #[test]
@@ -59,27 +65,56 @@ mod tests {
         let detector = LanguageDetector::new().unwrap();
 
         // Test common extensions
-        assert_eq!(detector.detect_from_extension("rs"), Some("rust".to_string()));
-        assert_eq!(detector.detect_from_extension("py"), Some("python".to_string()));
-        assert_eq!(detector.detect_from_extension("js"), Some("javascript".to_string()));
-        assert_eq!(detector.detect_from_extension("ts"), Some("typescript".to_string()));
+        assert_eq!(
+            detector.detect_from_extension("rs"),
+            Some("rust".to_string())
+        );
+        assert_eq!(
+            detector.detect_from_extension("py"),
+            Some("python".to_string())
+        );
+        assert_eq!(
+            detector.detect_from_extension("js"),
+            Some("javascript".to_string())
+        );
+        assert_eq!(
+            detector.detect_from_extension("ts"),
+            Some("typescript".to_string())
+        );
 
         // Test with leading dot
-        assert_eq!(detector.detect_from_extension(".rs"), Some("rust".to_string()));
+        assert_eq!(
+            detector.detect_from_extension(".rs"),
+            Some("rust".to_string())
+        );
 
         // Test case insensitive
-        assert!(detector.detect_from_extension("RS").is_some() ||
-                detector.detect_from_extension("rs").is_some());
+        assert!(
+            detector.detect_from_extension("RS").is_some()
+                || detector.detect_from_extension("rs").is_some()
+        );
     }
 
     #[test]
     fn test_filename_detection() {
         let detector = LanguageDetector::new().unwrap();
 
-        assert_eq!(detector.detect_from_filename("Dockerfile"), Some("dockerfile".to_string()));
-        assert_eq!(detector.detect_from_filename("Makefile"), Some("make".to_string()));
-        assert_eq!(detector.detect_from_filename("Cargo.toml"), Some("rust".to_string()));
-        assert_eq!(detector.detect_from_filename("package.json"), Some("javascript".to_string()));
+        assert_eq!(
+            detector.detect_from_filename("Dockerfile"),
+            Some("dockerfile".to_string())
+        );
+        assert_eq!(
+            detector.detect_from_filename("Makefile"),
+            Some("make".to_string())
+        );
+        assert_eq!(
+            detector.detect_from_filename("Cargo.toml"),
+            Some("rust".to_string())
+        );
+        assert_eq!(
+            detector.detect_from_filename("package.json"),
+            Some("javascript".to_string())
+        );
     }
 
     #[test]
@@ -140,7 +175,8 @@ mod tests {
         let detector = LanguageDetector::new().unwrap();
 
         // Content that should be detected as Rust with high confidence
-        let rust_content = "fn main() {\n    use std::collections::HashMap;\n    let mut map = HashMap::new();\n}";
+        let rust_content =
+            "fn main() {\n    use std::collections::HashMap;\n    let mut map = HashMap::new();\n}";
         let rust_path = PathBuf::from("main.rs");
 
         let result = detector.detect_from_content(rust_content, Some(&rust_path));
@@ -150,10 +186,10 @@ mod tests {
         match result.detection_method {
             DetectionMethod::Consensus(_) => {
                 // Expected: consensus between extension and keywords
-            },
+            }
             DetectionMethod::Extension(_) => {
                 // Also acceptable: extension detection dominated
-            },
+            }
             _ => panic!("Unexpected detection method: {:?}", result.detection_method),
         }
     }

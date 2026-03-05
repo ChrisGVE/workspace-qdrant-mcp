@@ -24,7 +24,10 @@ pub struct VectorSimilarityMatcher {
 
 impl VectorSimilarityMatcher {
     pub fn new(expected: Vec<f32>, threshold: f32) -> Self {
-        Self { expected, threshold }
+        Self {
+            expected,
+            threshold,
+        }
     }
 
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
@@ -58,7 +61,10 @@ impl Matcher<Vec<f32>> for VectorSimilarityMatcher {
     }
 
     fn description(&self) -> String {
-        format!("vector with cosine similarity >= {} to expected vector", self.threshold)
+        format!(
+            "vector with cosine similarity >= {} to expected vector",
+            self.threshold
+        )
     }
 }
 
@@ -80,7 +86,10 @@ where
     fn matches(&self, actual: &Vec<T>) -> MatchResult {
         for item in &self.expected {
             if !actual.contains(item) {
-                return Err(format!("Expected collection to contain {:?}, but it was missing", item));
+                return Err(format!(
+                    "Expected collection to contain {:?}, but it was missing",
+                    item
+                ));
             }
         }
         Ok(())
@@ -350,8 +359,8 @@ macro_rules! assert_responds_within {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::matchers::*;
+    use super::*;
 
     #[test]
     fn test_vector_similarity_matcher() {

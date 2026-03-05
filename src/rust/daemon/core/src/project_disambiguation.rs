@@ -8,14 +8,14 @@
 //! Daemon-specific types (ProjectRecord, RegisteredProject, DisambiguationError)
 //! remain in this module.
 
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use thiserror::Error;
 
 // Re-export canonical types from wqm-common
 pub use wqm_common::project_id::{
-    DisambiguationConfig, ProjectIdCalculator, DisambiguationPathComputer,
+    DisambiguationConfig, DisambiguationPathComputer, ProjectIdCalculator,
 };
 
 /// Errors that can occur during project disambiguation

@@ -5,9 +5,9 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::time::Duration;
 
-use crate::metrics_history_schema::{AggregationPeriod, MetricEntry};
-use super::metrics_history::*;
 use super::metrics_aggregation::*;
+use super::metrics_history::*;
+use crate::metrics_history_schema::{AggregationPeriod, MetricEntry};
 
 async fn create_test_pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -35,8 +35,7 @@ async fn test_write_and_query_metrics() {
 
     let entries = vec![
         MetricEntry::new("queue_depth", 100.0).with_timestamp(now),
-        MetricEntry::new("queue_depth", 120.0)
-            .with_timestamp(now + ChronoDuration::seconds(60)),
+        MetricEntry::new("queue_depth", 120.0).with_timestamp(now + ChronoDuration::seconds(60)),
         MetricEntry::new("active_sessions", 3.0).with_timestamp(now),
     ];
 
@@ -56,10 +55,8 @@ async fn test_query_with_time_range() {
     let now = Utc::now();
 
     let entries = vec![
-        MetricEntry::new("test_metric", 1.0)
-            .with_timestamp(now - ChronoDuration::hours(3)),
-        MetricEntry::new("test_metric", 2.0)
-            .with_timestamp(now - ChronoDuration::hours(1)),
+        MetricEntry::new("test_metric", 1.0).with_timestamp(now - ChronoDuration::hours(3)),
+        MetricEntry::new("test_metric", 2.0).with_timestamp(now - ChronoDuration::hours(1)),
         MetricEntry::new("test_metric", 3.0).with_timestamp(now),
     ];
 
@@ -77,12 +74,9 @@ async fn test_query_aggregated() {
     let now = Utc::now();
 
     let entries = vec![
-        MetricEntry::new("latency", 10.0)
-            .with_timestamp(now - ChronoDuration::minutes(30)),
-        MetricEntry::new("latency", 20.0)
-            .with_timestamp(now - ChronoDuration::minutes(20)),
-        MetricEntry::new("latency", 30.0)
-            .with_timestamp(now - ChronoDuration::minutes(10)),
+        MetricEntry::new("latency", 10.0).with_timestamp(now - ChronoDuration::minutes(30)),
+        MetricEntry::new("latency", 20.0).with_timestamp(now - ChronoDuration::minutes(20)),
+        MetricEntry::new("latency", 30.0).with_timestamp(now - ChronoDuration::minutes(10)),
     ];
 
     write_metrics_batch(&pool, &entries).await.unwrap();
@@ -110,20 +104,15 @@ async fn test_cleanup_old_metrics() {
     let now = Utc::now();
 
     let entries = vec![
-        MetricEntry::new("old_metric", 1.0)
-            .with_timestamp(now - ChronoDuration::days(10)),
+        MetricEntry::new("old_metric", 1.0).with_timestamp(now - ChronoDuration::days(10)),
         MetricEntry::new("recent_metric", 2.0).with_timestamp(now),
     ];
 
     write_metrics_batch(&pool, &entries).await.unwrap();
 
-    let deleted = cleanup_old_metrics(
-        &pool,
-        AggregationPeriod::Raw,
-        now - ChronoDuration::days(1),
-    )
-    .await
-    .unwrap();
+    let deleted = cleanup_old_metrics(&pool, AggregationPeriod::Raw, now - ChronoDuration::days(1))
+        .await
+        .unwrap();
 
     assert_eq!(deleted, 1);
 
@@ -187,8 +176,7 @@ async fn test_query_with_limit() {
 
     let entries: Vec<MetricEntry> = (0..10)
         .map(|i| {
-            MetricEntry::new("many", i as f64)
-                .with_timestamp(now + ChronoDuration::seconds(i))
+            MetricEntry::new("many", i as f64).with_timestamp(now + ChronoDuration::seconds(i))
         })
         .collect();
 
@@ -207,12 +195,9 @@ async fn test_run_aggregation() {
     let hour_start = base - ChronoDuration::hours(1);
 
     let entries = vec![
-        MetricEntry::new("cpu", 10.0)
-            .with_timestamp(hour_start + ChronoDuration::minutes(10)),
-        MetricEntry::new("cpu", 20.0)
-            .with_timestamp(hour_start + ChronoDuration::minutes(30)),
-        MetricEntry::new("cpu", 30.0)
-            .with_timestamp(hour_start + ChronoDuration::minutes(50)),
+        MetricEntry::new("cpu", 10.0).with_timestamp(hour_start + ChronoDuration::minutes(10)),
+        MetricEntry::new("cpu", 20.0).with_timestamp(hour_start + ChronoDuration::minutes(30)),
+        MetricEntry::new("cpu", 30.0).with_timestamp(hour_start + ChronoDuration::minutes(50)),
     ];
     write_metrics_batch(&pool, &entries).await.unwrap();
 
@@ -227,8 +212,7 @@ async fn test_run_aggregation() {
     .unwrap();
     assert_eq!(count, 1);
 
-    let query =
-        MetricsHistoryQuery::new("cpu").with_aggregation(AggregationPeriod::Hourly);
+    let query = MetricsHistoryQuery::new("cpu").with_aggregation(AggregationPeriod::Hourly);
     let results = query_metrics(&pool, &query).await.unwrap();
     assert_eq!(results.len(), 1);
     assert!((results[0].metric_value - 20.0).abs() < 0.001);
@@ -264,8 +248,7 @@ async fn test_aggregation_preserves_labels() {
     .unwrap();
     assert_eq!(count, 2);
 
-    let query =
-        MetricsHistoryQuery::new("queue").with_aggregation(AggregationPeriod::Hourly);
+    let query = MetricsHistoryQuery::new("queue").with_aggregation(AggregationPeriod::Hourly);
     let results = query_metrics(&pool, &query).await.unwrap();
     assert_eq!(results.len(), 2);
 }
@@ -275,12 +258,12 @@ async fn test_apply_retention() {
     let pool = create_test_pool().await;
     let now = Utc::now();
 
-    let old_entries = vec![MetricEntry::new("old_raw", 1.0)
-        .with_timestamp(now - ChronoDuration::days(2))];
+    let old_entries =
+        vec![MetricEntry::new("old_raw", 1.0).with_timestamp(now - ChronoDuration::days(2))];
     write_metrics_batch(&pool, &old_entries).await.unwrap();
 
-    let new_entries = vec![MetricEntry::new("new_raw", 2.0)
-        .with_timestamp(now - ChronoDuration::hours(1))];
+    let new_entries =
+        vec![MetricEntry::new("new_raw", 2.0).with_timestamp(now - ChronoDuration::hours(1))];
     write_metrics_batch(&pool, &new_entries).await.unwrap();
 
     let config = RetentionConfig {

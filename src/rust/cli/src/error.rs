@@ -14,10 +14,7 @@ use thiserror::Error;
 pub enum CliError {
     /// Connection to memexd daemon failed
     #[error("Failed to connect to daemon at {address}: {message}")]
-    DaemonConnection {
-        address: String,
-        message: String,
-    },
+    DaemonConnection { address: String, message: String },
 
     /// gRPC call failed
     #[error("gRPC error: {message}")]

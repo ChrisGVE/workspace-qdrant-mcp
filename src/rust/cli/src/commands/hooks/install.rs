@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::output;
 
 use super::matchers::{
-    SESSION_START_MATCHER, build_wqm_hook_command, group_has_wqm_command, is_our_matcher,
+    build_wqm_hook_command, group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER,
 };
 use super::settings::{get_claude_settings_path, read_settings, write_settings};
 
@@ -31,9 +31,7 @@ pub(super) async fn install_hooks() -> Result<()> {
         .context("hooks.SessionStart is not an array")?;
 
     // Find existing matcher group for our pattern
-    let existing_idx = session_start
-        .iter()
-        .position(is_our_matcher);
+    let existing_idx = session_start.iter().position(is_our_matcher);
 
     match existing_idx {
         Some(idx) => {
@@ -68,9 +66,11 @@ pub(super) async fn install_hooks() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::matchers::{SESSION_START_MATCHER, build_wqm_hook_command, is_our_matcher, group_has_wqm_command};
+    use super::super::matchers::{
+        build_wqm_hook_command, group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER,
+    };
     use super::super::settings::{read_settings, write_settings};
+    use super::*;
     use std::path::Path;
     use tempfile::TempDir;
 

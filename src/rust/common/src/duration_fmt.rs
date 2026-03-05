@@ -64,7 +64,10 @@ pub fn column_fractional_digits(durations: &[f64]) -> usize {
 /// with fractional seconds at the same precision.
 pub fn format_duration_column(durations: &[f64]) -> Vec<String> {
     let digits = column_fractional_digits(durations);
-    durations.iter().map(|&d| format_duration(d, digits)).collect()
+    durations
+        .iter()
+        .map(|&d| format_duration(d, digits))
+        .collect()
 }
 
 #[cfg(test)]

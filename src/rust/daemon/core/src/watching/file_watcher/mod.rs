@@ -5,16 +5,16 @@
 //! - Debounce events for efficient processing
 //! - Handle cross-platform differences in rename event delivery
 
-mod watcher;
 mod handle;
 #[cfg(test)]
 mod tests;
+mod watcher;
 
-pub use watcher::EnhancedFileWatcher;
 pub use handle::WatcherHandle;
+pub use watcher::EnhancedFileWatcher;
 
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use thiserror::Error;
 
 use super::move_detector::MoveCorrelatorConfig;
@@ -71,22 +71,13 @@ impl Default for EnhancedWatcherConfig {
 #[derive(Debug, Clone)]
 pub enum WatchEvent {
     /// A file was created
-    Created {
-        path: PathBuf,
-        is_directory: bool,
-    },
+    Created { path: PathBuf, is_directory: bool },
 
     /// A file was modified
-    Modified {
-        path: PathBuf,
-        is_directory: bool,
-    },
+    Modified { path: PathBuf, is_directory: bool },
 
     /// A file was deleted
-    Deleted {
-        path: PathBuf,
-        is_directory: bool,
-    },
+    Deleted { path: PathBuf, is_directory: bool },
 
     /// A file was renamed/moved within the same filesystem
     Renamed {

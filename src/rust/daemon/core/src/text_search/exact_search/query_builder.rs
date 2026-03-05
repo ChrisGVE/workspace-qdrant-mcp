@@ -74,7 +74,10 @@ WHERE 1=1",
         next_param += 1;
     }
     if options.path_prefix.is_some() {
-        sql.push_str(&format!(" AND fm.file_path LIKE ?{} ESCAPE '\\'", next_param));
+        sql.push_str(&format!(
+            " AND fm.file_path LIKE ?{} ESCAPE '\\'",
+            next_param
+        ));
     }
 
     sql.push_str("\nORDER BY m.file_id, m.line_number");

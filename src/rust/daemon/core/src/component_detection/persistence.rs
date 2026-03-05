@@ -227,13 +227,12 @@ async fn backfill_one_folder(
         for (file_id, rel_path) in chunk {
             match assign_component(rel_path, &components) {
                 Some(comp) => {
-                    if let Err(e) = sqlx::query(
-                        "UPDATE tracked_files SET component = ?1 WHERE file_id = ?2",
-                    )
-                    .bind(&comp.id)
-                    .bind(file_id)
-                    .execute(&mut *tx)
-                    .await
+                    if let Err(e) =
+                        sqlx::query("UPDATE tracked_files SET component = ?1 WHERE file_id = ?2")
+                            .bind(&comp.id)
+                            .bind(file_id)
+                            .execute(&mut *tx)
+                            .await
                     {
                         debug!("Failed to update file_id {}: {}", file_id, e);
                         stats.errors += 1;

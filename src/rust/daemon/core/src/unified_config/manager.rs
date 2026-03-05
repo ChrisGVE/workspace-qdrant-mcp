@@ -10,7 +10,6 @@ use crate::unified_config::env_overrides::apply_env_overrides;
 use crate::unified_config::types::{ConfigFormat, UnifiedConfigError};
 use crate::unified_config::validation::{expand_config_paths, validate_config};
 
-
 /// Unified configuration manager for Rust daemon
 ///
 /// Uses `wqm_common::paths::get_config_search_paths()` for the canonical
@@ -174,14 +173,11 @@ impl UnifiedConfigManager {
         target_format: Option<ConfigFormat>,
     ) -> Result<(), UnifiedConfigError> {
         if !source_file.exists() {
-            return Err(UnifiedConfigError::FileNotFound(
-                source_file.to_path_buf(),
-            ));
+            return Err(UnifiedConfigError::FileNotFound(source_file.to_path_buf()));
         }
 
         let source_format = ConfigFormat::from_path(source_file);
-        let target_format =
-            target_format.unwrap_or_else(|| ConfigFormat::from_path(target_file));
+        let target_format = target_format.unwrap_or_else(|| ConfigFormat::from_path(target_file));
 
         info!(
             "Converting configuration from {} to {} ({:?})",
@@ -228,14 +224,12 @@ impl UnifiedConfigManager {
                 if exists {
                     if let Ok(metadata) = path.metadata() {
                         if let Ok(modified) = metadata.modified() {
-                            if let Ok(duration) =
-                                modified.duration_since(std::time::UNIX_EPOCH)
-                            {
+                            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
                                 source.insert(
                                     "last_modified".to_string(),
-                                    serde_json::Value::Number(
-                                        serde_json::Number::from(duration.as_secs()),
-                                    ),
+                                    serde_json::Value::Number(serde_json::Number::from(
+                                        duration.as_secs(),
+                                    )),
                                 );
                             }
                         }

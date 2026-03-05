@@ -58,7 +58,9 @@ mod platform_macos_tests {
         let config = test_macos_config();
         let mut watcher = MacOSWatcher::new(config, 4096)?;
 
-        let result = watcher.watch(Path::new("/nonexistent/path/that/does/not/exist")).await;
+        let result = watcher
+            .watch(Path::new("/nonexistent/path/that/does/not/exist"))
+            .await;
         assert!(result.is_err());
 
         Ok(())
@@ -108,7 +110,7 @@ mod platform_macos_tests {
 #[cfg(target_os = "windows")]
 mod platform_windows_tests {
     use super::*;
-    use crate::watching::platform::{WindowsConfig, WindowsWatcher, PlatformWatcher};
+    use crate::watching::platform::{PlatformWatcher, WindowsConfig, WindowsWatcher};
 
     fn test_windows_config() -> WindowsConfig {
         WindowsConfig {
@@ -160,7 +162,9 @@ mod platform_windows_tests {
         let config = test_windows_config();
         let mut watcher = WindowsWatcher::new(config, 4096)?;
 
-        let result = watcher.watch(Path::new("C:\\nonexistent\\path\\that\\does\\not\\exist")).await;
+        let result = watcher
+            .watch(Path::new("C:\\nonexistent\\path\\that\\does\\not\\exist"))
+            .await;
         assert!(result.is_err());
 
         Ok(())

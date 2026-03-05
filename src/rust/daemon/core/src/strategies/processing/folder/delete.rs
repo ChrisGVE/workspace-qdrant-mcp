@@ -5,9 +5,11 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::queue_operations::QueueManager;
-use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
-use crate::unified_queue_schema::{FilePayload, FolderPayload, ItemType, QueueOperation, UnifiedQueueItem};
 use crate::tracked_files_schema;
+use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
+use crate::unified_queue_schema::{
+    FilePayload, FolderPayload, ItemType, QueueOperation, UnifiedQueueItem,
+};
 
 /// Delete all tracked files under a folder path.
 ///
@@ -49,18 +51,15 @@ pub(crate) async fn process_folder_delete(
             .unwrap_or_else(|| payload.folder_path.clone());
 
     // Get all tracked files under this folder prefix
-    let tracked_files = tracked_files_schema::get_tracked_files_by_prefix(
-        pool,
-        &watch_folder_id,
-        &relative_folder,
-    )
-    .await
-    .map_err(|e| {
-        UnifiedProcessorError::QueueOperation(format!(
-            "Failed to query tracked files: {}",
-            e
-        ))
-    })?;
+    let tracked_files =
+        tracked_files_schema::get_tracked_files_by_prefix(pool, &watch_folder_id, &relative_folder)
+            .await
+            .map_err(|e| {
+                UnifiedProcessorError::QueueOperation(format!(
+                    "Failed to query tracked files: {}",
+                    e
+                ))
+            })?;
 
     if tracked_files.is_empty() {
         info!(
@@ -155,10 +154,7 @@ async fn enqueue_file_deletions(
                 );
             }
             Err(e) => {
-                warn!(
-                    "Failed to queue file deletion for {}: {}",
-                    abs_path_str, e
-                );
+                warn!("Failed to queue file deletion for {}: {}", abs_path_str, e);
                 errors += 1;
             }
         }

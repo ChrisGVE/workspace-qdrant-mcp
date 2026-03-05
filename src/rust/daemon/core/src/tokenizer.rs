@@ -47,8 +47,9 @@ impl ModelTokenizer {
         // The model's tokenizer.json may have these pre-configured for
         // inference, but we need raw token counts.
         tokenizer.with_padding(None);
-        tokenizer.with_truncation(None)
-            .map_err(|e| TokenizerError::LoadError(format!("Failed to disable truncation: {}", e)))?;
+        tokenizer.with_truncation(None).map_err(|e| {
+            TokenizerError::LoadError(format!("Failed to disable truncation: {}", e))
+        })?;
         info!("Loaded tokenizer from {}", path.display());
         Ok(Self {
             inner: Arc::new(tokenizer),
@@ -74,7 +75,9 @@ impl ModelTokenizer {
 
     /// Count the number of tokens in the given text.
     pub fn count_tokens(&self, text: &str) -> Result<usize, TokenizerError> {
-        let encoding = self.inner.encode(text, false)
+        let encoding = self
+            .inner
+            .encode(text, false)
             .map_err(|e| TokenizerError::EncodeError(e.to_string()))?;
         Ok(encoding.get_ids().len())
     }
@@ -107,33 +110,49 @@ impl ModelTokenizer {
 
             if para_tokens > target_tokens && current_text.is_empty() {
                 let word_chunks = self.split_paragraph_by_tokens(
-                    paragraph, target_tokens, overlap_tokens, char_offset,
+                    paragraph,
+                    target_tokens,
+                    overlap_tokens,
+                    char_offset,
                 )?;
                 chunks.extend(word_chunks);
                 char_offset += paragraph.len();
-                if i < paragraphs.len() - 1 { char_offset += 2; }
+                if i < paragraphs.len() - 1 {
+                    char_offset += 2;
+                }
                 chunk_start_char = char_offset;
                 continue;
             }
 
-            let combined_tokens = self.combined_token_count(&current_text, paragraph, para_tokens)?;
+            let combined_tokens =
+                self.combined_token_count(&current_text, paragraph, para_tokens)?;
 
             if combined_tokens > target_tokens && !current_text.is_empty() {
                 chunk_start_char = self.flush_chunk(
-                    &mut chunks, &mut current_text, current_tokens,
-                    chunk_start_char, char_offset, overlap_tokens,
+                    &mut chunks,
+                    &mut current_text,
+                    current_tokens,
+                    chunk_start_char,
+                    char_offset,
+                    overlap_tokens,
                 )?;
-                if !current_text.is_empty() { current_text.push_str("\n\n"); }
+                if !current_text.is_empty() {
+                    current_text.push_str("\n\n");
+                }
                 current_text.push_str(paragraph);
                 current_tokens = self.count_tokens(&current_text)?;
             } else {
-                if !current_text.is_empty() { current_text.push_str("\n\n"); }
+                if !current_text.is_empty() {
+                    current_text.push_str("\n\n");
+                }
                 current_text.push_str(paragraph);
                 current_tokens = combined_tokens;
             }
 
             char_offset += paragraph.len();
-            if i < paragraphs.len() - 1 { char_offset += 2; }
+            if i < paragraphs.len() - 1 {
+                char_offset += 2;
+            }
         }
 
         if !current_text.is_empty() {
@@ -241,7 +260,7 @@ impl ModelTokenizer {
                 // Start new chunk with overlap
                 if overlap_tokens > 0 {
                     let overlap_start = current_words.len().saturating_sub(
-                        (overlap_tokens * current_words.len()) / token_count.max(1)
+                        (overlap_tokens * current_words.len()) / token_count.max(1),
                     );
                     current_words = current_words[overlap_start..].to_vec();
                 } else {
@@ -293,7 +312,9 @@ impl ModelTokenizer {
                 best = mid;
                 lo = mid + 1;
             } else {
-                if mid == 0 { break; }
+                if mid == 0 {
+                    break;
+                }
                 hi = mid - 1;
             }
         }
@@ -334,9 +355,8 @@ impl ModelTokenizer {
 
         // Fallback: fastembed's own cache locations
         if let Some(home) = dirs::home_dir() {
-            candidates.push(
-                home.join(".cache/fastembed/models/fast-all-MiniLM-L6-v2/tokenizer.json")
-            );
+            candidates
+                .push(home.join(".cache/fastembed/models/fast-all-MiniLM-L6-v2/tokenizer.json"));
         }
 
         candidates
@@ -367,7 +387,10 @@ mod tests {
     #[test]
     fn test_tokenizer_loads_from_cache() {
         let tokenizer = get_test_tokenizer();
-        assert!(tokenizer.is_some(), "Tokenizer should load from HF cache (requires model to be cached)");
+        assert!(
+            tokenizer.is_some(),
+            "Tokenizer should load from HF cache (requires model to be cached)"
+        );
     }
 
     #[test]
@@ -402,7 +425,10 @@ mod tests {
 
         // WordPiece should split unknown words into subwords
         let count = tokenizer.count_tokens("uncharacteristically").unwrap();
-        assert!(count > 1, "Long word should be split into multiple subword tokens");
+        assert!(
+            count > 1,
+            "Long word should be split into multiple subword tokens"
+        );
     }
 
     #[test]

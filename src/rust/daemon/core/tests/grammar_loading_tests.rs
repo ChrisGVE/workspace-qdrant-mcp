@@ -16,8 +16,7 @@ fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {
         required: vec!["rust".to_string(), "python".to_string()],
         auto_download,
         tree_sitter_version: "0.24".to_string(),
-        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}"
-            .to_string(),
+        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}".to_string(),
         verify_checksums: false,
         lazy_loading: true,
         check_interval_hours: 168, // Weekly
@@ -87,10 +86,7 @@ fn test_auto_download_enabled() {
     let config = test_config(&temp_dir, true);
     let manager = GrammarManager::new(config);
     assert!(manager.has_downloader());
-    assert_eq!(
-        manager.grammar_status("ruby"),
-        GrammarStatus::NeedsDownload
-    );
+    assert_eq!(manager.grammar_status("ruby"), GrammarStatus::NeedsDownload);
 }
 
 // =============================================================================
@@ -103,12 +99,18 @@ fn test_static_grammar_compatibility() {
 
     if let Some(rust_lang) = get_static_language("rust") {
         let compat = check_grammar_compatibility(&rust_lang);
-        assert!(compat.is_compatible(), "Static Rust grammar should be compatible");
+        assert!(
+            compat.is_compatible(),
+            "Static Rust grammar should be compatible"
+        );
     }
 
     if let Some(python_lang) = get_static_language("python") {
         let compat = check_grammar_compatibility(&python_lang);
-        assert!(compat.is_compatible(), "Static Python grammar should be compatible");
+        assert!(
+            compat.is_compatible(),
+            "Static Python grammar should be compatible"
+        );
     }
 }
 
@@ -156,7 +158,7 @@ fn test_parser_with_fallback_provider() {
 
 #[test]
 fn test_parser_with_custom_provider() {
-    use workspace_qdrant_core::tree_sitter::{LoadedGrammarsProvider, LanguageProvider};
+    use workspace_qdrant_core::tree_sitter::{LanguageProvider, LoadedGrammarsProvider};
 
     let mut provider = LoadedGrammarsProvider::new();
     if let Some(lang) = workspace_qdrant_core::tree_sitter::get_static_language("python") {

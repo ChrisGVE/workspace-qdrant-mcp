@@ -13,8 +13,7 @@ pub(crate) struct TaskQueueItem {
 
 impl PartialEq for TaskQueueItem {
     fn eq(&self, other: &Self) -> bool {
-        self.task.context.priority == other.task.context.priority
-            && self.sequence == other.sequence
+        self.task.context.priority == other.task.context.priority && self.sequence == other.sequence
     }
 }
 

@@ -19,11 +19,7 @@ pub use wqm_common::hashing::{
 ///
 /// For the comprehensive format with operation and tenant_id,
 /// use [`generate_unified_idempotency_key`].
-pub fn generate_idempotency_key(
-    item_type: ItemType,
-    collection: &str,
-    identifier: &str,
-) -> String {
+pub fn generate_idempotency_key(item_type: ItemType, collection: &str, identifier: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(identifier.as_bytes());

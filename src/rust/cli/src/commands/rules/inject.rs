@@ -41,10 +41,7 @@ pub async fn inject_rules() -> Result<()> {
 
     // Parse JSON and extract cwd
     let cwd = match serde_json::from_str::<serde_json::Value>(&raw_input) {
-        Ok(v) => v
-            .get("cwd")
-            .and_then(|c| c.as_str())
-            .map(String::from),
+        Ok(v) => v.get("cwd").and_then(|c| c.as_str()).map(String::from),
         Err(_) => None,
     };
 
@@ -61,8 +58,7 @@ pub async fn inject_rules() -> Result<()> {
         Err(_) => return Ok(()),
     };
 
-    let project_info =
-        wqm_common::project_id::resolve_path_to_project(&db_path, &cwd_path);
+    let project_info = wqm_common::project_id::resolve_path_to_project(&db_path, &cwd_path);
 
     // Build Qdrant client
     let client = match build_qdrant_client() {
@@ -89,11 +85,7 @@ pub async fn inject_rules() -> Result<()> {
     };
 
     // Format and output
-    let output = format_inject_output(
-        &global_rules,
-        &project_rules,
-        project_name.as_deref(),
-    );
+    let output = format_inject_output(&global_rules, &project_rules, project_name.as_deref());
 
     if !output.is_empty() {
         tracing::info!("inject output: {}", output);

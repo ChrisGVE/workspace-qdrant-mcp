@@ -113,8 +113,11 @@ pub async fn find_clusters(
             WHERE tenant_id = ?1 AND collection = ?2 AND cooccurrence_count >= ?3
         )",
     )
-    .bind(tenant_id).bind(collection).bind(min_count)
-    .fetch_all(pool).await?;
+    .bind(tenant_id)
+    .bind(collection)
+    .bind(min_count)
+    .fetch_all(pool)
+    .await?;
 
     if seeds.is_empty() {
         return Ok(Vec::new());
@@ -129,17 +132,27 @@ pub async fn find_clusters(
         }
         if let Some(cluster) = expand_cluster_from_seed(
             pool, seed, tenant_id, collection, min_count, max_hops, &assigned,
-        ).await? {
+        )
+        .await?
+        {
             for s in &cluster {
                 assigned.insert(s.clone());
             }
-            clusters.push(CooccurrenceCluster { symbols: cluster, min_weight: min_count });
+            clusters.push(CooccurrenceCluster {
+                symbols: cluster,
+                min_weight: min_count,
+            });
         } else {
             assigned.insert(seed.clone());
         }
     }
 
-    debug!("Found {} co-occurrence clusters for {}/{}", clusters.len(), tenant_id, collection);
+    debug!(
+        "Found {} co-occurrence clusters for {}/{}",
+        clusters.len(),
+        tenant_id,
+        collection
+    );
     Ok(clusters)
 }
 
@@ -177,15 +190,24 @@ async fn expand_cluster_from_seed(
         SELECT DISTINCT symbol FROM cluster_expand",
         max_hops
     ))
-    .bind(seed).bind(tenant_id).bind(collection).bind(min_count)
-    .fetch_all(pool).await?;
+    .bind(seed)
+    .bind(tenant_id)
+    .bind(collection)
+    .bind(min_count)
+    .fetch_all(pool)
+    .await?;
 
-    let symbols: Vec<String> = rows.into_iter()
+    let symbols: Vec<String> = rows
+        .into_iter()
         .map(|(s,)| s)
         .filter(|s| !assigned.contains(s))
         .collect();
 
-    if symbols.len() >= 2 { Ok(Some(symbols)) } else { Ok(None) }
+    if symbols.len() >= 2 {
+        Ok(Some(symbols))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Find symbols that co-occur with a given symbol, sorted by weight.

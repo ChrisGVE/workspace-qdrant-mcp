@@ -1,6 +1,6 @@
 //! Pool-based database operations for tracked files and Qdrant chunks
 
-use sqlx::{Row, Sqlite, SqlitePool, sqlite::SqliteRow};
+use sqlx::{sqlite::SqliteRow, Row, Sqlite, SqlitePool};
 use std::path::Path;
 use wqm_common::constants::COLLECTION_PROJECTS;
 use wqm_common::timestamps;
@@ -40,7 +40,8 @@ pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         reconcile_reason: r.get("reconcile_reason"),
         extension: r.get("extension"),
         is_test: r.get::<Option<i32>, _>("is_test").unwrap_or(0) != 0,
-        collection: r.get::<Option<String>, _>("collection")
+        collection: r
+            .get::<Option<String>, _>("collection")
             .unwrap_or_else(|| COLLECTION_PROJECTS.to_string()),
         base_point: r.get("base_point"),
         relative_path: r.get("relative_path"),
@@ -93,7 +94,7 @@ pub async fn lookup_tracked_file(
                         collection, base_point, relative_path, incremental,
                         component, created_at, updated_at
                  FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch = ?3"
+                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch = ?3",
             )
             .bind(watch_folder_id)
             .bind(file_path)
@@ -110,7 +111,7 @@ pub async fn lookup_tracked_file(
                         collection, base_point, relative_path, incremental,
                         component, created_at, updated_at
                  FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch IS NULL"
+                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch IS NULL",
             )
             .bind(watch_folder_id)
             .bind(file_path)
@@ -194,7 +195,7 @@ pub async fn update_tracked_file(
         "UPDATE tracked_files SET file_mtime = ?1, file_hash = ?2, chunk_count = ?3,
          chunking_method = ?4, lsp_status = ?5, treesitter_status = ?6,
          base_point = ?7, component = ?8, last_error = NULL, updated_at = ?9
-         WHERE file_id = ?10"
+         WHERE file_id = ?10",
     )
     .bind(file_mtime)
     .bind(file_hash)
@@ -232,7 +233,15 @@ pub(crate) const CHUNK_INSERT_BATCH_SIZE: usize = 100;
 pub async fn insert_qdrant_chunks(
     pool: &SqlitePool,
     file_id: i64,
-    chunks: &[(String, i32, String, Option<ChunkType>, Option<String>, Option<i32>, Option<i32>)],
+    chunks: &[(
+        String,
+        i32,
+        String,
+        Option<ChunkType>,
+        Option<String>,
+        Option<i32>,
+        Option<i32>,
+    )],
     // Each tuple: (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line)
 ) -> Result<(), sqlx::Error> {
     if chunks.is_empty() {
@@ -253,7 +262,15 @@ pub async fn insert_qdrant_chunks(
 pub(crate) async fn execute_chunk_batch_insert(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     file_id: i64,
-    batch: &[(String, i32, String, Option<ChunkType>, Option<String>, Option<i32>, Option<i32>)],
+    batch: &[(
+        String,
+        i32,
+        String,
+        Option<ChunkType>,
+        Option<String>,
+        Option<i32>,
+        Option<i32>,
+    )],
     now: &str,
 ) -> Result<(), sqlx::Error> {
     // Build "VALUES (?,?,?,?,?,?,?,?,?), (?,?,?,?,?,?,?,?,?), ..." with 9 params per row

@@ -2,7 +2,6 @@
 ///
 /// Walks up from a project directory to find workspace root files,
 /// parses member lists, and resolves paths.
-
 use std::path::{Path, PathBuf};
 
 /// Information about a detected workspace.

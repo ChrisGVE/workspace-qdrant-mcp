@@ -203,7 +203,11 @@ async fn uplift_single_point(
         if let Some(content) = candidate.payload.get("content").and_then(|v| v.as_str()) {
             let tokens: Vec<String> = content
                 .split_whitespace()
-                .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+                .map(|w| {
+                    w.to_lowercase()
+                        .trim_matches(|c: char| !c.is_alphanumeric())
+                        .to_string()
+                })
                 .filter(|w| w.len() >= 2)
                 .collect();
 
@@ -224,8 +228,10 @@ async fn uplift_single_point(
                         }
                     }
                 }
-                term_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let top_tags: Vec<String> = term_scores.into_iter().take(5).map(|(t, _)| t).collect();
+                term_scores
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let top_tags: Vec<String> =
+                    term_scores.into_iter().take(5).map(|(t, _)| t).collect();
 
                 if !top_tags.is_empty() {
                     updates.insert("concept_tags".to_string(), serde_json::json!(top_tags));
@@ -247,10 +253,7 @@ async fn uplift_single_point(
     }
 
     // Apply updates via set_payload
-    let filter = Filter::must([Condition::matches(
-        "chunk_id",
-        candidate.point_id.clone(),
-    )]);
+    let filter = Filter::must([Condition::matches("chunk_id", candidate.point_id.clone())]);
 
     storage_client
         .set_payload_by_filter(&candidate.collection, filter, updates)
@@ -284,11 +287,8 @@ fn qdrant_value_to_json(value: &qdrant_client::qdrant::Value) -> serde_json::Val
             serde_json::json!(*b)
         }
         Some(qdrant_client::qdrant::value::Kind::ListValue(list)) => {
-            let items: Vec<serde_json::Value> = list
-                .values
-                .iter()
-                .map(qdrant_value_to_json)
-                .collect();
+            let items: Vec<serde_json::Value> =
+                list.values.iter().map(qdrant_value_to_json).collect();
             serde_json::Value::Array(items)
         }
         Some(qdrant_client::qdrant::value::Kind::StructValue(s)) => {
@@ -299,9 +299,7 @@ fn qdrant_value_to_json(value: &qdrant_client::qdrant::Value) -> serde_json::Val
                 .collect();
             serde_json::Value::Object(map)
         }
-        Some(qdrant_client::qdrant::value::Kind::NullValue(_)) | None => {
-            serde_json::Value::Null
-        }
+        Some(qdrant_client::qdrant::value::Kind::NullValue(_)) | None => serde_json::Value::Null,
     }
 }
 
@@ -329,11 +327,9 @@ mod tests {
     #[test]
     fn test_format_point_id_uuid() {
         let id = qdrant_client::qdrant::PointId {
-            point_id_options: Some(
-                qdrant_client::qdrant::point_id::PointIdOptions::Uuid(
-                    "abc-123".to_string(),
-                ),
-            ),
+            point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(
+                "abc-123".to_string(),
+            )),
         };
         assert_eq!(format_point_id(&id), "abc-123");
     }
@@ -341,9 +337,7 @@ mod tests {
     #[test]
     fn test_format_point_id_num() {
         let id = qdrant_client::qdrant::PointId {
-            point_id_options: Some(
-                qdrant_client::qdrant::point_id::PointIdOptions::Num(42),
-            ),
+            point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(42)),
         };
         assert_eq!(format_point_id(&id), "42");
     }

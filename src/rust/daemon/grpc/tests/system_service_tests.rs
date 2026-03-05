@@ -8,15 +8,14 @@
 //! - Response format validation
 //! - Status code verification
 
+use prost::Message;
+use tonic::Request;
 use workspace_qdrant_grpc::proto::{
-    system_service_server::SystemService,
-    HealthResponse, SystemStatusResponse, MetricsResponse,
-    RefreshSignalRequest, ServerStatusNotification,
-    ServiceStatus, QueueType, ServerState,
+    system_service_server::SystemService, HealthResponse, MetricsResponse, QueueType,
+    RefreshSignalRequest, ServerState, ServerStatusNotification, ServiceStatus,
+    SystemStatusResponse,
 };
 use workspace_qdrant_grpc::services::SystemServiceImpl;
-use tonic::Request;
-use prost::Message;
 
 /// Test helper to create SystemService instance
 fn create_service() -> SystemServiceImpl {
@@ -285,7 +284,10 @@ async fn test_notify_server_status_serialization() {
     // Test deserialization
     let decoded = ServerStatusNotification::decode(&bytes[..]).unwrap();
     assert_eq!(decoded.state, ServerState::Up as i32);
-    assert_eq!(decoded.project_name, Some("workspace-qdrant-mcp".to_string()));
+    assert_eq!(
+        decoded.project_name,
+        Some("workspace-qdrant-mcp".to_string())
+    );
 }
 
 #[tokio::test]
@@ -330,9 +332,7 @@ async fn test_concurrent_status_requests() {
     // Spawn 10 concurrent status requests
     for _ in 0..10 {
         let service_clone = service.clone();
-        join_set.spawn(async move {
-            service_clone.get_status(Request::new(())).await
-        });
+        join_set.spawn(async move { service_clone.get_status(Request::new(())).await });
     }
 
     // All should succeed
@@ -375,11 +375,19 @@ async fn test_timestamp_fields() {
     assert!(ts.seconds > 0);
 
     // GetStatus uptime_since
-    let status = service.get_status(Request::new(())).await.unwrap().into_inner();
+    let status = service
+        .get_status(Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
     assert!(status.uptime_since.is_some());
 
     // GetMetrics collected_at
-    let metrics = service.get_metrics(Request::new(())).await.unwrap().into_inner();
+    let metrics = service
+        .get_metrics(Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
     assert!(metrics.collected_at.is_some());
 }
 
@@ -388,9 +396,17 @@ async fn test_response_consistency() {
     let service = create_service();
 
     // Get status twice and check uptime_since is the same (service start time)
-    let status1 = service.get_status(Request::new(())).await.unwrap().into_inner();
+    let status1 = service
+        .get_status(Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    let status2 = service.get_status(Request::new(())).await.unwrap().into_inner();
+    let status2 = service
+        .get_status(Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
 
     // Uptime start time should be identical across calls
     assert_eq!(status1.uptime_since, status2.uptime_since);

@@ -110,9 +110,7 @@ pub(crate) async fn process_folder_item(
                 .await
             }
         }
-        QueueOperation::Delete => {
-            process_folder_delete(item, &payload, &ctx.queue_manager).await
-        }
+        QueueOperation::Delete => process_folder_delete(item, &payload, &ctx.queue_manager).await,
         QueueOperation::Update | QueueOperation::Add => {
             // Folder update/add is equivalent to a rescan
             info!(

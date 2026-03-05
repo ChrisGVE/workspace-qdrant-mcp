@@ -28,16 +28,29 @@ pub async fn enqueue_changed_file(
             // Delete old path, add new path
             let old_abs = Path::new(project_root).join(old_path);
             enqueue_file_op(
-                queue_manager, tenant_id, collection,
-                &old_abs.to_string_lossy(), QueueOperation::Delete, branch,
-            ).await?;
+                queue_manager,
+                tenant_id,
+                collection,
+                &old_abs.to_string_lossy(),
+                QueueOperation::Delete,
+                branch,
+            )
+            .await?;
             (QueueOperation::Add, Some(old_path.clone()))
         }
         FileChangeStatus::Copied { .. } => (QueueOperation::Add, None),
         FileChangeStatus::TypeChanged => (QueueOperation::Update, None),
     };
 
-    enqueue_file_op(queue_manager, tenant_id, collection, &abs_str, op.clone(), branch).await?;
+    enqueue_file_op(
+        queue_manager,
+        tenant_id,
+        collection,
+        &abs_str,
+        op.clone(),
+        branch,
+    )
+    .await?;
 
     // For rename, report as Update for stats (it's logically an update, just with path change)
     if old_path.is_some() {
@@ -67,18 +80,19 @@ pub async fn enqueue_file_op(
     let payload_json = serde_json::to_string(&file_payload)
         .map_err(|e| format!("Failed to serialize FilePayload: {}", e))?;
 
-    queue_manager.enqueue_unified(
-        ItemType::File,
-        op,
-        tenant_id,
-        collection,
-        &payload_json,
-        Some(branch),
-        None,
-    )
-    .await
-    .map(|_| ())
-    .map_err(|e| format!("Failed to enqueue: {}", e))
+    queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            op,
+            tenant_id,
+            collection,
+            &payload_json,
+            Some(branch),
+            None,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("Failed to enqueue: {}", e))
 }
 
 /// Enqueue a full tenant scan (used for reset events).
@@ -91,20 +105,22 @@ pub async fn enqueue_tenant_scan(
     let payload = serde_json::json!({
         "project_root": project_root,
         "recovery": false,
-    }).to_string();
+    })
+    .to_string();
 
     let branch = get_current_branch(Path::new(project_root));
 
-    queue_manager.enqueue_unified(
-        ItemType::Tenant,
-        QueueOperation::Scan,
-        tenant_id,
-        collection,
-        &payload,
-        Some(&branch),
-        None,
-    )
-    .await
-    .map(|_| ())
-    .map_err(|e| format!("Failed to enqueue tenant scan: {}", e))
+    queue_manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            QueueOperation::Scan,
+            tenant_id,
+            collection,
+            &payload,
+            Some(&branch),
+            None,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("Failed to enqueue tenant scan: {}", e))
 }

@@ -4,10 +4,10 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 
-use wqm_common::constants::COLLECTION_LIBRARIES;
-use crate::output;
-use super::helpers::open_db;
 use super::super::qdrant_helpers;
+use super::helpers::open_db;
+use crate::output;
+use wqm_common::constants::COLLECTION_LIBRARIES;
 
 /// List all libraries, including watched, format-routed, and orphaned
 pub async fn execute(verbose: bool) -> Result<()> {
@@ -42,7 +42,13 @@ pub async fn execute(verbose: bool) -> Result<()> {
         Err(_) => std::collections::HashMap::new(),
     };
 
-    list_watch_folders(&conn, verbose, &qdrant_counts, &mut known_tags, &mut found_any)?;
+    list_watch_folders(
+        &conn,
+        verbose,
+        &qdrant_counts,
+        &mut known_tags,
+        &mut found_any,
+    )?;
     list_format_routed(&conn, &qdrant_counts, &mut known_tags, &mut found_any)?;
     list_orphans(&qdrant_counts, &known_tags, &mut found_any);
 
@@ -63,16 +69,25 @@ fn list_watch_folders(
     known_tags: &mut HashSet<String>,
     found_any: &mut bool,
 ) -> Result<()> {
-    let mut stmt = conn.prepare(
-        &format!(
+    let mut stmt = conn
+        .prepare(&format!(
             "SELECT watch_id, tenant_id, path, library_mode, enabled, is_active, \
              created_at, last_activity_at \
              FROM watch_folders WHERE collection = '{}' ORDER BY tenant_id",
             COLLECTION_LIBRARIES
-        )
-    ).context("Failed to query watch_folders")?;
+        ))
+        .context("Failed to query watch_folders")?;
 
-    let libraries: Vec<(String, String, String, Option<String>, bool, bool, String, Option<String>)> = stmt
+    let libraries: Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        bool,
+        bool,
+        String,
+        Option<String>,
+    )> = stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -97,7 +112,9 @@ fn list_watch_folders(
     output::info(format!("Library watch folders ({}):", libraries.len()));
     output::separator();
 
-    for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in &libraries {
+    for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in
+        &libraries
+    {
         known_tags.insert(tenant_id.clone());
         let status = if *enabled { "watching" } else { "paused" };
         let mode_str = mode.as_deref().unwrap_or("incremental");
@@ -129,14 +146,16 @@ fn list_format_routed(
     known_tags: &mut HashSet<String>,
     found_any: &mut bool,
 ) -> Result<()> {
-    let mut routed_stmt = conn.prepare(
-        "SELECT wf.tenant_id, wf.path, COUNT(tf.file_id) as file_count
+    let mut routed_stmt = conn
+        .prepare(
+            "SELECT wf.tenant_id, wf.path, COUNT(tf.file_id) as file_count
          FROM tracked_files tf
          JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
          WHERE tf.collection = 'libraries' AND wf.collection = 'projects'
          GROUP BY wf.tenant_id
-         ORDER BY wf.tenant_id"
-    ).context("Failed to query format-routed library files")?;
+         ORDER BY wf.tenant_id",
+        )
+        .context("Failed to query format-routed library files")?;
 
     let routed: Vec<(String, String, i64)> = routed_stmt
         .query_map([], |row| {
@@ -155,7 +174,10 @@ fn list_format_routed(
     }
 
     *found_any = true;
-    output::info(format!("Format-routed from projects ({} project(s)):", routed.len()));
+    output::info(format!(
+        "Format-routed from projects ({} project(s)):",
+        routed.len()
+    ));
     output::separator();
 
     for (tenant_id, project_path, file_count) in &routed {
@@ -196,7 +218,10 @@ fn list_orphans(
     for (tag, count) in &orphan_tags {
         output::kv("  Tag", &format!("{} (ORPHAN)", tag));
         output::kv("  Points", &count.to_string());
-        output::kv("  Status", "no watch folder — run: wqm admin cleanup-orphans");
+        output::kv(
+            "  Status",
+            "no watch folder — run: wqm admin cleanup-orphans",
+        );
         output::separator();
     }
 }

@@ -129,22 +129,22 @@ pub fn summarize_code(
     let mut doc_token_counts: std::collections::HashMap<String, u32> =
         std::collections::HashMap::new();
     for tokens in &chunk_tokens[..n] {
-        let unique: std::collections::HashSet<&str> =
-            tokens.iter().map(|t| t.as_str()).collect();
+        let unique: std::collections::HashSet<&str> = tokens.iter().map(|t| t.as_str()).collect();
         for term in unique {
             *doc_token_counts.entry(term.to_string()).or_insert(0) += 1;
         }
     }
 
-    let avg_chunk_len: f64 =
-        chunk_tokens[..n].iter().map(|t| t.len() as f64).sum::<f64>() / n as f64;
+    let avg_chunk_len: f64 = chunk_tokens[..n]
+        .iter()
+        .map(|t| t.len() as f64)
+        .sum::<f64>()
+        / n as f64;
 
     // Compute weights
     let chunk_weights: Vec<f64> = chunk_tokens[..n]
         .iter()
-        .map(|tokens| {
-            bm25_chunk_weight(tokens, &doc_token_counts, n, avg_chunk_len, config)
-        })
+        .map(|tokens| bm25_chunk_weight(tokens, &doc_token_counts, n, avg_chunk_len, config))
         .collect();
 
     build_summary(chunk_vectors, &chunk_weights, config)
@@ -304,9 +304,9 @@ mod tests {
     #[test]
     fn test_summarize_prose_basic() {
         let vectors = vec![
-            vec![0.9, 0.1, 0.0],  // similar to B
+            vec![0.9, 0.1, 0.0],   // similar to B
             vec![0.85, 0.15, 0.0], // similar to A
-            vec![0.0, 0.0, 1.0],  // outlier
+            vec![0.0, 0.0, 1.0],   // outlier
         ];
         let config = QuasiSummaryConfig::default();
 
@@ -330,16 +330,12 @@ mod tests {
 
     #[test]
     fn test_gist_indices_sorted_by_weight() {
-        let vectors = vec![
-            vec![1.0, 0.0],
-            vec![0.0, 1.0],
-            vec![0.5, 0.5],
-        ];
+        let vectors = vec![vec![1.0, 0.0], vec![0.0, 1.0], vec![0.5, 0.5]];
         // Tokens that make chunk 2 have highest BM25 weight (rare terms)
         let tokens = vec![
-            vec!["the".to_string()],            // very common
-            vec!["the".to_string()],            // very common
-            vec!["quantum".to_string()],        // rare
+            vec!["the".to_string()],     // very common
+            vec!["the".to_string()],     // very common
+            vec!["quantum".to_string()], // rare
         ];
         let config = QuasiSummaryConfig {
             gist_chunks: 2,
@@ -363,10 +359,7 @@ mod tests {
 
     #[test]
     fn test_summary_vector_dimensions() {
-        let vectors = vec![
-            vec![0.1; 384],
-            vec![0.2; 384],
-        ];
+        let vectors = vec![vec![0.1; 384], vec![0.2; 384]];
         let config = QuasiSummaryConfig::default();
         let summary = summarize_prose(&vectors, &config).unwrap();
         assert_eq!(

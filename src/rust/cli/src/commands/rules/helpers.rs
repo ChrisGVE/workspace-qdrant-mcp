@@ -30,8 +30,7 @@ pub fn build_qdrant_client() -> Result<reqwest::Client> {
     if let Ok(key) = std::env::var("QDRANT_API_KEY") {
         headers.insert(
             "api-key",
-            reqwest::header::HeaderValue::from_str(&key)
-                .context("Invalid QDRANT_API_KEY value")?,
+            reqwest::header::HeaderValue::from_str(&key).context("Invalid QDRANT_API_KEY value")?,
         );
     }
     reqwest::Client::builder()

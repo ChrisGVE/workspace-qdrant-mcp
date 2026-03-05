@@ -4,8 +4,8 @@ use anyhow::Result;
 use rusqlite::Connection;
 use tabled::Tabled;
 
-use crate::output;
 use super::db::{open_db, table_exists};
+use crate::output;
 
 #[derive(Tabled, serde::Serialize)]
 pub(super) struct StatsRow {
@@ -30,7 +30,12 @@ pub(super) fn show_stats(tenant_id: Option<&str>, collection: &str) -> Result<()
     let has_canonical = table_exists(&conn, "canonical_tags");
 
     let rows: Vec<StatsRow> = if let Some(tid) = tenant_id {
-        vec![compute_stats_for_tenant(&conn, tid, collection, has_canonical)?]
+        vec![compute_stats_for_tenant(
+            &conn,
+            tid,
+            collection,
+            has_canonical,
+        )?]
     } else {
         let mut stmt = conn.prepare(
             "SELECT DISTINCT tenant_id FROM tags WHERE collection = ? ORDER BY tenant_id",
@@ -41,9 +46,7 @@ pub(super) fn show_stats(tenant_id: Option<&str>, collection: &str) -> Result<()
 
         tenants
             .iter()
-            .filter_map(|tid| {
-                compute_stats_for_tenant(&conn, tid, collection, has_canonical).ok()
-            })
+            .filter_map(|tid| compute_stats_for_tenant(&conn, tid, collection, has_canonical).ok())
             .collect()
     };
 

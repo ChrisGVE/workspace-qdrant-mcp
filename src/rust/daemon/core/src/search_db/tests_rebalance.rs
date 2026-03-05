@@ -55,7 +55,10 @@ async fn test_insert_line_at_start_existing_lines() {
     let manager = SearchDbManager::new(&db_path).await.unwrap();
 
     // Insert initial line at seq=1000.0
-    manager.insert_line_at_end(1, "original first").await.unwrap();
+    manager
+        .insert_line_at_end(1, "original first")
+        .await
+        .unwrap();
 
     // Insert at start: should get seq=500.0
     let (result, rebalanced) = manager.insert_line_at_start(1, "new first").await.unwrap();

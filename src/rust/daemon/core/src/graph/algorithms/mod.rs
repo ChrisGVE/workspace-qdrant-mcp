@@ -3,7 +3,6 @@
 /// Implemented as pure functions over adjacency data loaded from any
 /// `GraphStore` backend (SQLite or LadybugDB). The algorithms operate on
 /// in-memory adjacency lists, so they work identically regardless of backend.
-
 mod betweenness;
 mod community;
 mod pagerank;
@@ -74,10 +73,7 @@ pub(super) async fn load_adjacency_graph(
              WHERE tenant_id = ?1 AND edge_type IN ({})",
             placeholders.join(", ")
         );
-        sqlx::query(&query)
-            .bind(tenant_id)
-            .fetch_all(pool)
-            .await?
+        sqlx::query(&query).bind(tenant_id).fetch_all(pool).await?
     } else {
         sqlx::query(
             "SELECT source_node_id, target_node_id FROM graph_edges

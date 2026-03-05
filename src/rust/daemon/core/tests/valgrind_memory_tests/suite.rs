@@ -4,14 +4,14 @@
 //! Valgrind tool (Memcheck, Cachegrind, Massif, Helgrind, DRD), parsing
 //! their output, and generating reports.
 
-use std::process::{Command, Stdio};
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use tempfile::TempDir;
 
 use super::types::{
-    CachegrindResults, DrdResults, HelgrindResults, MassifResults, MemcheckResults,
-    ValgrindConfig, ValgrindError, ValgrindLeakCheck, ValgrindResults, ValgrindStatus,
+    CachegrindResults, DrdResults, HelgrindResults, MassifResults, MemcheckResults, ValgrindConfig,
+    ValgrindError, ValgrindLeakCheck, ValgrindResults, ValgrindStatus,
 };
 
 /// Main Valgrind test suite
@@ -41,7 +41,10 @@ impl ValgrindTestSuite {
     }
 
     /// Create with custom configuration
-    pub fn with_config(binary_path: PathBuf, config: ValgrindConfig) -> Result<Self, ValgrindError> {
+    pub fn with_config(
+        binary_path: PathBuf,
+        config: ValgrindConfig,
+    ) -> Result<Self, ValgrindError> {
         if !Self::is_valgrind_available() {
             return Err(ValgrindError::NotAvailable);
         }
@@ -160,13 +163,30 @@ impl ValgrindTestSuite {
 
         let mut cmd = Command::new("valgrind");
         cmd.arg("--tool=memcheck")
-           .arg("--xml=yes")
-           .arg(format!("--xml-file={}", output_file.display()))
-           .arg(format!("--leak-check={}", leak_check_to_string(&self.config.leak_check)))
-           .arg(format!("--show-reachable={}", if self.config.show_reachable { "yes" } else { "no" }))
-           .arg(format!("--track-origins={}", if self.config.track_origins { "yes" } else { "no" }))
-           .arg("--verbose")
-           .arg(&self.binary_path);
+            .arg("--xml=yes")
+            .arg(format!("--xml-file={}", output_file.display()))
+            .arg(format!(
+                "--leak-check={}",
+                leak_check_to_string(&self.config.leak_check)
+            ))
+            .arg(format!(
+                "--show-reachable={}",
+                if self.config.show_reachable {
+                    "yes"
+                } else {
+                    "no"
+                }
+            ))
+            .arg(format!(
+                "--track-origins={}",
+                if self.config.track_origins {
+                    "yes"
+                } else {
+                    "no"
+                }
+            ))
+            .arg("--verbose")
+            .arg(&self.binary_path);
 
         if let Some(ref suppressions) = self.config.suppressions_file {
             cmd.arg(format!("--suppressions={}", suppressions.display()));
@@ -189,8 +209,8 @@ impl ValgrindTestSuite {
 
         let mut cmd = Command::new("valgrind");
         cmd.arg("--tool=cachegrind")
-           .arg(format!("--cachegrind-out-file={}", output_file.display()))
-           .arg(&self.binary_path);
+            .arg(format!("--cachegrind-out-file={}", output_file.display()))
+            .arg(&self.binary_path);
 
         let output = self.run_command_with_timeout(cmd).await?;
 
@@ -209,11 +229,11 @@ impl ValgrindTestSuite {
 
         let mut cmd = Command::new("valgrind");
         cmd.arg("--tool=massif")
-           .arg(format!("--massif-out-file={}", output_file.display()))
-           .arg("--time-unit=B")
-           .arg("--detailed-freq=1")
-           .arg("--max-snapshots=100")
-           .arg(&self.binary_path);
+            .arg(format!("--massif-out-file={}", output_file.display()))
+            .arg("--time-unit=B")
+            .arg("--detailed-freq=1")
+            .arg("--max-snapshots=100")
+            .arg(&self.binary_path);
 
         let output = self.run_command_with_timeout(cmd).await?;
 
@@ -232,11 +252,11 @@ impl ValgrindTestSuite {
 
         let mut cmd = Command::new("valgrind");
         cmd.arg("--tool=helgrind")
-           .arg("--xml=yes")
-           .arg(format!("--xml-file={}", output_file.display()))
-           .arg("--history-level=full")
-           .arg("--conflict-cache-size=10000000")
-           .arg(&self.binary_path);
+            .arg("--xml=yes")
+            .arg(format!("--xml-file={}", output_file.display()))
+            .arg("--history-level=full")
+            .arg("--conflict-cache-size=10000000")
+            .arg(&self.binary_path);
 
         let output = self.run_command_with_timeout(cmd).await?;
 
@@ -255,12 +275,12 @@ impl ValgrindTestSuite {
 
         let mut cmd = Command::new("valgrind");
         cmd.arg("--tool=drd")
-           .arg("--xml=yes")
-           .arg(format!("--xml-file={}", output_file.display()))
-           .arg("--check-stack-var=yes")
-           .arg("--exclusive-threshold=10")
-           .arg("--shared-threshold=10")
-           .arg(&self.binary_path);
+            .arg("--xml=yes")
+            .arg(format!("--xml-file={}", output_file.display()))
+            .arg("--check-stack-var=yes")
+            .arg("--exclusive-threshold=10")
+            .arg("--shared-threshold=10")
+            .arg(&self.binary_path);
 
         let output = self.run_command_with_timeout(cmd).await?;
 
@@ -274,7 +294,10 @@ impl ValgrindTestSuite {
     }
 
     /// Run command with timeout
-    async fn run_command_with_timeout(&self, cmd: Command) -> Result<std::process::Output, ValgrindError> {
+    async fn run_command_with_timeout(
+        &self,
+        cmd: Command,
+    ) -> Result<std::process::Output, ValgrindError> {
         use tokio::process::Command as TokioCommand;
         use tokio::time::timeout;
 
@@ -284,13 +307,16 @@ impl ValgrindTestSuite {
             Ok(Ok(output)) => Ok(output),
             Ok(Err(e)) => Err(ValgrindError::IoError { source: e }),
             Err(_) => Err(ValgrindError::Timeout {
-                seconds: self.config.timeout.as_secs()
+                seconds: self.config.timeout.as_secs(),
             }),
         }
     }
 
     /// Parse Memcheck XML results
-    fn parse_memcheck_results(&self, output_file: &PathBuf) -> Result<MemcheckResults, ValgrindError> {
+    fn parse_memcheck_results(
+        &self,
+        output_file: &PathBuf,
+    ) -> Result<MemcheckResults, ValgrindError> {
         let content = fs::read_to_string(output_file)?;
 
         // Simplified XML parsing - in practice, you'd use a proper XML parser
@@ -321,7 +347,10 @@ impl ValgrindTestSuite {
     }
 
     /// Parse Cachegrind results
-    fn parse_cachegrind_results(&self, output_file: &PathBuf) -> Result<CachegrindResults, ValgrindError> {
+    fn parse_cachegrind_results(
+        &self,
+        output_file: &PathBuf,
+    ) -> Result<CachegrindResults, ValgrindError> {
         let _content = fs::read_to_string(output_file)?;
 
         // Simplified parsing - real implementation would parse the cachegrind format
@@ -352,7 +381,10 @@ impl ValgrindTestSuite {
     }
 
     /// Parse Helgrind XML results
-    fn parse_helgrind_results(&self, output_file: &PathBuf) -> Result<HelgrindResults, ValgrindError> {
+    fn parse_helgrind_results(
+        &self,
+        output_file: &PathBuf,
+    ) -> Result<HelgrindResults, ValgrindError> {
         let content = fs::read_to_string(output_file)?;
 
         // Count race conditions and other thread errors
@@ -392,10 +424,22 @@ impl ValgrindTestSuite {
 
         if let Some(ref memcheck) = results.memcheck_results {
             report.push_str("--- Memcheck Results ---\n");
-            report.push_str(&format!("Definitely lost: {} bytes\n", memcheck.definitely_lost));
-            report.push_str(&format!("Indirectly lost: {} bytes\n", memcheck.indirectly_lost));
-            report.push_str(&format!("Possibly lost: {} bytes\n", memcheck.possibly_lost));
-            report.push_str(&format!("Still reachable: {} bytes\n", memcheck.still_reachable));
+            report.push_str(&format!(
+                "Definitely lost: {} bytes\n",
+                memcheck.definitely_lost
+            ));
+            report.push_str(&format!(
+                "Indirectly lost: {} bytes\n",
+                memcheck.indirectly_lost
+            ));
+            report.push_str(&format!(
+                "Possibly lost: {} bytes\n",
+                memcheck.possibly_lost
+            ));
+            report.push_str(&format!(
+                "Still reachable: {} bytes\n",
+                memcheck.still_reachable
+            ));
             report.push_str(&format!("Invalid reads: {}\n", memcheck.invalid_reads));
             report.push_str(&format!("Invalid writes: {}\n", memcheck.invalid_writes));
             report.push_str(&format!("Invalid frees: {}\n", memcheck.invalid_frees));
@@ -404,17 +448,35 @@ impl ValgrindTestSuite {
 
         if let Some(ref cachegrind) = results.cachegrind_results {
             report.push_str("--- Cachegrind Results ---\n");
-            report.push_str(&format!("I-cache misses: {}\n", cachegrind.instruction_cache_misses));
-            report.push_str(&format!("D-cache misses: {}\n", cachegrind.data_cache_misses));
-            report.push_str(&format!("L2 cache misses: {}\n", cachegrind.l2_cache_misses));
-            report.push_str(&format!("Cache miss rate: {:.2}%\n", cachegrind.cache_miss_rate));
+            report.push_str(&format!(
+                "I-cache misses: {}\n",
+                cachegrind.instruction_cache_misses
+            ));
+            report.push_str(&format!(
+                "D-cache misses: {}\n",
+                cachegrind.data_cache_misses
+            ));
+            report.push_str(&format!(
+                "L2 cache misses: {}\n",
+                cachegrind.l2_cache_misses
+            ));
+            report.push_str(&format!(
+                "Cache miss rate: {:.2}%\n",
+                cachegrind.cache_miss_rate
+            ));
             report.push_str("\n");
         }
 
         if let Some(ref helgrind) = results.helgrind_results {
             report.push_str("--- Helgrind Results ---\n");
-            report.push_str(&format!("Race conditions: {}\n", helgrind.race_conditions.len()));
-            report.push_str(&format!("Lock order violations: {}\n", helgrind.lock_order_violations.len()));
+            report.push_str(&format!(
+                "Race conditions: {}\n",
+                helgrind.race_conditions.len()
+            ));
+            report.push_str(&format!(
+                "Lock order violations: {}\n",
+                helgrind.lock_order_violations.len()
+            ));
             report.push_str(&format!("Total thread errors: {}\n", helgrind.total_errors));
             report.push_str("\n");
         }
@@ -422,7 +484,10 @@ impl ValgrindTestSuite {
         if let Some(ref drd) = results.drd_results {
             report.push_str("--- DRD Results ---\n");
             report.push_str(&format!("Data races: {}\n", drd.data_races.len()));
-            report.push_str(&format!("Lock contentions: {}\n", drd.lock_contention.len()));
+            report.push_str(&format!(
+                "Lock contentions: {}\n",
+                drd.lock_contention.len()
+            ));
             report.push_str("\n");
         }
 
@@ -433,17 +498,17 @@ impl ValgrindTestSuite {
 /// Helper function to extract numbers from XML content
 pub(super) fn extract_number(content: &str, tag: &str) -> Option<usize> {
     // Simplified number extraction - real implementation would use proper XML parsing
-    content.find(tag)
-        .and_then(|start| {
-            content[start..].find('>')
-                .and_then(|tag_end| {
-                    content[start + tag_end + 1..].find('<')
-                        .and_then(|value_end| {
-                            content[start + tag_end + 1..start + tag_end + 1 + value_end]
-                                .parse().ok()
-                        })
+    content.find(tag).and_then(|start| {
+        content[start..].find('>').and_then(|tag_end| {
+            content[start + tag_end + 1..]
+                .find('<')
+                .and_then(|value_end| {
+                    content[start + tag_end + 1..start + tag_end + 1 + value_end]
+                        .parse()
+                        .ok()
                 })
         })
+    })
 }
 
 /// Convert leak check enum to Valgrind string

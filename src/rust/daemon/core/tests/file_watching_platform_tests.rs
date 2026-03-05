@@ -26,15 +26,14 @@ impl TestWatcher {
         let events_clone = Arc::clone(&events);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        let watcher =
-            notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
-                if let Ok(event) = result {
-                    if let Ok(mut events_lock) = events_clone.lock() {
-                        events_lock.push(event.clone());
-                    }
-                    let _ = event_tx.send(event);
+        let watcher = notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
+            if let Ok(event) = result {
+                if let Ok(mut events_lock) = events_clone.lock() {
+                    events_lock.push(event.clone());
                 }
-            })?;
+                let _ = event_tx.send(event);
+            }
+        })?;
 
         Ok(Self {
             _watcher: watcher,
@@ -51,11 +50,7 @@ impl TestWatcher {
         self._watcher.watch(path.as_ref(), recursive)
     }
 
-    async fn wait_for_events(
-        &mut self,
-        expected_count: usize,
-        timeout: Duration,
-    ) -> Vec<Event> {
+    async fn wait_for_events(&mut self, expected_count: usize, timeout: Duration) -> Vec<Event> {
         let mut collected_events = Vec::new();
         let start_time = Instant::now();
 
@@ -87,8 +82,7 @@ async_test!(test_cross_platform_path_handling, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::Recursive)
@@ -137,8 +131,7 @@ async_test!(test_linux_inotify_event_timing, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -176,8 +169,7 @@ async_test!(test_macos_fsevents_batch_behavior, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::Recursive)
@@ -197,10 +189,7 @@ async_test!(test_macos_fsevents_batch_behavior, {
     assert!(!events.is_empty(), "Should receive FSEvents on macOS");
 
     println!("macOS FSEvents batch processing time: {:?}", batch_time);
-    println!(
-        "Events received for 10 file operations: {}",
-        events.len()
-    );
+    println!("Events received for 10 file operations: {}", events.len());
 
     Ok(())
 });
@@ -210,8 +199,7 @@ async_test!(test_windows_readdirectorychanges_unicode, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -263,8 +251,7 @@ async_test!(test_symlink_creation_and_following, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::Recursive)
@@ -272,8 +259,7 @@ async_test!(test_symlink_creation_and_following, {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let target_file =
-        create_test_file(temp_path, "target.txt", "target content").await?;
+    let target_file = create_test_file(temp_path, "target.txt", "target content").await?;
 
     let symlink_path = temp_path.join("link_to_target.txt");
     fs::symlink(&target_file, &symlink_path)
@@ -314,8 +300,7 @@ async_test!(test_broken_symlink_detection, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -323,8 +308,7 @@ async_test!(test_broken_symlink_detection, {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let target_file =
-        create_test_file(temp_path, "will_be_deleted.txt", "target content").await?;
+    let target_file = create_test_file(temp_path, "will_be_deleted.txt", "target content").await?;
 
     let symlink_path = temp_path.join("broken_link.txt");
     fs::symlink(&target_file, &symlink_path)
@@ -343,10 +327,7 @@ async_test!(test_broken_symlink_detection, {
         symlink_path.is_symlink(),
         "Symlink should still exist as a symlink"
     );
-    assert!(
-        !symlink_path.exists(),
-        "Broken symlink should not resolve"
-    );
+    assert!(!symlink_path.exists(), "Broken symlink should not resolve");
 
     assert!(
         !events.is_empty(),
@@ -379,8 +360,7 @@ async_test!(test_circular_symlink_prevention, {
     assert!(link_a_to_b.is_symlink(), "Link A->B should be a symlink");
     assert!(link_b_to_a.is_symlink(), "Link B->A should be a symlink");
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     let watch_result = watcher.watch(temp_path, RecursiveMode::Recursive);
     assert!(
@@ -390,8 +370,7 @@ async_test!(test_circular_symlink_prevention, {
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let _test_file =
-        create_test_file(&dir_a, "test_in_circular.txt", "content").await?;
+    let _test_file = create_test_file(&dir_a, "test_in_circular.txt", "content").await?;
 
     let events = watcher.wait_for_events(1, Duration::from_secs(3)).await;
 

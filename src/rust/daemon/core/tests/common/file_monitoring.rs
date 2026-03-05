@@ -15,12 +15,12 @@ use workspace_qdrant_core::{config::Config, ChunkingConfig};
 /// Random file operation for monitoring property tests.
 #[derive(Debug, Clone)]
 pub enum FileOperation {
-    Create(String, String),     // filename, content
-    Modify(String, String),     // filename, new_content
-    Delete(String),             // filename
-    Move(String, String),       // old_name, new_name
-    CreateDirectory(String),    // dirname
-    DeleteDirectory(String),    // dirname
+    Create(String, String),  // filename, content
+    Modify(String, String),  // filename, new_content
+    Delete(String),          // filename
+    Move(String, String),    // old_name, new_name
+    CreateDirectory(String), // dirname
+    DeleteDirectory(String), // dirname
 }
 
 impl Arbitrary for FileOperation {

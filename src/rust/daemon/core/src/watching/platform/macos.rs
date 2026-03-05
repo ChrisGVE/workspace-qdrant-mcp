@@ -12,10 +12,12 @@
 //! - Network mounts: Automatically uses polling fallback if FSEvents unavailable
 
 use super::*;
-use notify::{RecommendedWatcher, Watcher, RecursiveMode, Event, EventKind, Config as NotifyConfig};
-use std::time::{Duration, Instant, SystemTime};
+use notify::{
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::{Duration, Instant, SystemTime};
 
 /// macOS file watcher using FSEvents via the notify crate
 ///
@@ -37,10 +39,7 @@ impl MacOSWatcher {
     /// # Arguments
     /// * `config` - macOS-specific configuration (latency, event types)
     /// * `_buffer_size` - Event buffer size (used for channel capacity)
-    pub fn new(
-        config: MacOSConfig,
-        _buffer_size: usize,
-    ) -> Result<Self, PlatformWatchingError> {
+    pub fn new(config: MacOSConfig, _buffer_size: usize) -> Result<Self, PlatformWatchingError> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         Ok(Self {
@@ -65,16 +64,13 @@ impl MacOSWatcher {
                         path.display(),
                         canonical.display()
                     );
-                    self.symlink_map.insert(path.to_path_buf(), canonical.clone());
+                    self.symlink_map
+                        .insert(path.to_path_buf(), canonical.clone());
                 }
                 canonical
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to resolve symlink for {}: {}",
-                    path.display(),
-                    e
-                );
+                tracing::warn!("Failed to resolve symlink for {}: {}", path.display(), e);
                 path.to_path_buf()
             }
         }
@@ -115,8 +111,8 @@ impl MacOSWatcher {
 
         // Configure notify with FSEvents-specific settings
         // The latency setting controls event coalescing (debouncing at the OS level)
-        let notify_config = NotifyConfig::default()
-            .with_poll_interval(Duration::from_secs_f64(config.latency));
+        let notify_config =
+            NotifyConfig::default().with_poll_interval(Duration::from_secs_f64(config.latency));
 
         // Create the watcher with our event handler
         let watcher = RecommendedWatcher::new(
@@ -146,10 +142,14 @@ impl MacOSWatcher {
                 }
             },
             notify_config,
-        ).map_err(|e| PlatformWatchingError::FSEvents(e.to_string()))?;
+        )
+        .map_err(|e| PlatformWatchingError::FSEvents(e.to_string()))?;
 
         self.watcher = Some(watcher);
-        tracing::info!("FSEvents watcher initialized with latency: {}s", config.latency);
+        tracing::info!(
+            "FSEvents watcher initialized with latency: {}s",
+            config.latency
+        );
 
         Ok(())
     }
@@ -178,23 +178,26 @@ impl PlatformWatcher for MacOSWatcher {
 
         // Verify path exists and is accessible
         if !canonical_path.exists() {
-            return Err(PlatformWatchingError::FSEvents(
-                format!("Path does not exist: {}", canonical_path.display())
-            ));
+            return Err(PlatformWatchingError::FSEvents(format!(
+                "Path does not exist: {}",
+                canonical_path.display()
+            )));
         }
 
         // Check permissions
         if let Err(e) = std::fs::read_dir(&canonical_path) {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
-                return Err(PlatformWatchingError::FSEvents(
-                    format!("Permission denied: {}", canonical_path.display())
-                ));
+                return Err(PlatformWatchingError::FSEvents(format!(
+                    "Permission denied: {}",
+                    canonical_path.display()
+                )));
             }
         }
 
         // Add path to watcher (always recursive on macOS FSEvents)
         if let Some(ref mut watcher) = self.watcher {
-            watcher.watch(&canonical_path, RecursiveMode::Recursive)
+            watcher
+                .watch(&canonical_path, RecursiveMode::Recursive)
                 .map_err(|e| PlatformWatchingError::FSEvents(e.to_string()))?;
 
             self.watched_paths.push(canonical_path.clone());

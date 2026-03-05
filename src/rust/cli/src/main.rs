@@ -277,7 +277,7 @@ async fn main() -> Result<()> {
         Commands::Service(args) => {
             let mut cmd = Cli::command();
             commands::service::execute(args, Some(&mut cmd)).await
-        },
+        }
         Commands::Status(args) => commands::status::execute(args).await,
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Config(args) => commands::config_cmd::execute(args).await,
@@ -293,11 +293,11 @@ async fn main() -> Result<()> {
         Commands::Init(args) => {
             let mut cmd = Cli::command();
             commands::init::execute(args, &mut cmd).await
-        },
+        }
         Commands::Man(args) => {
             let mut cmd = Cli::command();
             commands::man::execute(args, &mut cmd).await
-        },
+        }
         Commands::Hooks(args) => commands::hooks::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,
 

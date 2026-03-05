@@ -25,15 +25,14 @@ impl TestWatcher {
         let events_clone = Arc::clone(&events);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        let watcher =
-            notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
-                if let Ok(event) = result {
-                    if let Ok(mut events_lock) = events_clone.lock() {
-                        events_lock.push(event.clone());
-                    }
-                    let _ = event_tx.send(event);
+        let watcher = notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
+            if let Ok(event) = result {
+                if let Ok(mut events_lock) = events_clone.lock() {
+                    events_lock.push(event.clone());
                 }
-            })?;
+                let _ = event_tx.send(event);
+            }
+        })?;
 
         Ok(Self {
             _watcher: watcher,
@@ -50,11 +49,7 @@ impl TestWatcher {
         self._watcher.watch(path.as_ref(), recursive)
     }
 
-    async fn wait_for_events(
-        &mut self,
-        expected_count: usize,
-        timeout: Duration,
-    ) -> Vec<Event> {
+    async fn wait_for_events(&mut self, expected_count: usize, timeout: Duration) -> Vec<Event> {
         let mut collected_events = Vec::new();
         let start_time = Instant::now();
 
@@ -121,8 +116,7 @@ async_test!(test_basic_file_creation_monitoring, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -161,11 +155,9 @@ async_test!(test_file_modification_monitoring, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let test_file =
-        create_test_file(temp_path, "modify_test.txt", "initial content").await?;
+    let test_file = create_test_file(temp_path, "modify_test.txt", "initial content").await?;
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -203,11 +195,9 @@ async_test!(test_file_deletion_monitoring, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let test_file =
-        create_test_file(temp_path, "delete_test.txt", "content to delete").await?;
+    let test_file = create_test_file(temp_path, "delete_test.txt", "content to delete").await?;
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -239,8 +229,7 @@ async_test!(test_recursive_directory_monitoring, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::Recursive)
@@ -279,8 +268,7 @@ async_test!(test_non_recursive_directory_monitoring, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::NonRecursive)
@@ -288,8 +276,7 @@ async_test!(test_non_recursive_directory_monitoring, {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let _root_file =
-        create_test_file(temp_path, "root_level.txt", "root content").await?;
+    let _root_file = create_test_file(temp_path, "root_level.txt", "root content").await?;
 
     let sub_dir = temp_path.join("subdir");
     tokio::fs::create_dir(&sub_dir).await?;
@@ -318,8 +305,7 @@ async_test!(test_directory_creation_and_removal, {
     let temp_dir = TempDir::new()?;
     let temp_path = temp_dir.path();
 
-    let mut watcher = TestWatcher::new()
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+    let mut watcher = TestWatcher::new().map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
         .watch(temp_path, RecursiveMode::Recursive)
@@ -330,8 +316,7 @@ async_test!(test_directory_creation_and_removal, {
     let test_dir = temp_path.join("test_directory");
     tokio::fs::create_dir(&test_dir).await?;
 
-    let _test_file =
-        create_test_file(&test_dir, "inside.txt", "directory content").await?;
+    let _test_file = create_test_file(&test_dir, "inside.txt", "directory content").await?;
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 

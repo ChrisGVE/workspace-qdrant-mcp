@@ -26,19 +26,40 @@ impl StorageClient {
         let results = match params.search_mode {
             HybridSearchMode::Dense => {
                 if let Some(vector) = params.dense_vector {
-                    self.search_dense(collection_name, vector, params.limit, params.score_threshold, params.filter).await?
+                    self.search_dense(
+                        collection_name,
+                        vector,
+                        params.limit,
+                        params.score_threshold,
+                        params.filter,
+                    )
+                    .await?
                 } else {
-                    return Err(StorageError::Search("Dense vector required for dense search".to_string()));
+                    return Err(StorageError::Search(
+                        "Dense vector required for dense search".to_string(),
+                    ));
                 }
-            },
+            }
             HybridSearchMode::Sparse => {
                 if let Some(vector) = params.sparse_vector {
-                    self.search_sparse(collection_name, vector, params.limit, params.score_threshold, params.filter).await?
+                    self.search_sparse(
+                        collection_name,
+                        vector,
+                        params.limit,
+                        params.score_threshold,
+                        params.filter,
+                    )
+                    .await?
                 } else {
-                    return Err(StorageError::Search("Sparse vector required for sparse search".to_string()));
+                    return Err(StorageError::Search(
+                        "Sparse vector required for sparse search".to_string(),
+                    ));
                 }
-            },
-            HybridSearchMode::Hybrid { dense_weight, sparse_weight } => {
+            }
+            HybridSearchMode::Hybrid {
+                dense_weight,
+                sparse_weight,
+            } => {
                 let hybrid_params = HybridSearchParams {
                     dense_vector: params.dense_vector,
                     sparse_vector: params.sparse_vector,
@@ -71,14 +92,21 @@ impl StorageClient {
             .limit(limit as u64)
             .with_payload(true);
 
-        let response = self.retry_operation(|| async {
-            self.client.query(query_builder.clone()).await
-                .map_err(|e| StorageError::Search(e.to_string()))
-        }).await?;
+        let response = self
+            .retry_operation(|| async {
+                self.client
+                    .query(query_builder.clone())
+                    .await
+                    .map_err(|e| StorageError::Search(e.to_string()))
+            })
+            .await?;
 
-        let results = response.result.into_iter()
+        let results = response
+            .result
+            .into_iter()
             .map(|scored_point| {
-                let json_payload: HashMap<String, serde_json::Value> = scored_point.payload
+                let json_payload: HashMap<String, serde_json::Value> = scored_point
+                    .payload
                     .into_iter()
                     .map(|(k, v)| (k, convert_qdrant_value_to_json(v)))
                     .collect();
@@ -112,9 +140,7 @@ impl StorageClient {
             return Ok(vec![]);
         }
 
-        let sparse_pairs: Vec<(u32, f32)> = sparse_vector
-            .into_iter()
-            .collect();
+        let sparse_pairs: Vec<(u32, f32)> = sparse_vector.into_iter().collect();
 
         let query_builder = QueryPointsBuilder::new(collection_name)
             .query(sparse_pairs)
@@ -122,14 +148,21 @@ impl StorageClient {
             .limit(limit as u64)
             .with_payload(true);
 
-        let response = self.retry_operation(|| async {
-            self.client.query(query_builder.clone()).await
-                .map_err(|e| StorageError::Search(e.to_string()))
-        }).await?;
+        let response = self
+            .retry_operation(|| async {
+                self.client
+                    .query(query_builder.clone())
+                    .await
+                    .map_err(|e| StorageError::Search(e.to_string()))
+            })
+            .await?;
 
-        let results = response.result.into_iter()
+        let results = response
+            .result
+            .into_iter()
             .map(|scored_point| {
-                let json_payload: HashMap<String, serde_json::Value> = scored_point.payload
+                let json_payload: HashMap<String, serde_json::Value> = scored_point
+                    .payload
                     .into_iter()
                     .map(|(k, v)| (k, convert_qdrant_value_to_json(v)))
                     .collect();
@@ -159,14 +192,20 @@ impl StorageClient {
 
         // Perform dense search if vector is provided
         if let Some(vector) = params.dense_vector {
-            let dense_results = self.search_dense(
-                collection_name, vector, params.limit * 2,
-                params.score_threshold, params.filter.clone(),
-            ).await?;
+            let dense_results = self
+                .search_dense(
+                    collection_name,
+                    vector,
+                    params.limit * 2,
+                    params.score_threshold,
+                    params.filter.clone(),
+                )
+                .await?;
 
             for (rank, result) in dense_results.into_iter().enumerate() {
                 let rrf_score = params.dense_weight / (60.0 + (rank + 1) as f32);
-                let entry = all_results.entry(result.id.clone())
+                let entry = all_results
+                    .entry(result.id.clone())
                     .or_insert_with(|| (result, 0.0));
                 entry.1 += rrf_score;
             }
@@ -174,28 +213,39 @@ impl StorageClient {
 
         // Perform sparse search if vector is provided
         if let Some(vector) = params.sparse_vector {
-            let sparse_results = self.search_sparse(
-                collection_name, vector, params.limit * 2,
-                params.score_threshold, params.filter,
-            ).await?;
+            let sparse_results = self
+                .search_sparse(
+                    collection_name,
+                    vector,
+                    params.limit * 2,
+                    params.score_threshold,
+                    params.filter,
+                )
+                .await?;
 
             for (rank, result) in sparse_results.into_iter().enumerate() {
                 let rrf_score = params.sparse_weight / (60.0 + (rank + 1) as f32);
-                let entry = all_results.entry(result.id.clone())
+                let entry = all_results
+                    .entry(result.id.clone())
                     .or_insert_with(|| (result, 0.0));
                 entry.1 += rrf_score;
             }
         }
 
         // Sort by combined RRF score and take top results
-        let mut final_results: Vec<_> = all_results.into_iter()
+        let mut final_results: Vec<_> = all_results
+            .into_iter()
             .map(|(_, (mut result, rrf_score))| {
                 result.score = rrf_score;
                 result
             })
             .collect();
 
-        final_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        final_results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         final_results.truncate(params.limit);
 
         Ok(final_results)

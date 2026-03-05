@@ -83,13 +83,8 @@ impl LanguageServerManager {
                         )
                         .await;
                     } else {
-                        Self::handle_unhealthy_server(
-                            &key,
-                            &mut inst_guard,
-                            servers,
-                            max_restarts,
-                        )
-                        .await;
+                        Self::handle_unhealthy_server(&key, &mut inst_guard, servers, max_restarts)
+                            .await;
                     }
                 }
                 Err(e) => {
@@ -316,10 +311,7 @@ impl LanguageServerManager {
     /// Check health of a specific project's servers.
     ///
     /// Returns `(checked_count, restarted_count, failed_count)`.
-    pub async fn check_project_servers_health(
-        &self,
-        project_id: &str,
-    ) -> (usize, usize, usize) {
+    pub async fn check_project_servers_health(&self, project_id: &str) -> (usize, usize, usize) {
         let keys: Vec<ProjectLanguageKey> = {
             let servers = self.servers.read().await;
             servers

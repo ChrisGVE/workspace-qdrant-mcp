@@ -2,7 +2,6 @@
 ///
 /// Detects Cargo workspaces, npm workspaces, and Go multi-module repos,
 /// then groups member projects in `project_groups` with `group_type = "workspace"`.
-
 mod detection;
 
 use std::collections::HashMap;
@@ -14,7 +13,7 @@ use tracing::{debug, info};
 use super::schema;
 
 pub use detection::{
-    WorkspaceInfo, detect_cargo_workspace, detect_npm_workspace, detect_go_workspace,
+    detect_cargo_workspace, detect_go_workspace, detect_npm_workspace, WorkspaceInfo,
 };
 #[cfg(test)]
 pub(crate) use detection::{extract_toml_array_strings, generate_workspace_id};
@@ -54,9 +53,11 @@ pub async fn compute_workspace_groups(pool: &SqlitePool) -> Result<usize, sqlx::
             .or_else(|| detect_go_workspace(project_path));
 
         if let Some(ws) = workspace {
-            let is_member = ws.members.iter().any(|m| {
-                project_path.starts_with(m) || m.starts_with(project_path)
-            }) || project_path.starts_with(&ws.workspace_root);
+            let is_member = ws
+                .members
+                .iter()
+                .any(|m| project_path.starts_with(m) || m.starts_with(project_path))
+                || project_path.starts_with(&ws.workspace_root);
 
             if is_member {
                 workspace_tenants
@@ -95,7 +96,10 @@ async fn create_workspace_groups(
 
     for (workspace_id, tenants) in workspace_tenants {
         if tenants.len() < 2 {
-            debug!(workspace_id = workspace_id.as_str(), "Skipping single-member workspace");
+            debug!(
+                workspace_id = workspace_id.as_str(),
+                "Skipping single-member workspace"
+            );
             continue;
         }
 
@@ -159,9 +163,11 @@ pub async fn update_project_workspace_group(
         let peer_path_str: String = row.get("folder_path");
         let peer_path = Path::new(&peer_path_str);
 
-        let is_member = ws.members.iter().any(|m| {
-            peer_path.starts_with(m) || m.starts_with(peer_path)
-        }) || peer_path.starts_with(&ws.workspace_root);
+        let is_member = ws
+            .members
+            .iter()
+            .any(|m| peer_path.starts_with(m) || m.starts_with(peer_path))
+            || peer_path.starts_with(&ws.workspace_root);
 
         if is_member {
             schema::add_to_group(pool, &group_id, &peer_tenant, "workspace", 1.0).await?;

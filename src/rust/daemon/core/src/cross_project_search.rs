@@ -7,7 +7,6 @@
 ///
 /// Results from non-current projects are subject to relevance decay
 /// to prioritize local matches while still surfacing cross-project context.
-
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tracing::debug;
@@ -157,7 +156,11 @@ pub fn apply_relevance_decay(
     }
 
     // Re-sort by decayed score (descending)
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 #[cfg(test)]
@@ -239,8 +242,8 @@ mod tests {
         let decay = RelevanceDecay::default();
         let mut results = vec![
             make_result("other", 0.95, "proj-x"),   // 0.95 * 0.4 = 0.38
-            make_result("group", 0.80, "proj-b"),    // 0.80 * 0.7 = 0.56
-            make_result("current", 0.60, "proj-a"),  // 0.60 * 1.0 = 0.60
+            make_result("group", 0.80, "proj-b"),   // 0.80 * 0.7 = 0.56
+            make_result("current", 0.60, "proj-a"), // 0.60 * 1.0 = 0.60
         ];
 
         let group = vec!["proj-a".to_string(), "proj-b".to_string()];

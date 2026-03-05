@@ -10,10 +10,10 @@ use tracing::{debug, error, info, warn};
 
 use crate::queue_operations::QueueManager;
 
-use super::types::{WatchConfig, WatchType, WatchingQueueResult};
 use super::error_state::WatchErrorState;
 use super::error_types::WatchHealthStatus;
 use super::manager::WatchManager;
+use super::types::{WatchConfig, WatchType, WatchingQueueResult};
 
 impl WatchManager {
     /// Refresh watches by checking for config changes (hot-reload support)
@@ -79,7 +79,7 @@ impl WatchManager {
                    COALESCE(is_active, 0) AS is_active
             FROM watch_folders
             WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await;
@@ -87,7 +87,10 @@ impl WatchManager {
         let rows = match rows {
             Ok(r) => r,
             Err(e) => {
-                warn!("Failed to query watch_folders for git watcher reconciliation: {}", e);
+                warn!(
+                    "Failed to query watch_folders for git watcher reconciliation: {}",
+                    e
+                );
                 return;
             }
         };
@@ -124,9 +127,11 @@ impl WatchManager {
     async fn get_enabled_watch_ids(&self) -> WatchingQueueResult<Vec<String>> {
         let mut ids = Vec::new();
 
-        let rows = sqlx::query("SELECT watch_id, collection, tenant_id FROM watch_folders WHERE enabled = 1")
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(
+            "SELECT watch_id, collection, tenant_id FROM watch_folders WHERE enabled = 1",
+        )
+        .fetch_all(&self.pool)
+        .await?;
         for row in rows {
             let watch_id: String = row.get("watch_id");
             let collection: String = row.get("collection");
@@ -154,7 +159,7 @@ impl WatchManager {
                    COALESCE(is_git_tracked, 0) AS is_git_tracked
             FROM watch_folders
             WHERE watch_id = ? AND enabled = 1 AND collection = 'projects'
-            "#
+            "#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -181,7 +186,8 @@ impl WatchManager {
                 library_name: None,
             };
 
-            self.start_watcher(id.clone(), config, queue_manager.clone()).await;
+            self.start_watcher(id.clone(), config, queue_manager.clone())
+                .await;
 
             if is_git_tracked {
                 self.start_git_watcher(&id, &path).await;
@@ -204,7 +210,7 @@ impl WatchManager {
             SELECT watch_id, path, collection, tenant_id
             FROM watch_folders
             WHERE tenant_id = ? AND enabled = 1 AND collection = 'libraries'
-            "#
+            "#,
         )
         .bind(library_name)
         .fetch_optional(&self.pool)
@@ -240,8 +246,11 @@ impl WatchManager {
     /// Start periodic polling for watch configuration changes
     pub fn start_polling(self: Arc<Self>, poll_interval_secs: u64) -> tokio::task::JoinHandle<()> {
         let refresh_signal = self.refresh_signal.clone();
-        info!("Starting watch configuration polling (interval: {}s, signal-driven: {})",
-            poll_interval_secs, refresh_signal.is_some());
+        info!(
+            "Starting watch configuration polling (interval: {}s, signal-driven: {})",
+            poll_interval_secs,
+            refresh_signal.is_some()
+        );
 
         tokio::spawn(async move {
             let mut poll_interval = interval(Duration::from_secs(poll_interval_secs));
@@ -278,30 +287,36 @@ impl WatchManager {
             }
 
             if let Some(state) = watcher.error_tracker().get_state(id) {
-                let last_error_at = state.last_error_time
+                let last_error_at = state
+                    .last_error_time
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| {
                         let secs = d.as_secs() as i64;
                         chrono::DateTime::from_timestamp(secs, 0)
-                            .as_ref().map(wqm_common::timestamps::format_utc)
+                            .as_ref()
+                            .map(wqm_common::timestamps::format_utc)
                             .unwrap_or_default()
                     });
 
-                let last_success_at = state.last_successful_processing
+                let last_success_at = state
+                    .last_successful_processing
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| {
                         let secs = d.as_secs() as i64;
                         chrono::DateTime::from_timestamp(secs, 0)
-                            .as_ref().map(wqm_common::timestamps::format_utc)
+                            .as_ref()
+                            .map(wqm_common::timestamps::format_utc)
                             .unwrap_or_default()
                     });
 
-                let backoff_until = state.backoff_until
+                let backoff_until = state
+                    .backoff_until
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| {
                         let secs = d.as_secs() as i64;
                         chrono::DateTime::from_timestamp(secs, 0)
-                            .as_ref().map(wqm_common::timestamps::format_utc)
+                            .as_ref()
+                            .map(wqm_common::timestamps::format_utc)
                             .unwrap_or_default()
                     });
 
@@ -317,7 +332,7 @@ impl WatchManager {
                         health_status = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE watch_id = ?
-                    "#
+                    "#,
                 )
                 .bind(state.consecutive_errors as i64)
                 .bind(state.total_errors as i64)
@@ -333,7 +348,11 @@ impl WatchManager {
                 if let Err(e) = result {
                     warn!("Failed to persist error state for watch {}: {}", id, e);
                 } else {
-                    debug!("Persisted error state for watch {}: health={}", id, state.health_status.as_str());
+                    debug!(
+                        "Persisted error state for watch {}: health={}",
+                        id,
+                        state.health_status.as_str()
+                    );
                 }
             }
         }
@@ -351,7 +370,7 @@ impl WatchManager {
                    last_error_message, backoff_until, last_success_at, health_status
             FROM watch_folders
             WHERE consecutive_errors > 0 OR health_status != 'healthy'
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -392,8 +411,10 @@ impl WatchManager {
 
                 watcher.error_tracker().set_state(&watch_id, restored_state);
 
-                debug!("Restored error state for watch {}: errors={}, health={}",
-                    watch_id, consecutive_errors, health_status_str);
+                debug!(
+                    "Restored error state for watch {}: errors={}, health={}",
+                    watch_id, consecutive_errors, health_status_str
+                );
             }
         }
 
@@ -401,8 +422,14 @@ impl WatchManager {
     }
 
     /// Start periodic error state persistence (Task 461.5)
-    pub fn start_error_state_persistence(self: Arc<Self>, persist_interval_secs: u64) -> tokio::task::JoinHandle<()> {
-        info!("Starting error state persistence (interval: {}s)", persist_interval_secs);
+    pub fn start_error_state_persistence(
+        self: Arc<Self>,
+        persist_interval_secs: u64,
+    ) -> tokio::task::JoinHandle<()> {
+        info!(
+            "Starting error state persistence (interval: {}s)",
+            persist_interval_secs
+        );
 
         tokio::spawn(async move {
             let mut persist_interval = interval(Duration::from_secs(persist_interval_secs));

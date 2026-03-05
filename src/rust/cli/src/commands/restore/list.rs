@@ -4,9 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::output;
 
-use super::client::{
-    build_client, qdrant_url, CollectionsResult, QdrantResponse, SnapshotInfo,
-};
+use super::client::{build_client, qdrant_url, CollectionsResult, QdrantResponse, SnapshotInfo};
 
 /// List available snapshots, optionally filtered to a specific collection.
 pub async fn list_snapshots(collection: Option<String>) -> Result<()> {
@@ -24,11 +22,7 @@ pub async fn list_snapshots(collection: Option<String>) -> Result<()> {
 }
 
 /// List snapshots for a single named collection.
-async fn list_collection_snapshots(
-    client: &reqwest::Client,
-    base: &str,
-    coll: &str,
-) -> Result<()> {
+async fn list_collection_snapshots(client: &reqwest::Client, base: &str, coll: &str) -> Result<()> {
     output::kv("Collection", coll);
     output::separator();
 
@@ -91,11 +85,15 @@ async fn list_full_snapshots(client: &reqwest::Client, base: &str) {
 /// Enumerate all collections and print their snapshots.
 async fn list_per_collection_snapshots(client: &reqwest::Client, base: &str) {
     let coll_url = format!("{}/collections", base);
-    let Ok(coll_resp) = client.get(&coll_url).send().await else { return };
+    let Ok(coll_resp) = client.get(&coll_url).send().await else {
+        return;
+    };
     if !coll_resp.status().is_success() {
         return;
     }
-    let Ok(coll_result) = coll_resp.json::<QdrantResponse<CollectionsResult>>().await else { return };
+    let Ok(coll_result) = coll_resp.json::<QdrantResponse<CollectionsResult>>().await else {
+        return;
+    };
 
     for entry in &coll_result.result.collections {
         let snap_url = format!("{}/collections/{}/snapshots", base, entry.name);

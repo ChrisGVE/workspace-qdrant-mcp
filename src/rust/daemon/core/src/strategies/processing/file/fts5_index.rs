@@ -48,31 +48,30 @@ pub(super) async fn update_fts5_for_file(
     let new_hash = compute_content_hash(&new_content);
 
     // Check indexed_content cache for skip detection
-    let old_content =
-        match indexed_content_schema::get_indexed_content(state_pool, file_id).await {
-            Ok(Some((cached_bytes, cached_hash))) => {
-                if cached_hash == new_hash {
-                    debug!(
-                        "FTS5: content unchanged (hash match), skipping: {}",
-                        file_path
-                    );
-                    return;
-                }
-                // Content changed -- use cached content as diff base
-                String::from_utf8(cached_bytes).unwrap_or_default()
-            }
-            Ok(None) => {
-                // New file -- no old content to diff against
-                String::new()
-            }
-            Err(e) => {
-                warn!(
-                    "FTS5: failed to read indexed_content cache for file_id={}: {}",
-                    file_id, e
+    let old_content = match indexed_content_schema::get_indexed_content(state_pool, file_id).await {
+        Ok(Some((cached_bytes, cached_hash))) => {
+            if cached_hash == new_hash {
+                debug!(
+                    "FTS5: content unchanged (hash match), skipping: {}",
+                    file_path
                 );
-                String::new()
+                return;
             }
-        };
+            // Content changed -- use cached content as diff base
+            String::from_utf8(cached_bytes).unwrap_or_default()
+        }
+        Ok(None) => {
+            // New file -- no old content to diff against
+            String::new()
+        }
+        Err(e) => {
+            warn!(
+                "FTS5: failed to read indexed_content cache for file_id={}: {}",
+                file_id, e
+            );
+            String::new()
+        }
+    };
 
     // Apply diff to code_lines via FtsBatchProcessor (single-file mode)
     let processor = FtsBatchProcessor::new(search_db, FtsBatchConfig::default());

@@ -3,9 +3,9 @@
 use sqlx::{Row, SqlitePool};
 use tracing::{info, warn};
 
+use super::GraphSnapshot;
 use crate::graph::schema::GraphDbResult;
 use crate::graph::{EdgeType, GraphEdge, GraphNode, NodeType};
-use super::GraphSnapshot;
 
 // ─── Export from SQLite ─────────────────────────────────────────────────
 
@@ -48,9 +48,7 @@ pub async fn export_nodes_sqlite(
                 symbol_name: row.get("symbol_name"),
                 symbol_type,
                 file_path: row.get("file_path"),
-                start_line: row
-                    .get::<Option<i64>, _>("start_line")
-                    .map(|v| v as u32),
+                start_line: row.get::<Option<i64>, _>("start_line").map(|v| v as u32),
                 end_line: row.get::<Option<i64>, _>("end_line").map(|v| v as u32),
                 signature: row.get("signature"),
                 language: row.get("language"),
@@ -141,10 +139,7 @@ pub fn export_nodes_ladybug(
     tenant_id: Option<&str>,
 ) -> GraphDbResult<Vec<GraphNode>> {
     let filter = match tenant_id {
-        Some(tid) => format!(
-            " WHERE n.tenant_id = '{}'",
-            tid.replace('\'', "\\'")
-        ),
+        Some(tid) => format!(" WHERE n.tenant_id = '{}'", tid.replace('\'', "\\'")),
         None => String::new(),
     };
 
@@ -200,10 +195,7 @@ pub fn export_edges_ladybug(
         "IMPLEMENTS",
     ] {
         let filter = match tenant_id {
-            Some(tid) => format!(
-                " WHERE r.tenant_id = '{}'",
-                tid.replace('\'', "\\'")
-            ),
+            Some(tid) => format!(" WHERE r.tenant_id = '{}'", tid.replace('\'', "\\'")),
             None => String::new(),
         };
 

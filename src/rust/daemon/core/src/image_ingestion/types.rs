@@ -1,7 +1,6 @@
 /// Types for the image ingestion pipeline.
 ///
 /// Configuration, error, and data types used throughout the pipeline.
-
 use thiserror::Error;
 
 use crate::clip::ClipError;

@@ -7,8 +7,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 pub fn init_test_tracing() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        let filter =
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
 
         fmt()
             .with_env_filter(filter)

@@ -4,10 +4,7 @@ use tempfile::TempDir;
 #[tokio::test]
 async fn test_get_git_remote_url() {
     let temp = TempDir::new().unwrap();
-    create_git_repo_with_remote(
-        temp.path(),
-        "https://github.com/user/repo.git",
-    );
+    create_git_repo_with_remote(temp.path(), "https://github.com/user/repo.git");
 
     let url = get_git_remote_url(temp.path().to_str().unwrap()).unwrap();
     assert_eq!(url, "https://github.com/user/repo.git");
@@ -83,7 +80,7 @@ async fn test_update_watch_folders_remote() {
 
     // Verify submodule tenant_id updated (but git_remote_url unchanged)
     let (sub_tid, sub_url): (String, String) = sqlx::query_as(
-        "SELECT tenant_id, git_remote_url FROM watch_folders WHERE watch_id = 'sub-1'"
+        "SELECT tenant_id, git_remote_url FROM watch_folders WHERE watch_id = 'sub-1'",
     )
     .fetch_one(&pool)
     .await
@@ -100,10 +97,7 @@ async fn test_check_remote_url_changes_no_change() {
 
     // Create git repo with known remote
     let temp = TempDir::new().unwrap();
-    create_git_repo_with_remote(
-        temp.path(),
-        "https://github.com/user/repo.git",
-    );
+    create_git_repo_with_remote(temp.path(), "https://github.com/user/repo.git");
 
     // Insert watch_folder with same remote (normalized)
     sqlx::query(
@@ -135,10 +129,7 @@ async fn test_check_remote_url_changes_detects_change() {
 
     // Create git repo with NEW remote
     let temp = TempDir::new().unwrap();
-    create_git_repo_with_remote(
-        temp.path(),
-        "https://github.com/new-org/repo.git",
-    );
+    create_git_repo_with_remote(temp.path(), "https://github.com/new-org/repo.git");
 
     let calculator = ProjectIdCalculator::new();
 
@@ -166,7 +157,7 @@ async fn test_check_remote_url_changes_detects_change() {
 
     // Verify watch_folder was updated
     let (tid, url): (String, String) = sqlx::query_as(
-        "SELECT tenant_id, git_remote_url FROM watch_folders WHERE watch_id = 'proj-1'"
+        "SELECT tenant_id, git_remote_url FROM watch_folders WHERE watch_id = 'proj-1'",
     )
     .fetch_one(&pool)
     .await
@@ -185,13 +176,17 @@ async fn test_check_remote_url_changes_detects_change() {
 
     // Verify cascade rename was enqueued
     let count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM unified_queue WHERE item_type = 'tenant' AND op = 'rename'"
+        "SELECT COUNT(*) FROM unified_queue WHERE item_type = 'tenant' AND op = 'rename'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
 
-    assert!(count >= 1, "Expected at least 1 cascade rename queue item, got {}", count);
+    assert!(
+        count >= 1,
+        "Expected at least 1 cascade rename queue item, got {}",
+        count
+    );
 }
 
 #[tokio::test]
@@ -201,10 +196,7 @@ async fn test_check_remote_url_changes_skips_archived() {
 
     // Create git repo with different remote
     let temp = TempDir::new().unwrap();
-    create_git_repo_with_remote(
-        temp.path(),
-        "https://github.com/new-org/repo.git",
-    );
+    create_git_repo_with_remote(temp.path(), "https://github.com/new-org/repo.git");
 
     // Insert archived watch_folder with old remote
     sqlx::query(
@@ -236,10 +228,7 @@ async fn test_check_remote_url_changes_preserves_disambiguation() {
 
     // Create git repo with NEW remote
     let temp = TempDir::new().unwrap();
-    create_git_repo_with_remote(
-        temp.path(),
-        "https://github.com/new-org/repo.git",
-    );
+    create_git_repo_with_remote(temp.path(), "https://github.com/new-org/repo.git");
 
     let calculator = ProjectIdCalculator::new();
 
@@ -264,12 +253,11 @@ async fn test_check_remote_url_changes_preserves_disambiguation() {
     assert_eq!(result.changes_detected, 1);
 
     // Verify new tenant_id preserves disambiguation_path
-    let tid: String = sqlx::query_scalar(
-        "SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-1'"
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let tid: String =
+        sqlx::query_scalar("SELECT tenant_id FROM watch_folders WHERE watch_id = 'proj-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     let expected_tid = calculator.calculate(
         temp.path(),

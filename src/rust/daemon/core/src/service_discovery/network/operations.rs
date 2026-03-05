@@ -23,9 +23,9 @@ impl NetworkDiscovery {
         auth_token: Option<String>,
     ) -> Result<Self, NetworkError> {
         // Parse multicast address
-        let multicast_ip: Ipv4Addr = multicast_address.parse().map_err(|_| {
-            NetworkError::InvalidMulticastAddress(multicast_address.to_string())
-        })?;
+        let multicast_ip: Ipv4Addr = multicast_address
+            .parse()
+            .map_err(|_| NetworkError::InvalidMulticastAddress(multicast_address.to_string()))?;
 
         // Validate multicast address range
         if !multicast_ip.is_multicast() {
@@ -173,7 +173,9 @@ impl NetworkDiscovery {
 
             // Break if we found all requested services
             if !service_names.is_empty()
-                && service_names.iter().all(|name| discovered.contains_key(name))
+                && service_names
+                    .iter()
+                    .all(|name| discovered.contains_key(name))
             {
                 break;
             }
@@ -374,10 +376,7 @@ impl NetworkDiscovery {
         service_info: ServiceInfo,
     ) {
         let mut services_guard = self.discovered_services.write().await;
-        services_guard.insert(
-            service_name.to_string(),
-            (service_info, SystemTime::now()),
-        );
+        services_guard.insert(service_name.to_string(), (service_info, SystemTime::now()));
     }
 
     /// Remove cached service

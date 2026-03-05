@@ -31,12 +31,11 @@ pub(super) async fn apply_diff_to_code_lines(
     diff: &DiffResult,
     new_content: &str,
 ) -> Result<FileDiffStats, SearchDbError> {
-    let existing_count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM code_lines WHERE file_id = ?1",
-    )
-    .bind(file_id)
-    .fetch_one(&mut **tx)
-    .await?;
+    let existing_count: i32 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = ?1")
+            .bind(file_id)
+            .fetch_one(&mut **tx)
+            .await?;
 
     if existing_count == 0 {
         return insert_all_lines(tx, file_id, new_content).await;
@@ -65,13 +64,15 @@ async fn insert_all_lines(
     for (i, line) in lines.iter().enumerate() {
         let seq = initial_seq(i);
         let line_number = (i + 1) as i64;
-        sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)")
-            .bind(file_id)
-            .bind(seq)
-            .bind(*line)
-            .bind(line_number)
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(file_id)
+        .bind(seq)
+        .bind(*line)
+        .bind(line_number)
+        .execute(&mut **tx)
+        .await?;
         stats.lines_inserted += 1;
     }
     Ok(stats)
@@ -82,12 +83,10 @@ async fn fetch_existing_lines(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     file_id: i64,
 ) -> Result<Vec<(i64, f64)>, SearchDbError> {
-    let rows = sqlx::query(
-        "SELECT line_id, seq FROM code_lines WHERE file_id = ?1 ORDER BY seq",
-    )
-    .bind(file_id)
-    .fetch_all(&mut **tx)
-    .await?;
+    let rows = sqlx::query("SELECT line_id, seq FROM code_lines WHERE file_id = ?1 ORDER BY seq")
+        .bind(file_id)
+        .fetch_all(&mut **tx)
+        .await?;
 
     Ok(rows
         .iter()
@@ -116,7 +115,11 @@ async fn apply_diff_ops(
                     stats.lines_unchanged += 1;
                 }
             }
-            DiffOp::Changed { old_index, new_content: content, .. } => {
+            DiffOp::Changed {
+                old_index,
+                new_content: content,
+                ..
+            } => {
                 if let Some(&(line_id, _)) = existing_lines.get(*old_index) {
                     sqlx::query("UPDATE code_lines SET content = ?1 WHERE line_id = ?2")
                         .bind(content.as_str())
@@ -127,7 +130,10 @@ async fn apply_diff_ops(
                     stats.lines_updated += 1;
                 }
             }
-            DiffOp::Inserted { new_index, new_content: content } => {
+            DiffOp::Inserted {
+                new_index,
+                new_content: content,
+            } => {
                 insertions.push((*new_index, content.clone()));
             }
             DiffOp::Deleted { old_index } => {
@@ -176,25 +182,26 @@ async fn insert_pending_lines(
     insertions.sort_by_key(|(idx, _)| *idx);
 
     for (_, content) in &insertions {
-        let max_seq: Option<f64> = sqlx::query_scalar(
-            "SELECT MAX(seq) FROM code_lines WHERE file_id = ?1",
-        )
-        .bind(file_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .flatten();
+        let max_seq: Option<f64> =
+            sqlx::query_scalar("SELECT MAX(seq) FROM code_lines WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten();
 
         let new_seq = match max_seq {
             Some(max) => max + INITIAL_SEQ_GAP,
             None => INITIAL_SEQ_GAP,
         };
 
-        sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)")
-            .bind(file_id)
-            .bind(new_seq)
-            .bind(content.as_str())
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)",
+        )
+        .bind(file_id)
+        .bind(new_seq)
+        .bind(content.as_str())
+        .execute(&mut **tx)
+        .await?;
         stats.lines_inserted += 1;
     }
     Ok(())
@@ -210,12 +217,11 @@ async fn renumber_after_changes(
         return Ok(());
     }
 
-    let line_ids: Vec<i64> = sqlx::query_scalar(
-        "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
-    )
-    .bind(file_id)
-    .fetch_all(&mut **tx)
-    .await?;
+    let line_ids: Vec<i64> =
+        sqlx::query_scalar("SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq")
+            .bind(file_id)
+            .fetch_all(&mut **tx)
+            .await?;
 
     for (i, line_id) in line_ids.iter().enumerate() {
         sqlx::query("UPDATE code_lines SET line_number = ?1 WHERE line_id = ?2")

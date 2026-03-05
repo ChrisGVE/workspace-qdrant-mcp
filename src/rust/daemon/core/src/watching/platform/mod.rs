@@ -3,25 +3,25 @@
 //! This module provides platform-specific implementations of file watching
 //! to leverage native file system events for better performance.
 
-use std::path::Path;
-use tokio::sync::mpsc;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use thiserror::Error;
+use tokio::sync::mpsc;
 
 use super::{FileEvent, WatchingError};
 
-#[cfg(target_os = "macos")]
-mod macos;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
-#[cfg(target_os = "macos")]
-pub use macos::MacOSWatcher;
 #[cfg(target_os = "linux")]
 pub use linux::LinuxWatcher;
+#[cfg(target_os = "macos")]
+pub use macos::MacOSWatcher;
 #[cfg(target_os = "windows")]
 pub use windows::WindowsWatcher;
 
@@ -205,8 +205,8 @@ impl Default for WindowsConfig {
             watch_subtree: true,
             buffer_size: 65536, // 64KB buffer
             filter_flags: (FILE_NOTIFY_CHANGE_FILE_NAME.0
-                         | FILE_NOTIFY_CHANGE_SIZE.0
-                         | FILE_NOTIFY_CHANGE_LAST_WRITE.0) as u32,
+                | FILE_NOTIFY_CHANGE_SIZE.0
+                | FILE_NOTIFY_CHANGE_LAST_WRITE.0) as u32,
             use_completion_ports: true,
             monitor_file_name: true,
             monitor_dir_name: true,

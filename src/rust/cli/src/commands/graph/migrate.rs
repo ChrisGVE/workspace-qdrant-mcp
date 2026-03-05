@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::client::workspace_daemon::GraphMigrateRequest;
+use crate::grpc::client::DaemonClient;
 use crate::output;
 
 pub async fn migrate(

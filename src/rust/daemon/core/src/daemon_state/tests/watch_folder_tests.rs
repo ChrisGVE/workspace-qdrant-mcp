@@ -14,7 +14,11 @@ async fn test_watch_folder_crud() {
     let record = WatchFolderRecord {
         git_remote_url: Some("https://github.com/user/repo.git".to_string()),
         remote_hash: Some("abc123def456".to_string()),
-        ..make_test_watch_folder("test-watch-001", "/projects/my-project", "my-project-tenant")
+        ..make_test_watch_folder(
+            "test-watch-001",
+            "/projects/my-project",
+            "my-project-tenant",
+        )
     };
 
     // Store
@@ -30,10 +34,17 @@ async fn test_watch_folder_crud() {
     assert!(retrieved.enabled);
 
     // Activate project
-    let updated = manager.activate_project_group("test-watch-001").await.unwrap();
+    let updated = manager
+        .activate_project_group("test-watch-001")
+        .await
+        .unwrap();
     assert_eq!(updated, 1);
 
-    let retrieved = manager.get_watch_folder("test-watch-001").await.unwrap().unwrap();
+    let retrieved = manager
+        .get_watch_folder("test-watch-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(retrieved.is_active);
 
     // List active projects
@@ -41,8 +52,15 @@ async fn test_watch_folder_crud() {
     assert_eq!(active.len(), 1);
 
     // Deactivate
-    manager.deactivate_project_group("test-watch-001").await.unwrap();
-    let retrieved = manager.get_watch_folder("test-watch-001").await.unwrap().unwrap();
+    manager
+        .deactivate_project_group("test-watch-001")
+        .await
+        .unwrap();
+    let retrieved = manager
+        .get_watch_folder("test-watch-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!retrieved.is_active);
 
     // Delete
@@ -73,7 +91,11 @@ async fn test_watch_folder_with_submodule() {
         submodule_path: Some("libs/sub".to_string()),
         git_remote_url: Some("https://github.com/user/sub.git".to_string()),
         remote_hash: Some("sub123hash".to_string()),
-        ..make_test_watch_folder("submodule-001", "/projects/parent/libs/sub", "submodule-tenant")
+        ..make_test_watch_folder(
+            "submodule-001",
+            "/projects/parent/libs/sub",
+            "submodule-tenant",
+        )
     };
     manager.store_watch_folder(&submodule).await.unwrap();
 
@@ -81,21 +103,47 @@ async fn test_watch_folder_with_submodule() {
     let updated = manager.activate_project_group("parent-001").await.unwrap();
     assert_eq!(updated, 2);
 
-    let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
-    let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+    let parent_record = manager
+        .get_watch_folder("parent-001")
+        .await
+        .unwrap()
+        .unwrap();
+    let submodule_record = manager
+        .get_watch_folder("submodule-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(parent_record.is_active);
     assert!(submodule_record.is_active);
 
     // Deactivate submodule only affects the submodule (recursive goes DOWN, not UP)
-    manager.deactivate_project_group("submodule-001").await.unwrap();
-    let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
-    let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+    manager
+        .deactivate_project_group("submodule-001")
+        .await
+        .unwrap();
+    let parent_record = manager
+        .get_watch_folder("parent-001")
+        .await
+        .unwrap()
+        .unwrap();
+    let submodule_record = manager
+        .get_watch_folder("submodule-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(parent_record.is_active);
     assert!(!submodule_record.is_active);
 
     // Deactivate from parent deactivates entire group
-    manager.deactivate_project_group("parent-001").await.unwrap();
-    let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+    manager
+        .deactivate_project_group("parent-001")
+        .await
+        .unwrap();
+    let parent_record = manager
+        .get_watch_folder("parent-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!parent_record.is_active);
 }
 
@@ -155,10 +203,16 @@ async fn test_watch_folder_collection_filter() {
         manager.store_watch_folder(&record).await.unwrap();
     }
 
-    let projects = manager.list_watch_folders(Some("projects"), false).await.unwrap();
+    let projects = manager
+        .list_watch_folders(Some("projects"), false)
+        .await
+        .unwrap();
     assert_eq!(projects.len(), 3);
 
-    let libraries = manager.list_watch_folders(Some("libraries"), false).await.unwrap();
+    let libraries = manager
+        .list_watch_folders(Some("libraries"), false)
+        .await
+        .unwrap();
     assert_eq!(libraries.len(), 2);
 
     let all = manager.list_watch_folders(None, false).await.unwrap();
@@ -176,23 +230,43 @@ async fn test_watch_folder_enabled_toggle() {
     let record = make_test_watch_folder("toggle-test", "/projects/toggle", "toggle-tenant");
     manager.store_watch_folder(&record).await.unwrap();
 
-    let retrieved = manager.get_watch_folder("toggle-test").await.unwrap().unwrap();
+    let retrieved = manager
+        .get_watch_folder("toggle-test")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(retrieved.enabled);
 
     // Disable
-    let updated = manager.set_watch_folder_enabled("toggle-test", false).await.unwrap();
+    let updated = manager
+        .set_watch_folder_enabled("toggle-test", false)
+        .await
+        .unwrap();
     assert!(updated);
-    let retrieved = manager.get_watch_folder("toggle-test").await.unwrap().unwrap();
+    let retrieved = manager
+        .get_watch_folder("toggle-test")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!retrieved.enabled);
 
-    let enabled_only = manager.list_watch_folders(Some("projects"), true).await.unwrap();
+    let enabled_only = manager
+        .list_watch_folders(Some("projects"), true)
+        .await
+        .unwrap();
     assert_eq!(enabled_only.len(), 0);
 
     // Re-enable
-    let updated = manager.set_watch_folder_enabled("toggle-test", true).await.unwrap();
+    let updated = manager
+        .set_watch_folder_enabled("toggle-test", true)
+        .await
+        .unwrap();
     assert!(updated);
 
-    let enabled_only = manager.list_watch_folders(Some("projects"), true).await.unwrap();
+    let enabled_only = manager
+        .list_watch_folders(Some("projects"), true)
+        .await
+        .unwrap();
     assert_eq!(enabled_only.len(), 1);
 }
 
@@ -207,13 +281,24 @@ async fn test_watch_folder_last_scan_update() {
     let record = make_test_watch_folder("scan-test", "/projects/scan", "scan-tenant");
     manager.store_watch_folder(&record).await.unwrap();
 
-    let retrieved = manager.get_watch_folder("scan-test").await.unwrap().unwrap();
+    let retrieved = manager
+        .get_watch_folder("scan-test")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(retrieved.last_scan.is_none());
 
-    let updated = manager.update_watch_folder_last_scan("scan-test").await.unwrap();
+    let updated = manager
+        .update_watch_folder_last_scan("scan-test")
+        .await
+        .unwrap();
     assert!(updated);
 
-    let retrieved = manager.get_watch_folder("scan-test").await.unwrap().unwrap();
+    let retrieved = manager
+        .get_watch_folder("scan-test")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(retrieved.last_scan.is_some());
 }
 
@@ -232,16 +317,22 @@ async fn test_get_watch_folder_by_tenant_id() {
     };
     manager.store_watch_folder(&record).await.unwrap();
 
-    let found = manager.get_watch_folder_by_tenant_id("abc123def456", "projects")
-        .await.unwrap();
+    let found = manager
+        .get_watch_folder_by_tenant_id("abc123def456", "projects")
+        .await
+        .unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().watch_id, "watch-001");
 
-    let not_found = manager.get_watch_folder_by_tenant_id("nonexistent", "projects")
-        .await.unwrap();
+    let not_found = manager
+        .get_watch_folder_by_tenant_id("nonexistent", "projects")
+        .await
+        .unwrap();
     assert!(not_found.is_none());
 
-    let wrong_collection = manager.get_watch_folder_by_tenant_id("abc123def456", "libraries")
-        .await.unwrap();
+    let wrong_collection = manager
+        .get_watch_folder_by_tenant_id("abc123def456", "libraries")
+        .await
+        .unwrap();
     assert!(wrong_collection.is_none());
 }

@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::client::workspace_daemon::PageRankRequest;
+use crate::grpc::client::DaemonClient;
 use crate::output;
 
 pub async fn pagerank(
@@ -47,10 +47,7 @@ pub async fn pagerank(
         return Ok(());
     }
 
-    println!(
-        "{:<10} {:<30} {:<12} {}",
-        "SCORE", "SYMBOL", "TYPE", "FILE"
-    );
+    println!("{:<10} {:<30} {:<12} {}", "SCORE", "SYMBOL", "TYPE", "FILE");
     for e in &resp.entries {
         let loc = if e.file_path.is_empty() {
             "(stub)".to_string()

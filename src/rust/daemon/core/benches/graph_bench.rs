@@ -21,16 +21,14 @@
 //!
 //! Run: cargo bench --manifest-path src/rust/Cargo.toml --package workspace-qdrant-core --bench graph_bench
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
 use workspace_qdrant_core::graph::algorithms::{
-    CommunityConfig, PageRankConfig, compute_betweenness_centrality, compute_pagerank,
-    detect_communities,
+    compute_betweenness_centrality, compute_pagerank, detect_communities, CommunityConfig,
+    PageRankConfig,
 };
 use workspace_qdrant_core::graph::extractor;
 use workspace_qdrant_core::graph::{
@@ -257,12 +255,8 @@ fn bench_impact_analysis(c: &mut Criterion) {
             let target = &all_nodes[0][funcs / 2].symbol_name;
 
             b.iter(|| {
-                rt.block_on(store.impact_analysis(
-                    black_box(tenant),
-                    black_box(target),
-                    None,
-                ))
-                .unwrap();
+                rt.block_on(store.impact_analysis(black_box(tenant), black_box(target), None))
+                    .unwrap();
             });
         });
     }

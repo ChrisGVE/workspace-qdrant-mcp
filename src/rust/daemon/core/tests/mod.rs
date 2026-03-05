@@ -4,31 +4,30 @@
 //! compatibility, memory safety, and performance validation.
 
 pub mod cross_platform_safety_tests;
-pub mod valgrind_memory_tests;
-pub mod unsafe_code_audit_tests;
 pub mod ffi_performance_tests;
+pub mod unsafe_code_audit_tests;
+pub mod valgrind_memory_tests;
 
 // Re-export key types for easier access
 pub use cross_platform_safety_tests::{
-    CrossPlatformTestSuite, CrossPlatformTestConfig, CrossPlatformResults,
-    MemorySafetyResults, FFIPerformanceResults, ThreadSafetyResults,
-    PerformanceRegressionResults,
+    CrossPlatformResults, CrossPlatformTestConfig, CrossPlatformTestSuite, FFIPerformanceResults,
+    MemorySafetyResults, PerformanceRegressionResults, ThreadSafetyResults,
 };
 
 pub use valgrind_memory_tests::{
-    ValgrindTestSuite, ValgrindConfig, ValgrindResults, ValgrindStatus,
-    MemcheckResults, CachegrindResults, MassifResults, HelgrindResults, DrdResults,
+    CachegrindResults, DrdResults, HelgrindResults, MassifResults, MemcheckResults, ValgrindConfig,
+    ValgrindResults, ValgrindStatus, ValgrindTestSuite,
 };
 
 pub use unsafe_code_audit_tests::{
-    UnsafeCodeAuditor, UnsafeAuditResults, SafetyViolation, ViolationType, ViolationSeverity,
-    MemoryAccessPattern, InvariantValidation, BoundaryTest, ConcurrencySafety, FfiSafety,
+    BoundaryTest, ConcurrencySafety, FfiSafety, InvariantValidation, MemoryAccessPattern,
+    SafetyViolation, UnsafeAuditResults, UnsafeCodeAuditor, ViolationSeverity, ViolationType,
 };
 
 pub use ffi_performance_tests::{
-    FfiPerformanceTester, FfiPerformanceConfig, FfiPerformanceResults,
-    DataTransferBenchmark, SerializationBenchmark, AsyncOperationBenchmarks,
-    MemoryCopyBenchmark, FunctionCallBenchmarks, ConcurrencyBenchmark,
+    AsyncOperationBenchmarks, ConcurrencyBenchmark, DataTransferBenchmark, FfiPerformanceConfig,
+    FfiPerformanceResults, FfiPerformanceTester, FunctionCallBenchmarks, MemoryCopyBenchmark,
+    SerializationBenchmark,
 };
 
 #[cfg(test)]
@@ -43,7 +42,10 @@ mod integration_tests {
 
         // Run cross-platform tests
         let cross_platform_results = cross_platform_suite.run_cross_platform_tests().await;
-        assert!(cross_platform_results.is_ok(), "Cross-platform tests should pass");
+        assert!(
+            cross_platform_results.is_ok(),
+            "Cross-platform tests should pass"
+        );
 
         // Run memory safety tests
         let memory_results = cross_platform_suite.run_memory_safety_tests().await;
@@ -54,8 +56,14 @@ mod integration_tests {
         assert!(thread_results.is_ok(), "Thread safety tests should pass");
 
         let thread_safety = thread_results.unwrap();
-        assert!(thread_safety.concurrent_access_tests, "Concurrent access should be safe");
-        assert!(thread_safety.async_safety, "Async operations should be safe");
+        assert!(
+            thread_safety.concurrent_access_tests,
+            "Concurrent access should be safe"
+        );
+        assert!(
+            thread_safety.async_safety,
+            "Async operations should be safe"
+        );
     }
 
     #[tokio::test]
@@ -77,8 +85,15 @@ mod integration_tests {
 
         // Validate performance thresholds
         for (size, benchmark) in &performance_results.data_transfer_benchmarks {
-            assert!(benchmark.throughput_mbps > 0.0, "Throughput should be positive for size {}", size);
-            assert!(benchmark.rust_to_python_ns > 0, "Transfer time should be positive");
+            assert!(
+                benchmark.throughput_mbps > 0.0,
+                "Throughput should be positive for size {}",
+                size
+            );
+            assert!(
+                benchmark.rust_to_python_ns > 0,
+                "Transfer time should be positive"
+            );
         }
     }
 
@@ -100,7 +115,10 @@ mod integration_tests {
         for violation in &results.safety_violations {
             match violation.severity {
                 ViolationSeverity::Critical => {
-                    panic!("Critical safety violation detected: {}", violation.description);
+                    panic!(
+                        "Critical safety violation detected: {}",
+                        violation.description
+                    );
                 }
                 ViolationSeverity::High => {
                     eprintln!("High severity violation: {}", violation.description);
@@ -123,7 +141,10 @@ mod integration_tests {
         let binary_path = std::env::current_exe().unwrap();
 
         let valgrind_suite = ValgrindTestSuite::new(binary_path);
-        assert!(valgrind_suite.is_ok(), "Valgrind suite should initialize on Linux");
+        assert!(
+            valgrind_suite.is_ok(),
+            "Valgrind suite should initialize on Linux"
+        );
 
         // Note: We don't run actual Valgrind tests here as they're expensive
         // and require the test binary to be built separately
@@ -204,8 +225,8 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_async_task_safety() {
-        use tokio::sync::Mutex;
         use std::sync::Arc;
+        use tokio::sync::Mutex;
 
         let counter = Arc::new(Mutex::new(0));
         let mut handles = Vec::new();
@@ -250,7 +271,9 @@ mod integration_tests {
             name: "test".to_string(),
             values: vec![1, 2, 3, 4, 5],
             metadata: [("key1".to_string(), "value1".to_string())]
-                .iter().cloned().collect(),
+                .iter()
+                .cloned()
+                .collect(),
         };
 
         // Test JSON roundtrip

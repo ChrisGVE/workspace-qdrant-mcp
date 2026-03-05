@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_spill_to_sqlite_process_document() {
-    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
     use crate::queue_operations::QueueManager;
+    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
 
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
         .await
@@ -41,28 +41,26 @@ async fn test_spill_to_sqlite_process_document() {
         branch: "main".to_string(),
     };
 
-    submitter.spill_to_sqlite(&queue_manager, &context, &payload)
+    submitter
+        .spill_to_sqlite(&queue_manager, &context, &payload)
         .await
         .expect("Spill should succeed");
 
-    let row: (String, String, String, String) = sqlx::query_as(
-        "SELECT item_type, op, collection, status FROM unified_queue LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("Should have one spilled item");
+    let row: (String, String, String, String) =
+        sqlx::query_as("SELECT item_type, op, collection, status FROM unified_queue LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("Should have one spilled item");
 
     assert_eq!(row.0, "file");
     assert_eq!(row.1, "add");
     assert_eq!(row.2, "projects");
     assert_eq!(row.3, "pending");
 
-    let payload_json: (String,) = sqlx::query_as(
-        "SELECT payload_json FROM unified_queue LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("Should have payload");
+    let payload_json: (String,) = sqlx::query_as("SELECT payload_json FROM unified_queue LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("Should have payload");
 
     let payload_val: serde_json::Value = serde_json::from_str(&payload_json.0).unwrap();
     assert_eq!(
@@ -70,22 +68,23 @@ async fn test_spill_to_sqlite_process_document() {
         "/tmp/test_project/src/main.rs"
     );
 
-    let metadata_json: (String,) = sqlx::query_as(
-        "SELECT metadata FROM unified_queue LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("Should have metadata");
+    let metadata_json: (String,) = sqlx::query_as("SELECT metadata FROM unified_queue LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("Should have metadata");
 
     let meta_val: serde_json::Value = serde_json::from_str(&metadata_json.0).unwrap();
     assert_eq!(meta_val["spilled_from"].as_str().unwrap(), "pipeline");
-    assert_eq!(meta_val["original_priority"].as_str().unwrap(), "ProjectWatching");
+    assert_eq!(
+        meta_val["original_priority"].as_str().unwrap(),
+        "ProjectWatching"
+    );
 }
 
 #[tokio::test]
 async fn test_spill_non_process_document_fails() {
-    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
     use crate::queue_operations::QueueManager;
+    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
 
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
         .await
@@ -106,7 +105,9 @@ async fn test_spill_non_process_document_fails() {
         priority: TaskPriority::BackgroundWatching,
         created_at: chrono::Utc::now(),
         timeout_ms: None,
-        source: TaskSource::Generic { operation: "test".to_string() },
+        source: TaskSource::Generic {
+            operation: "test".to_string(),
+        },
         metadata: HashMap::new(),
         checkpoint_id: None,
         supports_checkpointing: false,
@@ -117,7 +118,9 @@ async fn test_spill_non_process_document_fails() {
         operation: "test".to_string(),
         parameters: HashMap::new(),
     };
-    let result = submitter.spill_to_sqlite(&queue_manager, &context, &payload).await;
+    let result = submitter
+        .spill_to_sqlite(&queue_manager, &context, &payload)
+        .await;
     assert!(result.is_err(), "Generic tasks should not be spillable");
 
     let payload = TaskPayload::ExecuteQuery {
@@ -125,14 +128,19 @@ async fn test_spill_non_process_document_fails() {
         collection: "test".to_string(),
         limit: 10,
     };
-    let result = submitter.spill_to_sqlite(&queue_manager, &context, &payload).await;
-    assert!(result.is_err(), "ExecuteQuery tasks should not be spillable");
+    let result = submitter
+        .spill_to_sqlite(&queue_manager, &context, &payload)
+        .await;
+    assert!(
+        result.is_err(),
+        "ExecuteQuery tasks should not be spillable"
+    );
 }
 
 #[tokio::test]
 async fn test_spill_with_background_watcher_source() {
-    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
     use crate::queue_operations::QueueManager;
+    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
 
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
         .await
@@ -167,16 +175,15 @@ async fn test_spill_with_background_watcher_source() {
         branch: "main".to_string(),
     };
 
-    submitter.spill_to_sqlite(&queue_manager, &context, &payload)
+    submitter
+        .spill_to_sqlite(&queue_manager, &context, &payload)
         .await
         .expect("Spill with BackgroundWatcher source should succeed");
 
-    let row: (String,) = sqlx::query_as(
-        "SELECT collection FROM unified_queue LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("Should have spilled item");
+    let row: (String,) = sqlx::query_as("SELECT collection FROM unified_queue LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("Should have spilled item");
 
     assert_eq!(row.0, "libraries");
 }
@@ -199,8 +206,8 @@ async fn test_queue_metrics_include_spill_count() {
 
 #[tokio::test]
 async fn test_spill_queue_configuration() {
-    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
     use crate::queue_operations::QueueManager;
+    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
 
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
         .await

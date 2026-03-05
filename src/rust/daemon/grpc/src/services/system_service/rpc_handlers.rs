@@ -8,16 +8,13 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use tonic::{Request, Response, Status};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 use wqm_common::timestamps;
 
 use crate::proto::{
-    system_service_server::SystemService,
-    HealthResponse, SystemStatusResponse, MetricsResponse, QueueStatsResponse,
-    RefreshSignalRequest, ServerStatusNotification,
-    RebuildIndexRequest, RebuildIndexResponse,
-    ComponentHealth, SystemMetrics, Metric,
-    ServiceStatus, QueueType, ServerState,
+    system_service_server::SystemService, ComponentHealth, HealthResponse, Metric, MetricsResponse,
+    QueueStatsResponse, QueueType, RebuildIndexRequest, RebuildIndexResponse, RefreshSignalRequest,
+    ServerState, ServerStatusNotification, ServiceStatus, SystemMetrics, SystemStatusResponse,
 };
 
 use super::rebuild;
@@ -26,21 +23,16 @@ use super::service_impl::SystemServiceImpl;
 #[tonic::async_trait]
 impl SystemService for SystemServiceImpl {
     /// Quick health check for monitoring/alerting (spec: Health)
-    async fn health(
-        &self,
-        _request: Request<()>,
-    ) -> Result<Response<HealthResponse>, Status> {
+    async fn health(&self, _request: Request<()>) -> Result<Response<HealthResponse>, Status> {
         debug!("Health check requested");
 
         // Build component health list
-        let mut components = vec![
-            ComponentHealth {
-                component_name: "grpc_server".to_string(),
-                status: ServiceStatus::Healthy as i32,
-                message: "Running".to_string(),
-                last_check: Some(prost_types::Timestamp::from(SystemTime::now())),
-            },
-        ];
+        let mut components = vec![ComponentHealth {
+            component_name: "grpc_server".to_string(),
+            status: ServiceStatus::Healthy as i32,
+            message: "Running".to_string(),
+            last_check: Some(prost_types::Timestamp::from(SystemTime::now())),
+        }];
 
         // Add queue processor health
         let queue_health = self.get_queue_processor_health();
@@ -48,11 +40,20 @@ impl SystemService for SystemServiceImpl {
         components.push(queue_health);
 
         // Determine overall status (worst of all components)
-        let overall_status = if components.iter().any(|c| c.status == ServiceStatus::Unhealthy as i32) {
+        let overall_status = if components
+            .iter()
+            .any(|c| c.status == ServiceStatus::Unhealthy as i32)
+        {
             ServiceStatus::Unhealthy
-        } else if components.iter().any(|c| c.status == ServiceStatus::Degraded as i32) {
+        } else if components
+            .iter()
+            .any(|c| c.status == ServiceStatus::Degraded as i32)
+        {
             ServiceStatus::Degraded
-        } else if components.iter().any(|c| c.status == ServiceStatus::Unspecified as i32) {
+        } else if components
+            .iter()
+            .any(|c| c.status == ServiceStatus::Unspecified as i32)
+        {
             // If queue health is unknown but gRPC is healthy, still report healthy
             if queue_status == ServiceStatus::Unspecified as i32 {
                 ServiceStatus::Healthy
@@ -105,10 +106,7 @@ impl SystemService for SystemServiceImpl {
     }
 
     /// Graceful daemon shutdown (spec: Shutdown)
-    async fn shutdown(
-        &self,
-        _request: Request<()>,
-    ) -> Result<Response<()>, Status> {
+    async fn shutdown(&self, _request: Request<()>) -> Result<Response<()>, Status> {
         warn!("Shutdown requested via gRPC");
         Ok(Response::new(()))
     }
@@ -121,7 +119,8 @@ impl SystemService for SystemServiceImpl {
         info!("System status requested");
 
         // Get queue depth from health state if available
-        let pending_operations = self.queue_health
+        let pending_operations = self
+            .queue_health
             .as_ref()
             .map(|h| h.queue_depth.load(Ordering::SeqCst) as i32)
             .unwrap_or(0);
@@ -186,7 +185,8 @@ impl SystemService for SystemServiceImpl {
                 name: "uptime_seconds".to_string(),
                 r#type: "gauge".to_string(),
                 labels: std::collections::HashMap::new(),
-                value: self.start_time
+                value: self
+                    .start_time
                     .elapsed()
                     .map(|d| d.as_secs() as f64)
                     .unwrap_or(0.0),
@@ -217,8 +217,7 @@ impl SystemService for SystemServiceImpl {
         request: Request<RefreshSignalRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-        let queue_type = QueueType::try_from(req.queue_type)
-            .unwrap_or(QueueType::Unspecified);
+        let queue_type = QueueType::try_from(req.queue_type).unwrap_or(QueueType::Unspecified);
 
         info!(
             "Refresh signal received: queue_type={:?}, lsp_languages={:?}, grammar_languages={:?}",
@@ -267,10 +266,10 @@ impl SystemService for SystemServiceImpl {
         request: Request<ServerStatusNotification>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-        let state = ServerState::try_from(req.state)
-            .unwrap_or(ServerState::Unspecified);
+        let state = ServerState::try_from(req.state).unwrap_or(ServerState::Unspecified);
 
-        self.handle_server_notification(state, req.project_name, req.project_root).await;
+        self.handle_server_notification(state, req.project_name, req.project_root)
+            .await;
 
         Ok(Response::new(()))
     }
@@ -279,10 +278,7 @@ impl SystemService for SystemServiceImpl {
     ///
     /// Sets is_paused=1 in watch_folders for all enabled watches and toggles
     /// the shared pause flag so connected FileWatcher instances react immediately.
-    async fn pause_all_watchers(
-        &self,
-        _request: Request<()>,
-    ) -> Result<Response<()>, Status> {
+    async fn pause_all_watchers(&self, _request: Request<()>) -> Result<Response<()>, Status> {
         info!("Pause all watchers requested");
 
         // Toggle the in-memory pause flag immediately for connected watchers
@@ -300,7 +296,7 @@ impl SystemService for SystemServiceImpl {
             "UPDATE watch_folders SET is_paused = 1, \
              pause_start_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-             WHERE enabled = 1 AND is_paused = 0"
+             WHERE enabled = 1 AND is_paused = 0",
         )
         .execute(pool)
         .await
@@ -318,12 +314,13 @@ impl SystemService for SystemServiceImpl {
         let metadata = serde_json::json!({
             "action": "pause",
             "affected_watchers": affected,
-        }).to_string();
+        })
+        .to_string();
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO unified_queue \
              (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
               status, metadata, created_at, updated_at) \
-             VALUES (?1, ?2, 'metadata', 'pause', '_system', '_system', 'done', ?3, ?4, ?5)"
+             VALUES (?1, ?2, 'metadata', 'pause', '_system', '_system', 'done', ?3, ?4, ?5)",
         )
         .bind(&queue_id)
         .bind(&queue_id)
@@ -340,10 +337,7 @@ impl SystemService for SystemServiceImpl {
     ///
     /// Sets is_paused=0 in watch_folders for all enabled watches and clears
     /// the shared pause flag so connected FileWatcher instances resume processing.
-    async fn resume_all_watchers(
-        &self,
-        _request: Request<()>,
-    ) -> Result<Response<()>, Status> {
+    async fn resume_all_watchers(&self, _request: Request<()>) -> Result<Response<()>, Status> {
         info!("Resume all watchers requested");
 
         // Clear the in-memory pause flag immediately for connected watchers
@@ -361,7 +355,7 @@ impl SystemService for SystemServiceImpl {
             "UPDATE watch_folders SET is_paused = 0, \
              pause_start_time = NULL, \
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-             WHERE enabled = 1 AND is_paused = 1"
+             WHERE enabled = 1 AND is_paused = 1",
         )
         .execute(pool)
         .await
@@ -379,12 +373,13 @@ impl SystemService for SystemServiceImpl {
         let metadata = serde_json::json!({
             "action": "resume",
             "affected_watchers": affected,
-        }).to_string();
+        })
+        .to_string();
         let _ = sqlx::query(
             "INSERT OR IGNORE INTO unified_queue \
              (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
               status, metadata, created_at, updated_at) \
-             VALUES (?1, ?2, 'metadata', 'resume', '_system', '_system', 'done', ?3, ?4, ?5)"
+             VALUES (?1, ?2, 'metadata', 'resume', '_system', '_system', 'done', ?3, ?4, ?5)",
         )
         .bind(&queue_id)
         .bind(&queue_id)
@@ -409,8 +404,15 @@ impl SystemService for SystemServiceImpl {
         let base_target = target.as_str();
 
         const VALID_TARGETS: &[&str] = &[
-            "tags", "search", "vocabulary", "keywords", "rules",
-            "projects", "libraries", "components", "all",
+            "tags",
+            "search",
+            "vocabulary",
+            "keywords",
+            "rules",
+            "projects",
+            "libraries",
+            "components",
+            "all",
         ];
         if !VALID_TARGETS.contains(&base_target) {
             return Err(Status::invalid_argument(format!(
@@ -443,7 +445,8 @@ impl SystemService for SystemServiceImpl {
                 tenant_id.as_deref(),
                 &collection,
                 force,
-            ).await;
+            )
+            .await;
         });
 
         // Return immediately — rebuild runs in background

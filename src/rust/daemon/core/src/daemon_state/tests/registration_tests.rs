@@ -57,20 +57,30 @@ async fn test_find_clones_by_remote_hash() {
         git_remote_url: Some("https://github.com/user/repo.git".to_string()),
         remote_hash: Some(remote_hash.to_string()),
         disambiguation_path: Some("personal/project".to_string()),
-        ..make_test_watch_folder("clone-002", "/home/user/personal/project", "project-tenant-2")
+        ..make_test_watch_folder(
+            "clone-002",
+            "/home/user/personal/project",
+            "project-tenant-2",
+        )
     };
 
     manager.store_watch_folder(&record1).await.unwrap();
     manager.store_watch_folder(&record2).await.unwrap();
 
-    let clones = manager.find_clones_by_remote_hash(remote_hash).await.unwrap();
+    let clones = manager
+        .find_clones_by_remote_hash(remote_hash)
+        .await
+        .unwrap();
     assert_eq!(clones.len(), 2);
 
     let tenant_ids: Vec<_> = clones.iter().map(|c| &c.tenant_id).collect();
     assert!(tenant_ids.contains(&&"project-tenant-1".to_string()));
     assert!(tenant_ids.contains(&&"project-tenant-2".to_string()));
 
-    let no_clones = manager.find_clones_by_remote_hash("nonexistent").await.unwrap();
+    let no_clones = manager
+        .find_clones_by_remote_hash("nonexistent")
+        .await
+        .unwrap();
     assert!(no_clones.is_empty());
 }
 
@@ -99,10 +109,15 @@ async fn test_register_project_with_disambiguation_first_clone() {
         ..make_test_watch_folder("first-clone", "/home/user/work/project", "")
     };
 
-    let (result, aliases) = manager.register_project_with_disambiguation(record).await.unwrap();
+    let (result, aliases) = manager
+        .register_project_with_disambiguation(record)
+        .await
+        .unwrap();
 
     assert!(aliases.is_empty());
-    assert!(result.disambiguation_path.is_none() || result.disambiguation_path.as_deref() == Some(""));
+    assert!(
+        result.disambiguation_path.is_none() || result.disambiguation_path.as_deref() == Some("")
+    );
 }
 
 /// Build a WatchFolderRecord for disambiguation tests with git remote info.
@@ -114,11 +129,7 @@ fn make_disambig_record(
     calculator: &crate::project_disambiguation::ProjectIdCalculator,
 ) -> WatchFolderRecord {
     WatchFolderRecord {
-        tenant_id: calculator.calculate(
-            std::path::Path::new(path),
-            Some(git_remote),
-            None,
-        ),
+        tenant_id: calculator.calculate(std::path::Path::new(path), Some(git_remote), None),
         git_remote_url: Some(git_remote.to_string()),
         remote_hash: Some(remote_hash.to_string()),
         ..make_test_watch_folder(watch_id, path, "")
@@ -141,33 +152,70 @@ async fn test_register_project_with_disambiguation_second_clone() {
 
     // Register first clone
     let first_record = make_disambig_record(
-        "first-clone", "/home/user/work/project", git_remote, &remote_hash, &calculator,
+        "first-clone",
+        "/home/user/work/project",
+        git_remote,
+        &remote_hash,
+        &calculator,
     );
-    let (first_result, _) = manager.register_project_with_disambiguation(first_record).await.unwrap();
+    let (first_result, _) = manager
+        .register_project_with_disambiguation(first_record)
+        .await
+        .unwrap();
     let original_tenant_id = first_result.tenant_id.clone();
 
     // Register second clone (should trigger disambiguation for both)
     let second_record = make_disambig_record(
-        "second-clone", "/home/user/personal/project", git_remote, &remote_hash, &calculator,
+        "second-clone",
+        "/home/user/personal/project",
+        git_remote,
+        &remote_hash,
+        &calculator,
     );
-    let (second_result, aliases) = manager.register_project_with_disambiguation(second_record).await.unwrap();
+    let (second_result, aliases) = manager
+        .register_project_with_disambiguation(second_record)
+        .await
+        .unwrap();
 
     assert!(second_result.disambiguation_path.is_some());
     let second_disambig = second_result.disambiguation_path.as_ref().unwrap();
-    assert!(second_disambig.contains("personal"), "Expected 'personal' in disambiguation path: {}", second_disambig);
+    assert!(
+        second_disambig.contains("personal"),
+        "Expected 'personal' in disambiguation path: {}",
+        second_disambig
+    );
 
-    let updated_first = manager.get_watch_folder("first-clone").await.unwrap().unwrap();
+    let updated_first = manager
+        .get_watch_folder("first-clone")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(updated_first.disambiguation_path.is_some());
     let first_disambig = updated_first.disambiguation_path.as_ref().unwrap();
-    assert!(first_disambig.contains("work"), "Expected 'work' in disambiguation path: {}", first_disambig);
+    assert!(
+        first_disambig.contains("work"),
+        "Expected 'work' in disambiguation path: {}",
+        first_disambig
+    );
 
-    assert_ne!(updated_first.tenant_id, second_result.tenant_id,
-        "Both clones should have different tenant_ids");
+    assert_ne!(
+        updated_first.tenant_id, second_result.tenant_id,
+        "Both clones should have different tenant_ids"
+    );
 
-    assert!(!aliases.is_empty(), "Should have created alias for first clone");
+    assert!(
+        !aliases.is_empty(),
+        "Should have created alias for first clone"
+    );
     let (old_id, new_id) = &aliases[0];
-    assert_eq!(old_id, &original_tenant_id, "Alias should map from original tenant_id");
-    assert_eq!(new_id, &updated_first.tenant_id, "Alias should map to new tenant_id");
+    assert_eq!(
+        old_id, &original_tenant_id,
+        "Alias should map from original tenant_id"
+    );
+    assert_eq!(
+        new_id, &updated_first.tenant_id,
+        "Alias should map to new tenant_id"
+    );
 }
 
 #[tokio::test]
@@ -180,10 +228,19 @@ async fn test_is_path_registered() {
 
     let record = make_test_watch_folder("test-project", "/home/user/myproject", "test-tenant");
 
-    assert!(!manager.is_path_registered("/home/user/myproject").await.unwrap());
+    assert!(!manager
+        .is_path_registered("/home/user/myproject")
+        .await
+        .unwrap());
 
     manager.store_watch_folder(&record).await.unwrap();
 
-    assert!(manager.is_path_registered("/home/user/myproject").await.unwrap());
-    assert!(!manager.is_path_registered("/home/user/other").await.unwrap());
+    assert!(manager
+        .is_path_registered("/home/user/myproject")
+        .await
+        .unwrap());
+    assert!(!manager
+        .is_path_registered("/home/user/other")
+        .await
+        .unwrap());
 }

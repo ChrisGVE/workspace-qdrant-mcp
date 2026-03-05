@@ -5,9 +5,9 @@
 //!
 //! Run with: cargo bench --bench file_ingestion_benchmarks
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use shared_test_utils::fixtures::*;
-use std::fs::{File, self};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -59,15 +59,17 @@ fn generate_test_content(size_kb: usize, content_type: &str) -> String {
             content
         }
         "json" => {
-            let items: Vec<_> = (0..size_kb * 10).map(|i| {
-                serde_json::json!({
-                    "id": i,
-                    "name": format!("Item {}", i),
-                    "description": format!("This is item number {} for benchmarking", i),
-                    "value": i as f64 * 1.5,
-                    "active": i % 2 == 0,
+            let items: Vec<_> = (0..size_kb * 10)
+                .map(|i| {
+                    serde_json::json!({
+                        "id": i,
+                        "name": format!("Item {}", i),
+                        "description": format!("This is item number {} for benchmarking", i),
+                        "value": i as f64 * 1.5,
+                        "active": i % 2 == 0,
+                    })
                 })
-            }).collect();
+                .collect();
             serde_json::to_string_pretty(&serde_json::json!({"items": items})).unwrap()
         }
         _ => {
@@ -114,7 +116,7 @@ fn bench_ingest_small_files(c: &mut Criterion) {
                     let lines = content.lines().count();
                     black_box(lines)
                 })
-            }
+            },
         );
     }
 
@@ -139,7 +141,7 @@ fn bench_ingest_medium_files(c: &mut Criterion) {
                     let lines = content.lines().count();
                     black_box(lines)
                 })
-            }
+            },
         );
     }
 
@@ -165,7 +167,7 @@ fn bench_ingest_large_files(c: &mut Criterion) {
                     let lines = content.lines().count();
                     black_box(lines)
                 })
-            }
+            },
         );
     }
 
@@ -192,7 +194,7 @@ fn bench_ingest_very_large_files(c: &mut Criterion) {
                     let lines = content.lines().count();
                     black_box(lines)
                 })
-            }
+            },
         );
     }
 
@@ -260,7 +262,9 @@ fn bench_batch_mixed_types(c: &mut Criterion) {
     for file_type in &["txt", "py", "md", "json"] {
         for i in 0..5 {
             let content = generate_test_content(10, file_type);
-            let file_path = temp_dir.path().join(format!("test_{}_{}.{}", file_type, i, file_type));
+            let file_path = temp_dir
+                .path()
+                .join(format!("test_{}_{}.{}", file_type, i, file_type));
             let mut file = File::create(&file_path).unwrap();
             file.write_all(content.as_bytes()).unwrap();
             file_paths.push(file_path);
@@ -416,9 +420,7 @@ fn bench_project_creation(c: &mut Criterion) {
     c.bench_function("create_test_project", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let (temp_dir, file_paths) = TempFileFixtures::create_temp_project()
-                    .await
-                    .unwrap();
+                let (temp_dir, file_paths) = TempFileFixtures::create_temp_project().await.unwrap();
                 black_box((temp_dir, file_paths))
             })
         })
@@ -482,7 +484,7 @@ fn bench_concurrent_file_operations(c: &mut Criterion) {
                         black_box(results)
                     })
                 })
-            }
+            },
         );
     }
 

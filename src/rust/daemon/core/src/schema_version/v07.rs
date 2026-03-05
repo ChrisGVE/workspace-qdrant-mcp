@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V07Migration;
 
@@ -32,6 +32,10 @@ impl Migration for V07Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 7 }
-    fn description(&self) -> &'static str { "Add is_archived column to watch_folders" }
+    fn version(&self) -> i32 {
+        7
+    }
+    fn description(&self) -> &'static str {
+        "Add is_archived column to watch_folders"
+    }
 }

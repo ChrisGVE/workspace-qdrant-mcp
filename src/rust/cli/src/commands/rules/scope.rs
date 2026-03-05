@@ -9,11 +9,7 @@ use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
 /// Manage rule scopes: list available scopes or show a specific one.
-pub async fn manage_scopes(
-    list: bool,
-    show: Option<String>,
-    verbose: bool,
-) -> Result<()> {
+pub async fn manage_scopes(list: bool, show: Option<String>, verbose: bool) -> Result<()> {
     output::section("Rule Scopes");
 
     if list || show.is_none() {
@@ -90,9 +86,7 @@ fn print_scope_detail(scope_name: &str) {
     if scope_name == "global" {
         output::info("  mcp__workspace_qdrant__rules(action=\"list\", scope=\"global\")");
     } else if scope_name.starts_with("project:") {
-        let project = scope_name
-            .strip_prefix("project:")
-            .unwrap_or(scope_name);
+        let project = scope_name.strip_prefix("project:").unwrap_or(scope_name);
         output::info(&format!(
             "  mcp__workspace_qdrant__rules(action=\"list\", project=\"{}\")",
             project

@@ -1,12 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use crate::allowed_extensions::{AllowedExtensions, FileRoute};
     use crate::allowed_extensions::extensions::LIBRARY_ROUTED_EXTENSIONS;
+    use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 
     #[test]
     fn test_default_has_common_project_extensions() {
         let ae = AllowedExtensions::default();
-        for ext in &[".rs", ".py", ".js", ".ts", ".go", ".java", ".c", ".cpp", ".md", ".toml", ".yaml"] {
+        for ext in &[
+            ".rs", ".py", ".js", ".ts", ".go", ".java", ".c", ".cpp", ".md", ".toml", ".yaml",
+        ] {
             assert!(
                 ae.project_extensions.contains(*ext),
                 "Expected project extension {} to be present",
@@ -165,8 +167,15 @@ mod tests {
     fn test_library_only_extensions_rejected_for_projects() {
         let ae = AllowedExtensions::default();
         // Document/reference formats should not be allowed in projects
-        for path in &["doc.pdf", "book.epub", "report.docx",
-                       "novel.mobi", "slides.pptx", "data.parquet", "budget.xlsx"] {
+        for path in &[
+            "doc.pdf",
+            "book.epub",
+            "report.docx",
+            "novel.mobi",
+            "slides.pptx",
+            "data.parquet",
+            "budget.xlsx",
+        ] {
             assert!(
                 !ae.is_allowed(path, "projects"),
                 "Library-only file {} should be rejected for projects",
@@ -254,11 +263,15 @@ mod tests {
         // .rs is in the library set (superset), so it's allowed in library folders
         assert_eq!(
             ae.route_file("main.rs", "libraries", "my-lib"),
-            FileRoute::LibraryCollection { source_project_id: None }
+            FileRoute::LibraryCollection {
+                source_project_id: None
+            }
         );
         assert_eq!(
             ae.route_file("example.py", "libraries", "my-lib"),
-            FileRoute::LibraryCollection { source_project_id: None }
+            FileRoute::LibraryCollection {
+                source_project_id: None
+            }
         );
     }
 
@@ -267,23 +280,40 @@ mod tests {
         let ae = AllowedExtensions::default();
         assert_eq!(
             ae.route_file("book.pdf", "libraries", "my-lib"),
-            FileRoute::LibraryCollection { source_project_id: None }
+            FileRoute::LibraryCollection {
+                source_project_id: None
+            }
         );
     }
 
     #[test]
     fn test_route_binary_file_excluded() {
         let ae = AllowedExtensions::default();
-        assert_eq!(ae.route_file("image.png", "projects", "proj"), FileRoute::Excluded);
-        assert_eq!(ae.route_file("photo.jpg", "libraries", "lib"), FileRoute::Excluded);
-        assert_eq!(ae.route_file("archive.zip", "projects", "proj"), FileRoute::Excluded);
+        assert_eq!(
+            ae.route_file("image.png", "projects", "proj"),
+            FileRoute::Excluded
+        );
+        assert_eq!(
+            ae.route_file("photo.jpg", "libraries", "lib"),
+            FileRoute::Excluded
+        );
+        assert_eq!(
+            ae.route_file("archive.zip", "projects", "proj"),
+            FileRoute::Excluded
+        );
     }
 
     #[test]
     fn test_route_extensionless_excluded() {
         let ae = AllowedExtensions::default();
-        assert_eq!(ae.route_file("Makefile", "projects", "proj"), FileRoute::Excluded);
-        assert_eq!(ae.route_file("Dockerfile", "libraries", "lib"), FileRoute::Excluded);
+        assert_eq!(
+            ae.route_file("Makefile", "projects", "proj"),
+            FileRoute::Excluded
+        );
+        assert_eq!(
+            ae.route_file("Dockerfile", "libraries", "lib"),
+            FileRoute::Excluded
+        );
     }
 
     #[test]
@@ -301,7 +331,9 @@ mod tests {
         );
         assert_eq!(
             ae.route_file("doc.PDF", "libraries", "lib"),
-            FileRoute::LibraryCollection { source_project_id: None }
+            FileRoute::LibraryCollection {
+                source_project_id: None
+            }
         );
     }
 

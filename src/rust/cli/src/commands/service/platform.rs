@@ -104,9 +104,7 @@ pub fn log_directory() -> Result<PathBuf> {
     {
         let base = std::env::var("XDG_STATE_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs::home_dir().unwrap_or_default().join(".local/state")
-            });
+            .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".local/state"));
         Ok(base.join("workspace-qdrant/logs"))
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -198,7 +196,10 @@ mod tests {
     fn test_log_directory() {
         let dir = log_directory().unwrap();
         #[cfg(target_os = "macos")]
-        assert!(dir.to_str().unwrap().contains("Library/Logs/workspace-qdrant"));
+        assert!(dir
+            .to_str()
+            .unwrap()
+            .contains("Library/Logs/workspace-qdrant"));
         #[cfg(target_os = "linux")]
         assert!(dir.to_str().unwrap().contains("workspace-qdrant/logs"));
     }

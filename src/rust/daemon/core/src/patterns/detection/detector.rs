@@ -1,12 +1,12 @@
 //! Core `LanguageDetector` implementation: construction, global instance, and all
 //! detection methods (extension, filename, shebang, keyword, path, content).
 
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::path::Path;
-use once_cell::sync::Lazy;
 
-use crate::patterns::comprehensive::{ComprehensivePatternManager, ComprehensiveResult};
 use super::types::{DetectionConfidence, DetectionMethod, DetectionResult, DetectorStats};
+use crate::patterns::comprehensive::{ComprehensivePatternManager, ComprehensiveResult};
 
 /// Optimized language detector with comprehensive pattern support
 #[derive(Debug)]
@@ -47,7 +47,9 @@ impl LanguageDetector {
         }
 
         // Build preprocessed shebang patterns (sorted by length descending for better matching)
-        let mut shebang_patterns: Vec<(String, String)> = config.content_signatures.shebangs
+        let mut shebang_patterns: Vec<(String, String)> = config
+            .content_signatures
+            .shebangs
             .iter()
             .map(|(shebang, lang)| (shebang.clone(), lang.clone()))
             .collect();
@@ -176,7 +178,10 @@ impl LanguageDetector {
         }
 
         // Try case-insensitive match
-        if let Some(language) = self.case_insensitive_extensions.get(&clean_ext.to_lowercase()) {
+        if let Some(language) = self
+            .case_insensitive_extensions
+            .get(&clean_ext.to_lowercase())
+        {
             return Some(language.clone());
         }
 
@@ -265,14 +270,20 @@ impl LanguageDetector {
 
     /// Get all supported languages
     pub fn supported_languages(&self) -> Vec<&String> {
-        self.extension_map.values().collect::<std::collections::HashSet<_>>().into_iter().collect()
+        self.extension_map
+            .values()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect()
     }
 
     /// Check if an extension is supported
     pub fn is_extension_supported(&self, extension: &str) -> bool {
         let clean_ext = extension.trim_start_matches('.');
-        self.extension_map.contains_key(clean_ext) ||
-        self.case_insensitive_extensions.contains_key(&clean_ext.to_lowercase())
+        self.extension_map.contains_key(clean_ext)
+            || self
+                .case_insensitive_extensions
+                .contains_key(&clean_ext.to_lowercase())
     }
 
     /// Get statistics about the detector
@@ -282,7 +293,9 @@ impl LanguageDetector {
             case_insensitive_extensions: self.case_insensitive_extensions.len(),
             shebang_patterns: self.shebang_patterns.len(),
             keyword_patterns: self.keyword_patterns.len(),
-            unique_languages: self.extension_map.values()
+            unique_languages: self
+                .extension_map
+                .values()
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
         }
@@ -308,7 +321,10 @@ fn resolve_detection_candidates(
         return (
             Some(candidate_languages[0].clone()),
             confidence_scores[0].clone(),
-            detection_methods.into_iter().next().unwrap_or(DetectionMethod::None),
+            detection_methods
+                .into_iter()
+                .next()
+                .unwrap_or(DetectionMethod::None),
         );
     }
 
@@ -341,5 +357,9 @@ fn resolve_detection_candidates(
         best_confidence
     };
 
-    (Some(best_language), final_confidence, DetectionMethod::Consensus(detection_methods))
+    (
+        Some(best_language),
+        final_confidence,
+        DetectionMethod::Consensus(detection_methods),
+    )
 }

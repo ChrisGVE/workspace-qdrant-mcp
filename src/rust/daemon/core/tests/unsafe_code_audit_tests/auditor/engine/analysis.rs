@@ -78,8 +78,8 @@ impl UnsafeCodeAuditor {
         validations.insert(
             "utf16_conversion".to_string(),
             InvariantValidation {
-                invariant_description:
-                    "UTF-16 strings must be null-terminated and valid".to_string(),
+                invariant_description: "UTF-16 strings must be null-terminated and valid"
+                    .to_string(),
                 validation_method: "Length and null-termination checks".to_string(),
                 pre_conditions_met: true,
                 post_conditions_met: true,
@@ -161,9 +161,7 @@ impl UnsafeCodeAuditor {
         })
     }
 
-    pub(crate) async fn test_concurrent_fd_access(
-        &self,
-    ) -> Result<bool, UnsafeAuditError> {
+    pub(crate) async fn test_concurrent_fd_access(&self) -> Result<bool, UnsafeAuditError> {
         let handles: Vec<_> = (0..10)
             .map(|_| {
                 thread::spawn(|| {
@@ -184,8 +182,7 @@ impl UnsafeCodeAuditor {
             })
             .collect();
 
-        let results: Result<Vec<_>, _> =
-            handles.into_iter().map(|h| h.join()).collect();
+        let results: Result<Vec<_>, _> = handles.into_iter().map(|h| h.join()).collect();
 
         match results {
             Ok(results) => Ok(results.into_iter().all(|r| r)),
@@ -195,8 +192,7 @@ impl UnsafeCodeAuditor {
                     violation_type: ViolationType::DataRace,
                     severity: ViolationSeverity::High,
                     description: "Thread panic during concurrent fd operations".to_string(),
-                    suggested_fix: "Add proper synchronization around fd operations"
-                        .to_string(),
+                    suggested_fix: "Add proper synchronization around fd operations".to_string(),
                     stack_trace: None,
                 });
                 Ok(false)
@@ -204,9 +200,7 @@ impl UnsafeCodeAuditor {
         }
     }
 
-    pub(crate) async fn test_concurrent_string_operations(
-        &self,
-    ) -> Result<bool, UnsafeAuditError> {
+    pub(crate) async fn test_concurrent_string_operations(&self) -> Result<bool, UnsafeAuditError> {
         let long_string = "very long string ".repeat(1000);
         let test_strings = vec![
             "simple",
@@ -221,15 +215,13 @@ impl UnsafeCodeAuditor {
             .map(|s| {
                 let s = s.to_string();
                 thread::spawn(move || {
-                    let wide_chars: Vec<u16> =
-                        s.encode_utf16().chain(std::iter::once(0)).collect();
+                    let wide_chars: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
                     wide_chars.last() == Some(&0) && !wide_chars.is_empty()
                 })
             })
             .collect();
 
-        let results: Result<Vec<_>, _> =
-            handles.into_iter().map(|h| h.join()).collect();
+        let results: Result<Vec<_>, _> = handles.into_iter().map(|h| h.join()).collect();
 
         match results {
             Ok(results) => Ok(results.into_iter().all(|r| r)),
@@ -238,8 +230,7 @@ impl UnsafeCodeAuditor {
                     location: "concurrent_string_test".to_string(),
                     violation_type: ViolationType::DataRace,
                     severity: ViolationSeverity::Medium,
-                    description: "Thread panic during concurrent string operations"
-                        .to_string(),
+                    description: "Thread panic during concurrent string operations".to_string(),
                     suggested_fix: "Ensure string operations are thread-safe".to_string(),
                     stack_trace: None,
                 });

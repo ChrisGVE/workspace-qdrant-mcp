@@ -109,10 +109,7 @@ fn show_lsp_install_suggestions(language: &str) {
         "php" => output::info("    composer global require phpactor/phpactor"),
         "shell" | "bash" => output::info("    npm install -g bash-language-server"),
         "html" => output::info("    npm install -g vscode-langservers-extracted"),
-        _ => output::info(&format!(
-            "    Search for {}-language-server",
-            language
-        )),
+        _ => output::info(&format!("    Search for {}-language-server", language)),
     }
 }
 
@@ -142,7 +139,12 @@ fn check_tree_sitter_grammar(language: &str, _verbose: bool) -> bool {
             continue;
         }
 
-        for name in [&grammar_name, &alt_grammar_name, &dylib_name, &alt_dylib_name] {
+        for name in [
+            &grammar_name,
+            &alt_grammar_name,
+            &dylib_name,
+            &alt_dylib_name,
+        ] {
             let grammar_path = base_path.join(name);
             if grammar_path.exists() {
                 output::success(format!("  Found: {}", grammar_path.display()));
@@ -174,29 +176,27 @@ async fn check_daemon_language_support(language: &str, verbose: bool) {
     let lang_lower = language.to_lowercase();
 
     match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            match client.system().health(()).await {
-                Ok(response) => {
-                    let health = response.into_inner();
+        Ok(mut client) => match client.system().health(()).await {
+            Ok(response) => {
+                let health = response.into_inner();
 
-                    for comp in &health.components {
-                        if comp.component_name.to_lowercase().contains(&lang_lower)
-                            || comp.component_name.contains("lsp")
-                            || comp.component_name.contains("grammar")
-                        {
-                            let status = ServiceStatus::from_proto(comp.status);
-                            output::status_line(&format!("  {}", comp.component_name), status);
-                            if !comp.message.is_empty() && verbose {
-                                output::kv("    Details", &comp.message);
-                            }
+                for comp in &health.components {
+                    if comp.component_name.to_lowercase().contains(&lang_lower)
+                        || comp.component_name.contains("lsp")
+                        || comp.component_name.contains("grammar")
+                    {
+                        let status = ServiceStatus::from_proto(comp.status);
+                        output::status_line(&format!("  {}", comp.component_name), status);
+                        if !comp.message.is_empty() && verbose {
+                            output::kv("    Details", &comp.message);
                         }
                     }
                 }
-                Err(e) => {
-                    output::warning(format!("  Could not get daemon status: {}", e));
-                }
             }
-        }
+            Err(e) => {
+                output::warning(format!("  Could not get daemon status: {}", e));
+            }
+        },
         Err(_) => {
             output::warning("  Daemon not running - cannot check language support status");
         }
@@ -226,10 +226,7 @@ fn show_extension_mapping(language: &str) {
     if !extensions.is_empty() {
         output::kv("  Extensions", &extensions.join(", "));
     } else {
-        output::info(&format!(
-            "  Unknown file extensions for {}",
-            language
-        ));
+        output::info(&format!("  Unknown file extensions for {}", language));
     }
 }
 
@@ -238,24 +235,12 @@ fn show_diagnostic_summary(language: &str, lsp_found: bool, grammar_found: bool)
     output::info("Diagnostic Summary:");
 
     if lsp_found && grammar_found {
-        output::success(format!(
-            "  {} support appears fully configured",
-            language
-        ));
+        output::success(format!("  {} support appears fully configured", language));
     } else if lsp_found {
-        output::warning(format!(
-            "  {} has LSP but missing grammar",
-            language
-        ));
+        output::warning(format!("  {} has LSP but missing grammar", language));
     } else if grammar_found {
-        output::warning(format!(
-            "  {} has grammar but missing LSP",
-            language
-        ));
+        output::warning(format!("  {} has grammar but missing LSP", language));
     } else {
-        output::error(format!(
-            "  {} support not configured",
-            language
-        ));
+        output::error(format!("  {} support not configured", language));
     }
 }

@@ -21,9 +21,10 @@ pub fn get_lsp_server_info(language: &str) -> Option<(&'static str, Vec<&'static
         "ruby" | "rb" => Some(("ruby-lsp/solargraph", vec!["ruby-lsp", "solargraph"])),
         "php" => Some(("phpactor/intelephense", vec!["phpactor", "intelephense"])),
         "shell" | "bash" | "sh" => Some(("bash-language-server", vec!["bash-language-server"])),
-        "html" | "htm" => {
-            Some(("vscode-html-languageserver", vec!["vscode-html-language-server"]))
-        }
+        "html" | "htm" => Some((
+            "vscode-html-languageserver",
+            vec!["vscode-html-language-server"],
+        )),
         _ => None,
     }
 }

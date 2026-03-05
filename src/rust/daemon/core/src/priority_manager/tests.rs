@@ -1,9 +1,9 @@
 use super::*;
-use crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL;
 use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
+use crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL;
+use chrono::{Duration as ChronoDuration, Utc};
 use sqlx::SqlitePool;
 use std::time::Duration;
-use chrono::{Duration as ChronoDuration, Utc};
 use tempfile::tempdir;
 
 /// Helper to create test database with spec-compliant schema
@@ -91,7 +91,10 @@ async fn test_unregister_session_deactivates_project() {
 
     // Create test project and register session
     create_test_project(&pool, "abcd12345678", "/test/project").await;
-    priority_manager.register_session("abcd12345678", "main").await.unwrap();
+    priority_manager
+        .register_session("abcd12345678", "main")
+        .await
+        .unwrap();
 
     // Unregister session
     let count = priority_manager
@@ -117,7 +120,10 @@ async fn test_heartbeat_updates_timestamp() {
 
     // Create test project and register session
     create_test_project(&pool, "abcd12345678", "/test/project").await;
-    priority_manager.register_session("abcd12345678", "main").await.unwrap();
+    priority_manager
+        .register_session("abcd12345678", "main")
+        .await
+        .unwrap();
 
     // Get initial timestamp
     let info_before = priority_manager
@@ -128,10 +134,7 @@ async fn test_heartbeat_updates_timestamp() {
 
     // Wait briefly and send heartbeat
     tokio::time::sleep(Duration::from_millis(10)).await;
-    let updated = priority_manager
-        .heartbeat("abcd12345678")
-        .await
-        .unwrap();
+    let updated = priority_manager.heartbeat("abcd12345678").await.unwrap();
     assert!(updated);
 
     // Verify timestamp updated
@@ -152,10 +155,7 @@ async fn test_heartbeat_ignored_without_active_session() {
     create_test_project(&pool, "abcd12345678", "/test/project").await;
 
     // Heartbeat should be ignored
-    let updated = priority_manager
-        .heartbeat("abcd12345678")
-        .await
-        .unwrap();
+    let updated = priority_manager.heartbeat("abcd12345678").await.unwrap();
     assert!(!updated);
 }
 
@@ -168,7 +168,10 @@ async fn test_cleanup_orphaned_sessions() {
     create_test_project(&pool, "abcd12345678", "/test/project").await;
 
     // Register session
-    priority_manager.register_session("abcd12345678", "main").await.unwrap();
+    priority_manager
+        .register_session("abcd12345678", "main")
+        .await
+        .unwrap();
 
     // Manually set last_activity_at to old timestamp to simulate orphaned session
     let old_time = Utc::now() - ChronoDuration::minutes(5);
@@ -187,7 +190,9 @@ async fn test_cleanup_orphaned_sessions() {
 
     assert_eq!(cleanup.projects_affected, 1);
     assert_eq!(cleanup.sessions_cleaned, 1);
-    assert!(cleanup.demoted_projects.contains(&"abcd12345678".to_string()));
+    assert!(cleanup
+        .demoted_projects
+        .contains(&"abcd12345678".to_string()));
 
     // Verify session cleaned up
     let info = priority_manager
@@ -206,7 +211,10 @@ async fn test_no_orphaned_sessions_with_recent_heartbeat() {
 
     // Create test project and register session (sets last_activity_at to now)
     create_test_project(&pool, "abcd12345678", "/test/project").await;
-    priority_manager.register_session("abcd12345678", "main").await.unwrap();
+    priority_manager
+        .register_session("abcd12345678", "main")
+        .await
+        .unwrap();
 
     // Cleanup with 60 second timeout - should NOT detect orphaned session
     let cleanup = priority_manager
@@ -238,14 +246,17 @@ async fn test_get_high_priority_projects() {
     create_test_project(&pool, "project3cccc", "/test/project3").await;
 
     // Register sessions for some projects
-    priority_manager.register_session("project1aaaa", "main").await.unwrap();
-    priority_manager.register_session("project2bbbb", "main").await.unwrap();
-
-    // Get high priority projects
-    let high_priority = priority_manager
-        .get_high_priority_projects()
+    priority_manager
+        .register_session("project1aaaa", "main")
         .await
         .unwrap();
+    priority_manager
+        .register_session("project2bbbb", "main")
+        .await
+        .unwrap();
+
+    // Get high priority projects
+    let high_priority = priority_manager.get_high_priority_projects().await.unwrap();
 
     assert_eq!(high_priority.len(), 2);
     let tenant_ids: Vec<_> = high_priority.iter().map(|p| &p.tenant_id).collect();
@@ -306,7 +317,11 @@ async fn test_set_priority_normal_to_high() {
     assert_eq!(queue_updated, 0);
 
     // Verify project is now active
-    let info = priority_manager.get_session_info("abcd12345678").await.unwrap().unwrap();
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(info.is_active);
     assert_eq!(info.priority, "high");
 }
@@ -318,7 +333,10 @@ async fn test_set_priority_high_to_normal() {
 
     // Create test project and activate it
     create_test_project(&pool, "abcd12345678", "/test/project").await;
-    priority_manager.register_session("abcd12345678", "main").await.unwrap();
+    priority_manager
+        .register_session("abcd12345678", "main")
+        .await
+        .unwrap();
 
     // Set priority to normal
     let (previous, queue_updated) = priority_manager
@@ -331,7 +349,11 @@ async fn test_set_priority_high_to_normal() {
     assert_eq!(queue_updated, 0);
 
     // Verify project is now inactive
-    let info = priority_manager.get_session_info("abcd12345678").await.unwrap().unwrap();
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!info.is_active);
     assert_eq!(info.priority, "normal");
 }

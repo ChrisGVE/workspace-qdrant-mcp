@@ -96,11 +96,9 @@ impl ItemType {
     /// Content types (2) before structural (1) before administrative (0).
     pub fn dequeue_priority(&self) -> u8 {
         match self {
-            ItemType::Text
-            | ItemType::File
-            | ItemType::Url
-            | ItemType::Website
-            | ItemType::Doc => 2,
+            ItemType::Text | ItemType::File | ItemType::Url | ItemType::Website | ItemType::Doc => {
+                2
+            }
             ItemType::Folder => 1,
             ItemType::Tenant | ItemType::Collection => 0,
         }

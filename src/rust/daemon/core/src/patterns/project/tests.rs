@@ -1,5 +1,5 @@
-use super::*;
 use super::helpers::file_matches_pattern;
+use super::*;
 
 #[test]
 fn test_detector_initialization() {
@@ -40,8 +40,10 @@ fn test_javascript_project_detection() {
 
     let project_info = detector.analyze_project(&files);
 
-    assert!(project_info.primary_language == Some("javascript".to_string()) ||
-            project_info.primary_language == Some("typescript".to_string()));
+    assert!(
+        project_info.primary_language == Some("javascript".to_string())
+            || project_info.primary_language == Some("typescript".to_string())
+    );
     assert!(!project_info.build_systems.is_empty());
     assert!(project_info.frameworks.contains(&"react".to_string()));
 }
@@ -116,10 +118,7 @@ fn test_global_detector() {
 
 #[test]
 fn test_convenience_function() {
-    let files = vec![
-        "Cargo.toml".to_string(),
-        "src/main.rs".to_string(),
-    ];
+    let files = vec!["Cargo.toml".to_string(), "src/main.rs".to_string()];
 
     let project_info = analyze_project_from_files(&files);
     assert_eq!(project_info.primary_language, Some("rust".to_string()));

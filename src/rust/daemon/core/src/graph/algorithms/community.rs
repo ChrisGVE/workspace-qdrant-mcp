@@ -1,5 +1,4 @@
 /// Community detection using label propagation algorithm.
-
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -84,8 +83,14 @@ fn build_undirected_neighbors<'a>(
     let mut neighbors: HashMap<&str, HashSet<&str>> = HashMap::new();
     for (src, targets) in outgoing {
         for tgt in targets {
-            neighbors.entry(src.as_str()).or_default().insert(tgt.as_str());
-            neighbors.entry(tgt.as_str()).or_default().insert(src.as_str());
+            neighbors
+                .entry(src.as_str())
+                .or_default()
+                .insert(tgt.as_str());
+            neighbors
+                .entry(tgt.as_str())
+                .or_default()
+                .insert(src.as_str());
         }
     }
     neighbors
@@ -127,7 +132,11 @@ fn run_label_propagation<'a>(
             }
         }
         if !changed {
-            debug!(tenant_id, iterations = iteration + 1, "Label propagation converged");
+            debug!(
+                tenant_id,
+                iterations = iteration + 1,
+                "Label propagation converged"
+            );
             break;
         }
     }
@@ -158,7 +167,10 @@ fn assemble_communities(
         .enumerate()
         .map(|(i, mut m)| {
             m.sort_by(|a, b| a.symbol_name.cmp(&b.symbol_name));
-            Community { community_id: i as u32, members: m }
+            Community {
+                community_id: i as u32,
+                members: m,
+            }
         })
         .collect();
 

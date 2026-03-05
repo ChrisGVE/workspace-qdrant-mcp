@@ -10,15 +10,15 @@
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
-use wqm_common::timestamps;
 use rusqlite::Connection;
 use uuid::Uuid;
+use wqm_common::timestamps;
 
 use crate::config::get_database_path;
 
 // Re-export canonical types from wqm-common
-pub use wqm_common::queue_types::{ItemType, QueueOperation};
 pub use wqm_common::payloads::{ContentPayload, FilePayload, ScratchpadPayload, UrlPayload};
+pub use wqm_common::queue_types::{ItemType, QueueOperation};
 
 /// Result of enqueue operation
 #[derive(Debug)]
@@ -39,8 +39,7 @@ impl UnifiedQueueClient {
     /// Creates the database directory if needed (for write operations).
     /// Returns error with helpful message if database doesn't exist.
     pub fn connect() -> Result<Self> {
-        let db_path = get_database_path()
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let db_path = get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
         // Ensure parent directory exists (needed for first write)
         if let Some(parent) = db_path.parent() {
@@ -73,8 +72,8 @@ impl UnifiedQueueClient {
         payload: &ContentPayload,
         branch: &str,
     ) -> Result<EnqueueResult> {
-        let payload_json = serde_json::to_string(payload)
-            .context("Failed to serialize content payload")?;
+        let payload_json =
+            serde_json::to_string(payload).context("Failed to serialize content payload")?;
 
         self.enqueue(
             ItemType::Text,
@@ -96,8 +95,8 @@ impl UnifiedQueueClient {
         op: QueueOperation,
         branch: &str,
     ) -> Result<EnqueueResult> {
-        let payload_json = serde_json::to_string(payload)
-            .context("Failed to serialize file payload")?;
+        let payload_json =
+            serde_json::to_string(payload).context("Failed to serialize file payload")?;
 
         self.enqueue(
             ItemType::File,
@@ -118,8 +117,8 @@ impl UnifiedQueueClient {
         payload: &UrlPayload,
         branch: &str,
     ) -> Result<EnqueueResult> {
-        let payload_json = serde_json::to_string(payload)
-            .context("Failed to serialize URL payload")?;
+        let payload_json =
+            serde_json::to_string(payload).context("Failed to serialize URL payload")?;
 
         self.enqueue(
             ItemType::Url,
@@ -138,8 +137,8 @@ impl UnifiedQueueClient {
         tenant_id: &str,
         payload: &ScratchpadPayload,
     ) -> Result<EnqueueResult> {
-        let payload_json = serde_json::to_string(payload)
-            .context("Failed to serialize scratchpad payload")?;
+        let payload_json =
+            serde_json::to_string(payload).context("Failed to serialize scratchpad payload")?;
 
         self.enqueue(
             ItemType::Text,
@@ -174,33 +173,37 @@ impl UnifiedQueueClient {
             tenant_id,
             collection,
             payload_json,
-        ).context("Failed to generate idempotency key")?;
+        )
+        .context("Failed to generate idempotency key")?;
 
         let item_type_str = item_type.to_string();
         let op_str = op.to_string();
 
         // Try to insert, checking for duplicates via idempotency_key
-        let result = self.conn.execute(
-            r#"
+        let result = self
+            .conn
+            .execute(
+                r#"
             INSERT OR IGNORE INTO unified_queue (
                 queue_id, idempotency_key, item_type, op, tenant_id, collection,
                 status, branch, payload_json, metadata,
                 created_at, updated_at, retry_count
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?10, 0)
             "#,
-            rusqlite::params![
-                &queue_id,
-                &idempotency_key,
-                &item_type_str,
-                &op_str,
-                tenant_id,
-                collection,
-                branch,
-                payload_json,
-                metadata,
-                &now,
-            ],
-        ).context("Failed to insert into unified_queue")?;
+                rusqlite::params![
+                    &queue_id,
+                    &idempotency_key,
+                    &item_type_str,
+                    &op_str,
+                    tenant_id,
+                    collection,
+                    branch,
+                    payload_json,
+                    metadata,
+                    &now,
+                ],
+            )
+            .context("Failed to insert into unified_queue")?;
 
         let was_duplicate = result == 0;
 
@@ -218,7 +221,7 @@ impl UnifiedQueueClient {
             SELECT status, COUNT(*) as count
             FROM unified_queue
             GROUP BY status
-            "#
+            "#,
         )?;
 
         let mut pending = 0;
@@ -258,10 +261,11 @@ impl UnifiedQueueClient {
             SELECT item_type, status, COUNT(*) as count
             FROM unified_queue
             GROUP BY item_type, status
-            "#
+            "#,
         )?;
 
-        let mut result: std::collections::HashMap<String, QueueStats> = std::collections::HashMap::new();
+        let mut result: std::collections::HashMap<String, QueueStats> =
+            std::collections::HashMap::new();
 
         let rows = stmt.query_map([], |row| {
             let item_type: String = row.get(0)?;
@@ -308,7 +312,8 @@ mod tests {
             "test-tenant",
             "test-collection",
             r#"{"content":"hello"}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Key should be 32 characters (hex)
         assert_eq!(key.len(), 32);
@@ -320,7 +325,8 @@ mod tests {
             "test-tenant",
             "test-collection",
             r#"{"content":"hello"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(key, key2);
 
         // Different input should produce different key
@@ -330,7 +336,8 @@ mod tests {
             "test-tenant",
             "test-collection",
             r#"{"content":"world"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_ne!(key, key3);
     }
 

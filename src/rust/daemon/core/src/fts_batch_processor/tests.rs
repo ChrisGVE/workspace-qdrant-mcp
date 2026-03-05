@@ -65,7 +65,14 @@ async fn test_single_file_new_ingestion() {
     let (_tmp, db) = setup_db().await;
     let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
-    processor.add_change(test_change(1, "", "line 1\nline 2\nline 3", "proj-a", Some("main"), "/src/main.rs"));
+    processor.add_change(test_change(
+        1,
+        "",
+        "line 1\nline 2\nline 3",
+        "proj-a",
+        Some("main"),
+        "/src/main.rs",
+    ));
 
     // Queue depth = 1, below threshold => single-file mode
     let stats = processor.flush(1).await.unwrap();
@@ -74,21 +81,18 @@ async fn test_single_file_new_ingestion() {
     assert!(!stats.batch_mode);
 
     // Verify lines in DB
-    let count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM code_lines WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(count, 3);
 
     // Verify file_metadata
-    let tenant: String = sqlx::query_scalar(
-        "SELECT tenant_id FROM file_metadata WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let tenant: String =
+        sqlx::query_scalar("SELECT tenant_id FROM file_metadata WHERE file_id = 1")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
     assert_eq!(tenant, "proj-a");
 
     db.close().await;
@@ -121,13 +125,11 @@ async fn test_batch_mode_multiple_files() {
 
     // Verify all files have lines
     for i in 1..=3_i64 {
-        let count: i32 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM code_lines WHERE file_id = ?1",
-        )
-        .bind(i)
-        .fetch_one(db.pool())
-        .await
-        .unwrap();
+        let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = ?1")
+            .bind(i)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
         assert_eq!(count, 2, "File {} should have 2 lines", i);
     }
 
@@ -140,11 +142,25 @@ async fn test_update_with_diff() {
     let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     // First: ingest original content
-    processor.add_change(test_change(1, "", "line 1\nline 2\nline 3", "proj-a", Some("main"), "/src/main.rs"));
+    processor.add_change(test_change(
+        1,
+        "",
+        "line 1\nline 2\nline 3",
+        "proj-a",
+        Some("main"),
+        "/src/main.rs",
+    ));
     processor.flush(0).await.unwrap();
 
     // Second: update with modified content
-    processor.add_change(test_change(1, "line 1\nline 2\nline 3", "line 1\nline 2 modified\nline 3\nline 4", "proj-a", Some("main"), "/src/main.rs"));
+    processor.add_change(test_change(
+        1,
+        "line 1\nline 2\nline 3",
+        "line 1\nline 2 modified\nline 3\nline 4",
+        "proj-a",
+        Some("main"),
+        "/src/main.rs",
+    ));
     let stats = processor.flush(0).await.unwrap();
 
     assert_eq!(stats.files_processed, 1);
@@ -152,12 +168,10 @@ async fn test_update_with_diff() {
     assert!(stats.lines_unchanged > 0 || stats.lines_updated > 0);
 
     // Verify final line count = 4
-    let count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM code_lines WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(count, 4);
 
     db.close().await;
@@ -169,7 +183,16 @@ async fn test_full_rewrite() {
     let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     let stats = processor
-        .full_rewrite(1, "alpha\nbeta\ngamma", "proj-a", Some("main"), "/src/lib.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "alpha\nbeta\ngamma",
+            "proj-a",
+            Some("main"),
+            "/src/lib.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -177,27 +200,32 @@ async fn test_full_rewrite() {
     assert_eq!(stats.lines_inserted, 3);
 
     // Verify lines exist
-    let count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM code_lines WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(count, 3);
 
     // Full rewrite again with different content
     let stats2 = processor
-        .full_rewrite(1, "one\ntwo", "proj-a", Some("main"), "/src/lib.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "one\ntwo",
+            "proj-a",
+            Some("main"),
+            "/src/lib.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(stats2.lines_inserted, 2);
 
-    let count2: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM code_lines WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let count2: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(count2, 2);
 
     db.close().await;
@@ -210,7 +238,16 @@ async fn test_delete_file() {
 
     // Insert some lines first
     processor
-        .full_rewrite(1, "a\nb\nc", "proj", Some("main"), "/file.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "a\nb\nc",
+            "proj",
+            Some("main"),
+            "/file.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -218,21 +255,17 @@ async fn test_delete_file() {
     assert_eq!(deleted, 3);
 
     // Verify no lines remain
-    let count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM code_lines WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(count, 0);
 
     // Verify file_metadata also deleted
-    let md_count: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM file_metadata WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let md_count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE file_id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(md_count, 0);
 
     db.close().await;
@@ -245,15 +278,42 @@ async fn test_delete_tenant() {
 
     // Insert files for two tenants
     processor
-        .full_rewrite(1, "a\nb", "proj-a", Some("main"), "/f1.rs", None, None, None)
+        .full_rewrite(
+            1,
+            "a\nb",
+            "proj-a",
+            Some("main"),
+            "/f1.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     processor
-        .full_rewrite(2, "c\nd\ne", "proj-a", Some("main"), "/f2.rs", None, None, None)
+        .full_rewrite(
+            2,
+            "c\nd\ne",
+            "proj-a",
+            Some("main"),
+            "/f2.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     processor
-        .full_rewrite(3, "x\ny", "proj-b", Some("main"), "/f3.rs", None, None, None)
+        .full_rewrite(
+            3,
+            "x\ny",
+            "proj-b",
+            Some("main"),
+            "/f3.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -262,12 +322,10 @@ async fn test_delete_tenant() {
     assert_eq!(deleted, 5); // 2 + 3 lines
 
     // proj-b should be untouched
-    let count_b: i32 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM code_lines WHERE file_id = 3",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let count_b: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 3")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_eq!(count_b, 2);
 
     db.close().await;
@@ -279,7 +337,14 @@ async fn test_fts5_searchable_after_flush() {
     let (_tmp, db) = setup_db().await;
     let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
-    processor.add_change(test_change(1, "", "fn search_target() {}\nfn other_function() {}", "proj-a", Some("main"), "/src/main.rs"));
+    processor.add_change(test_change(
+        1,
+        "",
+        "fn search_target() {}\nfn other_function() {}",
+        "proj-a",
+        Some("main"),
+        "/src/main.rs",
+    ));
     processor.flush(0).await.unwrap();
 
     // FTS5 should be searchable after flush
@@ -302,8 +367,22 @@ async fn test_batch_mode_fts5_searchable() {
     let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     // Multiple files in batch mode
-    processor.add_change(test_change(1, "", "fn batch_alpha() {}", "proj-a", Some("main"), "/src/a.rs"));
-    processor.add_change(test_change(2, "", "fn batch_beta() {}", "proj-a", Some("main"), "/src/b.rs"));
+    processor.add_change(test_change(
+        1,
+        "",
+        "fn batch_alpha() {}",
+        "proj-a",
+        Some("main"),
+        "/src/a.rs",
+    ));
+    processor.add_change(test_change(
+        2,
+        "",
+        "fn batch_beta() {}",
+        "proj-a",
+        Some("main"),
+        "/src/b.rs",
+    ));
 
     // Force batch mode with high queue depth
     processor.flush(50).await.unwrap();
@@ -333,8 +412,22 @@ async fn test_scoped_search_after_flush() {
     let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
 
     // Two files in different projects
-    processor.add_change(test_change(1, "", "fn shared_name() {}", "proj-x", Some("main"), "/src/x.rs"));
-    processor.add_change(test_change(2, "", "fn shared_name_v2() {}", "proj-y", Some("main"), "/src/y.rs"));
+    processor.add_change(test_change(
+        1,
+        "",
+        "fn shared_name() {}",
+        "proj-x",
+        Some("main"),
+        "/src/x.rs",
+    ));
+    processor.add_change(test_change(
+        2,
+        "",
+        "fn shared_name_v2() {}",
+        "proj-y",
+        Some("main"),
+        "/src/y.rs",
+    ));
     processor.flush(0).await.unwrap();
 
     // Scoped search for proj-x only
@@ -398,9 +491,7 @@ async fn test_large_batch_throughput() {
 #[tokio::test]
 async fn test_custom_burst_threshold() {
     let (_tmp, db) = setup_db().await;
-    let config = FtsBatchConfig {
-        burst_threshold: 5,
-    };
+    let config = FtsBatchConfig { burst_threshold: 5 };
     let processor = FtsBatchProcessor::new(&db, config);
 
     assert!(!processor.should_use_batch_mode(4));

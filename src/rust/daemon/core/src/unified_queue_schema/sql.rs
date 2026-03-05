@@ -86,11 +86,9 @@ pub const MIGRATE_V20_ADD_COLUMNS_SQL: &[&str] = &[
 ];
 
 /// Index for finding items with incomplete Qdrant writes.
-pub const CREATE_QDRANT_STATUS_INDEX_SQL: &str =
-    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_qdrant_status
+pub const CREATE_QDRANT_STATUS_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_qdrant_status
        ON unified_queue(qdrant_status) WHERE qdrant_status != 'done'"#;
 
 /// Index for finding items with incomplete search DB writes.
-pub const CREATE_SEARCH_STATUS_INDEX_SQL: &str =
-    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_search_status
+pub const CREATE_SEARCH_STATUS_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_search_status
        ON unified_queue(search_status) WHERE search_status != 'done'"#;

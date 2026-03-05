@@ -89,9 +89,11 @@ pub async fn execute(args: SearchArgs) -> Result<()> {
             file_type,
             branch,
         } => search_project(&query, limit, include_libs, file_type, branch).await,
-        SearchCommand::Collection { name, query, filter } => {
-            search_collection(&name, &query, limit, filter).await
-        }
+        SearchCommand::Collection {
+            name,
+            query,
+            filter,
+        } => search_collection(&name, &query, limit, filter).await,
         SearchCommand::Global { query, exclude } => search_global(&query, limit, &exclude).await,
         SearchCommand::Rules { query, scope } => search_rules(&query, limit, scope).await,
     }
@@ -155,10 +157,10 @@ async fn search_collection(
 
     output::info("Collection search requires embedding generation.");
     output::info("Options:");
-    output::info("  1. MCP server: mcp__workspace_qdrant__search(scope=\"collection\", collection=\"...\"");
-    output::info(&format!(
-        "  2. Direct Qdrant with pre-computed vector:"
-    ));
+    output::info(
+        "  1. MCP server: mcp__workspace_qdrant__search(scope=\"collection\", collection=\"...\"",
+    );
+    output::info(&format!("  2. Direct Qdrant with pre-computed vector:"));
     output::info(&format!(
         "     curl -X POST 'http://localhost:6333/collections/{}/points/search'",
         name

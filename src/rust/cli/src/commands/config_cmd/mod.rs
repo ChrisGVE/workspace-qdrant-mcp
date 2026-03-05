@@ -76,7 +76,10 @@ mod tests {
         let result = check_active_mcp_sessions();
         // Either Ok(false) or error from path resolution — both are acceptable
         if let Ok(active) = result {
-            assert!(!active, "Should report no active sessions when DB doesn't exist");
+            assert!(
+                !active,
+                "Should report no active sessions when DB doesn't exist"
+            );
         }
 
         match prev {
@@ -97,10 +100,7 @@ mod tests {
 
         assert!(!source.exists(), "Source should be removed after move");
         assert!(target.exists(), "Target should exist after move");
-        assert_eq!(
-            std::fs::read_to_string(&target).unwrap(),
-            "# test config"
-        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "# test config");
     }
 
     #[test]
@@ -115,10 +115,7 @@ mod tests {
 
         assert!(source.exists(), "Source should still exist after copy");
         assert!(target.exists(), "Target should exist after copy");
-        assert_eq!(
-            std::fs::read_to_string(&target).unwrap(),
-            "test data"
-        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "test data");
     }
 
     #[test]

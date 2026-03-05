@@ -4,12 +4,11 @@ use chrono::Duration as ChronoDuration;
 use chrono::Utc;
 use sqlx::Row;
 use tracing::{debug, info};
-use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_PROJECTS};
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 use wqm_common::timestamps;
 
 use crate::unified_queue_schema::{
-    DestinationStatus, ItemType, QueueOperation as UnifiedOp, QueueStatus,
-    UnifiedQueueItem,
+    DestinationStatus, ItemType, QueueOperation as UnifiedOp, QueueStatus, UnifiedQueueItem,
 };
 
 use super::{QueueError, QueueManager, QueueResult};
@@ -51,16 +50,24 @@ impl QueueManager {
         let created_at_order = if is_descending { "ASC" } else { "DESC" };
 
         // Select queue_ids with calculated priority (Task 20)
-        let queue_ids = self.select_queue_ids(
-            &now_str, tenant_id, item_type, priority_order, created_at_order, batch_size,
-        ).await?;
+        let queue_ids = self
+            .select_queue_ids(
+                &now_str,
+                tenant_id,
+                item_type,
+                priority_order,
+                created_at_order,
+                batch_size,
+            )
+            .await?;
 
         if queue_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         // Update the selected items to in_progress
-        self.lease_items(&queue_ids, worker_id, &lease_until_str).await?;
+        self.lease_items(&queue_ids, worker_id, &lease_until_str)
+            .await?;
 
         // Fetch the updated items
         let mut items = self.fetch_items(&queue_ids).await?;
@@ -72,7 +79,11 @@ impl QueueManager {
                 .enumerate()
                 .map(|(i, id)| (id.as_str(), i))
                 .collect();
-            items.sort_by_key(|item| *id_positions.get(item.queue_id.as_str()).unwrap_or(&usize::MAX));
+            items.sort_by_key(|item| {
+                *id_positions
+                    .get(item.queue_id.as_str())
+                    .unwrap_or(&usize::MAX)
+            });
         }
 
         debug!(
@@ -97,7 +108,8 @@ impl QueueManager {
         let query = build_dequeue_query(tenant_id, item_type, priority_order, created_at_order);
         let result = execute_dequeue_query(
             &self.pool, &query, now_str, tenant_id, item_type, batch_size,
-        ).await?;
+        )
+        .await?;
         Ok(result)
     }
 
@@ -137,9 +149,8 @@ impl QueueManager {
 
     /// Fetch queue items by their IDs.
     async fn fetch_items(&self, queue_ids: &[String]) -> QueueResult<Vec<UnifiedQueueItem>> {
-        let fetch_placeholders: Vec<String> = (1..=queue_ids.len())
-            .map(|i| format!("?{}", i))
-            .collect();
+        let fetch_placeholders: Vec<String> =
+            (1..=queue_ids.len()).map(|i| format!("?{}", i)).collect();
         let fetch_query = format!(
             "SELECT * FROM unified_queue WHERE queue_id IN ({})",
             fetch_placeholders.join(", ")
@@ -241,9 +252,9 @@ fn build_dequeue_query(
 ) -> String {
     let tenant_filter = match (tenant_id, item_type) {
         (Some(_), Some(_)) => "AND q.tenant_id = ?2 AND q.item_type = ?3",
-        (Some(_), None)    => "AND q.tenant_id = ?2",
-        (None, Some(_))    => "AND q.item_type = ?2",
-        (None, None)       => "",
+        (Some(_), None) => "AND q.tenant_id = ?2",
+        (None, Some(_)) => "AND q.item_type = ?2",
+        (None, None) => "",
     };
     let limit_param = match (tenant_id, item_type) {
         (Some(_), Some(_)) => "?4",
@@ -304,23 +315,35 @@ async fn execute_dequeue_query(
     let result = match (tenant_id, item_type) {
         (Some(tid), Some(itype)) => {
             sqlx::query_scalar::<_, String>(query)
-                .bind(now_str).bind(tid).bind(itype.to_string()).bind(batch_size)
-                .fetch_all(pool).await?
+                .bind(now_str)
+                .bind(tid)
+                .bind(itype.to_string())
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await?
         }
         (Some(tid), None) => {
             sqlx::query_scalar::<_, String>(query)
-                .bind(now_str).bind(tid).bind(batch_size)
-                .fetch_all(pool).await?
+                .bind(now_str)
+                .bind(tid)
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await?
         }
         (None, Some(itype)) => {
             sqlx::query_scalar::<_, String>(query)
-                .bind(now_str).bind(itype.to_string()).bind(batch_size)
-                .fetch_all(pool).await?
+                .bind(now_str)
+                .bind(itype.to_string())
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await?
         }
         (None, None) => {
             sqlx::query_scalar::<_, String>(query)
-                .bind(now_str).bind(batch_size)
-                .fetch_all(pool).await?
+                .bind(now_str)
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await?
         }
     };
     Ok(result)

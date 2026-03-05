@@ -8,8 +8,8 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-use crate::output;
 use super::daemon::{is_daemon_running, start_daemon, stop_daemon};
+use crate::output;
 
 // =========================================================================
 // Safety checks
@@ -18,16 +18,14 @@ use super::daemon::{is_daemon_running, start_daemon, stop_daemon};
 /// Check for active MCP server sessions via operational_state table.
 /// Returns true if an active session was detected.
 pub(super) fn check_active_mcp_sessions() -> Result<bool> {
-    let db_path = wqm_common::paths::get_database_path()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let db_path = wqm_common::paths::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
         // No database means no sessions
         return Ok(false);
     }
 
-    let conn = rusqlite::Connection::open(&db_path)
-        .context("Failed to open state database")?;
+    let conn = rusqlite::Connection::open(&db_path).context("Failed to open state database")?;
 
     // Check if operational_state table exists (schema v17+)
     let table_exists: bool = conn
@@ -83,13 +81,8 @@ pub(super) fn move_file(source: &Path, target: &Path) -> Result<()> {
     }
 
     // Copy then delete for cross-device safety (atomic rename only works same-device)
-    std::fs::copy(source, target).with_context(|| {
-        format!(
-            "Failed to copy {} → {}",
-            source.display(),
-            target.display()
-        )
-    })?;
+    std::fs::copy(source, target)
+        .with_context(|| format!("Failed to copy {} → {}", source.display(), target.display()))?;
 
     std::fs::remove_file(source).with_context(|| {
         format!(
@@ -108,13 +101,8 @@ pub(super) fn copy_file(source: &Path, target: &Path) -> Result<()> {
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
 
-    std::fs::copy(source, target).with_context(|| {
-        format!(
-            "Failed to copy {} → {}",
-            source.display(),
-            target.display()
-        )
-    })?;
+    std::fs::copy(source, target)
+        .with_context(|| format!("Failed to copy {} → {}", source.display(), target.display()))?;
 
     Ok(())
 }
@@ -202,17 +190,17 @@ pub(super) async fn migrate_config(
         }
         None => {
             if let Some(parent) = target_config.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("Failed to create directory: {}", parent.display())
-                })?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
             }
-            std::fs::write(target_config, wqm_common::yaml_defaults::DEFAULT_YAML)
-                .with_context(|| {
+            std::fs::write(target_config, wqm_common::yaml_defaults::DEFAULT_YAML).with_context(
+                || {
                     format!(
                         "Failed to write default config to {}",
                         target_config.display()
                     )
-                })?;
+                },
+            )?;
             output::success(format!(
                 "Wrote default config to {}",
                 target_config.display()

@@ -43,19 +43,20 @@ async fn test_concurrent_enqueue_idempotency() {
     assert!(results.iter().all(|r| r.is_ok()));
 
     // All should return the same queue_id
-    let queue_ids: Vec<_> = results
-        .into_iter()
-        .map(|r| r.unwrap().0)
-        .collect();
+    let queue_ids: Vec<_> = results.into_iter().map(|r| r.unwrap().0).collect();
 
     let first_id = &queue_ids[0];
-    assert!(queue_ids.iter().all(|id| id == first_id),
-        "All concurrent enqueues should return the same queue_id");
+    assert!(
+        queue_ids.iter().all(|id| id == first_id),
+        "All concurrent enqueues should return the same queue_id"
+    );
 
     // Only one row should exist in the database
     let stats = manager.get_unified_queue_stats().await.unwrap();
-    assert_eq!(stats.total_items, 1,
-        "Only one item should exist despite concurrent enqueues");
+    assert_eq!(
+        stats.total_items, 1,
+        "Only one item should exist despite concurrent enqueues"
+    );
 }
 
 #[tokio::test]
@@ -99,17 +100,15 @@ async fn test_concurrent_enqueue_different_items() {
     assert!(results.iter().all(|r| r.is_ok()));
 
     // All should be new items
-    let new_flags: Vec<_> = results
-        .into_iter()
-        .map(|r| r.unwrap().1)
-        .collect();
-    assert!(new_flags.iter().all(|&is_new| is_new),
-        "All different items should be marked as new");
+    let new_flags: Vec<_> = results.into_iter().map(|r| r.unwrap().1).collect();
+    assert!(
+        new_flags.iter().all(|&is_new| is_new),
+        "All different items should be marked as new"
+    );
 
     // All 10 items should exist
     let stats = manager.get_unified_queue_stats().await.unwrap();
-    assert_eq!(stats.total_items, 10,
-        "All 10 different items should exist");
+    assert_eq!(stats.total_items, 10, "All 10 different items should exist");
 }
 
 #[tokio::test]
@@ -161,17 +160,18 @@ async fn test_concurrent_enqueue_mixed_operations() {
     assert!(results.iter().all(|r| r.is_ok()));
 
     // All should be new (different operations = different idempotency keys)
-    let new_flags: Vec<_> = results
-        .into_iter()
-        .map(|r| r.unwrap().1)
-        .collect();
-    assert!(new_flags.iter().all(|&is_new| is_new),
-        "Different operations should create different items");
+    let new_flags: Vec<_> = results.into_iter().map(|r| r.unwrap().1).collect();
+    assert!(
+        new_flags.iter().all(|&is_new| is_new),
+        "Different operations should create different items"
+    );
 
     // All 3 items should exist
     let stats = manager.get_unified_queue_stats().await.unwrap();
-    assert_eq!(stats.total_items, 3,
-        "3 items with different operations should exist");
+    assert_eq!(
+        stats.total_items, 3,
+        "3 items with different operations should exist"
+    );
 }
 
 #[tokio::test]
@@ -183,12 +183,9 @@ async fn test_idempotency_across_workers() {
     let pool = config.create_pool().await.unwrap();
 
     // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = Arc::new(QueueManager::new(pool));
     manager.init_unified_queue().await.unwrap();
@@ -240,5 +237,9 @@ async fn test_idempotency_across_workers() {
         .dequeue_unified(10, "worker-2", Some(300), None, None, None)
         .await
         .unwrap();
-    assert_eq!(items_after.len(), 0, "No items should be available - lease still held by worker-1");
+    assert_eq!(
+        items_after.len(),
+        0,
+        "No items should be available - lease still held by worker-1"
+    );
 }

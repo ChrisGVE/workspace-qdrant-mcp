@@ -5,8 +5,8 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::config::DaemonConfig;
-    use crate::unified_config::types::ConfigFormat;
     use crate::unified_config::expand_env_vars;
+    use crate::unified_config::types::ConfigFormat;
     use crate::unified_config::UnifiedConfigManager;
     use wqm_common::env_expand::expand_path_env_vars;
 
@@ -28,8 +28,7 @@ mod tests {
         for p in &paths {
             let s = p.to_string_lossy();
             assert!(
-                !s.ends_with(".workspace-qdrant.yaml")
-                    && !s.ends_with(".workspace-qdrant.yml"),
+                !s.ends_with(".workspace-qdrant.yaml") && !s.ends_with(".workspace-qdrant.yml"),
                 "Should not search project-local config: {:?}",
                 p
             );
@@ -113,8 +112,7 @@ mod tests {
         let mut config = DaemonConfig::default();
         config.log_file = Some(PathBuf::from("${WQM_TEST_DIR}/daemon.log"));
         config.project_path = Some(PathBuf::from("$WQM_TEST_DIR/project"));
-        config.embedding.model_cache_dir =
-            Some(PathBuf::from("${WQM_TEST_DIR}/models"));
+        config.embedding.model_cache_dir = Some(PathBuf::from("${WQM_TEST_DIR}/models"));
 
         let expanded = config_manager.expand_config_paths(config);
 

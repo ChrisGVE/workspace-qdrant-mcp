@@ -12,9 +12,7 @@ use crate::context::ProcessingContext;
 use crate::specs::parse_payload;
 use crate::strategies::ProcessingStrategy;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
-use crate::unified_queue_schema::{
-    ItemType, QueueOperation, UnifiedQueueItem, WebsitePayload,
-};
+use crate::unified_queue_schema::{ItemType, QueueOperation, UnifiedQueueItem, WebsitePayload};
 
 /// Strategy for processing website queue items.
 ///
@@ -85,10 +83,7 @@ impl WebsiteStrategy {
         payload: &WebsitePayload,
     ) -> UnifiedProcessorResult<()> {
         let parsed = url::Url::parse(&payload.url).map_err(|e| {
-            UnifiedProcessorError::InvalidPayload(format!(
-                "Invalid URL {}: {}",
-                payload.url, e
-            ))
+            UnifiedProcessorError::InvalidPayload(format!("Invalid URL {}: {}", payload.url, e))
         })?;
         if parsed.scheme() != "http" && parsed.scheme() != "https" {
             return Err(UnifiedProcessorError::InvalidPayload(format!(

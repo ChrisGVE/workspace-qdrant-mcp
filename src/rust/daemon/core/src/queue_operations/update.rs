@@ -26,7 +26,10 @@ impl QueueManager {
         let deleted = result.rows_affected() > 0;
 
         if deleted {
-            debug!("Deleted unified item after successful processing: {}", queue_id);
+            debug!(
+                "Deleted unified item after successful processing: {}",
+                queue_id
+            );
             METRICS.queue_item_processed("unified", "deleted", 0.0);
         } else {
             warn!("Failed to delete unified item: {} (not found)", queue_id);
@@ -86,12 +89,10 @@ impl QueueManager {
         permanent: bool,
         max_retries: i32,
     ) -> QueueResult<bool> {
-        let row = sqlx::query(
-            "SELECT retry_count FROM unified_queue WHERE queue_id = ?1"
-        )
-        .bind(queue_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT retry_count FROM unified_queue WHERE queue_id = ?1")
+            .bind(queue_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         let Some(row) = row else {
             warn!("Unified queue item not found: {}", queue_id);
@@ -102,9 +103,25 @@ impl QueueManager {
         let new_retry_count = retry_count + 1;
 
         if !permanent && new_retry_count < max_retries {
-            mark_unified_retry(&self.pool, queue_id, error_message, retry_count, new_retry_count, max_retries).await
+            mark_unified_retry(
+                &self.pool,
+                queue_id,
+                error_message,
+                retry_count,
+                new_retry_count,
+                max_retries,
+            )
+            .await
         } else {
-            mark_unified_permanent(&self.pool, queue_id, error_message, permanent, new_retry_count, max_retries).await
+            mark_unified_permanent(
+                &self.pool,
+                queue_id,
+                error_message,
+                permanent,
+                new_retry_count,
+                max_retries,
+            )
+            .await
         }
     }
 }
@@ -121,20 +138,25 @@ async fn mark_unified_retry(
     let delay_secs = (60.0_f64 * 2.0_f64.powi(retry_count)).min(3600.0);
     let jitter = delay_secs * 0.1 * rand::random::<f64>();
     let total_delay = delay_secs + jitter;
-    let retry_after_str = timestamps::format_utc(
-        &(Utc::now() + ChronoDuration::seconds(total_delay as i64))
-    );
+    let retry_after_str =
+        timestamps::format_utc(&(Utc::now() + ChronoDuration::seconds(total_delay as i64)));
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         UPDATE unified_queue
         SET status = 'pending', retry_count = ?1, error_message = ?2,
             last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
             lease_until = ?3, worker_id = NULL,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE queue_id = ?4
-    "#)
-    .bind(new_retry_count).bind(error_message).bind(&retry_after_str).bind(queue_id)
-    .execute(pool).await?;
+    "#,
+    )
+    .bind(new_retry_count)
+    .bind(error_message)
+    .bind(&retry_after_str)
+    .bind(queue_id)
+    .execute(pool)
+    .await?;
 
     info!(
         "Unified item {} failed, will retry ({}/{}) after {:.0}s backoff: {}",
@@ -152,18 +174,27 @@ async fn mark_unified_permanent(
     new_retry_count: i32,
     max_retries: i32,
 ) -> QueueResult<bool> {
-    let reason = if permanent { "permanent error" } else { "max retries exceeded" };
+    let reason = if permanent {
+        "permanent error"
+    } else {
+        "max retries exceeded"
+    };
 
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         UPDATE unified_queue
         SET status = 'failed', retry_count = ?1, error_message = ?2,
             last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
             lease_until = NULL, worker_id = NULL,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE queue_id = ?3
-    "#)
-    .bind(new_retry_count).bind(error_message).bind(queue_id)
-    .execute(pool).await?;
+    "#,
+    )
+    .bind(new_retry_count)
+    .bind(error_message)
+    .bind(queue_id)
+    .execute(pool)
+    .await?;
 
     warn!(
         "Unified item {} permanently failed ({}, attempt {}/{}): {}",

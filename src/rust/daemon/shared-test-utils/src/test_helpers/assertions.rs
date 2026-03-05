@@ -18,9 +18,7 @@ pub fn assert_approx_eq(a: f32, b: f32, epsilon: f32) -> TestResult<()> {
 /// Assert that a vector of floats are approximately equal
 pub fn assert_vectors_approx_eq(a: &[f32], b: &[f32], epsilon: f32) -> TestResult<()> {
     if a.len() != b.len() {
-        return Err(
-            format!("Vectors have different lengths: {} vs {}", a.len(), b.len()).into(),
-        );
+        return Err(format!("Vectors have different lengths: {} vs {}", a.len(), b.len()).into());
     }
 
     for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {

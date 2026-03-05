@@ -8,15 +8,13 @@
 /// - Image embedding failures do not block document text ingestion.
 /// - Images below the minimum size threshold are skipped.
 /// - Batch processing: CLIP encodes up to `batch_size` images at once.
-
 mod pipeline;
 mod types;
 
 // Re-export all public items to preserve the external API
 pub use pipeline::process_document_images;
 pub use types::{
-    ImageIngestionConfig, ImageIngestionError, ImageIngestionStats, ImageSourceInfo,
-    ProcessedImage,
+    ImageIngestionConfig, ImageIngestionError, ImageIngestionStats, ImageSourceInfo, ProcessedImage,
 };
 
 use std::sync::Arc;
@@ -172,8 +170,8 @@ mod tests {
 
     #[test]
     fn test_process_batch_with_clip_encoder() {
-        use wqm_common::constants::field;
         use serde_json::json;
+        use wqm_common::constants::field;
 
         // This test requires CLIP model download — gated behind model availability
         let clip_config = crate::clip::ClipConfig::default();
@@ -183,7 +181,7 @@ mod tests {
         };
 
         let config = ImageIngestionConfig {
-            min_width: 10,  // Lower threshold for test
+            min_width: 10, // Lower threshold for test
             min_height: 10,
             max_images_per_document: 5,
             batch_size: 2,
@@ -206,9 +204,7 @@ mod tests {
             })
             .collect();
 
-        let (points, stats) = process_document_images(
-            &images, &source, &encoder, &config,
-        );
+        let (points, stats) = process_document_images(&images, &source, &encoder, &config);
 
         assert_eq!(stats.extracted, 2);
         assert_eq!(stats.embedded, 2);
@@ -221,14 +217,8 @@ mod tests {
         for point in &points {
             assert_eq!(point.dense_vector.len(), CLIP_EMBEDDING_DIM);
             assert!(point.sparse_vector.is_none());
-            assert_eq!(
-                point.payload[field::TENANT_ID],
-                json!("tenant-abc"),
-            );
-            assert_eq!(
-                point.payload[field::SOURCE_COLLECTION],
-                json!("projects"),
-            );
+            assert_eq!(point.payload[field::TENANT_ID], json!("tenant-abc"),);
+            assert_eq!(point.payload[field::SOURCE_COLLECTION], json!("projects"),);
             assert!(point.payload.contains_key(field::THUMBNAIL_B64));
             assert!(point.payload.contains_key(field::IMAGE_WIDTH));
             assert!(point.payload.contains_key(field::IMAGE_HEIGHT));

@@ -75,9 +75,7 @@ async fn stop_systemd() -> Result<()> {
 async fn stop_windows() -> Result<()> {
     #[cfg(windows)]
     {
-        let status = Command::new("sc.exe")
-            .args(["stop", "memexd"])
-            .status()?;
+        let status = Command::new("sc.exe").args(["stop", "memexd"]).status()?;
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 

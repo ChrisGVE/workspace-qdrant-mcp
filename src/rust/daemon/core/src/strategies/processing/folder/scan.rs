@@ -45,11 +45,7 @@ pub(crate) async fn scan_directory_single_level(
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!(
-                    "Failed to read dir entry in {}: {}",
-                    dir_path.display(),
-                    e
-                );
+                warn!("Failed to read dir entry in {}: {}", dir_path.display(), e);
                 errors += 1;
                 continue;
             }

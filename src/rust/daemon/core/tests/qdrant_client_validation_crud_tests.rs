@@ -156,10 +156,7 @@ async fn test_collection_management() {
         return;
     }
 
-    let collection_name = format!(
-        "test_mgmt_{}",
-        Uuid::new_v4().to_string().replace('-', "_")
-    );
+    let collection_name = format!("test_mgmt_{}", Uuid::new_v4().to_string().replace('-', "_"));
 
     // Test collection creation with different configurations
     let create_result = client
@@ -269,9 +266,7 @@ async fn test_batch_operations() {
     sleep(Duration::from_secs(1)).await;
 
     // Test batch search operations
-    let search_vector: Vec<f32> = (0..384)
-        .map(|i| ((i as f32 * 0.01) % 1.0).sin())
-        .collect();
+    let search_vector: Vec<f32> = (0..384).map(|i| ((i as f32 * 0.01) % 1.0).sin()).collect();
 
     let search_params = SearchParams {
         dense_vector: Some(search_vector),

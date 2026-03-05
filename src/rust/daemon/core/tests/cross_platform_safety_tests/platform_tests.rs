@@ -89,10 +89,7 @@ impl CrossPlatformTestSuite {
         Ok(result.is_ok())
     }
 
-    pub(crate) async fn test_file_watching_accuracy(
-        &self,
-        path: &Path,
-    ) -> anyhow::Result<f64> {
+    pub(crate) async fn test_file_watching_accuracy(&self, path: &Path) -> anyhow::Result<f64> {
         // Test file watching accuracy by creating/modifying files
         let config = PlatformWatcherConfig::default();
         let mut watcher = PlatformWatcherFactory::create_watcher(config)
@@ -186,10 +183,7 @@ impl CrossPlatformTestSuite {
         Ok(dirs::home_dir().is_some())
     }
 
-    pub(crate) async fn test_native_file_watching(
-        &self,
-        _platform: &str,
-    ) -> anyhow::Result<bool> {
+    pub(crate) async fn test_native_file_watching(&self, _platform: &str) -> anyhow::Result<bool> {
         let config = PlatformWatcherConfig::default();
 
         match PlatformWatcherFactory::create_watcher(config) {
@@ -198,10 +192,7 @@ impl CrossPlatformTestSuite {
         }
     }
 
-    pub(crate) async fn test_process_spawning(
-        &self,
-        _platform: &str,
-    ) -> anyhow::Result<bool> {
+    pub(crate) async fn test_process_spawning(&self, _platform: &str) -> anyhow::Result<bool> {
         use tokio::process::Command;
 
         #[cfg(unix)]
@@ -219,10 +210,7 @@ impl CrossPlatformTestSuite {
         }
     }
 
-    pub(crate) async fn test_signal_handling(
-        &self,
-        _platform: &str,
-    ) -> anyhow::Result<bool> {
+    pub(crate) async fn test_signal_handling(&self, _platform: &str) -> anyhow::Result<bool> {
         #[cfg(unix)]
         {
             use tokio::signal::unix::{signal, SignalKind};
@@ -242,10 +230,7 @@ impl CrossPlatformTestSuite {
         }
     }
 
-    pub(crate) async fn test_threading_model(
-        &self,
-        _platform: &str,
-    ) -> anyhow::Result<bool> {
+    pub(crate) async fn test_threading_model(&self, _platform: &str) -> anyhow::Result<bool> {
         let handles: Vec<_> = (0..self.config.thread_safety_threads)
             .map(|i| {
                 thread::spawn(move || {

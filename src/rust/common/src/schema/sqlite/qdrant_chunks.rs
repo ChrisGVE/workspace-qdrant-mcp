@@ -2,7 +2,9 @@
 
 use crate::schema::{FieldDef, TableDef};
 
-pub const TABLE: TableDef = TableDef { name: "qdrant_chunks" };
+pub const TABLE: TableDef = TableDef {
+    name: "qdrant_chunks",
+};
 
 pub const CHUNK_ID: FieldDef = FieldDef::categorical("chunk_id");
 pub const FILE_ID: FieldDef = FieldDef::categorical("file_id");
@@ -17,9 +19,16 @@ pub const CREATED_AT: FieldDef = FieldDef::categorical("created_at");
 
 /// All columns in definition order.
 pub const ALL_COLUMNS: &[FieldDef] = &[
-    CHUNK_ID, FILE_ID, POINT_ID, CHUNK_INDEX,
-    CONTENT_HASH, CHUNK_TYPE, SYMBOL_NAME,
-    START_LINE, END_LINE, CREATED_AT,
+    CHUNK_ID,
+    FILE_ID,
+    POINT_ID,
+    CHUNK_INDEX,
+    CONTENT_HASH,
+    CHUNK_TYPE,
+    SYMBOL_NAME,
+    START_LINE,
+    END_LINE,
+    CREATED_AT,
 ];
 
 #[cfg(test)]
@@ -39,7 +48,8 @@ mod tests {
 
     #[test]
     fn content_columns_are_content() {
-        let content: Vec<&str> = ALL_COLUMNS.iter()
+        let content: Vec<&str> = ALL_COLUMNS
+            .iter()
             .filter(|f| matches!(f.kind, FieldKind::Content))
             .map(|f| f.name)
             .collect();

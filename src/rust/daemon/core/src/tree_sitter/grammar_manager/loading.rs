@@ -25,9 +25,7 @@ impl GrammarManager {
         // Try to load from cache
         match self.loader.load_grammar(language) {
             Ok(loaded) => self.handle_loaded_grammar(language, loaded).await,
-            Err(GrammarLoadError::NotFound(_)) => {
-                self.handle_not_found(language).await
-            }
+            Err(GrammarLoadError::NotFound(_)) => self.handle_not_found(language).await,
             Err(e) => Err(GrammarError::LoadFailed(e)),
         }
     }
@@ -191,7 +189,11 @@ impl GrammarManager {
     /// This unloads all grammars and reloads them from the cache.
     /// Useful after bulk grammar updates.
     pub async fn reload_all(&mut self) -> HashMap<String, GrammarResult<()>> {
-        let languages: Vec<String> = self.loaded_languages().iter().map(|s| s.to_string()).collect();
+        let languages: Vec<String> = self
+            .loaded_languages()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
         info!("Reloading {} grammars", languages.len());
 

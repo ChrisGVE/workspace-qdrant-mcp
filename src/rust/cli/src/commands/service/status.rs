@@ -33,10 +33,7 @@ fn status_name(s: ServiceStatus) -> &'static str {
 }
 
 /// Display or serialize the health response when connected to the daemon.
-async fn handle_connected(
-    mut client: crate::grpc::client::DaemonClient,
-    json: bool,
-) -> Result<()> {
+async fn handle_connected(mut client: crate::grpc::client::DaemonClient, json: bool) -> Result<()> {
     if !json {
         output::status_line("Connection", ServiceStatus::Healthy);
     }
@@ -53,7 +50,11 @@ async fn handle_connected(
                     .map(|c| ComponentStatusJson {
                         name: c.component_name.clone(),
                         status: status_name(ServiceStatus::from_proto(c.status)).to_string(),
-                        message: if c.message.is_empty() { None } else { Some(c.message.clone()) },
+                        message: if c.message.is_empty() {
+                            None
+                        } else {
+                            Some(c.message.clone())
+                        },
                     })
                     .collect();
                 output::print_json(&ServiceStatusJson {

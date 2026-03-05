@@ -90,7 +90,13 @@ impl BM25 {
         total_docs: u32,
     ) -> Self {
         let next_vocab_id = vocab.values().max().map(|v| v + 1).unwrap_or(0);
-        Self { k1, vocab, next_vocab_id, doc_freq, total_docs }
+        Self {
+            k1,
+            vocab,
+            next_vocab_id,
+            doc_freq,
+            total_docs,
+        }
     }
 
     pub fn add_document(&mut self, tokens: &[String]) {
@@ -118,7 +124,8 @@ impl BM25 {
     }
 
     pub fn generate_sparse_vector(&self, tokens: &[String]) -> SparseEmbedding {
-        let mut term_freq: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut term_freq: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
         for token in tokens {
             *term_freq.entry(token.clone()).or_insert(0) += 1;
         }

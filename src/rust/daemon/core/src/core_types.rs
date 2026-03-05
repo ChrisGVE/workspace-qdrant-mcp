@@ -206,8 +206,14 @@ mod tests {
 
     #[test]
     fn test_document_type_language() {
-        assert_eq!(DocumentType::Code("rust".to_string()).language(), Some("rust"));
-        assert_eq!(DocumentType::Code("python".to_string()).language(), Some("python"));
+        assert_eq!(
+            DocumentType::Code("rust".to_string()).language(),
+            Some("rust")
+        );
+        assert_eq!(
+            DocumentType::Code("python".to_string()).language(),
+            Some("python")
+        );
         assert_eq!(DocumentType::Pdf.language(), None);
         assert_eq!(DocumentType::Text.language(), None);
         assert_eq!(DocumentType::Markdown.language(), None);
@@ -228,8 +234,16 @@ mod tests {
     fn test_chunking_config_token_overlap_ratio() {
         let config = ChunkingConfig::default();
         let ratio = config.chunk_overlap_tokens as f64 / config.chunk_target_tokens as f64;
-        assert!(ratio >= 0.10, "Overlap should be >= 10% of target: {:.1}%", ratio * 100.0);
-        assert!(ratio <= 0.15, "Overlap should be <= 15% of target: {:.1}%", ratio * 100.0);
+        assert!(
+            ratio >= 0.10,
+            "Overlap should be >= 10% of target: {:.1}%",
+            ratio * 100.0
+        );
+        assert!(
+            ratio <= 0.15,
+            "Overlap should be <= 15% of target: {:.1}%",
+            ratio * 100.0
+        );
     }
 
     #[test]
@@ -244,8 +258,10 @@ mod tests {
     #[test]
     fn test_chunking_config_target_fits_model_limit() {
         let config = ChunkingConfig::default();
-        assert!(config.chunk_target_tokens <= 120,
+        assert!(
+            config.chunk_target_tokens <= 120,
             "Target tokens ({}) must leave room for header within 128-token model limit",
-            config.chunk_target_tokens);
+            config.chunk_target_tokens
+        );
     }
 }

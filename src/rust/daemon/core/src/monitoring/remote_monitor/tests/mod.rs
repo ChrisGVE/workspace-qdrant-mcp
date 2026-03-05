@@ -4,8 +4,8 @@ use std::path::Path;
 use git2::Repository;
 use sqlx::SqlitePool;
 
-mod remote_url;
 mod git_state;
+mod remote_url;
 
 /// Helper to create in-memory SQLite database with watch_folders schema
 pub(super) async fn create_test_database() -> SqlitePool {

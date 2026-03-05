@@ -7,13 +7,11 @@
 mod graph_helpers;
 
 use graph_helpers::{
-    build_rust_file_chunks, build_rust_main_chunks, build_typescript_chunks,
-    create_factory_store, ingest_file_chunks, TENANT,
+    build_rust_file_chunks, build_rust_main_chunks, build_typescript_chunks, create_factory_store,
+    ingest_file_chunks, TENANT,
 };
 use tempfile::tempdir;
-use workspace_qdrant_core::graph::{
-    extractor, EdgeType, GraphEdge, GraphNode, NodeType,
-};
+use workspace_qdrant_core::graph::{extractor, EdgeType, GraphEdge, GraphNode, NodeType};
 
 // ────────────────────────────────────────────────────────────────────────────
 // 1. Extraction -> Store -> Query pipeline
@@ -41,10 +39,7 @@ async fn test_pipeline_extract_store_query_rust() {
         edge_types.contains(&&EdgeType::Contains),
         "missing CONTAINS edge"
     );
-    assert!(
-        edge_types.contains(&&EdgeType::Calls),
-        "missing CALLS edge"
-    );
+    assert!(edge_types.contains(&&EdgeType::Calls), "missing CALLS edge");
     assert!(
         edge_types.contains(&&EdgeType::Imports),
         "missing IMPORTS edge"
@@ -270,7 +265,12 @@ async fn test_reingest_file_atomic() {
 
     // Use reingest_file for atomic swap
     store
-        .reingest_file(TENANT, "src/processor.rs", &result_v2.nodes, &result_v2.edges)
+        .reingest_file(
+            TENANT,
+            "src/processor.rs",
+            &result_v2.nodes,
+            &result_v2.edges,
+        )
         .await
         .unwrap();
 

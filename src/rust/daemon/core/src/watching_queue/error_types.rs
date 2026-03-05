@@ -368,7 +368,8 @@ impl ErrorFeedbackManager {
         // Add to permanent skip list if appropriate
         if should_skip {
             let mut skips = self.permanent_skips.write().await;
-            skips.entry(watch_id.clone())
+            skips
+                .entry(watch_id.clone())
                 .or_insert_with(std::collections::HashSet::new)
                 .insert(file_path.clone());
 
@@ -387,7 +388,8 @@ impl ErrorFeedbackManager {
     /// Check if a file should be skipped permanently
     pub async fn should_skip_file(&self, watch_id: &str, file_path: &str) -> bool {
         let skips = self.permanent_skips.read().await;
-        skips.get(watch_id)
+        skips
+            .get(watch_id)
             .map(|set| set.contains(file_path))
             .unwrap_or(false)
     }
@@ -415,7 +417,8 @@ impl ErrorFeedbackManager {
     /// Get all permanently skipped files for a watch
     pub async fn get_skipped_files(&self, watch_id: &str) -> Vec<String> {
         let skips = self.permanent_skips.read().await;
-        skips.get(watch_id)
+        skips
+            .get(watch_id)
             .map(|set| set.iter().cloned().collect())
             .unwrap_or_default()
     }
@@ -447,20 +450,24 @@ impl ErrorFeedbackManager {
         let recent = self.recent_errors.read().await;
         let skips = self.permanent_skips.read().await;
 
-        recent.keys().map(|watch_id| {
-            let errors = recent.get(watch_id).map(|e| e.len()).unwrap_or(0);
-            let skipped = skips.get(watch_id).map(|s| s.len()).unwrap_or(0);
-            let last_error = recent.get(watch_id)
-                .and_then(|e| e.last())
-                .map(|e| e.timestamp);
+        recent
+            .keys()
+            .map(|watch_id| {
+                let errors = recent.get(watch_id).map(|e| e.len()).unwrap_or(0);
+                let skipped = skips.get(watch_id).map(|s| s.len()).unwrap_or(0);
+                let last_error = recent
+                    .get(watch_id)
+                    .and_then(|e| e.last())
+                    .map(|e| e.timestamp);
 
-            ProcessingErrorSummary {
-                watch_id: watch_id.clone(),
-                recent_error_count: errors,
-                skipped_file_count: skipped,
-                last_error_time: last_error,
-            }
-        }).collect()
+                ProcessingErrorSummary {
+                    watch_id: watch_id.clone(),
+                    recent_error_count: errors,
+                    skipped_file_count: skipped,
+                    last_error_time: last_error,
+                }
+            })
+            .collect()
     }
 }
 

@@ -11,12 +11,9 @@ async fn test_unified_queue_delete_item() {
     let pool = config.create_pool().await.unwrap();
 
     // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
@@ -123,12 +120,9 @@ async fn test_unified_queue_cleanup() {
     let pool = config.create_pool().await.unwrap();
 
     // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
-    apply_sql_script(
-        &pool,
-        include_str!("../../schema/watch_folders_schema.sql"),
-    )
-    .await
-    .unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
@@ -199,10 +193,7 @@ async fn test_unified_queue_depth() {
     }
 
     // Check depth
-    let depth = manager
-        .get_unified_queue_depth(None, None)
-        .await
-        .unwrap();
+    let depth = manager.get_unified_queue_depth(None, None).await.unwrap();
     assert_eq!(depth, 5);
 
     // Check depth filtered by type

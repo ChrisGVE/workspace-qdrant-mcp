@@ -3,7 +3,6 @@
 /// Encodes a text query with the CLIP text encoder to produce a 512-dim
 /// vector, then searches the `images` Qdrant collection using dense-only
 /// cosine similarity. Results include thumbnails and source provenance.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -13,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::clip::{ClipEncoder, ClipError};
-use crate::storage::{HybridSearchMode, SearchParams, SearchResult, StorageError, StorageClient};
+use crate::storage::{HybridSearchMode, SearchParams, SearchResult, StorageClient, StorageError};
 use wqm_common::constants::{field, COLLECTION_IMAGES};
 
 // ─── Errors ─────────────────────────────────────────────────────────────
@@ -97,15 +96,17 @@ pub async fn search_images(
         return Err(ImageSearchError::EmptyQuery);
     }
 
-    debug!(query, limit = params.limit, "Starting cross-modal image search");
+    debug!(
+        query,
+        limit = params.limit,
+        "Starting cross-modal image search"
+    );
 
     // Step 1: Encode text query with CLIP (CPU-bound → spawn_blocking)
     let query_owned = query.to_string();
-    let text_vector = tokio::task::spawn_blocking(move || {
-        clip_encoder.encode_text(&query_owned)
-    })
-    .await
-    .expect("spawn_blocking join failed")?;
+    let text_vector = tokio::task::spawn_blocking(move || clip_encoder.encode_text(&query_owned))
+        .await
+        .expect("spawn_blocking join failed")?;
 
     debug!(dim = text_vector.len(), "CLIP text query encoded");
 
@@ -122,9 +123,7 @@ pub async fn search_images(
         filter,
     };
 
-    let raw_results = storage
-        .search(COLLECTION_IMAGES, search_params)
-        .await?;
+    let raw_results = storage.search(COLLECTION_IMAGES, search_params).await?;
 
     // Step 4: Convert to structured results
     let results: Vec<ImageSearchResult> = raw_results
@@ -142,23 +141,15 @@ pub async fn search_images(
 }
 
 /// Build a Qdrant filter from image search params.
-fn build_image_filter(
-    params: &ImageSearchParams,
-) -> Option<HashMap<String, Value>> {
+fn build_image_filter(params: &ImageSearchParams) -> Option<HashMap<String, Value>> {
     let mut filter = HashMap::new();
 
     if let Some(ref tid) = params.tenant_id {
-        filter.insert(
-            field::TENANT_ID.to_string(),
-            serde_json::json!(tid),
-        );
+        filter.insert(field::TENANT_ID.to_string(), serde_json::json!(tid));
     }
 
     if let Some(ref sc) = params.source_collection {
-        filter.insert(
-            field::SOURCE_COLLECTION.to_string(),
-            serde_json::json!(sc),
-        );
+        filter.insert(field::SOURCE_COLLECTION.to_string(), serde_json::json!(sc));
     }
 
     if filter.is_empty() {
@@ -245,8 +236,7 @@ fn convert_search_result(result: SearchResult) -> Option<ImageSearchResult> {
         .unwrap_or("")
         .to_string();
 
-    let (page_number, image_index, ocr_text, alt_text) =
-        extract_optional_image_fields(payload);
+    let (page_number, image_index, ocr_text, alt_text) = extract_optional_image_fields(payload);
 
     Some(ImageSearchResult {
         id: result.id,
@@ -308,24 +298,45 @@ mod tests {
         let filter = build_image_filter(&params).unwrap();
         assert_eq!(filter.len(), 2);
         assert_eq!(filter[field::TENANT_ID], serde_json::json!("proj-123"));
-        assert_eq!(filter[field::SOURCE_COLLECTION], serde_json::json!("projects"));
+        assert_eq!(
+            filter[field::SOURCE_COLLECTION],
+            serde_json::json!("projects")
+        );
     }
 
     #[test]
     fn test_convert_search_result_full() {
         let mut payload = HashMap::new();
-        payload.insert(field::SOURCE_DOCUMENT_ID.to_string(), serde_json::json!("doc-1"));
-        payload.insert(field::SOURCE_COLLECTION.to_string(), serde_json::json!("projects"));
+        payload.insert(
+            field::SOURCE_DOCUMENT_ID.to_string(),
+            serde_json::json!("doc-1"),
+        );
+        payload.insert(
+            field::SOURCE_COLLECTION.to_string(),
+            serde_json::json!("projects"),
+        );
         payload.insert(field::TENANT_ID.to_string(), serde_json::json!("tenant-a"));
-        payload.insert(field::THUMBNAIL_B64.to_string(), serde_json::json!("dGh1bWI="));
+        payload.insert(
+            field::THUMBNAIL_B64.to_string(),
+            serde_json::json!("dGh1bWI="),
+        );
         payload.insert(field::IMAGE_WIDTH.to_string(), serde_json::json!(800));
         payload.insert(field::IMAGE_HEIGHT.to_string(), serde_json::json!(600));
         payload.insert(field::IMAGE_FORMAT.to_string(), serde_json::json!("Jpeg"));
-        payload.insert(field::FILE_PATH.to_string(), serde_json::json!("/path/doc.pdf"));
+        payload.insert(
+            field::FILE_PATH.to_string(),
+            serde_json::json!("/path/doc.pdf"),
+        );
         payload.insert(field::PAGE_NUMBER.to_string(), serde_json::json!(3));
         payload.insert(field::IMAGE_INDEX.to_string(), serde_json::json!(0));
-        payload.insert(field::OCR_TEXT.to_string(), serde_json::json!("Figure 1: Architecture"));
-        payload.insert(field::ALT_TEXT.to_string(), serde_json::json!("arch diagram"));
+        payload.insert(
+            field::OCR_TEXT.to_string(),
+            serde_json::json!("Figure 1: Architecture"),
+        );
+        payload.insert(
+            field::ALT_TEXT.to_string(),
+            serde_json::json!("arch diagram"),
+        );
 
         let raw = SearchResult {
             id: "point-123".to_string(),

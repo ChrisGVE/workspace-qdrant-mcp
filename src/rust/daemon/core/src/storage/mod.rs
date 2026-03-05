@@ -28,21 +28,9 @@ pub mod types;
 
 pub use client::StorageClient;
 
-pub use config::{
-    Http2Config,
-    MultiTenantConfig,
-    StorageConfig,
-    TransportMode,
-};
+pub use config::{Http2Config, MultiTenantConfig, StorageConfig, TransportMode};
 
 pub use types::{
-    BatchStats,
-    CollectionInfoResult,
-    DocumentPoint,
-    HybridSearchMode,
-    HybridSearchParams,
-    MultiTenantInitResult,
-    SearchParams,
-    SearchResult,
-    StorageError,
+    BatchStats, CollectionInfoResult, DocumentPoint, HybridSearchMode, HybridSearchParams,
+    MultiTenantInitResult, SearchParams, SearchResult, StorageError,
 };

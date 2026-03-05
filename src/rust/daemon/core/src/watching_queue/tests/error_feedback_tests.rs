@@ -117,12 +117,12 @@ async fn test_error_feedback_manager_permanent_skip() {
     manager.record_error(feedback).await;
 
     // Check if file is skipped
-    assert!(manager.should_skip_file("watch-1", "/missing/file.txt").await);
     assert!(
-        !manager
-            .should_skip_file("watch-1", "/other/file.txt")
+        manager
+            .should_skip_file("watch-1", "/missing/file.txt")
             .await
     );
+    assert!(!manager.should_skip_file("watch-1", "/other/file.txt").await);
     assert!(
         !manager
             .should_skip_file("watch-2", "/missing/file.txt")
@@ -178,12 +178,14 @@ async fn test_error_feedback_manager_remove_skip() {
         "Not found",
     );
     manager.record_error(feedback).await;
-    assert!(manager.should_skip_file("watch-1", "/missing/file.txt").await);
+    assert!(
+        manager
+            .should_skip_file("watch-1", "/missing/file.txt")
+            .await
+    );
 
     // Remove from skip list
-    let removed = manager
-        .remove_skip("watch-1", "/missing/file.txt")
-        .await;
+    let removed = manager.remove_skip("watch-1", "/missing/file.txt").await;
     assert!(removed);
     assert!(
         !manager
@@ -274,7 +276,7 @@ async fn test_error_feedback_manager_max_recent() {
 
     let errors = manager.get_recent_errors("watch-1").await;
     assert_eq!(errors.len(), 3); // Should be capped at max
-    // Should have the most recent 3 (indices 2, 3, 4)
+                                 // Should have the most recent 3 (indices 2, 3, 4)
     assert!(errors.iter().any(|e| e.file_path == "file2.txt"));
     assert!(errors.iter().any(|e| e.file_path == "file3.txt"));
     assert!(errors.iter().any(|e| e.file_path == "file4.txt"));

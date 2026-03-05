@@ -5,7 +5,7 @@
 //! enum instead of ad-hoc string constants.
 
 use wqm_common::constants::{
-    COLLECTION_LIBRARIES, COLLECTION_RULES, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD,
+    COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
 };
 
 use crate::storage::MultiTenantConfig;
@@ -80,10 +80,19 @@ mod tests {
 
     #[test]
     fn test_from_name_valid() {
-        assert_eq!(Collection::from_name("projects"), Some(Collection::Projects));
-        assert_eq!(Collection::from_name("libraries"), Some(Collection::Libraries));
+        assert_eq!(
+            Collection::from_name("projects"),
+            Some(Collection::Projects)
+        );
+        assert_eq!(
+            Collection::from_name("libraries"),
+            Some(Collection::Libraries)
+        );
         assert_eq!(Collection::from_name("rules"), Some(Collection::Rules));
-        assert_eq!(Collection::from_name("scratchpad"), Some(Collection::Scratchpad));
+        assert_eq!(
+            Collection::from_name("scratchpad"),
+            Some(Collection::Scratchpad)
+        );
     }
 
     #[test]
@@ -104,7 +113,11 @@ mod tests {
             let config = collection.creation_config();
             assert_eq!(config.vector_size, 384, "{:?} vector_size", collection);
             assert_eq!(config.hnsw_m, 16, "{:?} hnsw_m", collection);
-            assert_eq!(config.hnsw_ef_construct, 100, "{:?} hnsw_ef_construct", collection);
+            assert_eq!(
+                config.hnsw_ef_construct, 100,
+                "{:?} hnsw_ef_construct",
+                collection
+            );
         }
     }
 

@@ -12,16 +12,17 @@
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-use governor::{Quota, RateLimiter, clock::DefaultClock, state::{InMemoryState, NotKeyed}};
+use governor::{
+    clock::DefaultClock,
+    state::{InMemoryState, NotKeyed},
+    Quota, RateLimiter,
+};
 use tracing::warn;
 
 use crate::keyword_extraction::tag_selector::SelectedTag;
 
 use super::llm_aggregation::aggregate_llm_tags;
-use super::tier3_config::{
-    AccessMode, LlmProvider, ProviderConfig, Tier3Config,
-    resolve_provider,
-};
+use super::tier3_config::{resolve_provider, AccessMode, LlmProvider, ProviderConfig, Tier3Config};
 
 // ── Prompt ───────────────────────────────────────────────────────────────
 
@@ -114,9 +115,7 @@ impl Tier3Tagger {
         };
 
         let rps = config.rate_limit_rps.max(1);
-        let quota = Quota::per_second(
-            NonZeroU32::new(rps).unwrap_or(NonZeroU32::new(1).unwrap()),
-        );
+        let quota = Quota::per_second(NonZeroU32::new(rps).unwrap_or(NonZeroU32::new(1).unwrap()));
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
@@ -142,8 +141,8 @@ impl Tier3Tagger {
         }
 
         let limited_chunks = &chunks[..chunks.len().min(self.config.max_chunks_per_doc)];
-        let deadline = tokio::time::Instant::now()
-            + Duration::from_secs(self.config.total_budget_secs);
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_secs(self.config.total_budget_secs);
         let mut consecutive_failures: u32 = 0;
         let mut all_chunk_tags: Vec<Vec<String>> = Vec::new();
 
@@ -151,7 +150,9 @@ impl Tier3Tagger {
             if tokio::time::Instant::now() >= deadline {
                 warn!(
                     "Tier3 total budget ({}s) exceeded after {}/{} chunks",
-                    self.config.total_budget_secs, i, limited_chunks.len()
+                    self.config.total_budget_secs,
+                    i,
+                    limited_chunks.len()
                 );
                 break;
             }
@@ -160,7 +161,9 @@ impl Tier3Tagger {
                 warn!(
                     "Tier3 circuit breaker: {} consecutive failures, \
                      aborting remaining {}/{} chunks",
-                    consecutive_failures, i, limited_chunks.len()
+                    consecutive_failures,
+                    i,
+                    limited_chunks.len()
                 );
                 break;
             }
@@ -196,11 +199,7 @@ impl Tier3Tagger {
         let prompt = build_prompt(chunk);
 
         match self
-            .call_with_retries(
-                &self.config.primary,
-                self.primary_key.as_deref(),
-                &prompt,
-            )
+            .call_with_retries(&self.config.primary, self.primary_key.as_deref(), &prompt)
             .await
         {
             Ok(tags) => return tags,
@@ -300,9 +299,9 @@ impl Tier3Tagger {
 
 #[cfg(test)]
 mod tests {
+    use super::super::llm_aggregation::aggregate_llm_tags;
     use super::*;
     use crate::keyword_extraction::tag_selector::TagType;
-    use super::super::llm_aggregation::aggregate_llm_tags;
 
     // ── Tag response parsing ─────────────────────────────────────────
 
@@ -315,7 +314,10 @@ mod tests {
     #[test]
     fn test_parse_tags_with_spaces() {
         let tags = parse_tags_from_response("machine learning, data pipeline, api design");
-        assert_eq!(tags, vec!["machine-learning", "data-pipeline", "api-design"]);
+        assert_eq!(
+            tags,
+            vec!["machine-learning", "data-pipeline", "api-design"]
+        );
     }
 
     #[test]
@@ -367,9 +369,11 @@ mod tests {
 
     #[test]
     fn test_aggregate_tags_deduplication_within_chunk() {
-        let chunk_tags = vec![
-            vec!["web".to_string(), "web".to_string(), "api".to_string()],
-        ];
+        let chunk_tags = vec![vec![
+            "web".to_string(),
+            "web".to_string(),
+            "api".to_string(),
+        ]];
         let tags = aggregate_llm_tags(&chunk_tags, 10);
 
         let web_tag = tags.iter().find(|t| t.phrase == "llm:web").unwrap();
@@ -378,12 +382,13 @@ mod tests {
 
     #[test]
     fn test_aggregate_tags_respects_max() {
-        let chunk_tags = vec![
-            vec![
-                "a".to_string(), "bb".to_string(), "cc".to_string(),
-                "dd".to_string(), "ee".to_string(),
-            ],
-        ];
+        let chunk_tags = vec![vec![
+            "a".to_string(),
+            "bb".to_string(),
+            "cc".to_string(),
+            "dd".to_string(),
+            "ee".to_string(),
+        ]];
         let tags = aggregate_llm_tags(&chunk_tags, 3);
         assert_eq!(tags.len(), 3);
     }

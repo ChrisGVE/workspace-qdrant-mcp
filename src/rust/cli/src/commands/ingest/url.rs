@@ -25,11 +25,17 @@ pub async fn ingest_url(
 
     // Determine collection and tenant_id based on library flag
     let (target_collection, tenant_id) = if let Some(ref lib_name) = library {
-        (wqm_common::constants::COLLECTION_LIBRARIES.to_string(), lib_name.clone())
+        (
+            wqm_common::constants::COLLECTION_LIBRARIES.to_string(),
+            lib_name.clone(),
+        )
     } else if let Some(ref coll) = collection {
         (coll.clone(), detect_tenant_id())
     } else {
-        (wqm_common::constants::COLLECTION_PROJECTS.to_string(), detect_tenant_id())
+        (
+            wqm_common::constants::COLLECTION_PROJECTS.to_string(),
+            detect_tenant_id(),
+        )
     };
 
     output::kv("URL", url);
@@ -59,12 +65,7 @@ pub async fn ingest_url(
     // Try unified queue (works even without daemon running)
     match UnifiedQueueClient::connect() {
         Ok(queue_client) => {
-            match queue_client.enqueue_url(
-                &tenant_id,
-                &target_collection,
-                &url_payload,
-                &branch,
-            ) {
+            match queue_client.enqueue_url(&tenant_id, &target_collection, &url_payload, &branch) {
                 Ok(result) => {
                     if result.was_duplicate {
                         output::warning("URL already queued (duplicate)");

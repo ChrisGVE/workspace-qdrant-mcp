@@ -41,11 +41,12 @@ impl LanguageServerManager {
 
         // Check if we have a server available for this language
         let available = self.available_servers.read().await;
-        let server_names = available.get(&language).ok_or_else(|| {
-            ProjectLspError::LanguageNotSupported {
-                language: language.clone(),
-            }
-        })?;
+        let server_names =
+            available
+                .get(&language)
+                .ok_or_else(|| ProjectLspError::LanguageNotSupported {
+                    language: language.clone(),
+                })?;
 
         if server_names.is_empty() {
             return Err(ProjectLspError::LanguageNotSupported {
@@ -56,12 +57,11 @@ impl LanguageServerManager {
         let server_name = &server_names[0];
 
         // Find the server executable path
-        let server_path = which::which(server_name).map_err(|_| {
-            ProjectLspError::ServerUnavailable {
+        let server_path =
+            which::which(server_name).map_err(|_| ProjectLspError::ServerUnavailable {
                 project_id: project_id.to_string(),
                 language: language.clone(),
-            }
-        })?;
+            })?;
 
         tracing::info!(
             project_id = project_id,
@@ -84,14 +84,8 @@ impl LanguageServerManager {
             .await?;
 
         // Store the state and instance
-        self.register_server(
-            &key,
-            project_id,
-            &language,
-            project_root,
-            &instance,
-        )
-        .await;
+        self.register_server(&key, project_id, &language, project_root, &instance)
+            .await;
 
         Ok(Arc::new(instance))
     }
@@ -193,11 +187,7 @@ impl LanguageServerManager {
     }
 
     /// Stop a server for a specific project and language
-    pub async fn stop_server(
-        &self,
-        project_id: &str,
-        language: Language,
-    ) -> ProjectLspResult<()> {
+    pub async fn stop_server(&self, project_id: &str, language: Language) -> ProjectLspResult<()> {
         let key = ProjectLanguageKey::new(project_id, language.clone());
 
         // Update state to stopping
@@ -295,11 +285,7 @@ impl LanguageServerManager {
     }
 
     /// Check if a server is running for a specific project and language
-    pub async fn is_server_running(
-        &self,
-        project_id: &str,
-        language: Language,
-    ) -> bool {
+    pub async fn is_server_running(&self, project_id: &str, language: Language) -> bool {
         if let Some(state) = self.get_server_state(project_id, language).await {
             matches!(state.status, ServerStatus::Running)
         } else {

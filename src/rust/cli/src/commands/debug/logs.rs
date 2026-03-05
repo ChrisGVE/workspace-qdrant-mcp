@@ -9,9 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use wqm_common::timestamps;
 
-use super::log_parsing::{
-    get_canonical_log_dir, parse_since, read_log_files_filtered, LogFilter,
-};
+use super::log_parsing::{get_canonical_log_dir, parse_since, read_log_files_filtered, LogFilter};
 use super::LogComponent;
 use crate::output;
 
@@ -35,14 +33,24 @@ pub async fn logs(
     };
 
     if !json_output {
-        print_log_header(&log_dir, component, &session, errors_only, since_cutoff.as_ref());
+        print_log_header(
+            &log_dir,
+            component,
+            &session,
+            errors_only,
+            since_cutoff.as_ref(),
+        );
     }
 
     if follow {
         return follow_logs(component, &daemon_log, &mcp_log, session, errors_only).await;
     }
 
-    let filter = LogFilter { errors_only, since: since_cutoff, session };
+    let filter = LogFilter {
+        errors_only,
+        since: since_cutoff,
+        session,
+    };
     let mut all_entries = collect_entries(&log_dir, component, lines, &filter);
 
     if matches!(component, LogComponent::All) {

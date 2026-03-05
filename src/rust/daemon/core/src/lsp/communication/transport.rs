@@ -5,8 +5,8 @@
 //! and correlating request/response pairs via pending request tracking.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use serde_json::Value as JsonValue;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -53,11 +53,7 @@ impl JsonRpcClient {
     }
 
     /// Connect to an LSP server via stdio
-    pub async fn connect_stdio(
-        &self,
-        mut stdin: ChildStdin,
-        stdout: ChildStdout,
-    ) -> LspResult<()> {
+    pub async fn connect_stdio(&self, mut stdin: ChildStdin, stdout: ChildStdout) -> LspResult<()> {
         debug!("Connecting JSON-RPC client via stdio");
 
         // Create message channel
@@ -156,11 +152,7 @@ impl JsonRpcClient {
     }
 
     /// Send a notification (no response expected)
-    pub async fn send_notification(
-        &self,
-        method: &str,
-        params: JsonValue,
-    ) -> LspResult<()> {
+    pub async fn send_notification(&self, method: &str, params: JsonValue) -> LspResult<()> {
         let notification = JsonRpcNotification {
             jsonrpc: "2.0".to_string(),
             method: method.to_string(),
@@ -283,9 +275,7 @@ impl Default for JsonRpcClient {
 async fn read_stdout_loop(
     reader: &mut BufReader<ChildStdout>,
     pending_requests: &Arc<RwLock<HashMap<u64, PendingRequest>>>,
-    notification_handler: &Arc<
-        Mutex<Option<Box<dyn Fn(JsonRpcNotification) + Send + Sync>>>,
-    >,
+    notification_handler: &Arc<Mutex<Option<Box<dyn Fn(JsonRpcNotification) + Send + Sync>>>>,
 ) {
     let mut buffer = String::new();
 
@@ -328,12 +318,9 @@ async fn read_stdout_loop(
                 trace!("Received: {}", message_text);
 
                 // Parse and handle message
-                if let Err(e) = handle_incoming_message(
-                    &message_text,
-                    pending_requests,
-                    notification_handler,
-                )
-                .await
+                if let Err(e) =
+                    handle_incoming_message(&message_text, pending_requests, notification_handler)
+                        .await
                 {
                     warn!("Error handling message: {}", e);
                 }
@@ -352,9 +339,7 @@ async fn read_stdout_loop(
 async fn handle_incoming_message(
     message_text: &str,
     pending_requests: &Arc<RwLock<HashMap<u64, PendingRequest>>>,
-    notification_handler: &Arc<
-        Mutex<Option<Box<dyn Fn(JsonRpcNotification) + Send + Sync>>>,
-    >,
+    notification_handler: &Arc<Mutex<Option<Box<dyn Fn(JsonRpcNotification) + Send + Sync>>>>,
 ) -> LspResult<()> {
     let message = JsonRpcMessage::parse(message_text)?;
 

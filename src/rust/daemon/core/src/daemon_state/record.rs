@@ -89,7 +89,10 @@ impl WatchFolderRecord {
 
 impl DaemonStateManager {
     /// Helper to convert a database row to WatchFolderRecord
-    pub(crate) fn row_to_watch_folder(&self, row: &sqlx::sqlite::SqliteRow) -> DaemonStateResult<WatchFolderRecord> {
+    pub(crate) fn row_to_watch_folder(
+        &self,
+        row: &sqlx::sqlite::SqliteRow,
+    ) -> DaemonStateResult<WatchFolderRecord> {
         let parse_datetime = |s: &str| -> DateTime<Utc> {
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))
@@ -97,7 +100,11 @@ impl DaemonStateManager {
         };
 
         let parse_optional_datetime = |s: Option<String>| -> Option<DateTime<Utc>> {
-            s.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc)))
+            s.and_then(|s| {
+                DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc))
+            })
         };
 
         Ok(WatchFolderRecord {
@@ -113,7 +120,9 @@ impl DaemonStateManager {
             is_active: row.try_get::<i32, _>("is_active")? != 0,
             last_activity_at: parse_optional_datetime(row.try_get("last_activity_at")?),
             is_paused: row.try_get::<i32, _>("is_paused").unwrap_or(0) != 0,
-            pause_start_time: parse_optional_datetime(row.try_get("pause_start_time").unwrap_or(None)),
+            pause_start_time: parse_optional_datetime(
+                row.try_get("pause_start_time").unwrap_or(None),
+            ),
             is_archived: row.try_get::<i32, _>("is_archived").unwrap_or(0) != 0,
             last_commit_hash: row.try_get("last_commit_hash").unwrap_or(None),
             is_git_tracked: row.try_get::<i32, _>("is_git_tracked").unwrap_or(0) != 0,

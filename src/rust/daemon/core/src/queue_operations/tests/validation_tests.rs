@@ -111,7 +111,10 @@ async fn test_validation_invalid_json_payload() {
         .await;
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), QueueError::InvalidPayloadJson(_)));
+    assert!(matches!(
+        result.unwrap_err(),
+        QueueError::InvalidPayloadJson(_)
+    ));
 }
 
 #[tokio::test]

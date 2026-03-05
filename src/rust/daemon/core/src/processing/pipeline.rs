@@ -23,8 +23,8 @@ use super::metrics::MetricsCollector;
 use super::request_queue::{QueueConfig, RequestQueue};
 use super::submitter::{TaskResultHandle, TaskSubmitter};
 use super::{
-    PipelineStats, PriorityError, PriorityTask, PrioritySystemMetrics,
-    TaskContext, TaskPayload, TaskPriority, TaskSource,
+    PipelineStats, PriorityError, PrioritySystemMetrics, PriorityTask, TaskContext, TaskPayload,
+    TaskPriority, TaskSource,
 };
 
 /// The main priority-based processing pipeline
@@ -78,18 +78,15 @@ impl Pipeline {
         let (task_sender, task_receiver) = mpsc::unbounded_channel();
         let request_queue = Arc::new(RequestQueue::new(queue_config.clone()));
 
-        let checkpoint_path = checkpoint_dir.unwrap_or_else(|| {
-            std::env::temp_dir().join("wqm_checkpoints")
-        });
+        let checkpoint_path =
+            checkpoint_dir.unwrap_or_else(|| std::env::temp_dir().join("wqm_checkpoints"));
 
         let checkpoint_manager = Arc::new(CheckpointManager::new(
             checkpoint_path,
             Duration::from_secs(3600),
         ));
 
-        let metrics_collector = Arc::new(MetricsCollector::new(
-            Duration::from_secs(60),
-        ));
+        let metrics_collector = Arc::new(MetricsCollector::new(Duration::from_secs(60)));
 
         if let Err(e) = std::fs::create_dir_all(&checkpoint_manager.checkpoint_dir) {
             tracing::warn!("Failed to create checkpoint directory: {}", e);
@@ -171,7 +168,8 @@ impl Pipeline {
                 sequence_counter,
                 max_concurrent,
                 ingestion_engine,
-            ).await;
+            )
+            .await;
         });
 
         self.executor_handle = Some(handle);
@@ -187,14 +185,38 @@ impl Pipeline {
             queued_tasks: queue_lock.len(),
             running_tasks: running_lock.len(),
             total_capacity: self.max_concurrent_tasks,
-            tasks_completed: self.metrics_collector.tasks_completed.load(AtomicOrdering::Relaxed),
-            tasks_failed: self.metrics_collector.tasks_failed.load(AtomicOrdering::Relaxed),
-            tasks_cancelled: self.metrics_collector.tasks_cancelled.load(AtomicOrdering::Relaxed),
-            tasks_timed_out: self.metrics_collector.tasks_timed_out.load(AtomicOrdering::Relaxed),
-            queue_rejections: self.metrics_collector.queue_overflow_count.load(AtomicOrdering::Relaxed),
-            queue_spills: self.metrics_collector.queue_spill_count.load(AtomicOrdering::Relaxed),
-            rate_limited_tasks: self.metrics_collector.rate_limited_tasks.load(AtomicOrdering::Relaxed),
-            backpressure_events: self.metrics_collector.backpressure_events.load(AtomicOrdering::Relaxed),
+            tasks_completed: self
+                .metrics_collector
+                .tasks_completed
+                .load(AtomicOrdering::Relaxed),
+            tasks_failed: self
+                .metrics_collector
+                .tasks_failed
+                .load(AtomicOrdering::Relaxed),
+            tasks_cancelled: self
+                .metrics_collector
+                .tasks_cancelled
+                .load(AtomicOrdering::Relaxed),
+            tasks_timed_out: self
+                .metrics_collector
+                .tasks_timed_out
+                .load(AtomicOrdering::Relaxed),
+            queue_rejections: self
+                .metrics_collector
+                .queue_overflow_count
+                .load(AtomicOrdering::Relaxed),
+            queue_spills: self
+                .metrics_collector
+                .queue_spill_count
+                .load(AtomicOrdering::Relaxed),
+            rate_limited_tasks: self
+                .metrics_collector
+                .rate_limited_tasks
+                .load(AtomicOrdering::Relaxed),
+            backpressure_events: self
+                .metrics_collector
+                .backpressure_events
+                .load(AtomicOrdering::Relaxed),
             uptime_seconds: self.metrics_collector.start_time.elapsed().as_secs(),
         }
     }
@@ -205,13 +227,15 @@ impl Pipeline {
         let running_lock = self.running_tasks.read().await;
         let queue_stats = self.request_queue.get_stats().await;
 
-        self.metrics_collector.generate_metrics(
-            running_lock.len(),
-            queue_lock.len(),
-            self.max_concurrent_tasks,
-            &queue_stats,
-            &self.checkpoint_manager,
-        ).await
+        self.metrics_collector
+            .generate_metrics(
+                running_lock.len(),
+                queue_lock.len(),
+                self.max_concurrent_tasks,
+                &queue_stats,
+                &self.checkpoint_manager,
+            )
+            .await
     }
 
     /// Get request queue reference for direct access
@@ -240,10 +264,13 @@ impl Pipeline {
         checkpoint_id: &str,
         new_priority: Option<TaskPriority>,
     ) -> Result<TaskResultHandle, PriorityError> {
-        let checkpoint = self.checkpoint_manager.get_checkpoint(checkpoint_id).await
-            .ok_or_else(|| PriorityError::Checkpoint(
-                format!("Checkpoint {checkpoint_id} not found"),
-            ))?;
+        let checkpoint = self
+            .checkpoint_manager
+            .get_checkpoint(checkpoint_id)
+            .await
+            .ok_or_else(|| {
+                PriorityError::Checkpoint(format!("Checkpoint {checkpoint_id} not found"))
+            })?;
 
         let task_id = checkpoint.task_id;
         let (result_sender, result_receiver) = oneshot::channel();
@@ -291,14 +318,14 @@ impl Pipeline {
             cancellation_token: None,
         };
 
-        self.task_sender.send(task)
-            .map_err(|_| PriorityError::Communication(
-                "Pipeline is shutting down".to_string(),
-            ))?;
+        self.task_sender
+            .send(task)
+            .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
 
         tracing::info!(
             "Resumed task from checkpoint {} with new task ID {}",
-            checkpoint_id, context.task_id
+            checkpoint_id,
+            context.task_id
         );
 
         Ok(TaskResultHandle {
@@ -315,8 +342,13 @@ impl Pipeline {
 
     /// Force rollback a checkpoint (for emergency cleanup)
     pub async fn emergency_rollback(&self, checkpoint_id: &str) -> Result<(), PriorityError> {
-        tracing::warn!("Emergency rollback requested for checkpoint: {}", checkpoint_id);
-        self.checkpoint_manager.rollback_checkpoint(checkpoint_id).await
+        tracing::warn!(
+            "Emergency rollback requested for checkpoint: {}",
+            checkpoint_id
+        );
+        self.checkpoint_manager
+            .rollback_checkpoint(checkpoint_id)
+            .await
     }
 
     /// Get all active checkpoints
@@ -333,14 +365,29 @@ impl Pipeline {
 
         output.push_str("# HELP wqm_tasks_total Total number of tasks processed\n");
         output.push_str("# TYPE wqm_tasks_total counter\n");
-        output.push_str(&format!("wqm_tasks_completed {{}} {}\n", metrics.pipeline.tasks_completed));
-        output.push_str(&format!("wqm_tasks_failed {{}} {}\n", metrics.pipeline.tasks_failed));
-        output.push_str(&format!("wqm_tasks_cancelled {{}} {}\n", metrics.pipeline.tasks_cancelled));
-        output.push_str(&format!("wqm_tasks_timed_out {{}} {}\n", metrics.pipeline.tasks_timed_out));
+        output.push_str(&format!(
+            "wqm_tasks_completed {{}} {}\n",
+            metrics.pipeline.tasks_completed
+        ));
+        output.push_str(&format!(
+            "wqm_tasks_failed {{}} {}\n",
+            metrics.pipeline.tasks_failed
+        ));
+        output.push_str(&format!(
+            "wqm_tasks_cancelled {{}} {}\n",
+            metrics.pipeline.tasks_cancelled
+        ));
+        output.push_str(&format!(
+            "wqm_tasks_timed_out {{}} {}\n",
+            metrics.pipeline.tasks_timed_out
+        ));
 
         output.push_str("# HELP wqm_queue_size Current queue size\n");
         output.push_str("# TYPE wqm_queue_size gauge\n");
-        output.push_str(&format!("wqm_queue_total {{}} {}\n", metrics.queue.total_queued));
+        output.push_str(&format!(
+            "wqm_queue_total {{}} {}\n",
+            metrics.queue.total_queued
+        ));
 
         for (priority, count) in &metrics.queue.queued_by_priority {
             output.push_str(&format!(

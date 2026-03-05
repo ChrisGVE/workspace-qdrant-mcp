@@ -206,10 +206,7 @@ pub async fn cancel_deferred_shutdown(
 ) -> bool {
     let mut shutdowns = pending_shutdowns.write().await;
     if shutdowns.remove(project_id).is_some() {
-        info!(
-            project_id = project_id,
-            "Cancelled pending LSP shutdown"
-        );
+        info!(project_id = project_id, "Cancelled pending LSP shutdown");
         true
     } else {
         false

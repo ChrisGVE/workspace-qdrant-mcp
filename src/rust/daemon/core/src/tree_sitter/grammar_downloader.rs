@@ -210,11 +210,7 @@ impl GrammarDownloader {
     }
 
     /// Download a grammar only if it's not already cached.
-    pub async fn ensure_grammar(
-        &self,
-        language: &str,
-        version: &str,
-    ) -> DownloadResult<PathBuf> {
+    pub async fn ensure_grammar(&self, language: &str, version: &str) -> DownloadResult<PathBuf> {
         if self.needs_download(language, version) {
             let downloaded = self.download_grammar(language, version).await?;
             Ok(downloaded.path)
@@ -311,11 +307,7 @@ fn library_extension() -> &'static str {
 
 /// Get the current platform string for downloads.
 pub fn download_platform() -> String {
-    format!(
-        "{}-{}",
-        std::env::consts::ARCH,
-        std::env::consts::OS
-    )
+    format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS)
 }
 
 impl std::fmt::Debug for GrammarDownloader {
@@ -375,11 +367,7 @@ mod tests {
     fn test_build_download_url_invalid() {
         let temp_dir = TempDir::new().unwrap();
         let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24");
-        let downloader = GrammarDownloader::new(
-            cache_paths,
-            "not-a-url/{language}",
-            false,
-        );
+        let downloader = GrammarDownloader::new(cache_paths, "not-a-url/{language}", false);
 
         let result = downloader.build_download_url("rust", "0.23.0", "x86_64", "so");
         assert!(result.is_err());

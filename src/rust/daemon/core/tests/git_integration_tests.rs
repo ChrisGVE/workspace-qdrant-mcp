@@ -6,17 +6,16 @@
 //! - Default branch detection and tracking
 //! - Alias management for project ID transitions
 
+use git2::{Repository, Signature};
 use std::path::Path;
 use tempfile::TempDir;
-use git2::{Repository, Signature};
 use tokio::time::Duration;
 
 use workspace_qdrant_core::git::{
-    GitBranchDetector, BranchLifecycleDetector, BranchLifecycleConfig,
-    BranchEvent,
+    BranchEvent, BranchLifecycleConfig, BranchLifecycleDetector, GitBranchDetector,
 };
 use workspace_qdrant_core::project_disambiguation::{
-    ProjectIdCalculator, DisambiguationPathComputer,
+    DisambiguationPathComputer, ProjectIdCalculator,
 };
 
 // ============================================================================
@@ -35,14 +34,7 @@ fn create_test_repo(path: &Path) -> Result<Repository, git2::Error> {
     };
     {
         let tree = repo.find_tree(tree_id)?;
-        repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            "Initial commit",
-            &tree,
-            &[],
-        )?;
+        repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
     }
 
     Ok(repo)
@@ -102,19 +94,22 @@ async fn test_branch_lifecycle_full_workflow() {
     // Create a new branch
     let head = repo.head().unwrap();
     let commit = head.peel_to_commit().unwrap();
-    repo.branch("feature/workflow-test", &commit, false).unwrap();
+    repo.branch("feature/workflow-test", &commit, false)
+        .unwrap();
 
     // Scan for changes
     let events = detector.scan_for_changes().await.unwrap();
 
     // Should detect new branch
-    let created_event = events.iter().find(|e| {
-        matches!(e, BranchEvent::Created { branch, .. } if branch == "feature/workflow-test")
-    });
+    let created_event = events.iter().find(
+        |e| matches!(e, BranchEvent::Created { branch, .. } if branch == "feature/workflow-test"),
+    );
     assert!(created_event.is_some(), "Should detect branch creation");
 
     // Delete the branch
-    let mut branch = repo.find_branch("feature/workflow-test", git2::BranchType::Local).unwrap();
+    let mut branch = repo
+        .find_branch("feature/workflow-test", git2::BranchType::Local)
+        .unwrap();
     branch.delete().unwrap();
 
     // First scan registers the deletion
@@ -126,9 +121,9 @@ async fn test_branch_lifecycle_full_workflow() {
     // Second scan emits delete event
     let events = detector.scan_for_changes().await.unwrap();
 
-    let deleted_event = events.iter().find(|e| {
-        matches!(e, BranchEvent::Deleted { branch } if branch == "feature/workflow-test")
-    });
+    let deleted_event = events.iter().find(
+        |e| matches!(e, BranchEvent::Deleted { branch } if branch == "feature/workflow-test"),
+    );
     assert!(deleted_event.is_some(), "Should detect branch deletion");
 }
 
@@ -156,7 +151,9 @@ async fn test_branch_rename_detection() {
     repo.branch("new-name", &commit, false).unwrap();
 
     // Delete old branch
-    let mut old_branch = repo.find_branch("old-name", git2::BranchType::Local).unwrap();
+    let mut old_branch = repo
+        .find_branch("old-name", git2::BranchType::Local)
+        .unwrap();
     old_branch.delete().unwrap();
 
     // Scan should detect this as rename (delete+create same commit within timeout)
@@ -167,12 +164,14 @@ async fn test_branch_rename_detection() {
         matches!(e, BranchEvent::Renamed { old_name, new_name }
             if old_name == "old-name" && new_name == "new-name")
     });
-    let has_create_delete = events.iter().any(|e| {
-        matches!(e, BranchEvent::Created { branch, .. } if branch == "new-name")
-    });
+    let has_create_delete = events
+        .iter()
+        .any(|e| matches!(e, BranchEvent::Created { branch, .. } if branch == "new-name"));
 
-    assert!(has_rename || has_create_delete,
-        "Should detect branch rename or create/delete pair");
+    assert!(
+        has_rename || has_create_delete,
+        "Should detect branch rename or create/delete pair"
+    );
 }
 
 #[tokio::test]
@@ -188,8 +187,11 @@ async fn test_branch_lifecycle_stats() {
     let stats = detector.stats().await;
 
     // Should have at least 4 branches: main/master + develop + feature/test + release/1.0
-    assert!(stats.tracked_branches >= 4,
-        "Expected at least 4 branches, got {}", stats.tracked_branches);
+    assert!(
+        stats.tracked_branches >= 4,
+        "Expected at least 4 branches, got {}",
+        stats.tracked_branches
+    );
     assert_eq!(stats.pending_deletes, 0);
     assert!(stats.default_branch.is_some());
 }
@@ -257,7 +259,10 @@ fn test_disambiguation_path_for_clones() {
         Some("personal/my-project"),
     );
 
-    assert_ne!(id1, id2, "Different disambiguation should produce different IDs");
+    assert_ne!(
+        id1, id2,
+        "Different disambiguation should produce different IDs"
+    );
 }
 
 #[test]
@@ -272,13 +277,15 @@ fn test_local_project_id_generation() {
 
     // Calculate ID without remote
     let id = calculator.calculate(
-        repo_path,
-        None, // No remote
+        repo_path, None, // No remote
         None,
     );
 
     // Should have local_ prefix
-    assert!(id.starts_with("local_"), "Local project should have local_ prefix");
+    assert!(
+        id.starts_with("local_"),
+        "Local project should have local_ prefix"
+    );
     assert_eq!(id.len(), 18, "local_ (6) + 12-char hash = 18 characters");
 }
 
@@ -292,7 +299,10 @@ fn test_git_url_normalization_comprehensive() {
         ("git@github.com:user/repo.git", "github.com/user/repo"),
         ("ssh://git@github.com/user/repo.git", "github.com/user/repo"),
         ("http://github.com/user/repo", "github.com/user/repo"),
-        ("https://gitlab.com/org/project.git", "gitlab.com/org/project"),
+        (
+            "https://gitlab.com/org/project.git",
+            "gitlab.com/org/project",
+        ),
         ("git@bitbucket.org:team/app.git", "bitbucket.org/team/app"),
         ("HTTPS://GitHub.COM/User/Repo.GIT", "github.com/user/repo"),
     ];
@@ -315,14 +325,18 @@ fn test_remote_hash_grouping() {
         "http://github.com/anthropics/claude-code",
     ];
 
-    let hashes: Vec<_> = urls.iter()
+    let hashes: Vec<_> = urls
+        .iter()
         .map(|u| calculator.calculate_remote_hash(u))
         .collect();
 
     // All hashes should be identical
     for (i, hash) in hashes.iter().enumerate().skip(1) {
-        assert_eq!(hash, &hashes[0],
-            "URL {} produced different hash than URL 0", i);
+        assert_eq!(
+            hash, &hashes[0],
+            "URL {} produced different hash than URL 0",
+            i
+        );
     }
 }
 
@@ -353,16 +367,22 @@ async fn test_branch_detector_with_disambiguation() {
 
     // Verify we have both project ID and branch
     assert!(!project_id.is_empty(), "Project ID should not be empty");
-    assert!(branch == "main" || branch == "master",
-        "Expected default branch, got {}", branch);
+    assert!(
+        branch == "main" || branch == "master",
+        "Expected default branch, got {}",
+        branch
+    );
 
     // Now initialize lifecycle detector
     let lifecycle_detector = BranchLifecycleDetector::with_defaults(repo_path.to_path_buf());
     lifecycle_detector.initialize().await.unwrap();
 
     let default_branch = lifecycle_detector.get_default_branch().await;
-    assert_eq!(default_branch.as_deref(), Some(branch.as_str()),
-        "Lifecycle detector should agree on default branch");
+    assert_eq!(
+        default_branch.as_deref(),
+        Some(branch.as_str()),
+        "Lifecycle detector should agree on default branch"
+    );
 }
 
 #[tokio::test]
@@ -423,5 +443,8 @@ fn test_calculator_with_invalid_path() {
         None,
     );
 
-    assert!(id.starts_with("local_"), "Should produce local ID for non-existent path");
+    assert!(
+        id.starts_with("local_"),
+        "Should produce local ID for non-existent path"
+    );
 }

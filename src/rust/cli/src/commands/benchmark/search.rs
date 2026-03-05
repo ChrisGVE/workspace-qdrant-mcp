@@ -48,24 +48,96 @@ struct QueryComparison {
 
 /// Default query set covering typical code search patterns.
 static DEFAULT_QUERIES: &[BenchQuery] = &[
-    BenchQuery { label: "exact: common keyword", pattern: "async fn", regex: false },
-    BenchQuery { label: "exact: struct name", pattern: "ProcessingContext", regex: false },
-    BenchQuery { label: "exact: import path", pattern: "use std::collections::HashMap", regex: false },
-    BenchQuery { label: "exact: error handling", pattern: "anyhow::Result", regex: false },
-    BenchQuery { label: "exact: rare symbol", pattern: "CentralityCache", regex: false },
-    BenchQuery { label: "exact: trait impl", pattern: "impl Default for", regex: false },
-    BenchQuery { label: "exact: test annotation", pattern: "#[cfg(test)]", regex: false },
-    BenchQuery { label: "exact: multi-word", pattern: "queue processor", regex: false },
-    BenchQuery { label: "regex: fn signature", pattern: r"pub async fn \w+\(", regex: true },
-    BenchQuery { label: "regex: struct definition", pattern: r"pub struct \w+ \{", regex: true },
-    BenchQuery { label: "regex: fn definition", pattern: r"fn \w+\(", regex: true },
-    BenchQuery { label: "regex: mutable binding", pattern: r"let mut \w+", regex: true },
-    BenchQuery { label: "regex: trait impl", pattern: r"impl \w+ for \w+", regex: true },
-    BenchQuery { label: "regex: std imports", pattern: r"use (std|tokio|serde)::\w+", regex: true },
-    BenchQuery { label: "regex: derive macros", pattern: r"#\[derive\(\w+", regex: true },
-    BenchQuery { label: "regex: public decls", pattern: r"pub (fn|struct|enum|trait|type) \w+", regex: true },
-    BenchQuery { label: "regex: async Result", pattern: r"async fn \w+.*-> Result", regex: true },
-    BenchQuery { label: "regex: method chains", pattern: r"\.(await|unwrap|expect)\b", regex: true },
+    BenchQuery {
+        label: "exact: common keyword",
+        pattern: "async fn",
+        regex: false,
+    },
+    BenchQuery {
+        label: "exact: struct name",
+        pattern: "ProcessingContext",
+        regex: false,
+    },
+    BenchQuery {
+        label: "exact: import path",
+        pattern: "use std::collections::HashMap",
+        regex: false,
+    },
+    BenchQuery {
+        label: "exact: error handling",
+        pattern: "anyhow::Result",
+        regex: false,
+    },
+    BenchQuery {
+        label: "exact: rare symbol",
+        pattern: "CentralityCache",
+        regex: false,
+    },
+    BenchQuery {
+        label: "exact: trait impl",
+        pattern: "impl Default for",
+        regex: false,
+    },
+    BenchQuery {
+        label: "exact: test annotation",
+        pattern: "#[cfg(test)]",
+        regex: false,
+    },
+    BenchQuery {
+        label: "exact: multi-word",
+        pattern: "queue processor",
+        regex: false,
+    },
+    BenchQuery {
+        label: "regex: fn signature",
+        pattern: r"pub async fn \w+\(",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: struct definition",
+        pattern: r"pub struct \w+ \{",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: fn definition",
+        pattern: r"fn \w+\(",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: mutable binding",
+        pattern: r"let mut \w+",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: trait impl",
+        pattern: r"impl \w+ for \w+",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: std imports",
+        pattern: r"use (std|tokio|serde)::\w+",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: derive macros",
+        pattern: r"#\[derive\(\w+",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: public decls",
+        pattern: r"pub (fn|struct|enum|trait|type) \w+",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: async Result",
+        pattern: r"async fn \w+.*-> Result",
+        regex: true,
+    },
+    BenchQuery {
+        label: "regex: method chains",
+        pattern: r"\.(await|unwrap|expect)\b",
+        regex: true,
+    },
 ];
 
 /// Execute the search benchmark.
@@ -76,8 +148,7 @@ pub async fn execute(
     output_file: Option<String>,
 ) -> Result<()> {
     let db_path = get_database_path()?;
-    let search_db_path =
-        workspace_qdrant_core::search_db::search_db_path_from_state(&db_path);
+    let search_db_path = workspace_qdrant_core::search_db::search_db_path_from_state(&db_path);
 
     if !search_db_path.exists() {
         output::error(
@@ -97,13 +168,31 @@ pub async fn execute(
         .context("Failed to open search.db")?;
 
     let queries = DEFAULT_QUERIES;
-    print_benchmark_header(queries, &project_root, tenant_id.as_deref(), warmup, iterations);
+    print_benchmark_header(
+        queries,
+        &project_root,
+        tenant_id.as_deref(),
+        warmup,
+        iterations,
+    );
 
-    run_warmup(&search_db, queries, &project_root, tenant_id.as_deref(), warmup).await;
+    run_warmup(
+        &search_db,
+        queries,
+        &project_root,
+        tenant_id.as_deref(),
+        warmup,
+    )
+    .await;
 
-    let comparisons =
-        run_benchmark_queries(&search_db, queries, &project_root, tenant_id.as_deref(), iterations)
-            .await?;
+    let comparisons = run_benchmark_queries(
+        &search_db,
+        queries,
+        &project_root,
+        tenant_id.as_deref(),
+        iterations,
+    )
+    .await?;
 
     search_db.close().await;
 
@@ -304,8 +393,16 @@ fn print_results(comparisons: &[QueryComparison], iterations: usize) {
     println!("{}", "─".repeat(120));
     println!(
         "{:<28} {:>8} {:>8} {:>8} {:>7} {:>7} {:>8} {:>8} {:>8} {:>8}",
-        "Query", "FTS5 p50", "rg p50", "Ratio", "FTS5 #", "rg #",
-        "Shared", "stdF", "stdR", "min/max"
+        "Query",
+        "FTS5 p50",
+        "rg p50",
+        "Ratio",
+        "FTS5 #",
+        "rg #",
+        "Shared",
+        "stdF",
+        "stdR",
+        "min/max"
     );
     println!("{}", "─".repeat(120));
 
@@ -328,10 +425,7 @@ fn print_results(comparisons: &[QueryComparison], iterations: usize) {
             format!("{:.1}x", ratio)
         };
 
-        let minmax = format!(
-            "{:.0}/{:.0}",
-            c.fts5_stats.min, c.fts5_stats.max,
-        );
+        let minmax = format!("{:.0}/{:.0}", c.fts5_stats.min, c.fts5_stats.max,);
 
         println!(
             "{:<28} {:>7.1} {:>7.1} {:>8} {:>7} {:>7} {:>8} {:>7.1} {:>7.1} {:>8}",
@@ -433,12 +527,8 @@ async fn write_json_report(
 }
 
 /// Resolve the project root path from state.db watch_folders.
-fn resolve_project_root(
-    db_path: &PathBuf,
-    tenant_id: Option<&str>,
-) -> Result<PathBuf> {
-    let conn =
-        rusqlite::Connection::open(db_path).context("Failed to open state.db")?;
+fn resolve_project_root(db_path: &PathBuf, tenant_id: Option<&str>) -> Result<PathBuf> {
+    let conn = rusqlite::Connection::open(db_path).context("Failed to open state.db")?;
 
     let query = if let Some(tid) = tenant_id {
         let path: String = conn

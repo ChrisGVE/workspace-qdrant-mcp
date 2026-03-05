@@ -11,9 +11,7 @@
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use workspace_qdrant_core::fts_batch_processor::{
-    FileChange, FtsBatchConfig, FtsBatchProcessor,
-};
+use workspace_qdrant_core::fts_batch_processor::{FileChange, FtsBatchConfig, FtsBatchProcessor};
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::text_search::{search_exact, search_regex, SearchOptions};
 
@@ -59,13 +57,12 @@ async fn test_concurrent_update_and_search_same_file() {
         let db_clone = Arc::clone(&db);
         handles.push(tokio::spawn(async move {
             // The function should be found at some point during the test
-            let results = search_exact(
-                &db_clone,
-                "stable_function",
-                &SearchOptions::default(),
-            )
-            .await;
-            assert!(results.is_ok(), "Search should not error during concurrent access");
+            let results =
+                search_exact(&db_clone, "stable_function", &SearchOptions::default()).await;
+            assert!(
+                results.is_ok(),
+                "Search should not error during concurrent access"
+            );
         }));
     }
 
@@ -86,7 +83,10 @@ async fn test_concurrent_update_and_search_same_file() {
                     None,
                 )
                 .await;
-            assert!(result.is_ok(), "Update should not error during concurrent access");
+            assert!(
+                result.is_ok(),
+                "Update should not error during concurrent access"
+            );
         }));
     }
 
@@ -140,7 +140,11 @@ async fn test_diff_completely_different_content() {
         let results = search_exact(&db, term, &SearchOptions::default())
             .await
             .unwrap();
-        assert!(results.matches.is_empty(), "{} from v1 should be gone", term);
+        assert!(
+            results.matches.is_empty(),
+            "{} from v1 should be gone",
+            term
+        );
     }
 
     // v2 content present
@@ -187,7 +191,10 @@ async fn test_diff_content_to_empty() {
     let results = search_exact(&db, "nonempty", &SearchOptions::default())
         .await
         .unwrap();
-    assert!(results.matches.is_empty(), "Content should be gone after emptying file");
+    assert!(
+        results.matches.is_empty(),
+        "Content should be gone after emptying file"
+    );
 }
 
 #[tokio::test]
@@ -226,7 +233,11 @@ async fn test_diff_empty_to_content() {
     let results = search_exact(&db, "appeared", &SearchOptions::default())
         .await
         .unwrap();
-    assert_eq!(results.matches.len(), 1, "Content should appear after empty->content update");
+    assert_eq!(
+        results.matches.len(),
+        1,
+        "Content should appear after empty->content update"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +252,16 @@ async fn test_regex_with_special_quantifiers() {
     let content = "let aaa = 1;\nlet aaab = 2;\nlet bbb = 3;\nlet abc = 4;";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/regex.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/regex.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -271,19 +291,28 @@ async fn test_case_insensitive_search() {
     let content = "fn MyFunction() {}\nfn myfunction() {}\nfn MYFUNCTION() {}";
 
     processor
-        .full_rewrite(1, content, "proj1", Some("main"), "src/case.rs", None, None, None)
+        .full_rewrite(
+            1,
+            content,
+            "proj1",
+            Some("main"),
+            "src/case.rs",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
     // Case-sensitive (default): only one match
-    let results = search_exact(
-        &db,
-        "MyFunction",
-        &SearchOptions::default(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(results.matches.len(), 1, "Case-sensitive should find exactly one");
+    let results = search_exact(&db, "MyFunction", &SearchOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        results.matches.len(),
+        1,
+        "Case-sensitive should find exactly one"
+    );
 
     // Case-insensitive: all three
     let results = search_exact(
@@ -314,12 +343,12 @@ async fn test_batch_with_mixed_edge_cases() {
 
     let long_line = "x".repeat(15_000);
     let files: Vec<(i64, &str, &str)> = vec![
-        (1, "", "src/empty.rs"),                         // empty
-        (2, "   \n\n\t\n", "src/whitespace.rs"),         // whitespace only
-        (3, "fn normal_code() {}", "src/normal.rs"),     // normal
-        (4, "\u{1F680} emoji_file", "src/emoji.rs"),     // emoji
-        (5, "line\r\nwith\r\ncrlf", "src/crlf.rs"),      // CRLF
-        (6, &long_line, "src/longline.rs"),              // long single line
+        (1, "", "src/empty.rs"),                     // empty
+        (2, "   \n\n\t\n", "src/whitespace.rs"),     // whitespace only
+        (3, "fn normal_code() {}", "src/normal.rs"), // normal
+        (4, "\u{1F680} emoji_file", "src/emoji.rs"), // emoji
+        (5, "line\r\nwith\r\ncrlf", "src/crlf.rs"),  // CRLF
+        (6, &long_line, "src/longline.rs"),          // long single line
     ];
 
     for (id, content, path) in &files {

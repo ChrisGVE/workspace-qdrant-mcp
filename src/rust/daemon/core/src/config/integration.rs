@@ -2,12 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 // --- Git Config ---
 
-fn default_enable_branch_detection() -> bool { true }
-fn default_cache_ttl_seconds() -> u64 { 60 }
+fn default_enable_branch_detection() -> bool {
+    true
+}
+fn default_cache_ttl_seconds() -> u64 {
+    60
+}
 
 /// Git integration configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +80,9 @@ pub enum UpdateChannel {
     Dev,
 }
 
-fn default_update_check_interval() -> u32 { 24 } // Daily
+fn default_update_check_interval() -> u32 {
+    24
+} // Daily
 
 /// Daemon self-update configuration
 ///

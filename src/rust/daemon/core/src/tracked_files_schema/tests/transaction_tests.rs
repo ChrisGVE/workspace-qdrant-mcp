@@ -8,9 +8,24 @@ async fn test_insert_tracked_file_tx_commit() {
 
     let mut tx = pool.begin().await.unwrap();
     let file_id = insert_tracked_file_tx(
-        &mut tx, "w1", "src/tx_test.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "txhash1", 2, Some("tree_sitter"), ProcessingStatus::Done,
-        ProcessingStatus::Done, None, None, false, None, None, None,
+        &mut tx,
+        "w1",
+        "src/tx_test.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "txhash1",
+        2,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .expect("Tx insert failed");
@@ -32,9 +47,24 @@ async fn test_insert_tracked_file_tx_rollback() {
     {
         let mut tx = pool.begin().await.unwrap();
         let _file_id = insert_tracked_file_tx(
-            &mut tx, "w1", "src/rollback.rs", Some("main"), Some("code"), Some("rust"),
-            "2025-01-01T00:00:00Z", "rollback_hash", 1, None, ProcessingStatus::None,
-            ProcessingStatus::None, None, None, false, None, None, None,
+            &mut tx,
+            "w1",
+            "src/rollback.rs",
+            Some("main"),
+            Some("code"),
+            Some("rust"),
+            "2025-01-01T00:00:00Z",
+            "rollback_hash",
+            1,
+            None,
+            ProcessingStatus::None,
+            ProcessingStatus::None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
         )
         .await
         .expect("Tx insert failed");
@@ -44,10 +74,7 @@ async fn test_insert_tracked_file_tx_rollback() {
     let found = lookup_tracked_file(&pool, "w1", "src/rollback.rs", Some("main"))
         .await
         .unwrap();
-    assert!(
-        found.is_none(),
-        "Rolled-back insert should not be visible"
-    );
+    assert!(found.is_none(), "Rolled-back insert should not be visible");
 }
 
 #[tokio::test]
@@ -57,21 +84,46 @@ async fn test_transaction_atomicity_insert_and_chunks() {
 
     let mut tx = pool.begin().await.unwrap();
     let file_id = insert_tracked_file_tx(
-        &mut tx, "w1", "src/atomic.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "atomic_hash", 2, Some("tree_sitter"), ProcessingStatus::Done,
-        ProcessingStatus::Done, None, None, false, None, None, None,
+        &mut tx,
+        "w1",
+        "src/atomic.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "atomic_hash",
+        2,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
 
     let chunks = vec![
         (
-            "pt-1".to_string(), 0, "ch1".to_string(), Some(ChunkType::Function),
-            Some("main".to_string()), Some(1), Some(20),
+            "pt-1".to_string(),
+            0,
+            "ch1".to_string(),
+            Some(ChunkType::Function),
+            Some("main".to_string()),
+            Some(1),
+            Some(20),
         ),
         (
-            "pt-2".to_string(), 1, "ch2".to_string(), Some(ChunkType::Struct),
-            Some("Config".to_string()), Some(22), Some(40),
+            "pt-2".to_string(),
+            1,
+            "ch2".to_string(),
+            Some(ChunkType::Struct),
+            Some("Config".to_string()),
+            Some(22),
+            Some(40),
         ),
     ];
     insert_qdrant_chunks_tx(&mut tx, file_id, &chunks)
@@ -94,9 +146,24 @@ async fn test_transaction_atomicity_rollback_both() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/base.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "base_hash", 0, None, ProcessingStatus::None,
-        ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/base.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "base_hash",
+        0,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -104,14 +171,28 @@ async fn test_transaction_atomicity_rollback_both() {
     {
         let mut tx = pool.begin().await.unwrap();
         update_tracked_file_tx(
-            &mut tx, file_id, "2025-02-01T00:00:00Z", "new_hash", 3, Some("tree_sitter"),
-            ProcessingStatus::Done, ProcessingStatus::Done, None, None,
+            &mut tx,
+            file_id,
+            "2025-02-01T00:00:00Z",
+            "new_hash",
+            3,
+            Some("tree_sitter"),
+            ProcessingStatus::Done,
+            ProcessingStatus::Done,
+            None,
+            None,
         )
         .await
         .unwrap();
 
         let chunks = vec![(
-            "p1".to_string(), 0, "c1".to_string(), None, None, None, None,
+            "p1".to_string(),
+            0,
+            "c1".to_string(),
+            None,
+            None,
+            None,
+            None,
         )];
         insert_qdrant_chunks_tx(&mut tx, file_id, &chunks)
             .await
@@ -133,11 +214,7 @@ async fn test_transaction_atomicity_rollback_both() {
     );
 
     let point_ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
-    assert_eq!(
-        point_ids.len(),
-        0,
-        "No chunks should exist after rollback"
-    );
+    assert_eq!(point_ids.len(), 0, "No chunks should exist after rollback");
 }
 
 #[tokio::test]
@@ -146,15 +223,36 @@ async fn test_delete_tracked_file_tx() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/delete_tx.rs", Some("main"), None, None, "2025-01-01T00:00:00Z", "h1",
-        1, None, ProcessingStatus::None, ProcessingStatus::None, None, None, false, None, None,
+        &pool,
+        "w1",
+        "src/delete_tx.rs",
+        Some("main"),
+        None,
+        None,
+        "2025-01-01T00:00:00Z",
+        "h1",
+        1,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
         None,
     )
     .await
     .unwrap();
 
     let chunks = vec![(
-        "p1".to_string(), 0, "c1".to_string(), None, None, None, None,
+        "p1".to_string(),
+        0,
+        "c1".to_string(),
+        None,
+        None,
+        None,
+        None,
     )];
     insert_qdrant_chunks(&pool, file_id, &chunks).await.unwrap();
 
@@ -168,11 +266,7 @@ async fn test_delete_tracked_file_tx() {
     assert!(found.is_none(), "File should be deleted");
 
     let point_ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
-    assert_eq!(
-        point_ids.len(),
-        0,
-        "Chunks should be deleted via CASCADE"
-    );
+    assert_eq!(point_ids.len(), 0, "Chunks should be deleted via CASCADE");
 }
 
 #[tokio::test]
@@ -181,9 +275,24 @@ async fn test_mark_and_query_needs_reconcile() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/reconcile.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "hash1", 3, Some("tree_sitter"), ProcessingStatus::Done,
-        ProcessingStatus::Done, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/reconcile.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        3,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -225,9 +334,24 @@ async fn test_update_tracked_file_tx_clears_reconcile_flag() {
     setup_tables(&pool).await;
 
     let file_id = insert_tracked_file(
-        &pool, "w1", "src/reconcile_clear.rs", Some("main"), Some("code"), Some("rust"),
-        "2025-01-01T00:00:00Z", "hash1", 1, None, ProcessingStatus::None,
-        ProcessingStatus::None, None, None, false, None, None, None,
+        &pool,
+        "w1",
+        "src/reconcile_clear.rs",
+        Some("main"),
+        Some("code"),
+        Some("rust"),
+        "2025-01-01T00:00:00Z",
+        "hash1",
+        1,
+        None,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -238,8 +362,16 @@ async fn test_update_tracked_file_tx_clears_reconcile_flag() {
 
     let mut tx = pool.begin().await.unwrap();
     update_tracked_file_tx(
-        &mut tx, file_id, "2025-02-01T00:00:00Z", "hash2", 5, Some("tree_sitter"),
-        ProcessingStatus::Done, ProcessingStatus::Done, None, None,
+        &mut tx,
+        file_id,
+        "2025-02-01T00:00:00Z",
+        "hash2",
+        5,
+        Some("tree_sitter"),
+        ProcessingStatus::Done,
+        ProcessingStatus::Done,
+        None,
+        None,
     )
     .await
     .unwrap();

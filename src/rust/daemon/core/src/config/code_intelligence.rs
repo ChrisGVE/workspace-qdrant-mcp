@@ -3,19 +3,39 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 // --- LSP Settings ---
 
-fn default_max_servers_per_project() -> usize { 3 }
-fn default_deactivation_delay() -> u64 { 60 }
-fn default_cache_ttl() -> u64 { 300 }
-fn default_startup_timeout() -> u64 { 30 }
-fn default_request_timeout() -> u64 { 10 }
-fn default_health_check_interval() -> u64 { 60 }
-fn default_max_restart_attempts() -> u32 { 3 }
-fn default_backoff_multiplier() -> f64 { 2.0 }
-fn default_stability_reset() -> u64 { 3600 }
+fn default_max_servers_per_project() -> usize {
+    3
+}
+fn default_deactivation_delay() -> u64 {
+    60
+}
+fn default_cache_ttl() -> u64 {
+    300
+}
+fn default_startup_timeout() -> u64 {
+    30
+}
+fn default_request_timeout() -> u64 {
+    10
+}
+fn default_health_check_interval() -> u64 {
+    60
+}
+fn default_max_restart_attempts() -> u32 {
+    3
+}
+fn default_backoff_multiplier() -> f64 {
+    2.0
+}
+fn default_stability_reset() -> u64 {
+    3600
+}
 
 /// LSP (Language Server Protocol) configuration settings
 ///
@@ -125,8 +145,12 @@ impl LspSettings {
 
 // --- Grammar Config ---
 
-fn default_grammar_check_interval() -> u32 { 168 } // Weekly
-fn default_idle_update_check_delay() -> u64 { 300 } // 5 minutes
+fn default_grammar_check_interval() -> u32 {
+    168
+} // Weekly
+fn default_idle_update_check_delay() -> u64 {
+    300
+} // 5 minutes
 fn default_grammar_cache_dir() -> PathBuf {
     PathBuf::from("~/.workspace-qdrant/grammars")
 }
@@ -321,10 +345,19 @@ mod tests {
     #[test]
     fn test_grammar_config_defaults() {
         let config = GrammarConfig::default();
-        assert_eq!(config.cache_dir, PathBuf::from("~/.workspace-qdrant/grammars"));
-        assert!(config.required.is_empty(), "Default required should be empty");
+        assert_eq!(
+            config.cache_dir,
+            PathBuf::from("~/.workspace-qdrant/grammars")
+        );
+        assert!(
+            config.required.is_empty(),
+            "Default required should be empty"
+        );
         assert!(config.auto_download);
-        assert_eq!(config.tree_sitter_version, env!("TREE_SITTER_VERSION_MAJOR_MINOR"));
+        assert_eq!(
+            config.tree_sitter_version,
+            env!("TREE_SITTER_VERSION_MAJOR_MINOR")
+        );
         assert!(config.verify_checksums);
         assert!(config.lazy_loading);
         assert!(config.idle_update_check_enabled);
@@ -411,7 +444,8 @@ mod tests {
     #[test]
     fn test_grammar_config_missing_new_fields_uses_defaults() {
         // Simulate deserialization from config without new fields
-        let json = format!(r#"{{
+        let json = format!(
+            r#"{{
             "cache_dir": "/custom/grammars",
             "required": ["rust"],
             "auto_download": true,
@@ -420,7 +454,9 @@ mod tests {
             "verify_checksums": true,
             "lazy_loading": true,
             "check_interval_hours": 168
-        }}"#, env!("TREE_SITTER_VERSION_MAJOR_MINOR"));
+        }}"#,
+            env!("TREE_SITTER_VERSION_MAJOR_MINOR")
+        );
         let config: GrammarConfig = serde_json::from_str(&json).unwrap();
         // New fields should use defaults when missing
         assert!(config.idle_update_check_enabled);

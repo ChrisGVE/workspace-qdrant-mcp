@@ -1,7 +1,7 @@
 //! Common test helper functions and utilities
 
-pub mod async_ops;
 pub mod assertions;
+pub mod async_ops;
 pub mod benchmarks;
 pub mod generators;
 pub mod tracing;
@@ -143,7 +143,10 @@ mod tests {
         // On macOS and Linux, get_memory_usage should return Some with non-zero RSS
         let diff = tracker.end();
         if cfg!(any(target_os = "macos", target_os = "linux")) {
-            assert!(diff.is_some(), "MemoryTracker should return RSS on macOS/Linux");
+            assert!(
+                diff.is_some(),
+                "MemoryTracker should return RSS on macOS/Linux"
+            );
         }
     }
 

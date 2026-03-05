@@ -1,7 +1,7 @@
 use super::*;
-use tempfile::tempdir;
 use std::path::Path;
 use std::time::Duration;
+use tempfile::tempdir;
 
 /// Helper to create a Git repository with initial commit
 fn create_test_repo(path: &Path) -> Result<git2::Repository, git2::Error> {
@@ -14,14 +14,7 @@ fn create_test_repo(path: &Path) -> Result<git2::Repository, git2::Error> {
     };
     {
         let tree = repo.find_tree(tree_id)?;
-        repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            "Initial commit",
-            &tree,
-            &[],
-        )?;
+        repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
     }
 
     Ok(repo)
@@ -143,7 +136,9 @@ async fn test_branch_lifecycle_detect_deletion() {
     let detector = BranchLifecycleDetector::with_defaults(repo_path.to_path_buf());
     detector.initialize().await.unwrap();
 
-    let mut branch = repo.find_branch("to-delete", git2::BranchType::Local).unwrap();
+    let mut branch = repo
+        .find_branch("to-delete", git2::BranchType::Local)
+        .unwrap();
     branch.delete().unwrap();
 
     let _events = detector.scan_for_changes().await.unwrap();

@@ -40,15 +40,23 @@ impl QdrantTestContainer {
             .with_exposed_port(QDRANT_HTTP_PORT.tcp())
             .with_exposed_port(QDRANT_GRPC_PORT.tcp());
 
-        let container = image.start().await
+        let container = image
+            .start()
+            .await
             .map_err(|e| format!("Failed to start Qdrant container: {}", e))?;
 
-        let host = container.get_host().await
+        let host = container
+            .get_host()
+            .await
             .map_err(|e| format!("Failed to get container host: {}", e))?
             .to_string();
-        let http_port = container.get_host_port_ipv4(QDRANT_HTTP_PORT).await
+        let http_port = container
+            .get_host_port_ipv4(QDRANT_HTTP_PORT)
+            .await
             .map_err(|e| format!("Failed to get HTTP port: {}", e))?;
-        let grpc_port = container.get_host_port_ipv4(QDRANT_GRPC_PORT).await
+        let grpc_port = container
+            .get_host_port_ipv4(QDRANT_GRPC_PORT)
+            .await
             .map_err(|e| format!("Failed to get gRPC port: {}", e))?;
 
         // Wait for container to be ready

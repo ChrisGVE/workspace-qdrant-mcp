@@ -2,8 +2,8 @@
 
 use tracing::{debug, info};
 
-use super::SearchDbManager;
 use super::types::SearchDbResult;
+use super::SearchDbManager;
 
 impl SearchDbManager {
     /// Rebuild the FTS5 index from the external content table.
@@ -13,9 +13,7 @@ impl SearchDbManager {
     pub async fn rebuild_fts(&self) -> SearchDbResult<()> {
         use crate::code_lines_schema::FTS5_REBUILD_SQL;
         debug!("Rebuilding FTS5 index");
-        sqlx::query(FTS5_REBUILD_SQL)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(FTS5_REBUILD_SQL).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -26,9 +24,7 @@ impl SearchDbManager {
     pub async fn optimize_fts(&self) -> SearchDbResult<()> {
         use crate::code_lines_schema::FTS5_OPTIMIZE_SQL;
         debug!("Optimizing FTS5 index");
-        sqlx::query(FTS5_OPTIMIZE_SQL)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(FTS5_OPTIMIZE_SQL).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -36,12 +32,17 @@ impl SearchDbManager {
     ///
     /// If `lines_affected` exceeds `FTS5_OPTIMIZE_THRESHOLD`, runs optimize
     /// after rebuild for better query performance.
-    pub async fn rebuild_and_maybe_optimize_fts(&self, lines_affected: usize) -> SearchDbResult<()> {
+    pub async fn rebuild_and_maybe_optimize_fts(
+        &self,
+        lines_affected: usize,
+    ) -> SearchDbResult<()> {
         use crate::code_lines_schema::FTS5_OPTIMIZE_THRESHOLD;
         self.rebuild_fts().await?;
         if lines_affected >= FTS5_OPTIMIZE_THRESHOLD {
-            info!("Lines affected ({}) >= threshold ({}), optimizing FTS5 index",
-                lines_affected, FTS5_OPTIMIZE_THRESHOLD);
+            info!(
+                "Lines affected ({}) >= threshold ({}), optimizing FTS5 index",
+                lines_affected, FTS5_OPTIMIZE_THRESHOLD
+            );
             self.optimize_fts().await?;
         }
         Ok(())

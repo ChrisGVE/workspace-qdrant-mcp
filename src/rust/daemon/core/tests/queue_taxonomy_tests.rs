@@ -5,12 +5,12 @@
 //! - RegisterProject/DeleteProject enqueue-only pattern (WI-5/6)
 //! - Collection uplift/reset cascade (WI-7)
 
-use workspace_qdrant_core::{
-    QueueManager,
-    unified_queue_schema::{ItemType, QueueOperation},
-};
 use sqlx::SqlitePool;
 use tempfile::TempDir;
+use workspace_qdrant_core::{
+    unified_queue_schema::{ItemType, QueueOperation},
+    QueueManager,
+};
 
 const CREATE_TABLE_STMTS: &[&str] = &[
     r#"CREATE TABLE unified_queue (
@@ -93,12 +93,10 @@ async fn count_queue_items(pool: &SqlitePool, item_type: &str, op: &str) -> i64 
 
 /// Helper: count all pending queue items
 async fn count_pending_items(pool: &SqlitePool) -> i64 {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending'"
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0)
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM unified_queue WHERE status = 'pending'")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0)
 }
 
 // ── Progressive Scanning (WI-9) ──
@@ -112,17 +110,21 @@ async fn test_register_project_enqueues_tenant_add() {
     let payload = serde_json::json!({
         "project_root": "/test/project",
         "is_active": true,
-    }).to_string();
+    })
+    .to_string();
 
-    let (queue_id, is_new) = queue_manager.enqueue_unified(
-        ItemType::Tenant,
-        QueueOperation::Add,
-        "test_tenant_01",
-        "projects",
-        &payload,
-        None,
-        None,
-    ).await.unwrap();
+    let (queue_id, is_new) = queue_manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            QueueOperation::Add,
+            "test_tenant_01",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     assert!(is_new);
     assert!(!queue_id.is_empty());
@@ -136,17 +138,21 @@ async fn test_delete_project_enqueues_tenant_delete() {
 
     let payload = serde_json::json!({
         "project_root": "",
-    }).to_string();
+    })
+    .to_string();
 
-    let (queue_id, is_new) = queue_manager.enqueue_unified(
-        ItemType::Tenant,
-        QueueOperation::Delete,
-        "test_tenant_01",
-        "projects",
-        &payload,
-        None,
-        None,
-    ).await.unwrap();
+    let (queue_id, is_new) = queue_manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            QueueOperation::Delete,
+            "test_tenant_01",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     assert!(is_new);
     assert!(!queue_id.is_empty());
@@ -186,18 +192,22 @@ async fn test_progressive_scan_single_level_only() {
     // Simulate a project scan by enqueueing individual items as single-level scan would
     let payload = serde_json::json!({
         "project_root": root.to_string_lossy().to_string(),
-    }).to_string();
+    })
+    .to_string();
 
     // Enqueue (Tenant, Scan) as scan_project_directory does
-    let (_queue_id, _) = queue_manager.enqueue_unified(
-        ItemType::Tenant,
-        QueueOperation::Scan,
-        "test_project",
-        "projects",
-        &payload,
-        None,
-        None,
-    ).await.unwrap();
+    let (_queue_id, _) = queue_manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            QueueOperation::Scan,
+            "test_project",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     // The scan itself would produce:
     // - 2 (File, Add) for file1.rs, file2.rs (immediate children only)
@@ -209,18 +219,34 @@ async fn test_progressive_scan_single_level_only() {
     for fname in &["file1.rs", "file2.rs"] {
         let file_path = root.join(fname).to_string_lossy().to_string();
         let fp = serde_json::json!({"file_path": file_path}).to_string();
-        queue_manager.enqueue_unified(
-            ItemType::File, QueueOperation::Add, "test_project", "projects",
-            &fp, None, None,
-        ).await.unwrap();
+        queue_manager
+            .enqueue_unified(
+                ItemType::File,
+                QueueOperation::Add,
+                "test_project",
+                "projects",
+                &fp,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
     }
     for dname in &["subdir1", "subdir2"] {
         let dir_path = root.join(dname).to_string_lossy().to_string();
         let fp = serde_json::json!({"folder_path": dir_path}).to_string();
-        queue_manager.enqueue_unified(
-            ItemType::Folder, QueueOperation::Scan, "test_project", "projects",
-            &fp, None, None,
-        ).await.unwrap();
+        queue_manager
+            .enqueue_unified(
+                ItemType::Folder,
+                QueueOperation::Scan,
+                "test_project",
+                "projects",
+                &fp,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
     }
 
     // Should have exactly 2 files and 2 folders (not recursive)
@@ -255,15 +281,18 @@ async fn test_collection_uplift_cascade() {
 
     // Enqueue (Collection, Uplift) for "projects"
     let payload = serde_json::json!({"collection_name": "projects"}).to_string();
-    queue_manager.enqueue_unified(
-        ItemType::Collection,
-        QueueOperation::Uplift,
-        "system",
-        "projects",
-        &payload,
-        None,
-        None,
-    ).await.unwrap();
+    queue_manager
+        .enqueue_unified(
+            ItemType::Collection,
+            QueueOperation::Uplift,
+            "system",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     assert_eq!(count_queue_items(&pool, "collection", "uplift").await, 1);
 }
@@ -285,15 +314,18 @@ async fn test_collection_reset_cascade() {
 
     // Enqueue (Collection, Reset) for "projects"
     let payload = serde_json::json!({"collection_name": "projects"}).to_string();
-    queue_manager.enqueue_unified(
-        ItemType::Collection,
-        QueueOperation::Reset,
-        "system",
-        "projects",
-        &payload,
-        None,
-        None,
-    ).await.unwrap();
+    queue_manager
+        .enqueue_unified(
+            ItemType::Collection,
+            QueueOperation::Reset,
+            "system",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     assert_eq!(count_queue_items(&pool, "collection", "reset").await, 1);
 }
@@ -308,16 +340,32 @@ async fn test_idempotent_enqueue_deduplication() {
     let payload = serde_json::json!({"file_path": "/test/file.rs"}).to_string();
 
     // First enqueue
-    let (_, is_new_1) = queue_manager.enqueue_unified(
-        ItemType::File, QueueOperation::Add, "tenant1", "projects",
-        &payload, None, None,
-    ).await.unwrap();
+    let (_, is_new_1) = queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            QueueOperation::Add,
+            "tenant1",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     // Duplicate enqueue (same idempotency key)
-    let (_, is_new_2) = queue_manager.enqueue_unified(
-        ItemType::File, QueueOperation::Add, "tenant1", "projects",
-        &payload, None, None,
-    ).await.unwrap();
+    let (_, is_new_2) = queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            QueueOperation::Add,
+            "tenant1",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     assert!(is_new_1);
     assert!(!is_new_2);
@@ -334,12 +382,21 @@ async fn test_website_add_creates_scan() {
         "url": "https://example.com",
         "max_depth": 2,
         "max_pages": 10,
-    }).to_string();
+    })
+    .to_string();
 
-    queue_manager.enqueue_unified(
-        ItemType::Website, QueueOperation::Add, "tenant1", "projects",
-        &payload, None, None,
-    ).await.unwrap();
+    queue_manager
+        .enqueue_unified(
+            ItemType::Website,
+            QueueOperation::Add,
+            "tenant1",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     assert_eq!(count_queue_items(&pool, "website", "add").await, 1);
 }
@@ -367,10 +424,18 @@ async fn test_tenant_uplift_with_tracked_files() {
 
     // Enqueue (Tenant, Uplift)
     let payload = serde_json::json!({"project_root": "/test/project"}).to_string();
-    queue_manager.enqueue_unified(
-        ItemType::Tenant, QueueOperation::Uplift, "tenant_1", "projects",
-        &payload, None, None,
-    ).await.unwrap();
+    queue_manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            QueueOperation::Uplift,
+            "tenant_1",
+            "projects",
+            &payload,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     assert_eq!(count_queue_items(&pool, "tenant", "uplift").await, 1);
 }

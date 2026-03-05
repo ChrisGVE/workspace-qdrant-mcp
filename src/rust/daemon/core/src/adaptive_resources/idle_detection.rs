@@ -24,19 +24,13 @@ mod macos_idle {
     // CGEventSourceSecondsSinceLastEventType is in the CoreGraphics framework.
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
-        fn CGEventSourceSecondsSinceLastEventType(
-            source_state_id: i32,
-            event_type: u32,
-        ) -> f64;
+        fn CGEventSourceSecondsSinceLastEventType(source_state_id: i32, event_type: u32) -> f64;
     }
 
     // IOKit framework for HIDIdleTime (works during screen lock).
     #[link(name = "IOKit", kind = "framework")]
     extern "C" {
-        fn IOServiceGetMatchingService(
-            main_port: u32,
-            matching: *const std::ffi::c_void,
-        ) -> u32;
+        fn IOServiceGetMatchingService(main_port: u32, matching: *const std::ffi::c_void) -> u32;
         fn IOServiceMatching(name: *const std::ffi::c_char) -> *const std::ffi::c_void;
         fn IORegistryEntryCreateCFProperty(
             entry: u32,
@@ -76,7 +70,11 @@ mod macos_idle {
                 CG_ANY_INPUT_EVENT_TYPE,
             )
         };
-        if secs >= 0.0 { Some(secs) } else { None }
+        if secs >= 0.0 {
+            Some(secs)
+        } else {
+            None
+        }
     }
 
     /// Fallback idle detection via IOKit HIDIdleTime.
@@ -95,22 +93,14 @@ mod macos_idle {
             }
 
             let key_str = b"HIDIdleTime\0".as_ptr() as *const std::ffi::c_char;
-            let cf_key = CFStringCreateWithCString(
-                std::ptr::null(),
-                key_str,
-                K_CF_STRING_ENCODING_UTF8,
-            );
+            let cf_key =
+                CFStringCreateWithCString(std::ptr::null(), key_str, K_CF_STRING_ENCODING_UTF8);
             if cf_key.is_null() {
                 IOObjectRelease(service);
                 return None;
             }
 
-            let cf_number = IORegistryEntryCreateCFProperty(
-                service,
-                cf_key,
-                std::ptr::null(),
-                0,
-            );
+            let cf_number = IORegistryEntryCreateCFProperty(service, cf_key, std::ptr::null(), 0);
             CFRelease(cf_key);
             IOObjectRelease(service);
 

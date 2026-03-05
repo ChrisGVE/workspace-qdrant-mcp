@@ -209,19 +209,39 @@ mod tests {
     #[test]
     fn test_indexes_are_idempotent() {
         for index_sql in CREATE_KEYWORDS_INDEXES_SQL {
-            assert!(index_sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS in: {}", index_sql);
+            assert!(
+                index_sql.contains("IF NOT EXISTS"),
+                "Missing IF NOT EXISTS in: {}",
+                index_sql
+            );
         }
         for index_sql in CREATE_TAGS_INDEXES_SQL {
-            assert!(index_sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS in: {}", index_sql);
+            assert!(
+                index_sql.contains("IF NOT EXISTS"),
+                "Missing IF NOT EXISTS in: {}",
+                index_sql
+            );
         }
         for index_sql in CREATE_KEYWORD_BASKETS_INDEXES_SQL {
-            assert!(index_sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS in: {}", index_sql);
+            assert!(
+                index_sql.contains("IF NOT EXISTS"),
+                "Missing IF NOT EXISTS in: {}",
+                index_sql
+            );
         }
         for index_sql in CREATE_CANONICAL_TAGS_INDEXES_SQL {
-            assert!(index_sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS in: {}", index_sql);
+            assert!(
+                index_sql.contains("IF NOT EXISTS"),
+                "Missing IF NOT EXISTS in: {}",
+                index_sql
+            );
         }
         for index_sql in CREATE_TAG_HIERARCHY_EDGES_INDEXES_SQL {
-            assert!(index_sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS in: {}", index_sql);
+            assert!(
+                index_sql.contains("IF NOT EXISTS"),
+                "Missing IF NOT EXISTS in: {}",
+                index_sql
+            );
         }
     }
 

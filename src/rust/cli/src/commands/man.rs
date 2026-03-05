@@ -46,7 +46,11 @@ async fn generate(cmd: &mut Command, output_dir: Option<PathBuf>) -> Result<()> 
             std::fs::create_dir_all(&dir)
                 .with_context(|| format!("Failed to create output directory: {}", dir.display()))?;
             let count = write_man_pages(cmd, &dir)?;
-            output::success(format!("Generated {} man pages in {}", count, dir.display()));
+            output::success(format!(
+                "Generated {} man pages in {}",
+                count,
+                dir.display()
+            ));
         }
         None => {
             // Write top-level page to stdout
@@ -66,7 +70,11 @@ async fn install(cmd: &mut Command) -> Result<()> {
         .with_context(|| format!("Failed to create man directory: {}", man_dir.display()))?;
 
     let count = write_man_pages(cmd, &man_dir)?;
-    output::success(format!("Installed {} man pages to {}", count, man_dir.display()));
+    output::success(format!(
+        "Installed {} man pages to {}",
+        count,
+        man_dir.display()
+    ));
     output::info("View with: man wqm");
     Ok(())
 }
@@ -77,7 +85,10 @@ pub fn install_man_pages(cmd: &mut Command) -> Result<()> {
     std::fs::create_dir_all(&man_dir)
         .with_context(|| format!("Failed to create man directory: {}", man_dir.display()))?;
     let count = write_man_pages(cmd, &man_dir)?;
-    output::kv("Man pages", format!("{} pages installed to {}", count, man_dir.display()));
+    output::kv(
+        "Man pages",
+        format!("{} pages installed to {}", count, man_dir.display()),
+    );
     Ok(())
 }
 
@@ -134,8 +145,14 @@ mod tests {
         man.render(&mut buf).unwrap();
         let content = String::from_utf8(buf).unwrap();
         // Verify roff format header
-        assert!(content.contains(".TH"), "Man page should contain .TH header");
-        assert!(content.contains("wqm"), "Man page should reference command name");
+        assert!(
+            content.contains(".TH"),
+            "Man page should contain .TH header"
+        );
+        assert!(
+            content.contains("wqm"),
+            "Man page should reference command name"
+        );
     }
 
     #[test]

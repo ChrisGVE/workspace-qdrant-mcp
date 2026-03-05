@@ -3,17 +3,14 @@
 use std::path::Path;
 
 use super::{
-    EnrichmentStatus, LanguageServerManager, LspEnrichment, ProjectLanguageKey,
-    ProjectLspResult, ResolvedImport,
+    EnrichmentStatus, LanguageServerManager, LspEnrichment, ProjectLanguageKey, ProjectLspResult,
+    ResolvedImport,
 };
 use crate::lsp::Language;
 
 impl LanguageServerManager {
     /// Resolve imports in a file
-    pub async fn resolve_imports(
-        &self,
-        file: &Path,
-    ) -> ProjectLspResult<Vec<ResolvedImport>> {
+    pub async fn resolve_imports(&self, file: &Path) -> ProjectLspResult<Vec<ResolvedImport>> {
         {
             let mut metrics = self.metrics.write().await;
             metrics.total_import_queries += 1;
@@ -235,10 +232,7 @@ impl LanguageServerManager {
         let mut imports = Vec::new();
 
         let import_patterns: Vec<(&str, usize)> = match language {
-            Language::Python => vec![
-                (r"^import\s+(\S+)", 1),
-                (r"^from\s+(\S+)\s+import", 1),
-            ],
+            Language::Python => vec![(r"^import\s+(\S+)", 1), (r"^from\s+(\S+)\s+import", 1)],
             Language::Rust => vec![(r"^use\s+([^;]+)", 1)],
             Language::TypeScript | Language::JavaScript => vec![
                 (r#"import\s+.*\s+from\s+['"]([^'"]+)['"]"#, 1),

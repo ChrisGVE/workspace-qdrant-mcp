@@ -7,7 +7,7 @@ use rusqlite::params;
 use crate::output;
 
 use super::db::connect_readonly;
-use super::formatters::{QueueDetailItem, format_status};
+use super::formatters::{format_status, QueueDetailItem};
 
 pub async fn execute(queue_id: &str, json: bool) -> Result<()> {
     let conn = connect_readonly()?;

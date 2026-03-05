@@ -3,7 +3,7 @@
 //! Provides canonical implementations for idempotency key generation
 //! and content/file hashing using SHA256.
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::Path;
 
@@ -53,10 +53,7 @@ pub fn generate_idempotency_key(
     hasher.update(input.as_bytes());
     let hash = hasher.finalize();
 
-    let hash_hex: String = hash[..16]
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect();
+    let hash_hex: String = hash[..16].iter().map(|b| format!("{:02x}", b)).collect();
 
     Ok(hash_hex)
 }
@@ -73,10 +70,7 @@ pub fn generate_simple_idempotency_key(
     let mut hasher = Sha256::new();
     hasher.update(identifier.as_bytes());
     let hash = hasher.finalize();
-    let hash_hex: String = hash[..8]
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect();
+    let hash_hex: String = hash[..8].iter().map(|b| format!("{:02x}", b)).collect();
     format!("{}:{}:{}", item_type, collection, hash_hex)
 }
 
@@ -99,8 +93,15 @@ impl fmt::Display for IdempotencyKeyError {
         match self {
             IdempotencyKeyError::EmptyTenantId => write!(f, "tenant_id cannot be empty"),
             IdempotencyKeyError::EmptyCollection => write!(f, "collection cannot be empty"),
-            IdempotencyKeyError::InvalidOperationForType { item_type, operation } => {
-                write!(f, "operation '{}' is not valid for item type '{}'", operation, item_type)
+            IdempotencyKeyError::InvalidOperationForType {
+                item_type,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "operation '{}' is not valid for item type '{}'",
+                    operation, item_type
+                )
             }
         }
     }
@@ -190,7 +191,8 @@ mod tests {
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/file.rs"}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(key1.len(), 32);
 
@@ -200,7 +202,8 @@ mod tests {
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/file.rs"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(key1, key2);
 
         let key3 = generate_idempotency_key(
@@ -209,7 +212,8 @@ mod tests {
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/other.rs"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_ne!(key1, key3);
     }
 
@@ -224,13 +228,8 @@ mod tests {
         );
         assert_eq!(result, Err(IdempotencyKeyError::EmptyTenantId));
 
-        let result = generate_idempotency_key(
-            ItemType::File,
-            QueueOperation::Add,
-            "proj",
-            "",
-            "{}",
-        );
+        let result =
+            generate_idempotency_key(ItemType::File, QueueOperation::Add, "proj", "", "{}");
         assert_eq!(result, Err(IdempotencyKeyError::EmptyCollection));
 
         let result = generate_idempotency_key(
@@ -240,28 +239,22 @@ mod tests {
             "col",
             "{}",
         );
-        assert!(matches!(result, Err(IdempotencyKeyError::InvalidOperationForType { .. })));
+        assert!(matches!(
+            result,
+            Err(IdempotencyKeyError::InvalidOperationForType { .. })
+        ));
     }
 
     #[test]
     fn test_simple_idempotency_key() {
-        let key1 = generate_simple_idempotency_key(
-            ItemType::File,
-            "my-collection",
-            "/path/to/file.txt",
-        );
-        let key2 = generate_simple_idempotency_key(
-            ItemType::File,
-            "my-collection",
-            "/path/to/file.txt",
-        );
+        let key1 =
+            generate_simple_idempotency_key(ItemType::File, "my-collection", "/path/to/file.txt");
+        let key2 =
+            generate_simple_idempotency_key(ItemType::File, "my-collection", "/path/to/file.txt");
         assert_eq!(key1, key2);
 
-        let key3 = generate_simple_idempotency_key(
-            ItemType::File,
-            "my-collection",
-            "/path/to/other.txt",
-        );
+        let key3 =
+            generate_simple_idempotency_key(ItemType::File, "my-collection", "/path/to/other.txt");
         assert_ne!(key1, key3);
     }
 
@@ -286,7 +279,8 @@ mod tests {
             "proj_abc123",
             "my-project-code",
             "{}",
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(key.len(), 32);
@@ -297,7 +291,10 @@ mod tests {
         assert_eq!(normalize_path_for_id("src/main.rs"), "src/main.rs");
         assert_eq!(normalize_path_for_id("src\\main.rs"), "src/main.rs");
         assert_eq!(normalize_path_for_id("src/dir/"), "src/dir");
-        assert_eq!(normalize_path_for_id("src\\dir\\file.rs"), "src/dir/file.rs");
+        assert_eq!(
+            normalize_path_for_id("src\\dir\\file.rs"),
+            "src/dir/file.rs"
+        );
     }
 
     #[test]

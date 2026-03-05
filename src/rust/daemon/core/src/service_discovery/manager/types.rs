@@ -1,7 +1,7 @@
 //! Discovery types: strategy enumeration and discovery events.
 
-use super::super::registry::ServiceInfo;
 use super::super::health::HealthStatus;
+use super::super::registry::ServiceInfo;
 
 /// Discovery strategy enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

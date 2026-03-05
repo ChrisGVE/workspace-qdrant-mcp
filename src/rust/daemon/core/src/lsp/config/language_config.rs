@@ -181,10 +181,7 @@ fn go_config() -> LanguageConfig {
                 "gopls.analyses.unusedparams".to_string(),
                 JsonValue::Bool(true),
             );
-            settings.insert(
-                "gopls.analyses.shadow".to_string(),
-                JsonValue::Bool(true),
-            );
+            settings.insert("gopls.analyses.shadow".to_string(), JsonValue::Bool(true));
             settings
         },
         file_patterns: vec!["*.go".to_string()],

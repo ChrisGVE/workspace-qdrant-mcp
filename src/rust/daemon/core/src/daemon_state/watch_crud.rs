@@ -71,7 +71,10 @@ impl DaemonStateManager {
     }
 
     /// Get a watch folder by ID
-    pub async fn get_watch_folder(&self, watch_id: &str) -> DaemonStateResult<Option<WatchFolderRecord>> {
+    pub async fn get_watch_folder(
+        &self,
+        watch_id: &str,
+    ) -> DaemonStateResult<Option<WatchFolderRecord>> {
         let row = sqlx::query(
             r#"
             SELECT watch_id, path, collection, tenant_id,
@@ -96,7 +99,11 @@ impl DaemonStateManager {
     }
 
     /// List watch folders with optional collection filter
-    pub async fn list_watch_folders(&self, collection_filter: Option<&str>, enabled_only: bool) -> DaemonStateResult<Vec<WatchFolderRecord>> {
+    pub async fn list_watch_folders(
+        &self,
+        collection_filter: Option<&str>,
+        enabled_only: bool,
+    ) -> DaemonStateResult<Vec<WatchFolderRecord>> {
         let base_query = r#"
             SELECT watch_id, path, collection, tenant_id,
                    parent_watch_id, submodule_path,
@@ -109,7 +116,10 @@ impl DaemonStateManager {
         "#;
 
         let query = match (collection_filter, enabled_only) {
-            (Some(_), true) => format!("{} WHERE collection = ?1 AND enabled = 1 ORDER BY created_at", base_query),
+            (Some(_), true) => format!(
+                "{} WHERE collection = ?1 AND enabled = 1 ORDER BY created_at",
+                base_query
+            ),
             (Some(_), false) => format!("{} WHERE collection = ?1 ORDER BY created_at", base_query),
             (None, true) => format!("{} WHERE enabled = 1 ORDER BY created_at", base_query),
             (None, false) => format!("{} ORDER BY created_at", base_query),
@@ -121,9 +131,7 @@ impl DaemonStateManager {
                 .fetch_all(&self.pool)
                 .await?
         } else {
-            sqlx::query(&query)
-                .fetch_all(&self.pool)
-                .await?
+            sqlx::query(&query).fetch_all(&self.pool).await?
         };
 
         let mut results = Vec::new();
@@ -195,7 +203,11 @@ impl DaemonStateManager {
     }
 
     /// Update watch folder enabled status
-    pub async fn set_watch_folder_enabled(&self, watch_id: &str, enabled: bool) -> DaemonStateResult<bool> {
+    pub async fn set_watch_folder_enabled(
+        &self,
+        watch_id: &str,
+        enabled: bool,
+    ) -> DaemonStateResult<bool> {
         let result = sqlx::query(
             r#"
             UPDATE watch_folders
@@ -241,7 +253,7 @@ impl DaemonStateManager {
     /// Check if a path is already registered as a project
     pub async fn is_path_registered(&self, path: &str) -> DaemonStateResult<bool> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM watch_folders WHERE path = ?1 AND collection = ?2"
+            "SELECT COUNT(*) FROM watch_folders WHERE path = ?1 AND collection = ?2",
         )
         .bind(path)
         .bind(COLLECTION_PROJECTS)

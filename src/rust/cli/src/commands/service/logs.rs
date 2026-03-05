@@ -50,11 +50,7 @@ fn resolve_log_file() -> Result<std::path::PathBuf> {
 }
 
 /// Follow log output in real-time (tail -f)
-fn follow_logs(
-    log_file: &std::path::Path,
-    lines: usize,
-    errors_only: bool,
-) -> Result<()> {
+fn follow_logs(log_file: &std::path::Path, lines: usize, errors_only: bool) -> Result<()> {
     if errors_only {
         follow_errors_only(log_file)
     } else {
@@ -87,11 +83,7 @@ fn follow_errors_only(log_file: &std::path::Path) -> Result<()> {
 }
 
 fn follow_all(log_file: &std::path::Path, lines: usize) -> Result<()> {
-    let args = vec![
-        "-f".to_string(),
-        "-n".to_string(),
-        lines.to_string(),
-    ];
+    let args = vec!["-f".to_string(), "-n".to_string(), lines.to_string()];
     let status = std::process::Command::new("tail")
         .args(&args)
         .arg(log_file)
@@ -104,11 +96,7 @@ fn follow_all(log_file: &std::path::Path, lines: usize) -> Result<()> {
 }
 
 /// Read last N lines from the log file
-fn tail_logs(
-    log_file: &std::path::Path,
-    lines: usize,
-    errors_only: bool,
-) -> Result<()> {
+fn tail_logs(log_file: &std::path::Path, lines: usize, errors_only: bool) -> Result<()> {
     let content = std::fs::read_to_string(log_file)
         .with_context(|| format!("Failed to read log file: {}", log_file.display()))?;
 

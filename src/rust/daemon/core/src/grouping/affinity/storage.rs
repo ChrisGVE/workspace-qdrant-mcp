@@ -1,5 +1,4 @@
 /// Embedding blob serialization and project embedding CRUD operations.
-
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, warn};
 
@@ -73,12 +72,10 @@ pub async fn load_project_embedding(
     pool: &SqlitePool,
     tenant_id: &str,
 ) -> Result<Option<Vec<f32>>, sqlx::Error> {
-    let row = sqlx::query(
-        "SELECT embedding, dim FROM project_embeddings WHERE tenant_id = ?",
-    )
-    .bind(tenant_id)
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query("SELECT embedding, dim FROM project_embeddings WHERE tenant_id = ?")
+        .bind(tenant_id)
+        .fetch_optional(pool)
+        .await?;
 
     Ok(row.and_then(|r| {
         let blob: Vec<u8> = r.get("embedding");
@@ -93,11 +90,10 @@ pub async fn load_project_embedding(
 pub async fn load_all_project_embeddings(
     pool: &SqlitePool,
 ) -> Result<Vec<(String, Vec<f32>)>, sqlx::Error> {
-    let rows = sqlx::query(
-        "SELECT tenant_id, embedding, dim FROM project_embeddings ORDER BY tenant_id",
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows =
+        sqlx::query("SELECT tenant_id, embedding, dim FROM project_embeddings ORDER BY tenant_id")
+            .fetch_all(pool)
+            .await?;
 
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
@@ -107,7 +103,10 @@ pub async fn load_all_project_embeddings(
         if let Some(emb) = blob_to_embedding(&blob, dim as usize) {
             results.push((tenant, emb));
         } else {
-            warn!(tenant_id = tenant.as_str(), "Corrupt embedding blob, skipping");
+            warn!(
+                tenant_id = tenant.as_str(),
+                "Corrupt embedding blob, skipping"
+            );
         }
     }
 
@@ -161,12 +160,10 @@ pub async fn load_affinity_label(
     pool: &SqlitePool,
     group_id: &str,
 ) -> Result<Option<(String, String, f64)>, sqlx::Error> {
-    let row = sqlx::query(
-        "SELECT label, category, score FROM affinity_labels WHERE group_id = ?",
-    )
-    .bind(group_id)
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query("SELECT label, category, score FROM affinity_labels WHERE group_id = ?")
+        .bind(group_id)
+        .fetch_optional(pool)
+        .await?;
 
     Ok(row.map(|r| {
         (

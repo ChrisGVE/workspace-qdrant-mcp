@@ -63,12 +63,36 @@ use std::collections::HashMap;
         let candidates = extract_import_candidates(source, "rust", &config);
 
         let phrases: Vec<&str> = candidates.iter().map(|c| c.phrase.as_str()).collect();
-        assert!(phrases.contains(&"runtime"), "Should extract Runtime: {:?}", phrases);
-        assert!(phrases.contains(&"serialize"), "Should extract Serialize: {:?}", phrases);
-        assert!(phrases.contains(&"deserialize"), "Should extract Deserialize: {:?}", phrases);
-        assert!(phrases.contains(&"hash map"), "Should extract HashMap: {:?}", phrases);
-        assert!(phrases.contains(&"tokio"), "Should extract tokio module: {:?}", phrases);
-        assert!(phrases.contains(&"serde"), "Should extract serde module: {:?}", phrases);
+        assert!(
+            phrases.contains(&"runtime"),
+            "Should extract Runtime: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"serialize"),
+            "Should extract Serialize: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"deserialize"),
+            "Should extract Deserialize: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"hash map"),
+            "Should extract HashMap: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"tokio"),
+            "Should extract tokio module: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"serde"),
+            "Should extract serde module: {:?}",
+            phrases
+        );
     }
 
     #[test]
@@ -82,10 +106,26 @@ from typing import Optional, List
         let candidates = extract_import_candidates(source, "python", &config);
 
         let phrases: Vec<&str> = candidates.iter().map(|c| c.phrase.as_str()).collect();
-        assert!(phrases.contains(&"django"), "Should extract django: {:?}", phrases);
-        assert!(phrases.contains(&"models"), "Should extract models: {:?}", phrases);
-        assert!(phrases.contains(&"pandas"), "Should extract pandas: {:?}", phrases);
-        assert!(phrases.contains(&"optional"), "Should extract Optional: {:?}", phrases);
+        assert!(
+            phrases.contains(&"django"),
+            "Should extract django: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"models"),
+            "Should extract models: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"pandas"),
+            "Should extract pandas: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"optional"),
+            "Should extract Optional: {:?}",
+            phrases
+        );
     }
 
     #[test]
@@ -99,8 +139,16 @@ const express = require('express');
         let candidates = extract_import_candidates(source, "typescript", &config);
 
         let phrases: Vec<&str> = candidates.iter().map(|c| c.phrase.as_str()).collect();
-        assert!(phrases.contains(&"react"), "Should extract react: {:?}", phrases);
-        assert!(phrases.contains(&"express"), "Should extract express: {:?}", phrases);
+        assert!(
+            phrases.contains(&"react"),
+            "Should extract react: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"express"),
+            "Should extract express: {:?}",
+            phrases
+        );
         assert!(
             phrases.contains(&"use state"),
             "Should extract useState: {:?}",
@@ -126,9 +174,21 @@ import (
         let candidates = extract_import_candidates(source, "go", &config);
 
         let phrases: Vec<&str> = candidates.iter().map(|c| c.phrase.as_str()).collect();
-        assert!(phrases.contains(&"fmt"), "Should extract fmt: {:?}", phrases);
-        assert!(phrases.contains(&"gin"), "Should extract gin: {:?}", phrases);
-        assert!(phrases.contains(&"http"), "Should extract http: {:?}", phrases);
+        assert!(
+            phrases.contains(&"fmt"),
+            "Should extract fmt: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"gin"),
+            "Should extract gin: {:?}",
+            phrases
+        );
+        assert!(
+            phrases.contains(&"http"),
+            "Should extract http: {:?}",
+            phrases
+        );
     }
 
     #[test]
@@ -159,7 +219,10 @@ import (
         assert_eq!(merged.len(), 2, "Should dedup: {:?}", merged);
         // LSP version should win (comes first)
         assert_eq!(merged[0].phrase, "vector search");
-        assert!((merged[0].tf_score - 1.5).abs() < 1e-6, "LSP boost should be applied");
+        assert!(
+            (merged[0].tf_score - 1.5).abs() < 1e-6,
+            "LSP boost should be applied"
+        );
     }
 
     #[test]

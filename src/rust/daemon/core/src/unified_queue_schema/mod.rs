@@ -16,11 +16,13 @@ mod tests;
 
 // Re-export all public items so callers see the same paths as before.
 
-pub use hashing::{generate_idempotency_key, generate_unified_idempotency_key, IdempotencyKeyError};
+pub use hashing::{
+    generate_idempotency_key, generate_unified_idempotency_key, IdempotencyKeyError,
+};
 
 pub use sql::{
-    CREATE_QDRANT_STATUS_INDEX_SQL, CREATE_SEARCH_STATUS_INDEX_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL,
-    CREATE_UNIFIED_QUEUE_SQL, MIGRATE_V20_ADD_COLUMNS_SQL,
+    CREATE_QDRANT_STATUS_INDEX_SQL, CREATE_SEARCH_STATUS_INDEX_SQL,
+    CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL, MIGRATE_V20_ADD_COLUMNS_SQL,
 };
 
 pub use types::{

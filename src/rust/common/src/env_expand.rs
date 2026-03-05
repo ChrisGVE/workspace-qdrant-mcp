@@ -73,10 +73,7 @@ mod tests {
     fn test_expand_env_vars_multiple() {
         std::env::set_var("WQM_COMMON_A", "/a");
         std::env::set_var("WQM_COMMON_B", "b");
-        assert_eq!(
-            expand_env_vars("${WQM_COMMON_A}/${WQM_COMMON_B}"),
-            "/a/b"
-        );
+        assert_eq!(expand_env_vars("${WQM_COMMON_A}/${WQM_COMMON_B}"), "/a/b");
         std::env::remove_var("WQM_COMMON_A");
         std::env::remove_var("WQM_COMMON_B");
     }

@@ -5,10 +5,10 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
 use super::super::{
-    DiscoveryConfig,
-    registry::{ServiceRegistry, ServiceInfo},
-    network::NetworkDiscovery,
     health::HealthChecker,
+    network::NetworkDiscovery,
+    registry::{ServiceInfo, ServiceRegistry},
+    DiscoveryConfig,
 };
 use super::types::{DiscoveryStrategy, ServiceDiscoveryEvent};
 use crate::unified_config::UnifiedConfigManager;

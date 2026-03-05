@@ -3,8 +3,8 @@
 use tempfile::tempdir;
 use tokio::time::Duration;
 
-use crate::lsp::{Language, LspConfig};
 use crate::lsp::lifecycle::RestartPolicy;
+use crate::lsp::{Language, LspConfig};
 
 #[test]
 fn test_lsp_config_creation() {
@@ -20,9 +20,7 @@ fn test_lsp_config_creation() {
     // Verify language configs exist
     assert!(config.language_configs.contains_key(&Language::Python));
     assert!(config.language_configs.contains_key(&Language::Rust));
-    assert!(config
-        .language_configs
-        .contains_key(&Language::TypeScript));
+    assert!(config.language_configs.contains_key(&Language::TypeScript));
 
     // Verify server configs exist
     assert!(config.server_configs.contains_key("rust-analyzer"));

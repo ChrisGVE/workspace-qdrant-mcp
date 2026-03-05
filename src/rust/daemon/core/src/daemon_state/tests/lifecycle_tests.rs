@@ -13,7 +13,11 @@ async fn test_any_watchers_paused() {
     // No watchers at all - should return false
     assert!(!manager.any_watchers_paused().await.unwrap());
 
-    let record = make_test_watch_folder("pause-test-001", "/projects/pause-test", "pause-test-tenant");
+    let record = make_test_watch_folder(
+        "pause-test-001",
+        "/projects/pause-test",
+        "pause-test-tenant",
+    );
     manager.store_watch_folder(&record).await.unwrap();
 
     assert!(!manager.any_watchers_paused().await.unwrap());
@@ -85,12 +89,23 @@ async fn test_deactivate_inactive_projects() {
     manager.store_watch_folder(&recent_project).await.unwrap();
 
     let deactivated = manager.deactivate_inactive_projects(43200).await.unwrap();
-    assert_eq!(deactivated, 1, "Only the 13h-old project should be deactivated");
+    assert_eq!(
+        deactivated, 1,
+        "Only the 13h-old project should be deactivated"
+    );
 
-    let old = manager.get_watch_folder("old-project").await.unwrap().unwrap();
+    let old = manager
+        .get_watch_folder("old-project")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!old.is_active);
 
-    let recent = manager.get_watch_folder("recent-project").await.unwrap().unwrap();
+    let recent = manager
+        .get_watch_folder("recent-project")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(recent.is_active);
 }
 
@@ -110,7 +125,11 @@ async fn test_deactivate_inactive_skips_null_activity() {
     let deactivated = manager.deactivate_inactive_projects(43200).await.unwrap();
     assert_eq!(deactivated, 0);
 
-    let record = manager.get_watch_folder("null-project").await.unwrap().unwrap();
+    let record = manager
+        .get_watch_folder("null-project")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(record.is_active);
 }
 
@@ -123,23 +142,47 @@ async fn test_archive_unarchive_watch_folder() {
 
     let record = WatchFolderRecord {
         is_active: true,
-        ..make_test_watch_folder("archive-test-001", "/projects/archive-test", "archive-test-tenant")
+        ..make_test_watch_folder(
+            "archive-test-001",
+            "/projects/archive-test",
+            "archive-test-tenant",
+        )
     };
     manager.store_watch_folder(&record).await.unwrap();
 
-    let archived = manager.archive_watch_folder("archive-test-001").await.unwrap();
+    let archived = manager
+        .archive_watch_folder("archive-test-001")
+        .await
+        .unwrap();
     assert!(archived);
-    let r = manager.get_watch_folder("archive-test-001").await.unwrap().unwrap();
+    let r = manager
+        .get_watch_folder("archive-test-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(r.is_archived);
 
-    let archived_again = manager.archive_watch_folder("archive-test-001").await.unwrap();
+    let archived_again = manager
+        .archive_watch_folder("archive-test-001")
+        .await
+        .unwrap();
     assert!(!archived_again);
 
-    let unarchived = manager.unarchive_watch_folder("archive-test-001").await.unwrap();
+    let unarchived = manager
+        .unarchive_watch_folder("archive-test-001")
+        .await
+        .unwrap();
     assert!(unarchived);
-    let r = manager.get_watch_folder("archive-test-001").await.unwrap().unwrap();
+    let r = manager
+        .get_watch_folder("archive-test-001")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!r.is_archived);
 
-    let unarchived_again = manager.unarchive_watch_folder("archive-test-001").await.unwrap();
+    let unarchived_again = manager
+        .unarchive_watch_folder("archive-test-001")
+        .await
+        .unwrap();
     assert!(!unarchived_again);
 }

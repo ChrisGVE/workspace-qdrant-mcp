@@ -99,9 +99,7 @@ impl GranularTelemetryConfig {
     pub fn validate(&self) -> Result<(), String> {
         for key in self.module_overrides.keys() {
             if key.is_empty() {
-                return Err(
-                    "module_overrides contains an empty key".to_string(),
-                );
+                return Err("module_overrides contains an empty key".to_string());
             }
         }
         Ok(())
@@ -184,8 +182,7 @@ mod tests {
             .insert("watching".to_string(), TelemetryLevel::L0);
 
         let json = serde_json::to_string(&cfg).unwrap();
-        let back: GranularTelemetryConfig =
-            serde_json::from_str(&json).unwrap();
+        let back: GranularTelemetryConfig = serde_json::from_str(&json).unwrap();
 
         assert_eq!(back.enabled, cfg.enabled);
         assert_eq!(back.default_level, cfg.default_level);

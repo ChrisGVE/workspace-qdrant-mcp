@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 
-use wqm_common::timestamps;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
+use wqm_common::timestamps;
 
 use crate::storage::StorageClient;
 
@@ -95,7 +95,11 @@ async fn insert_rules_mirror_point(
     };
 
     let empty = String::new();
-    let content = point.payload.get("content").and_then(|v| v.as_str()).unwrap_or(&empty);
+    let content = point
+        .payload
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&empty);
     let scope = point.payload.get("scope").and_then(|v| v.as_str());
     let tenant_id = point.payload.get("tenant_id").and_then(|v| v.as_str());
     let created_at = point.payload.get("created_at").and_then(|v| v.as_str());
@@ -124,7 +128,10 @@ async fn insert_rules_mirror_point(
             }
         }
         Err(e) => {
-            warn!("Failed to insert rules_mirror row for label={}: {}", label, e);
+            warn!(
+                "Failed to insert rules_mirror row for label={}: {}",
+                label, e
+            );
             stats.errors += 1;
         }
     }
@@ -174,7 +181,9 @@ mod tests {
 
         // Create rules_mirror table
         sqlx::query(crate::watch_folders_schema::CREATE_RULES_MIRROR_SQL)
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let now = timestamps::now_utc();
 
@@ -207,9 +216,11 @@ mod tests {
         assert_eq!(r2.rows_affected(), 0);
 
         // Original text preserved
-        let text: String = sqlx::query_scalar(
-            "SELECT rule_text FROM rules_mirror WHERE rule_id = 'rule-1'"
-        ).fetch_one(&pool).await.unwrap();
+        let text: String =
+            sqlx::query_scalar("SELECT rule_text FROM rules_mirror WHERE rule_id = 'rule-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(text, "Always use snake_case");
 
         // Different key inserts fine
@@ -228,7 +239,9 @@ mod tests {
 
         // Total count is 2
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rules_mirror")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 2);
     }
 }

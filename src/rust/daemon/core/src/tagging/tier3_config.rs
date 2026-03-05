@@ -59,7 +59,10 @@ impl AccessMode {
         match s.to_lowercase().as_str() {
             "api" => Ok(Self::Api),
             "cli" => Ok(Self::Cli),
-            other => Err(format!("unknown access mode: '{}' (expected 'api' or 'cli')", other)),
+            other => Err(format!(
+                "unknown access mode: '{}' (expected 'api' or 'cli')",
+                other
+            )),
         }
     }
 }
@@ -181,19 +184,43 @@ mod tests {
 
     #[test]
     fn test_provider_from_str_valid() {
-        assert_eq!(LlmProvider::from_str("anthropic").unwrap(), LlmProvider::Anthropic);
-        assert_eq!(LlmProvider::from_str("claude").unwrap(), LlmProvider::Anthropic);
-        assert_eq!(LlmProvider::from_str("openai").unwrap(), LlmProvider::OpenAi);
+        assert_eq!(
+            LlmProvider::from_str("anthropic").unwrap(),
+            LlmProvider::Anthropic
+        );
+        assert_eq!(
+            LlmProvider::from_str("claude").unwrap(),
+            LlmProvider::Anthropic
+        );
+        assert_eq!(
+            LlmProvider::from_str("openai").unwrap(),
+            LlmProvider::OpenAi
+        );
         assert_eq!(LlmProvider::from_str("gpt").unwrap(), LlmProvider::OpenAi);
-        assert_eq!(LlmProvider::from_str("google").unwrap(), LlmProvider::Google);
-        assert_eq!(LlmProvider::from_str("gemini").unwrap(), LlmProvider::Google);
-        assert_eq!(LlmProvider::from_str("ollama").unwrap(), LlmProvider::Ollama);
+        assert_eq!(
+            LlmProvider::from_str("google").unwrap(),
+            LlmProvider::Google
+        );
+        assert_eq!(
+            LlmProvider::from_str("gemini").unwrap(),
+            LlmProvider::Google
+        );
+        assert_eq!(
+            LlmProvider::from_str("ollama").unwrap(),
+            LlmProvider::Ollama
+        );
     }
 
     #[test]
     fn test_provider_from_str_case_insensitive() {
-        assert_eq!(LlmProvider::from_str("ANTHROPIC").unwrap(), LlmProvider::Anthropic);
-        assert_eq!(LlmProvider::from_str("OpenAI").unwrap(), LlmProvider::OpenAi);
+        assert_eq!(
+            LlmProvider::from_str("ANTHROPIC").unwrap(),
+            LlmProvider::Anthropic
+        );
+        assert_eq!(
+            LlmProvider::from_str("OpenAI").unwrap(),
+            LlmProvider::OpenAi
+        );
     }
 
     #[test]
@@ -221,13 +248,22 @@ mod tests {
 
     #[test]
     fn test_default_base_urls() {
-        assert_eq!(LlmProvider::Anthropic.default_base_url(), "https://api.anthropic.com");
-        assert_eq!(LlmProvider::OpenAi.default_base_url(), "https://api.openai.com");
+        assert_eq!(
+            LlmProvider::Anthropic.default_base_url(),
+            "https://api.anthropic.com"
+        );
+        assert_eq!(
+            LlmProvider::OpenAi.default_base_url(),
+            "https://api.openai.com"
+        );
         assert_eq!(
             LlmProvider::Google.default_base_url(),
             "https://generativelanguage.googleapis.com"
         );
-        assert_eq!(LlmProvider::Ollama.default_base_url(), "http://localhost:11434");
+        assert_eq!(
+            LlmProvider::Ollama.default_base_url(),
+            "http://localhost:11434"
+        );
     }
 
     // ── Custom base URL override ─────────────────────────────────────

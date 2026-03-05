@@ -52,11 +52,7 @@ pub async fn get_group_members(
         .map(|r| r.get::<String, _>("tenant_id"))
         .collect();
 
-    debug!(
-        tenant_id,
-        members = members.len(),
-        "Fetched group members"
-    );
+    debug!(tenant_id, members = members.len(), "Fetched group members");
 
     Ok(members)
 }
@@ -96,13 +92,11 @@ pub async fn remove_from_group(
     group_id: &str,
     tenant_id: &str,
 ) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        "DELETE FROM project_groups WHERE group_id = ? AND tenant_id = ?",
-    )
-    .bind(group_id)
-    .bind(tenant_id)
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM project_groups WHERE group_id = ? AND tenant_id = ?")
+        .bind(group_id)
+        .bind(tenant_id)
+        .execute(pool)
+        .await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -203,9 +197,7 @@ mod tests {
             .await
             .unwrap();
 
-        let removed = remove_from_group(&pool, "grp-1", "proj-b")
-            .await
-            .unwrap();
+        let removed = remove_from_group(&pool, "grp-1", "proj-b").await.unwrap();
         assert!(removed);
 
         let members = get_group_members(&pool, "proj-a").await.unwrap();
@@ -217,9 +209,7 @@ mod tests {
     async fn test_remove_nonexistent() {
         let pool = setup_pool().await;
 
-        let removed = remove_from_group(&pool, "grp-1", "none")
-            .await
-            .unwrap();
+        let removed = remove_from_group(&pool, "grp-1", "none").await.unwrap();
         assert!(!removed);
     }
 

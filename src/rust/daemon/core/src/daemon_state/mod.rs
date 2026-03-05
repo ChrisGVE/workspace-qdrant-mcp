@@ -23,11 +23,14 @@ mod tests;
 pub use self::operational_state::{get_operational_state, poll_pause_state, set_operational_state};
 pub use self::record::WatchFolderRecord;
 
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use std::path::Path;
-use sqlx::{SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
 use tracing::info;
 
-use crate::schema_version::{SchemaManager, SchemaError};
+use crate::schema_version::{SchemaError, SchemaManager};
 
 /// Daemon state management errors
 #[derive(thiserror::Error, Debug)]
@@ -71,8 +74,10 @@ pub struct DaemonStateManager {
 impl DaemonStateManager {
     /// Create a new daemon state manager
     pub async fn new<P: AsRef<Path>>(database_path: P) -> DaemonStateResult<Self> {
-        info!("Initializing daemon state manager with database: {}",
-            database_path.as_ref().display());
+        info!(
+            "Initializing daemon state manager with database: {}",
+            database_path.as_ref().display()
+        );
 
         let connect_options = SqliteConnectOptions::new()
             .filename(database_path.as_ref())

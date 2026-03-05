@@ -6,9 +6,9 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 use wqm_common::timestamps;
 
-use wqm_common::constants::COLLECTION_PROJECTS;
 use crate::lifecycle::WatchFolderLifecycle;
 use crate::metrics::METRICS;
+use wqm_common::constants::COLLECTION_PROJECTS;
 
 use super::{OrphanedSessionCleanup, PriorityError, PriorityResult, SessionInfo};
 
@@ -37,11 +37,7 @@ impl PriorityManager {
     /// Sets is_active=1 and updates last_activity_at timestamp.
     /// Queue ordering is computed at dequeue time based on is_active,
     /// so no queue updates are needed here.
-    pub async fn register_session(
-        &self,
-        tenant_id: &str,
-        _branch: &str,
-    ) -> PriorityResult<i32> {
+    pub async fn register_session(&self, tenant_id: &str, _branch: &str) -> PriorityResult<i32> {
         if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }
@@ -72,23 +68,19 @@ impl PriorityManager {
     ///
     /// Sets is_active=0. Queue ordering is computed at dequeue time based on
     /// is_active, so no queue updates are needed here.
-    pub async fn unregister_session(
-        &self,
-        tenant_id: &str,
-        _branch: &str,
-    ) -> PriorityResult<i32> {
+    pub async fn unregister_session(&self, tenant_id: &str, _branch: &str) -> PriorityResult<i32> {
         if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }
 
         // Check if project exists
         let exists: Option<i32> = sqlx::query_scalar(
-            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
+            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1",
         )
-            .bind(tenant_id)
-            .bind(COLLECTION_PROJECTS)
-            .fetch_optional(&self.db_pool)
-            .await?;
+        .bind(tenant_id)
+        .bind(COLLECTION_PROJECTS)
+        .fetch_optional(&self.db_pool)
+        .await?;
 
         if exists.is_none() {
             return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
@@ -127,19 +119,21 @@ impl PriorityManager {
         let new_is_active = match priority_str {
             "high" => 1,
             "normal" => 0,
-            other => return Err(PriorityError::InvalidPriority(
-                other.parse::<i32>().unwrap_or(-1)
-            )),
+            other => {
+                return Err(PriorityError::InvalidPriority(
+                    other.parse::<i32>().unwrap_or(-1),
+                ))
+            }
         };
 
         // Get current state
         let current_active: Option<i32> = sqlx::query_scalar(
-            "SELECT is_active FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
+            "SELECT is_active FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1",
         )
-            .bind(tenant_id)
-            .bind(COLLECTION_PROJECTS)
-            .fetch_optional(&self.db_pool)
-            .await?;
+        .bind(tenant_id)
+        .bind(COLLECTION_PROJECTS)
+        .fetch_optional(&self.db_pool)
+        .await?;
 
         let current_active = match current_active {
             Some(v) => v,
@@ -148,7 +142,11 @@ impl PriorityManager {
             }
         };
 
-        let previous_priority = if current_active == 1 { "high" } else { "normal" };
+        let previous_priority = if current_active == 1 {
+            "high"
+        } else {
+            "normal"
+        };
 
         // Delegate is_active mutation to WatchFolderLifecycle
         let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
@@ -200,7 +198,10 @@ impl PriorityManager {
         let latency_secs = start.elapsed().as_secs_f64();
         if updated {
             METRICS.heartbeat_processed(tenant_id, latency_secs);
-            debug!("Heartbeat received for project {} (latency: {:.3}s)", tenant_id, latency_secs);
+            debug!(
+                "Heartbeat received for project {} (latency: {:.3}s)",
+                tenant_id, latency_secs
+            );
         } else {
             warn!(
                 "Heartbeat for project {} ignored (not active or not found)",
@@ -288,8 +289,7 @@ impl PriorityManager {
         if cleanup.projects_affected > 0 {
             warn!(
                 "Cleaned up {} orphaned sessions: {:?}",
-                cleanup.sessions_cleaned,
-                cleanup.demoted_projects
+                cleanup.sessions_cleaned, cleanup.demoted_projects
             );
         } else {
             debug!("No orphaned sessions found (timeout: {}s)", timeout_secs);

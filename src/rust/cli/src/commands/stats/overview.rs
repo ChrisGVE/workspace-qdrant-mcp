@@ -3,8 +3,8 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-use crate::output;
 use super::{open_db, table_exists, StatsPeriod};
+use crate::output;
 
 /// Show search instrumentation overview.
 pub(super) async fn run(period: StatsPeriod) -> Result<()> {
@@ -50,7 +50,11 @@ fn query_total_count(conn: &Connection, ts_filter: Option<&str>) -> Result<i64> 
     Ok(count)
 }
 
-fn display_tool_distribution(conn: &Connection, ts_filter: Option<&str>, total_count: i64) -> Result<()> {
+fn display_tool_distribution(
+    conn: &Connection,
+    ts_filter: Option<&str>,
+    total_count: i64,
+) -> Result<()> {
     output::info("Tool Distribution:");
 
     let query = if let Some(ts) = ts_filter {
@@ -59,7 +63,8 @@ fn display_tool_distribution(conn: &Connection, ts_filter: Option<&str>, total_c
             ts
         )
     } else {
-        "SELECT tool, COUNT(*) as cnt FROM search_events GROUP BY tool ORDER BY cnt DESC".to_string()
+        "SELECT tool, COUNT(*) as cnt FROM search_events GROUP BY tool ORDER BY cnt DESC"
+            .to_string()
     };
 
     let mut stmt = conn.prepare(&query)?;
@@ -89,7 +94,8 @@ fn display_behavior_rates(conn: &Connection, ts_filter: Option<&str>) -> Result<
             ts
         )
     } else {
-        "SELECT behavior, COUNT(*) as cnt FROM search_behavior GROUP BY behavior ORDER BY cnt DESC".to_string()
+        "SELECT behavior, COUNT(*) as cnt FROM search_behavior GROUP BY behavior ORDER BY cnt DESC"
+            .to_string()
     };
 
     let mut stmt = conn.prepare(&query)?;
@@ -111,7 +117,10 @@ fn display_behavior_rates(conn: &Connection, ts_filter: Option<&str>) -> Result<
         } else {
             0.0
         };
-        output::kv(&format!("  {}", behavior), &format!("{} ({:.0}%)", count, pct));
+        output::kv(
+            &format!("  {}", behavior),
+            &format!("{} ({:.0}%)", count, pct),
+        );
     }
     output::separator();
     Ok(())
@@ -163,7 +172,8 @@ fn display_latency_percentiles(conn: &Connection, ts_filter: Option<&str>) -> Re
     } else {
         "SELECT latency_ms FROM search_events \
          WHERE tool = 'mcp_qdrant' AND latency_ms IS NOT NULL \
-         ORDER BY latency_ms".to_string()
+         ORDER BY latency_ms"
+            .to_string()
     };
 
     let mut pstmt = conn.prepare(&query)?;
@@ -197,7 +207,8 @@ fn display_top_queries(conn: &Connection, ts_filter: Option<&str>) -> Result<()>
     } else {
         "SELECT query_text, COUNT(*) as cnt FROM search_events \
          WHERE query_text IS NOT NULL \
-         GROUP BY query_text ORDER BY cnt DESC LIMIT 10".to_string()
+         GROUP BY query_text ORDER BY cnt DESC LIMIT 10"
+            .to_string()
     };
 
     let mut stmt = conn.prepare(&query)?;
@@ -224,7 +235,11 @@ fn display_top_queries(conn: &Connection, ts_filter: Option<&str>) -> Result<()>
     Ok(())
 }
 
-fn display_resolution_rate(conn: &Connection, ts_filter: Option<&str>, total_count: i64) -> Result<()> {
+fn display_resolution_rate(
+    conn: &Connection,
+    ts_filter: Option<&str>,
+    total_count: i64,
+) -> Result<()> {
     if !table_exists(conn, "resolution_events") {
         return Ok(());
     }
@@ -243,7 +258,10 @@ fn display_resolution_rate(conn: &Connection, ts_filter: Option<&str>, total_cou
         Ok(resolution_count) => {
             if total_count > 0 {
                 let rate = (resolution_count as f64 / total_count as f64 * 100.0).round();
-                output::kv("  Searches with resolution", &format!("{} ({:.0}%)", resolution_count, rate));
+                output::kv(
+                    "  Searches with resolution",
+                    &format!("{} ({:.0}%)", resolution_count, rate),
+                );
             }
         }
         Err(_) => {

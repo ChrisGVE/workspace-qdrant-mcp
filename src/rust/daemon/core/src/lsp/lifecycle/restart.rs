@@ -73,8 +73,8 @@ impl ServerInstance {
 
         // Update average response time (exponential moving average)
         let alpha = 0.1;
-        metrics.avg_response_time_ms =
-            alpha * (metrics.response_time_ms as f64) + (1.0 - alpha) * metrics.avg_response_time_ms;
+        metrics.avg_response_time_ms = alpha * (metrics.response_time_ms as f64)
+            + (1.0 - alpha) * metrics.avg_response_time_ms;
 
         Ok(metrics.clone())
     }
@@ -167,10 +167,7 @@ impl ServerInstance {
         // Perform restart with backoff
         self.restart().await?;
 
-        info!(
-            "LSP server {} restarted successfully",
-            self.metadata.name
-        );
+        info!("LSP server {} restarted successfully", self.metadata.name);
 
         Ok(true)
     }
@@ -202,7 +199,9 @@ mod tests {
             priority: 1,
         };
 
-        let instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+        let instance = ServerInstance::new(detected, LspConfig::default())
+            .await
+            .unwrap();
         let policy = instance.restart_policy();
 
         assert!(policy.enabled);
@@ -220,7 +219,9 @@ mod tests {
             priority: 1,
         };
 
-        let mut instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+        let mut instance = ServerInstance::new(detected, LspConfig::default())
+            .await
+            .unwrap();
 
         // Simulate some restart attempts
         instance.restart_policy.current_attempts = 3;

@@ -49,42 +49,65 @@ fn build_diff<'a>(
     old_sha: &str,
     new_sha: &str,
 ) -> Result<git2::Diff<'a>, GitWatcherError> {
-    let io_err = |kind, msg: String| {
-        GitWatcherError::Io(std::io::Error::new(kind, msg))
-    };
+    let io_err = |kind, msg: String| GitWatcherError::Io(std::io::Error::new(kind, msg));
 
-    let old_oid = git2::Oid::from_str(old_sha)
-        .map_err(|e| io_err(std::io::ErrorKind::InvalidData, format!("Invalid old SHA: {}", e)))?;
-    let new_oid = git2::Oid::from_str(new_sha)
-        .map_err(|e| io_err(std::io::ErrorKind::InvalidData, format!("Invalid new SHA: {}", e)))?;
+    let old_oid = git2::Oid::from_str(old_sha).map_err(|e| {
+        io_err(
+            std::io::ErrorKind::InvalidData,
+            format!("Invalid old SHA: {}", e),
+        )
+    })?;
+    let new_oid = git2::Oid::from_str(new_sha).map_err(|e| {
+        io_err(
+            std::io::ErrorKind::InvalidData,
+            format!("Invalid new SHA: {}", e),
+        )
+    })?;
 
     let is_initial = old_sha == "0000000000000000000000000000000000000000";
     let old_tree = if is_initial {
         None
     } else {
-        let old_commit = repo.find_commit(old_oid)
-            .map_err(|e| io_err(std::io::ErrorKind::NotFound, format!("Old commit not found: {}", e)))?;
-        Some(old_commit.tree()
-            .map_err(|e| io_err(std::io::ErrorKind::Other, format!("Old tree error: {}", e)))?)
+        let old_commit = repo.find_commit(old_oid).map_err(|e| {
+            io_err(
+                std::io::ErrorKind::NotFound,
+                format!("Old commit not found: {}", e),
+            )
+        })?;
+        Some(
+            old_commit
+                .tree()
+                .map_err(|e| io_err(std::io::ErrorKind::Other, format!("Old tree error: {}", e)))?,
+        )
     };
 
-    let new_commit = repo.find_commit(new_oid)
-        .map_err(|e| io_err(std::io::ErrorKind::NotFound, format!("New commit not found: {}", e)))?;
-    let new_tree = new_commit.tree()
+    let new_commit = repo.find_commit(new_oid).map_err(|e| {
+        io_err(
+            std::io::ErrorKind::NotFound,
+            format!("New commit not found: {}", e),
+        )
+    })?;
+    let new_tree = new_commit
+        .tree()
         .map_err(|e| io_err(std::io::ErrorKind::Other, format!("New tree error: {}", e)))?;
 
     let mut diff_opts = git2::DiffOptions::new();
     diff_opts.include_untracked(false);
 
-    let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut diff_opts))
+    let diff = repo
+        .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut diff_opts))
         .map_err(|e| io_err(std::io::ErrorKind::Other, format!("Diff error: {}", e)))?;
 
     let mut find_opts = git2::DiffFindOptions::new();
     find_opts.renames(true);
     find_opts.copies(true);
     let mut diff = diff;
-    diff.find_similar(Some(&mut find_opts))
-        .map_err(|e| io_err(std::io::ErrorKind::Other, format!("Find similar error: {}", e)))?;
+    diff.find_similar(Some(&mut find_opts)).map_err(|e| {
+        io_err(
+            std::io::ErrorKind::Other,
+            format!("Find similar error: {}", e),
+        )
+    })?;
 
     Ok(diff)
 }
@@ -96,7 +119,8 @@ fn collect_changes(diff: git2::Diff<'_>) -> Result<Vec<FileChange>, GitWatcherEr
         &mut |delta, _| {
             let new_file = delta.new_file();
             let old_file = delta.old_file();
-            let path = new_file.path()
+            let path = new_file
+                .path()
                 .or_else(|| old_file.path())
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
@@ -104,21 +128,27 @@ fn collect_changes(diff: git2::Diff<'_>) -> Result<Vec<FileChange>, GitWatcherEr
             let change_status = match delta.status() {
                 git2::Delta::Added => FileChangeStatus::Added,
                 git2::Delta::Deleted => {
-                    let delete_path = old_file.path()
+                    let delete_path = old_file
+                        .path()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    changes.push(FileChange { status: FileChangeStatus::Deleted, path: delete_path });
+                    changes.push(FileChange {
+                        status: FileChangeStatus::Deleted,
+                        path: delete_path,
+                    });
                     return true;
                 }
                 git2::Delta::Modified => FileChangeStatus::Modified,
                 git2::Delta::Renamed => FileChangeStatus::Renamed {
-                    old_path: old_file.path()
+                    old_path: old_file
+                        .path()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_default(),
                     similarity: 0,
                 },
                 git2::Delta::Copied => FileChangeStatus::Copied {
-                    src_path: old_file.path()
+                    src_path: old_file
+                        .path()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_default(),
                     similarity: 0,
@@ -127,15 +157,22 @@ fn collect_changes(diff: git2::Diff<'_>) -> Result<Vec<FileChange>, GitWatcherEr
                 _ => return true,
             };
 
-            changes.push(FileChange { status: change_status, path });
+            changes.push(FileChange {
+                status: change_status,
+                path,
+            });
             true
         },
         None,
         None,
         None,
-    ).map_err(|e| GitWatcherError::Io(
-        std::io::Error::new(std::io::ErrorKind::Other, format!("Diff foreach error: {}", e))
-    ))?;
+    )
+    .map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Diff foreach error: {}", e),
+        ))
+    })?;
 
     Ok(changes)
 }
@@ -203,21 +240,41 @@ pub fn parse_diff_tree_output(output: &str) -> Vec<FileChange> {
 /// Get the blob hash (git object SHA) for a file at a given revision.
 ///
 /// Uses git2 to look up the tree entry for the path.
-pub fn get_blob_hash(repo_root: &Path, relative_path: &str, revision: &str) -> Result<String, GitWatcherError> {
+pub fn get_blob_hash(
+    repo_root: &Path,
+    relative_path: &str,
+    revision: &str,
+) -> Result<String, GitWatcherError> {
     let repo = git2::Repository::open(repo_root)
         .map_err(|e| GitWatcherError::NotGitRepo(format!("{}: {}", repo_root.display(), e)))?;
 
-    let rev = repo.revparse_single(revision)
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Revision not found: {}", e))))?;
+    let rev = repo.revparse_single(revision).map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Revision not found: {}", e),
+        ))
+    })?;
 
-    let commit = rev.peel_to_commit()
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Not a commit: {}", e))))?;
+    let commit = rev.peel_to_commit().map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Not a commit: {}", e),
+        ))
+    })?;
 
-    let tree = commit.tree()
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Tree error: {}", e))))?;
+    let tree = commit.tree().map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Tree error: {}", e),
+        ))
+    })?;
 
-    let entry = tree.get_path(Path::new(relative_path))
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Path not in tree: {}", e))))?;
+    let entry = tree.get_path(Path::new(relative_path)).map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Path not in tree: {}", e),
+        ))
+    })?;
 
     Ok(entry.id().to_string())
 }
@@ -225,18 +282,33 @@ pub fn get_blob_hash(repo_root: &Path, relative_path: &str, revision: &str) -> R
 /// List submodule entries from a commit tree (160000 mode).
 ///
 /// Returns Vec of (submodule_path, pinned_sha).
-pub fn ls_tree_submodules(repo_root: &Path, revision: &str) -> Result<Vec<(String, String)>, GitWatcherError> {
+pub fn ls_tree_submodules(
+    repo_root: &Path,
+    revision: &str,
+) -> Result<Vec<(String, String)>, GitWatcherError> {
     let repo = git2::Repository::open(repo_root)
         .map_err(|e| GitWatcherError::NotGitRepo(format!("{}: {}", repo_root.display(), e)))?;
 
-    let rev = repo.revparse_single(revision)
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Revision not found: {}", e))))?;
+    let rev = repo.revparse_single(revision).map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Revision not found: {}", e),
+        ))
+    })?;
 
-    let commit = rev.peel_to_commit()
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Not a commit: {}", e))))?;
+    let commit = rev.peel_to_commit().map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Not a commit: {}", e),
+        ))
+    })?;
 
-    let tree = commit.tree()
-        .map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Tree error: {}", e))))?;
+    let tree = commit.tree().map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Tree error: {}", e),
+        ))
+    })?;
 
     let mut submodules = Vec::new();
 
@@ -251,7 +323,13 @@ pub fn ls_tree_submodules(repo_root: &Path, revision: &str) -> Result<Vec<(Strin
             submodules.push((path, entry.id().to_string()));
         }
         git2::TreeWalkResult::Ok
-    }).map_err(|e| GitWatcherError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Tree walk error: {}", e))))?;
+    })
+    .map_err(|e| {
+        GitWatcherError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Tree walk error: {}", e),
+        ))
+    })?;
 
     Ok(submodules)
 }
@@ -279,7 +357,10 @@ mod tests {
         let changes = parse_diff_tree_output(output);
         assert_eq!(changes.len(), 1);
         match &changes[0].status {
-            FileChangeStatus::Renamed { old_path, similarity } => {
+            FileChangeStatus::Renamed {
+                old_path,
+                similarity,
+            } => {
                 assert_eq!(old_path, "old_name.rs");
                 assert_eq!(*similarity, 100);
                 assert_eq!(changes[0].path, "new_name.rs");
@@ -294,7 +375,10 @@ mod tests {
         let changes = parse_diff_tree_output(output);
         assert_eq!(changes.len(), 1);
         match &changes[0].status {
-            FileChangeStatus::Copied { src_path, similarity } => {
+            FileChangeStatus::Copied {
+                src_path,
+                similarity,
+            } => {
                 assert_eq!(src_path, "original.rs");
                 assert_eq!(*similarity, 95);
                 assert_eq!(changes[0].path, "copy.rs");
@@ -344,9 +428,9 @@ mod tests {
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
         let sig = repo.signature().unwrap();
-        let first_commit = repo.commit(
-            Some("HEAD"), &sig, &sig, "first commit", &tree, &[],
-        ).unwrap();
+        let first_commit = repo
+            .commit(Some("HEAD"), &sig, &sig, "first commit", &tree, &[])
+            .unwrap();
 
         std::fs::write(&file1, "hello world modified").unwrap();
         let file2 = temp_dir.path().join("new.txt");
@@ -358,15 +442,16 @@ mod tests {
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
         let first = repo.find_commit(first_commit).unwrap();
-        let second_commit = repo.commit(
-            Some("HEAD"), &sig, &sig, "second commit", &tree, &[&first],
-        ).unwrap();
+        let second_commit = repo
+            .commit(Some("HEAD"), &sig, &sig, "second commit", &tree, &[&first])
+            .unwrap();
 
         let changes = diff_tree(
             temp_dir.path(),
             &first_commit.to_string(),
             &second_commit.to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(changes.len(), 2);
 
@@ -395,7 +480,9 @@ mod tests {
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
         let sig = repo.signature().unwrap();
-        let first = repo.commit(Some("HEAD"), &sig, &sig, "first", &tree, &[]).unwrap();
+        let first = repo
+            .commit(Some("HEAD"), &sig, &sig, "first", &tree, &[])
+            .unwrap();
 
         let mut index = repo.index().unwrap();
         index.remove(Path::new("delete_me.txt"), 0).unwrap();
@@ -403,7 +490,9 @@ mod tests {
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
         let first_c = repo.find_commit(first).unwrap();
-        let second = repo.commit(Some("HEAD"), &sig, &sig, "second", &tree, &[&first_c]).unwrap();
+        let second = repo
+            .commit(Some("HEAD"), &sig, &sig, "second", &tree, &[&first_c])
+            .unwrap();
 
         let changes = diff_tree(temp_dir.path(), &first.to_string(), &second.to_string()).unwrap();
 
@@ -428,7 +517,8 @@ mod tests {
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
         let sig = repo.signature().unwrap();
-        repo.commit(Some("HEAD"), &sig, &sig, "commit", &tree, &[]).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "commit", &tree, &[])
+            .unwrap();
 
         let hash = get_blob_hash(temp_dir.path(), "test.txt", "HEAD").unwrap();
         assert!(!hash.is_empty());
@@ -451,7 +541,8 @@ mod tests {
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
         let sig = repo.signature().unwrap();
-        repo.commit(Some("HEAD"), &sig, &sig, "commit", &tree, &[]).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "commit", &tree, &[])
+            .unwrap();
 
         let result = get_blob_hash(temp_dir.path(), "nonexistent.txt", "HEAD");
         assert!(result.is_err());

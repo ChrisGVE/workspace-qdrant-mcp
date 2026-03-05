@@ -2,8 +2,8 @@
 
 use tracing::{debug, info};
 
-use super::SearchDbManager;
 use super::types::{InsertedLine, RebalanceResult, SearchDbResult};
+use super::SearchDbManager;
 
 impl SearchDbManager {
     /// Insert a single code line with the given seq value and line number.
@@ -48,7 +48,9 @@ impl SearchDbManager {
         let gap = (after_seq - before_seq) / 2.0;
 
         // Temporary line_number=0; renumber_file_line_numbers called below
-        let line_id = self.insert_code_line_raw(file_id, new_seq, content, 0).await?;
+        let line_id = self
+            .insert_code_line_raw(file_id, new_seq, content, 0)
+            .await?;
 
         // Check if rebalancing is needed
         let rebalanced = if gap < MIN_SEQ_GAP {
@@ -75,7 +77,13 @@ impl SearchDbManager {
         // Renumber all line_numbers for this file after insertion
         self.renumber_file_line_numbers(file_id).await?;
 
-        Ok((InsertedLine { line_id, seq: final_seq }, rebalanced))
+        Ok((
+            InsertedLine {
+                line_id,
+                seq: final_seq,
+            },
+            rebalanced,
+        ))
     }
 
     /// Insert a code line at the start of a file (before all existing lines).
@@ -90,13 +98,12 @@ impl SearchDbManager {
     ) -> SearchDbResult<(InsertedLine, bool)> {
         use crate::code_lines_schema::{INITIAL_SEQ_GAP, MIN_SEQ_GAP};
 
-        let first_seq: Option<f64> = sqlx::query_scalar(
-            "SELECT MIN(seq) FROM code_lines WHERE file_id = ?1",
-        )
-        .bind(file_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .flatten();
+        let first_seq: Option<f64> =
+            sqlx::query_scalar("SELECT MIN(seq) FROM code_lines WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
 
         let new_seq = match first_seq {
             Some(first) => first / 2.0,
@@ -104,7 +111,9 @@ impl SearchDbManager {
         };
 
         // Temporary line_number=0; renumber below
-        let line_id = self.insert_code_line_raw(file_id, new_seq, content, 0).await?;
+        let line_id = self
+            .insert_code_line_raw(file_id, new_seq, content, 0)
+            .await?;
 
         let rebalanced = if first_seq.is_some() && new_seq < MIN_SEQ_GAP {
             debug!(
@@ -129,7 +138,13 @@ impl SearchDbManager {
         // Renumber all line_numbers for this file after insertion
         self.renumber_file_line_numbers(file_id).await?;
 
-        Ok((InsertedLine { line_id, seq: final_seq }, rebalanced))
+        Ok((
+            InsertedLine {
+                line_id,
+                seq: final_seq,
+            },
+            rebalanced,
+        ))
     }
 
     /// Insert a code line at the end of a file (after all existing lines).
@@ -145,23 +160,25 @@ impl SearchDbManager {
         use crate::code_lines_schema::INITIAL_SEQ_GAP;
 
         // Get max seq and current line count for this file
-        let row: Option<(f64, i32)> = sqlx::query_as(
-            "SELECT MAX(seq), COUNT(*) FROM code_lines WHERE file_id = ?1",
-        )
-        .bind(file_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(f64, i32)> =
+            sqlx::query_as("SELECT MAX(seq), COUNT(*) FROM code_lines WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_optional(&self.pool)
+                .await?;
 
         let (new_seq, line_number) = match row {
-            Some((max_seq, count)) if count > 0 => {
-                (max_seq + INITIAL_SEQ_GAP, (count + 1) as i64)
-            }
+            Some((max_seq, count)) if count > 0 => (max_seq + INITIAL_SEQ_GAP, (count + 1) as i64),
             _ => (INITIAL_SEQ_GAP, 1),
         };
 
-        let line_id = self.insert_code_line_raw(file_id, new_seq, content, line_number).await?;
+        let line_id = self
+            .insert_code_line_raw(file_id, new_seq, content, line_number)
+            .await?;
 
-        Ok(InsertedLine { line_id, seq: new_seq })
+        Ok(InsertedLine {
+            line_id,
+            seq: new_seq,
+        })
     }
 
     /// Rebalance all seq values for a file.
@@ -183,12 +200,11 @@ impl SearchDbManager {
         use crate::code_lines_schema::INITIAL_SEQ_GAP;
 
         // Read all line_ids in current seq order
-        let line_ids: Vec<i64> = sqlx::query_scalar(
-            "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
-        )
-        .bind(file_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let line_ids: Vec<i64> =
+            sqlx::query_scalar("SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq")
+                .bind(file_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         if line_ids.is_empty() {
             return Ok(RebalanceResult {
@@ -235,12 +251,11 @@ impl SearchDbManager {
     /// and updating each row. Called after insert_line_between/insert_line_at_start
     /// or after diff operations that change the line count.
     pub async fn renumber_file_line_numbers(&self, file_id: i64) -> SearchDbResult<()> {
-        let line_ids: Vec<i64> = sqlx::query_scalar(
-            "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
-        )
-        .bind(file_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let line_ids: Vec<i64> =
+            sqlx::query_scalar("SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq")
+                .bind(file_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         if line_ids.is_empty() {
             return Ok(());
@@ -268,23 +283,21 @@ impl SearchDbManager {
         file_id: i64,
         target_seq: f64,
     ) -> SearchDbResult<(Option<f64>, Option<f64>)> {
-        let before: Option<f64> = sqlx::query_scalar(
-            "SELECT MAX(seq) FROM code_lines WHERE file_id = ?1 AND seq < ?2",
-        )
-        .bind(file_id)
-        .bind(target_seq)
-        .fetch_optional(&self.pool)
-        .await?
-        .flatten();
+        let before: Option<f64> =
+            sqlx::query_scalar("SELECT MAX(seq) FROM code_lines WHERE file_id = ?1 AND seq < ?2")
+                .bind(file_id)
+                .bind(target_seq)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
 
-        let after: Option<f64> = sqlx::query_scalar(
-            "SELECT MIN(seq) FROM code_lines WHERE file_id = ?1 AND seq > ?2",
-        )
-        .bind(file_id)
-        .bind(target_seq)
-        .fetch_optional(&self.pool)
-        .await?
-        .flatten();
+        let after: Option<f64> =
+            sqlx::query_scalar("SELECT MIN(seq) FROM code_lines WHERE file_id = ?1 AND seq > ?2")
+                .bind(file_id)
+                .bind(target_seq)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
 
         Ok((before, after))
     }

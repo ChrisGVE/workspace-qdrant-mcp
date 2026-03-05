@@ -11,7 +11,7 @@ mod path_env;
 #[cfg(test)]
 mod tests;
 
-pub use path_env::{setup_environment_path, capture_user_path};
+pub use path_env::{capture_user_path, setup_environment_path};
 
 use std::env;
 
@@ -19,10 +19,8 @@ use wqm_common::yaml_defaults::DEFAULT_YAML_CONFIG;
 
 // Re-export shared path functions from wqm-common (single source of truth)
 pub use wqm_common::paths::{
+    get_config_dir, get_database_path, get_database_path_checked,
     ConfigPathError as DatabasePathError,
-    get_database_path,
-    get_database_path_checked,
-    get_config_dir,
 };
 
 /// Get the config file path (~/.workspace-qdrant/config.yaml)

@@ -74,18 +74,17 @@ impl CollectionStrategy {
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
-        let tenants: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1",
-        )
-        .bind(&item.collection)
-        .fetch_all(&ctx.pool)
-        .await
-        .map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to query tenants for collection uplift: {}",
-                e
-            ))
-        })?;
+        let tenants: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1")
+                .bind(&item.collection)
+                .fetch_all(&ctx.pool)
+                .await
+                .map_err(|e| {
+                    UnifiedProcessorError::ProcessingFailed(format!(
+                        "Failed to query tenants for collection uplift: {}",
+                        e
+                    ))
+                })?;
 
         let mut enqueued = 0u32;
         for (tenant_id,) in &tenants {
@@ -165,10 +164,7 @@ impl CollectionStrategy {
     }
 
     /// Delete tracked_files and qdrant_chunks for all tenants in the collection.
-    async fn reset_sqlite_data(
-        pool: &SqlitePool,
-        collection: &str,
-    ) -> UnifiedProcessorResult<()> {
+    async fn reset_sqlite_data(pool: &SqlitePool, collection: &str) -> UnifiedProcessorResult<()> {
         let mut tx = pool.begin().await.map_err(|e| {
             UnifiedProcessorError::ProcessingFailed(format!(
                 "Failed to begin reset transaction: {}",
@@ -176,18 +172,17 @@ impl CollectionStrategy {
             ))
         })?;
 
-        let tenant_ids: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1",
-        )
-        .bind(collection)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to query tenants: {}",
-                e
-            ))
-        })?;
+        let tenant_ids: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1")
+                .bind(collection)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| {
+                    UnifiedProcessorError::ProcessingFailed(format!(
+                        "Failed to query tenants: {}",
+                        e
+                    ))
+                })?;
 
         for (tenant_id,) in &tenant_ids {
             let _ = sqlx::query(

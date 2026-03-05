@@ -4,14 +4,10 @@
 //! on the local network. It allows services to announce themselves and discover
 //! other services without relying on a central registry file.
 
-mod types;
 mod operations;
+mod types;
 
 pub use types::{
-    DiscoveryEvent,
-    DiscoveryMessage,
-    DiscoveryMessageType,
-    DiscoveryPayload,
-    NetworkDiscovery,
+    DiscoveryEvent, DiscoveryMessage, DiscoveryMessageType, DiscoveryPayload, NetworkDiscovery,
     NetworkError,
 };

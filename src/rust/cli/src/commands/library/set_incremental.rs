@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use wqm_common::timestamps;
 
-use crate::output;
 use super::helpers::open_db;
+use crate::output;
 
 /// Set or clear the incremental (do-not-delete) flag on tracked files.
 ///
@@ -49,7 +49,9 @@ pub async fn execute(files: &[PathBuf], clear: bool) -> Result<()> {
     if updated > 0 || not_found > 0 {
         output::info(&format!(
             "Updated: {}, not found: {} (total: {})",
-            updated, not_found, files.len()
+            updated,
+            not_found,
+            files.len()
         ));
     }
 

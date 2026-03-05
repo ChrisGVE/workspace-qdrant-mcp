@@ -7,31 +7,28 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::time::timeout;
 use tempfile::NamedTempFile;
+use tokio::time::timeout;
 
 // Import core components
-use workspace_qdrant_core::{
-    DocumentProcessor, DocumentProcessorError,
-};
+use workspace_qdrant_core::{DocumentProcessor, DocumentProcessorError};
 
 // Import shared test utilities
-use shared_test_utils::{
-    async_test, TestResult,
-    test_helpers::init_test_tracing,
-};
+use shared_test_utils::{async_test, test_helpers::init_test_tracing, TestResult};
 
 /// Test helper for creating test documents with various content types
 async fn create_test_document(content: &str, extension: &str) -> TestResult<NamedTempFile> {
-    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))
-        ?;
-    tokio::fs::write(temp_file.path(), content).await
-        ?;
+    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))?;
+    tokio::fs::write(temp_file.path(), content).await?;
     Ok(temp_file)
 }
 
 /// Test helper for verifying async operation timing
-async fn verify_async_timing<F, T>(operation: F, expected_min: Duration, expected_max: Duration) -> TestResult<T>
+async fn verify_async_timing<F, T>(
+    operation: F,
+    expected_min: Duration,
+    expected_max: Duration,
+) -> TestResult<T>
 where
     F: std::future::Future<Output = T>,
 {
@@ -42,12 +39,14 @@ where
     assert!(
         elapsed >= expected_min,
         "Operation completed too quickly: {:?} < {:?}",
-        elapsed, expected_min
+        elapsed,
+        expected_min
     );
     assert!(
         elapsed <= expected_max,
         "Operation took too long: {:?} > {:?}",
-        elapsed, expected_max
+        elapsed,
+        expected_max
     );
 
     Ok(result)
@@ -61,9 +60,7 @@ async_test!(test_async_document_processor_creation, {
     init_test_tracing();
 
     // Test that DocumentProcessor can be created asynchronously
-    let processor = tokio::task::spawn(async {
-        DocumentProcessor::new()
-    }).await?;
+    let processor = tokio::task::spawn(async { DocumentProcessor::new() }).await?;
 
     // Verify processor is healthy
     assert!(processor.is_healthy().await);
@@ -83,8 +80,9 @@ async_test!(test_async_file_processing_text, {
     let result = verify_async_timing(
         processor.process_file(temp_file.path(), "test_collection"),
         Duration::ZERO,
-        Duration::from_secs(5)
-    ).await?;
+        Duration::from_secs(5),
+    )
+    .await?;
 
     let doc_result = result?;
     assert!(!doc_result.document_id.is_empty());
@@ -115,7 +113,9 @@ More content to ensure proper chunking."#;
 
     let temp_file = create_test_document(test_content, "md").await?;
 
-    let result = processor.process_file(temp_file.path(), "markdown_test").await?;
+    let result = processor
+        .process_file(temp_file.path(), "markdown_test")
+        .await?;
 
     assert!(!result.document_id.is_empty());
     assert_eq!(result.collection, "markdown_test");
@@ -146,7 +146,9 @@ async fn process_async_data() -> Result<String, &'static str> {
 
     let temp_file = create_test_document(test_content, "rs").await?;
 
-    let result = processor.process_file(temp_file.path(), "code_test").await?;
+    let result = processor
+        .process_file(temp_file.path(), "code_test")
+        .await?;
 
     assert!(!result.document_id.is_empty());
     assert_eq!(result.collection, "code_test");
@@ -180,9 +182,8 @@ async_test!(test_async_concurrent_file_processing, {
         let path = temp_file.path().to_path_buf();
         let collection = format!("concurrent_test_{}", i);
 
-        let handle = tokio::spawn(async move {
-            processor_clone.process_file(&path, &collection).await
-        });
+        let handle =
+            tokio::spawn(async move { processor_clone.process_file(&path, &collection).await });
         handles.push(handle);
     }
 
@@ -210,12 +211,14 @@ async_test!(test_async_file_processing_error_handling, {
 
     // Test processing non-existent file
     let non_existent_path = Path::new("/tmp/non_existent_file_12345.txt");
-    let result = processor.process_file(non_existent_path, "error_test").await;
+    let result = processor
+        .process_file(non_existent_path, "error_test")
+        .await;
 
     assert!(result.is_err());
 
     match result {
-        Err(DocumentProcessorError::FileNotFound(_)) => {}, // Expected
+        Err(DocumentProcessorError::FileNotFound(_)) => {} // Expected
         Err(e) => panic!("Unexpected error type: {:?}", e),
         Ok(_) => panic!("Expected error but got success"),
     }
@@ -236,7 +239,9 @@ async_test!(test_async_timeout_handling, {
     let long_running_task = async {
         // Simulate a very slow operation
         tokio::time::sleep(Duration::from_secs(10)).await;
-        processor.process_file(Path::new("/tmp/test.txt"), "timeout_test").await
+        processor
+            .process_file(Path::new("/tmp/test.txt"), "timeout_test")
+            .await
     };
 
     // Test that timeout works properly
@@ -265,9 +270,12 @@ async_test!(test_async_error_propagation, {
 
         // This should fail because file no longer exists
         let non_existent_path = Path::new("/tmp/dropped_file.txt");
-        processor.process_file(non_existent_path, "error_prop_test").await?;
+        processor
+            .process_file(non_existent_path, "error_prop_test")
+            .await?;
         Ok(())
-    }.await;
+    }
+    .await;
 
     assert!(result.is_err());
 

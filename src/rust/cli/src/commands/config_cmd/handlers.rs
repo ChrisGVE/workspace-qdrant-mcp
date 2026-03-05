@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-use crate::output;
 use super::migration::migrate_config;
+use crate::output;
 
 /// Output the embedded default YAML configuration to stdout.
 pub(super) fn generate() -> Result<()> {
@@ -56,9 +56,7 @@ pub(super) async fn move_to_xdg() -> Result<()> {
         }
     };
 
-    let target_config = xdg_config_home
-        .join("workspace-qdrant")
-        .join("config.yaml");
+    let target_config = xdg_config_home.join("workspace-qdrant").join("config.yaml");
     let target_data_dir = xdg_data_home.join("workspace-qdrant");
 
     output::kv("XDG_CONFIG_HOME", &xdg_config_home.display().to_string());
@@ -79,8 +77,7 @@ pub(super) fn show() -> Result<()> {
         Some(path) => {
             output::kv("Config file", &path.display().to_string());
             output::separator();
-            let content =
-                std::fs::read_to_string(path).context("Failed to read config file")?;
+            let content = std::fs::read_to_string(path).context("Failed to read config file")?;
             print!("{}", content);
         }
         None => {
@@ -116,9 +113,7 @@ pub(super) fn show_path() -> Result<()> {
     if active.is_none() {
         output::separator();
         output::info("No config file found. Using built-in defaults.");
-        output::info(
-            "Run `wqm config generate > ~/.workspace-qdrant/config.yaml` to create one.",
-        );
+        output::info("Run `wqm config generate > ~/.workspace-qdrant/config.yaml` to create one.");
     }
 
     output::separator();

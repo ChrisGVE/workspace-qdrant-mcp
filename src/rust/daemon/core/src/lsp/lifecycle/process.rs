@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, RwLock, oneshot};
+use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time::timeout;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -327,7 +327,9 @@ mod tests {
             priority: 1,
         };
 
-        let instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+        let instance = ServerInstance::new(detected, LspConfig::default())
+            .await
+            .unwrap();
 
         // No process started yet, should return false
         let alive = instance.is_alive().await;
@@ -345,7 +347,9 @@ mod tests {
             priority: 1,
         };
 
-        let instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+        let instance = ServerInstance::new(detected, LspConfig::default())
+            .await
+            .unwrap();
 
         // Default working directory should be current directory
         let default_dir = instance.working_directory().to_path_buf();

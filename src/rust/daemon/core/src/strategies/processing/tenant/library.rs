@@ -70,10 +70,7 @@ pub(crate) async fn process_library_item(
                     .await?;
                 }
                 None => {
-                    warn!(
-                        "Library '{}' not found in watch_folders",
-                        item.tenant_id
-                    );
+                    warn!("Library '{}' not found in watch_folders", item.tenant_id);
                 }
             }
         }
@@ -251,10 +248,7 @@ pub(crate) async fn scan_library_directory(
                         abs_path, queue_id
                     );
                 } else {
-                    debug!(
-                        "Library file already in queue (deduplicated): {}",
-                        abs_path
-                    );
+                    debug!("Library file already in queue (deduplicated): {}", abs_path);
                 }
             }
             Err(e) => {
@@ -272,12 +266,12 @@ pub(crate) async fn scan_library_directory(
     let update_result = sqlx::query(
         "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE tenant_id = ?1 AND collection = ?2"
+         WHERE tenant_id = ?1 AND collection = ?2",
     )
-        .bind(&item.tenant_id)
-        .bind(COLLECTION_LIBRARIES)
-        .execute(queue_manager.pool())
-        .await;
+    .bind(&item.tenant_id)
+    .bind(COLLECTION_LIBRARIES)
+    .execute(queue_manager.pool())
+    .await;
 
     if let Err(e) = update_result {
         warn!(

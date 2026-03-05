@@ -10,8 +10,8 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::fs;
 use workspace_qdrant_core::{
-    classify_file_type, FileType, Pipeline, TaskPayload, TaskPriority, TaskResult,
-    TaskResultData, TaskSource,
+    classify_file_type, FileType, Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData,
+    TaskSource,
 };
 
 const TEST_COLLECTION: &str = "test_collection";
@@ -37,7 +37,11 @@ async fn test_markdown_document_classification_and_processing() -> TestResult {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Text, "Markdown files should be classified as text");
+    assert_eq!(
+        file_type,
+        FileType::Text,
+        "Markdown files should be classified as text"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -58,7 +62,10 @@ async fn test_markdown_document_classification_and_processing() -> TestResult {
     let result = handle.wait().await?;
 
     match result {
-        TaskResult::Success { execution_time_ms, data } => {
+        TaskResult::Success {
+            execution_time_ms,
+            data,
+        } => {
             assert!(execution_time_ms >= 100);
             if let TaskResultData::DocumentProcessing { collection, .. } = data {
                 assert_eq!(collection, TEST_COLLECTION);
@@ -85,7 +92,11 @@ async fn test_pdf_document_classification_and_processing() -> TestResult {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Docs, "PDF files should be classified as docs");
+    assert_eq!(
+        file_type,
+        FileType::Docs,
+        "PDF files should be classified as docs"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -124,7 +135,11 @@ async fn test_docx_document_classification_and_processing() -> TestResult {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Docs, "DOCX files should be classified as docs");
+    assert_eq!(
+        file_type,
+        FileType::Docs,
+        "DOCX files should be classified as docs"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -168,7 +183,8 @@ async fn test_json_data_classification_and_processing() -> TestResult {
     // Verify file classification
     let file_type = classify_file_type(&file_path);
     assert_eq!(
-        file_type, FileType::Data,
+        file_type,
+        FileType::Data,
         "JSON files in data directory should be classified as data"
     );
 
@@ -214,7 +230,8 @@ async fn test_json_config_classification_and_processing() -> TestResult {
     // Verify file classification
     let file_type = classify_file_type(&file_path);
     assert_eq!(
-        file_type, FileType::Config,
+        file_type,
+        FileType::Config,
         "JSON files in config directory should be classified as config"
     );
 
@@ -258,7 +275,8 @@ async fn test_xml_data_classification_and_processing() -> TestResult {
     // Verify file classification
     let file_type = classify_file_type(&file_path);
     assert_eq!(
-        file_type, FileType::Web,
+        file_type,
+        FileType::Web,
         "XML files should be classified as web content"
     );
 
@@ -298,7 +316,11 @@ async fn test_yaml_config_classification_and_processing() -> TestResult {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Config, "YAML files should be classified as config");
+    assert_eq!(
+        file_type,
+        FileType::Config,
+        "YAML files should be classified as config"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -336,7 +358,11 @@ async fn test_csv_data_classification_and_processing() -> TestResult {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Data, "CSV files should be classified as data");
+    assert_eq!(
+        file_type,
+        FileType::Data,
+        "CSV files should be classified as data"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -374,7 +400,11 @@ async fn test_code_file_classification_and_processing() -> TestResult {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Code, "Rust files should be classified as code");
+    assert_eq!(
+        file_type,
+        FileType::Code,
+        "Rust files should be classified as code"
+    );
 
     // Submit through pipeline
     let handle = submitter
@@ -459,7 +489,10 @@ async fn test_multiple_document_formats_concurrent() -> TestResult {
         if matches!(result, TaskResult::Success { .. }) {
             success_count += 1;
         } else {
-            panic!("{} should process successfully, got: {:?}", filename, result);
+            panic!(
+                "{} should process successfully, got: {:?}",
+                filename, result
+            );
         }
     }
 

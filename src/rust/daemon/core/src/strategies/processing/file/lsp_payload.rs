@@ -23,10 +23,7 @@ pub(crate) fn add_lsp_enrichment_to_payload(
         || enrichment.enrichment_status == EnrichmentStatus::Failed
     {
         if let Some(error) = &enrichment.error_message {
-            payload.insert(
-                "lsp_enrichment_error".to_string(),
-                serde_json::json!(error),
-            );
+            payload.insert("lsp_enrichment_error".to_string(), serde_json::json!(error));
         }
         return;
     }
@@ -110,7 +107,7 @@ pub(crate) fn add_lsp_enrichment_to_payload(
 mod tests {
     use super::*;
     use crate::lsp::project_manager::{
-        EnrichmentStatus, LspEnrichment, Reference, TypeInfo, ResolvedImport,
+        EnrichmentStatus, LspEnrichment, Reference, ResolvedImport, TypeInfo,
     };
 
     #[test]
@@ -149,10 +146,7 @@ mod tests {
             .unwrap()
             .as_str()
             .unwrap();
-        assert_eq!(
-            status2, "failed",
-            "lsp_enrichment_status must be lowercase"
-        );
+        assert_eq!(status2, "failed", "lsp_enrichment_status must be lowercase");
     }
 
     #[test]
@@ -261,7 +255,10 @@ mod tests {
         assert_eq!(payload["lsp_type_kind"], serde_json::json!("function"));
 
         let doc = payload["lsp_type_documentation"].as_str().unwrap();
-        assert!(doc.ends_with("..."), "Long docs should be truncated with '...'");
+        assert!(
+            doc.ends_with("..."),
+            "Long docs should be truncated with '...'"
+        );
         assert_eq!(doc.len(), 503, "Truncated doc: 500 chars + '...'");
     }
 
@@ -321,7 +318,10 @@ mod tests {
 
         let imports = payload["lsp_imports"].as_array().unwrap();
         assert_eq!(imports.len(), 2);
-        assert_eq!(imports[0]["name"], serde_json::json!("std::collections::HashMap"));
+        assert_eq!(
+            imports[0]["name"],
+            serde_json::json!("std::collections::HashMap")
+        );
         assert_eq!(imports[0]["is_stdlib"], serde_json::json!(true));
         assert_eq!(imports[1]["is_stdlib"], serde_json::json!(false));
     }

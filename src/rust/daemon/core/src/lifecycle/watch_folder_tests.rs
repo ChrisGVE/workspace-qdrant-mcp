@@ -4,9 +4,7 @@ use super::*;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration;
 
-use crate::watch_folders_schema::{
-    CREATE_WATCH_FOLDERS_SQL, CREATE_WATCH_FOLDER_SUBMODULES_SQL,
-};
+use crate::watch_folders_schema::{CREATE_WATCH_FOLDERS_SQL, CREATE_WATCH_FOLDER_SUBMODULES_SQL};
 
 async fn test_pool() -> SqlitePool {
     SqlitePoolOptions::new()
@@ -82,13 +80,11 @@ async fn insert_submodule(
 }
 
 async fn is_active(pool: &SqlitePool, watch_id: &str) -> bool {
-    sqlx::query_scalar::<_, bool>(
-        "SELECT is_active FROM watch_folders WHERE watch_id = ?1",
-    )
-    .bind(watch_id)
-    .fetch_one(pool)
-    .await
-    .unwrap()
+    sqlx::query_scalar::<_, bool>("SELECT is_active FROM watch_folders WHERE watch_id = ?1")
+        .bind(watch_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 // ── tests ────────────────────────────────────────────────────────────

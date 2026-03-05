@@ -20,22 +20,26 @@ pub(super) struct CompiledPatterns {
 
 impl CompiledPatterns {
     pub(super) fn new(config: &WatcherConfig) -> Result<Self, WatchingError> {
-        let include = config.include_patterns
+        let include = config
+            .include_patterns
             .iter()
             .map(|p| Pattern::new(p))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let exclude = config.exclude_patterns
+        let exclude = config
+            .exclude_patterns
             .iter()
             .map(|p| Pattern::new(p))
             .collect::<Result<Vec<_>, _>>()?;
 
         // Create LRU cache with 10K capacity for pattern match results
-        let cache = std::sync::Mutex::new(
-            LruCache::new(NonZeroUsize::new(10_000).unwrap())
-        );
+        let cache = std::sync::Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap()));
 
-        Ok(Self { include, exclude, cache })
+        Ok(Self {
+            include,
+            exclude,
+            cache,
+        })
     }
 
     pub(super) fn should_process(&self, path: &Path) -> bool {
@@ -52,22 +56,24 @@ impl CompiledPatterns {
         let path_str = path.to_string_lossy();
 
         // Fast-path suffix checks for common temporary files
-        if path_str.ends_with(".tmp") ||
-           path_str.ends_with(".swp") ||
-           path_str.ends_with(".bak") ||
-           path_str.ends_with("~") {
+        if path_str.ends_with(".tmp")
+            || path_str.ends_with(".swp")
+            || path_str.ends_with(".bak")
+            || path_str.ends_with("~")
+        {
             let mut cache_lock = self.cache.lock().unwrap();
             cache_lock.push(path.to_path_buf(), false);
             return false;
         }
 
         // Fast-path prefix/component checks for common excluded directories
-        if path_str.contains("/.git/") ||
-           path_str.contains("/node_modules/") ||
-           path_str.contains("/target/") ||
-           path_str.contains("/__pycache__/") ||
-           path_str.contains("/.svn/") ||
-           path_str.contains("/.pytest_cache/") {
+        if path_str.contains("/.git/")
+            || path_str.contains("/node_modules/")
+            || path_str.contains("/target/")
+            || path_str.contains("/__pycache__/")
+            || path_str.contains("/.svn/")
+            || path_str.contains("/.pytest_cache/")
+        {
             let mut cache_lock = self.cache.lock().unwrap();
             cache_lock.push(path.to_path_buf(), false);
             return false;

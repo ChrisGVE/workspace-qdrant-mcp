@@ -10,10 +10,9 @@ use tempfile::TempDir;
 use tracing::info;
 
 use super::types::{
-    CrossPlatformTestConfig, CrossPlatformResults, MemorySafetyResults,
-    FFIPerformanceResults, ThreadSafetyResults, PerformanceRegressionResults,
-    MemoryTracker, FileSystemTestResults, NetworkTestResults,
-    EnvironmentTestResults, PlatformSpecificResults,
+    CrossPlatformResults, CrossPlatformTestConfig, EnvironmentTestResults, FFIPerformanceResults,
+    FileSystemTestResults, MemorySafetyResults, MemoryTracker, NetworkTestResults,
+    PerformanceRegressionResults, PlatformSpecificResults, ThreadSafetyResults,
 };
 
 /// Comprehensive test suite for cross-platform testing and memory safety
@@ -79,9 +78,7 @@ impl CrossPlatformTestSuite {
         })
     }
 
-    pub(crate) async fn test_file_system_behavior(
-        &self,
-    ) -> anyhow::Result<FileSystemTestResults> {
+    pub(crate) async fn test_file_system_behavior(&self) -> anyhow::Result<FileSystemTestResults> {
         let test_path = self.test_dir.path();
 
         let path_separator_handling = self.test_path_separators(test_path).await?;
@@ -117,9 +114,7 @@ impl CrossPlatformTestSuite {
         })
     }
 
-    pub(crate) async fn test_environment_behavior(
-        &self,
-    ) -> anyhow::Result<EnvironmentTestResults> {
+    pub(crate) async fn test_environment_behavior(&self) -> anyhow::Result<EnvironmentTestResults> {
         let environment_variable_handling = self.test_environment_variables().await?;
         let path_resolution = self.test_path_resolution().await?;
         let working_directory = self.test_working_directory().await?;
@@ -222,7 +217,9 @@ impl CrossPlatformTestSuite {
 
         let baseline = self.establish_performance_baseline().await?;
         let current = self.measure_current_performance().await?;
-        let regressions = self.detect_performance_regressions(&baseline, &current).await?;
+        let regressions = self
+            .detect_performance_regressions(&baseline, &current)
+            .await?;
 
         Ok(PerformanceRegressionResults {
             baseline,

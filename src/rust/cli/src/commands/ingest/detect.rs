@@ -11,7 +11,8 @@ pub fn detect_tenant_id() -> String {
             if let Ok(path) = String::from_utf8(output.stdout) {
                 let path = path.trim();
                 // Normalize to a tenant_id
-                return path.replace(['/', '\\', ' '], "_")
+                return path
+                    .replace(['/', '\\', ' '], "_")
                     .trim_start_matches('_')
                     .to_string();
             }
@@ -20,9 +21,12 @@ pub fn detect_tenant_id() -> String {
 
     // Fallback to current directory
     std::env::current_dir()
-        .map(|p| p.to_string_lossy().replace(['/', '\\', ' '], "_")
-            .trim_start_matches('_')
-            .to_string())
+        .map(|p| {
+            p.to_string_lossy()
+                .replace(['/', '\\', ' '], "_")
+                .trim_start_matches('_')
+                .to_string()
+        })
         .unwrap_or_else(|_| "default".to_string())
 }
 

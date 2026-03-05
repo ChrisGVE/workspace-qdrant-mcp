@@ -4,9 +4,7 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 use super::chunking::{chunk_by_characters, floor_char_boundary};
-use super::extraction::{
-    clean_extracted_text, extract_rtf, extract_text_from_xml_tags,
-};
+use super::extraction::{clean_extracted_text, extract_rtf, extract_text_from_xml_tags};
 
 mod tests_formats;
 
@@ -99,8 +97,7 @@ fn test_chunk_text_simple() {
         ..ChunkingConfig::default()
     };
 
-    let text =
-        "This is a test. It has multiple sentences. Each one should be processed.";
+    let text = "This is a test. It has multiple sentences. Each one should be processed.";
     let chunks = chunk_text(text, &HashMap::new(), &config);
 
     assert!(!chunks.is_empty());
@@ -115,8 +112,7 @@ fn test_chunk_text_with_paragraphs() {
         ..ChunkingConfig::default()
     };
 
-    let text =
-        "First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here.";
+    let text = "First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here.";
     let chunks = chunk_text(text, &HashMap::new(), &config);
 
     assert!(!chunks.is_empty());
@@ -141,10 +137,7 @@ async fn test_file_not_found() {
         .await;
 
     assert!(result.is_err());
-    matches!(
-        result.unwrap_err(),
-        DocumentProcessorError::FileNotFound(_)
-    );
+    matches!(result.unwrap_err(), DocumentProcessorError::FileNotFound(_));
 }
 
 #[test]

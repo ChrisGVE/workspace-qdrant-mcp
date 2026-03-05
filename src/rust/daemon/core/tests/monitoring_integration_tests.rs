@@ -4,11 +4,9 @@
 //! alerting, and telemetry correlation.
 
 use workspace_qdrant_core::{
-    MetricsSnapshot, METRICS,
-    Alert, AlertChecker, AlertConfig, AlertSeverity, AlertType,
-    create_orphaned_session_alert, create_slow_search_alert,
-    OtelConfig, init_tracer_provider, shutdown_tracer,
-    current_trace_id, current_span_id,
+    create_orphaned_session_alert, create_slow_search_alert, current_span_id, current_trace_id,
+    init_tracer_provider, shutdown_tracer, Alert, AlertChecker, AlertConfig, AlertSeverity,
+    AlertType, MetricsSnapshot, OtelConfig, METRICS,
 };
 
 // ============================================================================
@@ -139,7 +137,9 @@ fn test_alert_checker_queue_depth_warning() {
     // May or may not trigger depending on total queue depths
     if let Some(alert) = alert {
         // Should be warning or critical
-        assert!(alert.severity == AlertSeverity::Warning || alert.severity == AlertSeverity::Critical);
+        assert!(
+            alert.severity == AlertSeverity::Warning || alert.severity == AlertSeverity::Critical
+        );
     }
 
     // Reset queue depth
@@ -149,8 +149,8 @@ fn test_alert_checker_queue_depth_warning() {
 #[test]
 fn test_alert_check_all_returns_alerts() {
     let config = AlertConfig {
-        queue_depth_threshold: 1,  // Very low threshold
-        error_rate_threshold_percent: 0.1,  // Very low threshold
+        queue_depth_threshold: 1,          // Very low threshold
+        error_rate_threshold_percent: 0.1, // Very low threshold
         ..AlertConfig::default()
     };
     let checker = AlertChecker::with_config(config);
@@ -186,7 +186,10 @@ fn test_create_orphaned_session_alert_warning() {
     let alert = alert.unwrap();
     assert_eq!(alert.severity, AlertSeverity::Warning);
     match alert.alert_type {
-        AlertType::OrphanedSession { project_id, last_heartbeat_secs } => {
+        AlertType::OrphanedSession {
+            project_id,
+            last_heartbeat_secs,
+        } => {
             assert_eq!(project_id, "project-1");
             assert_eq!(last_heartbeat_secs, 700.0);
         }
@@ -215,7 +218,10 @@ fn test_create_slow_search_alert_warning() {
     let alert = alert.unwrap();
     assert_eq!(alert.severity, AlertSeverity::Warning);
     match alert.alert_type {
-        AlertType::SlowSearches { p95_latency_ms, threshold_ms } => {
+        AlertType::SlowSearches {
+            p95_latency_ms,
+            threshold_ms,
+        } => {
             assert_eq!(p95_latency_ms, 600.0);
             assert_eq!(threshold_ms, 500.0);
         }
@@ -271,7 +277,7 @@ fn test_otel_tracer_provider_init() {
     let config = OtelConfig {
         service_name: "test-service".to_string(),
         service_version: "1.0.0".to_string(),
-        otlp_endpoint: None,  // No exporter
+        otlp_endpoint: None, // No exporter
         sampling_ratio: 1.0,
         propagate_context: true,
     };
@@ -352,18 +358,21 @@ fn test_alert_severity_serialization() {
 #[test]
 fn test_alert_type_variants() {
     // Test all alert type variants can be constructed and serialized
-    let queue = AlertType::HighQueueDepth { depth: 100, threshold: 50 };
+    let queue = AlertType::HighQueueDepth {
+        depth: 100,
+        threshold: 50,
+    };
     let orphan = AlertType::OrphanedSession {
         project_id: "test".to_string(),
-        last_heartbeat_secs: 700.0
+        last_heartbeat_secs: 700.0,
     };
     let error = AlertType::HighErrorRate {
         error_rate_percent: 10.0,
-        threshold_percent: 5.0
+        threshold_percent: 5.0,
     };
     let slow = AlertType::SlowSearches {
         p95_latency_ms: 600.0,
-        threshold_ms: 500.0
+        threshold_ms: 500.0,
     };
 
     // All should serialize without error
@@ -379,6 +388,12 @@ fn test_alert_config_serialization() {
     let json = serde_json::to_string(&config).unwrap();
     let deserialized: AlertConfig = serde_json::from_str(&json).unwrap();
 
-    assert_eq!(config.queue_depth_threshold, deserialized.queue_depth_threshold);
-    assert_eq!(config.orphaned_session_timeout_secs, deserialized.orphaned_session_timeout_secs);
+    assert_eq!(
+        config.queue_depth_threshold,
+        deserialized.queue_depth_threshold
+    );
+    assert_eq!(
+        config.orphaned_session_timeout_secs,
+        deserialized.orphaned_session_timeout_secs
+    );
 }

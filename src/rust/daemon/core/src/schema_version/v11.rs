@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::SchemaError;
 use super::migration::Migration;
+use super::SchemaError;
 
 pub struct V11Migration;
 
@@ -27,13 +27,17 @@ impl Migration for V11Migration {
         }
 
         sqlx::query("DROP TABLE IF EXISTS unified_queue_v11")
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
         v11_create_temp_table(pool).await?;
         v11_copy_data(pool).await?;
 
-        sqlx::query("DROP TABLE unified_queue").execute(pool).await?;
+        sqlx::query("DROP TABLE unified_queue")
+            .execute(pool)
+            .await?;
         sqlx::query("ALTER TABLE unified_queue_v11 RENAME TO unified_queue")
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
 
         use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_INDEXES_SQL;
         for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
@@ -44,16 +48,21 @@ impl Migration for V11Migration {
         Ok(())
     }
 
-    fn version(&self) -> i32 { 11 }
-    fn description(&self) -> &'static str { "Queue taxonomy overhaul" }
+    fn version(&self) -> i32 {
+        11
+    }
+    fn description(&self) -> &'static str {
+        "Queue taxonomy overhaul"
+    }
 }
 
 /// Return true if the unified_queue table still uses old taxonomy values.
 async fn v11_needs_migration(pool: &SqlitePool) -> Result<bool, SchemaError> {
     let table_sql: Option<String> = sqlx::query_scalar(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='unified_queue'"
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='unified_queue'",
     )
-    .fetch_optional(pool).await?;
+    .fetch_optional(pool)
+    .await?;
 
     Ok(match &table_sql {
         Some(sql) => {
@@ -98,7 +107,8 @@ async fn v11_create_temp_table(pool: &SqlitePool) -> Result<(), SchemaError> {
 
 /// Copy rows from unified_queue into unified_queue_v11, transforming taxonomy values.
 async fn v11_copy_data(pool: &SqlitePool) -> Result<(), SchemaError> {
-    sqlx::query(r#"
+    sqlx::query(
+        r#"
         INSERT INTO unified_queue_v11 (
             queue_id, item_type, op, tenant_id, collection, status,
             created_at, updated_at, lease_until, worker_id, idempotency_key,
@@ -126,6 +136,9 @@ async fn v11_copy_data(pool: &SqlitePool) -> Result<(), SchemaError> {
             payload_json, retry_count, max_retries, error_message, last_error_at,
             branch, metadata, file_path
         FROM unified_queue
-    "#).execute(pool).await?;
+    "#,
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }

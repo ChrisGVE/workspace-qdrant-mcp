@@ -10,11 +10,7 @@ use tokio::signal;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
-use workspace_qdrant_core::{
-    LanguageServerManager,
-    UnifiedQueueProcessor,
-    WatchManager,
-};
+use workspace_qdrant_core::{LanguageServerManager, UnifiedQueueProcessor, WatchManager};
 
 use crate::background::BackgroundHandles;
 

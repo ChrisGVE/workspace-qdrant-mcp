@@ -5,19 +5,19 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use notify::{Event, EventKind};
-use tokio::sync::{mpsc, RwLock, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::interval;
 
-use crate::processing::{TaskSubmitter, TaskPriority, TaskSource, TaskPayload};
+use crate::processing::{TaskPayload, TaskPriority, TaskSource, TaskSubmitter};
 
 use super::compiled_patterns::CompiledPatterns;
 use super::config::WatcherConfig;
-use super::debouncer::{EventDebouncer, EventBatcher};
+use super::debouncer::{EventBatcher, EventDebouncer};
 use super::events::{FileEvent, PausedEventBuffer};
 use super::telemetry::{TelemetryTracker, WatchingStats};
 use super::watcher::FileWatcher;
@@ -29,9 +29,7 @@ impl FileWatcher {
         let system_time = SystemTime::now();
 
         for path in event.paths {
-            let size = std::fs::metadata(&path)
-                .ok()
-                .map(|metadata| metadata.len());
+            let size = std::fs::metadata(&path).ok().map(|metadata| metadata.len());
 
             let mut metadata = HashMap::new();
             metadata.insert("event_type".to_string(), format!("{:?}", event.kind));
@@ -147,7 +145,11 @@ impl FileWatcher {
             let config_lock = config.read().await;
             if let (Some(max_size), Some(file_size)) = (config_lock.max_file_size, event.size) {
                 if file_size > max_size {
-                    tracing::debug!("Skipping large file: {} ({} bytes)", event.path.display(), file_size);
+                    tracing::debug!(
+                        "Skipping large file: {} ({} bytes)",
+                        event.path.display(),
+                        file_size
+                    );
                     let mut stats_lock = stats.lock().await;
                     stats_lock.events_filtered += 1;
                     return;
@@ -161,12 +163,31 @@ impl FileWatcher {
         };
 
         if let Some(evicted_event) = evicted {
-            tracing::info!("Processing evicted event to prevent data loss: {}", evicted_event.path.display());
-            Self::handle_ready_event(evicted_event, batcher, config, task_submitter, stats, telemetry_tracker).await;
+            tracing::info!(
+                "Processing evicted event to prevent data loss: {}",
+                evicted_event.path.display()
+            );
+            Self::handle_ready_event(
+                evicted_event,
+                batcher,
+                config,
+                task_submitter,
+                stats,
+                telemetry_tracker,
+            )
+            .await;
         }
 
         if should_process {
-            Self::handle_ready_event(event, batcher, config, task_submitter, stats, telemetry_tracker).await;
+            Self::handle_ready_event(
+                event,
+                batcher,
+                config,
+                task_submitter,
+                stats,
+                telemetry_tracker,
+            )
+            .await;
         } else {
             let mut stats_lock = stats.lock().await;
             stats_lock.events_debounced += 1;
@@ -195,7 +216,15 @@ impl FileWatcher {
                     continue;
                 }
             }
-            Self::handle_ready_event(event, batcher, config, task_submitter, stats, telemetry_tracker).await;
+            Self::handle_ready_event(
+                event,
+                batcher,
+                config,
+                task_submitter,
+                stats,
+                telemetry_tracker,
+            )
+            .await;
         }
     }
 
@@ -214,7 +243,8 @@ impl FileWatcher {
         };
 
         if let Some(batch) = ready_batch {
-            Self::submit_processing_tasks(batch, config, task_submitter, stats, telemetry_tracker).await;
+            Self::submit_processing_tasks(batch, config, task_submitter, stats, telemetry_tracker)
+                .await;
         }
     }
 
@@ -243,13 +273,17 @@ impl FileWatcher {
 
                     let source = match task_priority {
                         TaskPriority::ProjectWatching => TaskSource::ProjectWatcher {
-                            project_path: event.path.parent()
+                            project_path: event
+                                .path
+                                .parent()
                                 .unwrap_or_else(|| Path::new("/"))
                                 .to_string_lossy()
                                 .to_string(),
                         },
                         TaskPriority::BackgroundWatching => TaskSource::BackgroundWatcher {
-                            folder_path: event.path.parent()
+                            folder_path: event
+                                .path
+                                .parent()
                                 .unwrap_or_else(|| Path::new("/"))
                                 .to_string_lossy()
                                 .to_string(),
@@ -259,7 +293,9 @@ impl FileWatcher {
                         },
                     };
 
-                    let branch = event.path.parent()
+                    let branch = event
+                        .path
+                        .parent()
                         .map(|p| crate::watching_queue::get_current_branch(p))
                         .unwrap_or_else(|| "main".to_string());
 
@@ -269,12 +305,18 @@ impl FileWatcher {
                         branch,
                     };
 
-                    match task_submitter.submit_task(task_priority, source, payload, None).await {
+                    match task_submitter
+                        .submit_task(task_priority, source, payload, None)
+                        .await
+                    {
                         Ok(_) => {
                             let mut stats_lock = stats.lock().await;
                             stats_lock.tasks_submitted += 1;
                             stats_lock.events_processed += 1;
-                            tracing::debug!("Submitted processing task for: {}", event.path.display());
+                            tracing::debug!(
+                                "Submitted processing task for: {}",
+                                event.path.display()
+                            );
 
                             if telemetry_enabled {
                                 let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -284,14 +326,18 @@ impl FileWatcher {
                                 telemetry_lock.record_latency(latency_ms);
                                 telemetry_lock.record_file_processed(file_size);
                             }
-                        },
+                        }
                         Err(e) => {
                             let mut stats_lock = stats.lock().await;
                             stats_lock.errors += 1;
-                            tracing::error!("Failed to submit processing task for {}: {}", event.path.display(), e);
+                            tracing::error!(
+                                "Failed to submit processing task for {}: {}",
+                                event.path.display(),
+                                e
+                            );
                         }
                     }
-                },
+                }
                 _ => {}
             }
         }
@@ -308,8 +354,14 @@ impl FileWatcher {
     ) {
         for event in events {
             Self::handle_ready_event(
-                event.clone(), batcher, config, task_submitter, stats, telemetry_tracker,
-            ).await;
+                event.clone(),
+                batcher,
+                config,
+                task_submitter,
+                stats,
+                telemetry_tracker,
+            )
+            .await;
         }
     }
 

@@ -44,10 +44,10 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub mod detection;
-pub mod lifecycle;
 pub mod communication;
 pub mod config;
+pub mod detection;
+pub mod lifecycle;
 pub mod project_manager;
 
 // NOTE: The `state` module (StateManager) was removed as part of 3-table SQLite compliance.
@@ -57,17 +57,17 @@ pub mod project_manager;
 #[cfg(test)]
 mod tests;
 
+pub use communication::{JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
+pub use config::{LanguageConfig, LspConfig, ServerConfig};
 pub use detection::{
-    LspServerDetector, DetectedServer, ServerCapabilities,
-    ProjectLanguageDetector, ProjectLanguageResult, LanguageMarker,
+    DetectedServer, LanguageMarker, LspServerDetector, ProjectLanguageDetector,
+    ProjectLanguageResult, ServerCapabilities,
 };
 pub use lifecycle::{LspServerManager, ServerInstance, ServerStatus};
-pub use communication::{JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
-pub use config::{LspConfig, LanguageConfig, ServerConfig};
 pub use project_manager::{
-    LanguageServerManager, ProjectLspConfig, ProjectLspError, ProjectLspResult,
-    ProjectLanguageKey, ProjectServerState, ProjectLspStats,
-    Reference, TypeInfo, ResolvedImport, LspEnrichment, EnrichmentStatus,
+    EnrichmentStatus, LanguageServerManager, LspEnrichment, ProjectLanguageKey, ProjectLspConfig,
+    ProjectLspError, ProjectLspResult, ProjectLspStats, ProjectServerState, Reference,
+    ResolvedImport, TypeInfo,
 };
 
 /// Main errors that can occur in the LSP subsystem
@@ -98,19 +98,34 @@ pub enum LspError {
     Timeout { operation: String },
 
     #[error("IO error: {source}")]
-    Io { #[from] source: std::io::Error },
+    Io {
+        #[from]
+        source: std::io::Error,
+    },
 
     #[error("Database error: {source}")]
-    Database { #[from] source: sqlx::Error },
+    Database {
+        #[from]
+        source: sqlx::Error,
+    },
 
     #[error("Serialization error: {source}")]
-    Serialization { #[from] source: serde_json::Error },
+    Serialization {
+        #[from]
+        source: serde_json::Error,
+    },
 
     #[error("Date parsing error: {source}")]
-    DateParsing { #[from] source: chrono::ParseError },
+    DateParsing {
+        #[from]
+        source: chrono::ParseError,
+    },
 
     #[error("UUID parsing error: {source}")]
-    UuidParsing { #[from] source: uuid::Error },
+    UuidParsing {
+        #[from]
+        source: uuid::Error,
+    },
 }
 
 /// Result type for LSP operations
@@ -253,4 +268,3 @@ pub enum LspPriority {
 // It used StateManager which created 5 non-compliant SQLite tables.
 // The daemon uses LanguageServerManager directly (from project_manager module)
 // which provides per-project LSP lifecycle management without SQLite persistence.
-

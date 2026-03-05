@@ -3,8 +3,8 @@
 use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use crate::output;
 use super::helpers::open_db;
+use crate::output;
 
 /// Show library information for a specific tag or all libraries
 pub async fn execute(tag: Option<&str>) -> Result<()> {
@@ -32,7 +32,15 @@ fn show_single(conn: &rusqlite::Connection, tag: &str) -> Result<()> {
     let watch_id = format!("lib-{}", tag);
 
     let result: Result<
-        (String, String, Option<String>, bool, String, Option<String>, Option<String>),
+        (
+            String,
+            String,
+            Option<String>,
+            bool,
+            String,
+            Option<String>,
+            Option<String>,
+        ),
         _,
     > = conn.query_row(
         "SELECT path, tenant_id, library_mode, enabled, created_at, updated_at, \
@@ -71,18 +79,22 @@ fn show_single(conn: &rusqlite::Connection, tag: &str) -> Result<()> {
 
             // Query tracked_files for file count
             output::separator();
-            let file_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM tracked_files WHERE watch_folder_id = ?",
-                [&watch_id],
-                |row| row.get(0),
-            ).unwrap_or(0);
+            let file_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM tracked_files WHERE watch_folder_id = ?",
+                    [&watch_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
-            let chunk_count: i64 = conn.query_row(
-                "SELECT COALESCE(SUM(chunk_count), 0) FROM tracked_files \
+            let chunk_count: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(SUM(chunk_count), 0) FROM tracked_files \
                  WHERE watch_folder_id = ?",
-                [&watch_id],
-                |row| row.get(0),
-            ).unwrap_or(0);
+                    [&watch_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
 
             output::kv("Tracked Files", &file_count.to_string());
             output::kv("Total Chunks", &chunk_count.to_string());

@@ -131,37 +131,54 @@ enum TagsCommand {
 /// Execute tags command
 pub async fn execute(args: TagsArgs) -> Result<()> {
     match args.command {
-        TagsCommand::List { doc, tag_type, json, script, no_headers } => {
-            list::list_tags(&doc, tag_type.as_deref(), json, script, no_headers)
-        }
-        TagsCommand::Keywords { doc, json, script, no_headers } => {
-            list::list_keywords(&doc, json, script, no_headers)
-        }
+        TagsCommand::List {
+            doc,
+            tag_type,
+            json,
+            script,
+            no_headers,
+        } => list::list_tags(&doc, tag_type.as_deref(), json, script, no_headers),
+        TagsCommand::Keywords {
+            doc,
+            json,
+            script,
+            no_headers,
+        } => list::list_keywords(&doc, json, script, no_headers),
         TagsCommand::Tree { tenant, collection } => tree::show_tree(&tenant, &collection),
         TagsCommand::Stats { tenant, collection } => {
             stats::show_stats(tenant.as_deref(), &collection)
         }
-        TagsCommand::Search { query, collection, json, script, no_headers } => {
-            search::search_tags(&query, &collection, json, script, no_headers)
-        }
-        TagsCommand::Baskets { doc, json, script, no_headers } => {
-            search::show_baskets(&doc, json, script, no_headers)
-        }
+        TagsCommand::Search {
+            query,
+            collection,
+            json,
+            script,
+            no_headers,
+        } => search::search_tags(&query, &collection, json, script, no_headers),
+        TagsCommand::Baskets {
+            doc,
+            json,
+            script,
+            no_headers,
+        } => search::show_baskets(&doc, json, script, no_headers),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::list::{KeywordRow, TagRow};
     use super::search::TagSearchRow;
     use super::stats::StatsRow;
+    use super::*;
 
     #[test]
     fn test_tags_args_struct() {
         // Verify the TagsArgs struct is constructible
         // (clap parsing is tested via integration tests)
-        assert_eq!(std::mem::size_of::<TagsArgs>(), std::mem::size_of::<TagsArgs>());
+        assert_eq!(
+            std::mem::size_of::<TagsArgs>(),
+            std::mem::size_of::<TagsArgs>()
+        );
     }
 
     #[test]

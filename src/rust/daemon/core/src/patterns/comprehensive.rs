@@ -3,9 +3,9 @@
 //! This module provides compile-time embedding of the comprehensive internal_configuration.yaml
 //! containing research from 500+ languages, 80+ LSP servers, and 180+ Tree-sitter grammars.
 
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use once_cell::sync::Lazy;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -117,22 +117,23 @@ pub struct MetadataSchema {
 static EMBEDDED_CONFIG: &str = include_str!("../../../../../../assets/internal_configuration.yaml");
 
 /// Global parsed configuration - lazily initialized on first access
-static PARSED_CONFIG: Lazy<Result<Arc<InternalConfiguration>, ComprehensivePatternError>> = Lazy::new(|| {
-    let config: InternalConfiguration = serde_yml::from_str(EMBEDDED_CONFIG)
-        .map_err(ComprehensivePatternError::YamlParse)?;
+static PARSED_CONFIG: Lazy<Result<Arc<InternalConfiguration>, ComprehensivePatternError>> =
+    Lazy::new(|| {
+        let config: InternalConfiguration =
+            serde_yml::from_str(EMBEDDED_CONFIG).map_err(ComprehensivePatternError::YamlParse)?;
 
-    // Validate configuration after loading
-    validate_configuration(&config)?;
+        // Validate configuration after loading
+        validate_configuration(&config)?;
 
-    tracing::info!(
+        tracing::info!(
         "Loaded comprehensive configuration: {} languages, {} LSP servers, {} Tree-sitter grammars",
         config.file_extensions.len(),
         config.lsp_servers.len(),
         config.tree_sitter_grammars.available.len()
     );
 
-    Ok(Arc::new(config))
-});
+        Ok(Arc::new(config))
+    });
 
 /// Comprehensive pattern manager with 500+ language support
 #[derive(Debug, Clone)]
@@ -148,7 +149,8 @@ impl ComprehensivePatternManager {
                 config: Arc::clone(config),
             }),
             Err(e) => Err(ComprehensivePatternError::Validation(format!(
-                "Failed to load comprehensive configuration: {}", e
+                "Failed to load comprehensive configuration: {}",
+                e
             ))),
         }
     }
@@ -162,7 +164,9 @@ impl ComprehensivePatternManager {
     pub fn language_from_extension(&self, extension: &str) -> Option<&String> {
         // Try with and without leading dot
         let clean_ext = extension.trim_start_matches('.');
-        self.config.file_extensions.get(clean_ext)
+        self.config
+            .file_extensions
+            .get(clean_ext)
             .or_else(|| self.config.file_extensions.get(&format!(".{}", clean_ext)))
     }
 
@@ -173,13 +177,20 @@ impl ComprehensivePatternManager {
 
     /// Check if Tree-sitter grammar is available
     pub fn tree_sitter_available(&self, language: &str) -> bool {
-        self.config.tree_sitter_grammars.available.contains(&language.to_string())
+        self.config
+            .tree_sitter_grammars
+            .available
+            .contains(&language.to_string())
     }
 
     /// Get Tree-sitter grammar quality tier
     pub fn tree_sitter_quality(&self, language: &str) -> Option<&str> {
         let grammars = &self.config.tree_sitter_grammars;
-        if grammars.quality_tiers.excellent.contains(&language.to_string()) {
+        if grammars
+            .quality_tiers
+            .excellent
+            .contains(&language.to_string())
+        {
             Some("excellent")
         } else if grammars.quality_tiers.good.contains(&language.to_string()) {
             Some("good")
@@ -247,13 +258,17 @@ impl ComprehensivePatternManager {
         }
 
         // Return language with highest keyword score
-        language_scores.into_iter()
+        language_scores
+            .into_iter()
             .max_by_key(|(_, score)| *score)
             .map(|(language, _)| language)
     }
 
     /// Detect build system for project
-    pub fn detect_build_system(&self, file_paths: &[String]) -> Option<(&String, &BuildSystemConfig)> {
+    pub fn detect_build_system(
+        &self,
+        file_paths: &[String],
+    ) -> Option<(&String, &BuildSystemConfig)> {
         for (name, config) in &self.config.build_systems {
             for file in &config.files {
                 if file_paths.iter().any(|path| glob_match(file, path)) {
@@ -277,11 +292,21 @@ impl ComprehensivePatternManager {
     /// Get comprehensive statistics
     pub fn stats(&self) -> ComprehensiveStats {
         ComprehensiveStats {
-            total_languages: self.config.file_extensions.values().collect::<std::collections::HashSet<_>>().len(),
+            total_languages: self
+                .config
+                .file_extensions
+                .values()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
             total_extensions: self.config.file_extensions.len(),
             lsp_servers: self.config.lsp_servers.len(),
             tree_sitter_grammars: self.config.tree_sitter_grammars.available.len(),
-            excellent_grammars: self.config.tree_sitter_grammars.quality_tiers.excellent.len(),
+            excellent_grammars: self
+                .config
+                .tree_sitter_grammars
+                .quality_tiers
+                .excellent
+                .len(),
             good_grammars: self.config.tree_sitter_grammars.quality_tiers.good.len(),
             basic_grammars: self.config.tree_sitter_grammars.quality_tiers.basic.len(),
             build_systems: self.config.build_systems.len(),
@@ -291,16 +316,16 @@ impl ComprehensivePatternManager {
 
     fn total_exclusion_patterns(&self) -> usize {
         let exclusions = &self.config.exclusion_patterns;
-        exclusions.version_control.len() +
-        exclusions.build_outputs.len() +
-        exclusions.cache_directories.len() +
-        exclusions.virtual_environments.len() +
-        exclusions.ide_files.len() +
-        exclusions.temporary_files.len() +
-        exclusions.binary_files.len() +
-        exclusions.media_files.len() +
-        exclusions.archive_files.len() +
-        exclusions.package_files.len()
+        exclusions.version_control.len()
+            + exclusions.build_outputs.len()
+            + exclusions.cache_directories.len()
+            + exclusions.virtual_environments.len()
+            + exclusions.ide_files.len()
+            + exclusions.temporary_files.len()
+            + exclusions.binary_files.len()
+            + exclusions.media_files.len()
+            + exclusions.archive_files.len()
+            + exclusions.package_files.len()
     }
 }
 
@@ -329,42 +354,46 @@ fn validate_configuration(config: &InternalConfiguration) -> ComprehensiveResult
     // Validate file extensions are not empty
     if config.file_extensions.is_empty() {
         return Err(ComprehensivePatternError::Validation(
-            "No file extensions defined".to_string()
+            "No file extensions defined".to_string(),
         ));
     }
 
     // Validate LSP servers have required fields
     for (language, lsp_config) in &config.lsp_servers {
         if lsp_config.primary.is_empty() {
-            return Err(ComprehensivePatternError::Validation(
-                format!("LSP server for '{}' has empty primary field", language)
-            ));
+            return Err(ComprehensivePatternError::Validation(format!(
+                "LSP server for '{}' has empty primary field",
+                language
+            )));
         }
         if lsp_config.features.is_empty() {
-            return Err(ComprehensivePatternError::Validation(
-                format!("LSP server for '{}' has no features defined", language)
-            ));
+            return Err(ComprehensivePatternError::Validation(format!(
+                "LSP server for '{}' has no features defined",
+                language
+            )));
         }
     }
 
     // Validate Tree-sitter grammars
     if config.tree_sitter_grammars.available.is_empty() {
         return Err(ComprehensivePatternError::Validation(
-            "No Tree-sitter grammars defined".to_string()
+            "No Tree-sitter grammars defined".to_string(),
         ));
     }
 
     // Validate build systems
     for (name, build_config) in &config.build_systems {
         if build_config.files.is_empty() {
-            return Err(ComprehensivePatternError::Validation(
-                format!("Build system '{}' has no files defined", name)
-            ));
+            return Err(ComprehensivePatternError::Validation(format!(
+                "Build system '{}' has no files defined",
+                name
+            )));
         }
         if build_config.language.is_empty() {
-            return Err(ComprehensivePatternError::Validation(
-                format!("Build system '{}' has no language defined", name)
-            ));
+            return Err(ComprehensivePatternError::Validation(format!(
+                "Build system '{}' has no language defined",
+                name
+            )));
         }
     }
 
@@ -424,7 +453,10 @@ mod tests {
     #[test]
     fn test_comprehensive_pattern_manager_creation() {
         let manager = ComprehensivePatternManager::new();
-        assert!(manager.is_ok(), "Should initialize comprehensive pattern manager");
+        assert!(
+            manager.is_ok(),
+            "Should initialize comprehensive pattern manager"
+        );
     }
 
     #[test]
@@ -473,7 +505,10 @@ mod tests {
         let manager = ComprehensivePatternManager::new().unwrap();
 
         let python_script = "#!/usr/bin/env python3\nprint('hello')";
-        assert_eq!(manager.detect_language_from_shebang(python_script), Some(&"python".to_string()));
+        assert_eq!(
+            manager.detect_language_from_shebang(python_script),
+            Some(&"python".to_string())
+        );
 
         let bash_script = "#!/bin/bash\necho hello";
         assert!(manager.detect_language_from_shebang(bash_script).is_some());
@@ -485,10 +520,22 @@ mod tests {
         let stats = manager.stats();
 
         // Verify we have non-empty coverage
-        assert!(stats.total_languages > 0, "Should support at least one language");
+        assert!(
+            stats.total_languages > 0,
+            "Should support at least one language"
+        );
         assert!(stats.lsp_servers > 0, "Should have at least one LSP server");
-        assert!(stats.tree_sitter_grammars > 0, "Should have at least one Tree-sitter grammar");
-        assert!(stats.build_systems > 0, "Should have at least one build system");
-        assert!(stats.exclusion_patterns > 0, "Should have at least one exclusion pattern");
+        assert!(
+            stats.tree_sitter_grammars > 0,
+            "Should have at least one Tree-sitter grammar"
+        );
+        assert!(
+            stats.build_systems > 0,
+            "Should have at least one build system"
+        );
+        assert!(
+            stats.exclusion_patterns > 0,
+            "Should have at least one exclusion pattern"
+        );
     }
 }

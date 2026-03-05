@@ -55,8 +55,8 @@ impl Default for QueueConnectionConfig {
             connection_timeout: Duration::from_secs(30),
             busy_timeout: Duration::from_secs(30),
             wal_autocheckpoint: 1000,
-            cache_size: 10000,  // ~40MB
-            mmap_size: 268435456,  // 256MB
+            cache_size: 10000,    // ~40MB
+            mmap_size: 268435456, // 256MB
             synchronous: SqliteSynchronous::Normal,
             create_if_missing: true,
         }
@@ -102,13 +102,16 @@ impl QueueConnectionConfig {
             .max_connections(self.max_connections)
             .min_connections(self.min_connections)
             .acquire_timeout(self.connection_timeout)
-            .idle_timeout(Some(Duration::from_secs(600)))  // 10 minutes
-            .max_lifetime(Some(Duration::from_secs(3600)))  // 1 hour
-            .test_before_acquire(true)  // Verify connection health
+            .idle_timeout(Some(Duration::from_secs(600))) // 10 minutes
+            .max_lifetime(Some(Duration::from_secs(3600))) // 1 hour
+            .test_before_acquire(true) // Verify connection health
             .connect_with(self.build_connection_options())
             .await?;
 
-        debug!("Connection pool created with {} max connections", self.max_connections);
+        debug!(
+            "Connection pool created with {} max connections",
+            self.max_connections
+        );
 
         // Verify WAL mode is enabled
         let row: (String,) = sqlx::query_as("PRAGMA journal_mode")
@@ -179,7 +182,7 @@ impl CheckpointResult {
 
     /// Check if WAL has significant size
     pub fn needs_checkpoint(&self) -> bool {
-        self.log_size > 1000  // More than 1000 frames
+        self.log_size > 1000 // More than 1000 frames
     }
 }
 
@@ -189,7 +192,10 @@ pub async fn run_checkpoint_loop(
     interval: Duration,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
-    info!("Starting periodic WAL checkpoint loop (interval: {:?})", interval);
+    info!(
+        "Starting periodic WAL checkpoint loop (interval: {:?})",
+        interval
+    );
 
     loop {
         tokio::select! {
@@ -279,12 +285,10 @@ mod tests {
         let pool = config.create_pool().await.unwrap();
 
         // Create a test table
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, value TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, value TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // Insert some data
         for i in 0..100 {
@@ -300,7 +304,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.checkpointed > 0, "Should have checkpointed some frames");
+        assert!(
+            result.checkpointed > 0,
+            "Should have checkpointed some frames"
+        );
     }
 
     #[tokio::test]
@@ -312,12 +319,10 @@ mod tests {
         let pool = config.create_pool().await.unwrap();
 
         // Create test table
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, value TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, value TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // Spawn multiple concurrent writers
         let mut handles = vec![];

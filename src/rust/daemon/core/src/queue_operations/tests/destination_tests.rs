@@ -11,10 +11,15 @@ async fn test_has_other_references_single_watch() {
     let pool = config.create_pool().await.unwrap();
 
     // Set up watch_folders and tracked_files schemas
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     use crate::tracked_files_schema::CREATE_TRACKED_FILES_SQL;
-    sqlx::query(CREATE_TRACKED_FILES_SQL).execute(&pool).await.unwrap();
+    sqlx::query(CREATE_TRACKED_FILES_SQL)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
 
@@ -30,8 +35,14 @@ async fn test_has_other_references_single_watch() {
     ).execute(&pool).await.unwrap();
 
     // Single watch folder -- no other references
-    let has_refs = manager.has_other_references("bp_abc123", "w1").await.unwrap();
-    assert!(!has_refs, "Single watch folder should have no other references");
+    let has_refs = manager
+        .has_other_references("bp_abc123", "w1")
+        .await
+        .unwrap();
+    assert!(
+        !has_refs,
+        "Single watch folder should have no other references"
+    );
 }
 
 #[tokio::test]
@@ -42,10 +53,15 @@ async fn test_has_other_references_two_watches() {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
 
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     use crate::tracked_files_schema::CREATE_TRACKED_FILES_SQL;
-    sqlx::query(CREATE_TRACKED_FILES_SQL).execute(&pool).await.unwrap();
+    sqlx::query(CREATE_TRACKED_FILES_SQL)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
 
@@ -72,19 +88,33 @@ async fn test_has_other_references_two_watches() {
     ).execute(&pool).await.unwrap();
 
     // w1 should see w2 as another reference
-    let has_refs = manager.has_other_references("bp_shared", "w1").await.unwrap();
+    let has_refs = manager
+        .has_other_references("bp_shared", "w1")
+        .await
+        .unwrap();
     assert!(has_refs, "Should detect w2 as another reference");
 
     // w2 should see w1 as another reference
-    let has_refs2 = manager.has_other_references("bp_shared", "w2").await.unwrap();
+    let has_refs2 = manager
+        .has_other_references("bp_shared", "w2")
+        .await
+        .unwrap();
     assert!(has_refs2, "Should detect w1 as another reference");
 
     // Now delete w2's tracked file -- w1 should have no more references
     sqlx::query("DELETE FROM tracked_files WHERE watch_folder_id = 'w2'")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    let has_refs3 = manager.has_other_references("bp_shared", "w1").await.unwrap();
-    assert!(!has_refs3, "After removing w2's file, w1 should have no other references");
+    let has_refs3 = manager
+        .has_other_references("bp_shared", "w1")
+        .await
+        .unwrap();
+    assert!(
+        !has_refs3,
+        "After removing w2's file, w1 should have no other references"
+    );
 }
 
 #[tokio::test]
@@ -95,7 +125,9 @@ async fn test_store_queue_decision() {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
 
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
@@ -103,8 +135,13 @@ async fn test_store_queue_decision() {
     // Enqueue an item
     let (queue_id, _) = manager
         .enqueue_unified(
-            ItemType::File, UnifiedOp::Update, "t1", "projects",
-            r#"{"file_path":"/test/file.rs"}"#, Some("main"), None,
+            ItemType::File,
+            UnifiedOp::Update,
+            "t1",
+            "projects",
+            r#"{"file_path":"/test/file.rs"}"#,
+            Some("main"),
+            None,
         )
         .await
         .unwrap();
@@ -118,16 +155,18 @@ async fn test_store_queue_decision() {
         new_file_hash: "hash_new".to_string(),
     };
 
-    manager.store_queue_decision(&queue_id, &decision).await.unwrap();
+    manager
+        .store_queue_decision(&queue_id, &decision)
+        .await
+        .unwrap();
 
     // Verify stored correctly
-    let stored_json: Option<String> = sqlx::query_scalar(
-        "SELECT decision_json FROM unified_queue WHERE queue_id = ?1"
-    )
-    .bind(&queue_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let stored_json: Option<String> =
+        sqlx::query_scalar("SELECT decision_json FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     assert!(stored_json.is_some(), "decision_json should be stored");
     let stored: wqm_common::queue_types::QueueDecision =
@@ -137,13 +176,12 @@ async fn test_store_queue_decision() {
     assert_eq!(stored.new_base_point, "bp_new_456");
 
     // Verify statuses set to pending
-    let qdrant_status: String = sqlx::query_scalar(
-        "SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1"
-    )
-    .bind(&queue_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let qdrant_status: String =
+        sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(qdrant_status, "pending");
 }
 
@@ -155,49 +193,58 @@ async fn test_update_destination_status() {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
 
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
 
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
 
     let (queue_id, _) = manager
         .enqueue_unified(
-            ItemType::File, UnifiedOp::Add, "t1", "projects",
-            r#"{"file_path":"/test/file.rs"}"#, Some("main"), None,
+            ItemType::File,
+            UnifiedOp::Add,
+            "t1",
+            "projects",
+            r#"{"file_path":"/test/file.rs"}"#,
+            Some("main"),
+            None,
         )
         .await
         .unwrap();
 
     // Update qdrant status to done
-    manager.update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
         .await
         .unwrap();
 
-    let qdrant_status: String = sqlx::query_scalar(
-        "SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1"
-    )
-    .bind(&queue_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let qdrant_status: String =
+        sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(qdrant_status, "done");
 
     // Update search status to failed
-    manager.update_destination_status(&queue_id, "search", DestinationStatus::Failed)
+    manager
+        .update_destination_status(&queue_id, "search", DestinationStatus::Failed)
         .await
         .unwrap();
 
-    let search_status: String = sqlx::query_scalar(
-        "SELECT search_status FROM unified_queue WHERE queue_id = ?1"
-    )
-    .bind(&queue_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let search_status: String =
+        sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(search_status, "failed");
 
     // Invalid destination should error
-    let err = manager.update_destination_status(&queue_id, "invalid", DestinationStatus::Done).await;
+    let err = manager
+        .update_destination_status(&queue_id, "invalid", DestinationStatus::Done)
+        .await;
     assert!(err.is_err(), "Invalid destination should return error");
 }
 
@@ -207,26 +254,42 @@ async fn test_check_and_finalize_both_done() {
     let db_path = temp_dir.path().join("finalize_both.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
 
-    let (queue_id, _) = manager.enqueue_unified(
-        ItemType::File, UnifiedOp::Add, "fin-tenant", "projects",
-        r#"{"file_path":"/test/fin.rs"}"#, Some("main"), None,
-    ).await.unwrap();
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "fin-tenant",
+            "projects",
+            r#"{"file_path":"/test/fin.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
 
     // Initially both pending -- should be InProgress
     let status = manager.check_and_finalize(&queue_id).await.unwrap();
     assert_eq!(status, QueueStatus::InProgress);
 
     // Mark qdrant done
-    manager.update_destination_status(&queue_id, "qdrant", DestinationStatus::Done).await.unwrap();
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
+        .await
+        .unwrap();
     let status = manager.check_and_finalize(&queue_id).await.unwrap();
     assert_eq!(status, QueueStatus::InProgress);
 
     // Mark search done -- both done -> overall Done
-    manager.update_destination_status(&queue_id, "search", DestinationStatus::Done).await.unwrap();
+    manager
+        .update_destination_status(&queue_id, "search", DestinationStatus::Done)
+        .await
+        .unwrap();
     let status = manager.check_and_finalize(&queue_id).await.unwrap();
     assert_eq!(status, QueueStatus::Done);
 
@@ -245,18 +308,34 @@ async fn test_check_and_finalize_partial_failure() {
     let db_path = temp_dir.path().join("finalize_fail.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
 
-    let (queue_id, _) = manager.enqueue_unified(
-        ItemType::File, UnifiedOp::Add, "fin-tenant2", "projects",
-        r#"{"file_path":"/test/fail.rs"}"#, Some("main"), None,
-    ).await.unwrap();
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "fin-tenant2",
+            "projects",
+            r#"{"file_path":"/test/fail.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
 
     // Qdrant succeeds, search fails
-    manager.update_destination_status(&queue_id, "qdrant", DestinationStatus::Done).await.unwrap();
-    manager.update_destination_status(&queue_id, "search", DestinationStatus::Failed).await.unwrap();
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
+        .await
+        .unwrap();
+    manager
+        .update_destination_status(&queue_id, "search", DestinationStatus::Failed)
+        .await
+        .unwrap();
 
     let status = manager.check_and_finalize(&queue_id).await.unwrap();
     assert_eq!(status, QueueStatus::Failed);
@@ -276,7 +355,9 @@ async fn test_check_and_finalize_nonexistent_item() {
     let db_path = temp_dir.path().join("finalize_missing.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
 
@@ -290,22 +371,43 @@ async fn test_ensure_destinations_resolved_both_pending() {
     let db_path = temp_dir.path().join("resolve_pending.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
 
-    let (queue_id, _) = manager.enqueue_unified(
-        ItemType::Tenant, UnifiedOp::Scan, "resolve-tenant", "projects",
-        r#"{"project_root":"/test"}"#, None, None,
-    ).await.unwrap();
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            UnifiedOp::Scan,
+            "resolve-tenant",
+            "projects",
+            r#"{"project_root":"/test"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
     // Both statuses start as pending -- ensure_destinations_resolved should set both to done
-    manager.ensure_destinations_resolved(&queue_id).await.unwrap();
+    manager
+        .ensure_destinations_resolved(&queue_id)
+        .await
+        .unwrap();
 
-    let qs: String = sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
-        .bind(&queue_id).fetch_one(manager.pool()).await.unwrap();
-    let ss: String = sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
-        .bind(&queue_id).fetch_one(manager.pool()).await.unwrap();
+    let qs: String =
+        sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    let ss: String =
+        sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
     assert_eq!(qs, "done");
     assert_eq!(ss, "done");
 
@@ -320,25 +422,49 @@ async fn test_ensure_destinations_resolved_preserves_explicit_status() {
     let db_path = temp_dir.path().join("resolve_preserve.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
 
-    let (queue_id, _) = manager.enqueue_unified(
-        ItemType::File, UnifiedOp::Add, "resolve-tenant2", "projects",
-        r#"{"file_path":"/test/file.rs"}"#, Some("main"), None,
-    ).await.unwrap();
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "resolve-tenant2",
+            "projects",
+            r#"{"file_path":"/test/file.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
 
     // Explicitly set qdrant to failed, leave search as pending
-    manager.update_destination_status(&queue_id, "qdrant", DestinationStatus::Failed).await.unwrap();
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Failed)
+        .await
+        .unwrap();
 
     // ensure_destinations_resolved should preserve failed qdrant, resolve pending search
-    manager.ensure_destinations_resolved(&queue_id).await.unwrap();
+    manager
+        .ensure_destinations_resolved(&queue_id)
+        .await
+        .unwrap();
 
-    let qs: String = sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
-        .bind(&queue_id).fetch_one(manager.pool()).await.unwrap();
-    let ss: String = sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
-        .bind(&queue_id).fetch_one(manager.pool()).await.unwrap();
+    let qs: String =
+        sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    let ss: String =
+        sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
     assert_eq!(qs, "failed", "Failed status must be preserved");
     assert_eq!(ss, "done", "Pending status must be resolved to done");
 
@@ -353,26 +479,53 @@ async fn test_ensure_destinations_resolved_preserves_done() {
     let db_path = temp_dir.path().join("resolve_done.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.unwrap();
-    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql")).await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
     let manager = QueueManager::new(pool);
     manager.init_unified_queue().await.unwrap();
 
-    let (queue_id, _) = manager.enqueue_unified(
-        ItemType::File, UnifiedOp::Add, "resolve-tenant3", "projects",
-        r#"{"file_path":"/test/done.rs"}"#, Some("main"), None,
-    ).await.unwrap();
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "resolve-tenant3",
+            "projects",
+            r#"{"file_path":"/test/done.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
 
     // Explicitly set both to done
-    manager.update_destination_status(&queue_id, "qdrant", DestinationStatus::Done).await.unwrap();
-    manager.update_destination_status(&queue_id, "search", DestinationStatus::Done).await.unwrap();
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
+        .await
+        .unwrap();
+    manager
+        .update_destination_status(&queue_id, "search", DestinationStatus::Done)
+        .await
+        .unwrap();
 
     // ensure_destinations_resolved should be a no-op
-    manager.ensure_destinations_resolved(&queue_id).await.unwrap();
+    manager
+        .ensure_destinations_resolved(&queue_id)
+        .await
+        .unwrap();
 
-    let qs: String = sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
-        .bind(&queue_id).fetch_one(manager.pool()).await.unwrap();
-    let ss: String = sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
-        .bind(&queue_id).fetch_one(manager.pool()).await.unwrap();
+    let qs: String =
+        sqlx::query_scalar("SELECT qdrant_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    let ss: String =
+        sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
     assert_eq!(qs, "done");
     assert_eq!(ss, "done");
 }

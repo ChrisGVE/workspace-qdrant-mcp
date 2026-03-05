@@ -27,9 +27,7 @@ pub async fn messages(action: Option<MessageAction>) -> Result<()> {
             output::info("Use 'wqm service logs' to view recent messages");
         }
         Some(MessageAction::Clear) => {
-            output::info(
-                "Message clearing not supported - logs are managed by the system",
-            );
+            output::info("Message clearing not supported - logs are managed by the system");
         }
     }
     Ok(())
@@ -41,25 +39,21 @@ pub async fn errors(limit: usize) -> Result<()> {
 
     output::info("Error tracking available via daemon logs:");
     output::info(&format!("  Use: wqm service logs -n {}", limit));
-    output::info("  Or: grep -i error /tmp/memexd.err.log | tail -n {}", );
+    output::info("  Or: grep -i error /tmp/memexd.err.log | tail -n {}");
 
     match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            match client.system().get_metrics(()).await {
-                Ok(response) => {
-                    let metrics_resp = response.into_inner();
+        Ok(mut client) => match client.system().get_metrics(()).await {
+            Ok(response) => {
+                let metrics_resp = response.into_inner();
 
-                    for metric in &metrics_resp.metrics {
-                        if metric.name.contains("error")
-                            || metric.name.contains("failed")
-                        {
-                            output::kv(&metric.name, &format!("{:.0}", metric.value));
-                        }
+                for metric in &metrics_resp.metrics {
+                    if metric.name.contains("error") || metric.name.contains("failed") {
+                        output::kv(&metric.name, &format!("{:.0}", metric.value));
                     }
                 }
-                Err(_) => {}
             }
-        }
+            Err(_) => {}
+        },
         Err(_) => {
             output::warning("Cannot connect to daemon for error metrics");
         }

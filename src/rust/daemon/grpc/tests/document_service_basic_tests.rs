@@ -6,17 +6,15 @@
 //! - Response format validation
 //! - Input validation
 
-use workspace_qdrant_grpc::proto::{
-    document_service_server::DocumentService,
-    IngestTextRequest, IngestTextResponse,
-    UpdateDocumentRequest,
-    DeleteDocumentRequest,
-};
-use workspace_qdrant_grpc::services::DocumentServiceImpl;
-use workspace_qdrant_core::StorageClient;
-use tonic::{Request, Code};
 use prost::Message;
 use std::collections::HashMap;
+use tonic::{Code, Request};
+use workspace_qdrant_core::StorageClient;
+use workspace_qdrant_grpc::proto::{
+    document_service_server::DocumentService, DeleteDocumentRequest, IngestTextRequest,
+    IngestTextResponse, UpdateDocumentRequest,
+};
+use workspace_qdrant_grpc::services::DocumentServiceImpl;
 
 /// Test helper to create DocumentService instance
 fn create_service() -> DocumentServiceImpl {
@@ -29,7 +27,9 @@ fn create_service() -> DocumentServiceImpl {
 /// This is best-effort: silently ignores errors when Qdrant is unavailable.
 async fn cleanup_test_tenant_data() {
     let storage = StorageClient::new();
-    let _ = storage.delete_points_by_payload_field("libraries", "library_name", "test-tenant").await;
+    let _ = storage
+        .delete_points_by_payload_field("libraries", "library_name", "test-tenant")
+        .await;
 }
 
 // =============================================================================
@@ -61,9 +61,10 @@ async fn test_ingest_text_basic_request() {
             // Accept unavailable or connection errors due to no real Qdrant
             assert!(
                 status.code() == Code::Unavailable
-                || status.code() == Code::Internal
-                || status.code() == Code::InvalidArgument,
-                "Unexpected error: {:?}", status
+                    || status.code() == Code::Internal
+                    || status.code() == Code::InvalidArgument,
+                "Unexpected error: {:?}",
+                status
             );
         }
     }
@@ -93,9 +94,10 @@ async fn test_ingest_text_with_custom_id() {
         Err(status) => {
             assert!(
                 status.code() == Code::Unavailable
-                || status.code() == Code::Internal
-                || status.code() == Code::InvalidArgument,
-                "Unexpected error: {:?}", status
+                    || status.code() == Code::Internal
+                    || status.code() == Code::InvalidArgument,
+                "Unexpected error: {:?}",
+                status
             );
         }
     }
@@ -128,9 +130,10 @@ async fn test_ingest_text_with_metadata() {
         Err(status) => {
             assert!(
                 status.code() == Code::Unavailable
-                || status.code() == Code::Internal
-                || status.code() == Code::InvalidArgument,
-                "Unexpected error: {:?}", status
+                    || status.code() == Code::Internal
+                    || status.code() == Code::InvalidArgument,
+                "Unexpected error: {:?}",
+                status
             );
         }
     }
@@ -160,9 +163,10 @@ async fn test_ingest_text_without_chunking() {
         Err(status) => {
             assert!(
                 status.code() == Code::Unavailable
-                || status.code() == Code::Internal
-                || status.code() == Code::InvalidArgument,
-                "Unexpected error: {:?}", status
+                    || status.code() == Code::Internal
+                    || status.code() == Code::InvalidArgument,
+                "Unexpected error: {:?}",
+                status
             );
         }
     }
@@ -378,10 +382,19 @@ async fn test_ingest_response_structure() {
         Ok(response) => {
             let resp = response.into_inner();
             // Validate response structure
-            assert!(!resp.document_id.is_empty(), "Document ID should not be empty");
-            assert!(resp.chunks_created >= 0, "Chunks created should be non-negative");
+            assert!(
+                !resp.document_id.is_empty(),
+                "Document ID should not be empty"
+            );
+            assert!(
+                resp.chunks_created >= 0,
+                "Chunks created should be non-negative"
+            );
             if !resp.success {
-                assert!(!resp.error_message.is_empty(), "Error message should be present when success=false");
+                assert!(
+                    !resp.error_message.is_empty(),
+                    "Error message should be present when success=false"
+                );
             }
         }
         Err(_) => {
@@ -411,13 +424,16 @@ async fn test_large_content_ingestion() {
         Ok(response) => {
             let resp = response.into_inner();
             // Should create multiple chunks for large content
-            assert!(resp.chunks_created > 1, "Large content should be split into multiple chunks");
+            assert!(
+                resp.chunks_created > 1,
+                "Large content should be split into multiple chunks"
+            );
         }
         Err(status) => {
             assert!(
-                status.code() == Code::Unavailable
-                || status.code() == Code::Internal,
-                "Unexpected error: {:?}", status
+                status.code() == Code::Unavailable || status.code() == Code::Internal,
+                "Unexpected error: {:?}",
+                status
             );
         }
     }
@@ -432,7 +448,10 @@ async fn test_various_content_types() {
         ("Plain text", "test-collection"),
         ("Text with\nnewlines\nand\ntabs\t", "test-collection"),
         ("Unicode content: 你好世界 🌍", "test-collection"),
-        ("Code snippet: fn main() { println!(\"Hello\"); }", "test-collection"),
+        (
+            "Code snippet: fn main() { println!(\"Hello\"); }",
+            "test-collection",
+        ),
         ("JSON content: {\"key\": \"value\"}", "test-collection"),
     ];
 

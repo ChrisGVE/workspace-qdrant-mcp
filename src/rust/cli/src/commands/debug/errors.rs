@@ -39,11 +39,7 @@ pub async fn errors(count: usize, component: Option<String>) -> Result<()> {
 }
 
 /// Query daemon health for component errors.
-async fn show_health_errors(
-    client: &mut DaemonClient,
-    count: usize,
-    component: &Option<String>,
-) {
+async fn show_health_errors(client: &mut DaemonClient, count: usize, component: &Option<String>) {
     match client.system().health(()).await {
         Ok(response) => {
             let health = response.into_inner();

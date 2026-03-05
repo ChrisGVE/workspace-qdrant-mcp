@@ -1,5 +1,4 @@
 /// Synchronous file scanner using ripgrep's `grep-searcher` crate.
-
 use std::path::Path;
 
 use grep_regex::RegexMatcherBuilder;

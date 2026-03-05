@@ -14,8 +14,8 @@ use crate::TextChunk;
 
 use super::{EdgeType, GraphEdge, GraphNode, NodeType};
 
-pub use type_analysis::{extract_type_references, parse_qualified_name};
 use import_parsers::extract_imports_from_content;
+pub use type_analysis::{extract_type_references, parse_qualified_name};
 
 /// Result of extracting graph relationships from a set of semantic chunks.
 #[derive(Debug, Default)]
@@ -165,13 +165,7 @@ fn process_text_chunk(
     let Some(node_type) = node_type_from_display_name(chunk_type_str) else {
         if chunk_type_str == "preamble" {
             let language = meta.get("language").map(|s| s.as_str()).unwrap_or("");
-            extract_imports_from_content(
-                &chunk.content,
-                language,
-                tenant_id,
-                file_path,
-                result,
-            );
+            extract_imports_from_content(&chunk.content, language, tenant_id, file_path, result);
         }
         return;
     };

@@ -196,17 +196,11 @@ impl TextSearchServiceImpl {
     }
 
     /// Execute the search (exact or regex) or return a cached result.
-    async fn execute_or_cached(
-        &self,
-        req: &TextSearchRequest,
-    ) -> Result<SearchResults, Status> {
+    async fn execute_or_cached(&self, req: &TextSearchRequest) -> Result<SearchResults, Status> {
         let key = CacheKey::from_request(req);
 
         if let Some(cached) = self.cache_get(&key).await {
-            debug!(
-                "TextSearch cache hit (key={:#x})",
-                key.hash_u64()
-            );
+            debug!("TextSearch cache hit (key={:#x})", key.hash_u64());
             return Ok(cached);
         }
 

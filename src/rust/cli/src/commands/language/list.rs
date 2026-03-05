@@ -9,7 +9,11 @@ use crate::output::{self, ServiceStatus};
 use super::helpers::detect_available_servers;
 
 /// List available languages with support status.
-pub async fn list_languages(installed: bool, category: Option<String>, verbose: bool) -> Result<()> {
+pub async fn list_languages(
+    installed: bool,
+    category: Option<String>,
+    verbose: bool,
+) -> Result<()> {
     use workspace_qdrant_core::config::GrammarConfig;
     use workspace_qdrant_core::tree_sitter::GrammarManager;
 
@@ -55,7 +59,13 @@ fn show_lsp_servers(installed: bool, verbose: bool) {
     } else {
         for (language, server_name, path) in servers {
             if verbose {
-                println!("  {} {} - {} ({})", "✓".green(), language, server_name, path);
+                println!(
+                    "  {} {} - {} ({})",
+                    "✓".green(),
+                    language,
+                    server_name,
+                    path
+                );
             } else {
                 println!("  {} {} - {}", "✓".green(), language, server_name);
             }
@@ -101,7 +111,10 @@ fn show_grammar_status(
             if verbose {
                 let info = manager.grammar_info(lang);
                 if let Some(meta) = info.metadata {
-                    print!(" (v{}, ts {})", meta.grammar_version, meta.tree_sitter_version);
+                    print!(
+                        " (v{}, ts {})",
+                        meta.grammar_version, meta.tree_sitter_version
+                    );
                 }
             }
             println!();

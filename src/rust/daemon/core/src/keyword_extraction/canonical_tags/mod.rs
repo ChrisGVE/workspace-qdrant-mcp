@@ -15,10 +15,7 @@ use clustering::{cluster_tags, merge_duplicates};
 /// 1. Merge near-duplicates (similarity > merge_threshold)
 /// 2. Cluster at level 2 (mid threshold)
 /// 3. Cluster at level 1 (broad threshold)
-pub fn build_hierarchy(
-    tags: &[TagWithVector],
-    config: &CanonicalConfig,
-) -> CanonicalHierarchy {
+pub fn build_hierarchy(tags: &[TagWithVector], config: &CanonicalConfig) -> CanonicalHierarchy {
     if tags.is_empty() {
         return CanonicalHierarchy {
             level3: Vec::new(),

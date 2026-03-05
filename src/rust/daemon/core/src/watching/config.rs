@@ -179,9 +179,9 @@ impl Default for WatcherConfig {
             ],
             recursive: true,
             max_depth: -1,
-            debounce_ms: 1000, // 1 second debounce
-            polling_interval_ms: 3000, // 3 second polling (optimized for low idle CPU usage)
-            min_polling_interval_ms: 100, // 100ms minimum (prevents CPU waste)
+            debounce_ms: 1000,              // 1 second debounce
+            polling_interval_ms: 3000,      // 3 second polling (optimized for low idle CPU usage)
+            min_polling_interval_ms: 100,   // 100ms minimum (prevents CPU waste)
             max_polling_interval_ms: 60000, // 60 seconds maximum (prevents missing changes)
             max_queue_size: 10000,
             task_priority: TaskPriority::BackgroundWatching,

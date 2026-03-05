@@ -1,10 +1,12 @@
+use notify::{RecursiveMode, Watcher as NotifyWatcher};
 use std::path::PathBuf;
 use std::time::Duration;
-use notify::{RecursiveMode, Watcher as NotifyWatcher};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use super::reflog::{parse_reflog_last_entry, read_current_branch, resolve_common_dir, resolve_git_dir};
+use super::reflog::{
+    parse_reflog_last_entry, read_current_branch, resolve_common_dir, resolve_git_dir,
+};
 use super::watcher_types::{GitEvent, GitWatcherError, GitWatcherResult};
 
 /// Git watcher for a single project
@@ -33,10 +35,12 @@ impl GitWatcher {
         project_root: PathBuf,
         event_tx: mpsc::UnboundedSender<GitEvent>,
     ) -> GitWatcherResult<Self> {
-        let git_dir = resolve_git_dir(&project_root)
-            .ok_or_else(|| GitWatcherError::GitDirNotFound(
-                format!("No .git directory found in {}", project_root.display())
-            ))?;
+        let git_dir = resolve_git_dir(&project_root).ok_or_else(|| {
+            GitWatcherError::GitDirNotFound(format!(
+                "No .git directory found in {}",
+                project_root.display()
+            ))
+        })?;
 
         Ok(Self {
             watch_folder_id,
@@ -58,8 +62,7 @@ impl GitWatcher {
                     let _ = notify_tx.send(event);
                 }
             },
-            notify::Config::default()
-                .with_poll_interval(Duration::from_secs(2)),
+            notify::Config::default().with_poll_interval(Duration::from_secs(2)),
         )?;
 
         // For worktrees, refs/heads/ lives in the common dir, not the worktree dir.
@@ -69,7 +72,11 @@ impl GitWatcher {
         let head_path = self.git_dir.join("HEAD");
         if head_path.exists() {
             if let Err(e) = watcher.watch(&head_path, RecursiveMode::NonRecursive) {
-                warn!("Failed to watch .git/HEAD at {}: {}", head_path.display(), e);
+                warn!(
+                    "Failed to watch .git/HEAD at {}: {}",
+                    head_path.display(),
+                    e
+                );
             } else {
                 debug!("Watching .git/HEAD: {}", head_path.display());
             }
@@ -79,7 +86,11 @@ impl GitWatcher {
         let refs_heads = common_dir.join("refs").join("heads");
         if refs_heads.exists() {
             if let Err(e) = watcher.watch(&refs_heads, RecursiveMode::Recursive) {
-                warn!("Failed to watch refs/heads/ at {}: {}", refs_heads.display(), e);
+                warn!(
+                    "Failed to watch refs/heads/ at {}: {}",
+                    refs_heads.display(),
+                    e
+                );
             } else {
                 debug!("Watching refs/heads/: {}", refs_heads.display());
             }
@@ -89,7 +100,11 @@ impl GitWatcher {
         let logs_head = self.git_dir.join("logs").join("HEAD");
         if logs_head.exists() {
             if let Err(e) = watcher.watch(&logs_head, RecursiveMode::NonRecursive) {
-                warn!("Failed to watch logs/HEAD at {}: {}", logs_head.display(), e);
+                warn!(
+                    "Failed to watch logs/HEAD at {}: {}",
+                    logs_head.display(),
+                    e
+                );
             } else {
                 debug!("Watching logs/HEAD: {}", logs_head.display());
             }

@@ -174,10 +174,7 @@ fn test_enrich_library_collection_metadata() {
 
     let metadata = enrich_metadata("_fastapi", &test_file, None, None, None);
 
-    assert_eq!(
-        metadata.get("library_name"),
-        Some(&"fastapi".to_string())
-    );
+    assert_eq!(metadata.get("library_name"), Some(&"fastapi".to_string()));
     assert!(!metadata.contains_key("project_id"));
     assert!(!metadata.contains_key("branch"));
     assert!(!metadata.contains_key("file_type"));
