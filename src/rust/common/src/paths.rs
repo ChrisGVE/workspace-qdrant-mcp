@@ -175,19 +175,23 @@ pub fn get_canonical_log_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Mutex to serialize tests that manipulate environment variables.
+    /// Rust runs tests in parallel; concurrent set_var/remove_var is a race.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_get_config_search_paths_no_env() {
-        // Remove env override to test default behavior
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_CONFIG_PATH").ok();
         std::env::remove_var("WQM_CONFIG_PATH");
 
         let paths = get_config_search_paths();
 
-        // Should have at least the home config path
         assert!(!paths.is_empty());
 
-        // First path should be under ~/.workspace-qdrant/
         let first = &paths[0];
         assert!(
             first.to_string_lossy().contains(".workspace-qdrant"),
@@ -195,7 +199,6 @@ mod tests {
             first
         );
 
-        // No paths should reference project-local config
         for p in &paths {
             let s = p.to_string_lossy();
             assert!(
@@ -205,7 +208,6 @@ mod tests {
             );
         }
 
-        // Restore
         if let Some(val) = prev {
             std::env::set_var("WQM_CONFIG_PATH", val);
         }
@@ -213,13 +215,14 @@ mod tests {
 
     #[test]
     fn test_get_config_search_paths_with_env() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_CONFIG_PATH").ok();
         std::env::set_var("WQM_CONFIG_PATH", "/custom/config.yaml");
 
         let paths = get_config_search_paths();
         assert_eq!(paths[0], PathBuf::from("/custom/config.yaml"));
 
-        // Restore
         match prev {
             Some(val) => std::env::set_var("WQM_CONFIG_PATH", val),
             None => std::env::remove_var("WQM_CONFIG_PATH"),
@@ -228,11 +231,11 @@ mod tests {
 
     #[test]
     fn test_find_config_file_nonexistent() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_CONFIG_PATH").ok();
         std::env::set_var("WQM_CONFIG_PATH", "/nonexistent/path/config.yaml");
 
-        // Should not find a nonexistent file at the top priority
-        // (but may find real user config at lower priority)
         let _ = find_config_file();
 
         match prev {
@@ -243,6 +246,8 @@ mod tests {
 
     #[test]
     fn test_find_config_file_with_tempfile() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let temp_dir = tempfile::TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yaml");
         std::fs::write(&config_path, "# test config").unwrap();
@@ -269,6 +274,8 @@ mod tests {
 
     #[test]
     fn test_get_database_path() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_DATABASE_PATH").ok();
         std::env::remove_var("WQM_DATABASE_PATH");
 
@@ -285,6 +292,8 @@ mod tests {
 
     #[test]
     fn test_get_database_path_env_override() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_DATABASE_PATH").ok();
         std::env::set_var("WQM_DATABASE_PATH", "/custom/path/state.db");
 
@@ -299,6 +308,8 @@ mod tests {
 
     #[test]
     fn test_get_database_path_checked_missing() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_DATABASE_PATH").ok();
         std::env::set_var(
             "WQM_DATABASE_PATH",
@@ -329,6 +340,8 @@ mod tests {
 
     #[test]
     fn test_get_canonical_log_dir_env_override() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_LOG_DIR").ok();
         std::env::set_var("WQM_LOG_DIR", "/custom/log/dir");
 
@@ -343,20 +356,20 @@ mod tests {
 
     #[test]
     fn test_get_canonical_log_dir_default() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
         let prev = std::env::var("WQM_LOG_DIR").ok();
         std::env::remove_var("WQM_LOG_DIR");
 
         let dir = get_canonical_log_dir();
         let dir_str = dir.to_string_lossy();
 
-        // Should contain workspace-qdrant
         assert!(
             dir_str.contains("workspace-qdrant"),
             "Log dir should contain workspace-qdrant: {:?}",
             dir
         );
 
-        // macOS specific check
         #[cfg(target_os = "macos")]
         assert!(
             dir_str.contains("Library/Logs"),
