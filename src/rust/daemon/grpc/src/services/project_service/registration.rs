@@ -65,13 +65,13 @@ impl ProjectServiceImpl {
                     "Project not registered, skipping auto-registration: {}",
                     project_id
                 );
-                return Ok(RegisterProjectResponse {
+                Ok(RegisterProjectResponse {
                     created: false,
                     project_id,
                     priority: "none".to_string(),
                     is_active: false,
                     newly_registered: false,
-                });
+                })
             }
             RegistrationAction::ExistingActivated => {
                 self.activate_project(&project_id, &req.path).await;

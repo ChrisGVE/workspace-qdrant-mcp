@@ -44,7 +44,7 @@ pub async fn ingest_text(content: &str, collection: &str, title: Option<String>)
                     if result.success {
                         output::success("Text ingested successfully");
                         output::kv("Document ID", &result.document_id);
-                        output::kv("Chunks Created", &result.chunks_created.to_string());
+                        output::kv("Chunks Created", result.chunks_created.to_string());
                     } else {
                         output::error(format!("Ingestion failed: {}", result.error_message));
                     }

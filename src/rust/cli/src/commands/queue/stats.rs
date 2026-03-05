@@ -136,7 +136,7 @@ fn print_text(
 ) -> Result<()> {
     output::section("Queue Statistics");
 
-    output::kv("Total Items", &summary.total_items.to_string());
+    output::kv("Total Items", summary.total_items.to_string());
     output::separator();
 
     println!("{}", "By Status:".bold());
@@ -154,17 +154,14 @@ fn print_text(
     println!("  {} {}", format_status("failed"), summary.by_status.failed);
 
     output::separator();
-    output::kv(
-        "Active Collections",
-        &summary.active_collections.to_string(),
-    );
-    output::kv("Active Projects", &summary.active_projects.to_string());
+    output::kv("Active Collections", summary.active_collections.to_string());
+    output::kv("Active Projects", summary.active_projects.to_string());
 
     if let Some(age) = summary.oldest_pending_age_seconds {
         output::separator();
         output::kv(
             "Oldest Pending Age",
-            &wqm_common::duration_fmt::format_duration(age, 0),
+            wqm_common::duration_fmt::format_duration(age, 0),
         );
         if let Some(ref id) = summary.oldest_pending_id {
             output::kv("Oldest Pending ID", id);

@@ -276,7 +276,7 @@ impl UnifiedQueueClient {
 
         for row in rows {
             let (item_type, status, count) = row?;
-            let stats = result.entry(item_type).or_insert(QueueStats::default());
+            let stats = result.entry(item_type).or_default();
             match status.as_str() {
                 "pending" => stats.pending = count,
                 "in_progress" => stats.in_progress = count,

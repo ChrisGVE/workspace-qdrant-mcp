@@ -67,8 +67,8 @@ impl QueueManager {
         let ss_str: String = row
             .try_get::<String, _>("search_status")
             .unwrap_or_else(|_| "pending".to_string());
-        let qs = DestinationStatus::from_str(&qs_str).unwrap_or(DestinationStatus::Pending);
-        let ss = DestinationStatus::from_str(&ss_str).unwrap_or(DestinationStatus::Pending);
+        let qs = DestinationStatus::parse_str(&qs_str).unwrap_or(DestinationStatus::Pending);
+        let ss = DestinationStatus::parse_str(&ss_str).unwrap_or(DestinationStatus::Pending);
 
         let overall = if qs == DestinationStatus::Done && ss == DestinationStatus::Done {
             QueueStatus::Done

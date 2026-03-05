@@ -443,7 +443,7 @@ impl ValgrindTestSuite {
             report.push_str(&format!("Invalid reads: {}\n", memcheck.invalid_reads));
             report.push_str(&format!("Invalid writes: {}\n", memcheck.invalid_writes));
             report.push_str(&format!("Invalid frees: {}\n", memcheck.invalid_frees));
-            report.push_str("\n");
+            report.push('\n');
         }
 
         if let Some(ref cachegrind) = results.cachegrind_results {
@@ -464,7 +464,7 @@ impl ValgrindTestSuite {
                 "Cache miss rate: {:.2}%\n",
                 cachegrind.cache_miss_rate
             ));
-            report.push_str("\n");
+            report.push('\n');
         }
 
         if let Some(ref helgrind) = results.helgrind_results {
@@ -478,7 +478,7 @@ impl ValgrindTestSuite {
                 helgrind.lock_order_violations.len()
             ));
             report.push_str(&format!("Total thread errors: {}\n", helgrind.total_errors));
-            report.push_str("\n");
+            report.push('\n');
         }
 
         if let Some(ref drd) = results.drd_results {
@@ -488,7 +488,7 @@ impl ValgrindTestSuite {
                 "Lock contentions: {}\n",
                 drd.lock_contention.len()
             ));
-            report.push_str("\n");
+            report.push('\n');
         }
 
         report

@@ -273,7 +273,7 @@ mod tests {
         // Verify uninstalled
         let config = read_settings(&path).unwrap();
         let ss = config["hooks"]["SessionStart"].as_array().unwrap();
-        assert!(!ss.iter().any(|e| group_has_wqm_command(e)));
+        assert!(!ss.iter().any(group_has_wqm_command));
 
         // PostToolUse still preserved
         assert!(config["hooks"]["PostToolUse"].is_array());

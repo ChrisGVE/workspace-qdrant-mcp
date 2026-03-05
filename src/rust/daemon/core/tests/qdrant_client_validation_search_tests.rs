@@ -208,7 +208,7 @@ async fn test_error_handling() {
     let client = StorageClient::with_config(config);
 
     // Skip if Qdrant is not available
-    if client.test_connection().await.unwrap_or(false) == false {
+    if !client.test_connection().await.unwrap_or(false) {
         tracing::warn!("Qdrant not available, skipping error handling test");
         return;
     }

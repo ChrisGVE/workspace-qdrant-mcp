@@ -10,12 +10,12 @@ fn test_item_type_display() {
 
 #[test]
 fn test_item_type_from_str() {
-    assert_eq!(ItemType::from_str("text"), Some(ItemType::Text));
-    assert_eq!(ItemType::from_str("tenant"), Some(ItemType::Tenant));
+    assert_eq!(ItemType::parse_str("text"), Some(ItemType::Text));
+    assert_eq!(ItemType::parse_str("tenant"), Some(ItemType::Tenant));
     // Legacy values still work
-    assert_eq!(ItemType::from_str("content"), Some(ItemType::Text));
-    assert_eq!(ItemType::from_str("delete_tenant"), Some(ItemType::Tenant));
-    assert_eq!(ItemType::from_str("invalid"), None);
+    assert_eq!(ItemType::parse_str("content"), Some(ItemType::Text));
+    assert_eq!(ItemType::parse_str("delete_tenant"), Some(ItemType::Tenant));
+    assert_eq!(ItemType::parse_str("invalid"), None);
 }
 
 #[test]
@@ -308,12 +308,12 @@ fn test_destination_status_display() {
 #[test]
 fn test_destination_status_from_str() {
     assert_eq!(
-        DestinationStatus::from_str("pending"),
+        DestinationStatus::parse_str("pending"),
         Some(DestinationStatus::Pending)
     );
     assert_eq!(
-        DestinationStatus::from_str("done"),
+        DestinationStatus::parse_str("done"),
         Some(DestinationStatus::Done)
     );
-    assert_eq!(DestinationStatus::from_str("invalid"), None);
+    assert_eq!(DestinationStatus::parse_str("invalid"), None);
 }

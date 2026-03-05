@@ -42,36 +42,39 @@ mod tests {
 
     #[test]
     fn test_item_type_from_str_new_values() {
-        assert_eq!(ItemType::from_str("text"), Some(ItemType::Text));
-        assert_eq!(ItemType::from_str("file"), Some(ItemType::File));
-        assert_eq!(ItemType::from_str("url"), Some(ItemType::Url));
-        assert_eq!(ItemType::from_str("website"), Some(ItemType::Website));
-        assert_eq!(ItemType::from_str("doc"), Some(ItemType::Doc));
-        assert_eq!(ItemType::from_str("folder"), Some(ItemType::Folder));
-        assert_eq!(ItemType::from_str("tenant"), Some(ItemType::Tenant));
-        assert_eq!(ItemType::from_str("collection"), Some(ItemType::Collection));
-        assert_eq!(ItemType::from_str("invalid"), None);
+        assert_eq!(ItemType::parse_str("text"), Some(ItemType::Text));
+        assert_eq!(ItemType::parse_str("file"), Some(ItemType::File));
+        assert_eq!(ItemType::parse_str("url"), Some(ItemType::Url));
+        assert_eq!(ItemType::parse_str("website"), Some(ItemType::Website));
+        assert_eq!(ItemType::parse_str("doc"), Some(ItemType::Doc));
+        assert_eq!(ItemType::parse_str("folder"), Some(ItemType::Folder));
+        assert_eq!(ItemType::parse_str("tenant"), Some(ItemType::Tenant));
+        assert_eq!(
+            ItemType::parse_str("collection"),
+            Some(ItemType::Collection)
+        );
+        assert_eq!(ItemType::parse_str("invalid"), None);
     }
 
     #[test]
     fn test_item_type_from_str_legacy_values() {
         // "content" → Text
-        assert_eq!(ItemType::from_str("content"), Some(ItemType::Text));
+        assert_eq!(ItemType::parse_str("content"), Some(ItemType::Text));
         // "project" / "library" / "delete_tenant" → Tenant
-        assert_eq!(ItemType::from_str("project"), Some(ItemType::Tenant));
-        assert_eq!(ItemType::from_str("library"), Some(ItemType::Tenant));
-        assert_eq!(ItemType::from_str("delete_tenant"), Some(ItemType::Tenant));
+        assert_eq!(ItemType::parse_str("project"), Some(ItemType::Tenant));
+        assert_eq!(ItemType::parse_str("library"), Some(ItemType::Tenant));
+        assert_eq!(ItemType::parse_str("delete_tenant"), Some(ItemType::Tenant));
         // "delete_document" → Doc
-        assert_eq!(ItemType::from_str("delete_document"), Some(ItemType::Doc));
+        assert_eq!(ItemType::parse_str("delete_document"), Some(ItemType::Doc));
         // "rename" was an item type, now it's not
-        assert_eq!(ItemType::from_str("rename"), None);
+        assert_eq!(ItemType::parse_str("rename"), None);
     }
 
     #[test]
     fn test_item_type_as_str() {
         for it in ItemType::all() {
             // as_str round-trips through from_str
-            assert_eq!(ItemType::from_str(it.as_str()), Some(*it));
+            assert_eq!(ItemType::parse_str(it.as_str()), Some(*it));
         }
     }
 
@@ -112,36 +115,39 @@ mod tests {
 
     #[test]
     fn test_queue_operation_from_str_new_values() {
-        assert_eq!(QueueOperation::from_str("add"), Some(QueueOperation::Add));
+        assert_eq!(QueueOperation::parse_str("add"), Some(QueueOperation::Add));
         assert_eq!(
-            QueueOperation::from_str("update"),
+            QueueOperation::parse_str("update"),
             Some(QueueOperation::Update)
         );
         assert_eq!(
-            QueueOperation::from_str("delete"),
+            QueueOperation::parse_str("delete"),
             Some(QueueOperation::Delete)
         );
-        assert_eq!(QueueOperation::from_str("scan"), Some(QueueOperation::Scan));
         assert_eq!(
-            QueueOperation::from_str("rename"),
+            QueueOperation::parse_str("scan"),
+            Some(QueueOperation::Scan)
+        );
+        assert_eq!(
+            QueueOperation::parse_str("rename"),
             Some(QueueOperation::Rename)
         );
         assert_eq!(
-            QueueOperation::from_str("uplift"),
+            QueueOperation::parse_str("uplift"),
             Some(QueueOperation::Uplift)
         );
         assert_eq!(
-            QueueOperation::from_str("reset"),
+            QueueOperation::parse_str("reset"),
             Some(QueueOperation::Reset)
         );
-        assert_eq!(QueueOperation::from_str("invalid"), None);
+        assert_eq!(QueueOperation::parse_str("invalid"), None);
     }
 
     #[test]
     fn test_queue_operation_from_str_legacy() {
         // "ingest" → Add
         assert_eq!(
-            QueueOperation::from_str("ingest"),
+            QueueOperation::parse_str("ingest"),
             Some(QueueOperation::Add)
         );
     }
@@ -149,7 +155,7 @@ mod tests {
     #[test]
     fn test_queue_operation_as_str() {
         for op in QueueOperation::all() {
-            assert_eq!(QueueOperation::from_str(op.as_str()), Some(*op));
+            assert_eq!(QueueOperation::parse_str(op.as_str()), Some(*op));
         }
     }
 
@@ -284,13 +290,16 @@ mod tests {
 
     #[test]
     fn test_queue_status_from_str() {
-        assert_eq!(QueueStatus::from_str("pending"), Some(QueueStatus::Pending));
         assert_eq!(
-            QueueStatus::from_str("in_progress"),
+            QueueStatus::parse_str("pending"),
+            Some(QueueStatus::Pending)
+        );
+        assert_eq!(
+            QueueStatus::parse_str("in_progress"),
             Some(QueueStatus::InProgress)
         );
-        assert_eq!(QueueStatus::from_str("done"), Some(QueueStatus::Done));
-        assert_eq!(QueueStatus::from_str("failed"), Some(QueueStatus::Failed));
-        assert_eq!(QueueStatus::from_str("invalid"), None);
+        assert_eq!(QueueStatus::parse_str("done"), Some(QueueStatus::Done));
+        assert_eq!(QueueStatus::parse_str("failed"), Some(QueueStatus::Failed));
+        assert_eq!(QueueStatus::parse_str("invalid"), None);
     }
 }

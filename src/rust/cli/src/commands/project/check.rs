@@ -271,8 +271,8 @@ fn print_check_summary(
     output::kv("Path", &summary.project_root);
     output::separator();
 
-    output::kv("Tracked files", &summary.total_tracked.to_string());
-    output::kv("Files on disk", &summary.total_on_disk.to_string());
+    output::kv("Tracked files", summary.total_tracked.to_string());
+    output::kv("Files on disk", summary.total_on_disk.to_string());
     output::separator();
 
     if summary.up_to_date > 0 {

@@ -44,7 +44,7 @@ pub fn execute(hours: f64, script: bool, no_headers: bool) -> Result<()> {
 
     if !history_path.exists() {
         output::info("No idle history file found. The daemon records transitions automatically.");
-        output::kv("Expected path", &history_path.display().to_string());
+        output::kv("Expected path", history_path.display().to_string());
         return Ok(());
     }
 
@@ -61,9 +61,9 @@ pub fn execute(hours: f64, script: bool, no_headers: bool) -> Result<()> {
         .filter(|e| e.timestamp >= cutoff_str)
         .collect();
 
-    output::section(&format!("Idle History (last {:.0}h)", hours));
-    output::kv("File", &history_path.display().to_string());
-    output::kv("Transitions", &entries.len().to_string());
+    output::section(format!("Idle History (last {:.0}h)", hours));
+    output::kv("File", history_path.display().to_string());
+    output::kv("Transitions", entries.len().to_string());
 
     if entries.is_empty() {
         output::info("No transitions in the specified window.");
@@ -86,19 +86,19 @@ pub fn execute(hours: f64, script: bool, no_headers: bool) -> Result<()> {
     output::separator();
     output::kv(
         "Rate",
-        &format!("{:.1} transitions/hr", transitions_per_hour),
+        format!("{:.1} transitions/hr", transitions_per_hour),
     );
     output::kv(
         "Avg mode duration",
-        &wqm_common::duration_fmt::format_duration(avg_duration, 0),
+        wqm_common::duration_fmt::format_duration(avg_duration, 0),
     );
-    output::kv("Short (<30s)", &short_count.to_string());
+    output::kv("Short (<30s)", short_count.to_string());
 
     if is_flip_flopping {
         output::separator();
         output::warning("Flip-flop detected! Consider increasing idle_cooloff_polls in config.");
         let recommended = ((transitions_per_hour / 10.0).ceil() as u32).saturating_sub(1);
-        output::kv("Recommended +cooloff", &format!("+{} polls", recommended));
+        output::kv("Recommended +cooloff", format!("+{} polls", recommended));
     }
 
     // Show last 20 transitions in a table

@@ -15,7 +15,7 @@ proptest! {
     fn test_fd_operations_with_random_values(fd in -100i32..1000i32) {
         #[cfg(unix)]
         {
-            if fd >= 0 && fd < 1024 {
+            if (0..1024).contains(&fd) {
                 let result = unsafe { libc::dup(fd) };
                 prop_assert!(result >= -1);
                 if result >= 0 {

@@ -43,3 +43,6 @@ windows-service = "0.7"
 default = []
 # Enable OCR support (requires Tesseract system library)
 ocr = ["workspace-qdrant-core/ocr"]
+
+[lints]
+workspace = true

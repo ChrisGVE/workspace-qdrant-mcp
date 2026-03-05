@@ -47,7 +47,7 @@ async fn list_collection_snapshots(client: &reqwest::Client, base: &str, coll: &
     if api_resp.result.is_empty() {
         output::info("No snapshots found for this collection.");
     } else {
-        output::info(&format!("Found {} snapshot(s):", api_resp.result.len()));
+        output::info(format!("Found {} snapshot(s):", api_resp.result.len()));
         for s in &api_resp.result {
             print_snapshot_row(s);
         }
@@ -100,7 +100,7 @@ async fn list_per_collection_snapshots(client: &reqwest::Client, base: &str) {
         if let Ok(resp) = client.get(&snap_url).send().await {
             if resp.status().is_success() {
                 if let Ok(snap_result) = resp.json::<QdrantResponse<Vec<SnapshotInfo>>>().await {
-                    output::info(&format!(
+                    output::info(format!(
                         "{}: {} snapshot(s)",
                         entry.name,
                         snap_result.result.len()

@@ -30,9 +30,9 @@ pub async fn ingest_status(verbose: bool) -> Result<()> {
                     }
 
                     output::separator();
-                    output::kv("Pending", &(pending as i64).to_string());
-                    output::kv("Processed", &(processed as i64).to_string());
-                    output::kv("Failed", &(failed as i64).to_string());
+                    output::kv("Pending", (pending as i64).to_string());
+                    output::kv("Processed", (processed as i64).to_string());
+                    output::kv("Failed", (failed as i64).to_string());
 
                     if verbose {
                         output::separator();
@@ -40,7 +40,7 @@ pub async fn ingest_status(verbose: bool) -> Result<()> {
                         let db_path = dirs::data_local_dir()
                             .map(|p| p.join("workspace-qdrant/state.db"))
                             .unwrap_or_default();
-                        output::info(&format!(
+                        output::info(format!(
                             "  sqlite3 {} 'SELECT * FROM unified_queue LIMIT 20'",
                             db_path.display()
                         ));

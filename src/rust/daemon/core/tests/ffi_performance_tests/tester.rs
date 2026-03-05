@@ -27,6 +27,12 @@ pub struct FfiPerformanceTester {
     pub(super) performance_data: Arc<Mutex<Vec<PerformanceDataPoint>>>,
 }
 
+impl Default for FfiPerformanceTester {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FfiPerformanceTester {
     pub fn new() -> Self {
         Self::with_config(FfiPerformanceConfig::default())

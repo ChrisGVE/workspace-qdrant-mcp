@@ -198,7 +198,7 @@ pub async fn initialize(
     info!("Initializing queue processor...");
 
     let processor_config = ProcessorConfig {
-        batch_size: config.queue_batch_size.unwrap_or(10) as i32,
+        batch_size: config.queue_batch_size.unwrap_or(10),
         poll_interval_ms: config.queue_poll_interval_ms.unwrap_or(500),
         worker_count: config.queue_worker_count.unwrap_or(4),
         backpressure_threshold: config.queue_backpressure_threshold.unwrap_or(1000),

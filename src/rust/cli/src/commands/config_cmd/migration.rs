@@ -125,9 +125,7 @@ pub(super) async fn migrate_config(
     // Determine what will happen
     output::section("Configuration Migration Plan");
 
-    let already_at_target = current_config
-        .as_ref()
-        .map_or(false, |p| p == target_config);
+    let already_at_target = current_config.as_ref().is_some_and(|p| p == target_config);
 
     if already_at_target {
         output::success(format!(
@@ -140,13 +138,13 @@ pub(super) async fn migrate_config(
     // Show dry-run summary
     match &current_config {
         Some(source) => {
-            output::kv("Current config", &source.display().to_string());
-            output::kv("Target config", &target_config.display().to_string());
+            output::kv("Current config", source.display().to_string());
+            output::kv("Target config", target_config.display().to_string());
             output::info("Action: move config file to target location");
         }
         None => {
             output::info("No existing config file found");
-            output::kv("Target config", &target_config.display().to_string());
+            output::kv("Target config", target_config.display().to_string());
             output::info("Action: write default config to target location");
         }
     }
@@ -157,8 +155,8 @@ pub(super) async fn migrate_config(
             let target_db = data_dir.join("state.db");
             let db_already_there = db_path == &target_db;
             if !db_already_there {
-                output::kv("Current database", &db_path.display().to_string());
-                output::kv("Target database", &target_db.display().to_string());
+                output::kv("Current database", db_path.display().to_string());
+                output::kv("Target database", target_db.display().to_string());
                 output::info("Action: copy database to target location");
             }
         }

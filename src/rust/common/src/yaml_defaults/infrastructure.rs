@@ -148,18 +148,12 @@ impl YamlPerformanceConfig {
 
 // ── Watching ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct YamlWatchingConfig {
     // Watching section may have fields used by daemon only;
     // we only capture what's needed for shared defaults
     pub debounce_ms: Option<u64>,
-}
-
-impl Default for YamlWatchingConfig {
-    fn default() -> Self {
-        Self { debounce_ms: None }
-    }
 }
 
 // ── Observability ───────────────────────────────────────────────────────

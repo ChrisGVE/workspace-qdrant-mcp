@@ -26,7 +26,7 @@ pub async fn add_rule(
     output::kv("Content", content);
     output::kv("Type", rule_type);
     output::kv("Scope", scope_str);
-    output::kv("Priority", &priority.to_string());
+    output::kv("Priority", priority.to_string());
     output::separator();
 
     match DaemonClient::connect_default().await {

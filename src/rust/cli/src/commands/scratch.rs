@@ -135,7 +135,7 @@ async fn add_entry(
         output::kv("Title", t);
     }
     if !tag_vec.is_empty() {
-        output::kv("Tags", &tag_vec.join(", "));
+        output::kv("Tags", tag_vec.join(", "));
     }
     let preview = if content.len() > 80 {
         format!("{}...", &content[..77])
@@ -394,7 +394,7 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
 
 fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: bool) {
     output::section("Scratchpad Entries");
-    output::kv("Total", &points.len().to_string());
+    output::kv("Total", points.len().to_string());
     if let Some(p) = project {
         output::kv("Filter", p);
     }

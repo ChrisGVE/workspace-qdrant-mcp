@@ -138,7 +138,7 @@ pub fn get_canonical_log_dir() -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 dirs::home_dir()
-                    .unwrap_or_else(|| env::temp_dir())
+                    .unwrap_or_else(env::temp_dir)
                     .join(".local")
                     .join("state")
             })
@@ -149,7 +149,7 @@ pub fn get_canonical_log_dir() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         dirs::home_dir()
-            .unwrap_or_else(|| env::temp_dir())
+            .unwrap_or_else(env::temp_dir)
             .join("Library")
             .join("Logs")
             .join("workspace-qdrant")
@@ -158,7 +158,7 @@ pub fn get_canonical_log_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
         dirs::data_local_dir()
-            .unwrap_or_else(|| env::temp_dir())
+            .unwrap_or_else(env::temp_dir)
             .join("workspace-qdrant")
             .join("logs")
     }
@@ -166,7 +166,7 @@ pub fn get_canonical_log_dir() -> PathBuf {
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         dirs::home_dir()
-            .unwrap_or_else(|| env::temp_dir())
+            .unwrap_or_else(env::temp_dir)
             .join(".workspace-qdrant")
             .join("logs")
     }

@@ -25,7 +25,7 @@ pub(super) async fn run(period: StatsPeriod) -> Result<()> {
         return Ok(());
     }
 
-    output::kv("Total Events", &total_count.to_string());
+    output::kv("Total Events", total_count.to_string());
     output::separator();
 
     display_tool_distribution(&conn, ts_filter.as_deref(), total_count)?;
@@ -75,7 +75,7 @@ fn display_tool_distribution(
     for row in rows {
         let (tool, count) = row?;
         let pct = (count as f64 / total_count as f64 * 100.0).round();
-        output::kv(&format!("  {}", tool), &format!("{} ({:.0}%)", count, pct));
+        output::kv(format!("  {}", tool), format!("{} ({:.0}%)", count, pct));
     }
 
     output::separator();
@@ -118,8 +118,8 @@ fn display_behavior_rates(conn: &Connection, ts_filter: Option<&str>) -> Result<
             0.0
         };
         output::kv(
-            &format!("  {}", behavior),
-            &format!("{} ({:.0}%)", count, pct),
+            format!("  {}", behavior),
+            format!("{} ({:.0}%)", count, pct),
         );
     }
     output::separator();
@@ -143,9 +143,9 @@ fn display_performance(conn: &Connection, ts_filter: Option<&str>) -> Result<()>
     }) {
         Ok((count, avg)) => {
             if count > 0 {
-                output::kv("  Searches with latency", &count.to_string());
+                output::kv("  Searches with latency", count.to_string());
                 if let Some(avg_val) = avg {
-                    output::kv("  Average latency", &format!("{:.0} ms", avg_val));
+                    output::kv("  Average latency", format!("{:.0} ms", avg_val));
                 }
                 display_latency_percentiles(conn, ts_filter)?;
             } else {
@@ -186,9 +186,9 @@ fn display_latency_percentiles(conn: &Connection, ts_filter: Option<&str>) -> Re
         let p50 = latencies[latencies.len() * 50 / 100];
         let p95 = latencies[latencies.len() * 95 / 100];
         let p99 = latencies[(latencies.len() * 99 / 100).min(latencies.len() - 1)];
-        output::kv("  P50", &format!("{} ms", p50));
-        output::kv("  P95", &format!("{} ms", p95));
-        output::kv("  P99", &format!("{} ms", p99));
+        output::kv("  P50", format!("{} ms", p50));
+        output::kv("  P95", format!("{} ms", p95));
+        output::kv("  P99", format!("{} ms", p99));
     }
 
     Ok(())
@@ -224,7 +224,7 @@ fn display_top_queries(conn: &Connection, ts_filter: Option<&str>) -> Result<()>
         } else {
             query_text
         };
-        output::kv(&format!("  {} x", count), &display);
+        output::kv(format!("  {} x", count), &display);
         found = true;
     }
     if !found {
@@ -260,7 +260,7 @@ fn display_resolution_rate(
                 let rate = (resolution_count as f64 / total_count as f64 * 100.0).round();
                 output::kv(
                     "  Searches with resolution",
-                    &format!("{} ({:.0}%)", resolution_count, rate),
+                    format!("{} ({:.0}%)", resolution_count, rate),
                 );
             }
         }

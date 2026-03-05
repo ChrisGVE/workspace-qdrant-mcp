@@ -3,7 +3,6 @@
 //! Benchmarks for platform-specific optimizations and features
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 // Mock platform detection

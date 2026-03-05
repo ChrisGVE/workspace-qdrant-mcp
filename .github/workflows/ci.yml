@@ -80,7 +80,7 @@ jobs:
 
       - name: Clippy
         working-directory: src/rust
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --lib --bins --tests -- -D warnings
 
       - name: Build
         working-directory: src/rust

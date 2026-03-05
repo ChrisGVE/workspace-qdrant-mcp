@@ -130,7 +130,7 @@ impl FfiPerformanceTester {
             copy_ns,
             clone_ns,
             zero_copy_supported: size < 1024,
-            alignment_optimized: size % 64 == 0,
+            alignment_optimized: size.is_multiple_of(64),
             throughput_gbps,
         })
     }

@@ -321,11 +321,9 @@ fn benchmark_file_system_operations(c: &mut Criterion) {
 
         b.iter(|| {
             let mut file_count = 0;
-            for entry in std::fs::read_dir(black_box(temp_path)).unwrap() {
-                if let Ok(entry) = entry {
-                    if entry.path().is_file() {
-                        file_count += 1;
-                    }
+            for entry in std::fs::read_dir(black_box(temp_path)).unwrap().flatten() {
+                if entry.path().is_file() {
+                    file_count += 1;
                 }
             }
             black_box(file_count);
@@ -351,14 +349,12 @@ fn benchmark_file_system_operations(c: &mut Criterion) {
             fn scan_directory(path: &Path) -> usize {
                 let mut count = 0;
                 if let Ok(entries) = std::fs::read_dir(path) {
-                    for entry in entries {
-                        if let Ok(entry) = entry {
-                            let path = entry.path();
-                            if path.is_dir() {
-                                count += scan_directory(&path);
-                            } else {
-                                count += 1;
-                            }
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            count += scan_directory(&path);
+                        } else {
+                            count += 1;
                         }
                     }
                 }

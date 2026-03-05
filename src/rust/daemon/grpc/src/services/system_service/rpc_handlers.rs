@@ -179,7 +179,7 @@ impl SystemService for SystemServiceImpl {
                 r#type: "counter".to_string(),
                 labels: std::collections::HashMap::new(),
                 value: 0.0,
-                timestamp: now.clone(),
+                timestamp: now,
             },
             Metric {
                 name: "uptime_seconds".to_string(),
@@ -190,7 +190,7 @@ impl SystemService for SystemServiceImpl {
                     .elapsed()
                     .map(|d| d.as_secs() as f64)
                     .unwrap_or(0.0),
-                timestamp: now.clone(),
+                timestamp: now,
             },
         ];
 

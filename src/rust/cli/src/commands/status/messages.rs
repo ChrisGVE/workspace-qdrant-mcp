@@ -38,22 +38,21 @@ pub async fn errors(limit: usize) -> Result<()> {
     output::section(format!("Recent Errors (last {})", limit));
 
     output::info("Error tracking available via daemon logs:");
-    output::info(&format!("  Use: wqm service logs -n {}", limit));
+    output::info(format!("  Use: wqm service logs -n {}", limit));
     output::info("  Or: grep -i error /tmp/memexd.err.log | tail -n {}");
 
     match DaemonClient::connect_default().await {
-        Ok(mut client) => match client.system().get_metrics(()).await {
-            Ok(response) => {
+        Ok(mut client) => {
+            if let Ok(response) = client.system().get_metrics(()).await {
                 let metrics_resp = response.into_inner();
 
                 for metric in &metrics_resp.metrics {
                     if metric.name.contains("error") || metric.name.contains("failed") {
-                        output::kv(&metric.name, &format!("{:.0}", metric.value));
+                        output::kv(&metric.name, format!("{:.0}", metric.value));
                     }
                 }
             }
-            Err(_) => {}
-        },
+        }
         Err(_) => {
             output::warning("Cannot connect to daemon for error metrics");
         }

@@ -89,8 +89,8 @@ pub fn generate_idempotency_key(
     collection: String,
     payload_json: String,
 ) -> Option<String> {
-    let it = wqm_common::queue_types::ItemType::from_str(&item_type)?;
-    let qop = wqm_common::queue_types::QueueOperation::from_str(&op)?;
+    let it = wqm_common::queue_types::ItemType::parse_str(&item_type)?;
+    let qop = wqm_common::queue_types::QueueOperation::parse_str(&op)?;
     wqm_common::hashing::generate_idempotency_key(it, qop, &tenant_id, &collection, &payload_json)
         .ok()
 }
@@ -396,29 +396,29 @@ pub fn all_operations() -> Vec<String> {
 /// Check if a string is a valid ItemType
 #[napi]
 pub fn is_valid_item_type(s: String) -> bool {
-    wqm_common::queue_types::ItemType::from_str(&s).is_some()
+    wqm_common::queue_types::ItemType::parse_str(&s).is_some()
 }
 
 /// Check if a string is a valid QueueOperation
 #[napi]
 pub fn is_valid_queue_operation(s: String) -> bool {
-    wqm_common::queue_types::QueueOperation::from_str(&s).is_some()
+    wqm_common::queue_types::QueueOperation::parse_str(&s).is_some()
 }
 
 /// Check if a string is a valid QueueStatus
 #[napi]
 pub fn is_valid_queue_status(s: String) -> bool {
-    wqm_common::queue_types::QueueStatus::from_str(&s).is_some()
+    wqm_common::queue_types::QueueStatus::parse_str(&s).is_some()
 }
 
 /// Check if an operation is valid for a given item type
 #[napi]
 pub fn is_valid_operation_for_type(item_type: String, op: String) -> bool {
-    let it = match wqm_common::queue_types::ItemType::from_str(&item_type) {
+    let it = match wqm_common::queue_types::ItemType::parse_str(&item_type) {
         Some(v) => v,
         None => return false,
     };
-    let qop = match wqm_common::queue_types::QueueOperation::from_str(&op) {
+    let qop = match wqm_common::queue_types::QueueOperation::parse_str(&op) {
         Some(v) => v,
         None => return false,
     };

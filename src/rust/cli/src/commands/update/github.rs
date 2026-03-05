@@ -104,8 +104,7 @@ pub async fn fetch_latest_release_for_channel(
 
     releases
         .into_iter()
-        .filter(|r| !r.draft && matches_channel(r, channel))
-        .next()
+        .find(|r| !r.draft && matches_channel(r, channel))
         .context(format!("No releases found for channel: {}", channel))
 }
 

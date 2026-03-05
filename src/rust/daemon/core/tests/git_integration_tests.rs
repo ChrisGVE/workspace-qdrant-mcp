@@ -318,7 +318,7 @@ fn test_remote_hash_grouping() {
     let calculator = ProjectIdCalculator::new();
 
     // All variations of the same repo should produce same remote hash
-    let urls = vec![
+    let urls = [
         "https://github.com/anthropics/claude-code.git",
         "git@github.com:anthropics/claude-code.git",
         "ssh://git@github.com/anthropics/claude-code",

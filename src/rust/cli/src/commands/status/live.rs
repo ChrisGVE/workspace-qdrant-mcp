@@ -31,16 +31,16 @@ pub async fn live(interval: u64) -> Result<()> {
                     output::status_line("Overall", overall);
                     output::separator();
 
-                    output::kv("Collections", &status.total_collections.to_string());
-                    output::kv("Documents", &status.total_documents.to_string());
-                    output::kv("Active Projects", &status.active_projects.len().to_string());
+                    output::kv("Collections", status.total_collections.to_string());
+                    output::kv("Documents", status.total_documents.to_string());
+                    output::kv("Active Projects", status.active_projects.len().to_string());
 
                     if let Some(metrics) = status.metrics {
                         output::separator();
-                        output::kv("CPU", &format!("{:.1}%", metrics.cpu_usage_percent));
-                        output::kv("Memory", &format_bytes(metrics.memory_usage_bytes));
-                        output::kv("Pending Ops", &metrics.pending_operations.to_string());
-                        output::kv("Connections", &metrics.active_connections.to_string());
+                        output::kv("CPU", format!("{:.1}%", metrics.cpu_usage_percent));
+                        output::kv("Memory", format_bytes(metrics.memory_usage_bytes));
+                        output::kv("Pending Ops", metrics.pending_operations.to_string());
+                        output::kv("Connections", metrics.active_connections.to_string());
                     }
 
                     if let Some(ref mode) = status.resource_mode {
@@ -53,7 +53,7 @@ pub async fn live(interval: u64) -> Result<()> {
                             .current_max_embeddings
                             .map(|e| format!(", {} emb", e))
                             .unwrap_or_default();
-                        output::kv("Resources", &format!("{} ({}{})", mode, idle_str, emb_str));
+                        output::kv("Resources", format!("{} ({}{})", mode, idle_str, emb_str));
                     }
                 }
                 Err(_) => {

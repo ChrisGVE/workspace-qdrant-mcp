@@ -219,18 +219,10 @@ impl Default for YamlUpdatesConfig {
 
 // ── Tagging ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct YamlTaggingConfig {
     pub tier3: YamlTier3Config,
-}
-
-impl Default for YamlTaggingConfig {
-    fn default() -> Self {
-        Self {
-            tier3: YamlTier3Config::default(),
-        }
-    }
 }
 
 /// Provider slot config (reused for primary and fallback).

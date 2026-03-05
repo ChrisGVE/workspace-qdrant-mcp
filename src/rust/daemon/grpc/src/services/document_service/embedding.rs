@@ -47,6 +47,12 @@ pub struct EmbeddingCacheMetrics {
     pub evictions: AtomicU64,
 }
 
+impl Default for EmbeddingCacheMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EmbeddingCacheMetrics {
     pub const fn new() -> Self {
         Self {

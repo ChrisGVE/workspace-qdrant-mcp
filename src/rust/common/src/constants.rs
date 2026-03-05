@@ -175,8 +175,16 @@ mod tests {
 
     #[test]
     fn test_priority_ordering() {
-        assert!(priority::HIGH < priority::NORMAL);
-        assert!(priority::NORMAL < priority::LOW);
+        // Verify ordering invariant: HIGH < NORMAL < LOW (lower value = higher priority)
+        let (high, normal, low) = (priority::HIGH, priority::NORMAL, priority::LOW);
+        assert!(
+            high < normal,
+            "HIGH ({high}) should be less than NORMAL ({normal})"
+        );
+        assert!(
+            normal < low,
+            "NORMAL ({normal}) should be less than LOW ({low})"
+        );
     }
 
     #[test]

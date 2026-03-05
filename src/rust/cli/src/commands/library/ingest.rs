@@ -43,8 +43,8 @@ pub async fn execute(
     output::kv("  Library", library);
     output::kv("  Format", source_format);
     output::kv("  Type", document_type);
-    output::kv("  Chunk Target", &format!("{} tokens", chunk_tokens));
-    output::kv("  Chunk Overlap", &format!("{} tokens", overlap_tokens));
+    output::kv("  Chunk Target", format!("{} tokens", chunk_tokens));
+    output::kv("  Chunk Overlap", format!("{} tokens", overlap_tokens));
 
     // Generate doc_id (UUID v5 from library_name + path)
     let doc_id = workspace_qdrant_core::generate_document_id(library, &abs_path_str);

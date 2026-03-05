@@ -51,7 +51,7 @@ pub fn format_duration(secs: f64, fractional_digits: usize) -> String {
 /// If any value is less than 1 second (and non-negative), returns 1
 /// (one significant fractional digit). Otherwise returns 0.
 pub fn column_fractional_digits(durations: &[f64]) -> usize {
-    if durations.iter().any(|&d| d >= 0.0 && d < 1.0) {
+    if durations.iter().any(|&d| (0.0..1.0).contains(&d)) {
         1
     } else {
         0

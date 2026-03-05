@@ -77,21 +77,21 @@ fn print_detail(item: &QueueDetailItem) {
     output::kv("Collection", &item.collection);
     output::kv("Branch", &item.branch);
     output::separator();
-    output::kv("Status", &format_status(&item.status));
-    output::kv("Retry Count", &item.retry_count.to_string());
+    output::kv("Status", format_status(&item.status));
+    output::kv("Retry Count", item.retry_count.to_string());
     output::separator();
     output::kv(
         "Created At",
-        &wqm_common::timestamp_fmt::format_local(&item.created_at),
+        wqm_common::timestamp_fmt::format_local(&item.created_at),
     );
     output::kv(
         "Updated At",
-        &wqm_common::timestamp_fmt::format_local(&item.updated_at),
+        wqm_common::timestamp_fmt::format_local(&item.updated_at),
     );
     if let Some(ref lease) = item.lease_until {
         output::kv(
             "Lease Until",
-            &wqm_common::timestamp_fmt::format_local(lease),
+            wqm_common::timestamp_fmt::format_local(lease),
         );
     }
     if let Some(ref worker) = item.worker_id {
@@ -112,7 +112,7 @@ fn print_errors(item: &QueueDetailItem) {
         if let Some(ref err_at) = item.last_error_at {
             output::kv(
                 "Last Error At",
-                &wqm_common::timestamp_fmt::format_local(err_at),
+                wqm_common::timestamp_fmt::format_local(err_at),
             );
         }
     }

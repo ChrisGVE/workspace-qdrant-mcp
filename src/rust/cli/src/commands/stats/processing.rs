@@ -222,14 +222,14 @@ fn print_text(
     phase_percentiles: &[(String, i64, i64, i64, i64, i64)],
 ) {
     output::section(format!("Processing Timing Stats ({})", period.label()));
-    output::kv("Total timing records", &total.to_string());
+    output::kv("Total timing records", total.to_string());
     output::separator();
 
     output::info("Operations:");
     for (op, item_type, cnt, total_ms) in op_rows {
         output::kv(
-            &format!("  {} {}", op, item_type),
-            &format!("{} events, {} total", cnt, format_duration_ms(*total_ms)),
+            format!("  {} {}", op, item_type),
+            format!("{} events, {} total", cnt, format_duration_ms(*total_ms)),
         );
     }
     output::separator();
@@ -239,14 +239,14 @@ fn print_text(
         phase_rows.iter().zip(phase_percentiles.iter())
     {
         output::kv(
-            &format!(
+            format!(
                 "  {} ({} records, {} total, ~{} avg)",
                 phase,
                 count,
                 format_duration_ms(*total_ms),
                 format_duration_ms(*avg_ms as i64)
             ),
-            &format!(
+            format!(
                 "{} / {} / {} / {} / {}",
                 format_duration_ms(*min),
                 format_duration_ms(*q1),

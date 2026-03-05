@@ -124,7 +124,7 @@ fn list_watch_folders(
         output::kv("  Status", status);
         output::kv("  Mode", mode_str);
         if let Some(count) = qdrant_counts.get(tenant_id) {
-            output::kv("  Points", &count.to_string());
+            output::kv("  Points", count.to_string());
         }
         if verbose {
             output::kv("  Watch ID", watch_id);
@@ -184,10 +184,10 @@ fn list_format_routed(
         known_tags.insert(tenant_id.clone());
         output::kv("  Project", tenant_id);
         output::kv("  Path", project_path);
-        output::kv("  Library Files", &file_count.to_string());
+        output::kv("  Library Files", file_count.to_string());
         output::kv("  Source", "auto-routed (PDF, DOCX, etc.)");
         if let Some(count) = qdrant_counts.get(tenant_id) {
-            output::kv("  Points", &count.to_string());
+            output::kv("  Points", count.to_string());
         }
         output::separator();
     }
@@ -216,8 +216,8 @@ fn list_orphans(
     output::separator();
 
     for (tag, count) in &orphan_tags {
-        output::kv("  Tag", &format!("{} (ORPHAN)", tag));
-        output::kv("  Points", &count.to_string());
+        output::kv("  Tag", format!("{} (ORPHAN)", tag));
+        output::kv("  Points", count.to_string());
         output::kv(
             "  Status",
             "no watch folder — run: wqm admin cleanup-orphans",

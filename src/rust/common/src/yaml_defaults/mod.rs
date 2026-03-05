@@ -121,7 +121,9 @@ pub(crate) mod optional_duration_serde {
 ///
 /// Only the sections used by daemon and CLI are included. Unknown sections
 /// are silently ignored via `#[serde(default)]`.
-#[derive(Debug, Clone, Deserialize)]
+// Note: Do NOT parse DEFAULT_YAML in Default — that would recurse infinitely
+// because serde's `#[serde(default)]` calls Default for missing fields during parsing.
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct YamlConfig {
     pub qdrant: YamlQdrantConfig,
@@ -138,30 +140,6 @@ pub struct YamlConfig {
     pub observability: YamlObservabilityConfig,
     pub resource_limits: YamlResourceLimitsConfig,
     pub tagging: YamlTaggingConfig,
-}
-
-impl Default for YamlConfig {
-    fn default() -> Self {
-        // Use sub-struct defaults directly. Do NOT parse DEFAULT_YAML here —
-        // that would recurse infinitely because serde's `#[serde(default)]`
-        // calls this method for missing fields during parsing.
-        Self {
-            qdrant: YamlQdrantConfig::default(),
-            grpc: YamlGrpcConfig::default(),
-            auto_ingestion: YamlAutoIngestionConfig::default(),
-            queue_processor: YamlQueueProcessorConfig::default(),
-            git: YamlGitConfig::default(),
-            embedding: YamlEmbeddingConfig::default(),
-            lsp: YamlLspConfig::default(),
-            grammars: YamlGrammarsConfig::default(),
-            updates: YamlUpdatesConfig::default(),
-            performance: YamlPerformanceConfig::default(),
-            watching: YamlWatchingConfig::default(),
-            observability: YamlObservabilityConfig::default(),
-            resource_limits: YamlResourceLimitsConfig::default(),
-            tagging: YamlTaggingConfig::default(),
-        }
-    }
 }
 
 #[cfg(test)]

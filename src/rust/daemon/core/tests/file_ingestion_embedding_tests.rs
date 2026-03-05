@@ -127,7 +127,7 @@ async fn test_batch_embedding_generation() -> TestResult {
     let mut handles = Vec::new();
 
     // Create multiple documents with different content
-    let documents = vec![
+    let documents = [
         ("doc1.txt", "The quick brown fox jumps over the lazy dog."),
         (
             "doc2.txt",
@@ -311,7 +311,7 @@ async fn test_mixed_content_embedding_generation() -> TestResult {
     let temp_dir = TempDir::new()?;
 
     // Create files with different content types
-    let mixed_content = vec![
+    let mixed_content = [
         (
             "technical.md",
             "# Technical Documentation\n\nThis is technical content.",

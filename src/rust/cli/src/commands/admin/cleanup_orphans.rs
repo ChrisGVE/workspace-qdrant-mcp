@@ -52,7 +52,7 @@ pub async fn execute(delete: bool, collection_filter: Option<String>) -> Result<
 
     output::warning(format!("Found {} orphan(s):", total_orphans.len()));
     for (coll, tenant) in &total_orphans {
-        output::kv(&format!("  {}", coll), tenant);
+        output::kv(format!("  {}", coll), tenant);
     }
 
     if !delete {
@@ -98,7 +98,7 @@ async fn scan_collections_for_orphans(
         .await?;
 
         if qdrant_tenants.is_empty() {
-            output::kv(&format!("  {} tenants in Qdrant", collection), "0");
+            output::kv(format!("  {} tenants in Qdrant", collection), "0");
             continue;
         }
 
@@ -109,12 +109,12 @@ async fn scan_collections_for_orphans(
         };
 
         output::kv(
-            &format!("  {} Qdrant", collection),
-            &qdrant_tenants.len().to_string(),
+            format!("  {} Qdrant", collection),
+            qdrant_tenants.len().to_string(),
         );
         output::kv(
-            &format!("  {} SQLite", collection),
-            &known_tenants.len().to_string(),
+            format!("  {} SQLite", collection),
+            known_tenants.len().to_string(),
         );
 
         let mut orphans: Vec<&String> = qdrant_tenants

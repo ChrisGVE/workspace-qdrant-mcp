@@ -74,7 +74,7 @@ pub async fn execute(tag: &str, path: &PathBuf, mode: LibraryMode) -> Result<()>
     output::success(format!("Library '{}' added (not watching yet)", tag));
     output::kv("  Tag", tag);
     output::kv("  Path", &abs_path_str);
-    output::kv("  Mode", &mode.to_string());
+    output::kv("  Mode", mode.to_string());
     output::separator();
     output::info("To start watching: wqm library watch <tag> <path>");
 

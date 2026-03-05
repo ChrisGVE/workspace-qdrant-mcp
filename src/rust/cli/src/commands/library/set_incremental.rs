@@ -39,15 +39,15 @@ pub async fn execute(files: &[PathBuf], clear: bool) -> Result<()> {
 
         if rows > 0 {
             updated += 1;
-            output::success(&format!("{} incremental flag: {}", action, abs_path));
+            output::success(format!("{} incremental flag: {}", action, abs_path));
         } else {
             not_found += 1;
-            output::warning(&format!("Not found in tracked_files: {}", abs_path));
+            output::warning(format!("Not found in tracked_files: {}", abs_path));
         }
     }
 
     if updated > 0 || not_found > 0 {
-        output::info(&format!(
+        output::info(format!(
             "Updated: {}, not found: {} (total: {})",
             updated,
             not_found,

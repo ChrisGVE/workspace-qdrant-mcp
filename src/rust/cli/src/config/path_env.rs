@@ -202,7 +202,7 @@ fn expand_path_segment_recursive(segment: &str, depth: u8) -> String {
 pub fn expand_path_segments(path: &str) -> Vec<String> {
     path.split(PATH_SEPARATOR)
         .filter(|s| !s.is_empty())
-        .map(|s| expand_path_segment(s))
+        .map(expand_path_segment)
         .collect()
 }
 

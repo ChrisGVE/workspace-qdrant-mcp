@@ -113,7 +113,7 @@ impl ConcurrencyTracker {
 
         self.shared_accesses
             .entry(address)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(access);
     }
 }

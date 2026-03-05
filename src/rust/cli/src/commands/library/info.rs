@@ -96,8 +96,8 @@ fn show_single(conn: &rusqlite::Connection, tag: &str) -> Result<()> {
                 )
                 .unwrap_or(0);
 
-            output::kv("Tracked Files", &file_count.to_string());
-            output::kv("Total Chunks", &chunk_count.to_string());
+            output::kv("Tracked Files", file_count.to_string());
+            output::kv("Total Chunks", chunk_count.to_string());
         }
         Err(_) => {
             output::error(format!("Library '{}' not found", tag));

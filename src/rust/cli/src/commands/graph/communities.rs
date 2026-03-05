@@ -15,7 +15,7 @@ pub async fn communities(
     output::section("Community Detection");
     output::kv("Tenant", tenant_id);
     if let Some(ms) = min_size {
-        output::kv("Min Size", &ms.to_string());
+        output::kv("Min Size", ms.to_string());
     }
     output::separator();
 

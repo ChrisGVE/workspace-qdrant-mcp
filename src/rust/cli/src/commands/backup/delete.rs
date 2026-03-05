@@ -50,7 +50,7 @@ pub async fn delete_backup(
     };
 
     if !json {
-        output::info(&format!("Deleting snapshot '{}'...", snapshot));
+        output::info(format!("Deleting snapshot '{}'...", snapshot));
     }
 
     let resp = client

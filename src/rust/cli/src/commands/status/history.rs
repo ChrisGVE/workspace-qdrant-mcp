@@ -87,7 +87,7 @@ fn print_metric_summary(conn: &Connection, name: &str, cutoff_str: &str) {
         Ok((avg, min, max, count, latest)) => {
             output::kv(
                 name,
-                &format!(
+                format!(
                     "latest={:.1}  avg={:.1}  min={:.1}  max={:.1}  ({} samples)",
                     latest, avg, min, max, count
                 ),

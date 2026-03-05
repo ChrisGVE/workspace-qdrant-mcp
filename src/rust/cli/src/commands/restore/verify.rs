@@ -101,13 +101,13 @@ async fn verify_download_access(client: &reqwest::Client, url: &str) {
             }
         }
         Ok(resp) => {
-            output::warning(&format!(
+            output::warning(format!(
                 "Snapshot download check returned: {}",
                 resp.status()
             ));
         }
         Err(e) => {
-            output::warning(&format!("Could not verify download access: {}", e));
+            output::warning(format!("Could not verify download access: {}", e));
         }
     }
 }
@@ -123,7 +123,7 @@ fn print_not_found(snapshot: &str, collection: &str, is_full: bool, available: &
     if !available.is_empty() {
         output::info("Available snapshots:");
         for s in available {
-            output::info(&format!("  - {}", s.name));
+            output::info(format!("  - {}", s.name));
         }
     } else {
         output::info("No snapshots available.");

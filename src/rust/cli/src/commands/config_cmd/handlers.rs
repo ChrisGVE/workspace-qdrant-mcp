@@ -59,11 +59,11 @@ pub(super) async fn move_to_xdg() -> Result<()> {
     let target_config = xdg_config_home.join("workspace-qdrant").join("config.yaml");
     let target_data_dir = xdg_data_home.join("workspace-qdrant");
 
-    output::kv("XDG_CONFIG_HOME", &xdg_config_home.display().to_string());
-    output::kv("XDG_DATA_HOME", &xdg_data_home.display().to_string());
+    output::kv("XDG_CONFIG_HOME", xdg_config_home.display().to_string());
+    output::kv("XDG_DATA_HOME", xdg_data_home.display().to_string());
     output::kv(
         "XDG cache dir",
-        &std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| "~/.cache (default)".into()),
+        std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| "~/.cache (default)".into()),
     );
 
     migrate_config(&target_config, Some(&target_data_dir)).await
@@ -75,7 +75,7 @@ pub(super) fn show() -> Result<()> {
 
     match &active_path {
         Some(path) => {
-            output::kv("Config file", &path.display().to_string());
+            output::kv("Config file", path.display().to_string());
             output::separator();
             let content = std::fs::read_to_string(path).context("Failed to read config file")?;
             print!("{}", content);
@@ -99,14 +99,14 @@ pub(super) fn show_path() -> Result<()> {
 
     for path in &search_paths {
         let exists = path.exists();
-        let is_active = active.as_ref().map_or(false, |a| a == path);
+        let is_active = active.as_ref() == Some(path);
 
         if is_active {
             output::success(format!("{} (active)", path.display()));
         } else if exists {
-            output::kv("Found", &path.display().to_string());
+            output::kv("Found", path.display().to_string());
         } else {
-            output::kv("  -", &path.display().to_string());
+            output::kv("  -", path.display().to_string());
         }
     }
 
@@ -119,13 +119,13 @@ pub(super) fn show_path() -> Result<()> {
     output::separator();
     output::kv(
         "Database",
-        &wqm_common::paths::get_database_path()
+        wqm_common::paths::get_database_path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "(not found)".into()),
     );
     output::kv(
         "Logs",
-        &wqm_common::paths::get_canonical_log_dir()
+        wqm_common::paths::get_canonical_log_dir()
             .display()
             .to_string(),
     );

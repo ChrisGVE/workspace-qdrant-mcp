@@ -48,7 +48,7 @@ async fn reconstruct_all_collections(
 
         let count = points.len();
         total_points += count as u64;
-        output::kv(&format!("  {} points", collection), &count.to_string());
+        output::kv(format!("  {} points", collection), count.to_string());
 
         if points.is_empty() {
             continue;
@@ -128,11 +128,11 @@ pub async fn execute(confirm: bool) -> Result<()> {
     // Step 5: Summary
     output::separator();
     output::section("Recovery Summary");
-    output::kv("Total Qdrant points", &total_points.to_string());
-    output::kv("Watch folders created", &total_watch_folders.to_string());
-    output::kv("Tracked files created", &total_tracked_files.to_string());
-    output::kv("Qdrant chunks mapped", &total_chunks.to_string());
-    output::kv("Rules mirrored", &total_rules.to_string());
+    output::kv("Total Qdrant points", total_points.to_string());
+    output::kv("Watch folders created", total_watch_folders.to_string());
+    output::kv("Tracked files created", total_tracked_files.to_string());
+    output::kv("Qdrant chunks mapped", total_chunks.to_string());
+    output::kv("Rules mirrored", total_rules.to_string());
     output::separator();
     output::success("Recovery complete. Restart daemon to rebuild vocabulary and tags.");
     output::info("Verify with: wqm admin health");

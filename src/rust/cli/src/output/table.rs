@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn test_print_script_with_headers() {
         // Capture output by testing the logic directly
-        let data = vec![ScriptTestRow {
+        let data = [ScriptTestRow {
             id: "1".into(),
             status: "done".into(),
             name: "test".into(),
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_print_script_strips_ansi_from_fields() {
-        let data = vec![ScriptTestRow {
+        let data = [ScriptTestRow {
             id: "abc".into(),
             status: "\x1b[31mfailed\x1b[0m".into(),
             name: "my item".into(),
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_print_script_empty_field_becomes_dash() {
-        let data = vec![ScriptTestRow {
+        let data = [ScriptTestRow {
             id: "1".into(),
             status: "".into(),
             name: "ok".into(),

@@ -3,12 +3,11 @@
 //! Comprehensive benchmarks to validate queue processor performance against
 //! the 1000+ docs/min throughput target and identify performance bottlenecks.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tempfile::tempdir;
 use tokio::runtime::Runtime;
 
 // Mock components for isolated queue performance testing

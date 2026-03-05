@@ -35,7 +35,7 @@ pub(super) async fn register_project(
 
     // Display summary
     output::section("Register Project");
-    output::kv("Path", &abs_path.display().to_string());
+    output::kv("Path", abs_path.display().to_string());
     output::kv("Name", &project_name);
     output::kv("Project ID", &project_id);
     if let Some(remote) = &git_remote {

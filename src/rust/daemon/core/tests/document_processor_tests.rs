@@ -4,7 +4,7 @@ use workspace_qdrant_core::{ChunkingConfig, DocumentProcessor, DocumentType};
 
 /// Create a temporary file with the given content and extension
 async fn create_temp_file(content: &str, extension: &str) -> NamedTempFile {
-    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))
+    let temp_file = NamedTempFile::with_suffix(format!(".{}", extension))
         .expect("Failed to create temporary file");
 
     let mut file = tokio::fs::File::create(temp_file.path())

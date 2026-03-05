@@ -125,12 +125,12 @@ fn enqueue_vector_deletion(tag: &str) {
 /// Print manual curl instructions for deleting vectors
 fn print_manual_delete_instructions(tag: &str, collection: &str) {
     output::info("You may need to manually delete vectors from Qdrant:");
-    output::info(&format!(
+    output::info(format!(
         "  curl -X POST 'http://localhost:6333/collections/{}/points/delete' \\",
         collection
     ));
     output::info("    -H 'Content-Type: application/json' \\");
-    output::info(&format!(
+    output::info(format!(
         "    -d '{{\"filter\": {{\"must\": [{{\"key\": \"library_name\", \
          \"match\": {{\"value\": \"{}\"}}}}]}}}}'",
         tag

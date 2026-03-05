@@ -39,7 +39,7 @@ impl QueueOperation {
     /// Parse operation from string.
     ///
     /// Accepts legacy "ingest" → Add for migration robustness.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             constants::operation::ADD => Some(QueueOperation::Add),
             constants::operation::UPDATE => Some(QueueOperation::Update),

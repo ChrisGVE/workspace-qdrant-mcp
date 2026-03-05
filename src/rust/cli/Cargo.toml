@@ -84,3 +84,6 @@ tempfile = "3.26"
 tonic-build = { version = "0.12", features = ["prost"] }
 
 # Profiles are defined in workspace root Cargo.toml
+
+[lints]
+workspace = true

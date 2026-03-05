@@ -40,8 +40,8 @@ pub fn execute(dry_run: bool, retention_hours: u64) -> Result<()> {
     let log_dir = wqm_common::paths::get_canonical_log_dir();
 
     output::section("Log Pruning");
-    output::kv("Log directory", &log_dir.display().to_string());
-    output::kv("Retention", &format!("{}h", retention_hours));
+    output::kv("Log directory", log_dir.display().to_string());
+    output::kv("Retention", format!("{}h", retention_hours));
     if dry_run {
         output::info("Dry run — no files will be deleted");
     }

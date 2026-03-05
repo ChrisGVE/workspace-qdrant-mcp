@@ -186,14 +186,14 @@ fn display_collection_snapshots(
     } else if snapshots.is_empty() {
         output::info("No snapshots found for this collection.");
     } else {
-        output::info(&format!("Found {} snapshot(s):", snapshots.len()));
+        output::info(format!("Found {} snapshot(s):", snapshots.len()));
         let rows: Vec<SnapshotRow> = snapshots.iter().map(SnapshotRow::from).collect();
         output::print_table_auto(&rows);
         if verbose {
             output::separator();
             for s in snapshots {
                 if let Some(ref checksum) = s.checksum {
-                    output::kv(&format!("{} checksum", s.name), checksum);
+                    output::kv(format!("{} checksum", s.name), checksum);
                 }
             }
         }
@@ -210,9 +210,9 @@ fn display_per_collection_entry(
     if json {
         all_snapshots.extend(snapshots.iter().cloned());
     } else if snapshots.is_empty() {
-        output::info(&format!("  {}: no snapshots", name));
+        output::info(format!("  {}: no snapshots", name));
     } else {
-        output::info(&format!("  {}: {} snapshot(s)", name, snapshots.len()));
+        output::info(format!("  {}: {} snapshot(s)", name, snapshots.len()));
         if verbose {
             let rows: Vec<SnapshotRow> = snapshots.iter().map(SnapshotRow::from).collect();
             output::print_table_auto(&rows);

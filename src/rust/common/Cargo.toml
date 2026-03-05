@@ -41,3 +41,6 @@ sqlite = ["rusqlite"]
 regex-lite = "0.1"
 tempfile = "3.26"
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+[lints]
+workspace = true

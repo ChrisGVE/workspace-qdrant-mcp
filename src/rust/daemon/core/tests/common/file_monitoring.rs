@@ -115,7 +115,7 @@ pub fn matches_pattern(filename: &str, pattern: &str) -> bool {
     if pattern.contains('*') {
         // Basic glob matching
         let prefix = pattern.split('*').next().unwrap_or("");
-        let suffix = pattern.split('*').last().unwrap_or("");
+        let suffix = pattern.split('*').next_back().unwrap_or("");
         filename.starts_with(prefix) && filename.ends_with(suffix)
     } else if pattern.starts_with('.') {
         // Extension matching

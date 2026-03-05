@@ -17,7 +17,7 @@ pub(super) async fn branch_list() -> Result<()> {
             let branches = String::from_utf8_lossy(&out.stdout);
             for line in branches.lines() {
                 if line.contains("* ") {
-                    output::info(&format!("{} (current)", line));
+                    output::info(format!("{} (current)", line));
                 } else {
                     println!("{}", line);
                 }
@@ -76,10 +76,7 @@ pub(super) async fn branch_switch(branch: &str) -> Result<()> {
     output::section(format!("Switch Branch: {}", branch));
 
     output::info("Branch switching affects which content gets indexed.");
-    output::info(&format!(
-        "Documents will be tagged with branch='{}'",
-        branch
-    ));
+    output::info(format!("Documents will be tagged with branch='{}'", branch));
     output::separator();
 
     // Git checkout

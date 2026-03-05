@@ -15,9 +15,9 @@ pub async fn query_related(
     output::section("Graph Query");
     output::kv("Node ID", node_id);
     output::kv("Tenant", tenant_id);
-    output::kv("Max Hops", &max_hops.to_string());
+    output::kv("Max Hops", max_hops.to_string());
     if !edge_types.is_empty() {
-        output::kv("Edge Types", &edge_types.join(", "));
+        output::kv("Edge Types", edge_types.join(", "));
     }
     output::separator();
 

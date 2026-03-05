@@ -201,11 +201,11 @@ fn print_collection_results(
             .unwrap_or_default();
 
         if row.tenants == "-" {
-            output::kv(&row.name, &format!("{} | {} points", row.ctype, row.points));
+            output::kv(&row.name, format!("{} | {} points", row.ctype, row.points));
         } else {
             output::kv(
                 &row.name,
-                &format!(
+                format!(
                     "{} | {} points | {} tenant(s){}",
                     row.ctype, row.points, row.tenants, orphan_str
                 ),

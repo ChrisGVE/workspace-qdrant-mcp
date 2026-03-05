@@ -43,7 +43,7 @@ impl ItemType {
     /// - "project" / "library" / "delete_tenant" → Tenant
     /// - "delete_document" → Doc
     /// - "rename" → None (rename is an operation, not an item type)
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             constants::item_type::TEXT => Some(ItemType::Text),
             constants::item_type::FILE => Some(ItemType::File),

@@ -109,8 +109,8 @@ async fn search_project(
     output::section("Project Search");
 
     output::kv("Query", query);
-    output::kv("Limit", &limit.to_string());
-    output::kv("Include Libraries", &include_libs.to_string());
+    output::kv("Limit", limit.to_string());
+    output::kv("Include Libraries", include_libs.to_string());
     if let Some(ft) = &file_type {
         output::kv("File Type", ft);
     }
@@ -127,9 +127,9 @@ async fn search_project(
             output::info("Project search requires embedding generation via MCP server.");
             output::info("Use the MCP search tool:");
             output::info("  mcp__workspace_qdrant__search(");
-            output::info(&format!("    query=\"{}\",", query));
+            output::info(format!("    query=\"{}\",", query));
             output::info("    scope=\"project\",");
-            output::info(&format!("    limit={}", limit));
+            output::info(format!("    limit={}", limit));
             output::info("  )");
         }
         Err(_) => {
@@ -149,7 +149,7 @@ async fn search_collection(
     output::section(format!("Collection Search: {}", name));
 
     output::kv("Query", query);
-    output::kv("Limit", &limit.to_string());
+    output::kv("Limit", limit.to_string());
     if let Some(f) = &filter {
         output::kv("Filter", f);
     }
@@ -160,8 +160,8 @@ async fn search_collection(
     output::info(
         "  1. MCP server: mcp__workspace_qdrant__search(scope=\"collection\", collection=\"...\"",
     );
-    output::info(&format!("  2. Direct Qdrant with pre-computed vector:"));
-    output::info(&format!(
+    output::info("  2. Direct Qdrant with pre-computed vector:".to_string());
+    output::info(format!(
         "     curl -X POST 'http://localhost:6333/collections/{}/points/search'",
         name
     ));
@@ -173,18 +173,18 @@ async fn search_global(query: &str, limit: usize, exclude: &[String]) -> Result<
     output::section("Global Search");
 
     output::kv("Query", query);
-    output::kv("Limit", &limit.to_string());
+    output::kv("Limit", limit.to_string());
     if !exclude.is_empty() {
-        output::kv("Excluding", &exclude.join(", "));
+        output::kv("Excluding", exclude.join(", "));
     }
     output::separator();
 
     output::info("Global search queries all project collections.");
     output::info("Use the MCP search tool:");
     output::info("  mcp__workspace_qdrant__search(");
-    output::info(&format!("    query=\"{}\",", query));
+    output::info(format!("    query=\"{}\",", query));
     output::info("    scope=\"global\",");
-    output::info(&format!("    limit={}", limit));
+    output::info(format!("    limit={}", limit));
     output::info("  )");
 
     Ok(())
@@ -194,7 +194,7 @@ async fn search_rules(query: &str, limit: usize, scope: Option<String>) -> Resul
     output::section("Rules Search");
 
     output::kv("Query", query);
-    output::kv("Limit", &limit.to_string());
+    output::kv("Limit", limit.to_string());
     if let Some(s) = &scope {
         output::kv("Scope", s);
     }
@@ -203,9 +203,9 @@ async fn search_rules(query: &str, limit: usize, scope: Option<String>) -> Resul
     output::info("Rules search queries the rules collection for behavioral rules.");
     output::info("Use the MCP search tool:");
     output::info("  mcp__workspace_qdrant__search(");
-    output::info(&format!("    query=\"{}\",", query));
+    output::info(format!("    query=\"{}\",", query));
     output::info("    scope=\"rules\",");
-    output::info(&format!("    limit={}", limit));
+    output::info(format!("    limit={}", limit));
     output::info("  )");
 
     Ok(())

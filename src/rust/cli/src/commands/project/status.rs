@@ -21,7 +21,7 @@ pub(super) async fn project_status(path: Option<PathBuf>) -> Result<()> {
     // Generate project ID using the same algorithm as the daemon
     let project_id = calculate_project_id(&abs_path);
 
-    output::kv("Path", &abs_path.display().to_string());
+    output::kv("Path", abs_path.display().to_string());
     output::kv("Project ID", &project_id);
     output::separator();
 

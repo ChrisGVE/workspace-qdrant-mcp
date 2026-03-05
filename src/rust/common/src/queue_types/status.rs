@@ -30,7 +30,7 @@ impl fmt::Display for QueueStatus {
 
 impl QueueStatus {
     /// Parse status from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "pending" => Some(QueueStatus::Pending),
             "in_progress" => Some(QueueStatus::InProgress),
@@ -72,7 +72,7 @@ impl fmt::Display for DestinationStatus {
 
 impl DestinationStatus {
     /// Parse from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "pending" => Some(DestinationStatus::Pending),
             "in_progress" => Some(DestinationStatus::InProgress),

@@ -210,10 +210,8 @@ pub struct LogFilter {
 
 impl LogFilter {
     pub fn matches(&self, entry: &LogEntry) -> bool {
-        if self.errors_only {
-            if !entry.level.map(|l| l.is_error_or_warn()).unwrap_or(false) {
-                return false;
-            }
+        if self.errors_only && !entry.level.map(|l| l.is_error_or_warn()).unwrap_or(false) {
+            return false;
         }
         if let Some(cutoff) = &self.since {
             if let Some(ts) = &entry.parsed_time {

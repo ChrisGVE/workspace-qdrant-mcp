@@ -159,7 +159,7 @@ async fn dedup_by_content(
         }
     }
 
-    for (_content, entries) in &content_map {
+    for entries in content_map.values() {
         if entries.len() > 1 {
             content_dups += 1;
             info!(

@@ -277,7 +277,7 @@ where
 }
 
 /// Convenience functions for creating matchers
-pub mod matchers {
+pub mod convenience {
     use super::*;
 
     /// Create a vector similarity matcher
@@ -338,7 +338,7 @@ macro_rules! assert_vectors_similar {
     ($actual:expr, $expected:expr, $threshold:expr) => {
         $crate::assert_that!(
             $actual,
-            $crate::matchers::matchers::similar_to($expected, $threshold)
+            $crate::matchers::convenience::similar_to($expected, $threshold)
         );
     };
     ($actual:expr, $expected:expr) => {
@@ -352,14 +352,14 @@ macro_rules! assert_responds_within {
     ($duration:expr, $max_ms:expr) => {
         $crate::assert_that!(
             $duration,
-            $crate::matchers::matchers::responds_within($max_ms)
+            $crate::matchers::convenience::responds_within($max_ms)
         );
     };
 }
 
 #[cfg(test)]
 mod tests {
-    use super::matchers::*;
+    use super::convenience::*;
     use super::*;
 
     #[test]

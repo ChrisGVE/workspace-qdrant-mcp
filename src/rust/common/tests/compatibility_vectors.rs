@@ -201,44 +201,44 @@ fn test_tokenization_vectors() {
 #[test]
 fn test_queue_type_validation_vectors() {
     // New item types
-    assert!(ItemType::from_str("text").is_some());
-    assert!(ItemType::from_str("file").is_some());
-    assert!(ItemType::from_str("url").is_some());
-    assert!(ItemType::from_str("website").is_some());
-    assert!(ItemType::from_str("doc").is_some());
-    assert!(ItemType::from_str("folder").is_some());
-    assert!(ItemType::from_str("tenant").is_some());
-    assert!(ItemType::from_str("collection").is_some());
-    assert!(ItemType::from_str("invalid").is_none());
-    assert!(ItemType::from_str("").is_none());
+    assert!(ItemType::parse_str("text").is_some());
+    assert!(ItemType::parse_str("file").is_some());
+    assert!(ItemType::parse_str("url").is_some());
+    assert!(ItemType::parse_str("website").is_some());
+    assert!(ItemType::parse_str("doc").is_some());
+    assert!(ItemType::parse_str("folder").is_some());
+    assert!(ItemType::parse_str("tenant").is_some());
+    assert!(ItemType::parse_str("collection").is_some());
+    assert!(ItemType::parse_str("invalid").is_none());
+    assert!(ItemType::parse_str("").is_none());
 
     // Legacy item types still parse
-    assert!(ItemType::from_str("content").is_some());
-    assert!(ItemType::from_str("project").is_some());
-    assert!(ItemType::from_str("library").is_some());
-    assert!(ItemType::from_str("delete_tenant").is_some());
-    assert!(ItemType::from_str("delete_document").is_some());
+    assert!(ItemType::parse_str("content").is_some());
+    assert!(ItemType::parse_str("project").is_some());
+    assert!(ItemType::parse_str("library").is_some());
+    assert!(ItemType::parse_str("delete_tenant").is_some());
+    assert!(ItemType::parse_str("delete_document").is_some());
     // "rename" is no longer an item type
-    assert!(ItemType::from_str("rename").is_none());
+    assert!(ItemType::parse_str("rename").is_none());
 
     // New operations
-    assert!(QueueOperation::from_str("add").is_some());
-    assert!(QueueOperation::from_str("update").is_some());
-    assert!(QueueOperation::from_str("delete").is_some());
-    assert!(QueueOperation::from_str("scan").is_some());
-    assert!(QueueOperation::from_str("rename").is_some());
-    assert!(QueueOperation::from_str("uplift").is_some());
-    assert!(QueueOperation::from_str("reset").is_some());
+    assert!(QueueOperation::parse_str("add").is_some());
+    assert!(QueueOperation::parse_str("update").is_some());
+    assert!(QueueOperation::parse_str("delete").is_some());
+    assert!(QueueOperation::parse_str("scan").is_some());
+    assert!(QueueOperation::parse_str("rename").is_some());
+    assert!(QueueOperation::parse_str("uplift").is_some());
+    assert!(QueueOperation::parse_str("reset").is_some());
     // Legacy operation
-    assert!(QueueOperation::from_str("ingest").is_some());
-    assert!(QueueOperation::from_str("invalid").is_none());
+    assert!(QueueOperation::parse_str("ingest").is_some());
+    assert!(QueueOperation::parse_str("invalid").is_none());
 
     // Valid statuses
-    assert!(QueueStatus::from_str("pending").is_some());
-    assert!(QueueStatus::from_str("in_progress").is_some());
-    assert!(QueueStatus::from_str("done").is_some());
-    assert!(QueueStatus::from_str("failed").is_some());
-    assert!(QueueStatus::from_str("invalid").is_none());
+    assert!(QueueStatus::parse_str("pending").is_some());
+    assert!(QueueStatus::parse_str("in_progress").is_some());
+    assert!(QueueStatus::parse_str("done").is_some());
+    assert!(QueueStatus::parse_str("failed").is_some());
+    assert!(QueueStatus::parse_str("invalid").is_none());
 
     // Operation+type validation (new taxonomy)
     assert!(QueueOperation::Add.is_valid_for(ItemType::File));

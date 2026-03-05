@@ -18,7 +18,7 @@ use shared_test_utils::{async_test, test_helpers::init_test_tracing, TestResult}
 
 /// Test helper for creating test documents with various content types
 async fn create_test_document(content: &str, extension: &str) -> TestResult<NamedTempFile> {
-    let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))?;
+    let temp_file = NamedTempFile::with_suffix(format!(".{}", extension))?;
     tokio::fs::write(temp_file.path(), content).await?;
     Ok(temp_file)
 }

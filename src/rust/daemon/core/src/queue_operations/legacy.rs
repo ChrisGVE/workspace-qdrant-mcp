@@ -89,7 +89,7 @@ impl QueueManager {
 
         for row in rows {
             let operation_str: String = row.try_get("operation")?;
-            let operation = UnifiedOp::from_str(&operation_str).unwrap_or(UnifiedOp::Add);
+            let operation = UnifiedOp::parse_str(&operation_str).unwrap_or(UnifiedOp::Add);
 
             let missing_tools_json: String = row.try_get("missing_tools")?;
             let missing_tools: Vec<MissingTool> = serde_json::from_str(&missing_tools_json)?;

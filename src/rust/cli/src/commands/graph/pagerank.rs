@@ -17,10 +17,10 @@ pub async fn pagerank(
     output::section("PageRank");
     output::kv("Tenant", tenant_id);
     if let Some(d) = damping {
-        output::kv("Damping", &format!("{:.2}", d));
+        output::kv("Damping", format!("{:.2}", d));
     }
     if let Some(k) = top_k {
-        output::kv("Top K", &k.to_string());
+        output::kv("Top K", k.to_string());
     }
     output::separator();
 
@@ -47,7 +47,7 @@ pub async fn pagerank(
         return Ok(());
     }
 
-    println!("{:<10} {:<30} {:<12} {}", "SCORE", "SYMBOL", "TYPE", "FILE");
+    println!("{:<10} {:<30} {:<12} FILE", "SCORE", "SYMBOL", "TYPE");
     for e in &resp.entries {
         let loc = if e.file_path.is_empty() {
             "(stub)".to_string()

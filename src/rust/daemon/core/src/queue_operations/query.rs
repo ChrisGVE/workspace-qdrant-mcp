@@ -146,13 +146,13 @@ impl QueueManager {
                 Ok(Some(UnifiedQueueItem {
                     queue_id: row.try_get("queue_id")?,
                     idempotency_key: row.try_get("idempotency_key")?,
-                    item_type: ItemType::from_str(&item_type_str)
+                    item_type: ItemType::parse_str(&item_type_str)
                         .ok_or_else(|| QueueError::InvalidOperation(item_type_str.clone()))?,
-                    op: UnifiedOp::from_str(&op_str)
+                    op: UnifiedOp::parse_str(&op_str)
                         .ok_or_else(|| QueueError::InvalidOperation(op_str.clone()))?,
                     tenant_id: row.try_get("tenant_id")?,
                     collection: row.try_get("collection")?,
-                    status: QueueStatus::from_str(&status_str)
+                    status: QueueStatus::parse_str(&status_str)
                         .ok_or_else(|| QueueError::InvalidOperation(status_str.clone()))?,
                     branch: row.try_get("branch")?,
                     payload_json: row.try_get("payload_json")?,
@@ -167,11 +167,11 @@ impl QueueManager {
                     file_path: row.try_get("file_path")?, // Task 22
                     qdrant_status: {
                         let s: Option<String> = row.try_get("qdrant_status")?;
-                        s.and_then(|v| DestinationStatus::from_str(&v))
+                        s.and_then(|v| DestinationStatus::parse_str(&v))
                     },
                     search_status: {
                         let s: Option<String> = row.try_get("search_status")?;
-                        s.and_then(|v| DestinationStatus::from_str(&v))
+                        s.and_then(|v| DestinationStatus::parse_str(&v))
                     },
                     decision_json: row.try_get("decision_json")?,
                 }))

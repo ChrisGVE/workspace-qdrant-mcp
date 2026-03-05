@@ -25,7 +25,7 @@ pub async fn ingest_file(
         .canonicalize()
         .context("Could not resolve absolute path")?;
 
-    output::kv("File", &abs_path.display().to_string());
+    output::kv("File", abs_path.display().to_string());
     if let Some(c) = &collection {
         output::kv("Collection", c);
     }
@@ -88,7 +88,7 @@ pub async fn ingest_folder(
         .canonicalize()
         .context("Could not resolve absolute path")?;
 
-    output::kv("Folder", &abs_path.display().to_string());
+    output::kv("Folder", abs_path.display().to_string());
     if let Some(c) = &collection {
         output::kv("Collection", c);
     }
@@ -96,16 +96,16 @@ pub async fn ingest_folder(
         output::kv("Library Tag", t);
     }
     if !patterns.is_empty() {
-        output::kv("Patterns", &patterns.join(", "));
+        output::kv("Patterns", patterns.join(", "));
     }
     if let Some(l) = limit {
-        output::kv("Limit", &l.to_string());
+        output::kv("Limit", l.to_string());
     }
     output::separator();
 
     // Folder ingestion - recommend setting up a watch
     output::info("For bulk folder ingestion, consider setting up a watch:");
-    output::info(&format!(
+    output::info(format!(
         "  wqm library watch {} {}",
         tag.as_deref().unwrap_or("mylib"),
         abs_path.display()

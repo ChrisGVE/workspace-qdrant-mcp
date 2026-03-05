@@ -15,7 +15,7 @@ pub async fn errors(count: usize, component: Option<String>) -> Result<()> {
     if let Some(comp) = &component {
         output::kv("Component filter", comp);
     }
-    output::kv("Max errors", &count.to_string());
+    output::kv("Max errors", count.to_string());
     output::separator();
 
     // Try to get errors from daemon health endpoint
@@ -114,7 +114,7 @@ pub async fn queue_errors(count: usize, operation: Option<String>) -> Result<()>
     if let Some(op) = &operation {
         output::kv("Operation filter", op);
     }
-    output::kv("Max errors", &count.to_string());
+    output::kv("Max errors", count.to_string());
     output::separator();
 
     // Query unified queue for failed items
@@ -162,7 +162,7 @@ pub async fn queue_errors(count: usize, operation: Option<String>) -> Result<()>
         output::kv("Type", &item_type);
         output::kv("Operation", &op);
         output::kv("Tenant", &tenant_id);
-        output::kv("Retries", &retry_count.to_string());
+        output::kv("Retries", retry_count.to_string());
         output::kv("Updated", &updated_at);
         if let Some(err) = last_error {
             output::kv("Error", &err);

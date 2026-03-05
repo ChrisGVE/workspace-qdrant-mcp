@@ -222,10 +222,8 @@ pub fn normalize_commas(s: &str) -> String {
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         result.push(c);
-        if c == ',' {
-            if chars.peek() != Some(&' ') {
-                result.push(' ');
-            }
+        if c == ',' && chars.peek() != Some(&' ') {
+            result.push(' ');
         }
     }
     result

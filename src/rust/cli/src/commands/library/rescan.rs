@@ -34,7 +34,7 @@ pub async fn execute(tag: &str, force: bool) -> Result<()> {
     output::kv("Tag", tag);
     output::kv("Path", &lib_path);
     output::kv("Mode", mode.as_deref().unwrap_or("incremental"));
-    output::kv("Force", &force.to_string());
+    output::kv("Force", force.to_string());
     output::separator();
 
     // Enqueue a folder scan for the library

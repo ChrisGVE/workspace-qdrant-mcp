@@ -88,8 +88,8 @@ fn show_library_status() -> Result<()> {
 
     let watching = libraries.iter().filter(|(_, _, _, e)| *e).count();
     let paused = libraries.len() - watching;
-    output::kv("  Watching", &watching.to_string());
-    output::kv("  Paused", &paused.to_string());
+    output::kv("  Watching", watching.to_string());
+    output::kv("  Paused", paused.to_string());
     output::separator();
 
     for (tag, path, mode, enabled) in &libraries {

@@ -17,7 +17,7 @@ pub async fn create_backup(
 ) -> Result<()> {
     if !json {
         output::section("Create Backup");
-        output::kv("Qdrant", &qdrant_url());
+        output::kv("Qdrant", qdrant_url());
         output::kv("Collection", collection);
         output::separator();
     }
@@ -67,7 +67,7 @@ async fn trigger_snapshot(
         format!("{}/snapshots", base)
     } else {
         if !json {
-            output::info(&format!(
+            output::info(format!(
                 "Creating snapshot for collection '{}'...",
                 collection
             ));
@@ -105,7 +105,7 @@ async fn download_snapshot(
 ) -> Result<()> {
     if !json {
         output::separator();
-        output::info(&format!("Downloading snapshot to {}...", dir.display()));
+        output::info(format!("Downloading snapshot to {}...", dir.display()));
     }
 
     std::fs::create_dir_all(dir)

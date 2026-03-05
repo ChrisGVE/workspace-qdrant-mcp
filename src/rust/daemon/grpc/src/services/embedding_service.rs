@@ -52,6 +52,12 @@ pub struct EmbeddingCacheMetrics {
     pub misses: AtomicU64,
 }
 
+impl Default for EmbeddingCacheMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EmbeddingCacheMetrics {
     pub const fn new() -> Self {
         Self {

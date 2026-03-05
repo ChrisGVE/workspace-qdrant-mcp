@@ -173,7 +173,7 @@ fn print_table_output(
     verbose: bool,
 ) {
     output::section("Rules");
-    output::kv("Total", &points.len().to_string());
+    output::kv("Total", points.len().to_string());
     if let Some(s) = scope {
         output::kv("Filter", s);
     }

@@ -72,7 +72,7 @@ fn print_grammar_config_summary(
     );
     output::kv(
         "  Cached grammars",
-        &format!("{}/{}", cached_count, known_count),
+        format!("{}/{}", cached_count, known_count),
     );
     let idle_status = if config.idle_update_check_enabled {
         format!(
@@ -141,7 +141,7 @@ async fn print_daemon_language_components(verbose: bool) {
                             || comp.component_name.contains("language")
                         {
                             let status = ServiceStatus::from_proto(comp.status);
-                            output::status_line(&format!("  {}", comp.component_name), status);
+                            output::status_line(format!("  {}", comp.component_name), status);
                             if !comp.message.is_empty() && verbose {
                                 output::kv("    Message", &comp.message);
                             }

@@ -27,9 +27,9 @@ pub async fn queue(verbose: bool) -> Result<()> {
                     }
                 }
 
-                output::kv("Pending", &(pending as i64).to_string());
-                output::kv("Processed", &(processed as i64).to_string());
-                output::kv("Failed", &(failed as i64).to_string());
+                output::kv("Pending", (pending as i64).to_string());
+                output::kv("Processed", (processed as i64).to_string());
+                output::kv("Failed", (failed as i64).to_string());
 
                 if verbose {
                     output::separator();

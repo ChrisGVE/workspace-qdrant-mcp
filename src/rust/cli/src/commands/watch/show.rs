@@ -90,27 +90,27 @@ fn print_detail(item: &WatchDetailItem) {
         output::kv("Disambiguation", dp);
     }
     output::separator();
-    output::kv("Enabled", &format_bool(item.enabled));
-    output::kv("Active", &format_bool(item.is_active));
-    output::kv("Paused", &format_bool_paused(item.is_paused));
-    output::kv("Archived", &format_bool_archived(item.is_archived));
-    output::kv("Follow Symlinks", &format_bool(item.follow_symlinks));
+    output::kv("Enabled", format_bool(item.enabled));
+    output::kv("Active", format_bool(item.is_active));
+    output::kv("Paused", format_bool_paused(item.is_paused));
+    output::kv("Archived", format_bool_archived(item.is_archived));
+    output::kv("Follow Symlinks", format_bool(item.follow_symlinks));
     if let Some(ref mode) = item.library_mode {
         output::kv("Library Mode", mode);
     }
     output::separator();
     output::kv(
         "Created At",
-        &wqm_common::timestamp_fmt::format_local(&item.created_at),
+        wqm_common::timestamp_fmt::format_local(&item.created_at),
     );
     output::kv(
         "Updated At",
-        &wqm_common::timestamp_fmt::format_local(&item.updated_at),
+        wqm_common::timestamp_fmt::format_local(&item.updated_at),
     );
     if let Some(ref scan) = item.last_scan {
         output::kv(
             "Last Scan",
-            &format!(
+            format!(
                 "{} ({})",
                 wqm_common::timestamp_fmt::format_local(scan),
                 format_relative_time(scan)
@@ -122,7 +122,7 @@ fn print_detail(item: &WatchDetailItem) {
     if let Some(ref activity) = item.last_activity_at {
         output::kv(
             "Last Activity",
-            &format!(
+            format!(
                 "{} ({})",
                 wqm_common::timestamp_fmt::format_local(activity),
                 format_relative_time(activity)

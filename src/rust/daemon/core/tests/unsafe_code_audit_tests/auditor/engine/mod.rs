@@ -20,6 +20,12 @@ pub struct UnsafeCodeAuditor {
     _concurrency_tracker: Arc<Mutex<ConcurrencyTracker>>,
 }
 
+impl Default for UnsafeCodeAuditor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UnsafeCodeAuditor {
     pub fn new() -> Self {
         Self {

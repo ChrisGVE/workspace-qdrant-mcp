@@ -15,10 +15,10 @@ pub async fn betweenness(
     output::section("Betweenness Centrality");
     output::kv("Tenant", tenant_id);
     if let Some(k) = top_k {
-        output::kv("Top K", &k.to_string());
+        output::kv("Top K", k.to_string());
     }
     if let Some(s) = max_samples {
-        output::kv("Max Samples", &s.to_string());
+        output::kv("Max Samples", s.to_string());
     }
     output::separator();
 
@@ -43,7 +43,7 @@ pub async fn betweenness(
         return Ok(());
     }
 
-    println!("{:<10} {:<30} {:<12} {}", "SCORE", "SYMBOL", "TYPE", "FILE");
+    println!("{:<10} {:<30} {:<12} FILE", "SCORE", "SYMBOL", "TYPE");
     for e in &resp.entries {
         let loc = if e.file_path.is_empty() {
             "(stub)".to_string()

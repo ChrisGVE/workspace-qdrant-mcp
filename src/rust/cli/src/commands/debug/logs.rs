@@ -87,7 +87,7 @@ fn print_log_header(
     since_cutoff: Option<&DateTime<Utc>>,
 ) {
     output::section("Logs");
-    output::kv("Log directory", &log_dir.display().to_string());
+    output::kv("Log directory", log_dir.display().to_string());
     output::kv(
         "Component",
         match component {
@@ -103,7 +103,7 @@ fn print_log_header(
         output::kv("Level filter", "ERROR/WARN only");
     }
     if let Some(cutoff) = since_cutoff {
-        output::kv("Since", &timestamps::format_utc(cutoff));
+        output::kv("Since", timestamps::format_utc(cutoff));
     }
     output::separator();
 }

@@ -37,7 +37,7 @@ pub async fn restore_from_backup(
     let client = build_client()?;
 
     output::kv("Qdrant", &base);
-    output::kv("File", &path.display().to_string());
+    output::kv("File", path.display().to_string());
     output::kv("Target Collection", collection);
     output::separator();
 

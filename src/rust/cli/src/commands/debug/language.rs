@@ -109,7 +109,7 @@ fn show_lsp_install_suggestions(language: &str) {
         "php" => output::info("    composer global require phpactor/phpactor"),
         "shell" | "bash" => output::info("    npm install -g bash-language-server"),
         "html" => output::info("    npm install -g vscode-langservers-extracted"),
-        _ => output::info(&format!("    Search for {}-language-server", language)),
+        _ => output::info(format!("    Search for {}-language-server", language)),
     }
 }
 
@@ -161,7 +161,7 @@ fn check_tree_sitter_grammar(language: &str, _verbose: bool) -> bool {
         output::warning(format!("  No tree-sitter grammar found for {}", language));
         output::info("  Grammar search paths:");
         for path in &grammar_paths {
-            output::info(&format!("    - {}", path.display()));
+            output::info(format!("    - {}", path.display()));
         }
         output::info("  Install with: wqm language install <language>");
     }
@@ -186,7 +186,7 @@ async fn check_daemon_language_support(language: &str, verbose: bool) {
                         || comp.component_name.contains("grammar")
                     {
                         let status = ServiceStatus::from_proto(comp.status);
-                        output::status_line(&format!("  {}", comp.component_name), status);
+                        output::status_line(format!("  {}", comp.component_name), status);
                         if !comp.message.is_empty() && verbose {
                             output::kv("    Details", &comp.message);
                         }
@@ -224,9 +224,9 @@ fn show_extension_mapping(language: &str) {
     };
 
     if !extensions.is_empty() {
-        output::kv("  Extensions", &extensions.join(", "));
+        output::kv("  Extensions", extensions.join(", "));
     } else {
-        output::info(&format!("  Unknown file extensions for {}", language));
+        output::info(format!("  Unknown file extensions for {}", language));
     }
 }
 

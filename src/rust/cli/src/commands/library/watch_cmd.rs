@@ -69,7 +69,7 @@ pub async fn execute(
 
     output::kv("  Tag", tag);
     output::kv("  Path", &abs_path_str);
-    output::kv("  Mode", &format!("{} ({})", mode, mode_description(mode)));
+    output::kv("  Mode", format!("{} ({})", mode, mode_description(mode)));
 
     // Use user-provided patterns or defaults
     let effective_patterns: Vec<String> = if patterns.is_empty() {
@@ -81,7 +81,7 @@ pub async fn execute(
         patterns.to_vec()
     };
 
-    output::kv("  Patterns", &format!("{}", effective_patterns.len()));
+    output::kv("  Patterns", format!("{}", effective_patterns.len()));
 
     enqueue_scan(tag, &abs_path_str, &effective_patterns);
     signal_daemon(tag).await;

@@ -167,7 +167,7 @@ mod tests {
         let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
 
         // No matching group → add new
-        assert!(ss.iter().position(is_our_matcher).is_none());
+        assert!(!ss.iter().any(is_our_matcher));
         ss.push(json!({
             "matcher": SESSION_START_MATCHER,
             "hooks": [build_wqm_hook_command()]
