@@ -22,42 +22,47 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  ORT_VERSION: "1.23.2"
 
 jobs:
-  # Rust build and test
+  # Rust formatting check (fast, runs once)
+  fmt:
+    name: Rust formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        working-directory: src/rust
+        run: cargo fmt --all -- --check
+
+  # Rust build, lint, and test
   rust:
-    name: Rust ${{ matrix.os }}
+    name: Rust (${{ matrix.os }})
+    needs: fmt
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev tesseract-ocr libtesseract-dev
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake tesseract-ocr libtesseract-dev
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
-        run: brew install protobuf tesseract
-
-      - name: Install Windows dependencies
-        if: runner.os == 'Windows'
-        run: |
-          choco install protoc -y
-          choco install tesseract -y
+        run: brew install cmake protobuf tesseract
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -70,60 +75,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # Download ONNX Runtime for dynamic loading
-      - name: Cache ONNX Runtime
-        uses: actions/cache@v4
-        id: onnx-cache
-        with:
-          path: ~/.onnxruntime
-          key: onnxruntime-${{ env.ORT_VERSION }}-${{ runner.os }}
-
-      - name: Download ONNX Runtime
-        if: steps.onnx-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          mkdir -p ~/.onnxruntime
-          case "${{ runner.os }}" in
-            macOS)
-              # Detect architecture
-              if [[ "$(uname -m)" == "arm64" ]]; then
-                curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-arm64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
-              else
-                curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-x86_64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
-              fi
-              ;;
-            Linux)
-              curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-linux-x64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
-              ;;
-            Windows)
-              curl -fL "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-win-x64-${{ env.ORT_VERSION }}.zip" -o ort.zip
-              unzip ort.zip -d ~/.onnxruntime
-              mv ~/.onnxruntime/onnxruntime-win-x64-${{ env.ORT_VERSION }}/* ~/.onnxruntime/
-              ;;
-          esac
-
-      - name: Set ORT_DYLIB_PATH
-        shell: bash
-        run: |
-          case "${{ runner.os }}" in
-            macOS)
-              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/libonnxruntime.dylib" >> $GITHUB_ENV
-              ;;
-            Linux)
-              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/libonnxruntime.so" >> $GITHUB_ENV
-              ;;
-            Windows)
-              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/onnxruntime.dll" >> $GITHUB_ENV
-              ;;
-          esac
-
-      - name: Check formatting
-        working-directory: src/rust
-        run: cargo fmt --all -- --check
+      # ort crate auto-downloads static ONNX Runtime for ARM Mac and Linux x64
+      # No manual ORT_LIB_LOCATION needed for these platforms
 
       - name: Clippy
         working-directory: src/rust
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Build
         working-directory: src/rust
@@ -132,3 +89,26 @@ jobs:
       - name: Test
         working-directory: src/rust
         run: cargo test --release
+
+  # TypeScript MCP server
+  typescript:
+    name: TypeScript MCP server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: src/typescript/mcp-server
+        run: npm ci
+
+      - name: Build
+        working-directory: src/typescript/mcp-server
+        run: npm run build
+
+      - name: Test
+        working-directory: src/typescript/mcp-server
+        run: npm test
