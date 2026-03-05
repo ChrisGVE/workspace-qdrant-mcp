@@ -1,151 +1,61 @@
-name: Security Scanning
+# Security scanning for workspace-qdrant-mcp
+# Rust dependency audit + secrets scanning
+
+name: Security
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, dev]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, dev]
   schedule:
-    # Run security scans daily at 1 AM UTC
-    - cron: '0 1 * * *'
+    - cron: '0 1 * * *'  # Daily at 1 AM UTC
   workflow_dispatch:
 
 jobs:
-  security-scan:
-    name: Security Analysis
+  cargo-audit:
+    name: Rust dependency audit
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
 
-    - name: Install dependencies and security tools
-      run: |
-        uv venv --python 3.11
-        . .venv/bin/activate
-        uv pip install -e ".[dev]"
-        uv pip install bandit safety
+      - name: Run cargo audit
+        working-directory: src/rust
+        run: cargo audit
 
-    - name: Run Bandit security linter
-      run: |
-        . .venv/bin/activate
-        echo "🔍 Running Bandit Security Analysis" | tee security-report.txt
-        echo "=======================================" >> security-report.txt
-        echo "" >> security-report.txt
-        
-        # Run bandit with reasonable exclusions for a Python package
-        bandit -r src/workspace_qdrant_mcp/ -f txt --skip B101,B601,B602,B603 >> security-report.txt || echo "Bandit found issues, check report"
-        bandit -r src/workspace_qdrant_mcp/ -f json -o bandit-report.json --skip B101,B601,B602,B603 || true
-
-    - name: Run Safety vulnerability scanner
-      run: |
-        . .venv/bin/activate
-        echo "" >> security-report.txt
-        echo "🛡️  Safety Vulnerability Scan" >> security-report.txt
-        echo "=============================" >> security-report.txt
-        echo "" >> security-report.txt
-        
-        safety check --json --output safety-report.json || true
-        safety check >> security-report.txt || true
-
-    - name: Check for basic security issues
-      run: |
-        echo "🔍 Checking for basic security issues..." | tee -a security-report.txt
-        echo "=========================================" >> security-report.txt
-        
-        # Check for common security anti-patterns (non-failing)
-        echo "Checking for potential issues:" >> security-report.txt
-        grep -r "password.*=" src/ || echo "No hardcoded password patterns found" >> security-report.txt
-        grep -r "secret.*=" src/ || echo "No hardcoded secret patterns found" >> security-report.txt
-        
-        echo "✅ Basic security checks completed" >> security-report.txt
-
-    - name: Upload security reports
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: security-reports
-        path: |
-          security-report.txt
-          bandit-report.json
-          safety-report.json
-
-  dependency-check:
-    name: Dependency Security
+  npm-audit:
+    name: npm dependency audit
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
+      - name: Install dependencies
+        working-directory: src/typescript/mcp-server
+        run: npm ci
 
-    - name: Install dependencies
-      run: |
-        uv venv --python 3.11
-        . .venv/bin/activate
-        uv pip install -e ".[dev]"
-
-    - name: Generate requirements for scanning
-      run: |
-        . .venv/bin/activate
-        pip freeze > requirements-current.txt
-
-    - name: Check dependencies with pip-audit
-      uses: pypa/gh-action-pip-audit@v1.1.0
-      with:
-        inputs: requirements-current.txt
-        format: json
-        output: pip-audit-report.json
-      continue-on-error: true  # Don't fail on dependency issues
-
-    - name: Upload dependency reports
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: dependency-reports
-        path: |
-          requirements-current.txt
-          pip-audit-report.json
+      - name: Run npm audit
+        working-directory: src/typescript/mcp-server
+        run: npm audit --omit=dev
 
   secrets-scan:
-    name: Secrets Scan
+    name: Secrets scan
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule'  # Only on PRs or scheduled
-
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Run TruffleHog secrets scan
-      uses: trufflesecurity/trufflehog@v3.63.2
-      with:
-        path: ./
-        base: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
-        head: HEAD
-        extra_args: --debug --only-verified
-      continue-on-error: true  # Don't fail on single commits
-
-    - name: Run gitleaks
-      uses: gitleaks/gitleaks-action@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      continue-on-error: true  # Don't fail on secrets scan issues
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
