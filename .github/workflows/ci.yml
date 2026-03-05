@@ -88,7 +88,8 @@ jobs:
 
       - name: Test
         working-directory: src/rust
-        run: cargo test --release
+        # Exclude workspace-qdrant-grpc integration tests (require running Qdrant)
+        run: cargo test --release --workspace --exclude workspace-qdrant-grpc
 
   # TypeScript MCP server (build only)
   # Full test suite requires wqm-common-node native addon (Rust napi build)
