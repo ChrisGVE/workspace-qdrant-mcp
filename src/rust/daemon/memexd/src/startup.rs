@@ -396,8 +396,8 @@ pub fn load_config(args: &DaemonArgs) -> Result<DaemonConfig, Box<dyn std::error
         None => load_auto_discover(&config_manager, is_daemon_mode),
     };
 
-    if args.port.is_some() {
-        info!("Port override specified: {}", args.port.unwrap());
+    if let Some(port) = args.port {
+        info!("Port override specified: {}", port);
     }
 
     Ok(daemon_config)

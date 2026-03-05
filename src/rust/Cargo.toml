@@ -201,6 +201,8 @@ neg_cmp_op_on_partial_ord = "allow"
 no_effect = "allow"
 bool_comparison = "allow"
 identity_op = "allow"
+unnecessary_unwrap = "allow"
+cast_slice_from_raw_parts = "allow"
 
 # Patch fastembed to expose ONNX intra-op thread count control.
 # Upstream hardcodes available_parallelism() which uses ALL CPU cores per session.
