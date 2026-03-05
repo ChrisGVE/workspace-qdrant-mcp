@@ -1,5 +1,5 @@
-# Continuous Integration workflow for workspace-qdrant-mcp
-# Runs on push to main/dev and all pull requests
+# Continuous Integration for workspace-qdrant-mcp
+# Runs on push to main/dev, pull requests, and manual dispatch
 
 name: CI
 
