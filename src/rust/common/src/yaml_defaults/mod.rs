@@ -18,7 +18,8 @@ pub static DEFAULT_YAML: &str = include_str!("../../../../../assets/default_conf
 
 /// Parsed default configuration, initialized once on first access.
 pub static DEFAULT_YAML_CONFIG: LazyLock<YamlConfig> = LazyLock::new(|| {
-    serde_yaml_ng::from_str(DEFAULT_YAML).expect("default_configuration.yaml must parse successfully")
+    serde_yaml_ng::from_str(DEFAULT_YAML)
+        .expect("default_configuration.yaml must parse successfully")
 });
 
 // =============================================================================

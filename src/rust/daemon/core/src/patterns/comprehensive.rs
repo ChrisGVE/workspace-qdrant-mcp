@@ -119,8 +119,8 @@ static EMBEDDED_CONFIG: &str = include_str!("../../../../../../assets/internal_c
 /// Global parsed configuration - lazily initialized on first access
 static PARSED_CONFIG: Lazy<Result<Arc<InternalConfiguration>, ComprehensivePatternError>> =
     Lazy::new(|| {
-        let config: InternalConfiguration =
-            serde_yaml_ng::from_str(EMBEDDED_CONFIG).map_err(ComprehensivePatternError::YamlParse)?;
+        let config: InternalConfiguration = serde_yaml_ng::from_str(EMBEDDED_CONFIG)
+            .map_err(ComprehensivePatternError::YamlParse)?;
 
         // Validate configuration after loading
         validate_configuration(&config)?;
