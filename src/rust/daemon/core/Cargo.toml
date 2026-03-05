@@ -49,7 +49,7 @@ imara-diff = "0.2"
 
 # Hashing and collections
 sha2 = "0.10"
-md5 = "0.7"
+md5 = "0.8"
 lru = "0.12"
 
 # Rate limiting and performance
