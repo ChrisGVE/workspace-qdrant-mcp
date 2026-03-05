@@ -122,12 +122,13 @@ async_test!(test_basic_file_creation_monitoring, {
         .watch(temp_path, RecursiveMode::NonRecursive)
         .map_err(|e| format!("Failed to start watching: {}", e))?;
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // FSEvents on macOS CI runners needs extra time to initialize
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     let test_file = temp_path.join("created_file.txt");
     tokio::fs::write(&test_file, "test content").await?;
 
-    let events = watcher.wait_for_events(1, Duration::from_secs(2)).await;
+    let events = watcher.wait_for_events(1, Duration::from_secs(5)).await;
 
     assert!(
         !events.is_empty(),
