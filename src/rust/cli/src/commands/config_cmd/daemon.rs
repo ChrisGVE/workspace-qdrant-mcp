@@ -4,7 +4,7 @@
 //! so that configuration files can be safely moved while the daemon
 //! is not running.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::grpc::client::DaemonClient;
 use crate::output;

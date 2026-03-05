@@ -214,6 +214,8 @@ mod platform_windows_tests {
 mod platform_linux_tests {
     use super::*;
     use crate::watching::platform::{LinuxConfig, LinuxWatcher, PlatformWatcher};
+    use notify::event::EventKind;
+    use std::time::Duration;
 
     fn test_linux_config() -> LinuxConfig {
         LinuxConfig {
