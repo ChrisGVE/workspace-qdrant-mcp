@@ -3192,7 +3192,7 @@ grammars:
   # Default reasoning: true provides seamless setup experience
   auto_download: true
 
-  # tree_sitter_version: Expected tree-sitter ABI version
+  # tree_sitter_version: "0.26.6"
   # Purpose: Specifies the tree-sitter runtime version for grammar compatibility
   # Compatibility: Grammars must be built for this tree-sitter version
   # Mismatch handling: Incompatible grammars auto-replaced if auto_download=true
@@ -3200,7 +3200,7 @@ grammars:
   # Important: Must match tree-sitter version in Cargo.toml
   # Format: String version number
   # Default reasoning: Matches current tree-sitter dependency version
-  tree_sitter_version: "0.24"
+  tree_sitter_version: "0.26.6"
 
   # download_base_url: Base URL template for grammar downloads
   # Purpose: Where to download grammar shared libraries from

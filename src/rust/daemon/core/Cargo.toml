@@ -114,7 +114,7 @@ fastembed = { version = "5", features = ["hf-hub"] }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 # Code parsing (semantic chunking)
-tree-sitter = "0.24"
+tree-sitter = "0.26.6"
 libloading = "0.9"  # Dynamic library loading for tree-sitter grammars
 
 # OCR support (optional, requires Tesseract system library)
