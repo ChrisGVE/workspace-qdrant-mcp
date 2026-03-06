@@ -3356,7 +3356,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "libc",
- "openssl",
+ "openssl-sys",
  "scopeguard",
  "sqlx",
  "tokio",
@@ -8123,7 +8123,7 @@ dependencies = [
  "clap_mangen",
  "colored",
  "dirs 5.0.1",
- "openssl",
+ "openssl-sys",
  "prost 0.13.5",
  "prost-types 0.13.5",
  "reqwest 0.12.28",
