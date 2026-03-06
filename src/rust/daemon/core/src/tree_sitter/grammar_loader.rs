@@ -200,8 +200,12 @@ impl GrammarLoader {
         library: Arc<Library>,
         path: PathBuf,
     ) -> GrammarResult<LoadedGrammar> {
-        // Build the symbol name: tree_sitter_rust, tree_sitter_python, etc.
-        let symbol_name = format!("tree_sitter_{}", language);
+        // Build the symbol name, consulting the grammar registry for overrides
+        let symbol_name = if let Some(source) = super::grammar_registry::lookup(language) {
+            source.c_symbol_name(language)
+        } else {
+            format!("tree_sitter_{}", language)
+        };
         let symbol_bytes = symbol_name.as_bytes();
 
         // Get the symbol from the library

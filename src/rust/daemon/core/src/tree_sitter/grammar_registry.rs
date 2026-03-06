@@ -23,6 +23,10 @@ pub struct GrammarSource {
     /// Most grammars have src/ at the root. Some monorepos (like
     /// tree-sitter-typescript) have it under a subdirectory.
     pub src_subdir: Option<&'static str>,
+    /// Non-standard branch to use for archive fallback.
+    /// Defaults to trying "main" then "master". Some repos keep
+    /// generated parser.c only on a "release" branch.
+    pub archive_branch: Option<&'static str>,
 }
 
 impl GrammarSource {
@@ -33,6 +37,7 @@ impl GrammarSource {
             symbol_name: None,
             has_cpp_scanner: false,
             src_subdir: None,
+            archive_branch: None,
         }
     }
 
@@ -48,6 +53,11 @@ impl GrammarSource {
 
     const fn with_subdir(mut self, subdir: &'static str) -> Self {
         self.src_subdir = Some(subdir);
+        self
+    }
+
+    const fn with_branch(mut self, branch: &'static str) -> Self {
+        self.archive_branch = Some(branch);
         self
     }
 
@@ -140,9 +150,9 @@ pub fn lookup(language: &str) -> Option<GrammarSource> {
             .with_cpp_scanner(),
         "odin" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-odin"),
         "pascal" => GrammarSource::new("Isopod", "tree-sitter-pascal"),
-        "perl" => {
-            GrammarSource::new("tree-sitter-perl", "tree-sitter-perl").with_cpp_scanner()
-        }
+        "perl" => GrammarSource::new("tree-sitter-perl", "tree-sitter-perl")
+            .with_cpp_scanner()
+            .with_branch("release"),
         "php" => GrammarSource::new("tree-sitter", "tree-sitter-php")
             .with_subdir("php")
             .with_cpp_scanner(),

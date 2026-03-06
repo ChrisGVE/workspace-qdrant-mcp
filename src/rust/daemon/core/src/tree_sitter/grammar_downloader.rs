@@ -219,8 +219,14 @@ impl GrammarDownloader {
             Err(e) => return Err(e),
         }
 
-        // Fallback: download from default branch archive
-        for branch in &["main", "master"] {
+        // Fallback: download from branch archive
+        // Some repos keep generated parser.c only on a specific branch
+        let mut branches = Vec::new();
+        if let Some(branch) = source.archive_branch {
+            branches.push(branch);
+        }
+        branches.extend_from_slice(&["main", "master"]);
+        for branch in &branches {
             let archive_url = source.archive_tarball_url(branch);
             debug!(language, url = %archive_url, "Trying archive tarball");
             match self.fetch_bytes(&archive_url, language, branch).await {
@@ -413,57 +419,108 @@ impl GrammarDownloader {
 }
 
 /// Extract a gzipped tarball into a directory.
+///
+/// Uses entry-by-entry extraction to handle tarballs that lack directory
+/// entries (common in GitHub release tarballs).
 fn extract_tarball(bytes: &[u8], dest: &Path) -> DownloadResult<()> {
     use flate2::read::GzDecoder;
     use tar::Archive;
 
     let decoder = GzDecoder::new(std::io::Cursor::new(bytes));
     let mut archive = Archive::new(decoder);
-    archive.unpack(dest).map_err(|e| {
-        DownloadError::ExtractionFailed(format!("Failed to extract tarball: {}", e))
-    })?;
+    // Some release tarballs omit directory entries, so we extract
+    // entry-by-entry and create parent directories as needed.
+    for entry in archive.entries().map_err(|e| {
+        DownloadError::ExtractionFailed(format!("Failed to read tarball: {}", e))
+    })? {
+        let mut entry = entry.map_err(|e| {
+            DownloadError::ExtractionFailed(format!("Failed to read entry: {}", e))
+        })?;
+        let path = entry.path().map_err(|e| {
+            DownloadError::ExtractionFailed(format!("Invalid entry path: {}", e))
+        })?;
+        let full_path = dest.join(&*path);
+
+        if entry.header().entry_type().is_dir() {
+            std::fs::create_dir_all(&full_path).ok();
+        } else if entry.header().entry_type().is_file() {
+            if let Some(parent) = full_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    DownloadError::ExtractionFailed(format!(
+                        "Failed to create directory {}: {}",
+                        parent.display(),
+                        e
+                    ))
+                })?;
+            }
+            entry.unpack(&full_path).map_err(|e| {
+                DownloadError::ExtractionFailed(format!(
+                    "Failed to unpack {}: {}",
+                    full_path.display(),
+                    e
+                ))
+            })?;
+        }
+    }
     Ok(())
 }
 
 /// Find the `src/` directory containing `parser.c` within an extracted tarball.
 ///
-/// Tarballs typically have a top-level directory (e.g., `tree-sitter-rust-0.24.0/`),
-/// and some grammars put the grammar in a subdirectory (e.g., typescript has `typescript/src/`).
+/// Handles multiple tarball formats:
+/// - Files at root with `./src/parser.c` (release tarballs, e.g. tree-sitter-rust)
+/// - Single top-level directory (archive tarballs, e.g. `tree-sitter-rust-main/src/parser.c`)
+/// - Grammar in a subdirectory (monorepos, e.g. `typescript/src/parser.c`)
 fn find_src_dir(extract_dir: &Path, subdir: Option<&str>) -> DownloadResult<PathBuf> {
-    // First, find the top-level directory inside the tarball
+    // Strategy 1: Check if src/parser.c exists directly in extract_dir
+    // (release tarballs often extract files directly)
+    let direct_src = if let Some(sub) = subdir {
+        extract_dir.join(sub).join("src")
+    } else {
+        extract_dir.join("src")
+    };
+    if direct_src.join("parser.c").exists() {
+        return Ok(direct_src);
+    }
+
+    // Strategy 2: Look for a single top-level directory (archive tarballs)
     let entries: Vec<_> = std::fs::read_dir(extract_dir)
         .map_err(|e| DownloadError::ExtractionFailed(e.to_string()))?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir())
         .collect();
 
-    let top_dir = if entries.len() == 1 {
-        entries[0].path()
-    } else {
-        // No single top-level dir; use extract_dir itself
-        extract_dir.to_path_buf()
-    };
+    if entries.len() == 1 {
+        let top_dir = entries[0].path();
+        let grammar_root = if let Some(sub) = subdir {
+            top_dir.join(sub)
+        } else {
+            top_dir
+        };
 
-    // Apply subdir if specified
-    let grammar_root = if let Some(sub) = subdir {
-        top_dir.join(sub)
-    } else {
-        top_dir
-    };
-
-    let src_dir = grammar_root.join("src");
-    if src_dir.exists() && src_dir.join("parser.c").exists() {
-        return Ok(src_dir);
+        let src_dir = grammar_root.join("src");
+        if src_dir.join("parser.c").exists() {
+            return Ok(src_dir);
+        }
+        if grammar_root.join("parser.c").exists() {
+            return Ok(grammar_root);
+        }
     }
 
-    // Some grammars have parser.c directly in the grammar_root
-    if grammar_root.join("parser.c").exists() {
-        return Ok(grammar_root);
+    // Strategy 3: Search recursively for parser.c (last resort)
+    for entry in walkdir::WalkDir::new(extract_dir).max_depth(4) {
+        if let Ok(e) = entry {
+            if e.file_name() == "parser.c" {
+                if let Some(parent) = e.path().parent() {
+                    return Ok(parent.to_path_buf());
+                }
+            }
+        }
     }
 
     Err(DownloadError::ExtractionFailed(format!(
         "Could not find parser.c in extracted archive at {}",
-        grammar_root.display()
+        extract_dir.display()
     )))
 }
 
