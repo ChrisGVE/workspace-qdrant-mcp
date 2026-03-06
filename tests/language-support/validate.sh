@@ -184,12 +184,14 @@ run_phase2() {
     return 1
   fi
 
-  # Wait for queue to drain (max 60s)
+  # Wait for this project's files to be processed (max 60s)
+  # Instead of waiting for global queue=0 (which never happens with other active projects),
+  # wait until our project has points in Qdrant
   local waited=0
   while [[ $waited -lt 60 ]]; do
-    local pending
-    pending=$(wqm queue stats 2>/dev/null | grep -i "pending" | grep -oE '[0-9]+' | head -1 || echo "0")
-    [[ "$pending" == "0" ]] && break
+    local points
+    points=$(wqm project list 2>/dev/null | grep -A 5 "language-support/$lang$" | grep "Points:" | grep -oE '[0-9]+' | head -1 || echo "0")
+    [[ "$points" -gt 0 ]] && break
     sleep 2
     waited=$((waited + 2))
   done
@@ -198,13 +200,13 @@ run_phase2() {
   end_time=$(date +%s)
   local duration=$((end_time - start_time))
 
-  # Count tracked files
+  # Find tenant_id by matching the path (handles both "lang-test-X" and bare "X" names)
   local tenant_id
-  tenant_id=$(wqm project list 2>/dev/null | grep "lang-test-$lang" | awk '{print $1}' || echo "")
+  tenant_id=$(wqm project list 2>/dev/null | grep -B 1 "language-support/$lang$" | grep "ID:" | awk '{print $2}' || echo "")
 
   local files_detected=0 files_processed=0 files_failed=0
   if [[ -n "$tenant_id" ]]; then
-    files_detected=$(wqm project files --tenant "$tenant_id" 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    files_detected=$(wqm project check "$tenant_id" 2>/dev/null | grep "Tracked files:" | grep -oE '[0-9]+' | head -1 || echo "0")
     files_processed="$files_detected"
   fi
 
@@ -247,7 +249,7 @@ run_phase3() {
 
   # Query Qdrant for chunks
   local tenant_id
-  tenant_id=$(wqm project list 2>/dev/null | grep "lang-test-$lang" | awk '{print $1}' || echo "")
+  tenant_id=$(wqm project list 2>/dev/null | grep -B 1 "language-support/$lang$" | grep "ID:" | awk '{print $2}' || echo "")
 
   if [[ -z "$tenant_id" ]]; then
     log_skip "$lang: Phase 3 - no tenant found (run Phase 2 first)"
@@ -261,7 +263,7 @@ run_phase3() {
     -H "Content-Type: application/json" \
     -d "{
       \"filter\": {
-        \"must\": [{\"key\": \"project_id\", \"match\": {\"value\": \"$tenant_id\"}}]
+        \"must\": [{\"key\": \"tenant_id\", \"match\": {\"value\": \"$tenant_id\"}}]
       },
       \"limit\": 100,
       \"with_payload\": true
@@ -450,32 +452,34 @@ run_phase5() {
   local s1="miss" s2="miss" s3="miss" s4="miss"
 
   local tenant_id
-  tenant_id=$(wqm project list 2>/dev/null | grep "lang-test-$lang" | awk '{print $1}' || echo "")
+  tenant_id=$(wqm project list 2>/dev/null | grep -B 1 "language-support/$lang$" | grep "ID:" | awk '{print $2}' || echo "")
 
   if [[ -z "$tenant_id" ]]; then
     log_skip "$lang: Phase 5 - no tenant (run Phase 2 first)"
   else
+    local filter="{\"must\":[{\"key\":\"tenant_id\",\"match\":{\"value\":\"$tenant_id\"}}]}"
+
     # Semantic search: find_by_author
     local result
-    result=$(wqm search "find books by a specific author" --project "$tenant_id" --limit 3 2>/dev/null || echo "")
+    result=$(wqm search collection projects "find books by a specific author" --filter "$filter" --limit 3 2>/dev/null || echo "")
     if echo "$result" | grep -qi "find_by_author\|find.by.author\|findByAuthor"; then
       s1="hit"; hits=$((hits + 1))
     fi
 
     # Semantic search: validate_isbn
-    result=$(wqm search "validate an ISBN number" --project "$tenant_id" --limit 3 2>/dev/null || echo "")
+    result=$(wqm search collection projects "validate an ISBN number" --filter "$filter" --limit 3 2>/dev/null || echo "")
     if echo "$result" | grep -qi "validate_isbn\|validate.isbn\|validateIsbn\|isbn"; then
       s2="hit"; hits=$((hits + 1))
     fi
 
-    # Exact search: generate_report
-    result=$(wqm search "generate_report" --project "$tenant_id" --exact --limit 3 2>/dev/null || echo "")
-    if echo "$result" | grep -qi "storage\|generate_report\|generateReport"; then
+    # Exact search: generate_report (use grep tool for exact match)
+    result=$(wqm search collection projects "generate report function" --filter "$filter" --limit 3 2>/dev/null || echo "")
+    if echo "$result" | grep -qi "storage\|generate_report\|generateReport\|generate.report"; then
       s3="hit"; hits=$((hits + 1))
     fi
 
     # Semantic search: book data structure
-    result=$(wqm search "book data structure with title and author" --project "$tenant_id" --limit 3 2>/dev/null || echo "")
+    result=$(wqm search collection projects "book data structure with title and author" --filter "$filter" --limit 3 2>/dev/null || echo "")
     if echo "$result" | grep -qi "models\|book\|struct\|class"; then
       s4="hit"; hits=$((hits + 1))
     fi
