@@ -414,7 +414,7 @@ jobs:
           done
 
       - name: Dispatch Homebrew tap update
-        if: "!contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha')"
+        if: "!contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') && !contains(github.ref, 'nightly')"
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.TAP_DISPATCH_TOKEN }}
