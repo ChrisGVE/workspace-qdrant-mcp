@@ -79,7 +79,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS code_lines_fts USING fts5(
 
 /// SQL to rebuild the FTS5 index from the external content table.
 ///
-/// Must be called after batch inserts/updates/deletes to `code_lines`.
+/// **WARNING**: This scans the ENTIRE `code_lines` table and is O(N) in the
+/// total corpus size. With 65K+ lines and trigram tokenization, this takes
+/// 300+ seconds. Use only for maintenance/repair — normal ingestion should
+/// use incremental FTS5 operations instead.
 pub const FTS5_REBUILD_SQL: &str = "INSERT INTO code_lines_fts(code_lines_fts) VALUES('rebuild')";
 
 /// SQL to optimize the FTS5 index.
@@ -90,6 +93,26 @@ pub const FTS5_OPTIMIZE_SQL: &str = "INSERT INTO code_lines_fts(code_lines_fts) 
 
 /// Threshold for triggering FTS5 optimization after batch operations.
 pub const FTS5_OPTIMIZE_THRESHOLD: usize = 1000;
+
+// ============================================================================
+// Incremental FTS5 Operations (avoids full rebuild)
+// ============================================================================
+
+/// SQL to incrementally insert a single row into the FTS5 index.
+///
+/// For external content FTS5 tables, this adds one entry without scanning
+/// the entire content table. Call after inserting a row into `code_lines`.
+/// `?1` = line_id (rowid), `?2` = content.
+pub const FTS5_INSERT_ROW_SQL: &str =
+    "INSERT INTO code_lines_fts(rowid, content) VALUES(?1, ?2)";
+
+/// SQL to incrementally delete a single row from the FTS5 index.
+///
+/// For external content FTS5 tables, the 'delete' command removes one entry.
+/// The old content must be supplied exactly as it was when indexed.
+/// `?1` = line_id (rowid), `?2` = old content.
+pub const FTS5_DELETE_ROW_SQL: &str =
+    "INSERT INTO code_lines_fts(code_lines_fts, rowid, content) VALUES('delete', ?1, ?2)";
 
 /// SQL to search code_lines via FTS5 trigram MATCH.
 ///

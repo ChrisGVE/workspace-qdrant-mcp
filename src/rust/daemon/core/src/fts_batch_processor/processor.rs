@@ -1,8 +1,11 @@
 //! FtsBatchProcessor: adaptive batch/single-file processing for code_lines.
+//!
+//! FTS5 index is maintained incrementally — individual rows are inserted/deleted
+//! in the FTS index inline with code_lines changes, avoiding expensive full rebuilds.
 
 use tracing::{debug, info};
 
-use crate::code_lines_schema::initial_seq;
+use crate::code_lines_schema::{initial_seq, FTS5_DELETE_ROW_SQL, FTS5_INSERT_ROW_SQL};
 use crate::line_diff::compute_line_diff;
 use crate::search_db::{SearchDbError, SearchDbManager};
 
@@ -13,6 +16,9 @@ use super::{BatchStats, FileChange, FtsBatchConfig};
 ///
 /// Accumulates file changes and flushes them either individually (single-file mode)
 /// or as a batch (batch mode) depending on queue depth.
+///
+/// FTS5 updates are performed incrementally within each transaction —
+/// no full rebuild is needed after processing.
 pub struct FtsBatchProcessor<'a> {
     search_db: &'a SearchDbManager,
     config: FtsBatchConfig,
@@ -97,10 +103,9 @@ impl<'a> FtsBatchProcessor<'a> {
     ///
     /// 1. Compute diffs for all files
     /// 2. BEGIN TRANSACTION
-    /// 3. Apply all INSERT/UPDATE/DELETE to code_lines
+    /// 3. Apply all INSERT/UPDATE/DELETE to code_lines (with inline FTS5 updates)
     /// 4. Upsert file_metadata for all files
     /// 5. COMMIT
-    /// 6. Rebuild FTS5 once
     async fn process_batch(&self, changes: Vec<FileChange>) -> Result<BatchStats, SearchDbError> {
         let pool = self.search_db.pool();
         let mut stats = BatchStats::default();
@@ -114,6 +119,7 @@ impl<'a> FtsBatchProcessor<'a> {
         }
 
         // Phase 2: Apply all changes in a single transaction
+        // (diff_apply handles FTS5 incrementally within the transaction)
         let mut tx = pool.begin().await?;
 
         for (change, diff) in &file_diffs {
@@ -152,16 +158,12 @@ impl<'a> FtsBatchProcessor<'a> {
             }
         }
 
-        // Phase 4: Rebuild FTS5 once for the entire batch
-        let total_affected = stats.total_affected();
-        self.search_db
-            .rebuild_and_maybe_optimize_fts(total_affected)
-            .await?;
+        // No FTS5 rebuild needed — updates were applied incrementally
 
         Ok(stats)
     }
 
-    /// Process each file change individually with immediate FTS5 rebuild.
+    /// Process each file change individually with incremental FTS5 updates.
     async fn process_individually(
         &self,
         changes: Vec<FileChange>,
@@ -173,6 +175,7 @@ impl<'a> FtsBatchProcessor<'a> {
             let diff = compute_line_diff(&change.old_content, &change.new_content);
 
             // Apply diff in a per-file transaction
+            // (diff_apply handles FTS5 incrementally within the transaction)
             let mut tx = pool.begin().await?;
 
             let file_stats =
@@ -207,8 +210,7 @@ impl<'a> FtsBatchProcessor<'a> {
                 }
             }
 
-            // Rebuild FTS5 per file in single-file mode
-            self.search_db.rebuild_fts().await?;
+            // No FTS5 rebuild needed — updates were applied incrementally
         }
 
         Ok(stats)
@@ -217,7 +219,7 @@ impl<'a> FtsBatchProcessor<'a> {
     /// Replace all code_lines for a file with new content (full rewrite).
     ///
     /// Use when there is no old content to diff against (new file ingestion).
-    /// More efficient than diffing against an empty string for large files.
+    /// FTS5 index is updated incrementally (old entries deleted, new entries inserted).
     #[allow(clippy::too_many_arguments)]
     pub async fn full_rewrite(
         &self,
@@ -236,6 +238,31 @@ impl<'a> FtsBatchProcessor<'a> {
 
         let mut tx = pool.begin().await?;
 
+        // Fetch existing rows for incremental FTS5 delete
+        let old_rows: Vec<(i64, String)> = {
+            let rows = sqlx::query(
+                "SELECT line_id, content FROM code_lines WHERE file_id = ?1",
+            )
+            .bind(file_id)
+            .fetch_all(&mut *tx)
+            .await?;
+            rows.iter()
+                .map(|r| {
+                    use sqlx::Row;
+                    (r.get::<i64, _>("line_id"), r.get::<String, _>("content"))
+                })
+                .collect()
+        };
+
+        // Delete old FTS5 entries incrementally
+        for (line_id, old_content) in &old_rows {
+            sqlx::query(FTS5_DELETE_ROW_SQL)
+                .bind(*line_id)
+                .bind(old_content.as_str())
+                .execute(&mut *tx)
+                .await?;
+        }
+
         // Delete existing lines for this file
         sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
             .bind(file_id)
@@ -246,11 +273,21 @@ impl<'a> FtsBatchProcessor<'a> {
         for (i, line) in lines.iter().enumerate() {
             let seq = initial_seq(i);
             let line_number = (i + 1) as i64;
-            sqlx::query("INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)")
-                .bind(file_id)
-                .bind(seq)
+            let result = sqlx::query(
+                "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)",
+            )
+            .bind(file_id)
+            .bind(seq)
+            .bind(*line)
+            .bind(line_number)
+            .execute(&mut *tx)
+            .await?;
+
+            // Insert new FTS5 entry
+            let new_line_id = result.last_insert_rowid();
+            sqlx::query(FTS5_INSERT_ROW_SQL)
+                .bind(new_line_id)
                 .bind(*line)
-                .bind(line_number)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -269,10 +306,7 @@ impl<'a> FtsBatchProcessor<'a> {
 
         tx.commit().await?;
 
-        // Rebuild FTS5
-        self.search_db
-            .rebuild_and_maybe_optimize_fts(lines.len())
-            .await?;
+        // No FTS5 rebuild needed — updates were applied incrementally
 
         Ok(BatchStats {
             files_processed: 1,
@@ -284,28 +318,64 @@ impl<'a> FtsBatchProcessor<'a> {
     }
 
     /// Delete all code_lines and file_metadata for a file.
+    /// FTS5 entries are removed incrementally.
     pub async fn delete_file(&self, file_id: i64) -> Result<usize, SearchDbError> {
         let pool = self.search_db.pool();
 
-        let result = sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
-            .bind(file_id)
-            .execute(pool)
-            .await?;
+        // Fetch existing rows for incremental FTS5 delete
+        let old_rows: Vec<(i64, String)> = {
+            let rows =
+                sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+                    .bind(file_id)
+                    .fetch_all(pool)
+                    .await?;
+            rows.iter()
+                .map(|r| {
+                    use sqlx::Row;
+                    (r.get::<i64, _>("line_id"), r.get::<String, _>("content"))
+                })
+                .collect()
+        };
 
-        sqlx::query(crate::code_lines_schema::DELETE_FILE_METADATA_SQL)
-            .bind(file_id)
-            .execute(pool)
-            .await?;
-
-        let deleted = result.rows_affected() as usize;
-        if deleted > 0 {
-            self.search_db.rebuild_fts().await?;
+        if old_rows.is_empty() {
+            // Still clean up file_metadata if it exists
+            sqlx::query(crate::code_lines_schema::DELETE_FILE_METADATA_SQL)
+                .bind(file_id)
+                .execute(pool)
+                .await?;
+            return Ok(0);
         }
 
-        Ok(deleted)
+        let mut tx = pool.begin().await?;
+
+        // Delete FTS5 entries incrementally
+        for (line_id, old_content) in &old_rows {
+            sqlx::query(FTS5_DELETE_ROW_SQL)
+                .bind(*line_id)
+                .bind(old_content.as_str())
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // Delete code_lines
+        let result = sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
+            .bind(file_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Delete file_metadata
+        sqlx::query(crate::code_lines_schema::DELETE_FILE_METADATA_SQL)
+            .bind(file_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
+        Ok(result.rows_affected() as usize)
     }
 
     /// Delete all code_lines and file_metadata for a tenant (project deletion).
+    /// FTS5 entries are removed incrementally.
     pub async fn delete_tenant(&self, tenant_id: &str) -> Result<usize, SearchDbError> {
         let pool = self.search_db.pool();
 
@@ -324,6 +394,31 @@ impl<'a> FtsBatchProcessor<'a> {
         let mut total_deleted = 0usize;
 
         for file_id in &file_ids {
+            // Fetch rows for incremental FTS5 delete
+            let old_rows: Vec<(i64, String)> = {
+                let rows = sqlx::query(
+                    "SELECT line_id, content FROM code_lines WHERE file_id = ?1",
+                )
+                .bind(*file_id)
+                .fetch_all(&mut *tx)
+                .await?;
+                rows.iter()
+                    .map(|r| {
+                        use sqlx::Row;
+                        (r.get::<i64, _>("line_id"), r.get::<String, _>("content"))
+                    })
+                    .collect()
+            };
+
+            // Delete FTS5 entries incrementally
+            for (line_id, old_content) in &old_rows {
+                sqlx::query(FTS5_DELETE_ROW_SQL)
+                    .bind(*line_id)
+                    .bind(old_content.as_str())
+                    .execute(&mut *tx)
+                    .await?;
+            }
+
             let result = sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
                 .bind(*file_id)
                 .execute(&mut *tx)
@@ -338,12 +433,6 @@ impl<'a> FtsBatchProcessor<'a> {
             .await?;
 
         tx.commit().await?;
-
-        if total_deleted > 0 {
-            self.search_db
-                .rebuild_and_maybe_optimize_fts(total_deleted)
-                .await?;
-        }
 
         Ok(total_deleted)
     }
