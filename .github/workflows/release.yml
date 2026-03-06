@@ -199,7 +199,7 @@ jobs:
           cat > Cross.toml << 'CROSSEOF'
           [target.aarch64-unknown-linux-gnu]
           pre-build = [
-            "apt-get update && apt-get install -y pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev perl make"
+            "apt-get update && apt-get install -y libssl-dev pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev perl make"
           ]
           CROSSEOF
 

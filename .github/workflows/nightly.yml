@@ -172,16 +172,15 @@ jobs:
         run: echo "CROSS_CONFIG=$GITHUB_WORKSPACE/Cross.toml" >> $GITHUB_ENV
 
       # Create Cross.toml for cross-compilation
-      # Install build tools in the cross container. OpenSSL is vendored
-      # (compiled from source) via the openssl-vendored feature to avoid
-      # host/target library conflicts.
+      # Install host (amd64) libssl-dev for build scripts that link OpenSSL.
+      # Target (arm64) OpenSSL is vendored via openssl-vendored feature.
       - name: Create Cross.toml
         if: matrix.cross
         run: |
           cat > Cross.toml << 'CROSSEOF'
           [target.aarch64-unknown-linux-gnu]
           pre-build = [
-            "apt-get update && apt-get install -y pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev perl make"
+            "apt-get update && apt-get install -y libssl-dev pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev perl make"
           ]
           CROSSEOF
 
