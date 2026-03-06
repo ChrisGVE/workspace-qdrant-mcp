@@ -3,6 +3,12 @@
 #
 # The nightly release is updated in-place each run (tag moves to latest HEAD).
 # This provides a way to test current builds before a stable release.
+#
+# Platforms:
+# - macOS ARM (Apple Silicon) — native build on macos-latest
+# - macOS Intel (x86_64) — cross-compiled on macos-latest with ORT universal2 static lib
+# - Linux x64 — native build on ubuntu-latest
+# - Linux ARM64 — cross-compiled with vendored OpenSSL via cross
 
 name: Nightly Build
 
@@ -63,24 +69,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS ARM (Apple Silicon) — native on ARM runner
           - target: aarch64-apple-darwin
             os: macos-latest
             cross: false
             artifact_name: darwin-arm64
             needs_ort_download: false
 
+          # macOS Intel — cross-compile on ARM runner (ORT universal2 covers both arches)
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             cross: false
             artifact_name: darwin-x64
             needs_ort_download: true
 
+          # Linux x64 — native build
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             cross: false
             artifact_name: linux-x64
             needs_ort_download: false
 
+          # Linux ARM64 — cross-compiled with cross-rs
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             cross: true
@@ -122,7 +132,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-cargo-nightly-
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      - name: Cache ONNX Runtime (Intel Mac)
+      - name: Cache ONNX Runtime (Intel Mac cross-compile)
         if: matrix.needs_ort_download
         uses: actions/cache@v4
         id: onnx-cache
@@ -130,7 +140,7 @@ jobs:
           path: ~/.onnxruntime-static
           key: onnxruntime-static-${{ env.ORT_VERSION }}-${{ matrix.target }}
 
-      - name: Download ONNX Runtime static library (Intel Mac)
+      - name: Download ONNX Runtime static library (Intel Mac cross-compile)
         if: matrix.needs_ort_download && steps.onnx-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.onnxruntime-static
@@ -138,9 +148,34 @@ jobs:
           tar xzf ~/.onnxruntime-static/ort.tgz -C ~/.onnxruntime-static
           rm ~/.onnxruntime-static/ort.tgz
 
-      - name: Set ORT environment (Intel Mac)
+      - name: Set ORT environment (Intel Mac cross-compile)
         if: matrix.needs_ort_download
         run: echo "ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib" >> $GITHUB_ENV
+
+      # Enable vendored OpenSSL for cross-compilation targets
+      - name: Set cross-compilation environment
+        if: matrix.cross
+        run: |
+          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
+          echo "CROSS_CONFIG=$GITHUB_WORKSPACE/Cross.toml" >> $GITHUB_ENV
+
+      # Create Cross.toml for cross-compilation with OpenSSL
+      - name: Create Cross.toml
+        if: matrix.cross
+        run: |
+          cat > Cross.toml << 'CROSSEOF'
+          [target.aarch64-unknown-linux-gnu]
+          pre-build = [
+            "apt-get update && apt-get install -y libssl-dev:arm64 pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev"
+          ]
+
+          [target.aarch64-unknown-linux-gnu.env]
+          passthrough = [
+            "OPENSSL_STATIC",
+            "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu",
+            "OPENSSL_INCLUDE_DIR=/usr/include"
+          ]
+          CROSSEOF
 
       - name: Build (native)
         if: "!matrix.cross"
@@ -175,6 +210,8 @@ jobs:
   release:
     name: Publish Nightly
     needs: build
+    # Publish even if some builds failed (partial nightly is better than none)
+    if: always() && needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -185,44 +222,79 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: nightly-*
           path: artifacts
 
+      - name: Check for artifacts
+        id: check_artifacts
+        run: |
+          count=$(find artifacts -name '*.tar.gz' 2>/dev/null | wc -l)
+          echo "count=$count" >> $GITHUB_OUTPUT
+          if [ "$count" -eq 0 ]; then
+            echo "No artifacts found — skipping release"
+          else
+            echo "Found $count artifact(s)"
+          fi
+
       - name: Generate checksums
+        if: steps.check_artifacts.outputs.count != '0'
         run: |
           cd artifacts
           find . -name '*.tar.gz' -exec sha256sum {} \; | sed 's|  \./[^/]*/|  |' > checksums.txt
           cat checksums.txt
 
       - name: Delete existing nightly release
+        if: steps.check_artifacts.outputs.count != '0'
         run: gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get build date
+        if: steps.check_artifacts.outputs.count != '0'
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: List available platforms
+        if: steps.check_artifacts.outputs.count != '0'
+        id: platforms
+        run: |
+          PLATFORMS=""
+          for f in artifacts/nightly-*/workspace-qdrant-mcp-*.tar.gz; do
+            name=$(basename "$f" .tar.gz | sed 's/workspace-qdrant-mcp-//')
+            case "$name" in
+              darwin-arm64) PLATFORMS="${PLATFORMS}- \`darwin-arm64\` — macOS Apple Silicon (M1/M2/M3/M4)\n" ;;
+              darwin-x64)   PLATFORMS="${PLATFORMS}- \`darwin-x64\` — macOS Intel\n" ;;
+              linux-x64)    PLATFORMS="${PLATFORMS}- \`linux-x64\` — Linux x86_64\n" ;;
+              linux-arm64)  PLATFORMS="${PLATFORMS}- \`linux-arm64\` — Linux ARM64\n" ;;
+            esac
+          done
+          # Escape for GITHUB_OUTPUT
+          echo "list<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$PLATFORMS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create nightly release
+        if: steps.check_artifacts.outputs.count != '0'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: "Nightly Build ($(date -u +%Y-%m-%d))"
+          name: "Nightly Build (${{ steps.date.outputs.date }})"
           prerelease: true
           make_latest: false
           files: |
             artifacts/**/*.tar.gz
-            artifacts/checksums.txt
+            artifacts/**/checksums.txt
           body: |
             ## Nightly Build
 
             **Built from:** `${{ github.sha }}`
-            **Date:** $(date -u +%Y-%m-%d)
+            **Date:** ${{ steps.date.outputs.date }}
 
             These are automated nightly builds from the `main` branch.
             They may be unstable — use at your own risk.
 
             ### Available platforms
-            - `darwin-arm64` — macOS Apple Silicon (M1/M2/M3/M4)
-            - `darwin-x64` — macOS Intel
-            - `linux-x64` — Linux x86_64
-            - `linux-arm64` — Linux ARM64
-
+            ${{ steps.platforms.outputs.list }}
             ### Install
             ```bash
             # Download and extract (example for macOS ARM)
