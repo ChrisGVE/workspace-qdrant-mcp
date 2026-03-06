@@ -181,7 +181,7 @@ jobs:
           cat > Cross.toml << 'CROSSEOF'
           [target.aarch64-unknown-linux-gnu]
           pre-build = [
-            "dpkg --add-architecture arm64 && apt-get update && apt-get install -y libssl-dev:arm64 pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev"
+            "dpkg --add-architecture arm64 && apt-get update && apt-get install -y libssl-dev libssl-dev:arm64 pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev"
           ]
 
           [target.aarch64-unknown-linux-gnu.env]
