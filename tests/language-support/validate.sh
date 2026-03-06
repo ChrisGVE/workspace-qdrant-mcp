@@ -16,8 +16,13 @@ ALL_LANGUAGES=(
   scala shell swift typescript zig
 )
 
-TREESITTER_LANGUAGES=(c cpp go java javascript python rust typescript)
-LSP_LANGUAGES=(c cpp go python rust typescript)
+TREESITTER_LANGUAGES=(
+  ada bash c clojure cpp elixir elm erlang fortran go haskell
+  html java javascript json julia kotlin latex lisp lua markdown
+  nix ocaml odin pascal perl php python r ruby rust scala scheme
+  shell sql swift toml tsx typescript vala vue yaml zig
+)
+LSP_LANGUAGES=(c clojure cpp elixir fortran go java javascript lua python rust swift typescript)
 
 # --- CLI Argument Parsing ---
 LANGUAGE=""
@@ -173,7 +178,7 @@ run_phase2() {
   local start_time
   start_time=$(date +%s)
 
-  if ! wqm project add "$lang_dir" --name "lang-test-$lang" 2>/dev/null; then
+  if ! wqm project register "$lang_dir" --name "lang-test-$lang" --yes 2>/dev/null; then
     log_fail "$lang: project registration failed"
     append_phase2_report "$report" 0 0 0 "registration failed" 0
     return 1
@@ -402,11 +407,19 @@ run_phase4() {
     lsp_detected="true"
     fallback="false"
     case "$lang" in
+      ada) lsp_server_name="ada_language_server" ;;
+      c|cpp) lsp_server_name="clangd" ;;
+      clojure) lsp_server_name="clojure-lsp" ;;
+      elixir) lsp_server_name="elixir-ls" ;;
+      fortran) lsp_server_name="fortls" ;;
+      go) lsp_server_name="gopls" ;;
+      java) lsp_server_name="jdtls" ;;
+      javascript|typescript) lsp_server_name="typescript-language-server" ;;
+      lua) lsp_server_name="lua-language-server" ;;
       python) lsp_server_name="ruff" ;;
       rust) lsp_server_name="rust-analyzer" ;;
-      typescript|javascript) lsp_server_name="typescript-language-server" ;;
-      go) lsp_server_name="gopls" ;;
-      c|cpp) lsp_server_name="clangd" ;;
+      swift) lsp_server_name="sourcekit-lsp" ;;
+      *) lsp_server_name="unknown" ;;
     esac
   fi
 
