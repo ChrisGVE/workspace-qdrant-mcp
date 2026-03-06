@@ -152,29 +152,40 @@ jobs:
         if: matrix.needs_ort_download
         run: echo "ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib" >> $GITHUB_ENV
 
-      # Enable vendored OpenSSL for cross-compilation targets
+      # Install x86_64 OpenSSL for Intel Mac cross-compilation via Rosetta
+      # GitHub ARM runners have Rosetta available. Install x86_64 Homebrew + OpenSSL.
+      - name: Install x86_64 OpenSSL (Intel Mac cross-compile)
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          # Install x86_64 Homebrew under Rosetta if not present
+          if [ ! -f /usr/local/bin/brew ]; then
+            arch -x86_64 /bin/bash -c "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          fi
+          arch -x86_64 /usr/local/bin/brew install openssl@3
+          OPENSSL_PREFIX=$(arch -x86_64 /usr/local/bin/brew --prefix openssl@3)
+          echo "OPENSSL_DIR=$OPENSSL_PREFIX" >> $GITHUB_ENV
+          echo "Installed x86_64 OpenSSL at $OPENSSL_PREFIX"
+
+      # Set vendored OpenSSL for Linux ARM cross-compilation
       - name: Set cross-compilation environment
         if: matrix.cross
-        run: |
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-          echo "CROSS_CONFIG=$GITHUB_WORKSPACE/Cross.toml" >> $GITHUB_ENV
+        run: echo "CROSS_CONFIG=$GITHUB_WORKSPACE/Cross.toml" >> $GITHUB_ENV
 
-      # Create Cross.toml for cross-compilation with OpenSSL
+      # Create Cross.toml for cross-compilation
+      # The cross container needs OpenSSL dev headers for aarch64 and build tools.
+      # We add the arm64 architecture, install the cross-arch libssl-dev, and
+      # set environment variables so openssl-sys finds the right libraries.
       - name: Create Cross.toml
         if: matrix.cross
         run: |
           cat > Cross.toml << 'CROSSEOF'
           [target.aarch64-unknown-linux-gnu]
           pre-build = [
-            "apt-get update && apt-get install -y libssl-dev:arm64 pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev"
+            "dpkg --add-architecture arm64 && apt-get update && apt-get install -y libssl-dev:arm64 pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev"
           ]
 
           [target.aarch64-unknown-linux-gnu.env]
-          passthrough = [
-            "OPENSSL_STATIC",
-            "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu",
-            "OPENSSL_INCLUDE_DIR=/usr/include"
-          ]
+          passthrough = ["OPENSSL_INCLUDE_DIR=/usr/include", "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu", "OPENSSL_STATIC=1"]
           CROSSEOF
 
       - name: Build (native)
