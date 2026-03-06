@@ -172,23 +172,16 @@ jobs:
         run: echo "CROSS_CONFIG=$GITHUB_WORKSPACE/Cross.toml" >> $GITHUB_ENV
 
       # Create Cross.toml for cross-compilation
-      # Install both host (amd64) and target (arm64) OpenSSL dev headers.
-      # Use target-specific env vars (AARCH64_UNKNOWN_LINUX_GNU_*) so that
-      # host build scripts find x86_64 OpenSSL while the target links arm64.
+      # Install build tools in the cross container. OpenSSL is vendored
+      # (compiled from source) via the openssl-vendored feature to avoid
+      # host/target library conflicts.
       - name: Create Cross.toml
         if: matrix.cross
         run: |
           cat > Cross.toml << 'CROSSEOF'
           [target.aarch64-unknown-linux-gnu]
           pre-build = [
-            "dpkg --add-architecture arm64 && apt-get update && apt-get install -y libssl-dev libssl-dev:arm64 pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev"
-          ]
-
-          [target.aarch64-unknown-linux-gnu.env]
-          passthrough = [
-            "AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu",
-            "AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu",
-            "AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_STATIC=1"
+            "apt-get update && apt-get install -y pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev perl make"
           ]
           CROSSEOF
 
@@ -200,7 +193,7 @@ jobs:
       - name: Build (cross)
         if: matrix.cross
         working-directory: src/rust
-        run: cross build --release --target ${{ matrix.target }}
+        run: cross build --release --features openssl-vendored --target ${{ matrix.target }}
 
       - name: Smoke test
         if: "!matrix.cross"

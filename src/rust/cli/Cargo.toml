@@ -85,5 +85,14 @@ tonic-build = { version = "0.12", features = ["prost"] }
 
 # Profiles are defined in workspace root Cargo.toml
 
+[features]
+default = []
+# Compile OpenSSL from source (for cross-compilation where system OpenSSL is unavailable)
+openssl-vendored = ["openssl/vendored"]
+
+[dependencies.openssl]
+version = "0.10"
+optional = true
+
 [lints]
 workspace = true
