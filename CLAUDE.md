@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-workspace-qdrant-mcp (v0.1.0-beta1) is a Model Context Protocol (MCP) server providing project-scoped Qdrant vector database operations with hybrid search capabilities.
+workspace-qdrant-mcp (v0.1.0) is a Model Context Protocol (MCP) server providing project-scoped Qdrant vector database operations with hybrid search capabilities.
 
 **Core Architecture:**
 - **MCP Server**: TypeScript (in development)
@@ -18,7 +18,7 @@ workspace-qdrant-mcp (v0.1.0-beta1) is a Model Context Protocol (MCP) server pro
 - Behavioral rules via persistent rules collection
 - Rust daemon for high-performance file watching and processing
 
-**v0.1.0-beta1 Features:**
+**v0.1.0 Features:**
 - Tree-sitter semantic code chunking by function/class/method (dynamic grammar auto-download)
 - LSP integration for code intelligence (per-project, active projects only)
 - Branch lifecycle management (create, delete, rename, default tracking)
