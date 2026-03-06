@@ -212,7 +212,9 @@ jobs:
       - name: Build (cross)
         if: matrix.cross
         working-directory: src/rust
-        run: cross build --release --features openssl-vendored --target ${{ matrix.target }}
+        run: |
+          cross build --release --target ${{ matrix.target }} -p memexd --features openssl-vendored
+          cross build --release --target ${{ matrix.target }} -p wqm-cli --features openssl-vendored
 
       # Build napi-rs native addon (wqm-common-node) for supported platforms
       # The addon depends only on wqm-common (no ONNX), so no ORT_LIB_LOCATION needed

@@ -193,7 +193,9 @@ jobs:
       - name: Build (cross)
         if: matrix.cross
         working-directory: src/rust
-        run: cross build --release --features openssl-vendored --target ${{ matrix.target }}
+        run: |
+          cross build --release --target ${{ matrix.target }} -p memexd --features openssl-vendored
+          cross build --release --target ${{ matrix.target }} -p wqm-cli --features openssl-vendored
 
       - name: Smoke test
         if: "!matrix.cross"
