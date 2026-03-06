@@ -8,6 +8,7 @@ pub mod grammar_cache;
 pub mod grammar_downloader;
 pub mod grammar_loader;
 pub mod grammar_manager;
+pub mod grammar_registry;
 pub mod languages;
 pub mod parser;
 pub mod types;
@@ -21,6 +22,7 @@ pub use grammar_manager::{
     create_grammar_manager, GrammarError, GrammarInfo, GrammarManager, GrammarResult,
     GrammarStatus, GrammarValidationResult, LoadedGrammarsProvider,
 };
+pub use grammar_registry::GrammarSource;
 pub use parser::{
     get_language, get_static_language, LanguageProvider, StaticLanguageProvider, TreeSitterParser,
 };
@@ -36,37 +38,73 @@ use crate::error::DaemonError;
 
 /// Known languages with well-known tree-sitter grammars.
 ///
-/// These languages have grammars available for download from the default
-/// grammar sources. When `auto_download` is enabled, any of these languages
+/// These languages have grammars available for download from the grammar
+/// registry. When `auto_download` is enabled, any of these languages
 /// can be used for semantic chunking.
 const KNOWN_GRAMMAR_LANGUAGES: &[&str] = &[
-    "rust",
-    "python",
-    "javascript",
-    "typescript",
-    "tsx",
-    "jsx",
-    "go",
-    "java",
-    "c",
-    "cpp",
+    "ada", "bash", "c", "clojure", "cpp", "css", "dart", "elixir", "elm",
+    "erlang", "fortran", "go", "haskell", "html", "java", "javascript",
+    "json", "julia", "kotlin", "latex", "lisp", "lua", "markdown", "nix",
+    "ocaml", "odin", "pascal", "perl", "php", "python", "r", "ruby", "rust",
+    "scala", "scheme", "sql", "swift", "toml", "tsx", "typescript", "vala",
+    "vue", "yaml", "zig",
 ];
 
 /// Language registry mapping file extensions to language identifiers.
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?;
     match extension.to_lowercase().as_str() {
+        // Systems languages
         "rs" => Some("rust"),
+        "c" | "h" => Some("c"),
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "c++" | "h++" => Some("cpp"),
+        "go" => Some("go"),
+        "zig" => Some("zig"),
+        "odin" => Some("odin"),
+        "adb" | "ads" => Some("ada"),
+        "swift" => Some("swift"),
+        // JVM languages
+        "java" => Some("java"),
+        "scala" | "sc" => Some("scala"),
+        "kt" | "kts" => Some("kotlin"),
+        "clj" | "cljs" | "cljc" | "edn" => Some("clojure"),
+        // Scripting languages
         "py" | "pyi" | "pyw" => Some("python"),
+        "rb" | "rake" | "gemspec" => Some("ruby"),
         "js" | "mjs" | "cjs" => Some("javascript"),
         "ts" | "mts" | "cts" => Some("typescript"),
         "tsx" => Some("tsx"),
         "jsx" => Some("jsx"),
-        "go" => Some("go"),
-        "java" => Some("java"),
-        "c" | "h" => Some("c"),
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
+        "lua" => Some("lua"),
+        "pl" | "pm" | "t" => Some("perl"),
+        "sh" | "bash" | "zsh" => Some("bash"),
+        "php" => Some("php"),
+        "r" => Some("r"),
+        // Functional languages
+        "hs" | "lhs" => Some("haskell"),
+        "ml" | "mli" => Some("ocaml"),
+        "erl" | "hrl" => Some("erlang"),
+        "ex" | "exs" => Some("elixir"),
+        "lisp" | "cl" | "lsp" | "asd" => Some("lisp"),
+        "scm" | "ss" => Some("scheme"),
+        "elm" => Some("elm"),
+        // Other
+        "f" | "for" | "f90" | "f95" | "f03" | "f08" => Some("fortran"),
+        "pas" | "pp" | "inc" | "lpr" => Some("pascal"),
+        "sql" => Some("sql"),
+        "dart" => Some("dart"),
+        "nix" => Some("nix"),
+        "vala" | "vapi" => Some("vala"),
+        "vue" => Some("vue"),
+        "jl" => Some("julia"),
+        "tex" | "sty" | "cls" => Some("latex"),
+        // Data/config
         "json" => Some("json"),
+        "yaml" | "yml" => Some("yaml"),
+        "toml" => Some("toml"),
+        "html" | "htm" => Some("html"),
+        "css" => Some("css"),
+        "md" | "markdown" => Some("markdown"),
         _ => None,
     }
 }
@@ -185,7 +223,12 @@ mod tests {
         assert!(is_language_supported("java"));
         assert!(is_language_supported("c"));
         assert!(is_language_supported("cpp"));
-        assert!(!is_language_supported("json")); // JSON not supported for semantic chunking
+        assert!(is_language_supported("json"));
+        assert!(is_language_supported("lua"));
+        assert!(is_language_supported("haskell"));
+        assert!(is_language_supported("swift"));
+        assert!(is_language_supported("zig"));
+        assert!(is_language_supported("pascal"));
         assert!(!is_language_supported("unknown"));
     }
 

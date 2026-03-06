@@ -111,27 +111,72 @@ pub fn find_lsp_server(language: &str) -> Option<String> {
 /// Get LSP server name patterns for a language.
 pub fn get_lsp_server_names(language: &str) -> Vec<String> {
     match language {
-        "rust" => vec!["rust-analyzer".to_string(), "rls".to_string()],
+        "ada" => vec!["ada_language_server"],
+        "bash" | "shell" | "sh" => vec!["bash-language-server"],
+        "c" | "cpp" | "c_sharp" => vec!["clangd", "ccls"],
+        "clojure" => vec!["clojure-lsp"],
+        "css" => vec!["css-languageserver", "vscode-css-language-server"],
+        "dart" => vec!["dart", "dart language-server"],
+        "elixir" => vec!["elixir-ls", "nextls", "lexical"],
+        "elm" => vec!["elm-language-server"],
+        "erlang" => vec!["elp", "erlang_ls"],
+        "fortran" => vec!["fortls"],
+        "go" => vec!["gopls"],
+        "haskell" => vec![
+            "haskell-language-server-wrapper",
+            "haskell-language-server",
+            "hls",
+        ],
+        "html" => vec!["html-languageserver", "vscode-html-language-server"],
+        "java" => vec!["jdtls", "java-language-server"],
+        "javascript" | "typescript" | "tsx" | "jsx" => {
+            vec!["typescript-language-server", "tsserver", "deno"]
+        }
+        "json" => vec!["vscode-json-language-server"],
+        "julia" => vec!["julia"],
+        "kotlin" => vec!["kotlin-language-server"],
+        "latex" | "tex" => vec!["texlab", "digestif"],
+        "lisp" | "commonlisp" | "common_lisp" => vec!["cl-lsp"],
+        "lua" => vec!["lua-language-server"],
+        "markdown" => vec!["marksman"],
+        "nim" => vec!["nimlangserver", "nimlsp"],
+        "nix" => vec!["nil", "nixd", "rnix-lsp"],
+        "ocaml" => vec!["ocamllsp"],
+        "odin" => vec!["ols"],
+        "pascal" | "objectpascal" => vec!["pasls", "pascal-language-server"],
+        "perl" => vec!["perlnavigator", "perl-languageserver"],
+        "php" => vec!["phpactor", "intelephense"],
         "python" => vec![
-            "pylsp".to_string(),
-            "pyls".to_string(),
-            "pyright-langserver".to_string(),
+            "pylsp",
+            "pyright-langserver",
+            "pyls",
+            "ruff-lsp",
+            "jedi-language-server",
         ],
-        "javascript" | "typescript" => vec![
-            "typescript-language-server".to_string(),
-            "tsserver".to_string(),
-        ],
-        "go" => vec!["gopls".to_string()],
-        "java" => vec!["jdtls".to_string(), "java-language-server".to_string()],
-        "c" | "cpp" => vec!["clangd".to_string(), "ccls".to_string()],
-        "ruby" => vec!["solargraph".to_string()],
-        "php" => vec!["phpactor".to_string(), "intelephense".to_string()],
-        _ => vec![
-            format!("{}-language-server", language),
-            format!("{}-lsp", language),
-            format!("{}ls", language),
-        ],
+        "r" => vec!["R", "languageserver"],
+        "ruby" => vec!["solargraph", "ruby-lsp", "steep"],
+        "rust" => vec!["rust-analyzer"],
+        "scala" => vec!["metals"],
+        "scheme" => vec!["scheme-langserver"],
+        "sql" => vec!["sqls", "sql-language-server"],
+        "swift" => vec!["sourcekit-lsp"],
+        "toml" => vec!["taplo"],
+        "vala" => vec!["vala-language-server"],
+        "vue" => vec!["vue-language-server", "vls"],
+        "yaml" => vec!["yaml-language-server"],
+        "zig" => vec!["zls"],
+        // Fallback: try common naming patterns
+        _ => {
+            return vec![
+                format!("{language}-language-server"),
+                format!("{language}-lsp"),
+                format!("{language}ls"),
+            ]
+        }
     }
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 #[cfg(test)]
@@ -145,6 +190,18 @@ mod tests {
 
         let names = get_lsp_server_names("python");
         assert!(names.contains(&"pylsp".to_string()));
+
+        let names = get_lsp_server_names("lua");
+        assert!(names.contains(&"lua-language-server".to_string()));
+
+        let names = get_lsp_server_names("swift");
+        assert!(names.contains(&"sourcekit-lsp".to_string()));
+
+        let names = get_lsp_server_names("zig");
+        assert!(names.contains(&"zls".to_string()));
+
+        let names = get_lsp_server_names("shell");
+        assert!(names.contains(&"bash-language-server".to_string()));
 
         let names = get_lsp_server_names("unknown");
         assert!(names.contains(&"unknown-language-server".to_string()));

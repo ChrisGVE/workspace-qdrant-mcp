@@ -259,9 +259,9 @@ pub use crate::tree_sitter::{
     extract_chunks_with_provider, get_language, get_static_language, is_language_available,
     is_language_supported, known_grammar_languages, ChunkExtractor, ChunkType, CompatibilityStatus,
     DownloadError, GrammarCachePaths, GrammarDownloader, GrammarError, GrammarInfo, GrammarLoader,
-    GrammarManager, GrammarMetadata, GrammarResult, GrammarStatus, GrammarValidationResult,
-    LanguageProvider, LoadedGrammar, LoadedGrammarsProvider, RuntimeInfo, SemanticChunk,
-    SemanticChunker, StaticLanguageProvider, TreeSitterParser, VersionError,
+    GrammarManager, GrammarMetadata, GrammarResult, GrammarSource, GrammarStatus,
+    GrammarValidationResult, LanguageProvider, LoadedGrammar, LoadedGrammarsProvider, RuntimeInfo,
+    SemanticChunk, SemanticChunker, StaticLanguageProvider, TreeSitterParser, VersionError,
 };
 pub use crate::type_aware_processor::{
     get_settings_for_type, CollectionTypeSettings, ConcurrentOperationTracker,

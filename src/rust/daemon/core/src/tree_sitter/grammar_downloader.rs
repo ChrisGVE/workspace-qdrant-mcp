@@ -1,22 +1,23 @@
-//! Grammar downloading and automatic acquisition.
+//! Grammar downloading, compilation, and automatic acquisition.
 //!
-//! This module provides functionality to download tree-sitter grammar files
-//! from GitHub releases, enabling automatic acquisition of missing grammars
-//! without manual intervention.
+//! Tree-sitter grammars are distributed as C source code, not pre-built binaries.
+//! This module downloads source tarballs from GitHub releases, compiles them into
+//! shared libraries (.dylib/.so/.dll), and caches the results.
 //!
-//! # URL Template
+//! # Build process
 //!
-//! The download URL is constructed from a template with the following placeholders:
-//! - `{language}` - Language name (e.g., "rust", "python")
-//! - `{version}` - Grammar version (e.g., "0.23.0")
-//! - `{platform}` - Platform triple (e.g., "x86_64-apple-darwin")
-//! - `{ext}` - Library extension (.so, .dylib, .dll)
+//! 1. Download source tarball from GitHub release (or archive fallback)
+//! 2. Extract to a temp directory
+//! 3. Compile `src/parser.c` (and optionally `src/scanner.c` or `src/scanner.cc`)
+//!    into a shared library using the system C/C++ compiler
+//! 4. Move the compiled library into the grammar cache
 
 use super::grammar_cache::{compute_checksum, GrammarCachePaths, GrammarMetadata};
+use super::grammar_registry;
 use reqwest::Client;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
 use tracing::{debug, info};
 
 /// Errors that can occur during grammar download.
@@ -42,6 +43,18 @@ pub enum DownloadError {
 
     #[error("Request error: {0}")]
     ReqwestError(#[from] reqwest::Error),
+
+    #[error("Compilation failed for {language}: {message}")]
+    CompilationFailed { language: String, message: String },
+
+    #[error("No C compiler found. Install gcc or clang.")]
+    NoCompiler,
+
+    #[error("Unknown grammar source for language: {0}")]
+    UnknownGrammar(String),
+
+    #[error("Archive extraction failed: {0}")]
+    ExtractionFailed(String),
 }
 
 /// Result type for download operations.
@@ -50,84 +63,111 @@ pub type DownloadResult<T> = Result<T, DownloadError>;
 /// Information about a downloaded grammar.
 #[derive(Debug, Clone)]
 pub struct DownloadedGrammar {
-    /// Path to the downloaded grammar file
+    /// Path to the compiled grammar library
     pub path: PathBuf,
-    /// Checksum of the downloaded file
+    /// Checksum of the compiled library
     pub checksum: String,
     /// Language name
     pub language: String,
-    /// Grammar version
+    /// Grammar version (tag or "main")
     pub version: String,
     /// Platform triple
     pub platform: String,
 }
 
-/// Grammar downloader for fetching grammar files from remote sources.
+/// Grammar downloader that fetches source and compiles grammars.
 pub struct GrammarDownloader {
     /// HTTP client for making requests
     client: Client,
-    /// Base URL template for downloads
-    base_url_template: String,
     /// Grammar cache paths
     cache_paths: GrammarCachePaths,
     /// Whether to verify checksums
     verify_checksums: bool,
+    /// Path to C compiler (resolved on creation)
+    cc_path: Option<PathBuf>,
+    /// Path to C++ compiler (resolved on creation)
+    cxx_path: Option<PathBuf>,
 }
 
 impl GrammarDownloader {
     /// Create a new grammar downloader.
     ///
-    /// # Arguments
-    ///
-    /// * `cache_paths` - Paths for storing downloaded grammars
-    /// * `base_url_template` - URL template with {language}, {version}, {platform}, {ext} placeholders
-    /// * `verify_checksums` - Whether to verify downloaded file checksums
+    /// The `_base_url_template` parameter is accepted for backward compatibility
+    /// but ignored — URLs are now derived from the grammar registry.
     pub fn new(
         cache_paths: GrammarCachePaths,
-        base_url_template: impl Into<String>,
+        _base_url_template: impl Into<String>,
         verify_checksums: bool,
     ) -> Self {
+        let cc_path = find_compiler("cc")
+            .or_else(|| find_compiler("gcc"))
+            .or_else(|| find_compiler("clang"));
+        let cxx_path = find_compiler("c++")
+            .or_else(|| find_compiler("g++"))
+            .or_else(|| find_compiler("clang++"));
+
         Self {
             client: Client::new(),
-            base_url_template: base_url_template.into(),
             cache_paths,
             verify_checksums,
+            cc_path,
+            cxx_path,
         }
     }
 
-    /// Create a downloader with the default GitHub releases URL template.
+    /// Create a downloader with default settings.
     pub fn with_default_url(cache_paths: GrammarCachePaths, verify_checksums: bool) -> Self {
-        Self::new(
-            cache_paths,
-            "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}",
-            verify_checksums,
-        )
+        Self::new(cache_paths, "", verify_checksums)
     }
 
-    /// Download a grammar for the specified language and version.
+    /// Download and compile a grammar for the specified language.
     ///
     /// # Arguments
     ///
     /// * `language` - The language name (e.g., "rust", "python")
-    /// * `version` - The grammar version (e.g., "0.23.0")
-    ///
-    /// # Returns
-    ///
-    /// Information about the downloaded grammar, or an error if download failed.
+    /// * `version` - Ignored for now; version is determined by the grammar registry
     pub async fn download_grammar(
         &self,
         language: &str,
         version: &str,
     ) -> DownloadResult<DownloadedGrammar> {
+        let source = grammar_registry::lookup(language).ok_or_else(|| {
+            DownloadError::UnknownGrammar(language.to_string())
+        })?;
+
+        // Check compiler availability
+        if source.has_cpp_scanner {
+            if self.cxx_path.is_none() {
+                return Err(DownloadError::NoCompiler);
+            }
+        } else if self.cc_path.is_none() {
+            return Err(DownloadError::NoCompiler);
+        }
+
         let platform = &self.cache_paths.platform;
-        let url = self.build_download_url(language, version, platform, library_extension())?;
-        info!(language, version, platform, url = %url, "Downloading grammar");
+        info!(language, %platform, repo = %source.repo, "Downloading grammar source");
 
-        let bytes = self.fetch_bytes(&url, language, version).await?;
+        // Try release tarball first, then archive fallback
+        let tarball_bytes = self.fetch_grammar_source(language, &source).await?;
 
+        // Extract and compile in a temp directory
+        let temp_dir = tempfile::tempdir()?;
+        let extract_dir = temp_dir.path();
+
+        extract_tarball(&tarball_bytes, extract_dir)?;
+
+        // Find the src/ directory (may be in a subdirectory)
+        let src_dir = find_src_dir(extract_dir, source.src_subdir)?;
+
+        // Compile
+        let grammar_lib = self.compile_grammar(language, &src_dir, &source, extract_dir).await?;
+
+        // Move to cache
         self.cache_paths.create_directories(language)?;
         let grammar_path = self.cache_paths.grammar_path(language);
-        let checksum = write_grammar_file(&grammar_path, &bytes).await?;
+        std::fs::copy(&grammar_lib, &grammar_path)?;
+
+        let checksum = compute_checksum(&grammar_path)?;
 
         let metadata = GrammarMetadata::new(
             language,
@@ -139,10 +179,10 @@ impl GrammarDownloader {
         self.cache_paths.save_metadata(language, &metadata)?;
 
         info!(
-            language, version,
+            language,
             path = %grammar_path.display(),
             checksum = &checksum[..16],
-            "Grammar downloaded successfully"
+            "Grammar compiled and cached successfully"
         );
 
         Ok(DownloadedGrammar {
@@ -152,6 +192,156 @@ impl GrammarDownloader {
             version: version.to_string(),
             platform: platform.to_string(),
         })
+    }
+
+    /// Fetch grammar source tarball, trying release URL first, then archive fallback.
+    async fn fetch_grammar_source(
+        &self,
+        language: &str,
+        source: &grammar_registry::GrammarSource,
+    ) -> DownloadResult<Vec<u8>> {
+        // Try the GitHub release tarball first (most grammars have releases)
+        // We use the repo's latest release via the redirect URL
+        let release_url = format!(
+            "https://github.com/{}/{}/releases/latest/download/{}.tar.gz",
+            source.owner, source.repo, source.repo
+        );
+
+        debug!(language, url = %release_url, "Trying release tarball");
+        match self.fetch_bytes(&release_url, language, "latest").await {
+            Ok(bytes) => {
+                info!(language, "Downloaded from release tarball");
+                return Ok(bytes);
+            }
+            Err(DownloadError::NotFound { .. }) | Err(DownloadError::HttpError { .. }) => {
+                debug!(language, "No release tarball, trying archive fallback");
+            }
+            Err(e) => return Err(e),
+        }
+
+        // Fallback: download from default branch archive
+        for branch in &["main", "master"] {
+            let archive_url = source.archive_tarball_url(branch);
+            debug!(language, url = %archive_url, "Trying archive tarball");
+            match self.fetch_bytes(&archive_url, language, branch).await {
+                Ok(bytes) => {
+                    info!(language, branch, "Downloaded from archive");
+                    return Ok(bytes);
+                }
+                Err(DownloadError::NotFound { .. }) | Err(DownloadError::HttpError { .. }) => {
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(DownloadError::NotFound {
+            language: language.to_string(),
+            version: "latest".to_string(),
+        })
+    }
+
+    /// Compile a grammar from its source directory.
+    async fn compile_grammar(
+        &self,
+        language: &str,
+        src_dir: &Path,
+        _source: &grammar_registry::GrammarSource,
+        work_dir: &Path,
+    ) -> DownloadResult<PathBuf> {
+        let output_path = work_dir.join(format!("grammar.{}", library_extension()));
+
+        let parser_c = src_dir.join("parser.c");
+        if !parser_c.exists() {
+            return Err(DownloadError::CompilationFailed {
+                language: language.to_string(),
+                message: format!("parser.c not found in {}", src_dir.display()),
+            });
+        }
+
+        // Collect source files
+        let mut c_sources = vec![parser_c];
+        let mut cpp_sources = Vec::new();
+
+        let scanner_c = src_dir.join("scanner.c");
+        let scanner_cc = src_dir.join("scanner.cc");
+
+        if scanner_cc.exists() {
+            cpp_sources.push(scanner_cc);
+        } else if scanner_c.exists() {
+            c_sources.push(scanner_c);
+        }
+
+        // Compile C sources
+        let cc = self.cc_path.as_ref().ok_or(DownloadError::NoCompiler)?;
+        let mut object_files = Vec::new();
+
+        for (i, src) in c_sources.iter().enumerate() {
+            let obj = work_dir.join(format!("c_{}.o", i));
+            let status = Command::new(cc)
+                .args(compile_c_args(src, &obj, src_dir))
+                .status()
+                .map_err(|e| DownloadError::CompilationFailed {
+                    language: language.to_string(),
+                    message: format!("Failed to run C compiler: {}", e),
+                })?;
+
+            if !status.success() {
+                return Err(DownloadError::CompilationFailed {
+                    language: language.to_string(),
+                    message: format!("C compilation failed for {}", src.display()),
+                });
+            }
+            object_files.push(obj);
+        }
+
+        // Compile C++ sources
+        if !cpp_sources.is_empty() {
+            let cxx = self.cxx_path.as_ref().ok_or(DownloadError::NoCompiler)?;
+            for (i, src) in cpp_sources.iter().enumerate() {
+                let obj = work_dir.join(format!("cpp_{}.o", i));
+                let status = Command::new(cxx)
+                    .args(compile_cxx_args(src, &obj, src_dir))
+                    .status()
+                    .map_err(|e| DownloadError::CompilationFailed {
+                        language: language.to_string(),
+                        message: format!("Failed to run C++ compiler: {}", e),
+                    })?;
+
+                if !status.success() {
+                    return Err(DownloadError::CompilationFailed {
+                        language: language.to_string(),
+                        message: format!("C++ compilation failed for {}", src.display()),
+                    });
+                }
+                object_files.push(obj);
+            }
+        }
+
+        // Link into shared library
+        let linker = if !cpp_sources.is_empty() {
+            self.cxx_path.as_ref().ok_or(DownloadError::NoCompiler)?
+        } else {
+            cc
+        };
+
+        let status = Command::new(linker)
+            .args(link_args(&object_files, &output_path))
+            .status()
+            .map_err(|e| DownloadError::CompilationFailed {
+                language: language.to_string(),
+                message: format!("Failed to link: {}", e),
+            })?;
+
+        if !status.success() {
+            return Err(DownloadError::CompilationFailed {
+                language: language.to_string(),
+                message: "Linking failed".to_string(),
+            });
+        }
+
+        info!(language, path = %output_path.display(), "Grammar compiled successfully");
+        Ok(output_path)
     }
 
     /// Fetch raw bytes from a URL, mapping HTTP errors to `DownloadError`.
@@ -164,6 +354,7 @@ impl GrammarDownloader {
         let response = self
             .client
             .get(url)
+            .header("User-Agent", "workspace-qdrant-mcp grammar-downloader")
             .send()
             .await
             .map_err(|e| DownloadError::NetworkError(e.to_string()))?;
@@ -178,7 +369,7 @@ impl GrammarDownloader {
         if !status.is_success() {
             return Err(DownloadError::HttpError {
                 status: status.as_u16(),
-                message: format!("Failed to download grammar from {}", url),
+                message: format!("Failed to download from {}", url),
             });
         }
 
@@ -189,24 +380,8 @@ impl GrammarDownloader {
     }
 
     /// Check if a grammar needs to be downloaded.
-    ///
-    /// Returns true if the grammar is not in the cache or the cached version doesn't match.
-    pub fn needs_download(&self, language: &str, version: &str) -> bool {
-        if !self.cache_paths.grammar_exists(language) {
-            return true;
-        }
-
-        // Check if the cached version matches
-        if let Ok(Some(metadata)) = self.cache_paths.load_metadata(language) {
-            if metadata.grammar_version != version {
-                return true;
-            }
-        } else {
-            // No metadata, assume download needed
-            return true;
-        }
-
-        false
+    pub fn needs_download(&self, language: &str, _version: &str) -> bool {
+        !self.cache_paths.grammar_exists(language)
     }
 
     /// Download a grammar only if it's not already cached.
@@ -220,11 +395,9 @@ impl GrammarDownloader {
     }
 
     /// Download multiple grammars sequentially.
-    ///
-    /// Returns a vector of results, one for each grammar.
     pub async fn download_grammars(
         &self,
-        grammars: &[(&str, &str)], // (language, version) pairs
+        grammars: &[(&str, &str)],
     ) -> Vec<DownloadResult<DownloadedGrammar>> {
         let mut results = Vec::with_capacity(grammars.len());
         for (lang, ver) in grammars {
@@ -233,60 +406,127 @@ impl GrammarDownloader {
         results
     }
 
-    /// Build the download URL from the template.
-    fn build_download_url(
-        &self,
-        language: &str,
-        version: &str,
-        platform: &str,
-        ext: &str,
-    ) -> DownloadResult<String> {
-        let url = self
-            .base_url_template
-            .replace("{language}", language)
-            .replace("{version}", version)
-            .replace("{platform}", platform)
-            .replace("{ext}", ext);
-
-        // Validate the URL still looks reasonable
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(DownloadError::InvalidUrlTemplate(format!(
-                "URL must start with http:// or https://: {}",
-                url
-            )));
-        }
-
-        Ok(url)
-    }
-
     /// Get the cache paths.
     pub fn cache_paths(&self) -> &GrammarCachePaths {
         &self.cache_paths
     }
 }
 
-/// Write grammar bytes to a temporary file, compute its checksum, then move to final path.
-async fn write_grammar_file(
-    grammar_path: &std::path::Path,
-    bytes: &[u8],
-) -> DownloadResult<String> {
-    let temp_path = grammar_path.with_extension("tmp");
-    debug!(
-        path = %temp_path.display(),
-        bytes = bytes.len(),
-        "Writing grammar to temporary file"
-    );
-    let mut file = tokio::fs::File::create(&temp_path).await?;
-    file.write_all(bytes).await?;
-    file.flush().await?;
-    drop(file);
-    let checksum = compute_checksum(&temp_path)?;
-    tokio::fs::rename(&temp_path, grammar_path).await?;
-    Ok(checksum)
+/// Extract a gzipped tarball into a directory.
+fn extract_tarball(bytes: &[u8], dest: &Path) -> DownloadResult<()> {
+    use flate2::read::GzDecoder;
+    use tar::Archive;
+
+    let decoder = GzDecoder::new(std::io::Cursor::new(bytes));
+    let mut archive = Archive::new(decoder);
+    archive.unpack(dest).map_err(|e| {
+        DownloadError::ExtractionFailed(format!("Failed to extract tarball: {}", e))
+    })?;
+    Ok(())
+}
+
+/// Find the `src/` directory containing `parser.c` within an extracted tarball.
+///
+/// Tarballs typically have a top-level directory (e.g., `tree-sitter-rust-0.24.0/`),
+/// and some grammars put the grammar in a subdirectory (e.g., typescript has `typescript/src/`).
+fn find_src_dir(extract_dir: &Path, subdir: Option<&str>) -> DownloadResult<PathBuf> {
+    // First, find the top-level directory inside the tarball
+    let entries: Vec<_> = std::fs::read_dir(extract_dir)
+        .map_err(|e| DownloadError::ExtractionFailed(e.to_string()))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    let top_dir = if entries.len() == 1 {
+        entries[0].path()
+    } else {
+        // No single top-level dir; use extract_dir itself
+        extract_dir.to_path_buf()
+    };
+
+    // Apply subdir if specified
+    let grammar_root = if let Some(sub) = subdir {
+        top_dir.join(sub)
+    } else {
+        top_dir
+    };
+
+    let src_dir = grammar_root.join("src");
+    if src_dir.exists() && src_dir.join("parser.c").exists() {
+        return Ok(src_dir);
+    }
+
+    // Some grammars have parser.c directly in the grammar_root
+    if grammar_root.join("parser.c").exists() {
+        return Ok(grammar_root);
+    }
+
+    Err(DownloadError::ExtractionFailed(format!(
+        "Could not find parser.c in extracted archive at {}",
+        grammar_root.display()
+    )))
+}
+
+/// Build C compiler arguments for compiling a source file to an object file.
+fn compile_c_args(src: &Path, obj: &Path, include_dir: &Path) -> Vec<String> {
+    let mut args = vec![
+        "-c".to_string(),
+        "-fPIC".to_string(),
+        "-O2".to_string(),
+        "-I".to_string(),
+        include_dir.to_string_lossy().to_string(),
+    ];
+
+    // tree-sitter headers are in src/tree_sitter/
+    let ts_include = include_dir.join("tree_sitter");
+    if ts_include.exists() {
+        args.push("-I".to_string());
+        args.push(include_dir.parent().unwrap_or(include_dir).to_string_lossy().to_string());
+    }
+
+    args.push("-o".to_string());
+    args.push(obj.to_string_lossy().to_string());
+    args.push(src.to_string_lossy().to_string());
+    args
+}
+
+/// Build C++ compiler arguments for compiling a source file to an object file.
+fn compile_cxx_args(src: &Path, obj: &Path, include_dir: &Path) -> Vec<String> {
+    let mut args = compile_c_args(src, obj, include_dir);
+    args.push("-std=c++14".to_string());
+    args
+}
+
+/// Build linker arguments for creating a shared library from object files.
+fn link_args(objects: &[PathBuf], output: &Path) -> Vec<String> {
+    let mut args = vec!["-shared".to_string()];
+
+    #[cfg(not(target_os = "windows"))]
+    args.push("-fPIC".to_string());
+
+    #[cfg(target_os = "macos")]
+    {
+        args.push("-undefined".to_string());
+        args.push("dynamic_lookup".to_string());
+    }
+
+    args.push("-o".to_string());
+    args.push(output.to_string_lossy().to_string());
+
+    for obj in objects {
+        args.push(obj.to_string_lossy().to_string());
+    }
+
+    args
+}
+
+/// Find a compiler on PATH.
+fn find_compiler(name: &str) -> Option<PathBuf> {
+    which::which(name).ok()
 }
 
 /// Get the library extension for the current platform.
-fn library_extension() -> &'static str {
+pub fn library_extension() -> &'static str {
     #[cfg(target_os = "macos")]
     {
         "dylib"
@@ -305,7 +545,7 @@ fn library_extension() -> &'static str {
     }
 }
 
-/// Get the current platform string for downloads.
+/// Get the current platform string.
 pub fn download_platform() -> String {
     format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS)
 }
@@ -313,9 +553,10 @@ pub fn download_platform() -> String {
 impl std::fmt::Debug for GrammarDownloader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GrammarDownloader")
-            .field("base_url_template", &self.base_url_template)
             .field("cache_paths", &self.cache_paths)
             .field("verify_checksums", &self.verify_checksums)
+            .field("has_cc", &self.cc_path.is_some())
+            .field("has_cxx", &self.cxx_path.is_some())
             .finish()
     }
 }
@@ -345,74 +586,33 @@ mod tests {
     }
 
     #[test]
-    fn test_build_download_url() {
-        let temp_dir = TempDir::new().unwrap();
-        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24");
-        let downloader = GrammarDownloader::new(
-            cache_paths,
-            "https://example.com/{language}/v{version}/{platform}.{ext}",
-            false,
-        );
-
-        let url = downloader
-            .build_download_url("rust", "0.23.0", "x86_64-apple-darwin", "dylib")
-            .unwrap();
-        assert_eq!(
-            url,
-            "https://example.com/rust/v0.23.0/x86_64-apple-darwin.dylib"
-        );
-    }
-
-    #[test]
-    fn test_build_download_url_invalid() {
-        let temp_dir = TempDir::new().unwrap();
-        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24");
-        let downloader = GrammarDownloader::new(cache_paths, "not-a-url/{language}", false);
-
-        let result = downloader.build_download_url("rust", "0.23.0", "x86_64", "so");
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_needs_download_no_cache() {
         let temp_dir = TempDir::new().unwrap();
-        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24");
+        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.26");
         let downloader = GrammarDownloader::with_default_url(cache_paths, false);
 
-        assert!(downloader.needs_download("rust", "0.23.0"));
+        assert!(downloader.needs_download("rust", "0.24.0"));
     }
 
     #[test]
     fn test_needs_download_with_cache() {
         let temp_dir = TempDir::new().unwrap();
-        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24");
+        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.26");
 
         // Create a fake cached grammar
         cache_paths.create_directories("rust").unwrap();
         std::fs::write(cache_paths.grammar_path("rust"), "fake grammar").unwrap();
 
-        let metadata = GrammarMetadata::new(
-            "rust",
-            "0.24",
-            "0.23.0",
-            &cache_paths.platform,
-            "fakechecksum",
-        );
-        cache_paths.save_metadata("rust", &metadata).unwrap();
-
         let downloader = GrammarDownloader::with_default_url(cache_paths, false);
 
-        // Same version should not need download
-        assert!(!downloader.needs_download("rust", "0.23.0"));
-
-        // Different version should need download
-        assert!(downloader.needs_download("rust", "0.24.0"));
+        // Cached grammar exists, no download needed
+        assert!(!downloader.needs_download("rust", "0.24.0"));
     }
 
     #[test]
     fn test_downloader_debug() {
         let temp_dir = TempDir::new().unwrap();
-        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24");
+        let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.26");
         let downloader = GrammarDownloader::with_default_url(cache_paths, true);
 
         let debug_str = format!("{:?}", downloader);
@@ -420,7 +620,65 @@ mod tests {
         assert!(debug_str.contains("verify_checksums"));
     }
 
-    // Note: Actual download tests require network access or mocking.
-    // Those tests should be in integration tests with either real network
-    // access or a mock HTTP server.
+    #[test]
+    fn test_find_compiler() {
+        // On any dev machine, at least one of these should exist
+        let has_compiler = find_compiler("cc").is_some()
+            || find_compiler("gcc").is_some()
+            || find_compiler("clang").is_some();
+        assert!(has_compiler, "No C compiler found on PATH");
+    }
+
+    #[test]
+    fn test_compile_c_args() {
+        let src = Path::new("/tmp/src/parser.c");
+        let obj = Path::new("/tmp/build/parser.o");
+        let include = Path::new("/tmp/src");
+        let args = compile_c_args(src, obj, include);
+        assert!(args.contains(&"-c".to_string()));
+        assert!(args.contains(&"-fPIC".to_string()));
+        assert!(args.contains(&"-O2".to_string()));
+    }
+
+    #[test]
+    fn test_link_args() {
+        let objects = vec![PathBuf::from("/tmp/a.o"), PathBuf::from("/tmp/b.o")];
+        let output = Path::new("/tmp/grammar.dylib");
+        let args = link_args(&objects, output);
+        assert!(args.contains(&"-shared".to_string()));
+        assert!(args.contains(&"/tmp/a.o".to_string()));
+        assert!(args.contains(&"/tmp/b.o".to_string()));
+    }
+
+    #[test]
+    fn test_extract_tarball() {
+        // Create a minimal tarball in memory
+        let temp_dir = TempDir::new().unwrap();
+        let src_dir = temp_dir.path().join("test-grammar");
+        std::fs::create_dir_all(src_dir.join("src")).unwrap();
+        std::fs::write(src_dir.join("src/parser.c"), "// test").unwrap();
+
+        // Create tarball — must drop builder+encoder before reading
+        let tar_path = temp_dir.path().join("test.tar.gz");
+        {
+            let tar_file = std::fs::File::create(&tar_path).unwrap();
+            let enc = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
+            let mut builder = tar::Builder::new(enc);
+            builder
+                .append_dir_all("test-grammar", &src_dir)
+                .unwrap();
+            let enc = builder.into_inner().unwrap();
+            enc.finish().unwrap();
+        }
+
+        // Extract
+        let extract_dir = temp_dir.path().join("extracted");
+        std::fs::create_dir_all(&extract_dir).unwrap();
+        let bytes = std::fs::read(&tar_path).unwrap();
+        extract_tarball(&bytes, &extract_dir).unwrap();
+
+        // Find src dir
+        let found = find_src_dir(&extract_dir, None).unwrap();
+        assert!(found.join("parser.c").exists());
+    }
 }
