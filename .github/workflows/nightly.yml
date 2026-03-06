@@ -172,9 +172,9 @@ jobs:
         run: echo "CROSS_CONFIG=$GITHUB_WORKSPACE/Cross.toml" >> $GITHUB_ENV
 
       # Create Cross.toml for cross-compilation
-      # The cross container needs OpenSSL dev headers for aarch64 and build tools.
-      # We add the arm64 architecture and install cross-arch libssl-dev.
-      # PKG_CONFIG is configured to find the arm64 .pc files automatically.
+      # Install both host (amd64) and target (arm64) OpenSSL dev headers.
+      # Use target-specific env vars (AARCH64_UNKNOWN_LINUX_GNU_*) so that
+      # host build scripts find x86_64 OpenSSL while the target links arm64.
       - name: Create Cross.toml
         if: matrix.cross
         run: |
@@ -186,9 +186,9 @@ jobs:
 
           [target.aarch64-unknown-linux-gnu.env]
           passthrough = [
-            "PKG_CONFIG_ALLOW_CROSS=1",
-            "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig",
-            "OPENSSL_STATIC=1"
+            "AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu",
+            "AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu",
+            "AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_STATIC=1"
           ]
           CROSSEOF
 
