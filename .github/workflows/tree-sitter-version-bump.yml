@@ -130,7 +130,7 @@ jobs:
           if [ "$CURRENT_MM" != "$LATEST_MM" ]; then
             CONFIG="assets/default_configuration.yaml"
             if [ -f "$CONFIG" ] && grep -q 'tree_sitter_version' "$CONFIG"; then
-              sed -i "s/tree_sitter_version:.*/tree_sitter_version: \"$LATEST_VERSION\"/" "$CONFIG"
+              sed -i "s/tree_sitter_version:.*/tree_sitter_version: \"$LATEST_MM\"/" "$CONFIG"
               echo "Updated tree_sitter_version in $CONFIG"
             fi
           fi
