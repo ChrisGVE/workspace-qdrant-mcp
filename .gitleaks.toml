@@ -1,0 +1,22 @@
+# Gitleaks configuration for workspace-qdrant-mcp
+# Excludes historical false positives from the Python-era codebase
+
+title = "workspace-qdrant-mcp gitleaks config"
+
+[allowlist]
+  description = "Historical false positives from deleted Python-era code and test fixtures"
+
+  # Old Python source files (deleted, only in git history)
+  paths = [
+    '''src/python/''',
+    '''src/workspace_qdrant_mcp/''',
+    '''docker/k8s/''',
+    '''tests/unit/''',
+    '''tests/security/''',
+    '''LT_\d+.*testing_sandbox/''',
+    '''MIGRATION\.md''',
+    '''.*\.bak$''',
+    '''test_hybrid_search_systematic\.py''',
+    '''20\d{6}-\d{4}_.*\.py''',
+    '''20\d{6}-\d{4}_.*\.md''',
+  ]

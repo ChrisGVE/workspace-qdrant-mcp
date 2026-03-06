@@ -57,7 +57,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          # PRs: full history for diff; schedule: last 50 commits only
+          fetch-depth: ${{ github.event_name == 'schedule' && 50 || 0 }}
 
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2

@@ -45,7 +45,14 @@ jobs:
         id: latest
         run: |
           # Query crates.io API for latest tree-sitter version
-          LATEST=$(curl -sS 'https://crates.io/api/v1/crates/tree-sitter' | jq -r '.crate.max_stable_version // .crate.max_version')
+          # Retry up to 3 times with backoff (crates.io can be flaky)
+          for attempt in 1 2 3; do
+            LATEST=$(curl -sSf -H "User-Agent: workspace-qdrant-mcp CI (github.com/ChrisGVE/workspace-qdrant-mcp)" \
+              'https://crates.io/api/v1/crates/tree-sitter' \
+              | jq -r '.crate.max_stable_version // .crate.max_version') && break
+            echo "Attempt $attempt failed, retrying in $((attempt * 5))s..."
+            sleep $((attempt * 5))
+          done
 
           # Validate: must look like a semver (digits.digits or digits.digits.digits)
           if [ -z "$LATEST" ] || [ "$LATEST" = "null" ] || ! echo "$LATEST" | grep -qE '^[0-9]+\.[0-9]+'; then
