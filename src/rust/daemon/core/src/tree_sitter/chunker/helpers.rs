@@ -69,7 +69,7 @@ pub fn extract_function_calls(node: &Node, source: &str) -> Vec<String> {
 
         // Visit children
         for i in 0..node.child_count() {
-            if let Some(child) = node.child(i) {
+            if let Some(child) = node.child(i as u32) {
                 visit(&child, source, calls, cursor);
             }
         }

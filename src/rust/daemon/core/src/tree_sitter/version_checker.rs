@@ -90,7 +90,7 @@ impl CompatibilityStatus {
 ///
 /// A `CompatibilityStatus` indicating whether the grammar is compatible.
 pub fn check_grammar_compatibility(language: &Language) -> CompatibilityStatus {
-    let grammar_abi = language.version() as u32;
+    let grammar_abi = language.abi_version() as u32;
 
     if grammar_abi < MIN_COMPATIBLE_ABI_VERSION {
         return CompatibilityStatus::Incompatible(VersionError::AbiTooOld {
