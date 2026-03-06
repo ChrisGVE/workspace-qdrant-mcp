@@ -173,8 +173,8 @@ jobs:
 
       # Create Cross.toml for cross-compilation
       # The cross container needs OpenSSL dev headers for aarch64 and build tools.
-      # We add the arm64 architecture, install the cross-arch libssl-dev, and
-      # set environment variables so openssl-sys finds the right libraries.
+      # We add the arm64 architecture and install cross-arch libssl-dev.
+      # PKG_CONFIG is configured to find the arm64 .pc files automatically.
       - name: Create Cross.toml
         if: matrix.cross
         run: |
@@ -185,7 +185,11 @@ jobs:
           ]
 
           [target.aarch64-unknown-linux-gnu.env]
-          passthrough = ["OPENSSL_INCLUDE_DIR=/usr/include", "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu", "OPENSSL_STATIC=1"]
+          passthrough = [
+            "PKG_CONFIG_ALLOW_CROSS=1",
+            "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig",
+            "OPENSSL_STATIC=1"
+          ]
           CROSSEOF
 
       - name: Build (native)
