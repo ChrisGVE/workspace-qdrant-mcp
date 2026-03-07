@@ -1,6 +1,10 @@
 # Tree-sitter Version Bump Workflow
 # Monitors tree-sitter releases and pushes updates directly to main with a version tag.
 # The tag push triggers release.yml which builds all 6 targets.
+#
+# GRACE PERIOD: When a new tree-sitter version is detected, the workflow waits
+# 14 days before applying the update. This gives grammar maintainers time to
+# regenerate parser.c for the new ABI, so users' cached grammars remain compatible.
 name: Tree-sitter Version Bump
 
 on:
@@ -63,24 +67,82 @@ jobs:
           echo "version=$LATEST" >> $GITHUB_OUTPUT
           echo "Latest tree-sitter version: $LATEST"
 
-      - name: Compare versions
+      - name: Compare versions and enforce grace period
         id: compare
+        env:
+          GRACE_PERIOD_DAYS: 14
         run: |
           CURRENT="${{ steps.current.outputs.version }}"
           LATEST="${{ steps.latest.outputs.version }}"
+          TRACKING_FILE=".github/.ts-version-detected"
 
           echo "current_version=$CURRENT" >> $GITHUB_OUTPUT
           echo "latest_version=$LATEST" >> $GITHUB_OUTPUT
 
-          if [ "$CURRENT" != "$LATEST" ]; then
+          if [ "${{ inputs.force_check }}" == "true" ]; then
             echo "needs_update=true" >> $GITHUB_OUTPUT
-            echo "Version update needed: $CURRENT -> $LATEST"
-          elif [ "${{ inputs.force_check }}" == "true" ]; then
-            echo "needs_update=true" >> $GITHUB_OUTPUT
-            echo "Force check enabled, proceeding with $CURRENT"
-          else
+            echo "Force check enabled, bypassing grace period"
+          elif [ "$CURRENT" = "$LATEST" ]; then
             echo "needs_update=false" >> $GITHUB_OUTPUT
             echo "Already at latest version: $CURRENT"
+            # Clean up tracking file if version caught up externally
+            if [ -f "$TRACKING_FILE" ]; then
+              rm "$TRACKING_FILE"
+              echo "Removed stale tracking file"
+            fi
+          else
+            # New version detected — check grace period
+            NOW=$(date +%s)
+
+            if [ -f "$TRACKING_FILE" ]; then
+              TRACKED_VERSION=$(head -1 "$TRACKING_FILE")
+              DETECTED_TS=$(tail -1 "$TRACKING_FILE")
+
+              if [ "$TRACKED_VERSION" != "$LATEST" ]; then
+                # Different new version — reset tracking
+                echo "$LATEST" > "$TRACKING_FILE"
+                echo "$NOW" >> "$TRACKING_FILE"
+                echo "needs_update=false" >> $GITHUB_OUTPUT
+                echo "New version $LATEST detected (was tracking $TRACKED_VERSION). Grace period reset (${GRACE_PERIOD_DAYS} days)."
+              else
+                ELAPSED=$(( (NOW - DETECTED_TS) / 86400 ))
+                if [ "$ELAPSED" -ge "$GRACE_PERIOD_DAYS" ]; then
+                  echo "needs_update=true" >> $GITHUB_OUTPUT
+                  echo "Grace period elapsed (${ELAPSED}d >= ${GRACE_PERIOD_DAYS}d). Proceeding with update: $CURRENT -> $LATEST"
+                else
+                  echo "needs_update=false" >> $GITHUB_OUTPUT
+                  REMAINING=$((GRACE_PERIOD_DAYS - ELAPSED))
+                  echo "Version $LATEST detected ${ELAPSED}d ago. Waiting ${REMAINING}d more (grace period: ${GRACE_PERIOD_DAYS}d)."
+                fi
+              fi
+            else
+              # First detection — start tracking
+              echo "$LATEST" > "$TRACKING_FILE"
+              echo "$NOW" >> "$TRACKING_FILE"
+              echo "needs_update=false" >> $GITHUB_OUTPUT
+              echo "New version $LATEST detected. Starting ${GRACE_PERIOD_DAYS}-day grace period for grammar ecosystem to update."
+            fi
+          fi
+
+      - name: Persist tracking file
+        if: always()
+        run: |
+          TRACKING_FILE=".github/.ts-version-detected"
+          if [ -f "$TRACKING_FILE" ] && ! git diff --quiet -- "$TRACKING_FILE" 2>/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$TRACKING_FILE"
+            git commit -m "chore: track tree-sitter version detection timestamp" || true
+            git pull --rebase origin main
+            git push origin main
+          elif [ ! -f "$TRACKING_FILE" ] && git ls-files --error-unmatch "$TRACKING_FILE" >/dev/null 2>&1; then
+            # Tracking file was removed (version caught up) — commit removal
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git rm "$TRACKING_FILE"
+            git commit -m "chore: remove tree-sitter version tracking (up to date)" || true
+            git pull --rebase origin main
+            git push origin main
           fi
 
   update-and-release:
@@ -151,6 +213,12 @@ jobs:
           CURRENT_VERSION: ${{ needs.check-version.outputs.current_version }}
           LATEST_VERSION: ${{ needs.check-version.outputs.latest_version }}
         run: |
+          # Remove grace period tracking file (update is being applied)
+          TRACKING_FILE=".github/.ts-version-detected"
+          if [ -f "$TRACKING_FILE" ]; then
+            git rm "$TRACKING_FILE" || rm -f "$TRACKING_FILE"
+          fi
+
           git add src/rust/Cargo.lock
           git add assets/default_configuration.yaml
           git commit -m "deps: bump tree-sitter from $CURRENT_VERSION to $LATEST_VERSION"
