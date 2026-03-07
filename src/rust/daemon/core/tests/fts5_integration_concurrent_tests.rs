@@ -112,43 +112,33 @@ async fn test_concurrent_search_during_writes() {
 }
 
 #[tokio::test]
-async fn test_concurrent_writes_no_corruption() {
+async fn test_sequential_writes_no_corruption() {
+    // In production, the unified queue processor serializes all writes.
+    // This test verifies that sequential writes to many files don't corrupt the FTS5 index.
     let (_tmp, db) = setup_db().await;
-    let db = Arc::new(db);
 
-    // Spawn 10 concurrent write tasks
-    let mut handles = Vec::new();
-    for i in 0..10 {
-        let db_clone = Arc::clone(&db);
-        let handle = tokio::spawn(async move {
-            let processor = FtsBatchProcessor::new(&db_clone, FtsBatchConfig::default());
-            processor
-                .full_rewrite(
-                    i + 1,
-                    &format!("fn concurrent_writer_{}() {{}}", i),
-                    "conc-proj",
-                    Some("main"),
-                    &format!("src/writer_{}.rs", i),
-                    None,
-                    None,
-                    None,
-                )
-                .await
-                .unwrap();
-        });
-        handles.push(handle);
-    }
-
-    for handle in handles {
-        handle.await.unwrap();
+    for i in 0..10_i64 {
+        let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
+        processor
+            .full_rewrite(
+                i + 1,
+                &format!("fn sequential_writer_{}() {{}}", i),
+                "conc-proj",
+                Some("main"),
+                &format!("src/writer_{}.rs", i),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
     }
 
     // After all writes, verify no data corruption — each file should be searchable
-    // Use trailing "()" to avoid substring matches
     for i in 0..10 {
         let results = search_exact(
             &db,
-            &format!("concurrent_writer_{}()", i),
+            &format!("sequential_writer_{}()", i),
             &SearchOptions::default(),
         )
         .await
@@ -156,7 +146,7 @@ async fn test_concurrent_writes_no_corruption() {
         assert_eq!(
             results.matches.len(),
             1,
-            "concurrent_writer_{}() should have exactly 1 match",
+            "sequential_writer_{}() should have exactly 1 match",
             i
         );
     }

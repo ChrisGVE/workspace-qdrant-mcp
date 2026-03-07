@@ -19,6 +19,8 @@ pub(super) struct FileDiffStats {
     pub(super) lines_unchanged: usize,
     /// Internal: tracks retained line_ids during diff application (cleared before return).
     retained_ids: HashSet<i64>,
+    /// Internal: tracks line_ids already deleted by explicit Deleted ops (cleared before return).
+    explicitly_deleted_ids: HashSet<i64>,
 }
 
 /// Apply a diff result to the code_lines table within a transaction.
@@ -47,13 +49,15 @@ pub(super) async fn apply_diff_to_code_lines(
     let existing_lines = fetch_existing_lines(tx, file_id).await?;
     let mut stats = FileDiffStats::default();
     let insertions = apply_diff_ops(tx, diff, &existing_lines, &mut stats).await?;
-    let orphan_deleted = delete_orphaned_lines(tx, &existing_lines, &stats.retained_ids).await?;
+    let orphan_deleted =
+        delete_orphaned_lines(tx, &existing_lines, &stats.retained_ids, &stats.explicitly_deleted_ids).await?;
     stats.lines_deleted += orphan_deleted;
     insert_pending_lines(tx, file_id, insertions, &mut stats).await?;
     renumber_after_changes(tx, file_id, &stats).await?;
 
-    // Clear internal tracking field before returning
+    // Clear internal tracking fields before returning
     stats.retained_ids.clear();
+    stats.explicitly_deleted_ids.clear();
     Ok(stats)
 }
 
@@ -189,6 +193,7 @@ async fn apply_diff_ops(
                         .execute(&mut **tx)
                         .await?;
                     stats.lines_deleted += 1;
+                    stats.explicitly_deleted_ids.insert(line_id);
                 }
             }
         }
@@ -204,10 +209,11 @@ async fn delete_orphaned_lines(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     existing_lines: &[(i64, f64, String)],
     retained_ids: &std::collections::HashSet<i64>,
+    explicitly_deleted_ids: &std::collections::HashSet<i64>,
 ) -> Result<usize, SearchDbError> {
     let mut deleted = 0;
     for (line_id, _, old_content) in existing_lines {
-        if !retained_ids.contains(line_id) {
+        if !retained_ids.contains(line_id) && !explicitly_deleted_ids.contains(line_id) {
             // FTS5: delete before removing from code_lines
             sqlx::query(FTS5_DELETE_ROW_SQL)
                 .bind(*line_id)
