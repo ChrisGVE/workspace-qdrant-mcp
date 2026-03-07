@@ -38,6 +38,14 @@ enum LanguageCommand {
         verbose: bool,
     },
 
+    /// List Tree-sitter grammars with cache status
+    #[command(name = "ts-list")]
+    TsList {
+        /// Show all available grammars including uncached
+        #[arg(short, long)]
+        all: bool,
+    },
+
     /// Install Tree-sitter grammar for a language
     #[command(name = "ts-install")]
     TsInstall {
@@ -120,6 +128,7 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
             category,
             verbose,
         } => list::list_languages(installed, category, verbose).await,
+        LanguageCommand::TsList { all } => treesitter::ts_list(all).await,
         LanguageCommand::TsInstall { language, force } => {
             treesitter::ts_install(&language, force).await
         }

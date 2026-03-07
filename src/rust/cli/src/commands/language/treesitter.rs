@@ -5,7 +5,7 @@ use colored::Colorize;
 
 use crate::output;
 
-use super::helpers::find_language;
+use super::helpers::{find_language, load_definitions};
 
 /// Install a Tree-sitter grammar.
 pub async fn ts_install(language: &str, force: bool) -> Result<()> {
@@ -89,6 +89,88 @@ pub async fn ts_remove(language: &str) -> Result<()> {
                 return Err(anyhow!("Failed to remove grammar: {}", e));
             }
         }
+    }
+
+    Ok(())
+}
+
+/// List Tree-sitter grammars with cache and registry status.
+pub async fn ts_list(show_all: bool) -> Result<()> {
+    use workspace_qdrant_core::config::GrammarConfig;
+    use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
+
+    output::section("Tree-sitter Grammars");
+
+    let config = GrammarConfig::default();
+    let manager = GrammarManager::new(config);
+    let cached = manager.cached_languages().unwrap_or_default();
+
+    let mut defs = load_definitions();
+    defs.sort_by(|a, b| a.language.to_lowercase().cmp(&b.language.to_lowercase()));
+
+    println!(
+        "  {:<16} {:<42} {:<10} {}",
+        "Language".bold(),
+        "Repository".bold(),
+        "Status".bold(),
+        "Patterns".bold()
+    );
+    println!("  {}", "─".repeat(78).dimmed());
+
+    let mut shown = 0;
+    let mut cached_count = 0;
+
+    for def in &defs {
+        if !def.has_grammar() {
+            continue;
+        }
+
+        let lang_id = def.id();
+        let is_cached = cached.contains(&lang_id);
+        let status = manager.grammar_status(&lang_id);
+
+        if !show_all && !is_cached {
+            continue;
+        }
+
+        let status_str = match status {
+            GrammarStatus::Loaded => "Loaded".green(),
+            GrammarStatus::Cached => "Cached".blue(),
+            GrammarStatus::NeedsDownload => "Available".yellow(),
+            GrammarStatus::NotAvailable => "N/A".dimmed(),
+            GrammarStatus::IncompatibleVersion => "Incompat".red(),
+        };
+
+        let repo = def
+            .grammar
+            .sources
+            .first()
+            .map(|s| s.repo.as_str())
+            .unwrap_or("—");
+
+        let has_patterns = if def.has_semantic_patterns() {
+            "✓".green().to_string()
+        } else {
+            "—".dimmed().to_string()
+        };
+
+        println!(
+            "  {:<16} {:<42} {:<10} {}",
+            def.language, repo, status_str, has_patterns
+        );
+
+        shown += 1;
+        if is_cached {
+            cached_count += 1;
+        }
+    }
+
+    println!();
+    if show_all {
+        output::kv("Cached", format!("{cached_count}/{shown}"));
+    } else {
+        output::kv("Cached", format!("{cached_count}"));
+        output::info("Use --all to show available but uncached grammars.");
     }
 
     Ok(())
