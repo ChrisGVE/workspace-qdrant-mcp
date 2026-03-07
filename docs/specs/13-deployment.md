@@ -97,6 +97,22 @@ The Rust daemon statically links ONNX Runtime for embedding generation. This ens
 - **Windows**: Windows system DLLs (`KERNEL32`, `ADVAPI32`, `WS2_32`, `bcrypt`, etc.) only
 - **All platforms**: Tree-sitter grammar files (external `.so`/`.dylib`/`.dll` in cache dir) and LSP binaries (external executables)
 
+**Runtime Prerequisites (user-installed):**
+
+Tree-sitter grammars are distributed as C source code and compiled locally on first use. Users must have a C compiler available:
+
+| Platform | Compiler | Install Command |
+|----------|----------|-----------------|
+| macOS | Clang (Xcode CLT) | `xcode-select --install` |
+| Linux (Debian/Ubuntu) | GCC | `apt install build-essential` |
+| Linux (Fedora/RHEL) | GCC | `dnf groupinstall "Development Tools"` |
+| Linux (Arch) | GCC | `pacman -S base-devel` |
+| Windows | MSVC | Visual Studio Build Tools with C++ workload |
+
+A C++ compiler is additionally required for grammars with C++ external scanners (tracked via the `has_cpp_scanner` field in the Language Registry). The above packages include both C and C++ compilers.
+
+If no compiler is found, the daemon logs a warning and falls back to text-based chunking for that language.
+
 **Release Verification:**
 The CI release workflow (`release.yml`) enforces self-contained binaries via:
 1. Per-platform dependency verification scripts (`scripts/verify-deps-{linux,macos,windows}.*`) that **fail the build** if unexpected dynamic dependencies are found

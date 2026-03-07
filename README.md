@@ -23,6 +23,10 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
 ### Prerequisites
 
 - **Qdrant** - `docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage qdrant/qdrant`
+- **C compiler** - Required for compiling Tree-sitter grammars on first use. Tree-sitter grammars are distributed as C source and compiled locally.
+  - **macOS**: `xcode-select --install` (Xcode Command Line Tools)
+  - **Linux**: `apt install build-essential` (Debian/Ubuntu) or `dnf groupinstall "Development Tools"` (Fedora)
+  - **Windows**: Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with C++ workload
 
 ### Install
 
