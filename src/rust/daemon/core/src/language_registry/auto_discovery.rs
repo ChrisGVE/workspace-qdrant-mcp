@@ -18,8 +18,10 @@ struct NodeType {
     node_type: String,
     named: bool,
     #[serde(default)]
+    #[allow(dead_code)]
     fields: Option<serde_json::Value>,
     #[serde(default)]
+    #[allow(dead_code)]
     children: Option<serde_json::Value>,
 }
 
