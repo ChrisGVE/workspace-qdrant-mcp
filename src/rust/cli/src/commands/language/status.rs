@@ -249,6 +249,68 @@ pub async fn language_info(language: &str) -> Result<()> {
     Ok(())
 }
 
+/// Refresh language registry from upstream providers.
+pub async fn language_refresh() -> Result<()> {
+    use workspace_qdrant_core::language_registry::providers::bundled::BundledProvider;
+    use workspace_qdrant_core::language_registry::providers::linguist::LinguistProvider;
+    use workspace_qdrant_core::language_registry::providers::mason::MasonProvider;
+    use workspace_qdrant_core::language_registry::providers::nvim_treesitter::NvimTreesitterProvider;
+    use workspace_qdrant_core::language_registry::providers::ts_grammars_org::TreeSitterGrammarsOrgProvider;
+    use workspace_qdrant_core::language_registry::registry::LanguageRegistry;
+
+    output::section("Refreshing Language Registry");
+
+    let mut registry = LanguageRegistry::new();
+
+    // Register all providers
+    output::info("Registering providers...");
+
+    match BundledProvider::new() {
+        Ok(bundled) => {
+            output::info("  Bundled definitions (priority 255, offline)");
+            registry.register_provider(Box::new(bundled));
+        }
+        Err(e) => output::warning(format!("  Bundled provider failed: {e}")),
+    }
+
+    let upstream_providers: Vec<(&str, u8, Box<dyn workspace_qdrant_core::language_registry::provider::LanguageSourceProvider>)> = vec![
+        ("GitHub Linguist", 10, Box::new(LinguistProvider::new())),
+        ("tree-sitter-grammars org", 15, Box::new(TreeSitterGrammarsOrgProvider::new())),
+        ("nvim-treesitter", 20, Box::new(NvimTreesitterProvider::new())),
+        ("mason-registry", 30, Box::new(MasonProvider::new())),
+    ];
+
+    for (name, priority, provider) in upstream_providers {
+        output::info(format!("  {} (priority {})", name, priority));
+        registry.register_provider(provider);
+    }
+
+    output::separator();
+    output::info("Fetching from upstream sources...");
+
+    match registry.load().await {
+        Ok(()) => {
+            let all = registry.all().await;
+            let with_grammars = all.values().filter(|d| d.has_grammar()).count();
+            let with_lsp = all.values().filter(|d| d.has_lsp()).count();
+            let with_patterns = all.values().filter(|d| d.has_semantic_patterns()).count();
+
+            output::separator();
+            output::success("Registry refreshed successfully");
+            output::kv("Total languages", format!("{}", all.len()));
+            output::kv("With grammars", format!("{}", with_grammars));
+            output::kv("With LSP servers", format!("{}", with_lsp));
+            output::kv("With semantic patterns", format!("{}", with_patterns));
+        }
+        Err(e) => {
+            output::warning(format!("Registry load completed with errors: {e}"));
+            output::info("Some providers may have failed. Bundled data is always available.");
+        }
+    }
+
+    Ok(())
+}
+
 fn print_pattern_line(label: &str, types: &[String]) {
     if !types.is_empty() {
         output::kv(label, &types.join(", "));
