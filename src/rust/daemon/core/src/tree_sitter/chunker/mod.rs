@@ -4,6 +4,7 @@
 //! from source files. It supports both static (compiled-in) and dynamic (runtime-loaded)
 //! tree-sitter grammars through the `LanguageProvider` trait.
 
+pub mod generic_extractor;
 pub mod helpers;
 mod splitting;
 mod strategy;
@@ -19,6 +20,7 @@ use crate::tree_sitter::parser::LanguageProvider;
 use crate::tree_sitter::types::SemanticChunk;
 
 // Re-export public items for consumers
+pub use generic_extractor::GenericExtractor;
 pub use helpers::{extract_function_calls, find_child_by_kind, find_children_by_kind, node_text};
 pub use splitting::text_chunk_fallback;
 
