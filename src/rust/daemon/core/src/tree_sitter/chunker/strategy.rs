@@ -1,10 +1,18 @@
 //! Chunking strategy selection and configuration.
 //!
-//! Maps language identifiers to the appropriate tree-sitter extractors,
-//! supporting both statically compiled and dynamically loaded grammars.
+//! Maps language identifiers to the appropriate tree-sitter extractors.
+//! Prefers the generic pattern-driven extractor (reading patterns from the
+//! bundled YAML registry) and falls back to per-language extractors when
+//! patterns are not available.
+
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use tree_sitter::Language;
 
+use crate::language_registry::providers::bundled::BundledProvider;
+use crate::language_registry::types::SemanticPatterns;
+use crate::tree_sitter::chunker::generic_extractor::GenericExtractor;
 use crate::tree_sitter::languages::{
     AdaExtractor, CExtractor, ClojureExtractor, CppExtractor, ElixirExtractor, ErlangExtractor,
     FortranExtractor, GoExtractor, HaskellExtractor, JavaExtractor, JavaScriptExtractor,
@@ -15,12 +23,55 @@ use crate::tree_sitter::languages::{
 use crate::tree_sitter::parser::LanguageProvider;
 use crate::tree_sitter::types::ChunkExtractor;
 
+/// Lazily loaded semantic patterns from the bundled YAML registry.
+fn bundled_patterns() -> &'static HashMap<String, SemanticPatterns> {
+    static PATTERNS: OnceLock<HashMap<String, SemanticPatterns>> = OnceLock::new();
+    PATTERNS.get_or_init(|| {
+        let provider = match BundledProvider::new() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Failed to load bundled language definitions: {e}");
+                return HashMap::new();
+            }
+        };
+        let mut map = HashMap::new();
+        for def in provider.definitions() {
+            if let Some(patterns) = &def.semantic_patterns {
+                map.insert(def.id(), patterns.clone());
+            }
+        }
+        map
+    })
+}
+
 /// Create an extractor for the given language.
 ///
-/// If a `dynamic_lang` is provided (from a `LanguageProvider`), the extractor
-/// will use it. Otherwise, it falls back to static grammars for supported
-/// languages.
+/// Tries the generic pattern-driven extractor first (requires both a
+/// `Language` grammar and YAML-defined semantic patterns). Falls back to
+/// per-language extractors for languages without patterns or without a
+/// dynamic grammar.
 pub(super) fn create_extractor(
+    language: &str,
+    dynamic_lang: Option<Language>,
+) -> Option<Box<dyn ChunkExtractor>> {
+    // Try generic extractor if we have both a grammar and patterns
+    if let Some(lang) = dynamic_lang {
+        if let Some(patterns) = bundled_patterns().get(language) {
+            return Some(Box::new(GenericExtractor::new(language, lang, patterns.clone())));
+        }
+        // Have grammar but no patterns — fall through to per-language extractors
+        return create_legacy_extractor(language, Some(lang));
+    }
+
+    // No dynamic grammar — use per-language extractors with static grammars
+    create_legacy_extractor(language, None)
+}
+
+/// Legacy per-language extractor creation.
+///
+/// This is the original match-based dispatch. It will be removed once all
+/// languages are validated against the generic extractor.
+fn create_legacy_extractor(
     language: &str,
     dynamic_lang: Option<Language>,
 ) -> Option<Box<dyn ChunkExtractor>> {
@@ -150,11 +201,7 @@ pub(super) fn create_extractor(
                 .map(LispExtractor::with_language)
                 .unwrap_or_else(LispExtractor::new),
         )),
-        _ => {
-            // For unknown languages, check if provider has a grammar
-            // Currently we can only use known extractors, so return None
-            None
-        }
+        _ => None,
     }
 }
 
