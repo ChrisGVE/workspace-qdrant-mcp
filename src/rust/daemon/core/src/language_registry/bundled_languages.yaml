@@ -1,0 +1,1584 @@
+# Bundled language registry for workspace-qdrant-mcp.
+#
+# This file defines all known languages with their grammar sources,
+# semantic extraction patterns, and LSP server configurations.
+# It serves as the offline fallback when no network providers are available.
+#
+# Quality tiers:
+#   official  - from the tree-sitter org or language maintainers
+#   curated   - from tree-sitter-grammars org
+#   community - community-maintained
+
+# ── Ada ──────────────────────────────────────────────────────────────
+
+- language: ada
+  aliases: []
+  extensions: [".adb", ".ads"]
+  type: programming
+  grammar:
+    sources:
+      - repo: briot/tree-sitter-ada
+        quality: community
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [with_clause, use_clause]
+    function:
+      node_types: [subprogram_body, subprogram_declaration]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: [package_body, package_declaration]
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers: []
+
+# ── Bash ─────────────────────────────────────────────────────────────
+
+- language: bash
+  aliases: [shell, sh, zsh]
+  extensions: [".sh", ".bash", ".zsh"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-bash
+        quality: official
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [comment, command, variable_assignment]
+    function:
+      node_types: [function_definition]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: word
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers:
+    - name: bash-language-server
+      binary: bash-language-server
+      args: [start]
+      priority: 1
+      install_methods:
+        - manager: npm
+          command: "npm install -g bash-language-server"
+
+# ── C ────────────────────────────────────────────────────────────────
+
+- language: c
+  aliases: []
+  extensions: [".c", ".h"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-c
+        quality: official
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [preproc_include, preproc_def, preproc_ifdef, preproc_ifndef]
+    function:
+      node_types: [function_definition]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: [struct_specifier, type_definition]
+    enum:
+      node_types: [enum_specifier]
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: compound_statement
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers:
+    - name: clangd
+      binary: clangd
+      args: []
+      priority: 1
+      install_methods:
+        - manager: brew
+          command: "brew install llvm"
+        - manager: apt
+          command: "apt install clangd"
+    - name: ccls
+      binary: ccls
+      args: []
+      priority: 2
+      install_methods:
+        - manager: brew
+          command: "brew install ccls"
+
+# ── C# ───────────────────────────────────────────────────────────────
+
+- language: c-sharp
+  aliases: [csharp, c_sharp]
+  extensions: [".cs"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-c-sharp
+        quality: official
+    has_cpp_scanner: true
+    symbol_name: c_sharp
+  lsp_servers: []
+
+# ── Clojure ──────────────────────────────────────────────────────────
+
+- language: clojure
+  aliases: [clj]
+  extensions: [".clj", ".cljs", ".cljc", ".edn"]
+  type: programming
+  grammar:
+    sources:
+      - repo: sogaiu/tree-sitter-clojure
+        quality: community
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [comment, list_lit]
+    function:
+      node_types: [list_lit]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: [list_lit]
+      context: inside_class
+    struct:
+      node_types: [list_lit]
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: [list_lit]
+    module:
+      node_types: []
+    constant:
+      node_types: [list_lit]
+    macro:
+      node_types: [list_lit]
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    comment_nodes: [comment]
+    docstring_style: first_string_in_body
+  lsp_servers: []
+
+# ── C++ ──────────────────────────────────────────────────────────────
+
+- language: cpp
+  aliases: [c++, cxx]
+  extensions: [".cpp", ".cxx", ".cc", ".c++", ".hpp", ".hxx", ".hh", ".h++", ".ipp", ".tpp"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-cpp
+        quality: official
+    has_cpp_scanner: true
+  semantic_patterns:
+    preamble:
+      node_types: [preproc_include, preproc_def, preproc_ifdef, preproc_ifndef, using_declaration, namespace_alias_definition]
+    function:
+      node_types: [function_definition]
+      async_node_types: []
+    class:
+      node_types: [class_specifier]
+    method:
+      node_types: [function_definition]
+      context: inside_class
+    struct:
+      node_types: [struct_specifier]
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: [namespace_definition]
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: compound_statement
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers:
+    - name: clangd
+      binary: clangd
+      args: []
+      priority: 1
+      install_methods:
+        - manager: brew
+          command: "brew install llvm"
+        - manager: apt
+          command: "apt install clangd"
+    - name: ccls
+      binary: ccls
+      args: []
+      priority: 2
+      install_methods:
+        - manager: brew
+          command: "brew install ccls"
+
+# ── CSS ──────────────────────────────────────────────────────────────
+
+- language: css
+  aliases: []
+  extensions: [".css"]
+  type: markup
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-css
+        quality: official
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── Dart ─────────────────────────────────────────────────────────────
+
+- language: dart
+  aliases: []
+  extensions: [".dart"]
+  type: programming
+  grammar:
+    sources:
+      - repo: UserNobworthy/tree-sitter-dart
+        quality: community
+    has_cpp_scanner: true
+  lsp_servers: []
+
+# ── Elixir ───────────────────────────────────────────────────────────
+
+- language: elixir
+  aliases: [ex]
+  extensions: [".ex", ".exs"]
+  type: programming
+  grammar:
+    sources:
+      - repo: elixir-lang/tree-sitter-elixir
+        quality: community
+    has_cpp_scanner: true
+  semantic_patterns:
+    preamble:
+      node_types: [comment, call]
+    function:
+      node_types: [call]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: [call]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: [call]
+    constant:
+      node_types: []
+    macro:
+      node_types: [call]
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    comment_nodes: [comment]
+    docstring_style: elixir_attr
+  lsp_servers: []
+
+# ── Elm ──────────────────────────────────────────────────────────────
+
+- language: elm
+  aliases: []
+  extensions: [".elm"]
+  type: programming
+  grammar:
+    sources:
+      - repo: elm-tooling/tree-sitter-elm
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── Erlang ───────────────────────────────────────────────────────────
+
+- language: erlang
+  aliases: [erl]
+  extensions: [".erl", ".hrl"]
+  type: programming
+  grammar:
+    sources:
+      - repo: WhatsApp/tree-sitter-erlang
+        quality: community
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [module_attribute, attribute]
+    function:
+      node_types: [function, function_clause]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: atom
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers: []
+
+# ── Fortran ──────────────────────────────────────────────────────────
+
+- language: fortran
+  aliases: [f90, f95, f03, f08]
+  extensions: [".f", ".f90", ".f95", ".f03", ".f08", ".for", ".fpp"]
+  type: programming
+  grammar:
+    sources:
+      - repo: stadelmanma/tree-sitter-fortran
+        quality: community
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [use_statement, include_statement, implicit_statement]
+    function:
+      node_types: [function, subroutine, function_statement, subroutine_statement]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: [module]
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: name
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers: []
+
+# ── Go ───────────────────────────────────────────────────────────────
+
+- language: go
+  aliases: [golang]
+  extensions: [".go"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-go
+        quality: official
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [package_clause, import_declaration]
+    function:
+      node_types: [function_declaration]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: [method_declaration]
+    struct:
+      node_types: [type_spec]
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: [type_spec]
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: block
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers:
+    - name: gopls
+      binary: gopls
+      args: []
+      priority: 1
+      install_methods:
+        - manager: go
+          command: "go install golang.org/x/tools/gopls@latest"
+
+# ── Haskell ──────────────────────────────────────────────────────────
+
+- language: haskell
+  aliases: [hs]
+  extensions: [".hs", ".lhs"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-haskell
+        quality: official
+    has_cpp_scanner: true
+  semantic_patterns:
+    preamble:
+      node_types: [import, import_declaration, header, module, pragma]
+    function:
+      node_types: [function, bind, top_splice, signature]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: [data_type, newtype, adt]
+    enum:
+      node_types: []
+    trait:
+      node_types: [class, class_declaration]
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: [type_alias, type_synonym]
+    impl:
+      node_types: [instance, instance_declaration]
+    name_node: variable
+    comment_nodes: [comment]
+    docstring_style: haddock
+  lsp_servers: []
+
+# ── HTML ─────────────────────────────────────────────────────────────
+
+- language: html
+  aliases: [htm]
+  extensions: [".html", ".htm", ".xhtml"]
+  type: markup
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-html
+        quality: official
+    has_cpp_scanner: true
+  lsp_servers:
+    - name: vscode-html-languageserver
+      binary: vscode-html-languageserver
+      args: ["--stdio"]
+      priority: 1
+      install_methods:
+        - manager: npm
+          command: "npm install -g vscode-langservers-extracted"
+
+# ── Java ─────────────────────────────────────────────────────────────
+
+- language: java
+  aliases: []
+  extensions: [".java"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-java
+        quality: official
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [package_declaration, import_declaration]
+    function:
+      node_types: []
+      async_node_types: []
+    class:
+      node_types: [class_declaration]
+    method:
+      node_types: [method_declaration, constructor_declaration]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: [enum_declaration]
+    trait:
+      node_types: []
+    interface:
+      node_types: [interface_declaration]
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: block
+    comment_nodes: [line_comment, block_comment]
+    docstring_style: javadoc
+  lsp_servers:
+    - name: jdtls
+      binary: jdtls
+      args: []
+      priority: 1
+      install_methods:
+        - manager: brew
+          command: "brew install jdtls"
+
+# ── JavaScript ───────────────────────────────────────────────────────
+
+- language: javascript
+  aliases: [js, ecmascript]
+  extensions: [".js", ".mjs", ".cjs", ".jsx"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-javascript
+        quality: official
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [import_statement, export_statement]
+    function:
+      node_types: [function_declaration, generator_function_declaration, arrow_function, function]
+      async_node_types: []
+    class:
+      node_types: [class_declaration]
+    method:
+      node_types: [method_definition]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: statement_block
+    comment_nodes: [comment]
+    docstring_style: javadoc
+  lsp_servers:
+    - name: typescript-language-server
+      binary: typescript-language-server
+      args: ["--stdio"]
+      priority: 1
+      install_methods:
+        - manager: npm
+          command: "npm install -g typescript-language-server typescript"
+
+# ── JSON ─────────────────────────────────────────────────────────────
+
+- language: json
+  aliases: []
+  extensions: [".json", ".jsonc"]
+  type: data
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-json
+        quality: official
+    has_cpp_scanner: false
+  lsp_servers:
+    - name: vscode-json-languageserver
+      binary: vscode-json-languageserver
+      args: ["--stdio"]
+      priority: 1
+      install_methods:
+        - manager: npm
+          command: "npm install -g vscode-langservers-extracted"
+
+# ── Julia ────────────────────────────────────────────────────────────
+
+- language: julia
+  aliases: [jl]
+  extensions: [".jl"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-julia
+        quality: official
+    has_cpp_scanner: true
+  lsp_servers: []
+
+# ── Kotlin ───────────────────────────────────────────────────────────
+
+- language: kotlin
+  aliases: [kt, kts]
+  extensions: [".kt", ".kts"]
+  type: programming
+  grammar:
+    sources:
+      - repo: fwcd/tree-sitter-kotlin
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── LaTeX ────────────────────────────────────────────────────────────
+
+- language: latex
+  aliases: [tex]
+  extensions: [".tex", ".sty", ".cls"]
+  type: markup
+  grammar:
+    sources:
+      - repo: latex-lsp/tree-sitter-latex
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── Common Lisp ──────────────────────────────────────────────────────
+
+- language: lisp
+  aliases: [commonlisp, common_lisp, common-lisp]
+  extensions: [".lisp", ".lsp", ".cl", ".fasl"]
+  type: programming
+  grammar:
+    sources:
+      - repo: theHamsta/tree-sitter-commonlisp
+        quality: community
+    has_cpp_scanner: false
+    symbol_name: commonlisp
+  semantic_patterns:
+    preamble:
+      node_types: [comment, block_comment, list_lit, defpackage_form, in_package_form]
+    function:
+      node_types: [list_lit, defun_form]
+      async_node_types: []
+    class:
+      node_types: [list_lit, defclass_form]
+    method:
+      node_types: [list_lit, defmethod_form]
+    struct:
+      node_types: [list_lit]
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: [list_lit, defvar_form, defparameter_form]
+    macro:
+      node_types: [list_lit, defmacro_form]
+    type_alias:
+      node_types: [list_lit]
+    impl:
+      node_types: []
+    comment_nodes: [comment, block_comment]
+    docstring_style: first_string_in_body
+  lsp_servers: []
+
+# ── Lua ──────────────────────────────────────────────────────────────
+
+- language: lua
+  aliases: []
+  extensions: [".lua"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-lua
+        quality: curated
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [comment, variable_declaration, assignment_statement, function_call]
+    function:
+      node_types: [function_declaration, local_function]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: [function_declaration]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: block
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers: []
+
+# ── Markdown ─────────────────────────────────────────────────────────
+
+- language: markdown
+  aliases: [md]
+  extensions: [".md", ".markdown", ".mdx"]
+  type: prose
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-markdown
+        quality: curated
+    has_cpp_scanner: false
+    src_subdir: tree-sitter-markdown
+  lsp_servers: []
+
+# ── Nix ──────────────────────────────────────────────────────────────
+
+- language: nix
+  aliases: []
+  extensions: [".nix"]
+  type: programming
+  grammar:
+    sources:
+      - repo: nix-community/tree-sitter-nix
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── OCaml ────────────────────────────────────────────────────────────
+
+- language: ocaml
+  aliases: [ml]
+  extensions: [".ml", ".mli", ".mll", ".mly"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-ocaml
+        quality: official
+    has_cpp_scanner: true
+    src_subdir: grammars/ocaml
+  semantic_patterns:
+    preamble:
+      node_types: [open_statement, open_module]
+    function:
+      node_types: [value_definition, let_binding, expression_item]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: [module_definition]
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: [type_definition]
+    impl:
+      node_types: []
+    name_node: value_name
+    comment_nodes: [comment]
+    docstring_style: ocaml_doc
+  lsp_servers: []
+
+# ── Odin ─────────────────────────────────────────────────────────────
+
+- language: odin
+  aliases: []
+  extensions: [".odin"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-odin
+        quality: curated
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [package_declaration, import_declaration]
+    function:
+      node_types: [procedure_declaration, const_declaration, value_declaration]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: [const_declaration, value_declaration]
+    enum:
+      node_types: [const_declaration, value_declaration]
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: block
+    comment_nodes: [comment, block_comment]
+    docstring_style: preceding_comments
+  lsp_servers: []
+
+# ── Pascal ───────────────────────────────────────────────────────────
+
+- language: pascal
+  aliases: [objectpascal, delphi]
+  extensions: [".pas", ".pp", ".dpr", ".dpk", ".lfm"]
+  type: programming
+  grammar:
+    sources:
+      - repo: Isopod/tree-sitter-pascal
+        quality: community
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [uses_clause, unit_header, program_header]
+    function:
+      node_types: [function_declaration, procedure_declaration, function_definition, procedure_definition]
+      async_node_types: []
+    class:
+      node_types: [class_type]
+    method:
+      node_types: []
+    struct:
+      node_types: [record_type, object_type]
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: [type_section, type_declaration]
+    impl:
+      node_types: []
+    name_node: identifier
+    comment_nodes: [comment, line_comment]
+    docstring_style: preceding_comments
+  lsp_servers: []
+
+# ── Perl ─────────────────────────────────────────────────────────────
+
+- language: perl
+  aliases: [pl]
+  extensions: [".pl", ".pm", ".pod", ".t", ".psgi"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter-perl/tree-sitter-perl
+        quality: community
+    has_cpp_scanner: true
+    archive_branch: release
+  semantic_patterns:
+    preamble:
+      node_types: [use_no_statement, use_constant_statement, use_version, package_statement, expression_statement]
+    function:
+      node_types: [subroutine_declaration_statement, function_definition]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: block
+    comment_nodes: [comment]
+    docstring_style: pod
+  lsp_servers: []
+
+# ── PHP ──────────────────────────────────────────────────────────────
+
+- language: php
+  aliases: []
+  extensions: [".php", ".phtml", ".php3", ".php4", ".php5", ".php7", ".phps"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-php
+        quality: official
+    has_cpp_scanner: true
+    src_subdir: php
+  lsp_servers:
+    - name: phpactor
+      binary: phpactor
+      args: [language-server]
+      priority: 1
+      install_methods:
+        - manager: composer
+          command: "composer global require phpactor/phpactor"
+    - name: intelephense
+      binary: intelephense
+      args: ["--stdio"]
+      priority: 2
+      install_methods:
+        - manager: npm
+          command: "npm install -g intelephense"
+
+# ── Python ───────────────────────────────────────────────────────────
+
+- language: python
+  aliases: [python3, py, python2]
+  extensions: [".py", ".pyw", ".pyi"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-python
+        quality: official
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [import_statement, import_from_statement, future_import_statement]
+    function:
+      node_types: [function_definition]
+      async_node_types: [async_function_definition]
+    class:
+      node_types: [class_definition]
+    method:
+      node_types: [function_definition, async_function_definition]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: block
+    comment_nodes: [comment]
+    docstring_style: first_string_in_body
+    decorated_wrapper: decorated_definition
+  lsp_servers:
+    - name: ruff-lsp
+      binary: ruff-lsp
+      args: []
+      priority: 1
+      install_methods:
+        - manager: pip
+          command: "pip install ruff-lsp"
+        - manager: brew
+          command: "brew install ruff"
+    - name: pylsp
+      binary: pylsp
+      args: []
+      priority: 2
+      install_methods:
+        - manager: pip
+          command: "pip install python-lsp-server"
+    - name: pyright-langserver
+      binary: pyright-langserver
+      args: ["--stdio"]
+      priority: 3
+      install_methods:
+        - manager: npm
+          command: "npm install -g pyright"
+
+# ── R ────────────────────────────────────────────────────────────────
+
+- language: r
+  aliases: [rlang]
+  extensions: [".r", ".R", ".Rmd", ".Rnw"]
+  type: programming
+  grammar:
+    sources:
+      - repo: r-lib/tree-sitter-r
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── Ruby ─────────────────────────────────────────────────────────────
+
+- language: ruby
+  aliases: [rb]
+  extensions: [".rb", ".rbw", ".rake", ".gemspec"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-ruby
+        quality: official
+    has_cpp_scanner: true
+  semantic_patterns:
+    preamble:
+      node_types: [call]
+    function:
+      node_types: [method]
+      async_node_types: []
+    class:
+      node_types: [class]
+    method:
+      node_types: [method, singleton_method]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: [module]
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: body_statement
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
+  lsp_servers:
+    - name: ruby-lsp
+      binary: ruby-lsp
+      args: []
+      priority: 1
+      install_methods:
+        - manager: gem
+          command: "gem install ruby-lsp"
+    - name: solargraph
+      binary: solargraph
+      args: [stdio]
+      priority: 2
+      install_methods:
+        - manager: gem
+          command: "gem install solargraph"
+
+# ── Rust ─────────────────────────────────────────────────────────────
+
+- language: rust
+  aliases: [rs]
+  extensions: [".rs"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-rust
+        quality: official
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [use_declaration, extern_crate_declaration, attribute_item, inner_attribute_item]
+    function:
+      node_types: [function_item]
+      async_node_types: [function_item]
+    class:
+      node_types: []
+    method:
+      node_types: [function_item]
+      context: inside_class
+    struct:
+      node_types: [struct_item]
+    enum:
+      node_types: [enum_item]
+    trait:
+      node_types: [trait_item]
+    interface:
+      node_types: []
+    module:
+      node_types: [mod_item]
+    constant:
+      node_types: [const_item, static_item]
+    macro:
+      node_types: [macro_definition]
+    type_alias:
+      node_types: [type_item]
+    impl:
+      node_types: [impl_item]
+    name_node: identifier
+    body_node: block
+    comment_nodes: [line_comment, block_comment]
+    docstring_style: preceding_comments
+  lsp_servers:
+    - name: rust-analyzer
+      binary: rust-analyzer
+      args: []
+      priority: 1
+      install_methods:
+        - manager: rustup
+          command: "rustup component add rust-analyzer"
+        - manager: brew
+          command: "brew install rust-analyzer"
+
+# ── Scala ────────────────────────────────────────────────────────────
+
+- language: scala
+  aliases: [sc]
+  extensions: [".scala", ".sc", ".sbt"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-scala
+        quality: official
+    has_cpp_scanner: true
+  semantic_patterns:
+    preamble:
+      node_types: [import_declaration, package_clause]
+    function:
+      node_types: [function_definition, val_definition, var_definition]
+      async_node_types: []
+    class:
+      node_types: [class_definition]
+    method:
+      node_types: [function_definition, val_definition, var_definition]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: [enum_definition]
+    trait:
+      node_types: [trait_definition]
+    interface:
+      node_types: []
+    module:
+      node_types: [object_definition]
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: block
+    comment_nodes: [comment, block_comment]
+    docstring_style: javadoc
+  lsp_servers: []
+
+# ── Scheme ───────────────────────────────────────────────────────────
+
+- language: scheme
+  aliases: [scm]
+  extensions: [".scm", ".ss", ".rkt"]
+  type: programming
+  grammar:
+    sources:
+      - repo: 6cdh/tree-sitter-scheme
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── SQL ──────────────────────────────────────────────────────────────
+
+- language: sql
+  aliases: []
+  extensions: [".sql"]
+  type: data
+  grammar:
+    sources:
+      - repo: derekstride/tree-sitter-sql
+        quality: community
+    has_cpp_scanner: true
+  lsp_servers: []
+
+# ── Swift ────────────────────────────────────────────────────────────
+
+- language: swift
+  aliases: []
+  extensions: [".swift"]
+  type: programming
+  grammar:
+    sources:
+      - repo: alex-pinkus/tree-sitter-swift
+        quality: community
+    has_cpp_scanner: true
+  semantic_patterns:
+    preamble:
+      node_types: [import_declaration]
+    function:
+      node_types: [function_declaration]
+      async_node_types: []
+    class:
+      node_types: [class_declaration]
+    method:
+      node_types: [function_declaration]
+      context: inside_class
+    struct:
+      node_types: [struct_declaration]
+    enum:
+      node_types: [enum_declaration]
+    trait:
+      node_types: []
+    interface:
+      node_types: [protocol_declaration]
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: simple_identifier
+    body_node: function_body
+    comment_nodes: [comment, multiline_comment]
+    docstring_style: preceding_comments
+  lsp_servers: []
+
+# ── TOML ─────────────────────────────────────────────────────────────
+
+- language: toml
+  aliases: []
+  extensions: [".toml"]
+  type: data
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-toml
+        quality: curated
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── TSX ──────────────────────────────────────────────────────────────
+
+- language: tsx
+  aliases: []
+  extensions: [".tsx"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-typescript
+        quality: official
+    has_cpp_scanner: true
+    src_subdir: tsx
+  semantic_patterns:
+    preamble:
+      node_types: [import_statement, export_statement]
+    function:
+      node_types: [function_declaration, generator_function_declaration, arrow_function, function]
+      async_node_types: []
+    class:
+      node_types: [class_declaration]
+    method:
+      node_types: [method_definition, public_field_definition]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: [interface_declaration]
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: [type_alias_declaration]
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: statement_block
+    comment_nodes: [comment]
+    docstring_style: javadoc
+  lsp_servers:
+    - name: typescript-language-server
+      binary: typescript-language-server
+      args: ["--stdio"]
+      priority: 1
+      install_methods:
+        - manager: npm
+          command: "npm install -g typescript-language-server typescript"
+
+# ── TypeScript ───────────────────────────────────────────────────────
+
+- language: typescript
+  aliases: [ts]
+  extensions: [".ts", ".mts", ".cts"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter/tree-sitter-typescript
+        quality: official
+    has_cpp_scanner: true
+    src_subdir: typescript
+  semantic_patterns:
+    preamble:
+      node_types: [import_statement, export_statement]
+    function:
+      node_types: [function_declaration, generator_function_declaration, arrow_function, function]
+      async_node_types: []
+    class:
+      node_types: [class_declaration]
+    method:
+      node_types: [method_definition, public_field_definition]
+      context: inside_class
+    struct:
+      node_types: []
+    enum:
+      node_types: []
+    trait:
+      node_types: []
+    interface:
+      node_types: [interface_declaration]
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: [type_alias_declaration]
+    impl:
+      node_types: []
+    name_node: identifier
+    body_node: statement_block
+    comment_nodes: [comment]
+    docstring_style: javadoc
+  lsp_servers:
+    - name: typescript-language-server
+      binary: typescript-language-server
+      args: ["--stdio"]
+      priority: 1
+      install_methods:
+        - manager: npm
+          command: "npm install -g typescript-language-server typescript"
+
+# ── Vala ─────────────────────────────────────────────────────────────
+
+- language: vala
+  aliases: []
+  extensions: [".vala", ".vapi"]
+  type: programming
+  grammar:
+    sources:
+      - repo: vala-lang/tree-sitter-vala
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── Vue ──────────────────────────────────────────────────────────────
+
+- language: vue
+  aliases: []
+  extensions: [".vue"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-vue
+        quality: curated
+    has_cpp_scanner: true
+  lsp_servers: []
+
+# ── YAML ─────────────────────────────────────────────────────────────
+
+- language: yaml
+  aliases: [yml]
+  extensions: [".yaml", ".yml"]
+  type: data
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-yaml
+        quality: curated
+    has_cpp_scanner: true
+  lsp_servers: []
+
+# ── Zig ──────────────────────────────────────────────────────────────
+
+- language: zig
+  aliases: []
+  extensions: [".zig"]
+  type: programming
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-zig
+        quality: curated
+    has_cpp_scanner: false
+  semantic_patterns:
+    preamble:
+      node_types: [line_comment, doc_comment, VarDecl, TopLevelDecl]
+    function:
+      node_types: [FnProto, TopLevelDecl]
+      async_node_types: []
+    class:
+      node_types: []
+    method:
+      node_types: []
+    struct:
+      node_types: [TopLevelDecl]
+    enum:
+      node_types: [TopLevelDecl]
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    name_node: IDENTIFIER
+    body_node: Block
+    comment_nodes: [line_comment, doc_comment]
+    docstring_style: preceding_comments
+  lsp_servers: []

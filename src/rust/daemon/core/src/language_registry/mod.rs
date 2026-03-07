@@ -35,6 +35,7 @@ pub mod types;
 
 // Re-export key types for convenience.
 pub use provider::{LanguageSourceProvider, ProviderConfig};
+pub use providers::bundled::BundledProvider;
 pub use types::{
     DocstringStyle, FunctionPatternGroup, GrammarConfig, GrammarEntry, GrammarQuality,
     GrammarSourceEntry, InstallMethod, LanguageDefinition, LanguageEntry, LanguageMap,
