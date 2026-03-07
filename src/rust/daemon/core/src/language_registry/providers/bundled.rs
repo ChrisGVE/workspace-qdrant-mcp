@@ -40,6 +40,11 @@ impl BundledProvider {
             })?;
         Ok(Self { definitions })
     }
+
+    /// Access the full language definitions (including semantic patterns).
+    pub fn definitions(&self) -> &[LanguageDefinition] {
+        &self.definitions
+    }
 }
 
 #[async_trait]
@@ -113,6 +118,10 @@ impl LanguageSourceProvider for BundledProvider {
             grammars: self.fetch_grammars().await?,
             lsp_servers: self.fetch_lsp_servers().await?,
         })
+    }
+
+    fn full_definitions(&self) -> Option<&[LanguageDefinition]> {
+        Some(&self.definitions)
     }
 }
 

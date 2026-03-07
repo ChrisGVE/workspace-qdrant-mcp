@@ -29,13 +29,21 @@
 //!  Walker
 //! ```
 
+pub mod intelligence_provider;
 pub mod provider;
 pub mod providers;
+pub mod registry;
+pub mod syntax_provider;
 pub mod types;
 
 // Re-export key types for convenience.
+pub use intelligence_provider::{
+    Capability, CodeIntelligenceProvider, EnrichedSymbols, SymbolReference, SymbolTypeInfo,
+};
 pub use provider::{LanguageSourceProvider, ProviderConfig};
 pub use providers::bundled::BundledProvider;
+pub use registry::LanguageRegistry;
+pub use syntax_provider::SyntaxProvider;
 pub use types::{
     DocstringStyle, FunctionPatternGroup, GrammarConfig, GrammarEntry, GrammarQuality,
     GrammarSourceEntry, InstallMethod, LanguageDefinition, LanguageEntry, LanguageMap,

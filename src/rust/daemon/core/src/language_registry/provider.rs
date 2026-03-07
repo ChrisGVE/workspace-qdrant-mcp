@@ -58,6 +58,15 @@ pub trait LanguageSourceProvider: Send + Sync {
     /// This is the primary refresh mechanism. Implementations should update
     /// their internal cache and `last_updated` timestamp.
     async fn refresh(&self) -> Result<ProviderData, DaemonError>;
+
+    /// Get full language definitions if this provider has them.
+    ///
+    /// Most providers return flat entries via `fetch_languages`/`fetch_grammars`/
+    /// `fetch_lsp_servers`. The bundled provider additionally has complete
+    /// definitions with semantic patterns. Override this to expose them.
+    fn full_definitions(&self) -> Option<&[super::types::LanguageDefinition]> {
+        None
+    }
 }
 
 /// Configuration for a provider instance.
