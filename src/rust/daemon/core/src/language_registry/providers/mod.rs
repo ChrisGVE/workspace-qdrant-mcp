@@ -5,6 +5,6 @@
 
 pub mod bundled;
 pub mod linguist;
-// pub mod mason;
+pub mod mason;
 pub mod nvim_treesitter;
-// pub mod ts_grammars_org;
+pub mod ts_grammars_org;
