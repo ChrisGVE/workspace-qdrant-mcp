@@ -1,9 +1,10 @@
 //! Shared helper functions for language command submodules
 
-use std::process::Command;
-
 use workspace_qdrant_core::language_registry::providers::bundled::BundledProvider;
 use workspace_qdrant_core::language_registry::types::LanguageDefinition;
+use workspace_qdrant_core::lsp::detection::editor_paths::{
+    find_lsp_binary, DetectionSource, LspDetectionResult,
+};
 
 /// Load all language definitions from the bundled registry.
 pub fn load_definitions() -> Vec<LanguageDefinition> {
@@ -32,10 +33,10 @@ pub fn find_language(language: &str) -> Option<LanguageDefinition> {
         .cloned()
 }
 
-/// Detect available language servers on PATH using registry data.
+/// Detect available language servers using PATH and editor-managed locations.
 ///
-/// Returns a list of (language name, server name, resolved path).
-pub fn detect_available_servers() -> Vec<(String, String, String)> {
+/// Returns a list of (language name, server name, resolved path, detection source).
+pub fn detect_available_servers() -> Vec<(String, String, String, DetectionSource)> {
     let defs = load_definitions();
     let mut found = Vec::new();
 
@@ -44,8 +45,13 @@ pub fn detect_available_servers() -> Vec<(String, String, String)> {
             continue;
         }
         for server in &def.lsp_servers {
-            if let Some(path) = which_cmd(&server.binary) {
-                found.push((def.language.clone(), server.name.clone(), path));
+            if let Some(result) = find_lsp_binary(&server.binary) {
+                found.push((
+                    def.language.clone(),
+                    server.name.clone(),
+                    result.path.display().to_string(),
+                    result.source,
+                ));
                 break; // Only report first found for each language
             }
         }
@@ -54,21 +60,14 @@ pub fn detect_available_servers() -> Vec<(String, String, String)> {
     found
 }
 
-/// Find an executable on PATH using `which` then the `which` crate as fallback.
+/// Find an executable on PATH and editor-managed locations.
+///
+/// Returns the path string if found, or None.
 pub fn which_cmd(name: &str) -> Option<String> {
-    match Command::new("which").arg(name).output() {
-        Ok(output) if output.status.success() => {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Some(path);
-            }
-        }
-        _ => {}
-    }
+    find_lsp_binary(name).map(|r| r.path.display().to_string())
+}
 
-    // Fallback: use which crate
-    match which::which(name) {
-        Ok(path) => Some(path.display().to_string()),
-        Err(_) => None,
-    }
+/// Find an executable with full detection result (path + source).
+pub fn which_cmd_detailed(name: &str) -> Option<LspDetectionResult> {
+    find_lsp_binary(name)
 }

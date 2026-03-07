@@ -90,9 +90,10 @@ pub async fn list_languages(
         };
 
         // LSP status
-        let lsp_status = if detected_servers.iter().any(|(_, _, _)| {
-            def.lsp_servers.iter().any(|s| which_cmd(&s.binary).is_some())
-        }) {
+        let has_lsp_detected = detected_servers
+            .iter()
+            .any(|(l, _, _, _)| l.to_lowercase() == def.language.to_lowercase());
+        let lsp_status = if has_lsp_detected {
             "Detected".green()
         } else if def.has_lsp() {
             "Available".yellow()
@@ -103,10 +104,7 @@ pub async fn list_languages(
         // Filter for installed-only mode
         if installed {
             let has_cached = cached_grammars.contains(&lang_id);
-            let has_lsp = detected_servers
-                .iter()
-                .any(|(l, _, _)| l.to_lowercase() == def.language.to_lowercase());
-            if !has_cached && !has_lsp {
+            if !has_cached && !has_lsp_detected {
                 continue;
             }
         }

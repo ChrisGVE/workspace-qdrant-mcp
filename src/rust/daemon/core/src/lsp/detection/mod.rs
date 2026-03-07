@@ -4,6 +4,7 @@
 //! through PATH scanning and capability discovery, as well as project language
 //! detection via marker files and file extension scanning.
 
+pub mod editor_paths;
 mod language_detection;
 mod path_scanner;
 mod registry;
