@@ -6,7 +6,7 @@ use colored::Colorize;
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
-use super::helpers::detect_available_servers;
+use super::helpers::{detect_available_servers, load_definitions, which_cmd};
 
 /// List available languages with support status.
 pub async fn list_languages(
@@ -15,6 +15,7 @@ pub async fn list_languages(
     verbose: bool,
 ) -> Result<()> {
     use workspace_qdrant_core::config::GrammarConfig;
+    use workspace_qdrant_core::language_registry::types::LanguageType;
     use workspace_qdrant_core::tree_sitter::GrammarManager;
 
     output::section("Language Support");
@@ -35,107 +36,135 @@ pub async fn list_languages(
     }
     output::separator();
 
-    show_lsp_servers(installed, verbose);
+    // Load registry definitions
+    let mut defs = load_definitions();
 
+    // Filter by category/type
+    if let Some(ref cat) = category {
+        let type_filter = match cat.to_lowercase().as_str() {
+            "programming" | "prog" => Some(LanguageType::Programming),
+            "markup" | "mark" => Some(LanguageType::Markup),
+            "data" | "config" => Some(LanguageType::Data),
+            "prose" => Some(LanguageType::Prose),
+            _ => {
+                output::warning(format!("Unknown category '{cat}'. Valid: programming, markup, data, prose"));
+                None
+            }
+        };
+        if let Some(lt) = type_filter {
+            defs.retain(|d| d.language_type == lt);
+        }
+    }
+
+    defs.sort_by(|a, b| a.language.to_lowercase().cmp(&b.language.to_lowercase()));
+
+    // Detect installed components
+    let detected_servers = detect_available_servers();
     let config = GrammarConfig::default();
     let manager = GrammarManager::new(config.clone());
-    show_grammar_status(&manager, &config, installed, verbose);
+    let cached_grammars = manager.cached_languages().unwrap_or_default();
+
+    // Print table header
+    println!(
+        "  {:<16} {:<12} {:<8} {:<10} {}",
+        "Language".bold(),
+        "Extensions".bold(),
+        "Grammar".bold(),
+        "LSP".bold(),
+        "Type".bold()
+    );
+    println!("  {}", "─".repeat(64).dimmed());
+
+    let mut shown = 0;
+
+    for def in &defs {
+        let lang_id = def.id();
+
+        // Grammar status
+        let grammar_status = if cached_grammars.contains(&lang_id) {
+            "Cached".blue()
+        } else if def.has_grammar() {
+            "Available".yellow()
+        } else {
+            "None".dimmed()
+        };
+
+        // LSP status
+        let lsp_status = if detected_servers.iter().any(|(_, _, _)| {
+            def.lsp_servers.iter().any(|s| which_cmd(&s.binary).is_some())
+        }) {
+            "Detected".green()
+        } else if def.has_lsp() {
+            "Available".yellow()
+        } else {
+            "None".dimmed()
+        };
+
+        // Filter for installed-only mode
+        if installed {
+            let has_cached = cached_grammars.contains(&lang_id);
+            let has_lsp = detected_servers
+                .iter()
+                .any(|(l, _, _)| l.to_lowercase() == def.language.to_lowercase());
+            if !has_cached && !has_lsp {
+                continue;
+            }
+        }
+
+        // Extensions (show first 3)
+        let exts: String = def
+            .extensions
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let exts_display = if def.extensions.len() > 3 {
+            format!("{}…", exts)
+        } else {
+            exts
+        };
+
+        let type_label = match def.language_type {
+            LanguageType::Programming => "prog",
+            LanguageType::Markup => "markup",
+            LanguageType::Data => "data",
+            LanguageType::Prose => "prose",
+        };
+
+        println!(
+            "  {:<16} {:<12} {:<8} {:<10} {}",
+            def.language, exts_display, grammar_status, lsp_status, type_label.dimmed()
+        );
+
+        if verbose {
+            if !def.aliases.is_empty() {
+                println!("    {}: {}", "aliases".dimmed(), def.aliases.join(", "));
+            }
+            if def.has_semantic_patterns() {
+                println!("    {}", "has semantic patterns".dimmed());
+            }
+            for server in &def.lsp_servers {
+                let detected = which_cmd(&server.binary);
+                let status = match detected {
+                    Some(ref p) => format!("{} at {}", "✓".green(), p),
+                    None => format!("{}", "not found".dimmed()),
+                };
+                println!("    LSP: {} ({}) - {}", server.name, server.binary, status);
+            }
+        }
+
+        shown += 1;
+    }
+
+    println!();
+    output::kv("Total", &format!("{shown} languages"));
 
     if !installed {
         show_install_hints();
     }
 
     Ok(())
-}
-
-/// Print the LSP servers section.
-fn show_lsp_servers(installed: bool, verbose: bool) {
-    println!("{}", "LSP Servers".cyan().bold());
-    let servers = detect_available_servers();
-    if servers.is_empty() {
-        if !installed {
-            println!("  (none detected on PATH)");
-        }
-    } else {
-        for (language, server_name, path) in servers {
-            if verbose {
-                println!(
-                    "  {} {} - {} ({})",
-                    "✓".green(),
-                    language,
-                    server_name,
-                    path
-                );
-            } else {
-                println!("  {} {} - {}", "✓".green(), language, server_name);
-            }
-        }
-    }
-    println!();
-}
-
-/// Print the Tree-sitter grammar section (static, cached, downloadable).
-fn show_grammar_status(
-    manager: &workspace_qdrant_core::tree_sitter::GrammarManager,
-    config: &workspace_qdrant_core::config::GrammarConfig,
-    installed: bool,
-    verbose: bool,
-) {
-    use workspace_qdrant_core::known_grammar_languages;
-    use workspace_qdrant_core::tree_sitter::{GrammarStatus, StaticLanguageProvider};
-
-    println!("{}", "Tree-sitter Grammars".cyan().bold());
-
-    let cached = manager.cached_languages().unwrap_or_default();
-    let static_langs = StaticLanguageProvider::SUPPORTED_LANGUAGES;
-
-    if !static_langs.is_empty() {
-        println!("  {}", "Static (bundled):".dimmed());
-        for lang in static_langs {
-            println!("    {} {}", "✓".green(), lang);
-        }
-    }
-
-    if !cached.is_empty() {
-        println!("  {}", "Cached (dynamic):".dimmed());
-        for lang in &cached {
-            let status = manager.grammar_status(lang);
-            let status_icon = match status {
-                GrammarStatus::Loaded => "✓".green(),
-                GrammarStatus::Cached => "●".blue(),
-                GrammarStatus::NeedsDownload => "↓".yellow(),
-                GrammarStatus::NotAvailable => "✗".red(),
-                GrammarStatus::IncompatibleVersion => "!".yellow(),
-            };
-            print!("    {} {}", status_icon, lang);
-            if verbose {
-                let info = manager.grammar_info(lang);
-                if let Some(meta) = info.metadata {
-                    print!(
-                        " (v{}, ts {})",
-                        meta.grammar_version, meta.tree_sitter_version
-                    );
-                }
-            }
-            println!();
-        }
-    } else if !installed {
-        println!("  Cached: (none)");
-    }
-
-    if !installed {
-        let known = known_grammar_languages();
-        let downloadable: Vec<&&str> = known
-            .iter()
-            .filter(|l| !cached.contains(&l.to_string()) && !static_langs.contains(l))
-            .collect();
-        if !downloadable.is_empty() && config.auto_download {
-            println!("  {}", "Available (auto-download on first use):".dimmed());
-            for lang in downloadable {
-                println!("    {} {}", "↓".yellow(), lang);
-            }
-        }
-    }
 }
 
 /// Print installation hint footer.

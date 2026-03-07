@@ -6,21 +6,7 @@ use colored::Colorize;
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
-use super::helpers::{get_lsp_server_info, which_cmd};
-
-const ALL_LANGUAGES: &[&str] = &[
-    "rust",
-    "python",
-    "typescript",
-    "go",
-    "java",
-    "c",
-    "cpp",
-    "ruby",
-    "php",
-    "shell",
-    "html",
-];
+use super::helpers::{find_language, load_definitions, which_cmd};
 
 /// Show language support status (LSP + grammar availability).
 pub async fn language_status(language: Option<String>, verbose: bool) -> Result<()> {
@@ -42,10 +28,13 @@ pub async fn language_status(language: Option<String>, verbose: bool) -> Result<
         output::separator();
         check_single_language(lang.as_str(), &manager, verbose);
     } else {
-        output::info("Checking all languages...");
+        output::info("Checking all languages with LSP support...");
         output::separator();
-        for lang in ALL_LANGUAGES {
-            check_single_language(lang, &manager, verbose);
+        let defs = load_definitions();
+        for def in &defs {
+            if def.has_lsp() {
+                check_single_language(&def.id(), &manager, verbose);
+            }
         }
     }
 
@@ -95,21 +84,26 @@ fn check_single_language(
 
     println!("{}", format!("  {}", lang).cyan().bold());
 
-    let lsp_info = get_lsp_server_info(lang);
-    if let Some((server_name, executables)) = lsp_info {
-        let lsp_path = executables.iter().find_map(|exe| which_cmd(exe));
-        match lsp_path {
-            Some(path) => {
-                print!("    LSP: {} {}", "✓".green(), server_name);
-                if verbose {
-                    print!(" ({})", path);
+    let def = find_language(lang);
+    if let Some(ref def) = def {
+        for server in &def.lsp_servers {
+            let lsp_path = which_cmd(&server.binary);
+            match lsp_path {
+                Some(path) => {
+                    print!("    LSP: {} {}", "✓".green(), server.name);
+                    if verbose {
+                        print!(" ({})", path);
+                    }
+                    println!();
                 }
-                println!();
+                None => println!("    LSP: {} {} not installed", "✗".red(), server.name),
             }
-            None => println!("    LSP: {} not installed", "✗".red()),
+        }
+        if def.lsp_servers.is_empty() {
+            println!("    LSP: {} not configured", "?".yellow());
         }
     } else {
-        println!("    LSP: {} not supported", "?".yellow());
+        println!("    LSP: {} unknown language", "?".yellow());
     }
 
     match manager.grammar_status(lang) {

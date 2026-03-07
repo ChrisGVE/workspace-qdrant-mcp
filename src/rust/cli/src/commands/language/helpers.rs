@@ -2,58 +2,50 @@
 
 use std::process::Command;
 
-/// Get LSP server info for a language.
-/// Returns (server display name, list of executable names to probe).
-pub fn get_lsp_server_info(language: &str) -> Option<(&'static str, Vec<&'static str>)> {
-    match language.to_lowercase().as_str() {
-        "rust" => Some(("rust-analyzer", vec!["rust-analyzer"])),
-        "python" => Some((
-            "ruff-lsp/pylsp/pyright",
-            vec!["ruff-lsp", "ruff", "pylsp", "pyright", "pyright-langserver"],
-        )),
-        "typescript" | "javascript" | "ts" | "js" => Some((
-            "typescript-language-server",
-            vec!["typescript-language-server"],
-        )),
-        "go" | "golang" => Some(("gopls", vec!["gopls"])),
-        "java" => Some(("jdtls", vec!["jdtls"])),
-        "c" | "cpp" | "c++" => Some(("clangd/ccls", vec!["clangd", "ccls"])),
-        "ruby" | "rb" => Some(("ruby-lsp/solargraph", vec!["ruby-lsp", "solargraph"])),
-        "php" => Some(("phpactor/intelephense", vec!["phpactor", "intelephense"])),
-        "shell" | "bash" | "sh" => Some(("bash-language-server", vec!["bash-language-server"])),
-        "html" | "htm" => Some((
-            "vscode-html-languageserver",
-            vec!["vscode-html-language-server"],
-        )),
-        _ => None,
+use workspace_qdrant_core::language_registry::providers::bundled::BundledProvider;
+use workspace_qdrant_core::language_registry::types::LanguageDefinition;
+
+/// Load all language definitions from the bundled registry.
+pub fn load_definitions() -> Vec<LanguageDefinition> {
+    match BundledProvider::new() {
+        Ok(p) => p.definitions().to_vec(),
+        Err(e) => {
+            eprintln!("Warning: failed to load language registry: {e}");
+            Vec::new()
+        }
     }
 }
 
-/// Detect available language servers on PATH.
-/// Returns a list of (language label, executable name, resolved path).
-pub fn detect_available_servers() -> Vec<(String, String, String)> {
-    let servers_to_check = vec![
-        ("Rust", vec!["rust-analyzer"]),
-        (
-            "Python",
-            vec!["ruff-lsp", "ruff", "pylsp", "pyright", "pyright-langserver"],
-        ),
-        ("TypeScript/JavaScript", vec!["typescript-language-server"]),
-        ("Go", vec!["gopls"]),
-        ("Java", vec!["jdtls"]),
-        ("C/C++", vec!["clangd", "ccls"]),
-        ("Ruby", vec!["ruby-lsp", "solargraph"]),
-        ("PHP", vec!["phpactor", "intelephense"]),
-        ("Shell", vec!["bash-language-server"]),
-        ("HTML", vec!["vscode-html-language-server"]),
-    ];
+/// Get a language definition by ID or alias.
+pub fn find_language(language: &str) -> Option<LanguageDefinition> {
+    let defs = load_definitions();
+    let normalized = language.to_lowercase();
 
+    // Direct ID match
+    if let Some(def) = defs.iter().find(|d| d.id() == normalized) {
+        return Some(def.clone());
+    }
+
+    // Alias match
+    defs.iter()
+        .find(|d| d.aliases.iter().any(|a| a.to_lowercase() == normalized))
+        .cloned()
+}
+
+/// Detect available language servers on PATH using registry data.
+///
+/// Returns a list of (language name, server name, resolved path).
+pub fn detect_available_servers() -> Vec<(String, String, String)> {
+    let defs = load_definitions();
     let mut found = Vec::new();
 
-    for (language, executables) in servers_to_check {
-        for exe in executables {
-            if let Some(path) = which_cmd(exe) {
-                found.push((language.to_string(), exe.to_string(), path));
+    for def in &defs {
+        if def.lsp_servers.is_empty() {
+            continue;
+        }
+        for server in &def.lsp_servers {
+            if let Some(path) = which_cmd(&server.binary) {
+                found.push((def.language.clone(), server.name.clone(), path));
                 break; // Only report first found for each language
             }
         }

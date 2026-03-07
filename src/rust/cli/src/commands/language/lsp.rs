@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::config;
 use crate::output;
 
-use super::helpers::{get_lsp_server_info, which_cmd};
+use super::helpers::{find_language, which_cmd};
 
 /// Show installation guide for an LSP server.
 pub async fn lsp_install(language: &str) -> Result<()> {
@@ -31,18 +31,21 @@ pub async fn lsp_install(language: &str) -> Result<()> {
 pub async fn lsp_remove(language: &str) -> Result<()> {
     output::section(format!("Remove {} Language Server", language));
 
-    let lsp_info = get_lsp_server_info(language);
+    let def = find_language(language);
 
-    if lsp_info.is_none() {
+    if def.is_none() || def.as_ref().is_some_and(|d| d.lsp_servers.is_empty()) {
         output::warning(format!("No known LSP server for: {}", language));
-        output::info(
-            "Known languages: rust, python, typescript, javascript, go, java, c, cpp, ruby, php, shell, html",
-        );
+        output::info("Use 'wqm language list' to see languages with LSP support.");
         return Ok(());
     }
 
-    let (server_name, executables) = lsp_info.unwrap();
-    let installed_path = executables.iter().find_map(|exe| which_cmd(exe));
+    let def = def.unwrap();
+    let server = &def.lsp_servers[0]; // primary server
+    let server_name = &server.name;
+    let installed_path = def
+        .lsp_servers
+        .iter()
+        .find_map(|s| which_cmd(&s.binary));
 
     match installed_path {
         Some(path) => {
