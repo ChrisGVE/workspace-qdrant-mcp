@@ -3260,6 +3260,100 @@ grammars:
   idle_update_check_delay_secs: 300
 
 # =============================================================================
+# LANGUAGE REGISTRY CONFIGURATION
+# =============================================================================
+# Purpose: Configures the dynamic language registry that provides language
+# definitions (extensions, grammar repos, semantic patterns, LSP servers)
+# from multiple upstream sources merged by priority.
+#
+# The registry replaces all hardcoded language support. Adding a new language
+# requires only a YAML definition — no code changes.
+language_registry:
+  # registry_dir: Directory for user-local language override YAML files
+  # Purpose: YAML files here override bundled definitions (highest precedence)
+  # Format: Directory path with shell expansion
+  # Default reasoning: Standard location under workspace-qdrant config directory
+  registry_dir: "~/.workspace-qdrant/languages"
+
+  # auto_refresh: Automatically refresh registry from upstream providers
+  # Purpose: Controls whether the daemon fetches upstream language metadata
+  # When enabled: Periodic background refresh from Linguist, nvim-treesitter, etc.
+  # When disabled: Only bundled definitions and user overrides are used
+  # Format: Boolean
+  # Default reasoning: true keeps language metadata current
+  auto_refresh: true
+
+  # refresh_interval_hours: How often to refresh from upstream providers
+  # Purpose: Controls frequency of upstream metadata refresh
+  # Set to 0: Disable automatic refresh (manual via `wqm language refresh`)
+  # Format: Integer (hours)
+  # Default reasoning: 168 (weekly) balances freshness with network traffic
+  refresh_interval_hours: 168
+
+  # grammar_quality_priority: Preferred quality tier ordering for grammar selection
+  # Purpose: When multiple grammar sources exist, prefer higher quality tiers
+  # Format: List of quality tiers in preference order
+  # Available: curated, official, community
+  # Default reasoning: curated grammars are most reliable
+  grammar_quality_priority: [curated, official, community]
+
+  # providers: Upstream data source configuration
+  # Purpose: Enable/disable individual providers for language metadata
+  # Each provider fetches from a specific upstream source
+  providers:
+    # GitHub Linguist — language identity (extensions, aliases, type)
+    linguist:
+      enabled: true
+
+    # tree-sitter-grammars GitHub org — curated grammar repos
+    treesitter_grammars_org:
+      enabled: true
+
+    # nvim-treesitter lockfile — grammar-to-repo mappings (200+ languages)
+    nvim_treesitter:
+      enabled: true
+
+    # mason-registry — LSP server metadata and install methods
+    mason:
+      enabled: true
+
+  # editor_search_paths: Directories where editors install LSP servers
+  # Purpose: Find LSP servers installed by editors (mason.nvim, VS Code, etc.)
+  # The daemon and CLI search these paths in addition to $PATH
+  # Format: List of search path entries with name, path, and recursion settings
+  # Default reasoning: covers the most popular editors
+  editor_search_paths:
+    - name: "mason.nvim"
+      path: "~/.local/share/nvim/mason/bin"
+      recursive: false
+    - name: "VS Code"
+      path: "~/.vscode/extensions"
+      recursive: true
+      max_depth: 3
+    - name: "VS Code Insiders"
+      path: "~/.vscode-insiders/extensions"
+      recursive: true
+      max_depth: 3
+    - name: "Zed"
+      path: "~/.local/share/zed/languages"
+      recursive: true
+      max_depth: 3
+    - name: "Emacs lsp-mode"
+      path: "~/.emacs.d/.cache/lsp"
+      recursive: true
+      max_depth: 3
+    - name: "Helix"
+      path: "~/.config/helix/runtime"
+      recursive: true
+      max_depth: 2
+
+  # extra_search_paths: Additional user-defined search paths for LSP binaries
+  # Purpose: Add custom locations where LSP servers may be installed
+  # Format: List of directory paths
+  # Default reasoning: empty — user adds paths as needed
+  extra_search_paths: []
+
+# =============================================================================
 # DAEMON SELF-UPDATE CONFIGURATION
 # =============================================================================
 # Purpose: Controls how the daemon checks for and applies updates.
