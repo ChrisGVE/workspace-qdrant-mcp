@@ -93,12 +93,23 @@ enum LanguageCommand {
         language: String,
     },
 
+    /// List all LSP servers across all languages
+    #[command(name = "lsp-list")]
+    LspList {
+        /// Show all servers including those not detected
+        #[arg(short, long)]
+        all: bool,
+    },
+
     /// Search available LSP servers for a language
     #[command(name = "lsp-search")]
     LspSearch {
         /// Language to search LSP servers for
         language: String,
     },
+
+    /// Refresh language registry from upstream providers
+    Refresh,
 }
 
 /// Execute language command
@@ -120,6 +131,8 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
         }
         LanguageCommand::Info { language } => status::language_info(&language).await,
         LanguageCommand::TsSearch { language } => treesitter::ts_search(&language).await,
+        LanguageCommand::LspList { all } => lsp::lsp_list(all).await,
         LanguageCommand::LspSearch { language } => lsp::lsp_search(&language).await,
+        LanguageCommand::Refresh => status::language_refresh().await,
     }
 }

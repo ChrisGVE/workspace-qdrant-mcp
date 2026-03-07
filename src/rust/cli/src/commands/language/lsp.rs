@@ -6,7 +6,7 @@ use colored::Colorize;
 use crate::config;
 use crate::output;
 
-use super::helpers::{find_language, which_cmd, which_cmd_detailed};
+use super::helpers::{find_language, load_definitions, which_cmd, which_cmd_detailed};
 
 /// Smart LSP install: checks existing installations, filters by available managers.
 pub async fn lsp_install(language: &str) -> Result<()> {
@@ -170,6 +170,69 @@ pub async fn lsp_remove(language: &str) -> Result<()> {
                 def.language
             ));
         }
+    }
+
+    Ok(())
+}
+
+/// List all LSP servers across all registered languages.
+pub async fn lsp_list(show_all: bool) -> Result<()> {
+    output::section("LSP Servers");
+
+    let defs = load_definitions();
+
+    println!(
+        "  {:<16} {:<25} {:<14} {:<10} {}",
+        "Language".bold(),
+        "Server".bold(),
+        "Binary".bold(),
+        "Source".bold(),
+        "Status".bold()
+    );
+    println!("  {}", "─".repeat(75).dimmed());
+
+    let mut shown = 0;
+    let mut detected_count = 0;
+
+    for def in &defs {
+        if def.lsp_servers.is_empty() {
+            continue;
+        }
+
+        for server in &def.lsp_servers {
+            let result = which_cmd_detailed(&server.binary);
+            let is_detected = result.is_some();
+
+            if !show_all && !is_detected {
+                continue;
+            }
+
+            let (source, status) = match &result {
+                Some(r) => (
+                    r.source.to_string(),
+                    format!("{} {}", "✓".green(), r.path.display()),
+                ),
+                None => ("—".to_string(), "not found".dimmed().to_string()),
+            };
+
+            println!(
+                "  {:<16} {:<25} {:<14} {:<10} {}",
+                def.language, server.name, server.binary, source, status
+            );
+
+            shown += 1;
+            if is_detected {
+                detected_count += 1;
+            }
+        }
+    }
+
+    println!();
+    if show_all {
+        output::kv("Detected", format!("{detected_count}/{shown}"));
+    } else {
+        output::kv("Detected", format!("{detected_count}"));
+        output::info("Use --all to show servers not yet installed.");
     }
 
     Ok(())
