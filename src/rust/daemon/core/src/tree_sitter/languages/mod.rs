@@ -1,54 +1,5 @@
-//! Language-specific chunk extractors.
-
-mod ada;
-mod c;
-mod clojure;
-mod cpp;
-mod elixir;
-mod erlang;
-mod fortran;
-mod go;
-mod haskell;
-mod helpers;
-mod java;
-mod javascript;
-mod lisp;
-mod lua;
-mod ocaml;
-mod odin;
-mod pascal;
-mod perl;
-mod python;
-mod ruby;
-mod rust;
-mod scala;
-mod shell;
-mod swift;
-mod typescript;
-mod zig;
-
-pub use ada::AdaExtractor;
-pub use c::CExtractor;
-pub use clojure::ClojureExtractor;
-pub use cpp::CppExtractor;
-pub use elixir::ElixirExtractor;
-pub use erlang::ErlangExtractor;
-pub use fortran::FortranExtractor;
-pub use go::GoExtractor;
-pub use haskell::HaskellExtractor;
-pub use java::JavaExtractor;
-pub use javascript::JavaScriptExtractor;
-pub use lisp::LispExtractor;
-pub use lua::LuaExtractor;
-pub use ocaml::OCamlExtractor;
-pub use odin::OdinExtractor;
-pub use pascal::PascalExtractor;
-pub use perl::PerlExtractor;
-pub use python::PythonExtractor;
-pub use ruby::RubyExtractor;
-pub use rust::RustExtractor;
-pub use scala::ScalaExtractor;
-pub use shell::ShellExtractor;
-pub use swift::SwiftExtractor;
-pub use typescript::TypeScriptExtractor;
-pub use zig::ZigExtractor;
+//! Language-specific chunk extractors (deprecated).
+//!
+//! Per-language extractors have been replaced by the generic pattern-driven
+//! extractor in `chunker::generic_extractor`. This module is retained as a
+//! namespace placeholder and may be removed in a future cleanup.
