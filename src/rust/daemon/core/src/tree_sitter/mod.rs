@@ -44,10 +44,10 @@ use crate::error::DaemonError;
 const KNOWN_GRAMMAR_LANGUAGES: &[&str] = &[
     "ada", "bash", "c", "clojure", "cpp", "css", "dart", "elixir", "elm",
     "erlang", "fortran", "go", "haskell", "html", "java", "javascript",
-    "json", "julia", "kotlin", "latex", "lisp", "lua", "markdown", "nix",
-    "ocaml", "odin", "pascal", "perl", "php", "python", "r", "ruby", "rust",
-    "scala", "scheme", "sql", "swift", "toml", "tsx", "typescript", "vala",
-    "vue", "yaml", "zig",
+    "json", "jsx", "julia", "kotlin", "latex", "lisp", "lua", "markdown",
+    "nix", "ocaml", "odin", "pascal", "perl", "php", "python", "r", "ruby",
+    "rust", "scala", "scheme", "sql", "swift", "toml", "tsx", "typescript",
+    "vala", "vue", "yaml", "zig",
 ];
 
 /// Language registry mapping file extensions to language identifiers.

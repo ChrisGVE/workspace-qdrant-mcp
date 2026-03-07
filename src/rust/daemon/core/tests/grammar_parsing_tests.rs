@@ -62,7 +62,7 @@ fn test_language_detection() {
         ("test.java", Some("java"), true),
         ("test.c", Some("c"), true),
         ("test.cpp", Some("cpp"), true),
-        ("test.json", Some("json"), false),
+        ("test.json", Some("json"), true),
         ("test.xyz", None, false),
     ];
 
@@ -169,8 +169,8 @@ fn test_known_grammar_languages_list() {
     assert!(known.contains(&"c"), "c should be in known grammars");
     assert!(known.contains(&"cpp"), "cpp should be in known grammars");
     assert!(
-        !known.contains(&"json"),
-        "json should not be in known grammars"
+        known.contains(&"json"),
+        "json should be in known grammars"
     );
     assert!(
         !known.contains(&"unknown"),
