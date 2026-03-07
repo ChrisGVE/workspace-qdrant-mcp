@@ -8,7 +8,7 @@
 # - macOS ARM (Apple Silicon) — native build on macos-latest
 # - macOS Intel (x86_64) — cross-compiled on macos-latest with ORT universal2 static lib
 # - Linux x64 — native build on ubuntu-latest
-# - Linux ARM64 — cross-compiled with vendored OpenSSL via cross
+# - Linux ARM64 — native build on ubuntu-24.04-arm
 
 name: Nightly Build
 
@@ -72,33 +72,26 @@ jobs:
           # macOS ARM (Apple Silicon) — native on ARM runner
           - target: aarch64-apple-darwin
             os: macos-latest
-            cross: false
             artifact_name: darwin-arm64
             needs_ort_download: false
 
           # macOS Intel — cross-compile on ARM runner (ORT universal2 covers both arches)
           - target: x86_64-apple-darwin
             os: macos-latest
-            cross: false
             artifact_name: darwin-x64
             needs_ort_download: true
 
           # Linux x64 — native build
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            cross: false
             artifact_name: linux-x64
             needs_ort_download: false
 
-          # Linux ARM64 — disabled: cross-compilation requires both vendored
-          # OpenSSL and ONNX Runtime static library for aarch64, which the
-          # cross container can't easily provide. TODO: use QEMU native build
-          # or provide pre-built ORT aarch64 static library.
-          # - target: aarch64-unknown-linux-gnu
-          #   os: ubuntu-latest
-          #   cross: true
-          #   artifact_name: linux-arm64
-          #   needs_ort_download: false
+          # Linux ARM64 — native build on ARM runner
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            artifact_name: linux-arm64
+            needs_ort_download: false
 
     steps:
       - name: Checkout repository
@@ -114,7 +107,7 @@ jobs:
         run: brew install cmake protobuf
 
       - name: Install Linux dependencies
-        if: runner.os == 'Linux' && !matrix.cross
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev

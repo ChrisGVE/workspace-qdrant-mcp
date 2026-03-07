@@ -87,13 +87,6 @@ tonic-build = { version = "0.12", features = ["prost"] }
 
 [features]
 default = []
-# Compile OpenSSL from source (for cross-compilation where system OpenSSL is unavailable)
-openssl-vendored = ["dep:openssl-sys"]
-
-[dependencies.openssl-sys]
-version = "0.9"
-features = ["vendored"]
-optional = true
 
 [lints]
 workspace = true

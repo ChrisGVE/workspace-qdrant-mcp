@@ -47,7 +47,6 @@ jobs:
           # macOS ARM (Apple Silicon) - ort has prebuilt binaries
           - target: aarch64-apple-darwin
             os: macos-latest
-            cross: false
             artifact_name: darwin-arm64
             needs_ort_download: false
             build_napi: true
@@ -57,7 +56,6 @@ jobs:
           # ORT universal2 static lib covers both architectures
           - target: x86_64-apple-darwin
             os: macos-latest
-            cross: false
             artifact_name: darwin-x64
             needs_ort_download: true
             build_napi: true
@@ -66,15 +64,13 @@ jobs:
           # Windows x64 - ort has prebuilt binaries
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            cross: false
             artifact_name: windows-x64
             needs_ort_download: false
             build_napi: false
 
-          # Windows ARM64 - ort has prebuilt binaries
+          # Windows ARM64 - Rust cross-compiles to ARM64 on x64 runner
           - target: aarch64-pc-windows-msvc
             os: windows-latest
-            cross: false  # Rust cross-compiles to ARM64 on x64 runner
             artifact_name: windows-arm64
             needs_ort_download: false
             build_napi: false
@@ -82,16 +78,14 @@ jobs:
           # Linux x64 - ort has prebuilt binaries
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            cross: false
             artifact_name: linux-x64
             needs_ort_download: false
             build_napi: true
             napi_node_name: linux-x64-gnu
 
-          # Linux ARM64 - ort has prebuilt binaries
+          # Linux ARM64 - native build on ARM runner
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            cross: true  # Use cross for ARM compilation
+            os: ubuntu-24.04-arm
             artifact_name: linux-arm64
             needs_ort_download: false
             build_napi: true
@@ -106,10 +100,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross (Linux ARM64)
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
       # macOS specific: Install dependencies
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -118,7 +108,7 @@ jobs:
 
       # Linux specific: Install dependencies
       - name: Install Linux dependencies
-        if: runner.os == 'Linux' && !matrix.cross
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
@@ -186,47 +176,17 @@ jobs:
           OPENSSL_PREFIX=$(arch -x86_64 /usr/local/bin/brew --prefix openssl@3)
           echo "OPENSSL_DIR=$OPENSSL_PREFIX" >> $GITHUB_ENV
 
-      # Set up cross-compilation for Linux ARM64
-      - name: Set cross-compilation environment
-        if: matrix.cross
-        shell: bash
-        run: echo "CROSS_CONFIG=$GITHUB_WORKSPACE/Cross.toml" >> $GITHUB_ENV
-
-      - name: Create Cross.toml
-        if: matrix.cross
-        shell: bash
-        run: |
-          cat > Cross.toml << 'CROSSEOF'
-          [target.aarch64-unknown-linux-gnu]
-          pre-build = [
-            "apt-get update && apt-get install -y libssl-dev pkg-config protobuf-compiler libprotobuf-dev cmake liblzma-dev perl make"
-          ]
-          CROSSEOF
-
       # Build binaries
-      - name: Build (native)
-        if: "!matrix.cross"
+      - name: Build
         working-directory: src/rust
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build (cross)
-        if: matrix.cross
-        working-directory: src/rust
-        run: |
-          cross build --release --target ${{ matrix.target }} -p memexd --features openssl-vendored
-          cross build --release --target ${{ matrix.target }} -p wqm-cli --features openssl-vendored
-
       # Build napi-rs native addon (wqm-common-node) for supported platforms
       # The addon depends only on wqm-common (no ONNX), so no ORT_LIB_LOCATION needed
-      - name: Build napi addon (native)
-        if: matrix.build_napi && !matrix.cross
+      - name: Build napi addon
+        if: matrix.build_napi
         working-directory: src/rust
         run: cargo build --release --target ${{ matrix.target }} --package wqm-common-node
-
-      - name: Build napi addon (cross)
-        if: matrix.build_napi && matrix.cross
-        working-directory: src/rust
-        run: cross build --release --target ${{ matrix.target }} --package wqm-common-node
 
       - name: Prepare napi addon artifact
         if: matrix.build_napi
@@ -292,7 +252,7 @@ jobs:
 
       # Smoke tests - verify binaries are runnable
       - name: Smoke test (Unix)
-        if: runner.os != 'Windows' && !matrix.cross
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           echo "Running smoke tests..."

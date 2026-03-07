@@ -43,13 +43,6 @@ windows-service = "0.7"
 default = []
 # Enable OCR support (requires Tesseract system library)
 ocr = ["workspace-qdrant-core/ocr"]
-# Compile OpenSSL from source (for cross-compilation where system OpenSSL is unavailable)
-openssl-vendored = ["dep:openssl-sys"]
-
-[dependencies.openssl-sys]
-version = "0.9"
-features = ["vendored"]
-optional = true
 
 [lints]
 workspace = true
