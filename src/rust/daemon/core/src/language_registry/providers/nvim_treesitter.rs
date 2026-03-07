@@ -22,6 +22,7 @@ const LOCKFILE_URL: &str =
 #[derive(Debug, Deserialize)]
 struct LockfileEntry {
     /// Git revision hash.
+    #[allow(dead_code)]
     revision: String,
 }
 

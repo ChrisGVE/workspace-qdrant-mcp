@@ -5,6 +5,8 @@ use anyhow::Result;
 use crate::config;
 use crate::output;
 
+use colored::Colorize;
+
 use super::helpers::{find_language, which_cmd};
 
 /// Show installation guide for an LSP server.
@@ -217,4 +219,72 @@ fn print_remove_instructions(language: &str) {
         }
         _ => {}
     }
+}
+
+/// Search available LSP servers for a language.
+pub async fn lsp_search(language: &str) -> Result<()> {
+    output::section(format!("LSP Server Search: {}", language));
+
+    let def = match find_language(language) {
+        Some(d) => d,
+        None => {
+            output::warning(format!("Unknown language: {language}"));
+            output::info("Use 'wqm language list' to see all known languages.");
+            return Ok(());
+        }
+    };
+
+    output::kv("Language", &def.language);
+    output::separator();
+
+    if def.lsp_servers.is_empty() {
+        output::info("No LSP servers configured in registry for this language.");
+        return Ok(());
+    }
+
+    println!(
+        "  {:<25} {:<22} {:<10} {}",
+        "Server".bold(),
+        "Binary".bold(),
+        "Priority".bold(),
+        "Status".bold()
+    );
+    println!("  {}", "─".repeat(70).dimmed());
+
+    for server in &def.lsp_servers {
+        let detected = which_cmd(&server.binary);
+        let status = match &detected {
+            Some(path) => format!("{} {}", "Found".green(), path),
+            None => "Not found".red().to_string(),
+        };
+
+        println!(
+            "  {:<25} {:<22} {:<10} {}",
+            server.name, server.binary, server.priority, status
+        );
+
+        // Show install methods
+        if detected.is_none() && !server.install_methods.is_empty() {
+            for method in &server.install_methods {
+                let available = which_cmd(&method.manager).is_some();
+                let marker = if available {
+                    "▸".green().to_string()
+                } else {
+                    "▸".dimmed().to_string()
+                };
+                let avail_note = if available { " (available)" } else { "" };
+                println!(
+                    "    {} {}: {}{}",
+                    marker, method.manager, method.command, avail_note
+                );
+            }
+        }
+    }
+
+    println!();
+    output::info(format!(
+        "Install with: wqm language lsp-install {language}"
+    ));
+
+    Ok(())
 }

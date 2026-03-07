@@ -85,6 +85,20 @@ enum LanguageCommand {
         /// Language to inspect (e.g., rust, python, go)
         language: String,
     },
+
+    /// Search available Tree-sitter grammars for a language
+    #[command(name = "ts-search")]
+    TsSearch {
+        /// Language to search grammars for
+        language: String,
+    },
+
+    /// Search available LSP servers for a language
+    #[command(name = "lsp-search")]
+    LspSearch {
+        /// Language to search LSP servers for
+        language: String,
+    },
 }
 
 /// Execute language command
@@ -105,5 +119,7 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
             status::language_status(language, verbose).await
         }
         LanguageCommand::Info { language } => status::language_info(&language).await,
+        LanguageCommand::TsSearch { language } => treesitter::ts_search(&language).await,
+        LanguageCommand::LspSearch { language } => lsp::lsp_search(&language).await,
     }
 }
