@@ -79,6 +79,12 @@ enum LanguageCommand {
         #[arg(short, long)]
         verbose: bool,
     },
+
+    /// Show detailed information about a specific language
+    Info {
+        /// Language to inspect (e.g., rust, python, go)
+        language: String,
+    },
 }
 
 /// Execute language command
@@ -98,5 +104,6 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
         LanguageCommand::Status { language, verbose } => {
             status::language_status(language, verbose).await
         }
+        LanguageCommand::Info { language } => status::language_info(&language).await,
     }
 }
