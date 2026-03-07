@@ -29,6 +29,7 @@
 //!  Walker
 //! ```
 
+pub mod auto_discovery;
 pub mod intelligence_provider;
 pub mod provider;
 pub mod providers;
