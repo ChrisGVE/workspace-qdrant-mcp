@@ -18,26 +18,31 @@ Runs on every code file during ingestion:
 - **Syntax structure:** Imports, exports, declarations
 - **Semantic chunking:** Split files into meaningful units (see below)
 
-**Dynamic grammar support (semantic chunking):**
+**Dynamic grammar and semantic chunking (Language Registry):**
 
 Grammars are downloaded automatically on first use (`auto_download: true` by default) and cached in `~/.workspace-qdrant/grammars/`. Pre-download with `wqm language ts-install <lang>`. The daemon checks for grammar updates when the queue is idle (configurable interval, default: weekly).
 
-| Language   | Grammar       | Chunk Types                                      |
-| ---------- | ------------- | ------------------------------------------------ |
-| C          | Auto-download | function, struct, preamble                       |
-| C++        | Auto-download | function, class, method, struct, preamble        |
-| Go         | Auto-download | function, struct, method, preamble               |
-| Java       | Auto-download | class, method, interface, preamble               |
-| JavaScript | Auto-download | function, class, method, preamble                |
-| JSX        | Auto-download | function, class, method, preamble                |
-| Python     | Auto-download | function, class, method, preamble                |
-| Rust       | Auto-download | function, struct, impl, trait, method, preamble  |
-| TSX        | Auto-download | function, class, method, interface, preamble     |
-| TypeScript | Auto-download | function, class, method, interface, preamble     |
+Language support is fully data-driven via the **Language Registry**. No language-specific Rust code exists — all languages are defined in YAML definitions that specify:
+- File extensions and aliases
+- Tree-sitter grammar repository sources (with quality tiers: curated/official/community)
+- Semantic AST node patterns for chunking (function, class, method, struct, enum, trait, interface, module, constant, macro, type alias, preamble)
+- Docstring extraction style (8 variants: PrecedingComments, FirstStringInBody, Javadoc, Haddock, ElixirAttr, OcamlDoc, Pod, None)
+- LSP server binaries and installation methods
 
-**Languages without a chunk type mapping** fall back to text-based overlap chunking (384 chars target, 58 chars overlap). The table above lists languages with explicit chunk type mappings; additional languages can be added by defining their chunk type mappings.
+**44 languages ship with bundled YAML definitions** including Ada, C, C++, Clojure, Elixir, Erlang, Fortran, Go, Haskell, Java, JavaScript, JSX, Lisp, Lua, OCaml, Odin, Pascal, Perl, Python, Ruby, Rust, Scala, Shell, Swift, TypeScript, TSX, Zig, and more. Adding a new language requires only a YAML entry — no Rust code changes.
 
-**Grammars:** Tree-sitter grammars are available for hundreds of languages in the tree-sitter ecosystem. No grammars are pre-loaded — they are downloaded on demand when a file of that language is first encountered (`auto_download: true` by default). The only limitation is the availability of a tree-sitter grammar for the language. Optional static compilation is available via `--features static-grammars` for environments without internet access.
+The **GenericExtractor** reads `SemanticPatterns` from the registry at runtime and walks the AST using pattern matching to extract semantic chunks. Languages without semantic patterns fall back to text-based overlap chunking (384 chars target, 58 chars overlap).
+
+**Registry providers** fetch metadata from upstream sources and merge by priority:
+| Provider | Priority | Data Provided |
+| --- | --- | --- |
+| Bundled (YAML) | 255 | Full definitions (offline fallback) |
+| mason-registry | 30 | LSP server metadata |
+| nvim-treesitter | 20 | Grammar-to-repo mappings |
+| tree-sitter-grammars org | 15 | Curated grammar repos |
+| GitHub Linguist | 10 | Language identity (extensions, aliases, type) |
+
+User-local YAML overrides in `~/.workspace-qdrant/languages/` take highest precedence.
 
 ### LSP (Enhancement for Active Projects)
 
@@ -59,43 +64,13 @@ Runs when project is active:
 
 **Language-agnostic LSP architecture:**
 
-LSP support is not limited to a fixed set of languages. Any language with an LSP server can be used. The system provides:
-
-1. **Well-known defaults**: A small set of languages ship with pre-configured LSP server mappings (see table below). These are suggestions — the user can override them.
-2. **User-managed registration**: For any other language, the user registers their own LSP server executable via the CLI. The mapping is stored in the user's configuration file.
-
-**Well-known LSP defaults** (shipped in default configuration):
-
-| Language       | Server Binary                  | Notes                        |
-| -------------- | ------------------------------ | ---------------------------- |
-| Python         | `ruff` (ruff-lsp)             | Primary; fallback to pylsp/pyright |
-| Rust           | `rust-analyzer`               |                              |
-| TypeScript/JS  | `typescript-language-server`   | Handles both TS and JS       |
-| Go             | `gopls`                       |                              |
-| C/C++          | `clangd`                      | Handles both C and C++       |
-
-**User-managed LSP registration:**
-
-Users install LSP servers using their own package manager (brew, cargo, pip, npm, etc.) and register them with the system:
-
-```bash
-wqm language add-lsp <language> <lsp-executable>   # Register LSP server for a language
-wqm language remove-lsp <language>                  # Remove LSP registration
-wqm language list-lsp                               # List registered LSP servers
-```
-
-The registration is stored in the user's configuration file under `lsp.servers`:
-
-```yaml
-lsp:
-  servers:
-    fortran:
-      binary: "fortls"
-    haskell:
-      binary: "haskell-language-server"
-```
+LSP support is not limited to a fixed set of languages. Any language with an LSP server can be used. The Language Registry provides LSP server metadata for all bundled languages, sourced from:
+- **Bundled YAML definitions** — curated LSP entries with binary names, install methods, and priority ordering
+- **mason-registry** — upstream LSP server metadata fetched on refresh
 
 The daemon uses these mappings to spawn the correct server when a project containing that language is activated. If no LSP server is registered for a detected language, the daemon proceeds without LSP enrichment for that language (tree-sitter still provides baseline intelligence).
+
+Users can override or extend LSP mappings via YAML files in `~/.workspace-qdrant/languages/`.
 
 ### LSP Server Lifecycle
 
@@ -147,13 +122,19 @@ Server states are persisted to SQLite for recovery after daemon restart:
 - Cleaned up: States older than 24 hours
 - On initialization: Restore states and re-spawn servers for active projects
 
-**Language server management:**
+**Language management CLI:**
 
 ```bash
-wqm language add-lsp <lang> <binary>   # Register LSP server for a language
-wqm language remove-lsp <lang>         # Remove LSP registration
-wqm language list-lsp                  # List registered LSP servers (defaults + user)
-wqm lsp status                         # Show running LSP servers and metrics
+wqm language list [--installed] [--category <cat>] [--verbose]  # List all registered languages
+wqm language info <lang>                                         # Detailed language info
+wqm language status [<lang>] [--verbose]                         # LSP + grammar status
+wqm language refresh                                             # Refresh from upstream providers
+wqm language ts-install <lang> [--force]                         # Install grammar
+wqm language ts-remove <lang|all>                                # Remove grammar
+wqm language ts-search <lang>                                    # Search grammar sources
+wqm language lsp-install <lang>                                  # LSP install guide
+wqm language lsp-remove <lang>                                   # LSP removal guide
+wqm language lsp-search <lang>                                   # Search LSP servers
 ```
 
 **PATH configuration:** CLI manages `environment.user_path` in the configuration file.

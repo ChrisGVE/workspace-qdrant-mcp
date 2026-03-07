@@ -19,6 +19,7 @@ workspace-qdrant-mcp (v0.1.0) is a Model Context Protocol (MCP) server providing
 - Rust daemon for high-performance file watching and processing
 
 **v0.1.0 Features:**
+- Dynamic Language Registry: 44 bundled languages defined in YAML, zero hardcoded language support. GenericExtractor replaces 25 per-language extractors. Upstream providers (Linguist, nvim-treesitter, mason-registry, tree-sitter-grammars org) for metadata refresh.
 - Tree-sitter semantic code chunking by function/class/method (dynamic grammar auto-download)
 - LSP integration for code intelligence (per-project, active projects only)
 - Branch lifecycle management (create, delete, rename, default tracking)
@@ -30,7 +31,7 @@ workspace-qdrant-mcp (v0.1.0) is a Model Context Protocol (MCP) server providing
 
 **Critical Design Files:**
 1. **FIRST-PRINCIPLES.md** - Core architectural principles (in project root)
-2. **docs/specs/** - Modular specifications (15 spec files)
+2. **docs/specs/** - Modular specifications (16 spec files, including 15-language-registry.md)
 3. **research/languages/** - Language research (LSP, Tree-sitter, 500+ languages)
 4. **assets/default_configuration.yaml** - Default system configuration
 5. **.taskmaster/docs/** - Additional PRD documents for specific features

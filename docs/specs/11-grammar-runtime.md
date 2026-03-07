@@ -11,9 +11,16 @@ The daemon manages tree-sitter grammars and ONNX runtime as external dependencie
 
 ### Tree-sitter Grammar Management
 
-**Language-agnostic grammar support:**
+**Language-agnostic grammar support via Language Registry:**
 
-Tree-sitter grammars are available for hundreds of languages. The system does not pre-load any grammars — they are downloaded on demand when a file of that language is first encountered. The default configuration maps known languages to file extensions; the set of supported languages is limited only by the availability of tree-sitter grammars in the ecosystem.
+Tree-sitter grammars are available for hundreds of languages. The system does not pre-load any grammars — they are downloaded on demand when a file of that language is first encountered. Grammar repository mappings come from the Language Registry, which merges data from multiple upstream providers:
+
+- **Bundled YAML definitions** (priority 255) — 44 languages with curated grammar repos
+- **nvim-treesitter lockfile** (priority 20) — grammar-to-repo mappings for 200+ languages
+- **tree-sitter-grammars org** (priority 15) — curated repos from the GitHub organization
+- **GitHub Linguist** (priority 10) — language identity (extensions, aliases, type)
+
+Each grammar source has a quality tier (Curated > Official > Community). When multiple sources exist for a language, the highest-quality source is preferred for download.
 
 **Configuration:**
 
@@ -26,13 +33,13 @@ grammars:
 **Grammar discovery and installation:**
 
 ```bash
-wqm language ts-search <query>          # Search for available tree-sitter grammars
-wqm language ts-install <language>      # Download and install a grammar
-wqm language ts-list                    # List installed grammars
-wqm language ts-remove <language>       # Remove a cached grammar
+wqm language ts-search <lang>           # Search grammar sources with quality tiers
+wqm language ts-install <lang> [--force] # Download and install a grammar
+wqm language ts-remove <lang|all>        # Remove cached grammar(s)
+wqm language refresh                     # Refresh registry from upstream providers
 ```
 
-`ts-search` queries the tree-sitter grammar ecosystem to find available grammars matching the query. This allows users to discover and install grammars for any language without needing to know the exact grammar repository name.
+`ts-search` shows all known grammar sources for a language, their quality tier, and origin provider. `refresh` fetches the latest metadata from all upstream providers.
 
 **Daemon behavior:**
 
