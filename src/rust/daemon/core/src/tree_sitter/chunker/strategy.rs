@@ -6,8 +6,11 @@
 use tree_sitter::Language;
 
 use crate::tree_sitter::languages::{
-    CExtractor, CppExtractor, GoExtractor, JavaExtractor, JavaScriptExtractor, PythonExtractor,
-    RustExtractor, TypeScriptExtractor,
+    AdaExtractor, CExtractor, ClojureExtractor, CppExtractor, ElixirExtractor, ErlangExtractor,
+    FortranExtractor, GoExtractor, HaskellExtractor, JavaExtractor, JavaScriptExtractor,
+    LispExtractor, LuaExtractor, OCamlExtractor, OdinExtractor, PascalExtractor, PerlExtractor,
+    PythonExtractor, RubyExtractor, RustExtractor, ScalaExtractor, ShellExtractor, SwiftExtractor,
+    TypeScriptExtractor, ZigExtractor,
 };
 use crate::tree_sitter::parser::LanguageProvider;
 use crate::tree_sitter::types::ChunkExtractor;
@@ -61,6 +64,91 @@ pub(super) fn create_extractor(
             dynamic_lang
                 .map(CppExtractor::with_language)
                 .unwrap_or_else(CppExtractor::new),
+        )),
+        "ruby" => Some(Box::new(
+            dynamic_lang
+                .map(RubyExtractor::with_language)
+                .unwrap_or_else(RubyExtractor::new),
+        )),
+        "swift" => Some(Box::new(
+            dynamic_lang
+                .map(SwiftExtractor::with_language)
+                .unwrap_or_else(SwiftExtractor::new),
+        )),
+        "shell" | "bash" => Some(Box::new(
+            dynamic_lang
+                .map(ShellExtractor::with_language)
+                .unwrap_or_else(ShellExtractor::new),
+        )),
+        "lua" => Some(Box::new(
+            dynamic_lang
+                .map(LuaExtractor::with_language)
+                .unwrap_or_else(LuaExtractor::new),
+        )),
+        "elixir" => Some(Box::new(
+            dynamic_lang
+                .map(ElixirExtractor::with_language)
+                .unwrap_or_else(ElixirExtractor::new),
+        )),
+        "erlang" => Some(Box::new(
+            dynamic_lang
+                .map(ErlangExtractor::with_language)
+                .unwrap_or_else(ErlangExtractor::new),
+        )),
+        "scala" => Some(Box::new(
+            dynamic_lang
+                .map(ScalaExtractor::with_language)
+                .unwrap_or_else(ScalaExtractor::new),
+        )),
+        "haskell" => Some(Box::new(
+            dynamic_lang
+                .map(HaskellExtractor::with_language)
+                .unwrap_or_else(HaskellExtractor::new),
+        )),
+        "zig" => Some(Box::new(
+            dynamic_lang
+                .map(ZigExtractor::with_language)
+                .unwrap_or_else(ZigExtractor::new),
+        )),
+        "odin" => Some(Box::new(
+            dynamic_lang
+                .map(OdinExtractor::with_language)
+                .unwrap_or_else(OdinExtractor::new),
+        )),
+        "clojure" => Some(Box::new(
+            dynamic_lang
+                .map(ClojureExtractor::with_language)
+                .unwrap_or_else(ClojureExtractor::new),
+        )),
+        "ocaml" => Some(Box::new(
+            dynamic_lang
+                .map(OCamlExtractor::with_language)
+                .unwrap_or_else(OCamlExtractor::new),
+        )),
+        "fortran" => Some(Box::new(
+            dynamic_lang
+                .map(FortranExtractor::with_language)
+                .unwrap_or_else(FortranExtractor::new),
+        )),
+        "ada" => Some(Box::new(
+            dynamic_lang
+                .map(AdaExtractor::with_language)
+                .unwrap_or_else(AdaExtractor::new),
+        )),
+        "perl" => Some(Box::new(
+            dynamic_lang
+                .map(PerlExtractor::with_language)
+                .unwrap_or_else(PerlExtractor::new),
+        )),
+        "pascal" => Some(Box::new(
+            dynamic_lang
+                .map(PascalExtractor::with_language)
+                .unwrap_or_else(PascalExtractor::new),
+        )),
+        "lisp" | "commonlisp" => Some(Box::new(
+            dynamic_lang
+                .map(LispExtractor::with_language)
+                .unwrap_or_else(LispExtractor::new),
         )),
         _ => {
             // For unknown languages, check if provider has a grammar
