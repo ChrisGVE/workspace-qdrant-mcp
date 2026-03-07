@@ -52,6 +52,7 @@ pub mod cooccurrence_schema;
 pub mod grep_search;
 pub mod indexed_content_schema;
 pub mod keyword_extraction;
+pub mod language_registry;
 pub mod keywords_schema;
 pub mod lexicon;
 pub mod library_document;
