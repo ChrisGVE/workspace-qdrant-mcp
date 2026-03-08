@@ -310,13 +310,31 @@ WHERE queue_id = :queue_id;
 **CLI commands for failed items:**
 
 ```bash
-wqm queue list --failed          # List all failed items with error messages
-wqm queue show <queue_id>        # Show single item with full error history
+wqm queue list --status failed        # List all failed items with error messages
+wqm queue show <queue_id>             # Show single item with full error history
+wqm queue retry --all                 # Reset all failed items back to pending
 ```
 
-**Reset mechanism:** TBD once failure patterns are better understood. The important requirement is visibility - CLI must show what failed and why.
+**Reset mechanism:** Failed items are retried via `wqm queue retry`. Exponential backoff applies based on `retry_count`.
 
-**Retry backoff:** Optional exponential backoff based on `retry_count`
+**Retry backoff:** Exponential backoff based on `retry_count`.
+
+#### Bulk Cancel
+
+Items that should never be processed (e.g. a large dataset accidentally scanned) can be bulk-cancelled without direct database access:
+
+```bash
+wqm queue cancel <project>            # Cancel all pending items for a project
+wqm queue cancel <project> --dry-run  # Preview count without deleting
+wqm queue cancel <project> --status pending,failed -y   # Cancel pending+failed, no prompt
+```
+
+The `<project>` argument is resolved in order:
+1. Exact `tenant_id` match
+2. Exact `path` match (canonicalised)
+3. Case-insensitive `path` substring match (returns error if ambiguous)
+
+**Safety invariant:** In-progress items are never cancelled regardless of the `--status` flag. Only `pending` and `failed` items may be removed.
 
 #### Batch Processing Flow
 

@@ -83,10 +83,15 @@ The system uses a two-layer watching approach based on whether the project is gi
 
 ### Ingestion Filtering
 
-Ingestion filtering is defined system-wide in the configuration file (not per-watch). The system uses a multi-layered approach with the **file type allowlist** as the primary gate.
+Ingestion filtering operates at two levels:
 
-See [File Type Allowlist](#file-type-allowlist) below for the complete specification including:
-- Ingestion gate layering (allowlist → exclusions → size limits)
+- **System-wide**: defined in the YAML configuration file — applies to every watched project/library.
+- **Per-project**: defined in `.gitignore` and/or `.wqmignore` files inside the project tree — allows project-specific exclusions without touching the global config.
+
+The system uses a multi-layered approach with the **file type allowlist** as the primary gate.
+
+See [File Type Allowlist](#file-type-allowlist) and [Per-Project Ignore Files](#per-project-ignore-files) below for the complete specification including:
+- Ingestion gate layering (ignore files → allowlist → exclusions → size limits)
 - Allowed extensions by category (400+ extensions across 21 categories)
 - Allowed extension-less filenames (30+ exact names)
 - Size-restricted extensions (with configurable stricter limits)
@@ -107,17 +112,41 @@ The allowlist is the **primary ingestion gate** — files not on the allowlist a
 
 #### Ingestion Gate Layering
 
-Every file event passes through four gates in order:
+Every file event passes through five gates in order:
 
 ```
-1. ALLOWLIST:        Extension or exact filename must be on the list     → NO  = skip
-2. EXCLUSION:        Must not match directory or pattern exclusions      → YES = skip
-3. SIZE LIMIT:       Must be under max_file_size_mb                     → OVER = skip
-   3a. SIZE-RESTRICTED: If extension is size-restricted, apply stricter limit → OVER = skip
+0. IGNORE FILES:     Must not be matched by .gitignore or .wqmignore   → YES = skip
+1. ALLOWLIST:        Extension or exact filename must be on the list    → NO  = skip
+2. EXCLUSION:        Must not match directory or pattern exclusions     → YES = skip
+3. SIZE LIMIT:       Must be under max_file_size_mb                    → OVER = skip
+   3a. SIZE-RESTRICTED: If extension is size-restricted, stricter limit → OVER = skip
 4. Queue for processing
 ```
 
 The allowlist supersedes the old `media_files` exclusion for `.pdf` — PDF is explicitly on the allowlist. The exclusion rules remain as defense-in-depth for directories and patterns.
+
+#### Per-Project Ignore Files
+
+The folder scanner reads two optional ignore files from the project root (and recursively from subdirectories, following standard gitignore semantics):
+
+| File | Purpose |
+|------|---------|
+| `.gitignore` | Standard git ignore rules — already present in most projects. The daemon respects these to avoid indexing files that git itself does not track. |
+| `.wqmignore` | workspace-qdrant-specific ignore rules — same syntax as `.gitignore`. Use this to exclude paths from indexing without affecting git tracking (e.g. large datasets, scratch folders, generated caches). |
+
+**Syntax:** Both files use standard gitignore pattern syntax (globs, negation with `!`, directory anchoring with `/`).
+
+**Precedence:** Gate 0 is evaluated before the allowlist. A path matched by either file is skipped regardless of its extension.
+
+**Lookup order within a folder scan:** The matcher is built once per watch-folder root before the scan begins, incorporating all `.gitignore` and `.wqmignore` files found in the tree (standard gitignore hierarchy: root → subdirectories, inner rules take precedence).
+
+**Why two files?**
+
+`.gitignore` already excludes files that should not be in version control. Respecting it prevents the daemon from indexing build artifacts, secrets, and large binary datasets that the project author has already excluded.
+
+`.wqmignore` addresses cases where a file _should_ remain in git but _should not_ be indexed — for example, a large reference dataset committed for reproducibility but irrelevant to semantic search. Keeping these concerns separate means neither file needs to serve double duty.
+
+**Implementation:** Uses the `ignore` crate (same library as ripgrep) which correctly handles nested files, negation, and directory anchoring.
 
 #### Allowed Extensions by Category
 
