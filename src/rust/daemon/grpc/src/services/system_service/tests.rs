@@ -93,6 +93,61 @@ async fn test_queue_processor_health_poll_time() {
 }
 
 #[tokio::test]
+async fn test_heartbeat_initial_state_is_max() {
+    let health = QueueProcessorHealth::new();
+    assert_eq!(health.seconds_since_last_heartbeat(), u64::MAX);
+}
+
+#[tokio::test]
+async fn test_heartbeat_after_record_is_recent() {
+    let health = QueueProcessorHealth::new();
+    health.record_heartbeat();
+    let secs = health.seconds_since_last_heartbeat();
+    assert!(secs < 2);
+}
+
+#[tokio::test]
+async fn test_healthy_when_only_heartbeat_is_recent() {
+    // Simulates: poll is old (long batch), but heartbeat is fresh (item just processed)
+    // Stalled = min(poll, heartbeat) > 60 — should stay Healthy when heartbeat is fresh
+    let health = Arc::new(QueueProcessorHealth::new());
+    health.set_running(true);
+    // poll stays at 0 (MAX seconds ago)
+    health.record_heartbeat(); // heartbeat is fresh
+
+    let service = SystemServiceImpl::new().with_queue_health(health);
+    let response = service.health(Request::new(())).await.unwrap();
+    let health_response = response.into_inner();
+    let queue_comp = health_response
+        .components
+        .iter()
+        .find(|c| c.component_name == "queue_processor")
+        .unwrap();
+    // min(MAX, ~0) = ~0 which is not > 60, so Healthy
+    assert_eq!(queue_comp.status, ServiceStatus::Healthy as i32);
+}
+
+#[tokio::test]
+async fn test_healthy_when_only_poll_is_recent() {
+    // Simulates: poll just fired, but no items have been processed yet
+    let health = Arc::new(QueueProcessorHealth::new());
+    health.set_running(true);
+    health.record_poll(); // poll is fresh
+    // heartbeat stays at 0 (MAX seconds ago)
+
+    let service = SystemServiceImpl::new().with_queue_health(health);
+    let response = service.health(Request::new(())).await.unwrap();
+    let health_response = response.into_inner();
+    let queue_comp = health_response
+        .components
+        .iter()
+        .find(|c| c.component_name == "queue_processor")
+        .unwrap();
+    // min(~0, MAX) = ~0 which is not > 60, so Healthy
+    assert_eq!(queue_comp.status, ServiceStatus::Healthy as i32);
+}
+
+#[tokio::test]
 async fn test_metrics_include_queue_metrics() {
     let health = Arc::new(QueueProcessorHealth::new());
     health.set_running(true);

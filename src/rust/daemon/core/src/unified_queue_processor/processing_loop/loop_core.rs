@@ -345,6 +345,7 @@ impl UnifiedQueueProcessor {
 
                                 if let Some(ref h) = queue_health {
                                     h.record_success(processing_time);
+                                    h.record_heartbeat();
                                 }
 
                                 // Track tenant for implicit activity update
@@ -421,6 +422,7 @@ impl UnifiedQueueProcessor {
                                 Self::update_metrics_failure(&metrics, &e).await;
                                 if let Some(ref h) = queue_health {
                                     h.record_failure();
+                                    h.record_heartbeat();
                                 }
                             }
                         }

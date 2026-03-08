@@ -17,6 +17,8 @@ pub struct QueueProcessorHealth {
     pub is_running: AtomicBool,
     /// Last poll timestamp (Unix millis)
     pub last_poll_time: AtomicU64,
+    /// Last per-item heartbeat timestamp (Unix millis). Updated after each item processed.
+    pub last_heartbeat_time: AtomicU64,
     /// Total error count
     pub error_count: AtomicU64,
     /// Items processed total
@@ -77,11 +79,36 @@ impl QueueProcessorHealth {
         self.queue_depth.store(depth, Ordering::SeqCst);
     }
 
+    /// Record that an item was just processed (success or failure).
+    ///
+    /// This heartbeat is separate from `record_poll()` so that long-running
+    /// single items do not trigger a false "stalled" health alarm.
+    pub fn record_heartbeat(&self) {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        self.last_heartbeat_time.store(now, Ordering::SeqCst);
+    }
+
     /// Get seconds since last poll
     pub fn seconds_since_last_poll(&self) -> u64 {
         let last = self.last_poll_time.load(Ordering::SeqCst);
         if last == 0 {
             return u64::MAX; // Never polled
+        }
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        (now.saturating_sub(last)) / 1000
+    }
+
+    /// Get seconds since last per-item heartbeat, or u64::MAX if never recorded.
+    pub fn seconds_since_last_heartbeat(&self) -> u64 {
+        let last = self.last_heartbeat_time.load(Ordering::SeqCst);
+        if last == 0 {
+            return u64::MAX; // Never heartbeated
         }
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)

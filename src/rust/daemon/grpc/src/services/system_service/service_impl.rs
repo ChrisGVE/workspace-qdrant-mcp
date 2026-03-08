@@ -158,15 +158,19 @@ impl SystemServiceImpl {
         if let Some(health) = &self.queue_health {
             let is_running = health.is_running.load(Ordering::SeqCst);
             let secs_since_poll = health.seconds_since_last_poll();
+            let secs_since_heartbeat = health.seconds_since_last_heartbeat();
+            // Stalled only when both poll AND per-item heartbeat are old — a long-running
+            // single item updates heartbeat after completion, preventing false alarms.
+            let secs_since_activity = secs_since_poll.min(secs_since_heartbeat);
             let error_count = health.error_count.load(Ordering::SeqCst);
 
             // Determine status based on health indicators
             let (status, message) = if !is_running {
                 (ServiceStatus::Unhealthy, "Queue processor is not running")
-            } else if secs_since_poll > 60 {
+            } else if secs_since_activity > 60 {
                 (
                     ServiceStatus::Degraded,
-                    "Queue processor may be stalled (>60s since last poll)",
+                    "Queue processor may be stalled (>60s since last activity)",
                 )
             } else if error_count > 100 {
                 (ServiceStatus::Degraded, "High error count detected")
