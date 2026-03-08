@@ -49,6 +49,11 @@ impl QueueManager {
         // Task 9: FIFO/LIFO alternation for idle processing
         let created_at_order = if is_descending { "ASC" } else { "DESC" };
 
+        // Task 16: Op-order reversal on low-priority pass to prevent scan starvation.
+        // High-priority pass (DESC): delete/add before scan (normal priority).
+        // Low-priority pass (ASC): scan before delete/add (starvation prevention).
+        let op_order = if is_descending { "DESC" } else { "ASC" };
+
         // Select queue_ids with calculated priority (Task 20)
         let queue_ids = self
             .select_queue_ids(
@@ -56,6 +61,7 @@ impl QueueManager {
                 tenant_id,
                 item_type,
                 priority_order,
+                op_order,
                 created_at_order,
                 batch_size,
             )
@@ -102,14 +108,12 @@ impl QueueManager {
         tenant_id: Option<&str>,
         item_type: Option<ItemType>,
         priority_order: &str,
+        op_order: &str,
         created_at_order: &str,
         batch_size: i32,
     ) -> QueueResult<Vec<String>> {
-        let query = build_dequeue_query(tenant_id, item_type, priority_order, created_at_order);
-        let result = execute_dequeue_query(
-            &self.pool, &query, now_str, tenant_id, item_type, batch_size,
-        )
-        .await?;
+        let query = build_dequeue_query(tenant_id, item_type, priority_order, op_order, created_at_order);
+        let result = execute_dequeue_query(&self.pool, &query, now_str, tenant_id, item_type, batch_size).await?;
         Ok(result)
     }
 
@@ -248,6 +252,7 @@ fn build_dequeue_query(
     tenant_id: Option<&str>,
     item_type: Option<ItemType>,
     priority_order: &str,
+    op_order: &str,
     created_at_order: &str,
 ) -> String {
     let tenant_filter = match (tenant_id, item_type) {
@@ -289,7 +294,7 @@ fn build_dequeue_query(
                  WHEN q.op = 'uplift' THEN 2
                  WHEN q.op = 'scan' THEN 1
                  ELSE 1
-            END DESC,
+            END {op_order},
             q.created_at {created_at_order}
         LIMIT {limit_param}
         "#,
@@ -298,6 +303,7 @@ fn build_dequeue_query(
         coll_memory = COLLECTION_RULES,
         tenant_filter = tenant_filter,
         priority_order = priority_order,
+        op_order = op_order,
         created_at_order = created_at_order,
         limit_param = limit_param,
     )
@@ -347,4 +353,57 @@ async fn execute_dequeue_query(
         }
     };
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_dequeue_query_high_priority_pass_has_op_desc() {
+        // High-priority pass: op=DESC means delete(10) > add(5) > scan(1)
+        let q = build_dequeue_query(None, None, "DESC", "DESC", "ASC");
+        assert!(
+            q.contains("END DESC"),
+            "high-priority pass should have op_order=DESC"
+        );
+        assert!(
+            q.contains("q.created_at ASC"),
+            "high-priority pass should have FIFO created_at order"
+        );
+    }
+
+    #[test]
+    fn test_build_dequeue_query_low_priority_pass_has_op_asc() {
+        // Low-priority pass: op=ASC means scan(1) < uplift(2) < add(5) — scan picked first
+        let q = build_dequeue_query(None, None, "ASC", "ASC", "DESC");
+        assert!(
+            q.contains("END ASC"),
+            "low-priority pass should have op_order=ASC"
+        );
+        assert!(
+            q.contains("q.created_at DESC"),
+            "low-priority pass should have LIFO created_at order"
+        );
+    }
+
+    #[test]
+    fn test_build_dequeue_query_tenant_filter() {
+        let q = build_dequeue_query(Some("t1"), None, "DESC", "DESC", "ASC");
+        assert!(q.contains("tenant_id = ?2"), "should include tenant filter");
+    }
+
+    #[test]
+    fn test_build_dequeue_query_item_type_filter() {
+        let q = build_dequeue_query(None, Some(ItemType::File), "DESC", "DESC", "ASC");
+        assert!(q.contains("item_type = ?2"), "should include item_type filter");
+    }
+
+    #[test]
+    fn test_build_dequeue_query_both_filters() {
+        let q = build_dequeue_query(Some("t1"), Some(ItemType::Folder), "DESC", "DESC", "ASC");
+        assert!(q.contains("tenant_id = ?2"), "should include tenant filter");
+        assert!(q.contains("item_type = ?3"), "should include item_type filter");
+        assert!(q.contains("?4"), "limit should be ?4 with both filters");
+    }
 }
