@@ -50,6 +50,7 @@ pub fn status_line(label: impl Display, status: ServiceStatus) {
         ServiceStatus::Healthy => ("●".green(), "healthy".green()),
         ServiceStatus::Degraded => ("●".yellow(), "degraded".yellow()),
         ServiceStatus::Unhealthy => ("●".red(), "unhealthy".red()),
+        ServiceStatus::Active => ("●".green(), "active".green()),
         ServiceStatus::Inactive => ("○".dimmed(), "inactive".dimmed()),
         ServiceStatus::Unknown => ("○".dimmed(), "unknown".dimmed()),
     };
@@ -62,6 +63,7 @@ pub enum ServiceStatus {
     Healthy,
     Degraded,
     Unhealthy,
+    Active,
     Inactive,
     Unknown,
 }

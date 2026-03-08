@@ -72,7 +72,7 @@ fn print_project_list(
     for proj in &list.projects {
         known_ids.insert(proj.project_id.clone());
         let status = if proj.is_active {
-            ServiceStatus::Healthy
+            ServiceStatus::Active
         } else {
             ServiceStatus::Inactive
         };

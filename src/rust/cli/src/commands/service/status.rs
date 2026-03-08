@@ -28,6 +28,7 @@ fn status_name(s: ServiceStatus) -> &'static str {
         ServiceStatus::Healthy => "healthy",
         ServiceStatus::Degraded => "degraded",
         ServiceStatus::Unhealthy => "unhealthy",
+        ServiceStatus::Active => "active",
         ServiceStatus::Inactive => "inactive",
         ServiceStatus::Unknown => "unknown",
     }
