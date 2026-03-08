@@ -360,9 +360,9 @@ The `<project>` argument is resolved in order:
 **Sort alternation (asymmetric):** Daemon alternates with different batch sizes per direction:
 
 - **High-priority batch** (default 10): `ORDER BY priority DESC, op_priority DESC, created_at ASC` — active projects first, delete/reset/add before scan, FIFO within priority
-- **Low-priority batch** (default 3): `ORDER BY priority ASC, op_priority ASC, created_at DESC` — inactive projects get a turn, **scan before delete/add**, LIFO within priority
+- **Low-priority batch** (default 3): `ORDER BY priority ASC, op_priority DESC, created_at DESC` — inactive projects get a turn, delete/reset/add still before scan, LIFO within priority
 
-The op-priority order is reversed on the low-priority pass so that `scan` operations (op_priority=1, lowest) are consumed _first_ during the starvation-prevention window. Without this, scan items would still lose to delete/add even on the anti-starvation pass, perpetuating starvation.
+Op-priority is always `DESC` on both passes. `delete` (op_priority=10) represents stale-data removal and must always take precedence over all other operations regardless of which priority direction is active. Scan starvation is addressed by the priority direction flip (inactive projects get a batch turn) rather than op-order reversal.
 
 **Qdrant atomicity:** Each batch request to Qdrant is atomic. Grouping by (op, collection) leverages this for efficiency.
 

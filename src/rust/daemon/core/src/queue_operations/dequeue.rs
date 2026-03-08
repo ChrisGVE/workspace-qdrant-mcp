@@ -49,10 +49,10 @@ impl QueueManager {
         // Task 9: FIFO/LIFO alternation for idle processing
         let created_at_order = if is_descending { "ASC" } else { "DESC" };
 
-        // Task 16: Op-order reversal on low-priority pass to prevent scan starvation.
-        // High-priority pass (DESC): delete/add before scan (normal priority).
-        // Low-priority pass (ASC): scan before delete/add (starvation prevention).
-        let op_order = if is_descending { "DESC" } else { "ASC" };
+        // Op-order is always DESC: delete always takes precedence over all other operations
+        // regardless of which priority pass is running. Delete is a correctness concern
+        // (stale data removal), not just a performance preference.
+        let op_order = "DESC";
 
         // Select queue_ids with calculated priority (Task 20)
         let queue_ids = self
@@ -374,12 +374,13 @@ mod tests {
     }
 
     #[test]
-    fn test_build_dequeue_query_low_priority_pass_has_op_asc() {
-        // Low-priority pass: op=ASC means scan(1) < uplift(2) < add(5) — scan picked first
-        let q = build_dequeue_query(None, None, "ASC", "ASC", "DESC");
+    fn test_build_dequeue_query_low_priority_pass_has_op_desc() {
+        // Low-priority pass: op=DESC even on the anti-starvation pass because delete
+        // must always take precedence regardless of which priority direction is active.
+        let q = build_dequeue_query(None, None, "ASC", "DESC", "DESC");
         assert!(
-            q.contains("END ASC"),
-            "low-priority pass should have op_order=ASC"
+            q.contains("END DESC"),
+            "low-priority pass should still have op_order=DESC (delete always first)"
         );
         assert!(
             q.contains("q.created_at DESC"),
