@@ -249,19 +249,26 @@ watching:
     - "*.obj"
     - "*.lock"
 
-  # Size-restricted extensions: allowed but with stricter size limit
-  size_restricted_extensions:
-    - ".csv"
-    - ".tsv"
-    - ".json"
-    - ".jsonc"
-    - ".json5"
-    - ".xml"
-    - ".jsonl"
-    - ".ndjson"
-    - ".log"
-    - ".sql"
-  size_restricted_max_mb: 1            # Max size for restricted extensions (default 1MB)
+  # (size_restricted_extensions / size_restricted_max_mb removed — see ingestion_limits below)
+
+# Per-extension ingestion size limits (Task 14)
+# Keys: lowercase extension without leading dot. Values: limit in KB.
+# Absent entry = no limit. Value 0 = skip all files of that extension.
+ingestion_limits:
+  extension_size_limits_kb:
+    json:   500   # Config/schema files; large files are training data or API dumps
+    jsonc:  500
+    json5:  500
+    jsonl:  500   # Streaming data; can be unbounded log/event streams
+    ndjson: 500
+    yaml:   500   # Config files; large files are likely generated data
+    yml:    500
+    toml:   500   # Config files; rarely large
+    xml:    500   # Config/schema files; large files are data exports
+    xsl:    500
+    xslt:   500
+    csv:    500   # Tabular data; can be multi-GB dataset dumps
+    tsv:    500
 
 # Collections configuration
 collections:

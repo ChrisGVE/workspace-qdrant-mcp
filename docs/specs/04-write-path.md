@@ -359,14 +359,40 @@ The `<project>` argument is resolved in order:
 
 **Sort alternation (asymmetric):** Daemon alternates with different batch sizes per direction:
 
-- **High-priority batch** (default 10): `ORDER BY priority DESC` (active projects first)
-- **Low-priority batch** (default 3): `ORDER BY priority ASC` (inactive projects get a turn)
+- **High-priority batch** (default 10): `ORDER BY priority DESC, op_priority DESC, created_at ASC` — active projects first, delete/reset/add before scan, FIFO within priority
+- **Low-priority batch** (default 3): `ORDER BY priority ASC, op_priority ASC, created_at DESC` — inactive projects get a turn, **scan before delete/add**, LIFO within priority
 
-This prevents starvation while maintaining effective priority differentiation.
+The op-priority order is reversed on the low-priority pass so that `scan` operations (op_priority=1, lowest) are consumed _first_ during the starvation-prevention window. Without this, scan items would still lose to delete/add even on the anti-starvation pass, perpetuating starvation.
 
 **Qdrant atomicity:** Each batch request to Qdrant is atomic. Grouping by (op, collection) leverages this for efficiency.
 
 **Idempotency:** All operations are idempotent - retries are safe (delete non-existent = no-op, upsert = replace).
+
+#### Queue Processor Health Monitoring
+
+The queue processor exposes health metrics via `QueueProcessorHealth` (shared `Arc` with the gRPC `SystemService`). Two timestamps track activity:
+
+| Timestamp              | Updated when                                              |
+| ---------------------- | --------------------------------------------------------- |
+| `last_poll_time`       | Start of every loop iteration (even when queue is empty)  |
+| `last_heartbeat_time`  | After each individual item completes (success or failure) |
+
+**Stalled detection:** The processor is considered stalled when **both** timestamps are stale:
+
+```
+stalled = min(seconds_since_poll, seconds_since_heartbeat) > 60
+```
+
+Using the minimum means a single long-running item does not trigger a false stalled alarm — `last_heartbeat_time` will be recent from the previous item, keeping `min(...)` low even if `last_poll_time` is old. The processor is only flagged stalled when neither a loop iteration nor an individual item has completed within 60 seconds.
+
+**Health states reported:**
+
+| Condition                             | Status      |
+| ------------------------------------- | ----------- |
+| `is_running = false`                  | `Unhealthy` |
+| `min(poll, heartbeat) > 60s`          | `Degraded`  |
+| `error_count > 100`                   | `Degraded`  |
+| Otherwise                             | `Healthy`   |
 
 #### File Operation Transactions
 
@@ -381,7 +407,7 @@ the retry information with accumulated error log.
 BEGIN TRANSACTION;
   1. Read file from filesystem
   2. Compute file_hash (SHA256), read file_mtime
-  3. Check ingestion gates: allowlist → exclusion → size limit (skip if rejected → mark done, COMMIT)
+  3. Check ingestion gates: allowlist → exclusion → global 100MB size limit → per-extension limit from `ingestion_limits.extension_size_limits_kb` (skip if rejected → mark done, COMMIT)
   4. Chunk file (tree-sitter or fallback overlap)
   5. Generate embeddings for all chunks
   6. Upsert all points to Qdrant (batch)

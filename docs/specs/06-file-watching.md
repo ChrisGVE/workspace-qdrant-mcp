@@ -94,7 +94,7 @@ See [File Type Allowlist](#file-type-allowlist) and [Per-Project Ignore Files](#
 - Ingestion gate layering (ignore files → allowlist → exclusions → size limits)
 - Allowed extensions by category (400+ extensions across 21 categories)
 - Allowed extension-less filenames (30+ exact names)
-- Size-restricted extensions (with configurable stricter limits)
+- Per-extension ingestion size limits (configurable via `ingestion_limits.extension_size_limits_kb`)
 - Mandatory excluded directories (50+ build/cache directories)
 
 ### File Type Allowlist
@@ -118,8 +118,8 @@ Every file event passes through five gates in order:
 0. IGNORE FILES:     Must not be matched by .gitignore or .wqmignore   → YES = skip
 1. ALLOWLIST:        Extension or exact filename must be on the list    → NO  = skip
 2. EXCLUSION:        Must not match directory or pattern exclusions     → YES = skip
-3. SIZE LIMIT:       Must be under max_file_size_mb                    → OVER = skip
-   3a. SIZE-RESTRICTED: If extension is size-restricted, stricter limit → OVER = skip
+3. SIZE LIMIT:       Must be under the global 100MB hard limit          → OVER = skip
+   3a. EXT LIMIT:   If extension has an ingestion_limits entry, must be under that limit → OVER = skip
 4. Queue for processing
 ```
 
@@ -465,21 +465,26 @@ These files are recognized by exact name (case-sensitive):
 | `.rustfmt.toml`, `.clippy.toml` | Rust tools |
 | `.swiftlint.yml` | Swift tools |
 
-#### Size-Restricted Extensions
+#### Per-Extension Ingestion Size Limits
 
-Some extensions can contain either small config/schema files or massive datasets. These extensions are on the allowlist but subject to a **stricter size limit** (configurable, default 1 MB instead of the general `max_file_size_mb`):
+Some extensions can contain either small config/schema files or massive datasets. A **per-extension KB limit map** under `ingestion_limits.extension_size_limits_kb` controls this independently of the global 100MB hard limit.
 
-| Extension | Risk | Rationale |
-|-----------|------|-----------|
-| `.csv`, `.tsv`, `.tab` | Dataset dumps | Can be multi-GB data exports |
-| `.json`, `.jsonc`, `.json5` | Data dumps | Can be large API responses, datasets |
-| `.xml`, `.xsd`, `.xsl` | Data dumps | Can be large data exports, SOAP payloads |
-| `.jsonl`, `.ndjson` | Streaming data | Can be unbounded log/event streams |
-| `.log` | Log files | Can grow unbounded |
-| `.sql` | Database dumps | Can contain full database exports |
+**Default limits (500 KB each):**
 
-Config keys: `watching.size_restricted_extensions` with `watching.size_restricted_max_mb` (default: 1 MB).
-Files with these extensions exceeding the restricted size limit are skipped with an INFO log.
+| Extension | Rationale |
+|-----------|-----------|
+| `json`, `jsonc`, `json5` | Config/schema files; large files are training data or API dumps |
+| `jsonl`, `ndjson` | Streaming data; can be unbounded log/event streams |
+| `yaml`, `yml` | Config files; large files are likely generated data |
+| `toml` | Config files; rarely large |
+| `xml`, `xsl`, `xslt` | Config/schema files; large files are data exports or SOAP payloads |
+| `csv`, `tsv` | Tabular data; can be multi-GB dataset dumps |
+
+**Semantics:**
+- **Key**: lowercase extension without leading dot (e.g. `json`, `yaml`, `csv`)
+- **Value**: size limit in KB. Absent entry = no limit (code files are unconstrained by default). Value `0` = skip all files of that extension.
+- The check is applied at processing time (queue item is silently discarded, not marked failed) and optionally at enqueue time.
+- Users can add, remove, or adjust any entry in `ingestion_limits.extension_size_limits_kb` in their local config. Setting `extension_size_limits_kb: {}` removes all per-extension limits.
 
 #### Mandatory Excluded Directories
 
