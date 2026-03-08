@@ -81,6 +81,29 @@ async fn insert_watch_folder(
     payload: &ProjectPayload,
     git_status: &crate::git::GitStatus,
 ) -> UnifiedProcessorResult<()> {
+    // Guard: reject registering a subdirectory of an already-registered project.
+    // This prevents test fixtures, language directories, etc. from becoming
+    // spurious watch folders.
+    let is_subdirectory: bool = sqlx::query_scalar(
+        r#"SELECT COUNT(*) > 0 FROM watch_folders
+           WHERE collection = ?1
+             AND ?2 != path
+             AND ?2 LIKE path || '/' || '%'"#,
+    )
+    .bind(COLLECTION_PROJECTS)
+    .bind(&payload.project_root)
+    .fetch_one(ctx.queue_manager.pool())
+    .await
+    .unwrap_or(false);
+
+    if is_subdirectory {
+        info!(
+            "Skipping watch folder creation: {} is a subdirectory of an already-registered project",
+            payload.project_root
+        );
+        return Ok(());
+    }
+
     let now = wqm_common::timestamps::now_utc();
     let watch_id = uuid::Uuid::new_v4().to_string();
     let is_active: i32 = if payload.is_active.unwrap_or(false) {

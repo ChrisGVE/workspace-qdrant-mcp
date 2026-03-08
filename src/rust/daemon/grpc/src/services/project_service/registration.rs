@@ -4,7 +4,7 @@
 //! queue enqueue for new projects, session registration for existing projects,
 //! LSP server startup, and activity inheritance.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tonic::Status;
 use tracing::{debug, error, info, warn};
@@ -16,6 +16,7 @@ use workspace_qdrant_core::{
     UnifiedQueueOp,
 };
 use wqm_common::constants::COLLECTION_PROJECTS;
+use wqm_common::project_id::detect_git_remote;
 
 use super::ProjectServiceImpl;
 
@@ -31,6 +32,25 @@ enum RegistrationAction {
     NewlyEnqueued { is_high_priority: bool },
 }
 
+/// Resolve the git repository root from a given path by walking upward.
+/// Returns the original path if no `.git` directory is found.
+fn resolve_git_root(path: &Path) -> PathBuf {
+    let mut current = path.to_path_buf();
+    loop {
+        if current.join(".git").exists() {
+            return current;
+        }
+        match current.parent() {
+            Some(parent) if parent != current => {
+                current = parent.to_path_buf();
+            }
+            _ => break,
+        }
+    }
+    // No .git found, return original path
+    path.to_path_buf()
+}
+
 impl ProjectServiceImpl {
     /// Execute the register_project business logic
     pub(crate) async fn handle_register_project(
@@ -41,6 +61,29 @@ impl ProjectServiceImpl {
             return Err(Status::invalid_argument("path cannot be empty"));
         }
 
+        // Resolve the git repository root so that subfolder registrations
+        // use the correct project root and tenant ID.
+        let effective_path = resolve_git_root(Path::new(&req.path));
+        let effective_path_str = effective_path.to_string_lossy().to_string();
+
+        if effective_path_str != req.path {
+            info!(
+                "Resolved git root: {} -> {}",
+                req.path, effective_path_str
+            );
+        }
+
+        // Detect git remote from the resolved path when the request lacks one
+        let effective_git_remote = if req
+            .git_remote
+            .as_ref()
+            .map_or(true, |r| r.is_empty())
+        {
+            detect_git_remote(&effective_path)
+        } else {
+            req.git_remote.clone()
+        };
+
         let effective_priority = req
             .priority
             .as_deref()
@@ -48,11 +91,15 @@ impl ProjectServiceImpl {
             .unwrap_or("normal");
         let is_high_priority = effective_priority == "high";
 
-        let project_id = self.resolve_project_id(&req)?;
+        let project_id = self.resolve_project_id(
+            &req,
+            &effective_path,
+            effective_git_remote.as_deref(),
+        )?;
 
         info!(
             "Registering project: id={}, path={}, name={:?}, priority={}",
-            project_id, req.path, req.name, effective_priority
+            project_id, effective_path_str, req.name, effective_priority
         );
 
         let action = self
@@ -74,7 +121,8 @@ impl ProjectServiceImpl {
                 })
             }
             RegistrationAction::ExistingActivated => {
-                self.activate_project(&project_id, &req.path).await;
+                self.activate_project(&project_id, &effective_path_str)
+                    .await;
                 self.signal_watch_refresh(&project_id);
                 Ok(RegisterProjectResponse {
                     created: false,
@@ -95,7 +143,8 @@ impl ProjectServiceImpl {
                 is_high_priority: hp,
             } => {
                 if hp {
-                    self.activate_project(&project_id, &req.path).await;
+                    self.activate_project(&project_id, &effective_path_str)
+                        .await;
                 }
                 self.signal_watch_refresh(&project_id);
                 Ok(RegisterProjectResponse {
@@ -120,14 +169,26 @@ impl ProjectServiceImpl {
         }
     }
 
-    /// Resolve or validate the project_id from the request
-    fn resolve_project_id(&self, req: &RegisterProjectRequest) -> Result<String, Status> {
+    /// Resolve or validate the project_id from the request.
+    ///
+    /// Uses the resolved git root path and detected remote for ID calculation
+    /// so that subfolder registrations produce the same tenant ID as root
+    /// registrations.
+    fn resolve_project_id(
+        &self,
+        req: &RegisterProjectRequest,
+        effective_path: &Path,
+        effective_git_remote: Option<&str>,
+    ) -> Result<String, Status> {
         if req.project_id.is_empty() {
             let calculator = ProjectIdCalculator::new();
-            let path = std::path::Path::new(&req.path);
-            let git_remote = req.git_remote.as_deref();
-            let generated = calculator.calculate(path, git_remote, None);
-            info!("Generated project_id for {}: {}", req.path, generated);
+            let generated =
+                calculator.calculate(effective_path, effective_git_remote, None);
+            info!(
+                "Generated project_id for {}: {}",
+                effective_path.display(),
+                generated
+            );
             Ok(generated)
         } else {
             let is_local = req.project_id.starts_with("local_");
@@ -197,16 +258,31 @@ impl ProjectServiceImpl {
         req: &RegisterProjectRequest,
         is_high_priority: bool,
     ) -> Result<RegistrationAction, Status> {
+        // Use the resolved git root path for project_root, not req.path.
+        // Re-resolve here to stay consistent with handle_register_project.
+        let effective_root = resolve_git_root(Path::new(&req.path));
+        let effective_root_str = effective_root.to_string_lossy().to_string();
+
+        let effective_git_remote = if req
+            .git_remote
+            .as_ref()
+            .map_or(true, |r| r.is_empty())
+        {
+            detect_git_remote(&effective_root)
+        } else {
+            req.git_remote.clone()
+        };
+
         let queue_manager = QueueManager::new(self.db_pool.clone());
         let payload = ProjectPayload {
-            project_root: req.path.clone(),
-            git_remote: req.git_remote.clone(),
+            project_root: effective_root_str.clone(),
+            git_remote: effective_git_remote,
             project_type: None,
             old_tenant_id: None,
             is_active: Some(is_high_priority),
         };
         let payload_json = serde_json::to_string(&payload)
-            .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, req.path));
+            .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, effective_root_str));
 
         match queue_manager
             .enqueue_unified(
@@ -275,10 +351,28 @@ impl ProjectServiceImpl {
                         "Activated project watch folders (activity inheritance)"
                     );
                 } else {
-                    debug!(
+                    warn!(
                         project_id = %project_id,
-                        "No watch folders found for activity inheritance (project may not be watched yet)"
+                        "No watch folders matched tenant_id, trying path-based fallback"
                     );
+                    match self.activate_project_by_path(path).await {
+                        Ok(true) => info!(
+                            project_id = %project_id,
+                            path = %path,
+                            "Activated project via path fallback"
+                        ),
+                        Ok(false) => warn!(
+                            project_id = %project_id,
+                            path = %path,
+                            "Could not activate project by path either"
+                        ),
+                        Err(e) => warn!(
+                            project_id = %project_id,
+                            path = %path,
+                            error = %e,
+                            "Path-based activation fallback failed"
+                        ),
+                    }
                 }
             }
             Err(e) => {
@@ -288,6 +382,49 @@ impl ProjectServiceImpl {
                     "Failed to activate project watch folders (non-critical)"
                 );
             }
+        }
+    }
+
+    /// Fallback: activate project by looking up watch_folders by path.
+    ///
+    /// When `activate_project_by_tenant_id` finds no matching rows (e.g. because
+    /// the tenant_id in the database differs from the one computed at registration
+    /// time), this method searches for a watch folder whose `path` matches or is
+    /// a parent of the given `path`, then activates the entire project group.
+    async fn activate_project_by_path(&self, path: &str) -> Result<bool, Status> {
+        let watch_folder: Option<(String, String)> = sqlx::query_as(
+            r#"SELECT watch_id, tenant_id FROM watch_folders
+               WHERE collection = ?1
+                 AND (?2 = path OR ?2 LIKE path || '/' || '%')
+               ORDER BY length(path) DESC
+               LIMIT 1"#,
+        )
+        .bind(COLLECTION_PROJECTS)
+        .bind(path)
+        .fetch_optional(&self.db_pool)
+        .await
+        .map_err(|e| {
+            error!("Database error in path-based activation: {e}");
+            Status::internal(format!("Database error: {e}"))
+        })?;
+
+        if let Some((watch_id, existing_tenant)) = watch_folder {
+            info!(
+                "Found watch folder by path fallback: watch_id={}, tenant_id={}",
+                watch_id, existing_tenant
+            );
+            match self.state_manager.activate_project_group(&watch_id).await {
+                Ok(affected) => {
+                    info!("Activated {} watch folders via path fallback", affected);
+                    Ok(affected > 0)
+                }
+                Err(e) => {
+                    warn!("Failed to activate via path fallback: {}", e);
+                    Ok(false)
+                }
+            }
+        } else {
+            Ok(false)
         }
     }
 }
