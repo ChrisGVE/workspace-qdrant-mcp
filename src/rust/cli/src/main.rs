@@ -34,7 +34,7 @@ Project & Library:
   tags         Keyword/tag management and hierarchy
 
 Queue & Analytics:
-  queue        Unified queue inspector (list, show, stats)
+  queue        Unified queue inspector (list, show, stats, cancel)
   stats        Search instrumentation analytics
 
 Service & Admin:

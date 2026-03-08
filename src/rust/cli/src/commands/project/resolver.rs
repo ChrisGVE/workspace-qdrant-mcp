@@ -60,6 +60,83 @@ pub(crate) fn resolve_project_id_or_cwd_quiet(project: Option<&str>) -> Result<(
     }
 }
 
+/// Resolve a project hint (name, path, or tenant_id) to a `(tenant_id, path)` pair
+/// by querying the `watch_folders` table.
+///
+/// Resolution order:
+/// 1. Exact `tenant_id` match
+/// 2. Exact `path` match
+/// 3. Case-insensitive `path` substring match (e.g. "MunsellSpace")
+///
+/// Returns an error when no match is found or the hint is ambiguous.
+pub(crate) fn resolve_tenant_by_hint(
+    conn: &rusqlite::Connection,
+    hint: &str,
+) -> Result<(String, String)> {
+    // 1. Exact tenant_id match
+    let exact_tenant: Option<(String, String)> = conn
+        .query_row(
+            "SELECT tenant_id, path FROM watch_folders WHERE tenant_id = ?1 \
+             AND parent_watch_id IS NULL LIMIT 1",
+            rusqlite::params![hint],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    if let Some(result) = exact_tenant {
+        return Ok(result);
+    }
+
+    // 2. Exact path match
+    let abs_hint = PathBuf::from(hint);
+    let path_str = abs_hint
+        .canonicalize()
+        .unwrap_or(abs_hint)
+        .to_string_lossy()
+        .to_string();
+    let exact_path: Option<(String, String)> = conn
+        .query_row(
+            "SELECT tenant_id, path FROM watch_folders WHERE path = ?1 \
+             AND parent_watch_id IS NULL LIMIT 1",
+            rusqlite::params![&path_str],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    if let Some(result) = exact_path {
+        return Ok(result);
+    }
+
+    // 3. Case-insensitive path substring match
+    let pattern = format!("%{}%", hint.to_lowercase());
+    let mut stmt = conn.prepare(
+        "SELECT tenant_id, path FROM watch_folders \
+         WHERE lower(path) LIKE ?1 AND parent_watch_id IS NULL",
+    )?;
+    let matches: Vec<(String, String)> = stmt
+        .query_map(rusqlite::params![&pattern], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    match matches.len() {
+        0 => anyhow::bail!(
+            "No registered project found matching {:?}.\n\
+             Use a tenant ID, an absolute path, or a unique name substring.",
+            hint
+        ),
+        1 => Ok(matches.into_iter().next().unwrap()),
+        _ => {
+            let paths: Vec<_> = matches.iter().map(|(_, p)| p.as_str()).collect();
+            anyhow::bail!(
+                "Ambiguous project hint {:?} — matched {} projects:\n  {}",
+                hint,
+                paths.len(),
+                paths.join("\n  ")
+            )
+        }
+    }
+}
+
 /// Calculate the canonical project ID using the same algorithm as the daemon.
 pub(crate) fn calculate_project_id(abs_path: &std::path::Path) -> String {
     use wqm_common::project_id::{detect_git_remote, ProjectIdCalculator};

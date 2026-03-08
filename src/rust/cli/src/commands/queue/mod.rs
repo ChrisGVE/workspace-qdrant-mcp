@@ -1,8 +1,9 @@
 //! Queue command - unified queue management and inspection
 //!
 //! Queue inspector and management for debugging and monitoring.
-//! Subcommands: list, show, stats, retry, clean, remove
+//! Subcommands: list, show, stats, retry, clean, remove, cancel
 
+mod cancel;
 mod clean;
 mod db;
 pub mod formatters;
@@ -140,6 +141,27 @@ enum QueueCommand {
         /// Queue ID or ID prefix
         queue_id: String,
     },
+
+    /// Cancel all pending (or failed) queue items for a project
+    ///
+    /// Resolves the project by tenant ID, exact path, or name substring.
+    /// In-progress items are never cancelled. Use --dry-run to preview.
+    Cancel {
+        /// Project name, path, or tenant ID
+        project: String,
+
+        /// Statuses to cancel (default: pending); comma-separated, e.g. "pending,failed"
+        #[arg(long, default_value = "pending", value_delimiter = ',')]
+        status: Vec<String>,
+
+        /// Preview count without deleting
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 }
 
 /// Execute queue command
@@ -174,5 +196,14 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
         QueueCommand::Retry { queue_id, all } => retry::execute(queue_id, all).await,
         QueueCommand::Clean { days, status, yes } => clean::execute(days, status, yes).await,
         QueueCommand::Remove { queue_id } => remove::execute(&queue_id).await,
+        QueueCommand::Cancel {
+            project,
+            status,
+            dry_run,
+            yes,
+        } => {
+            let status_refs: Vec<&str> = status.iter().map(String::as_str).collect();
+            cancel::execute(&project, &status_refs, dry_run, yes).await
+        }
     }
 }
