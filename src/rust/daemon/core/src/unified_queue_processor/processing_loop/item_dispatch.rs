@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 use tracing::debug;
 
 use crate::allowed_extensions::AllowedExtensions;
+use crate::config::IngestionLimitsConfig;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
 use crate::queue_operations::QueueManager;
@@ -35,6 +36,7 @@ impl UnifiedQueueProcessor {
         search_db: &Option<Arc<SearchDbManager>>,
         graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
         grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
+        ingestion_limits: &Arc<IngestionLimitsConfig>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -59,6 +61,7 @@ impl UnifiedQueueProcessor {
         if let Some(gm) = grammar_manager {
             ctx = ctx.with_grammar_manager(Arc::clone(gm));
         }
+        ctx = ctx.with_ingestion_limits(Arc::clone(ingestion_limits));
 
         match item.item_type {
             ItemType::Text => {

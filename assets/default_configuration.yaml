@@ -3479,3 +3479,33 @@ tagging:
     # Format: Integer
     # Default reasoning: 2 consecutive failures strongly suggests provider is unreachable
     max_consecutive_failures: 2
+
+# =============================================================================
+# INGESTION LIMITS CONFIGURATION
+# =============================================================================
+# Per-extension size limits to prevent large data/config files from blocking
+# queue processing. Limits are in KB. Remove an entry to remove the limit.
+# Add any extension to restrict it. 0 = skip all files with that extension.
+#
+# Rationale: Configuration and structured-data files should never legitimately
+# exceed 500KB. Larger files are likely training datasets or generated output
+# that should not be embedded. The 100MB global hard limit remains as a backstop.
+ingestion_limits:
+  extension_size_limits_kb:
+    # Structured data / config formats
+    json:   500
+    jsonc:  500
+    json5:  500
+    jsonl:  500
+    ndjson: 500
+    yaml:   500
+    yml:    500
+    toml:   500
+    # Markup / schema formats
+    xml:    500
+    xsl:    500
+    xslt:   500
+    # Tabular data
+    csv:    500
+    tsv:    500
+

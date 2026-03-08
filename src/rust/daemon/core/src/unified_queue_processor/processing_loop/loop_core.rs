@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::adaptive_resources::ResourceProfile;
 use crate::allowed_extensions::AllowedExtensions;
+use crate::config::IngestionLimitsConfig;
 use crate::fairness_scheduler::FairnessScheduler;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
@@ -64,6 +65,7 @@ impl UnifiedQueueProcessor {
         graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
         watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
         grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
+        ingestion_limits: Arc<IngestionLimitsConfig>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -295,6 +297,7 @@ impl UnifiedQueueProcessor {
                             &search_db,
                             &graph_store,
                             &grammar_manager,
+                            &ingestion_limits,
                         )
                         .await
                         {

@@ -24,6 +24,7 @@ use tracing::{error, info, warn};
 
 use crate::adaptive_resources::ResourceProfile;
 use crate::allowed_extensions::AllowedExtensions;
+use crate::config::IngestionLimitsConfig;
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
@@ -98,6 +99,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Grammar manager for dynamic tree-sitter grammar loading
     grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
+
+    /// Per-extension ingestion size limits (Task 14)
+    ingestion_limits: Arc<IngestionLimitsConfig>,
 }
 
 impl UnifiedQueueProcessor {
@@ -160,6 +164,7 @@ impl UnifiedQueueProcessor {
             graph_store: None,
             watch_refresh_signal: None,
             grammar_manager: None,
+            ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
         }
     }
 
@@ -219,12 +224,19 @@ impl UnifiedQueueProcessor {
             graph_store: None,
             watch_refresh_signal: None,
             grammar_manager: None,
+            ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
         }
     }
 
     /// Set the grammar manager for dynamic tree-sitter grammar loading
     pub fn with_grammar_manager(mut self, manager: Arc<RwLock<GrammarManager>>) -> Self {
         self.grammar_manager = Some(manager);
+        self
+    }
+
+    /// Set per-extension ingestion size limits (Task 14)
+    pub fn with_ingestion_limits(mut self, limits: Arc<IngestionLimitsConfig>) -> Self {
+        self.ingestion_limits = limits;
         self
     }
 
@@ -341,6 +353,7 @@ impl UnifiedQueueProcessor {
         let graph_store = self.graph_store.clone();
         let watch_refresh_signal = self.watch_refresh_signal.clone();
         let grammar_manager = self.grammar_manager.clone();
+        let ingestion_limits = self.ingestion_limits.clone();
 
         // Mark as running in health state
         if let Some(ref h) = queue_health {
@@ -377,6 +390,7 @@ impl UnifiedQueueProcessor {
                 graph_store,
                 watch_refresh_signal,
                 grammar_manager,
+                ingestion_limits,
             )
             .await
             {

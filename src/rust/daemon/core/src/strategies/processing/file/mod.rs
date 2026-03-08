@@ -28,7 +28,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::context::ProcessingContext;
 use crate::specs::parse_payload;
@@ -91,6 +91,28 @@ impl FileStrategy {
                 payload.file_path, item.collection
             );
             return Ok(());
+        }
+
+        // Per-extension size limit check (Task 14) - skip for delete operations
+        if item.op != QueueOperation::Delete {
+            if let Some(size) = payload.size_bytes {
+                let ext = crate::file_classification::get_extension_for_storage(
+                    std::path::Path::new(&payload.file_path),
+                )
+                .unwrap_or_default();
+                if let Some(limit) = ctx.ingestion_limits.size_limit_bytes(&ext) {
+                    if size > limit {
+                        warn!(
+                            extension = %ext,
+                            size_kb = size / 1024,
+                            limit_kb = limit / 1024,
+                            path = %payload.file_path,
+                            "Skipping oversized file: exceeds per-extension limit"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
         }
 
         let file_path = Path::new(&payload.file_path);

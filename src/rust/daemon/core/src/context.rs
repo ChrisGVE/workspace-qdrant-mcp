@@ -10,6 +10,7 @@ use tokio::sync::{RwLock, Semaphore};
 use std::collections::HashMap;
 
 use crate::allowed_extensions::AllowedExtensions;
+use crate::config::IngestionLimitsConfig;
 use crate::component_detection::ComponentMap;
 use crate::document_processor::DocumentProcessor;
 use crate::embedding::EmbeddingGenerator;
@@ -71,6 +72,9 @@ pub struct ProcessingContext {
     /// Grammar manager for dynamic tree-sitter grammar loading (optional).
     /// Provides on-demand grammar download and caching for semantic code chunking.
     pub grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
+
+    /// Per-extension ingestion size limits (Task 14).
+    pub ingestion_limits: Arc<IngestionLimitsConfig>,
 }
 
 impl ProcessingContext {
@@ -102,6 +106,7 @@ impl ProcessingContext {
             graph_store: None,
             component_cache: Arc::new(RwLock::new(HashMap::new())),
             grammar_manager: None,
+            ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
         }
     }
 }
@@ -116,6 +121,12 @@ impl ProcessingContext {
     /// Attach a grammar manager for dynamic tree-sitter grammar loading.
     pub fn with_grammar_manager(mut self, manager: Arc<RwLock<GrammarManager>>) -> Self {
         self.grammar_manager = Some(manager);
+        self
+    }
+
+    /// Override per-extension ingestion size limits (Task 14).
+    pub fn with_ingestion_limits(mut self, limits: Arc<IngestionLimitsConfig>) -> Self {
+        self.ingestion_limits = limits;
         self
     }
 }
@@ -145,6 +156,7 @@ mod tests {
             let _ = &ctx.graph_store;
             let _ = &ctx.component_cache;
             let _ = &ctx.grammar_manager;
+            let _ = &ctx.ingestion_limits;
         }
     }
 }

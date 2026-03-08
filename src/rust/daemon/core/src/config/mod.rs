@@ -14,7 +14,7 @@ mod resource_limits;
 // Re-export all public types for backward compatibility
 pub use code_intelligence::{GrammarConfig, LspSettings};
 pub use embedding::EmbeddingSettings;
-pub use ingestion::AutoIngestionConfig;
+pub use ingestion::{AutoIngestionConfig, IngestionLimitsConfig};
 pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
 pub use observability::{
     LoggingConfig, MetricsConfig, MonitoringConfig, ObservabilityConfig, TelemetryConfig,
@@ -110,6 +110,9 @@ pub struct DaemonConfig {
     /// Daemon endpoint configuration for service discovery
     #[serde(default)]
     pub daemon_endpoint: DaemonEndpointConfig,
+    /// Per-extension ingestion size limits (Task 14)
+    #[serde(default)]
+    pub ingestion_limits: IngestionLimitsConfig,
 }
 
 impl Default for DaemonConfig {
@@ -142,6 +145,7 @@ impl From<&YamlConfig> for DaemonConfig {
             resource_limits: build_resource_limits_config(yaml),
             startup: StartupConfig::default(),
             daemon_endpoint: build_daemon_endpoint_config(yaml),
+            ingestion_limits: IngestionLimitsConfig::default(),
         }
     }
 }
