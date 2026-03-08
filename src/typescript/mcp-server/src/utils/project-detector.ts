@@ -284,4 +284,4 @@ export class ProjectDetector {
 }
 
 // Re-export git utilities for backward compatibility
-export { isGitRepository, getGitRemoteUrl } from './git-utils.js';
+export { isGitRepository, getGitRemoteUrl, findGitRoot } from './git-utils.js';

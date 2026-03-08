@@ -3,7 +3,7 @@
  */
 
 import { existsSync, statSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 /**
  * Check if a path is a git repository
@@ -15,6 +15,25 @@ export function isGitRepository(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Find git repository root by walking up from a path.
+ * Returns the path containing .git, or null if not found.
+ */
+export function findGitRoot(startPath: string): string | null {
+  let currentPath = resolve(startPath);
+  const MAX_DEPTH = 20;
+
+  for (let i = 0; i < MAX_DEPTH; i++) {
+    if (existsSync(join(currentPath, '.git'))) {
+      return currentPath;
+    }
+    const parent = dirname(currentPath);
+    if (parent === currentPath) break;
+    currentPath = parent;
+  }
+  return null;
 }
 
 /**

@@ -9,6 +9,7 @@ import type { DaemonClient } from './clients/daemon-client.js';
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { ProjectDetector } from './utils/project-detector.js';
 import { getGitRemoteUrl } from './utils/project-detector.js';
+import { findGitRoot } from './utils/git-utils.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
 import {
   logInfo,
@@ -38,7 +39,9 @@ export async function initializeSession(
   logSessionEvent('start', { session_id: sessionState.sessionId });
 
   const cwd = process.cwd();
-  const projectInfo = await projectDetector.getProjectInfo(cwd, true);
+  // Resolve to project root (find .git, Cargo.toml, etc.) before querying DB
+  const projectRoot = projectDetector.findProjectRoot(cwd) ?? cwd;
+  const projectInfo = await projectDetector.getProjectInfo(projectRoot, true);
 
   if (projectInfo) {
     sessionState.projectPath = projectInfo.projectPath;
@@ -48,7 +51,9 @@ export async function initializeSession(
       project_id: projectInfo.projectId,
     });
   } else {
-    logDebug('No project detected from cwd', { cwd });
+    // Project not in DB yet, but we still know the root
+    sessionState.projectPath = projectRoot;
+    logDebug('Project root detected but not registered', { projectRoot, cwd });
   }
 
   try {
@@ -148,12 +153,15 @@ export async function registerProjectFromTool(
     throw new Error('Daemon is not connected — cannot register project');
   }
 
-  const name = (args?.['name'] as string) ?? path.split('/').pop() ?? 'unknown';
+  // Resolve to git root in case a subfolder path was provided
+  const resolvedPath = findGitRoot(path) ?? path;
 
-  const gitRemote = getGitRemoteUrl(path);
+  const name = (args?.['name'] as string) ?? resolvedPath.split('/').pop() ?? 'unknown';
+
+  const gitRemote = getGitRemoteUrl(resolvedPath);
 
   const response = await daemonClient.registerProject({
-    path,
+    path: resolvedPath,
     project_id: '',
     name,
     register_if_new: true,
@@ -163,7 +171,7 @@ export async function registerProjectFromTool(
 
   logSessionEvent('register', {
     project_id: response.project_id,
-    project_path: path,
+    project_path: resolvedPath,
     created: response.created,
     priority: response.priority,
     is_active: response.is_active,
@@ -176,8 +184,8 @@ export async function registerProjectFromTool(
     created: response.newly_registered,
     is_active: response.is_active,
     message: response.newly_registered
-      ? `Project registered and activated: ${path}`
-      : `Project already registered and activated: ${path}`,
+      ? `Project registered and activated: ${resolvedPath}`
+      : `Project already registered and activated: ${resolvedPath}`,
   };
 }
 
