@@ -280,6 +280,10 @@ fn build_dequeue_query(
         )
         {tenant_filter}
         ORDER BY
+            CASE WHEN q.op = 'delete' THEN 1
+                 WHEN q.op = 'reset' THEN 1
+                 ELSE 0
+            END DESC,
             CASE
                 WHEN q.collection = '{coll_memory}' THEN 1
                 WHEN q.collection = '{coll_libraries}' THEN 0

@@ -69,6 +69,19 @@ pub(crate) async fn process_delete_tenant_item(
     )
     .await?;
 
+    // -- Step 3c: Sweep projects collection for any remaining points --
+    // Step 3 only deletes points found via tracked_files; orphan tenants
+    // (no watch_folder/tracked_files) still have Qdrant points that need
+    // a tenant-filter scroll+delete sweep.
+    total_qdrant_deleted += delete_collection_points(
+        ctx,
+        COLLECTION_PROJECTS,
+        &item.tenant_id,
+        QDRANT_BATCH_SIZE,
+        3,
+    )
+    .await?;
+
     // -- Steps 4-5: Handle memory (rules) and scratchpad collections --
     for (coll, step) in [(COLLECTION_RULES, 4u8), (COLLECTION_SCRATCHPAD, 5)] {
         total_qdrant_deleted +=
@@ -315,13 +328,18 @@ async fn sqlite_cascade_delete(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, ten
             r#"DELETE FROM qdrant_chunks WHERE file_id IN (
             SELECT tf.file_id FROM tracked_files tf
             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
-            WHERE wf.tenant_id = ?1)"#,
+            WHERE wf.tenant_id = ?1
+               OR wf.parent_watch_id IN (
+                  SELECT watch_id FROM watch_folders WHERE tenant_id = ?1))"#,
             "qdrant_chunks",
         ),
         (
             "6b",
             r#"DELETE FROM tracked_files WHERE watch_folder_id IN (
-            SELECT watch_id FROM watch_folders WHERE tenant_id = ?1)"#,
+            SELECT watch_id FROM watch_folders
+            WHERE tenant_id = ?1
+               OR parent_watch_id IN (
+                  SELECT watch_id FROM watch_folders WHERE tenant_id = ?1))"#,
             "tracked_files",
         ),
         (
@@ -346,7 +364,20 @@ async fn sqlite_cascade_delete(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, ten
             "canonical_tags",
         ),
         (
-            "6h",
+            "6h1",
+            r#"DELETE FROM project_components WHERE watch_folder_id IN (
+            SELECT watch_id FROM watch_folders WHERE tenant_id = ?1)"#,
+            "project_components",
+        ),
+        (
+            "6h2",
+            r#"DELETE FROM watch_folder_submodules
+            WHERE parent_watch_id IN (SELECT watch_id FROM watch_folders WHERE tenant_id = ?1)
+               OR child_watch_id IN (SELECT watch_id FROM watch_folders WHERE tenant_id = ?1)"#,
+            "watch_folder_submodules",
+        ),
+        (
+            "6h3",
             "DELETE FROM watch_folders WHERE tenant_id = ?1",
             "watch_folders",
         ),
@@ -364,7 +395,7 @@ async fn sqlite_cascade_delete(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, ten
                 );
             }
             Err(e) => {
-                debug!("Step {}: {} delete: {}", step, table_name, e);
+                warn!("Step {}: {} delete failed for tenant={}: {}", step, table_name, tenant_id, e);
             }
             _ => {}
         }

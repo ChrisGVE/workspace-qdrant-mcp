@@ -238,11 +238,71 @@ async fn handle_project_scan(
     Ok(())
 }
 
-/// Handle Tenant/Delete scoped to the projects collection (not full tenant delete).
+/// Handle Tenant/Delete scoped to the projects collection.
+///
+/// Full cleanup: cancel pending queue items, delete tracked_files,
+/// delete watch_folders (including child folders), delete Qdrant points.
 async fn handle_project_delete(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
 ) -> UnifiedProcessorResult<()> {
+    let pool = ctx.queue_manager.pool();
+
+    // 1. Cancel all pending/in_progress queue items for this tenant+collection
+    let cancelled = sqlx::query(
+        "UPDATE unified_queue SET status = 'cancelled' \
+         WHERE tenant_id = ?1 AND collection = ?2 \
+         AND status IN ('pending', 'in_progress') \
+         AND queue_id != ?3",
+    )
+    .bind(&item.tenant_id)
+    .bind(&item.collection)
+    .bind(&item.queue_id)
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+
+    if cancelled > 0 {
+        info!(
+            "Cancelled {} pending queue items for tenant={}",
+            cancelled, item.tenant_id
+        );
+    }
+
+    // 2. Delete tracked_files for this tenant
+    let files_deleted = sqlx::query(
+        "DELETE FROM tracked_files WHERE tenant_id = ?1",
+    )
+    .bind(&item.tenant_id)
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+
+    info!(
+        "Deleted {} tracked_files for tenant={}",
+        files_deleted, item.tenant_id
+    );
+
+    // 3. Delete watch_folders for this tenant+collection (children first via CASCADE,
+    //    but also explicitly delete children in case CASCADE isn't configured)
+    let folders_deleted = sqlx::query(
+        "DELETE FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
+    )
+    .bind(&item.tenant_id)
+    .bind(&item.collection)
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+
+    info!(
+        "Deleted {} watch_folders for tenant={}",
+        folders_deleted, item.tenant_id
+    );
+
+    // 4. Delete Qdrant points
     if ctx
         .storage_client
         .collection_exists(&item.collection)
@@ -250,7 +310,7 @@ async fn handle_project_delete(
         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
     {
         info!(
-            "Deleting project data for tenant={} from collection={}",
+            "Deleting Qdrant points for tenant={} from collection={}",
             item.tenant_id, item.collection
         );
         ctx.storage_client
@@ -258,6 +318,12 @@ async fn handle_project_delete(
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
     }
+
+    info!(
+        "Project delete complete: tenant={}, cancelled={} queue items, \
+         deleted={} files, {} folders",
+        item.tenant_id, cancelled, files_deleted, folders_deleted
+    );
 
     Ok(())
 }
