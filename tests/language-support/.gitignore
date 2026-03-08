@@ -19,12 +19,13 @@ zig-cache/
 .zig-cache/
 zig-out/
 
-# Compiled binaries (Fortran, Pascal, Ada, etc.)
+# Compiled binaries (C, C++, Fortran, Pascal, Ada, Odin, etc.)
+c/bookshelf
+cpp/bookshelf
 fortran/bookshelf
-pascal/bookshelf
+pascal/src/bookshelf
 ada/bookshelf
 odin/bookshelf
-
 # Clojure
 .cpcache/
 
