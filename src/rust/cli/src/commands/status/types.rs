@@ -46,6 +46,7 @@ pub fn status_label(s: ServiceStatus) -> &'static str {
         ServiceStatus::Healthy => "healthy",
         ServiceStatus::Degraded => "degraded",
         ServiceStatus::Unhealthy => "unhealthy",
+        ServiceStatus::Inactive => "inactive",
         ServiceStatus::Unknown => "unknown",
     }
 }

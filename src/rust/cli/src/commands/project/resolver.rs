@@ -37,10 +37,36 @@ pub(crate) fn resolve_project_id_or_cwd(project: Option<&str>) -> Result<String>
 
 /// Resolve an optional project argument quietly (no output).
 ///
+/// Resolution order when `project` is Some:
+/// 1. If it looks like a path (contains `/` or `.`), compute project_id from path
+/// 2. Otherwise, try hint-based resolution (exact ID, exact path, name substring)
+///
+/// When `project` is None, auto-detects from the current working directory.
+///
 /// Returns (project_id, was_auto_detected).
 pub(crate) fn resolve_project_id_or_cwd_quiet(project: Option<&str>) -> Result<(String, bool)> {
     if let Some(p) = project {
-        return Ok((resolve_project_id(p), false));
+        // Path-like arguments: compute project_id directly
+        if p.contains('/') || p.contains('.') || p == "~" {
+            return Ok((resolve_project_id(p), false));
+        }
+
+        // Non-path argument: try hint-based resolution (ID, name substring)
+        let db_path = crate::config::get_database_path_checked()
+            .map_err(|e| anyhow::anyhow!("Database not found: {}", e))?;
+        let conn = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|e| anyhow::anyhow!("Could not open state database: {}", e))?;
+
+        match resolve_tenant_by_hint(&conn, p) {
+            Ok((tenant_id, _path)) => return Ok((tenant_id, false)),
+            Err(_) => {
+                // Fall back to using the argument as a literal ID
+                return Ok((p.to_string(), false));
+            }
+        }
     }
 
     // Auto-detect from CWD

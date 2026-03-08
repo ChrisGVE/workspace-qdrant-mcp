@@ -74,7 +74,7 @@ fn print_project_list(
         let status = if proj.is_active {
             ServiceStatus::Healthy
         } else {
-            ServiceStatus::Unknown
+            ServiceStatus::Inactive
         };
         output::status_line(&proj.project_name, status);
         output::kv("  ID", &proj.project_id);
