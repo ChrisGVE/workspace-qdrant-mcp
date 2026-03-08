@@ -62,12 +62,6 @@ pub async fn execute(delete: bool, collection_filter: Option<String>) -> Result<
     }
 
     output::separator();
-    output::warning("This will delete ALL Qdrant points for the orphaned tenants listed above.");
-    if !output::confirm("Proceed with deletion?") {
-        output::info("Aborted.");
-        return Ok(());
-    }
-
     enqueue_orphan_deletions(&total_orphans).await
 }
 
