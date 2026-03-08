@@ -44,6 +44,9 @@ base64 = "0.22"
 # Git integration
 git2 = "0.19"
 
+# .gitignore / .wqmignore pattern matching (Gate 0 per-project exclusion)
+ignore = "0.4"
+
 # Line-level diffing for FTS5 incremental updates
 imara-diff = "0.2"
 

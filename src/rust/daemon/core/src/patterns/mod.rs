@@ -12,6 +12,7 @@ pub mod comprehensive;
 mod conversion;
 pub mod detection;
 pub mod exclusion;
+pub mod gitignore;
 pub mod manager;
 pub mod project;
 
@@ -28,6 +29,7 @@ pub use exclusion::{
     should_exclude_file, should_exclude_file_with_context, ExclusionCategory, ExclusionEngine,
     ExclusionResult, ExclusionRule, ExclusionStats,
 };
+pub use gitignore::ProjectIgnoreMatcher;
 pub use manager::PatternManager;
 pub use project::{
     analyze_project_from_files, BuildSystemInfo, DetectionDetails, PatternMatch, ProjectConfidence,

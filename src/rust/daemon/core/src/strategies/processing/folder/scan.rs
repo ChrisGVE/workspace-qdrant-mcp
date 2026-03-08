@@ -8,6 +8,7 @@ use tracing::{debug, warn};
 use crate::allowed_extensions::AllowedExtensions;
 use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file};
+use crate::patterns::gitignore::ProjectIgnoreMatcher;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
@@ -32,6 +33,10 @@ pub(crate) async fn scan_directory_single_level(
     let mut dirs_queued = 0u64;
     let mut files_excluded = 0u64;
     let mut errors = 0u64;
+
+    // Gate 0: build per-directory ignore matcher from .gitignore + .wqmignore.
+    // Returns None when neither file exists (fast path).
+    let ignore_matcher = ProjectIgnoreMatcher::for_dir(dir_path);
 
     let entries = std::fs::read_dir(dir_path).map_err(|e| {
         UnifiedProcessorError::ProcessingFailed(format!(
@@ -62,6 +67,17 @@ pub(crate) async fn scan_directory_single_level(
         };
 
         if file_type.is_dir() {
+            // Gate 0: .gitignore / .wqmignore exclusion
+            if let Some(ref m) = ignore_matcher {
+                if m.is_ignored(&path, true) {
+                    debug!(
+                        "Gate 0: directory excluded by ignore file: {}",
+                        path.display()
+                    );
+                    files_excluded += 1;
+                    continue;
+                }
+            }
             dirs_queued += process_directory_entry(
                 &path,
                 &entry.file_name().to_string_lossy().to_string(),
@@ -71,6 +87,17 @@ pub(crate) async fn scan_directory_single_level(
             )
             .await;
         } else if file_type.is_file() {
+            // Gate 0: .gitignore / .wqmignore exclusion
+            if let Some(ref m) = ignore_matcher {
+                if m.is_ignored(&path, false) {
+                    debug!(
+                        "Gate 0: file excluded by ignore file: {}",
+                        path.display()
+                    );
+                    files_excluded += 1;
+                    continue;
+                }
+            }
             files_queued += process_file_entry(
                 &path,
                 item,
