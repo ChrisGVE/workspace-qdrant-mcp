@@ -4,7 +4,7 @@
 //! aggregates (avg ± std_err, p50, p95, p99) and throughput over a
 //! configurable window. Supports `--group-by` for multi-dimensional
 //! breakdowns (project, phase, language, op) with up to 2 grouping levels.
-//! Supports `--sort` for column-based sorting.
+//! Supports `--sort` for column-based sorting and `--collection` filtering.
 
 use std::collections::{HashMap, HashSet};
 
@@ -38,6 +38,7 @@ pub async fn execute(
     json: bool,
     group_by: Option<String>,
     sort: Option<String>,
+    collection: Option<String>,
 ) -> Result<()> {
     let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
@@ -69,17 +70,40 @@ pub async fn execute(
         return Ok(());
     }
 
+    // Validate collection filter
+    if let Some(ref c) = collection {
+        let valid = ["projects", "libraries", "rules", "scratchpad"];
+        if !valid.contains(&c.as_str()) {
+            anyhow::bail!(
+                "Unknown collection '{}'. Valid: {}",
+                c,
+                valid.join(", ")
+            );
+        }
+    }
+
     let cutoff = format!("-{} hours", window_hours as i64);
+    let coll_filter = collection.as_deref();
 
     // Total items processed in window
-    let total_items: i64 = conn
-        .query_row(
-            "SELECT COUNT(DISTINCT queue_id) FROM processing_timings \
-             WHERE created_at > datetime('now', ?1)",
-            rusqlite::params![&cutoff],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
+    let total_items: i64 = {
+        let (sql, params) = if let Some(c) = coll_filter {
+            (
+                "SELECT COUNT(DISTINCT queue_id) FROM processing_timings \
+                 WHERE created_at > datetime('now', ?1) AND collection = ?2"
+                    .to_string(),
+                vec![cutoff.clone(), c.to_string()],
+            )
+        } else {
+            (
+                "SELECT COUNT(DISTINCT queue_id) FROM processing_timings \
+                 WHERE created_at > datetime('now', ?1)"
+                    .to_string(),
+                vec![cutoff.clone()],
+            )
+        };
+        query_scalar_params(&conn, &sql, &params).unwrap_or(0)
+    };
 
     if total_items == 0 {
         output::info(format!(
@@ -103,8 +127,14 @@ pub async fn execute(
     let valid_tenants: HashSet<String> = tenant_names.keys().cloned().collect();
 
     if dimensions.is_empty() {
-        let mut stats =
-            query_grouped_stats(&conn, &cutoff, "phase", &tenant_names, &valid_tenants)?;
+        let mut stats = query_grouped_stats(
+            &conn,
+            &cutoff,
+            "phase",
+            &tenant_names,
+            &valid_tenants,
+            coll_filter,
+        )?;
         apply_sort(&mut stats, &sort_spec);
         if json {
             print_json_grouped(&stats, total_items, queue_depth, window_hours);
@@ -112,8 +142,14 @@ pub async fn execute(
             print_table_grouped(&stats, "Phase", total_items, queue_depth, window_hours);
         }
     } else if dimensions.len() == 1 {
-        let mut stats =
-            query_grouped_stats(&conn, &cutoff, &dimensions[0], &tenant_names, &valid_tenants)?;
+        let mut stats = query_grouped_stats(
+            &conn,
+            &cutoff,
+            &dimensions[0],
+            &tenant_names,
+            &valid_tenants,
+            coll_filter,
+        )?;
         apply_sort(&mut stats, &sort_spec);
         let label = dimension_label(&dimensions[0]);
         if json {
@@ -129,6 +165,7 @@ pub async fn execute(
             &dimensions[1],
             &tenant_names,
             &valid_tenants,
+            coll_filter,
         )?;
         for (_, sub) in &mut stats {
             apply_sort(sub, &sort_spec);
@@ -143,6 +180,30 @@ pub async fn execute(
     }
 
     Ok(())
+}
+
+// === Formatting helpers ===
+
+/// Format an integer with apostrophe thousand separators (e.g. 1'234'567).
+fn fmt_thousands(n: i64) -> String {
+    if n < 0 {
+        return format!("-{}", fmt_thousands(-n));
+    }
+    let s = n.to_string();
+    let bytes = s.as_bytes();
+    let mut result = String::with_capacity(s.len() + s.len() / 3);
+    for (i, &b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i) % 3 == 0 {
+            result.push('\'');
+        }
+        result.push(b as char);
+    }
+    result
+}
+
+/// Format a float as integer with apostrophe thousand separators.
+fn fmt_thousands_f(v: f64) -> String {
+    fmt_thousands(v.round() as i64)
 }
 
 // === Parsing helpers ===
@@ -318,6 +379,46 @@ fn resolve_group_key(dim: &str, raw: &str, tenant_names: &HashMap<String, String
     }
 }
 
+/// Returns true if this row should be skipped (unknown language, dead project).
+fn should_skip_row(
+    dim: &str,
+    raw_key: &str,
+    valid_tenants: &HashSet<String>,
+) -> bool {
+    // Skip dead projects
+    if dim == "project" && !valid_tenants.contains(raw_key) {
+        return true;
+    }
+    // Skip unknown/empty language
+    if dim == "language" && (raw_key.is_empty() || raw_key == "(unknown)") {
+        return true;
+    }
+    false
+}
+
+// === Parameterized query helper ===
+
+fn query_scalar_params(conn: &rusqlite::Connection, sql: &str, params: &[String]) -> Option<i64> {
+    let mut stmt = conn.prepare(sql).ok()?;
+    let result = match params.len() {
+        1 => stmt.query_row(rusqlite::params![&params[0]], |r| r.get(0)),
+        2 => stmt.query_row(rusqlite::params![&params[0], &params[1]], |r| r.get(0)),
+        _ => return None,
+    };
+    result.ok()
+}
+
+/// Build the optional collection filter SQL fragment with the given param index.
+fn collection_clause(coll: Option<&str>, param_idx: u32) -> (String, Vec<String>) {
+    match coll {
+        Some(c) => (
+            format!(" AND collection = ?{}", param_idx),
+            vec![c.to_string()],
+        ),
+        None => (String::new(), vec![]),
+    }
+}
+
 // === Query functions ===
 
 fn query_grouped_stats(
@@ -326,30 +427,39 @@ fn query_grouped_stats(
     dim: &str,
     tenant_names: &HashMap<String, String>,
     valid_tenants: &HashSet<String>,
+    coll_filter: Option<&str>,
 ) -> Result<Vec<GroupStats>> {
     let col = dimension_column(dim);
+    let (coll_clause, coll_params) = collection_clause(coll_filter, 2);
+
     let sql = format!(
         "SELECT COALESCE({col}, '') as grp, COUNT(*) \
          FROM processing_timings \
-         WHERE created_at > datetime('now', ?1) \
+         WHERE created_at > datetime('now', ?1){coll_clause} \
          GROUP BY grp ORDER BY grp"
     );
 
     let mut stmt = conn.prepare(&sql)?;
-    let groups: Vec<(String, i64)> = stmt
-        .query_map(rusqlite::params![cutoff], |row| {
+    let groups: Vec<(String, i64)> = if coll_params.is_empty() {
+        stmt.query_map(rusqlite::params![cutoff], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?
         .filter_map(|r| r.ok())
-        .collect();
+        .collect()
+    } else {
+        stmt.query_map(rusqlite::params![cutoff, &coll_params[0]], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
+    };
 
     let mut results = Vec::new();
     for (raw_key, count) in &groups {
-        // Skip dead projects (tenant_id no longer in watch_folders)
-        if dim == "project" && !valid_tenants.contains(raw_key) {
+        if should_skip_row(dim, raw_key, valid_tenants) {
             continue;
         }
-        let durations = fetch_sorted_durations(conn, cutoff, col, raw_key)?;
+        let durations = fetch_sorted_durations(conn, cutoff, col, raw_key, coll_filter)?;
         let avg = average(&durations);
         results.push(GroupStats {
             group_key: resolve_group_key(dim, raw_key, tenant_names),
@@ -372,25 +482,38 @@ fn query_two_level_stats(
     dim2: &str,
     tenant_names: &HashMap<String, String>,
     valid_tenants: &HashSet<String>,
+    coll_filter: Option<&str>,
 ) -> Result<Vec<(String, Vec<GroupStats>)>> {
     let col1 = dimension_column(dim1);
     let col2 = dimension_column(dim2);
+    // sql1 has 1 param (?1=cutoff), so collection is ?2
+    let (coll_clause1, coll_params) = collection_clause(coll_filter, 2);
+    // sql2 has 2 params (?1=cutoff, ?2=key1), so collection is ?3
+    let (coll_clause2, _) = collection_clause(coll_filter, 3);
 
     let sql1 = format!(
         "SELECT DISTINCT COALESCE({col1}, '') FROM processing_timings \
-         WHERE created_at > datetime('now', ?1) ORDER BY 1"
+         WHERE created_at > datetime('now', ?1){coll_clause1} ORDER BY 1"
     );
     let mut stmt1 = conn.prepare(&sql1)?;
-    let level1_keys: Vec<String> = stmt1
-        .query_map(rusqlite::params![cutoff], |row| row.get::<_, String>(0))?
-        .filter_map(|r| r.ok())
-        .collect();
+    let level1_keys: Vec<String> = if coll_params.is_empty() {
+        stmt1
+            .query_map(rusqlite::params![cutoff], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect()
+    } else {
+        stmt1
+            .query_map(rusqlite::params![cutoff, &coll_params[0]], |row| {
+                row.get::<_, String>(0)
+            })?
+            .filter_map(|r| r.ok())
+            .collect()
+    };
 
     let mut results = Vec::new();
 
     for raw_key1 in &level1_keys {
-        // Skip dead projects at level 1
-        if dim1 == "project" && !valid_tenants.contains(raw_key1) {
+        if should_skip_row(dim1, raw_key1, valid_tenants) {
             continue;
         }
 
@@ -399,25 +522,41 @@ fn query_two_level_stats(
         let sql2 = format!(
             "SELECT COALESCE({col2}, '') as grp2, COUNT(*) \
              FROM processing_timings \
-             WHERE created_at > datetime('now', ?1) AND COALESCE({col1}, '') = ?2 \
+             WHERE created_at > datetime('now', ?1) AND COALESCE({col1}, '') = ?2{coll_clause2} \
              GROUP BY grp2 ORDER BY grp2"
         );
         let mut stmt2 = conn.prepare(&sql2)?;
-        let sub_groups: Vec<(String, i64)> = stmt2
-            .query_map(rusqlite::params![cutoff, raw_key1], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+        let sub_groups: Vec<(String, i64)> = if coll_params.is_empty() {
+            stmt2
+                .query_map(rusqlite::params![cutoff, raw_key1], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect()
+        } else {
+            stmt2
+                .query_map(
+                    rusqlite::params![cutoff, raw_key1, &coll_params[0]],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?
+                .filter_map(|r| r.ok())
+                .collect()
+        };
 
         let mut sub_stats = Vec::new();
         for (raw_key2, count) in &sub_groups {
-            // Skip dead projects at level 2
-            if dim2 == "project" && !valid_tenants.contains(raw_key2) {
+            if should_skip_row(dim2, raw_key2, valid_tenants) {
                 continue;
             }
-            let durations =
-                fetch_sorted_durations_2d(conn, cutoff, col1, raw_key1, col2, raw_key2)?;
+            let durations = fetch_sorted_durations_2d(
+                conn,
+                cutoff,
+                col1,
+                raw_key1,
+                col2,
+                raw_key2,
+                coll_filter,
+            )?;
             let avg = average(&durations);
             sub_stats.push(GroupStats {
                 group_key: resolve_group_key(dim2, raw_key2, tenant_names),
@@ -430,7 +569,9 @@ fn query_two_level_stats(
             });
         }
 
-        results.push((display_key, sub_stats));
+        if !sub_stats.is_empty() {
+            results.push((display_key, sub_stats));
+        }
     }
 
     Ok(results)
@@ -443,17 +584,27 @@ fn fetch_sorted_durations(
     cutoff: &str,
     col: &str,
     value: &str,
+    coll_filter: Option<&str>,
 ) -> Result<Vec<i64>> {
+    // Params: ?1=cutoff, ?2=value, so collection is ?3
+    let (coll_clause, coll_params) = collection_clause(coll_filter, 3);
     let sql = format!(
         "SELECT duration_ms FROM processing_timings \
-         WHERE created_at > datetime('now', ?1) AND COALESCE({col}, '') = ?2 \
+         WHERE created_at > datetime('now', ?1) AND COALESCE({col}, '') = ?2{coll_clause} \
          ORDER BY duration_ms"
     );
     let mut stmt = conn.prepare(&sql)?;
-    let durations: Vec<i64> = stmt
-        .query_map(rusqlite::params![cutoff, value], |row| row.get(0))?
+    let durations: Vec<i64> = if coll_params.is_empty() {
+        stmt.query_map(rusqlite::params![cutoff, value], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect()
+    } else {
+        stmt.query_map(rusqlite::params![cutoff, value, &coll_params[0]], |row| {
+            row.get(0)
+        })?
         .filter_map(|r| r.ok())
-        .collect();
+        .collect()
+    };
     Ok(durations)
 }
 
@@ -464,19 +615,30 @@ fn fetch_sorted_durations_2d(
     val1: &str,
     col2: &str,
     val2: &str,
+    coll_filter: Option<&str>,
 ) -> Result<Vec<i64>> {
+    // Params: ?1=cutoff, ?2=val1, ?3=val2, so collection is ?4
+    let (coll_clause, coll_params) = collection_clause(coll_filter, 4);
     let sql = format!(
         "SELECT duration_ms FROM processing_timings \
          WHERE created_at > datetime('now', ?1) \
            AND COALESCE({col1}, '') = ?2 \
-           AND COALESCE({col2}, '') = ?3 \
+           AND COALESCE({col2}, '') = ?3{coll_clause} \
          ORDER BY duration_ms"
     );
     let mut stmt = conn.prepare(&sql)?;
-    let durations: Vec<i64> = stmt
-        .query_map(rusqlite::params![cutoff, val1, val2], |row| row.get(0))?
+    let durations: Vec<i64> = if coll_params.is_empty() {
+        stmt.query_map(rusqlite::params![cutoff, val1, val2], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect()
+    } else {
+        stmt.query_map(
+            rusqlite::params![cutoff, val1, val2, &coll_params[0]],
+            |row| row.get(0),
+        )?
         .filter_map(|r| r.ok())
-        .collect();
+        .collect()
+    };
     Ok(durations)
 }
 
@@ -511,13 +673,14 @@ fn std_error(values: &[i64]) -> f64 {
 }
 
 /// Format avg ± std_err for table display.
+/// Returns a fixed-width string with right-aligned content.
 fn format_avg_with_uncertainty(avg: f64, std_err: f64, count: i64) -> String {
     if count < 2 {
-        format!("{:>5.0}~", avg)
+        format!("{}~", fmt_thousands_f(avg))
     } else if std_err < 1.0 {
-        format!("{:>6.0}", avg)
+        fmt_thousands_f(avg)
     } else {
-        format!("{:.0}±{:.0}", avg, std_err)
+        format!("{}±{}", fmt_thousands_f(avg), fmt_thousands_f(std_err))
     }
 }
 
@@ -540,34 +703,41 @@ fn print_table_grouped(
         .max(label.len())
         .min(30);
 
+    // Pre-format all avg columns to find max width for alignment
+    let avg_strs: Vec<String> = stats
+        .iter()
+        .map(|s| format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count))
+        .collect();
+    let avg_width = avg_strs.iter().map(|s| s.len()).max().unwrap_or(10).max(7);
+
     println!(
-        "  {:<width$} {:>8} {:>10} {:>8} {:>8} {:>8}",
+        "  {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
         label,
         "Count",
         "Avg(ms)",
         "P50(ms)",
         "P95(ms)",
         "P99(ms)",
-        width = max_key_len
+        width = max_key_len,
+        avg_w = avg_width,
     );
-    println!("  {}", "-".repeat(max_key_len + 50));
+    println!(
+        "  {}",
+        "-".repeat(max_key_len + avg_width + 38)
+    );
 
-    for s in stats {
-        let key = if s.group_key.len() > 30 {
-            format!("{}...", &s.group_key[..27])
-        } else {
-            s.group_key.clone()
-        };
-        let avg_display = format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count);
+    for (i, s) in stats.iter().enumerate() {
+        let key = truncate_key(&s.group_key, 30);
         println!(
-            "  {:<width$} {:>8} {:>10} {:>8.0} {:>8.0} {:>8.0}",
+            "  {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
             key,
-            s.count,
-            avg_display,
-            s.p50_ms,
-            s.p95_ms,
-            s.p99_ms,
-            width = max_key_len
+            fmt_thousands(s.count),
+            avg_strs[i],
+            fmt_thousands_f(s.p50_ms),
+            fmt_thousands_f(s.p95_ms),
+            fmt_thousands_f(s.p99_ms),
+            width = max_key_len,
+            avg_w = avg_width,
         );
     }
 
@@ -593,36 +763,43 @@ fn print_table_two_level(
         .min(24);
 
     for (group_name, sub_stats) in stats {
+        // Pre-format avg column for this group
+        let avg_strs: Vec<String> = sub_stats
+            .iter()
+            .map(|s| format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count))
+            .collect();
+        let avg_width = avg_strs.iter().map(|s| s.len()).max().unwrap_or(10).max(7);
+
         println!();
         println!("  {} {}", label1, group_name);
         println!(
-            "    {:<width$} {:>8} {:>10} {:>8} {:>8} {:>8}",
+            "    {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
             label2,
             "Count",
             "Avg(ms)",
             "P50(ms)",
             "P95(ms)",
             "P99(ms)",
-            width = max_key2_len
+            width = max_key2_len,
+            avg_w = avg_width,
         );
-        println!("    {}", "-".repeat(max_key2_len + 50));
+        println!(
+            "    {}",
+            "-".repeat(max_key2_len + avg_width + 38)
+        );
 
-        for s in sub_stats {
-            let key = if s.group_key.len() > 24 {
-                format!("{}...", &s.group_key[..21])
-            } else {
-                s.group_key.clone()
-            };
-            let avg_display = format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count);
+        for (i, s) in sub_stats.iter().enumerate() {
+            let key = truncate_key(&s.group_key, 24);
             println!(
-                "    {:<width$} {:>8} {:>10} {:>8.0} {:>8.0} {:>8.0}",
+                "    {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
                 key,
-                s.count,
-                avg_display,
-                s.p50_ms,
-                s.p95_ms,
-                s.p99_ms,
-                width = max_key2_len
+                fmt_thousands(s.count),
+                avg_strs[i],
+                fmt_thousands_f(s.p50_ms),
+                fmt_thousands_f(s.p95_ms),
+                fmt_thousands_f(s.p99_ms),
+                width = max_key2_len,
+                avg_w = avg_width,
             );
         }
     }
@@ -630,12 +807,20 @@ fn print_table_two_level(
     print_summary(total_items, queue_depth, window_hours);
 }
 
+fn truncate_key(key: &str, max_len: usize) -> String {
+    if key.len() > max_len {
+        format!("{}...", &key[..max_len.saturating_sub(3)])
+    } else {
+        key.to_string()
+    }
+}
+
 fn print_summary(total_items: i64, queue_depth: i64, window_hours: f64) {
     println!();
-    output::kv("Items processed", &total_items.to_string());
+    output::kv("Items processed", &fmt_thousands(total_items));
     let rate = total_items as f64 / window_hours;
-    output::kv("Processing rate", &format!("{:.0} items/hour", rate));
-    output::kv("Queue depth", &queue_depth.to_string());
+    output::kv("Processing rate", &format!("{} items/hour", fmt_thousands_f(rate)));
+    output::kv("Queue depth", &fmt_thousands(queue_depth));
 
     if queue_depth > 0 && rate > 0.0 {
         let drain_minutes = (queue_depth as f64 / rate) * 60.0;
@@ -718,4 +903,97 @@ fn print_json_two_level(
     });
 
     println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fmt_thousands_small() {
+        assert_eq!(fmt_thousands(0), "0");
+        assert_eq!(fmt_thousands(42), "42");
+        assert_eq!(fmt_thousands(999), "999");
+    }
+
+    #[test]
+    fn test_fmt_thousands_large() {
+        assert_eq!(fmt_thousands(1000), "1'000");
+        assert_eq!(fmt_thousands(12345), "12'345");
+        assert_eq!(fmt_thousands(1234567), "1'234'567");
+    }
+
+    #[test]
+    fn test_fmt_thousands_negative() {
+        assert_eq!(fmt_thousands(-1234), "-1'234");
+    }
+
+    #[test]
+    fn test_should_skip_unknown_language() {
+        let valid = HashSet::new();
+        assert!(should_skip_row("language", "", &valid));
+        assert!(should_skip_row("language", "(unknown)", &valid));
+        assert!(!should_skip_row("language", "rust", &valid));
+    }
+
+    #[test]
+    fn test_should_skip_dead_project() {
+        let mut valid = HashSet::new();
+        valid.insert("t1".to_string());
+        assert!(!should_skip_row("project", "t1", &valid));
+        assert!(should_skip_row("project", "t_gone", &valid));
+    }
+
+    #[test]
+    fn test_format_avg_low_count() {
+        let s = format_avg_with_uncertainty(42.0, 0.0, 1);
+        assert!(s.contains("42"), "low count: {}", s);
+        assert!(s.contains("~"), "low count should have ~: {}", s);
+    }
+
+    #[test]
+    fn test_format_avg_low_stderr() {
+        let s = format_avg_with_uncertainty(42.0, 0.3, 100);
+        assert_eq!(s, "42");
+    }
+
+    #[test]
+    fn test_format_avg_with_uncertainty_display() {
+        let s = format_avg_with_uncertainty(3168.0, 340.0, 50);
+        assert!(s.contains("3'168"), "should have thousands sep: {}", s);
+        assert!(s.contains("±"), "should have ±: {}", s);
+        assert!(s.contains("340"), "should show margin: {}", s);
+    }
+
+    #[test]
+    fn test_parse_sort_valid() {
+        let spec = parse_sort(Some("avg_ms:desc")).unwrap().unwrap();
+        assert_eq!(spec.column, "avg_ms");
+        assert!(spec.descending);
+    }
+
+    #[test]
+    fn test_parse_sort_invalid_column() {
+        assert!(parse_sort(Some("foo:desc")).is_err());
+    }
+
+    #[test]
+    fn test_parse_group_by_valid() {
+        let dims = parse_group_by(Some("project,phase")).unwrap();
+        assert_eq!(dims, vec!["project", "phase"]);
+    }
+
+    #[test]
+    fn test_parse_group_by_too_many() {
+        assert!(parse_group_by(Some("project,phase,language")).is_err());
+    }
+
+    #[test]
+    fn test_truncate_key() {
+        assert_eq!(truncate_key("short", 30), "short");
+        let long = "a".repeat(35);
+        let truncated = truncate_key(&long, 30);
+        assert!(truncated.len() <= 30);
+        assert!(truncated.ends_with("..."));
+    }
 }

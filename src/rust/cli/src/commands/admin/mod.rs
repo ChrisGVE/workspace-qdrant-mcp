@@ -115,6 +115,10 @@ enum AdminCommand {
         /// Sort by column:direction (e.g. avg_ms:desc, count:asc)
         #[arg(short = 's', long)]
         sort: Option<String>,
+
+        /// Filter by collection (projects, libraries, rules, scratchpad)
+        #[arg(short = 'c', long)]
+        collection: Option<String>,
     },
     /// Manage and fetch Prometheus metrics from the daemon
     Metrics {
@@ -178,7 +182,8 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             json,
             group_by,
             sort,
-        } => perf::execute(window, json, group_by, sort).await,
+            collection,
+        } => perf::execute(window, json, group_by, sort, collection).await,
         AdminCommand::Metrics { command } => match command {
             MetricsCommand::Show { port, json } => metrics::execute(port, json).await,
             MetricsCommand::Enable { port } => metrics_setup::enable(port).await,
