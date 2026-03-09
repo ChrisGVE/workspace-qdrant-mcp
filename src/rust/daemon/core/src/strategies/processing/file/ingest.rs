@@ -141,6 +141,9 @@ async fn run_ingest_pipeline(
 ) -> UnifiedProcessorResult<()> {
     let mut timings: Vec<PhaseTiming> = Vec::new();
 
+    // Detect language for timing records
+    let detected_language = detect_language(file_path);
+
     // Phase 0: grammar availability + Phase 1: parse
     let provider = ensure_grammar_available(ctx, file_path).await;
     let t0 = Instant::now();
@@ -267,6 +270,7 @@ async fn run_ingest_pipeline(
         item.op.as_str(),
         &item.tenant_id,
         &item.collection,
+        detected_language,
         &timings,
     )
     .await;

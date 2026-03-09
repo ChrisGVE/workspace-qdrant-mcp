@@ -4,12 +4,16 @@
 //! point deletion, tracked_files cleanup, FTS5 cleanup, and missing-file
 //! reconciliation.
 
+use std::time::Instant;
+
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
 use crate::context::ProcessingContext;
 use crate::fts_batch_processor::{FtsBatchConfig, FtsBatchProcessor};
+use crate::processing_timings::{self, PhaseTiming};
 use crate::tracked_files_schema;
+use crate::tree_sitter::detect_language;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{FilePayload, UnifiedQueueItem};
 
@@ -22,7 +26,9 @@ pub(super) async fn process_file_delete(
     relative_path: &str,
     abs_file_path: &str,
 ) -> UnifiedProcessorResult<()> {
-    let delete_start = std::time::Instant::now();
+    let delete_start = Instant::now();
+    let mut timings: Vec<PhaseTiming> = Vec::new();
+    let detected_language = detect_language(std::path::Path::new(abs_file_path));
 
     // Safety net: check incremental flag before deleting
     if let Ok(true) = tracked_files_schema::is_incremental(pool, abs_file_path).await {
@@ -42,6 +48,12 @@ pub(super) async fn process_file_delete(
     )
     .await
     {
+        // Phase: lookup
+        timings.push(PhaseTiming {
+            phase: "lookup",
+            duration_ms: delete_start.elapsed().as_millis() as u64,
+        });
+
         // Reference-counted deletion: check if another watch folder still references this base_point
         let delete_from_qdrant = if let Some(ref bp) = existing.base_point {
             let has_refs = ctx
@@ -60,6 +72,8 @@ pub(super) async fn process_file_delete(
             true // No base_point recorded -- safe to delete
         };
 
+        // Phase: qdrant_delete
+        let t0 = Instant::now();
         if delete_from_qdrant {
             // Get point_ids from qdrant_chunks for targeted deletion
             let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
@@ -74,7 +88,13 @@ pub(super) async fn process_file_delete(
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
             }
         }
+        timings.push(PhaseTiming {
+            phase: "qdrant_delete",
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
 
+        // Phase: sqlite_cleanup
+        let t0 = Instant::now();
         // Always clean up SQLite records (this watch folder's tracked entry)
         // CASCADE handles qdrant_chunks
         let tx_result: Result<(), UnifiedProcessorError> = async {
@@ -95,6 +115,10 @@ pub(super) async fn process_file_delete(
             Ok(())
         }
         .await;
+        timings.push(PhaseTiming {
+            phase: "sqlite_cleanup",
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
 
         if let Err(e) = tx_result {
             warn!(
@@ -108,7 +132,8 @@ pub(super) async fn process_file_delete(
             )
             .await;
         } else {
-            // FTS5 cleanup: delete code_lines + file_metadata for this file (Task 52)
+            // Phase: fts5_cleanup
+            let t0 = Instant::now();
             if let Some(sdb) = &ctx.search_db {
                 let processor = FtsBatchProcessor::new(sdb, FtsBatchConfig::default());
                 if let Err(e) = processor.delete_file(existing.file_id).await {
@@ -120,12 +145,27 @@ pub(super) async fn process_file_delete(
                     debug!("FTS5: deleted code_lines for file_id={}", existing.file_id);
                 }
             }
-            // Graph edge cleanup (graph-rag Task 3): non-blocking
-            super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path).await;
+            timings.push(PhaseTiming {
+                phase: "fts5_cleanup",
+                duration_ms: t0.elapsed().as_millis() as u64,
+            });
 
-            // Keyword/tag cleanup: remove SQLite keyword/tag records
+            // Phase: graph_cleanup
+            let t0 = Instant::now();
+            super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path).await;
+            timings.push(PhaseTiming {
+                phase: "graph_cleanup",
+                duration_ms: t0.elapsed().as_millis() as u64,
+            });
+
+            // Phase: keyword_cleanup
+            let t0 = Instant::now();
             let doc_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
             super::keyword_persist::delete_extraction(pool, &doc_id).await;
+            timings.push(PhaseTiming {
+                phase: "keyword_cleanup",
+                duration_ms: t0.elapsed().as_millis() as u64,
+            });
 
             info!(
                 "Deleted tracked file for: {} in {}ms (qdrant_delete={})",
@@ -134,6 +174,8 @@ pub(super) async fn process_file_delete(
                 delete_from_qdrant
             );
         }
+
+        record_delete_timings(ctx, item, pool, detected_language, &timings).await;
         return Ok(());
     }
 
@@ -142,17 +184,46 @@ pub(super) async fn process_file_delete(
         "File not in tracked_files, falling back to Qdrant filter delete: {}",
         abs_file_path
     );
+    let t0 = Instant::now();
     ctx.storage_client
         .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
         .await
         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+    timings.push(PhaseTiming {
+        phase: "qdrant_delete",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
 
     info!(
         "Deleted points for file (fallback) in {}ms: {}",
         delete_start.elapsed().as_millis(),
         abs_file_path
     );
+
+    record_delete_timings(ctx, item, pool, detected_language, &timings).await;
     Ok(())
+}
+
+/// Record timing data for delete operations.
+async fn record_delete_timings(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &SqlitePool,
+    language: Option<&str>,
+    timings: &[PhaseTiming],
+) {
+    let _ = ctx; // ProcessingContext not needed for recording, but kept for consistency
+    processing_timings::record_timings(
+        pool,
+        &item.queue_id,
+        item.item_type.as_str(),
+        item.op.as_str(),
+        &item.tenant_id,
+        &item.collection,
+        language,
+        timings,
+    )
+    .await;
 }
 
 /// Clean up tracked records and Qdrant points for a file that no longer exists on disk.

@@ -5,11 +5,15 @@
 //! execution, and deletes old Qdrant points only if no other watch folder
 //! references the same base_point.
 
+use std::time::Instant;
+
 use sqlx::SqlitePool;
 use tracing::{info, warn};
 
 use crate::context::ProcessingContext;
+use crate::processing_timings::{self, PhaseTiming};
 use crate::tracked_files_schema;
+use crate::tree_sitter::detect_language;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{FilePayload, UnifiedQueueItem};
 
@@ -28,6 +32,8 @@ pub(super) async fn execute_update_deletion(
     existing: &tracked_files_schema::TrackedFile,
     new_hash: &str,
 ) -> UnifiedProcessorResult<()> {
+    let preamble_start = Instant::now();
+
     // Compute new base_point for comparison
     let new_base_point = wqm_common::hashing::compute_base_point(
         &item.tenant_id,
@@ -86,6 +92,23 @@ pub(super) async fn execute_update_deletion(
         }
     }
     // Old chunk records will be cleaned up atomically in the transaction below
+
+    // Record update_preamble timing
+    let detected_language = detect_language(std::path::Path::new(&payload.file_path));
+    processing_timings::record_timings(
+        pool,
+        &item.queue_id,
+        item.item_type.as_str(),
+        "update_preamble",
+        &item.tenant_id,
+        &item.collection,
+        detected_language,
+        &[PhaseTiming {
+            phase: "update_preamble",
+            duration_ms: preamble_start.elapsed().as_millis() as u64,
+        }],
+    )
+    .await;
 
     Ok(())
 }
