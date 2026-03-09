@@ -4,6 +4,8 @@
 //! tables after the extraction pipeline completes. This is non-fatal: failures
 //! are logged but never block the ingestion pipeline.
 
+use std::collections::HashMap;
+
 use sqlx::SqlitePool;
 use tracing::{debug, warn};
 
@@ -48,8 +50,9 @@ async fn persist_inner(
 
     delete_old_records(doc_id, &mut tx).await?;
     insert_keywords(doc_id, tenant_id, collection, &extraction.keywords, &mut tx).await?;
-    insert_tags(doc_id, tenant_id, collection, &extraction.tags, &mut tx).await?;
-    insert_tags(
+    let mut tag_ids =
+        insert_tags(doc_id, tenant_id, collection, &extraction.tags, &mut tx).await?;
+    let struct_tag_ids = insert_tags(
         doc_id,
         tenant_id,
         collection,
@@ -57,7 +60,8 @@ async fn persist_inner(
         &mut tx,
     )
     .await?;
-    insert_baskets(doc_id, tenant_id, &extraction.baskets, &mut tx).await?;
+    tag_ids.extend(struct_tag_ids);
+    insert_baskets(tenant_id, &extraction.baskets, &tag_ids, &mut tx).await?;
 
     tx.commit().await?;
 
@@ -123,13 +127,15 @@ async fn insert_keywords(
 }
 
 /// Insert tag rows (concept or structural) within a transaction.
+/// Returns a map of tag phrase → tag_id for use by basket insertion.
 async fn insert_tags(
     doc_id: &str,
     tenant_id: &str,
     collection: &str,
     tags: &[crate::keyword_extraction::tag_selector::SelectedTag],
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-) -> Result<(), sqlx::Error> {
+) -> Result<HashMap<String, i64>, sqlx::Error> {
+    let mut tag_ids = HashMap::new();
     for tag in tags {
         sqlx::query(
             "INSERT INTO tags \
@@ -145,15 +151,21 @@ async fn insert_tags(
         .bind(tenant_id)
         .execute(&mut **tx)
         .await?;
+
+        let tag_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
+            .fetch_one(&mut **tx)
+            .await?;
+        tag_ids.insert(tag.phrase.clone(), tag_id);
     }
-    Ok(())
+    Ok(tag_ids)
 }
 
 /// Insert keyword basket rows and back-link basket_id into the parent tag row.
+/// Uses the pre-computed tag_ids map instead of querying tags inside the transaction.
 async fn insert_baskets(
-    doc_id: &str,
     tenant_id: &str,
     baskets: &[crate::keyword_extraction::basket_assignment::KeywordBasket],
+    tag_ids: &HashMap<String, i64>,
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
 ) -> Result<(), sqlx::Error> {
     for basket in baskets {
@@ -162,20 +174,14 @@ async fn insert_baskets(
             None => continue, // skip misc basket (no parent tag)
         };
 
-        let tag_id: Option<i64> =
-            sqlx::query_scalar("SELECT tag_id FROM tags WHERE doc_id = ?1 AND tag = ?2 LIMIT 1")
-                .bind(doc_id)
-                .bind(tag_name)
-                .fetch_optional(&mut **tx)
-                .await?;
-
-        let tag_id = match tag_id {
-            Some(id) => id,
+        let tag_id = match tag_ids.get(tag_name) {
+            Some(&id) => id,
             None => continue,
         };
 
         let kw_phrases: Vec<&str> = basket.keywords.iter().map(|k| k.phrase.as_str()).collect();
-        let keywords_json = serde_json::to_string(&kw_phrases).unwrap_or_else(|_| "[]".to_string());
+        let keywords_json =
+            serde_json::to_string(&kw_phrases).unwrap_or_else(|_| "[]".to_string());
 
         sqlx::query(
             "INSERT INTO keyword_baskets (tag_id, keywords_json, tenant_id) VALUES (?1, ?2, ?3)",
