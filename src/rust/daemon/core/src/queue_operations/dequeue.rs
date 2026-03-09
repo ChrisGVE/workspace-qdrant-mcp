@@ -2,7 +2,7 @@
 
 use chrono::Duration as ChronoDuration;
 use chrono::Utc;
-use sqlx::Row;
+use sqlx::{Row, SqliteConnection};
 use tracing::{debug, info};
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 use wqm_common::timestamps;
@@ -54,29 +54,35 @@ impl QueueManager {
         // (stale data removal), not just a performance preference.
         let op_order = "DESC";
 
+        // Wrap SELECT→UPDATE→SELECT in a single transaction to reduce lock churn
+        let mut tx = self.pool.begin().await.map_err(QueueError::Database)?;
+
         // Select queue_ids with calculated priority (Task 20)
-        let queue_ids = self
-            .select_queue_ids(
-                &now_str,
-                tenant_id,
-                item_type,
-                priority_order,
-                op_order,
-                created_at_order,
-                batch_size,
-            )
-            .await?;
+        let queue_ids = select_queue_ids(
+            &mut *tx,
+            &now_str,
+            tenant_id,
+            item_type,
+            priority_order,
+            op_order,
+            created_at_order,
+            batch_size,
+        )
+        .await?;
 
         if queue_ids.is_empty() {
+            // No items — commit (no-op) to release the transaction cleanly
+            let _ = tx.commit().await;
             return Ok(Vec::new());
         }
 
         // Update the selected items to in_progress
-        self.lease_items(&queue_ids, worker_id, &lease_until_str)
-            .await?;
+        lease_items(&mut *tx, &queue_ids, worker_id, &lease_until_str).await?;
 
         // Fetch the updated items
-        let mut items = self.fetch_items(&queue_ids).await?;
+        let mut items = fetch_items(&mut *tx, &queue_ids).await?;
+
+        tx.commit().await.map_err(QueueError::Database)?;
 
         // Preserve the ordering from the initial SELECT
         {
@@ -97,124 +103,6 @@ impl QueueManager {
             items.len(),
             worker_id
         );
-
-        Ok(items)
-    }
-
-    /// Select queue item IDs for dequeuing with dynamic priority ordering.
-    async fn select_queue_ids(
-        &self,
-        now_str: &str,
-        tenant_id: Option<&str>,
-        item_type: Option<ItemType>,
-        priority_order: &str,
-        op_order: &str,
-        created_at_order: &str,
-        batch_size: i32,
-    ) -> QueueResult<Vec<String>> {
-        let query = build_dequeue_query(
-            tenant_id,
-            item_type,
-            priority_order,
-            op_order,
-            created_at_order,
-        );
-        let result = execute_dequeue_query(
-            &self.pool, &query, now_str, tenant_id, item_type, batch_size,
-        )
-        .await?;
-        Ok(result)
-    }
-
-    /// Update selected items to in_progress with a lease.
-    async fn lease_items(
-        &self,
-        queue_ids: &[String],
-        worker_id: &str,
-        lease_until_str: &str,
-    ) -> QueueResult<()> {
-        let placeholders: Vec<String> = (1..=queue_ids.len())
-            .map(|i| format!("?{}", i + 2))
-            .collect();
-        let update_query = format!(
-            r#"
-            UPDATE unified_queue
-            SET status = 'in_progress',
-                worker_id = ?1,
-                lease_until = ?2,
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE queue_id IN ({})
-            "#,
-            placeholders.join(", ")
-        );
-
-        let mut update_builder = sqlx::query(&update_query)
-            .bind(worker_id)
-            .bind(lease_until_str);
-
-        for queue_id in queue_ids {
-            update_builder = update_builder.bind(queue_id);
-        }
-
-        update_builder.execute(&self.pool).await?;
-        Ok(())
-    }
-
-    /// Fetch queue items by their IDs.
-    async fn fetch_items(&self, queue_ids: &[String]) -> QueueResult<Vec<UnifiedQueueItem>> {
-        let fetch_placeholders: Vec<String> =
-            (1..=queue_ids.len()).map(|i| format!("?{}", i)).collect();
-        let fetch_query = format!(
-            "SELECT * FROM unified_queue WHERE queue_id IN ({})",
-            fetch_placeholders.join(", ")
-        );
-
-        let mut fetch_builder = sqlx::query(&fetch_query);
-        for queue_id in queue_ids {
-            fetch_builder = fetch_builder.bind(queue_id);
-        }
-
-        let rows = fetch_builder.fetch_all(&self.pool).await?;
-
-        let mut items = Vec::with_capacity(rows.len());
-        for row in rows {
-            let item_type_str: String = row.try_get("item_type")?;
-            let op_str: String = row.try_get("op")?;
-            let status_str: String = row.try_get("status")?;
-
-            items.push(UnifiedQueueItem {
-                queue_id: row.try_get("queue_id")?,
-                idempotency_key: row.try_get("idempotency_key")?,
-                item_type: ItemType::parse_str(&item_type_str)
-                    .ok_or_else(|| QueueError::InvalidOperation(item_type_str.clone()))?,
-                op: UnifiedOp::parse_str(&op_str)
-                    .ok_or_else(|| QueueError::InvalidOperation(op_str.clone()))?,
-                tenant_id: row.try_get("tenant_id")?,
-                collection: row.try_get("collection")?,
-                status: QueueStatus::parse_str(&status_str)
-                    .ok_or_else(|| QueueError::InvalidOperation(status_str.clone()))?,
-                branch: row.try_get("branch")?,
-                payload_json: row.try_get("payload_json")?,
-                metadata: row.try_get("metadata")?,
-                created_at: row.try_get("created_at")?,
-                updated_at: row.try_get("updated_at")?,
-                lease_until: row.try_get("lease_until")?,
-                worker_id: row.try_get("worker_id")?,
-                retry_count: row.try_get("retry_count")?,
-                error_message: row.try_get("error_message")?,
-                last_error_at: row.try_get("last_error_at")?,
-                file_path: row.try_get("file_path")?, // Task 22
-                qdrant_status: {
-                    let s: Option<String> = row.try_get("qdrant_status")?;
-                    s.and_then(|v| DestinationStatus::parse_str(&v))
-                },
-                search_status: {
-                    let s: Option<String> = row.try_get("search_status")?;
-                    s.and_then(|v| DestinationStatus::parse_str(&v))
-                },
-                decision_json: row.try_get("decision_json")?,
-            });
-        }
 
         Ok(items)
     }
@@ -254,6 +142,123 @@ impl QueueManager {
 
         Ok(recovered)
     }
+}
+
+/// Select queue item IDs for dequeuing with dynamic priority ordering.
+async fn select_queue_ids(
+    conn: &mut SqliteConnection,
+    now_str: &str,
+    tenant_id: Option<&str>,
+    item_type: Option<ItemType>,
+    priority_order: &str,
+    op_order: &str,
+    created_at_order: &str,
+    batch_size: i32,
+) -> QueueResult<Vec<String>> {
+    let query = build_dequeue_query(
+        tenant_id,
+        item_type,
+        priority_order,
+        op_order,
+        created_at_order,
+    );
+    execute_dequeue_query(conn, &query, now_str, tenant_id, item_type, batch_size).await
+}
+
+/// Update selected items to in_progress with a lease.
+async fn lease_items(
+    conn: &mut SqliteConnection,
+    queue_ids: &[String],
+    worker_id: &str,
+    lease_until_str: &str,
+) -> QueueResult<()> {
+    let placeholders: Vec<String> = (1..=queue_ids.len())
+        .map(|i| format!("?{}", i + 2))
+        .collect();
+    let update_query = format!(
+        r#"
+        UPDATE unified_queue
+        SET status = 'in_progress',
+            worker_id = ?1,
+            lease_until = ?2,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE queue_id IN ({})
+        "#,
+        placeholders.join(", ")
+    );
+
+    let mut update_builder = sqlx::query(&update_query)
+        .bind(worker_id)
+        .bind(lease_until_str);
+
+    for queue_id in queue_ids {
+        update_builder = update_builder.bind(queue_id);
+    }
+
+    update_builder.execute(&mut *conn).await?;
+    Ok(())
+}
+
+/// Fetch queue items by their IDs.
+async fn fetch_items(
+    conn: &mut SqliteConnection,
+    queue_ids: &[String],
+) -> QueueResult<Vec<UnifiedQueueItem>> {
+    let fetch_placeholders: Vec<String> =
+        (1..=queue_ids.len()).map(|i| format!("?{}", i)).collect();
+    let fetch_query = format!(
+        "SELECT * FROM unified_queue WHERE queue_id IN ({})",
+        fetch_placeholders.join(", ")
+    );
+
+    let mut fetch_builder = sqlx::query(&fetch_query);
+    for queue_id in queue_ids {
+        fetch_builder = fetch_builder.bind(queue_id);
+    }
+
+    let rows = fetch_builder.fetch_all(&mut *conn).await?;
+
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let item_type_str: String = row.try_get("item_type")?;
+        let op_str: String = row.try_get("op")?;
+        let status_str: String = row.try_get("status")?;
+
+        items.push(UnifiedQueueItem {
+            queue_id: row.try_get("queue_id")?,
+            idempotency_key: row.try_get("idempotency_key")?,
+            item_type: ItemType::parse_str(&item_type_str)
+                .ok_or_else(|| QueueError::InvalidOperation(item_type_str.clone()))?,
+            op: UnifiedOp::parse_str(&op_str)
+                .ok_or_else(|| QueueError::InvalidOperation(op_str.clone()))?,
+            tenant_id: row.try_get("tenant_id")?,
+            collection: row.try_get("collection")?,
+            status: QueueStatus::parse_str(&status_str)
+                .ok_or_else(|| QueueError::InvalidOperation(status_str.clone()))?,
+            branch: row.try_get("branch")?,
+            payload_json: row.try_get("payload_json")?,
+            metadata: row.try_get("metadata")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+            lease_until: row.try_get("lease_until")?,
+            worker_id: row.try_get("worker_id")?,
+            retry_count: row.try_get("retry_count")?,
+            error_message: row.try_get("error_message")?,
+            last_error_at: row.try_get("last_error_at")?,
+            file_path: row.try_get("file_path")?, // Task 22
+            qdrant_status: {
+                let s: Option<String> = row.try_get("qdrant_status")?;
+                s.and_then(|v| DestinationStatus::parse_str(&v))
+            },
+            search_status: {
+                let s: Option<String> = row.try_get("search_status")?;
+                s.and_then(|v| DestinationStatus::parse_str(&v))
+            },
+            decision_json: row.try_get("decision_json")?,
+        });
+    }
+
+    Ok(items)
 }
 
 /// Build the dequeue SELECT query with filters substituted in.
@@ -324,7 +329,7 @@ fn build_dequeue_query(
 
 /// Execute the dequeue query with the appropriate bound parameters.
 async fn execute_dequeue_query(
-    pool: &sqlx::SqlitePool,
+    conn: &mut SqliteConnection,
     query: &str,
     now_str: &str,
     tenant_id: Option<&str>,
@@ -338,7 +343,7 @@ async fn execute_dequeue_query(
                 .bind(tid)
                 .bind(itype.to_string())
                 .bind(batch_size)
-                .fetch_all(pool)
+                .fetch_all(&mut *conn)
                 .await?
         }
         (Some(tid), None) => {
@@ -346,7 +351,7 @@ async fn execute_dequeue_query(
                 .bind(now_str)
                 .bind(tid)
                 .bind(batch_size)
-                .fetch_all(pool)
+                .fetch_all(&mut *conn)
                 .await?
         }
         (None, Some(itype)) => {
@@ -354,14 +359,14 @@ async fn execute_dequeue_query(
                 .bind(now_str)
                 .bind(itype.to_string())
                 .bind(batch_size)
-                .fetch_all(pool)
+                .fetch_all(&mut *conn)
                 .await?
         }
         (None, None) => {
             sqlx::query_scalar::<_, String>(query)
                 .bind(now_str)
                 .bind(batch_size)
-                .fetch_all(pool)
+                .fetch_all(&mut *conn)
                 .await?
         }
     };
