@@ -52,10 +52,10 @@ impl UnifiedQueueProcessor {
             // Queue operation errors -- check message
             UnifiedProcessorError::QueueOperation(msg) => {
                 let lower = msg.to_lowercase();
-                if lower.contains("no watch_folder found")
-                    || lower.contains("validation")
-                    || lower.contains("invalid")
-                {
+                if lower.contains("no watch_folder found") {
+                    // Tenant/project no longer registered — context is gone, not just bad data
+                    "permanent_gone"
+                } else if lower.contains("validation") || lower.contains("invalid") {
                     "permanent_data"
                 } else {
                     "transient_infrastructure"

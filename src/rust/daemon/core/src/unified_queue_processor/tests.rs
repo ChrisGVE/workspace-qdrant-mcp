@@ -337,8 +337,15 @@ mod tests {
             "permanent_data"
         );
 
-        // QueueOperation with validation -> permanent_data
+        // QueueOperation with missing watch_folder -> permanent_gone (tenant no longer exists)
         let err = UnifiedProcessorError::QueueOperation("no watch_folder found".into());
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "permanent_gone"
+        );
+
+        // QueueOperation with validation -> permanent_data
+        let err = UnifiedProcessorError::QueueOperation("validation failed".into());
         assert_eq!(
             UnifiedQueueProcessor::classify_error(&err),
             "permanent_data"
