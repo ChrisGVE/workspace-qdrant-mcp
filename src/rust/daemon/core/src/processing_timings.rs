@@ -24,6 +24,7 @@ pub async fn record_timings(
     op: &str,
     tenant_id: &str,
     collection: &str,
+    language: Option<&str>,
     timings: &[PhaseTiming],
 ) {
     if timings.is_empty() {
@@ -36,8 +37,8 @@ pub async fn record_timings(
         let result = sqlx::query(
             r#"
             INSERT INTO processing_timings
-                (queue_id, item_type, op, phase, duration_ms, tenant_id, collection, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (queue_id, item_type, op, phase, duration_ms, tenant_id, collection, language, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(queue_id)
@@ -47,6 +48,7 @@ pub async fn record_timings(
         .bind(timing.duration_ms as i64)
         .bind(tenant_id)
         .bind(collection)
+        .bind(language)
         .bind(&now)
         .execute(pool)
         .await;
@@ -100,6 +102,7 @@ mod tests {
                 duration_ms INTEGER NOT NULL,
                 tenant_id TEXT NOT NULL,
                 collection TEXT NOT NULL,
+                language TEXT,
                 created_at TEXT NOT NULL
             )
             "#,
@@ -124,7 +127,14 @@ mod tests {
         ];
 
         record_timings(
-            &pool, "q-123", "file", "add", "tenant-1", "projects", &timings,
+            &pool,
+            "q-123",
+            "file",
+            "add",
+            "tenant-1",
+            "projects",
+            Some("rust"),
+            &timings,
         )
         .await;
 
@@ -147,7 +157,7 @@ mod tests {
     async fn test_record_timings_empty_noop() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         // No table — should not error because we return early for empty timings
-        record_timings(&pool, "q-123", "file", "add", "t", "projects", &[]).await;
+        record_timings(&pool, "q-123", "file", "add", "t", "projects", None, &[]).await;
     }
 
     #[tokio::test]
@@ -158,7 +168,10 @@ mod tests {
             phase: "parse",
             duration_ms: 10,
         }];
-        record_timings(&pool, "q-123", "file", "add", "t", "projects", &timings).await;
+        record_timings(
+            &pool, "q-123", "file", "add", "t", "projects", None, &timings,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -175,6 +188,7 @@ mod tests {
                 duration_ms INTEGER NOT NULL,
                 tenant_id TEXT NOT NULL,
                 collection TEXT NOT NULL,
+                language TEXT,
                 created_at TEXT NOT NULL
             )
             "#,

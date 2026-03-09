@@ -37,6 +37,7 @@ mod v25;
 mod v26;
 mod v27;
 mod v28;
+mod v29;
 
 use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
 use thiserror::Error;
@@ -45,7 +46,7 @@ use tracing::{debug, info};
 pub use self::migration::{Migration, MigrationRegistry};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 28;
+pub const CURRENT_SCHEMA_VERSION: i32 = 29;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -192,7 +193,7 @@ impl SchemaManager {
         self.run_migration_from_registry(&registry, version).await
     }
 
-    /// Build the migration registry with all 28 migrations.
+    /// Build the migration registry with all 29 migrations.
     fn build_registry() -> MigrationRegistry {
         let mut registry = MigrationRegistry::new();
         registry.register(Box::new(v01::V01Migration));
@@ -223,6 +224,7 @@ impl SchemaManager {
         registry.register(Box::new(v26::V26Migration));
         registry.register(Box::new(v27::V27Migration));
         registry.register(Box::new(v28::V28Migration));
+        registry.register(Box::new(v29::V29Migration));
         registry
     }
 
