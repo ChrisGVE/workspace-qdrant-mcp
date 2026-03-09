@@ -78,13 +78,38 @@ impl GrammarManager {
     ///
     /// The grammar remains in the cache on disk.
     pub fn unload_grammar(&mut self, language: &str) -> bool {
+        self.last_used.remove(language);
         self.loaded_grammars.remove(language).is_some() && self.loader.unload_grammar(language)
     }
 
     /// Unload all grammars from memory.
     pub fn unload_all(&mut self) {
         self.loaded_grammars.clear();
+        self.last_used.clear();
         self.loader.unload_all();
+    }
+
+    /// Evict grammars that haven't been used within `idle_timeout`.
+    ///
+    /// Returns the list of evicted language names. Grammars remain on disk
+    /// and will be reloaded from cache on next access (typically <40ms).
+    pub fn evict_idle_grammars(&mut self, idle_timeout: std::time::Duration) -> Vec<String> {
+        let now = std::time::Instant::now();
+        let to_evict: Vec<String> = self
+            .last_used
+            .iter()
+            .filter(|(_, &used)| now.duration_since(used) > idle_timeout)
+            .map(|(lang, _)| lang.clone())
+            .collect();
+
+        for lang in &to_evict {
+            self.loaded_grammars.remove(lang);
+            self.last_used.remove(lang);
+            self.loader.unload_grammar(lang);
+            info!(language = %lang, "Evicted idle grammar from memory");
+        }
+
+        to_evict
     }
 
     /// Clear the grammar cache for a specific language.

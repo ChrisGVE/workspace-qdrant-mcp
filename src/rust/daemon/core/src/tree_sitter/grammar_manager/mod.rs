@@ -29,6 +29,7 @@ use super::grammar_downloader::GrammarDownloader;
 use super::grammar_loader::GrammarLoader;
 use crate::config::GrammarConfig;
 use std::collections::HashMap;
+use std::time::Instant;
 use thiserror::Error;
 use tree_sitter::Language;
 
@@ -102,6 +103,8 @@ pub struct GrammarManager {
     pub(crate) downloader: Option<GrammarDownloader>,
     /// Loaded grammars cache (language -> Language)
     pub(crate) loaded_grammars: HashMap<String, Language>,
+    /// Last access time for each loaded grammar (for idle eviction)
+    pub(crate) last_used: HashMap<String, Instant>,
     /// Default grammar version to use
     pub(crate) default_version: String,
 }
@@ -131,6 +134,7 @@ impl GrammarManager {
             loader,
             downloader,
             loaded_grammars: HashMap::new(),
+            last_used: HashMap::new(),
             default_version,
         }
     }

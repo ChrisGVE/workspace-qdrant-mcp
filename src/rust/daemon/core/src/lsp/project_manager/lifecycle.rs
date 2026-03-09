@@ -159,6 +159,7 @@ impl LanguageServerManager {
             last_error: None,
             is_active: true,
             last_healthy_time: Some(Utc::now()),
+            last_enrichment_at: Some(std::time::Instant::now()),
             marked_unavailable: false,
         };
 

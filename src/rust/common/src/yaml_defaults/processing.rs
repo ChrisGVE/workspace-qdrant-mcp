@@ -141,6 +141,7 @@ pub struct YamlLspConfig {
     pub health_check_interval_secs: u64,
     pub max_restart_attempts: u32,
     pub restart_backoff_multiplier: f64,
+    pub idle_timeout_secs: u64,
 }
 
 impl Default for YamlLspConfig {
@@ -157,6 +158,7 @@ impl Default for YamlLspConfig {
             health_check_interval_secs: 60,
             max_restart_attempts: 3,
             restart_backoff_multiplier: 2.0,
+            idle_timeout_secs: 1800,
         }
     }
 }
@@ -176,6 +178,7 @@ pub struct YamlGrammarsConfig {
     pub check_interval_hours: u32,
     pub idle_update_check_enabled: bool,
     pub idle_update_check_delay_secs: u64,
+    pub grammar_idle_timeout_secs: u64,
 }
 
 impl Default for YamlGrammarsConfig {
@@ -191,6 +194,7 @@ impl Default for YamlGrammarsConfig {
             check_interval_hours: 168,
             idle_update_check_enabled: true,
             idle_update_check_delay_secs: 300,
+            grammar_idle_timeout_secs: 1800,
         }
     }
 }

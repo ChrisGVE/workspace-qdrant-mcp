@@ -19,6 +19,8 @@ impl GrammarManager {
         // Check if already loaded
         if let Some(lang) = self.loaded_grammars.get(language) {
             debug!(language = language, "Grammar already loaded");
+            self.last_used
+                .insert(language.to_string(), std::time::Instant::now());
             return Ok(lang.clone());
         }
 
@@ -75,6 +77,8 @@ impl GrammarManager {
         // Cache and return
         self.loaded_grammars
             .insert(language.to_string(), loaded.language.clone());
+        self.last_used
+            .insert(language.to_string(), std::time::Instant::now());
         info!(language = language, "Grammar loaded from cache");
         Ok(loaded.language)
     }
@@ -150,6 +154,8 @@ impl GrammarManager {
         // Cache and return
         self.loaded_grammars
             .insert(language.to_string(), loaded.language.clone());
+        self.last_used
+            .insert(language.to_string(), std::time::Instant::now());
         info!(language = language, "Grammar downloaded and loaded");
 
         Ok(loaded.language)

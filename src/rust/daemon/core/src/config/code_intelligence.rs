@@ -37,6 +37,10 @@ fn default_stability_reset() -> u64 {
     3600
 }
 
+fn default_lsp_idle_timeout() -> u64 {
+    1800
+}
+
 /// LSP (Language Server Protocol) configuration settings
 ///
 /// These settings configure the daemon's LSP integration for code intelligence
@@ -96,6 +100,10 @@ pub struct LspSettings {
     /// Stability period in seconds before resetting restart count
     #[serde(default = "default_stability_reset")]
     pub stability_reset_secs: u64,
+
+    /// Idle timeout in seconds before stopping inactive LSP servers (default 1800)
+    #[serde(default = "default_lsp_idle_timeout")]
+    pub idle_timeout_secs: u64,
 }
 
 impl Default for LspSettings {
@@ -114,6 +122,7 @@ impl Default for LspSettings {
             restart_backoff_multiplier: default_backoff_multiplier(),
             enable_auto_restart: default_true(),
             stability_reset_secs: default_stability_reset(),
+            idle_timeout_secs: default_lsp_idle_timeout(),
         }
     }
 }
@@ -151,6 +160,9 @@ fn default_grammar_check_interval() -> u32 {
 fn default_idle_update_check_delay() -> u64 {
     300
 } // 5 minutes
+fn default_grammar_idle_timeout() -> u64 {
+    1800
+} // 30 minutes
 fn default_grammar_cache_dir() -> PathBuf {
     PathBuf::from("~/.workspace-qdrant/grammars")
 }
@@ -215,6 +227,12 @@ pub struct GrammarConfig {
     /// Range: 1-3600
     #[serde(default = "default_idle_update_check_delay")]
     pub idle_update_check_delay_secs: u64,
+
+    /// Seconds a grammar can remain unused in memory before eviction.
+    /// Evicted grammars stay on disk and reload in <40ms on next use.
+    /// Default: 1800 (30 minutes). Set to 0 to disable eviction.
+    #[serde(default = "default_grammar_idle_timeout")]
+    pub grammar_idle_timeout_secs: u64,
 }
 
 impl Default for GrammarConfig {
@@ -230,6 +248,7 @@ impl Default for GrammarConfig {
             check_interval_hours: default_grammar_check_interval(),
             idle_update_check_enabled: default_true(),
             idle_update_check_delay_secs: default_idle_update_check_delay(),
+            grammar_idle_timeout_secs: default_grammar_idle_timeout(),
         }
     }
 }
@@ -424,6 +443,7 @@ mod tests {
             check_interval_hours: 168,
             idle_update_check_enabled: false,
             idle_update_check_delay_secs: 600,
+            grammar_idle_timeout_secs: 1800,
         };
 
         // Serialize to JSON

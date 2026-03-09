@@ -182,6 +182,7 @@ async fn test_project_server_state_initial() {
         last_error: None,
         is_active: false,
         last_healthy_time: None,
+        last_enrichment_at: None,
         marked_unavailable: false,
     };
 
@@ -202,6 +203,7 @@ async fn test_project_server_state_running() {
         last_error: None,
         is_active: true,
         last_healthy_time: Some(Utc::now()),
+        last_enrichment_at: Some(std::time::Instant::now()),
         marked_unavailable: false,
     };
 
@@ -327,6 +329,7 @@ async fn test_project_server_state_health_tracking() {
         last_error: None,
         is_active: true,
         last_healthy_time: Some(Utc::now()),
+        last_enrichment_at: Some(std::time::Instant::now()),
         marked_unavailable: false,
     };
 
@@ -346,6 +349,7 @@ async fn test_project_server_state_restart_tracking() {
         last_error: Some("Connection failed".to_string()),
         is_active: true,
         last_healthy_time: None,
+        last_enrichment_at: None,
         marked_unavailable: false,
     };
 
@@ -372,6 +376,7 @@ async fn test_project_lsp_config_from_lsp_settings() {
         restart_backoff_multiplier: 3.0,
         enable_auto_restart: false,
         stability_reset_secs: 7200,
+        idle_timeout_secs: 3600,
     };
 
     let config = ProjectLspConfig::from(settings);

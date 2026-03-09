@@ -234,6 +234,7 @@ fn build_lsp_settings(yaml: &YamlConfig) -> LspSettings {
         restart_backoff_multiplier: yaml.lsp.restart_backoff_multiplier,
         enable_auto_restart: true,
         stability_reset_secs: 3600,
+        idle_timeout_secs: yaml.lsp.idle_timeout_secs,
     }
 }
 
@@ -249,6 +250,7 @@ fn build_grammar_config(yaml: &YamlConfig) -> GrammarConfig {
         check_interval_hours: yaml.grammars.check_interval_hours,
         idle_update_check_enabled: yaml.grammars.idle_update_check_enabled,
         idle_update_check_delay_secs: yaml.grammars.idle_update_check_delay_secs,
+        grammar_idle_timeout_secs: yaml.grammars.grammar_idle_timeout_secs,
     }
 }
 

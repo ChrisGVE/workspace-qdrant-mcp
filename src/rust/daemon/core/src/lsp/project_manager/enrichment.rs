@@ -91,6 +91,9 @@ impl LanguageServerManager {
         file: &Path,
         start_line: u32,
     ) -> LspEnrichment {
+        // Touch last_enrichment_at for idle eviction tracking
+        self.touch_enrichment_time(project_id, file).await;
+
         let mut errors: Vec<String> = Vec::new();
         let mut successes = 0;
 
@@ -339,6 +342,22 @@ impl LanguageServerManager {
     }
 
     // --- Helper methods ---
+
+    /// Update `last_enrichment_at` for the server handling this file
+    async fn touch_enrichment_time(&self, project_id: &str, file: &Path) {
+        let file_language = file
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(Language::from_extension);
+
+        if let Some(language) = file_language {
+            let key = ProjectLanguageKey::new(project_id, language);
+            let mut servers = self.servers.write().await;
+            if let Some(state) = servers.get_mut(&key) {
+                state.last_enrichment_at = Some(std::time::Instant::now());
+            }
+        }
+    }
 
     /// Convert file path to LSP URI
     pub(crate) fn file_to_uri(file: &Path) -> String {

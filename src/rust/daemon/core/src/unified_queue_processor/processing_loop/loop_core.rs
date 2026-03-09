@@ -213,9 +213,10 @@ impl UnifiedQueueProcessor {
                             last_uplift_attempt = std::time::Instant::now();
                         }
 
+                        let idle_elapsed = idle_since.map_or(0, |t| t.elapsed().as_secs());
+
                         // Run grammar update check when idle long enough (Task 5)
                         if let Some(ref gm) = grammar_manager {
-                            let idle_elapsed = idle_since.map_or(0, |t| t.elapsed().as_secs());
                             let gm_read = gm.read().await;
                             let cfg = gm_read.config();
                             let check_enabled = cfg.idle_update_check_enabled;
@@ -245,6 +246,44 @@ impl UnifiedQueueProcessor {
                                     );
                                 }
                                 last_grammar_check = std::time::Instant::now();
+                            }
+
+                            // Evict idle grammars to bound memory usage
+                            let timeout_secs = gm.read().await.config().grammar_idle_timeout_secs;
+                            if timeout_secs > 0 && idle_elapsed >= timeout_secs {
+                                let timeout = Duration::from_secs(timeout_secs);
+                                let mut gm_write = gm.write().await;
+                                let evicted = gm_write.evict_idle_grammars(timeout);
+                                if !evicted.is_empty() {
+                                    info!(
+                                        "Evicted {} idle grammars: {}",
+                                        evicted.len(),
+                                        evicted.join(", ")
+                                    );
+                                }
+                            }
+                        }
+
+                        // Evict idle LSP servers to bound resource usage
+                        if let Some(ref lsm) = lsp_manager {
+                            let lsm_read = lsm.read().await;
+                            let lsp_timeout = lsm_read.config.idle_timeout_secs;
+                            drop(lsm_read);
+                            if lsp_timeout > 0 && idle_elapsed >= lsp_timeout {
+                                let timeout = Duration::from_secs(lsp_timeout);
+                                let lsm_read = lsm.read().await;
+                                let evicted = lsm_read.evict_idle_servers(timeout).await;
+                                if !evicted.is_empty() {
+                                    info!(
+                                        "Evicted {} idle LSP servers: {}",
+                                        evicted.len(),
+                                        evicted
+                                            .iter()
+                                            .map(|(p, l)| format!("{}:{:?}", p, l))
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    );
+                                }
                             }
                         }
 

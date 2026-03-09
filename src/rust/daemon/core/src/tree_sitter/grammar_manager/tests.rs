@@ -480,3 +480,36 @@ fn test_grammar_manager_create_language_provider() {
     let provider = manager.create_language_provider();
     assert!(provider.is_empty());
 }
+
+// --- Idle eviction tests ---
+
+#[test]
+fn test_evict_idle_grammars_none_loaded() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = test_config(&temp_dir, true);
+    let mut manager = GrammarManager::new(config);
+
+    let evicted = manager.evict_idle_grammars(std::time::Duration::from_secs(60));
+    assert!(evicted.is_empty());
+}
+
+#[test]
+fn test_evict_idle_grammars_tracks_last_used() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = test_config(&temp_dir, true);
+    let mut manager = GrammarManager::new(config);
+
+    // Simulate a loaded grammar by inserting into last_used
+    manager
+        .last_used
+        .insert("rust".to_string(), std::time::Instant::now());
+
+    // With a very long timeout, nothing should be evicted
+    let evicted = manager.evict_idle_grammars(std::time::Duration::from_secs(3600));
+    assert!(evicted.is_empty());
+
+    // With zero timeout, everything should be evicted
+    let evicted = manager.evict_idle_grammars(std::time::Duration::from_secs(0));
+    assert_eq!(evicted, vec!["rust".to_string()]);
+    assert!(manager.last_used.is_empty());
+}

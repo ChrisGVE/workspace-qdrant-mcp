@@ -179,6 +179,7 @@ async fn test_handle_potential_crash_marks_server_failed() {
                 last_error: None,
                 is_active: true,
                 last_healthy_time: Some(Utc::now()),
+                last_enrichment_at: Some(std::time::Instant::now()),
                 marked_unavailable: false,
             },
         );
@@ -251,6 +252,7 @@ async fn test_server_state_error_tracking() {
         last_error: None,
         is_active: true,
         last_healthy_time: Some(Utc::now()),
+        last_enrichment_at: Some(std::time::Instant::now()),
         marked_unavailable: false,
     };
 
@@ -264,4 +266,92 @@ async fn test_server_state_error_tracking() {
     assert_eq!(state.status, ServerStatus::Failed);
     assert!(state.last_error.is_some());
     assert!(state.last_error.as_ref().unwrap().contains("crashed"));
+}
+
+#[tokio::test]
+async fn test_evict_idle_servers_no_servers() {
+    let config = ProjectLspConfig::default();
+    let manager = LanguageServerManager::new(config).await.unwrap();
+
+    let evicted = manager
+        .evict_idle_servers(std::time::Duration::from_secs(60))
+        .await;
+    assert!(evicted.is_empty());
+}
+
+#[tokio::test]
+async fn test_evict_idle_servers_evicts_stale() {
+    let config = ProjectLspConfig::default();
+    let manager = LanguageServerManager::new(config).await.unwrap();
+
+    // Insert a server state with an old enrichment timestamp
+    let key = ProjectLanguageKey::new("test-project", Language::Rust);
+    {
+        let mut servers = manager.servers.write().await;
+        servers.insert(
+            key.clone(),
+            ProjectServerState {
+                project_id: "test-project".to_string(),
+                language: Language::Rust,
+                project_root: PathBuf::from("/test"),
+                status: ServerStatus::Running,
+                restart_count: 0,
+                last_error: None,
+                is_active: true,
+                last_healthy_time: Some(Utc::now()),
+                // Simulate idle: set to a past time
+                last_enrichment_at: Some(
+                    std::time::Instant::now() - std::time::Duration::from_secs(3600),
+                ),
+                marked_unavailable: false,
+            },
+        );
+    }
+
+    // With a 60s timeout, the 3600s-old server should be evicted
+    let evicted = manager
+        .evict_idle_servers(std::time::Duration::from_secs(60))
+        .await;
+    assert_eq!(evicted.len(), 1);
+    assert_eq!(evicted[0].0, "test-project");
+
+    // Server state should be removed
+    let servers = manager.servers.read().await;
+    assert!(!servers.contains_key(&key));
+}
+
+#[tokio::test]
+async fn test_evict_idle_servers_keeps_recent() {
+    let config = ProjectLspConfig::default();
+    let manager = LanguageServerManager::new(config).await.unwrap();
+
+    let key = ProjectLanguageKey::new("test-project", Language::Python);
+    {
+        let mut servers = manager.servers.write().await;
+        servers.insert(
+            key.clone(),
+            ProjectServerState {
+                project_id: "test-project".to_string(),
+                language: Language::Python,
+                project_root: PathBuf::from("/test"),
+                status: ServerStatus::Running,
+                restart_count: 0,
+                last_error: None,
+                is_active: true,
+                last_healthy_time: Some(Utc::now()),
+                last_enrichment_at: Some(std::time::Instant::now()),
+                marked_unavailable: false,
+            },
+        );
+    }
+
+    // With a 3600s timeout, a recently-used server should not be evicted
+    let evicted = manager
+        .evict_idle_servers(std::time::Duration::from_secs(3600))
+        .await;
+    assert!(evicted.is_empty());
+
+    // Server state should still be present
+    let servers = manager.servers.read().await;
+    assert!(servers.contains_key(&key));
 }

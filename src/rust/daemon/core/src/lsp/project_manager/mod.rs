@@ -113,6 +113,8 @@ pub struct ProjectServerState {
     pub is_active: bool,
     /// Time when server was last healthy (for stability reset)
     pub last_healthy_time: Option<DateTime<Utc>>,
+    /// Time of last enrichment request (for idle eviction)
+    pub last_enrichment_at: Option<std::time::Instant>,
     /// Whether server has been marked unavailable after max restarts
     pub marked_unavailable: bool,
 }
@@ -142,6 +144,8 @@ pub struct ProjectLspConfig {
     pub stability_reset_secs: u64,
     /// Enable auto-restart of failed servers
     pub enable_auto_restart: bool,
+    /// Idle timeout in seconds before stopping inactive servers (default 1800)
+    pub idle_timeout_secs: u64,
 }
 
 impl Default for ProjectLspConfig {
@@ -158,6 +162,7 @@ impl Default for ProjectLspConfig {
             max_restarts: 3,
             stability_reset_secs: 3600,
             enable_auto_restart: true,
+            idle_timeout_secs: 1800,
         }
     }
 }
@@ -186,6 +191,7 @@ impl From<LspSettings> for ProjectLspConfig {
             max_restarts: settings.max_restart_attempts,
             stability_reset_secs: settings.stability_reset_secs,
             enable_auto_restart: settings.enable_auto_restart,
+            idle_timeout_secs: settings.idle_timeout_secs,
         }
     }
 }
