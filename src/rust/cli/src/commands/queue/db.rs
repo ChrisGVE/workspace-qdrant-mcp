@@ -15,6 +15,9 @@ pub fn connect_readonly() -> Result<Connection> {
     )
     .context(format!("Failed to open state database at {:?}", db_path))?;
 
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
+
     Ok(conn)
 }
 
@@ -25,8 +28,10 @@ pub fn connect_readwrite() -> Result<Connection> {
     let conn = Connection::open(&db_path)
         .context(format!("Failed to open state database at {:?}", db_path))?;
 
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
-        .context("Failed to set SQLite pragmas")?;
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+    )
+    .context("Failed to set SQLite pragmas")?;
 
     Ok(conn)
 }

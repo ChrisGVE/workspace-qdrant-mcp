@@ -122,6 +122,9 @@ fn connect_history_readonly() -> Result<Connection> {
     )
     .context(format!("Failed to open state database at {:?}", db_path))?;
 
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
+
     Ok(conn)
 }
 

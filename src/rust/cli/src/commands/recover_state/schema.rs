@@ -179,7 +179,8 @@ pub(super) fn create_fresh_database(db_path: &Path) -> Result<rusqlite::Connecti
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
-         PRAGMA foreign_keys=ON;",
+         PRAGMA foreign_keys=ON;
+         PRAGMA busy_timeout=5000;",
     )
     .context("Failed to set SQLite pragmas")?;
 

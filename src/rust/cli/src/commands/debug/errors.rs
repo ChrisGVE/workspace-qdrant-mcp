@@ -2,7 +2,7 @@
 //!
 //! Provides `errors` (daemon health + error log) and `queue_errors` (failed queue items).
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::process::Command;
 
 use crate::grpc::client::DaemonClient;
@@ -128,6 +128,8 @@ pub async fn queue_errors(count: usize, operation: Option<String>) -> Result<()>
     }
 
     let conn = rusqlite::Connection::open(&db_path)?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
 
     // Build query with optional operation filter
     let mut query = String::from(

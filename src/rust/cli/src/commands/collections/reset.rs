@@ -203,6 +203,8 @@ async fn clean_queue_items(collections: &[String]) -> Result<usize> {
     }
 
     let conn = rusqlite::Connection::open(&db_path).context("Failed to open state database")?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
 
     // Build placeholders for IN clause
     let placeholders: Vec<String> = (1..=collections.len()).map(|i| format!("?{}", i)).collect();

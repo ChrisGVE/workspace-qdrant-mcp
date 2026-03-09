@@ -64,6 +64,7 @@ pub(crate) fn resolve_project_id_or_cwd_quiet(project: Option<&str>) -> Result<(
             });
 
         if let Some(conn) = db_result {
+            let _ = conn.execute_batch("PRAGMA busy_timeout=5000;");
             match resolve_tenant_by_hint(&conn, p) {
                 Ok((tenant_id, _path)) => return Ok((tenant_id, false)),
                 Err(_) => {

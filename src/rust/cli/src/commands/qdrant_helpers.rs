@@ -44,6 +44,9 @@ pub fn open_state_db() -> Result<rusqlite::Connection> {
     )
     .context("Failed to open state database")?;
 
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
+
     Ok(conn)
 }
 

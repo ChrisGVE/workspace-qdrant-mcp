@@ -529,6 +529,8 @@ async fn write_json_report(
 /// Resolve the project root path from state.db watch_folders.
 fn resolve_project_root(db_path: &PathBuf, tenant_id: Option<&str>) -> Result<PathBuf> {
     let conn = rusqlite::Connection::open(db_path).context("Failed to open state.db")?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
 
     let query = if let Some(tid) = tenant_id {
         let path: String = conn

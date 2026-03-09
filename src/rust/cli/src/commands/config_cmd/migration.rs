@@ -26,6 +26,8 @@ pub(super) fn check_active_mcp_sessions() -> Result<bool> {
     }
 
     let conn = rusqlite::Connection::open(&db_path).context("Failed to open state database")?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
 
     // Check if operational_state table exists (schema v17+)
     let table_exists: bool = conn

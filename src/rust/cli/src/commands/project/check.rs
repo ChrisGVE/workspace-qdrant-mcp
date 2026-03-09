@@ -48,6 +48,9 @@ pub(super) async fn check_project(project: Option<&str>, verbose: bool, json: bo
     )
     .context("Failed to open state database")?;
 
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
+
     let (watch_id, project_root) = find_watch_folder(&conn, &project_id, json)?;
     let (watch_id, project_root) = match (watch_id, project_root) {
         (Some(w), Some(p)) => (w, p),

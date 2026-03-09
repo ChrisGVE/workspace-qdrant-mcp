@@ -186,6 +186,7 @@ pub fn load_project_names() -> HashMap<String, String> {
         Ok(c) => c,
         Err(_) => return map,
     };
+    let _ = conn.execute_batch("PRAGMA busy_timeout=5000;");
     let sql = format!(
         "SELECT {}, {} FROM {} WHERE {} = 'projects'",
         wf_schema::TENANT_ID.name,

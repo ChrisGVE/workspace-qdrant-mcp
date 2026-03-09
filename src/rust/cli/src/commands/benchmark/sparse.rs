@@ -29,6 +29,8 @@ struct SpladeExtras {
 async fn sample_files(collection: &str, sample_size: usize) -> Result<Vec<(String, String)>> {
     let db_path = get_database_path()?;
     let conn = rusqlite::Connection::open(&db_path).context("Failed to open database")?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
 
     let mut stmt = conn.prepare(
         "SELECT file_path FROM tracked_files tf
