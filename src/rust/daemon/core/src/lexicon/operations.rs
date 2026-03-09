@@ -125,25 +125,62 @@ impl LexiconManager {
 
         let now = timestamps::now_utc();
 
-        // Batch upsert vocabulary in a transaction
+        // Batch upsert vocabulary via temp table + single INSERT...SELECT
         let mut tx = self.pool.begin().await?;
 
-        for (term, term_id) in &vocab {
-            let df = doc_freq.get(term_id).copied().unwrap_or(0);
-            sqlx::query(
-                r#"INSERT INTO sparse_vocabulary (term_id, term, collection, document_count, created_at)
-                   VALUES (?1, ?2, ?3, ?4, ?5)
-                   ON CONFLICT (term, collection)
-                   DO UPDATE SET document_count = ?4"#,
-            )
-            .bind(*term_id as i64)
-            .bind(term)
-            .bind(collection)
-            .bind(df as i64)
-            .bind(&now)
+        sqlx::query(
+            "CREATE TEMP TABLE IF NOT EXISTS _vocab_batch(\
+             term_id INTEGER, term TEXT, doc_count INTEGER)",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query("DELETE FROM _vocab_batch")
             .execute(&mut *tx)
             .await?;
+
+        // Batch-insert into temp table (chunks of 100 → 300 params, under 999 limit)
+        let vocab_vec: Vec<_> = vocab.iter().collect();
+        const CHUNK_SIZE: usize = 100;
+        for chunk in vocab_vec.chunks(CHUNK_SIZE) {
+            let placeholders: Vec<String> = (0..chunk.len())
+                .map(|i| format!("(?{}, ?{}, ?{})", i * 3 + 1, i * 3 + 2, i * 3 + 3))
+                .collect();
+            let sql = format!(
+                "INSERT INTO _vocab_batch(term_id, term, doc_count) VALUES {}",
+                placeholders.join(", ")
+            );
+            let mut q = sqlx::query(&sql);
+            for (term, term_id) in chunk {
+                let df = doc_freq.get(term_id).copied().unwrap_or(0);
+                q = q.bind(**term_id as i64).bind(*term).bind(df as i64);
+            }
+            q.execute(&mut *tx).await?;
         }
+
+        // Update existing terms, then insert new ones (two-step upsert)
+        sqlx::query(
+            "UPDATE sparse_vocabulary SET document_count = b.doc_count \
+             FROM _vocab_batch b \
+             WHERE sparse_vocabulary.term = b.term AND sparse_vocabulary.collection = ?1",
+        )
+        .bind(collection)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO sparse_vocabulary \
+             (term_id, term, collection, document_count, created_at) \
+             SELECT b.term_id, b.term, ?1, b.doc_count, ?2 FROM _vocab_batch b",
+        )
+        .bind(collection)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query("DROP TABLE IF EXISTS _vocab_batch")
+            .execute(&mut *tx)
+            .await?;
 
         // Upsert corpus statistics
         sqlx::query(
