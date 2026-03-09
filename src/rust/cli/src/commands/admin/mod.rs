@@ -12,6 +12,7 @@ use wqm_common::constants::{
 
 mod cleanup_orphans;
 mod idle_history;
+mod metrics;
 mod perf;
 mod prune_logs;
 mod rename_tenant;
@@ -105,6 +106,20 @@ enum AdminCommand {
         /// Output in JSON format
         #[arg(long)]
         json: bool,
+
+        /// Group by 1-2 dimensions: project, phase, language, op (comma-separated)
+        #[arg(short = 'g', long)]
+        group_by: Option<String>,
+    },
+    /// Fetch live Prometheus metrics from the daemon's metrics endpoint
+    Metrics {
+        /// Metrics server port (default: 9090)
+        #[arg(short = 'p', long, default_value = "9090")]
+        port: u16,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -129,6 +144,11 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             cleanup_orphans::execute(delete, collection).await
         }
         AdminCommand::RecoverState { confirm } => super::recover_state::execute(confirm).await,
-        AdminCommand::Perf { window, json } => perf::execute(window, json).await,
+        AdminCommand::Perf {
+            window,
+            json,
+            group_by,
+        } => perf::execute(window, json, group_by).await,
+        AdminCommand::Metrics { port, json } => metrics::execute(port, json).await,
     }
 }
