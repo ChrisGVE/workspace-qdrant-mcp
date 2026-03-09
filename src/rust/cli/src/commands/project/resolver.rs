@@ -52,20 +52,28 @@ pub(crate) fn resolve_project_id_or_cwd_quiet(project: Option<&str>) -> Result<(
         }
 
         // Non-path argument: try hint-based resolution (ID, name substring)
-        let db_path = crate::config::get_database_path_checked()
-            .map_err(|e| anyhow::anyhow!("Database not found: {}", e))?;
-        let conn = rusqlite::Connection::open_with_flags(
-            &db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(|e| anyhow::anyhow!("Could not open state database: {}", e))?;
+        // If the database is unavailable (daemon not running), fall back to literal ID.
+        let db_result = crate::config::get_database_path_checked()
+            .ok()
+            .and_then(|db_path| {
+                rusqlite::Connection::open_with_flags(
+                    &db_path,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .ok()
+            });
 
-        match resolve_tenant_by_hint(&conn, p) {
-            Ok((tenant_id, _path)) => return Ok((tenant_id, false)),
-            Err(_) => {
-                // Fall back to using the argument as a literal ID
-                return Ok((p.to_string(), false));
+        if let Some(conn) = db_result {
+            match resolve_tenant_by_hint(&conn, p) {
+                Ok((tenant_id, _path)) => return Ok((tenant_id, false)),
+                Err(_) => {
+                    // Fall back to using the argument as a literal ID
+                    return Ok((p.to_string(), false));
+                }
             }
+        } else {
+            // No database available: use argument as literal ID
+            return Ok((p.to_string(), false));
         }
     }
 
