@@ -114,10 +114,27 @@ pub fn log_directory() -> Result<PathBuf> {
     }
 }
 
-/// Generate macOS launchd plist content
+/// Generate macOS launchd plist content (without metrics port).
 pub fn generate_launchd_plist(binary_path: &std::path::Path) -> String {
+    generate_launchd_plist_with_options(binary_path, None)
+}
+
+/// Generate macOS launchd plist content with optional metrics port.
+pub fn generate_launchd_plist_with_options(
+    binary_path: &std::path::Path,
+    metrics_port: Option<u16>,
+) -> String {
     let home = dirs::home_dir().unwrap_or_default();
     let log_dir = home.join("Library/Logs/workspace-qdrant");
+
+    let mut args_xml = format!("        <string>{}</string>", binary_path.display());
+    if let Some(port) = metrics_port {
+        args_xml.push_str(&format!(
+            "\n        <string>--metrics-port</string>\n        <string>{}</string>",
+            port
+        ));
+    }
+
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -127,7 +144,7 @@ pub fn generate_launchd_plist(binary_path: &std::path::Path) -> String {
     <string>{service}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{binary}</string>
+{args_xml}
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -148,10 +165,69 @@ pub fn generate_launchd_plist(binary_path: &std::path::Path) -> String {
 </plist>
 "#,
         service = SERVICE_NAME,
-        binary = binary_path.display(),
+        args_xml = args_xml,
         log_dir = log_dir.display(),
         home = home.display(),
     )
+}
+
+/// Get the launchd plist path for the daemon.
+pub fn launchd_plist_path() -> Result<std::path::PathBuf> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    Ok(home
+        .join("Library/LaunchAgents")
+        .join(format!("{}.plist", SERVICE_NAME)))
+}
+
+/// Parse the currently configured metrics port from the launchd plist.
+/// Returns None if the plist doesn't exist or doesn't have --metrics-port.
+pub fn parse_metrics_port_from_plist() -> Option<u16> {
+    let path = launchd_plist_path().ok()?;
+    let content = std::fs::read_to_string(path).ok()?;
+    // Look for <string>--metrics-port</string>\n...<string>PORT</string>
+    let lines: Vec<&str> = content.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim() == "<string>--metrics-port</string>" {
+            if let Some(next_line) = lines.get(i + 1) {
+                let trimmed = next_line.trim();
+                if let Some(port_str) = trimmed
+                    .strip_prefix("<string>")
+                    .and_then(|s| s.strip_suffix("</string>"))
+                {
+                    return port_str.parse().ok();
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Parse the binary path from the launchd plist.
+pub fn parse_binary_from_plist() -> Option<std::path::PathBuf> {
+    let path = launchd_plist_path().ok()?;
+    let content = std::fs::read_to_string(path).ok()?;
+    // First <string> after <key>ProgramArguments</key><array> is the binary
+    let mut in_program_args = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "<key>ProgramArguments</key>" {
+            in_program_args = true;
+            continue;
+        }
+        if in_program_args && trimmed == "<array>" {
+            continue;
+        }
+        if in_program_args {
+            if let Some(path_str) = trimmed
+                .strip_prefix("<string>")
+                .and_then(|s| s.strip_suffix("</string>"))
+            {
+                return Some(std::path::PathBuf::from(path_str));
+            }
+            return None;
+        }
+    }
+    None
 }
 
 /// Generate Linux systemd user unit content
@@ -249,6 +325,23 @@ mod tests {
             plist.contains("daemon.err.log"),
             "plist must define stderr log"
         );
+    }
+
+    #[test]
+    fn test_generate_launchd_plist_with_metrics_port() {
+        let binary = PathBuf::from("/Users/test/.local/bin/memexd");
+        let plist = generate_launchd_plist_with_options(&binary, Some(9090));
+        assert!(plist.contains("<string>--metrics-port</string>"));
+        assert!(plist.contains("<string>9090</string>"));
+        assert!(plist.contains("/Users/test/.local/bin/memexd"));
+    }
+
+    #[test]
+    fn test_generate_launchd_plist_without_metrics_port() {
+        let binary = PathBuf::from("/Users/test/.local/bin/memexd");
+        let plist = generate_launchd_plist_with_options(&binary, None);
+        assert!(!plist.contains("--metrics-port"));
+        assert!(plist.contains("/Users/test/.local/bin/memexd"));
     }
 
     #[test]

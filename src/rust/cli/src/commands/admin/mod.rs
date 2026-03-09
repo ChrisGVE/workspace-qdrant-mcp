@@ -13,6 +13,7 @@ use wqm_common::constants::{
 mod cleanup_orphans;
 mod idle_history;
 mod metrics;
+mod metrics_setup;
 mod perf;
 mod prune_logs;
 mod rename_tenant;
@@ -115,8 +116,18 @@ enum AdminCommand {
         #[arg(short = 's', long)]
         sort: Option<String>,
     },
-    /// Fetch live Prometheus metrics from the daemon's metrics endpoint
+    /// Manage and fetch Prometheus metrics from the daemon
     Metrics {
+        #[command(subcommand)]
+        command: MetricsCommand,
+    },
+}
+
+/// Metrics subcommands
+#[derive(Subcommand)]
+enum MetricsCommand {
+    /// Fetch live Prometheus metrics from the daemon
+    Show {
         /// Metrics server port (default: 9090)
         #[arg(short = 'p', long, default_value = "9090")]
         port: u16,
@@ -124,6 +135,20 @@ enum AdminCommand {
         /// Output in JSON format
         #[arg(long)]
         json: bool,
+    },
+    /// Enable the metrics endpoint (adds --metrics-port to daemon launch args)
+    Enable {
+        /// Metrics server port (default: 9090)
+        #[arg(short = 'p', long)]
+        port: Option<u16>,
+    },
+    /// Disable the metrics endpoint (removes --metrics-port from daemon launch args)
+    Disable,
+    /// Check if metrics endpoint is configured and responding
+    Status {
+        /// Metrics server port to check (default: 9090)
+        #[arg(short = 'p', long, default_value = "9090")]
+        port: u16,
     },
 }
 
@@ -154,6 +179,11 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             group_by,
             sort,
         } => perf::execute(window, json, group_by, sort).await,
-        AdminCommand::Metrics { port, json } => metrics::execute(port, json).await,
+        AdminCommand::Metrics { command } => match command {
+            MetricsCommand::Show { port, json } => metrics::execute(port, json).await,
+            MetricsCommand::Enable { port } => metrics_setup::enable(port).await,
+            MetricsCommand::Disable => metrics_setup::disable().await,
+            MetricsCommand::Status { port } => metrics_setup::status(port).await,
+        },
     }
 }
