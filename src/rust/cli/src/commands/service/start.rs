@@ -7,6 +7,12 @@ use crate::output;
 
 use super::platform::{get_service_manager, is_daemon_running, ServiceManager, SERVICE_NAME};
 
+/// Maximum time to wait for daemon to become responsive after loading the service.
+const STARTUP_TIMEOUT_SECS: u64 = 30;
+
+/// Interval between gRPC connectivity checks during startup.
+const POLL_INTERVAL_MS: u64 = 500;
+
 /// Start the daemon service
 pub async fn execute() -> Result<()> {
     output::info("Starting daemon...");
@@ -27,6 +33,22 @@ pub async fn execute() -> Result<()> {
     }
 }
 
+/// Poll gRPC until the daemon responds or timeout is reached.
+///
+/// Returns `true` if the daemon became responsive.
+async fn wait_for_daemon(timeout_secs: u64) -> bool {
+    let deadline =
+        tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
+
+    while tokio::time::Instant::now() < deadline {
+        if is_daemon_running().await {
+            return true;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
+    false
+}
+
 async fn start_launchctl() -> Result<()> {
     let plist_path = dirs::home_dir()
         .context("Could not find home directory")?
@@ -40,15 +62,14 @@ async fn start_launchctl() -> Result<()> {
             .status()?;
 
         if status.success() {
-            // Wait a moment for daemon to start
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            if is_daemon_running().await {
+            if wait_for_daemon(STARTUP_TIMEOUT_SECS).await {
                 output::success("Daemon started");
             } else {
-                output::warning("Service loaded but daemon not responding");
+                output::error("Daemon failed to start within timeout");
+                output::info("Check logs: wqm service logs");
             }
         } else {
-            output::error("Failed to start daemon");
+            output::error("Failed to load service plist");
         }
     } else {
         output::error("Service not installed. Run: wqm service install");
@@ -63,11 +84,11 @@ async fn start_systemd() -> Result<()> {
         .status()?;
 
     if status.success() {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        if is_daemon_running().await {
+        if wait_for_daemon(STARTUP_TIMEOUT_SECS).await {
             output::success("Daemon started");
         } else {
-            output::warning("Service started but daemon not responding");
+            output::error("Daemon failed to start within timeout");
+            output::info("Check logs: journalctl --user -u memexd");
         }
     } else {
         output::error("Failed to start daemon");
@@ -82,12 +103,11 @@ async fn start_windows() -> Result<()> {
         let status = Command::new("sc.exe").args(["start", "memexd"]).status()?;
 
         if status.success() {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-            if is_daemon_running().await {
+            if wait_for_daemon(STARTUP_TIMEOUT_SECS).await {
                 output::success("Daemon started");
             } else {
-                output::warning("Service started but daemon not responding yet");
-                output::info("Try: wqm service status");
+                output::error("Daemon failed to start within timeout");
+                output::info("Check Windows Event Viewer for details");
             }
         } else {
             output::error("Failed to start daemon");
