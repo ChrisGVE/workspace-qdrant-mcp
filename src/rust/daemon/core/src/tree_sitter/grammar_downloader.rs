@@ -509,12 +509,14 @@ fn find_src_dir(extract_dir: &Path, subdir: Option<&str>) -> DownloadResult<Path
     }
 
     // Strategy 3: Search recursively for parser.c (last resort)
-    for entry in walkdir::WalkDir::new(extract_dir).max_depth(4) {
-        if let Ok(e) = entry {
-            if e.file_name() == "parser.c" {
-                if let Some(parent) = e.path().parent() {
-                    return Ok(parent.to_path_buf());
-                }
+    for e in walkdir::WalkDir::new(extract_dir)
+        .max_depth(4)
+        .into_iter()
+        .flatten()
+    {
+        if e.file_name() == "parser.c" {
+            if let Some(parent) = e.path().parent() {
+                return Ok(parent.to_path_buf());
             }
         }
     }

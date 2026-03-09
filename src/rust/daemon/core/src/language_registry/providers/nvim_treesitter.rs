@@ -59,7 +59,7 @@ impl NvimTreesitterProvider {
 
         let mut entries = Vec::with_capacity(raw.len());
 
-        for (language, _entry) in &raw {
+        for language in raw.keys() {
             // nvim-treesitter uses a convention: tree-sitter-{language}
             // The lockfile keys are language names, repos follow the naming convention
             let repo = infer_repo(language);

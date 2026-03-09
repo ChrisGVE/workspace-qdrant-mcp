@@ -57,10 +57,10 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     let mut matched = 0;
 
     // Functions
-    let fn_types = find_matching(&named_types, &FUNCTION_HINTS);
+    let fn_types = find_matching(&named_types, FUNCTION_HINTS);
     if !fn_types.is_empty() {
         notes.push(format!("Functions: {}", fn_types.join(", ")));
-        let async_types = find_matching(&named_types, &ASYNC_FUNCTION_HINTS);
+        let async_types = find_matching(&named_types, ASYNC_FUNCTION_HINTS);
         patterns.function = FunctionPatternGroup {
             node_types: fn_types,
             async_node_types: async_types,
@@ -69,7 +69,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Classes
-    let class_types = find_matching(&named_types, &CLASS_HINTS);
+    let class_types = find_matching(&named_types, CLASS_HINTS);
     if !class_types.is_empty() {
         notes.push(format!("Classes: {}", class_types.join(", ")));
         patterns.class = PatternGroup {
@@ -79,7 +79,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Methods (same as functions, context determined at runtime)
-    let method_types = find_matching(&named_types, &METHOD_HINTS);
+    let method_types = find_matching(&named_types, METHOD_HINTS);
     if !method_types.is_empty() {
         notes.push(format!("Methods: {}", method_types.join(", ")));
         patterns.method = MethodPatternGroup {
@@ -90,7 +90,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Structs
-    let struct_types = find_matching(&named_types, &STRUCT_HINTS);
+    let struct_types = find_matching(&named_types, STRUCT_HINTS);
     if !struct_types.is_empty() {
         notes.push(format!("Structs: {}", struct_types.join(", ")));
         patterns.struct_def = PatternGroup {
@@ -100,7 +100,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Enums
-    let enum_types = find_matching(&named_types, &ENUM_HINTS);
+    let enum_types = find_matching(&named_types, ENUM_HINTS);
     if !enum_types.is_empty() {
         notes.push(format!("Enums: {}", enum_types.join(", ")));
         patterns.enum_def = PatternGroup {
@@ -110,7 +110,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Traits/Interfaces
-    let trait_types = find_matching(&named_types, &TRAIT_HINTS);
+    let trait_types = find_matching(&named_types, TRAIT_HINTS);
     if !trait_types.is_empty() {
         notes.push(format!("Traits/Interfaces: {}", trait_types.join(", ")));
         patterns.trait_def = PatternGroup {
@@ -123,7 +123,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Modules
-    let module_types = find_matching(&named_types, &MODULE_HINTS);
+    let module_types = find_matching(&named_types, MODULE_HINTS);
     if !module_types.is_empty() {
         notes.push(format!("Modules: {}", module_types.join(", ")));
         patterns.module = PatternGroup {
@@ -133,7 +133,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Preamble (imports/includes)
-    let preamble_types = find_matching(&named_types, &PREAMBLE_HINTS);
+    let preamble_types = find_matching(&named_types, PREAMBLE_HINTS);
     if !preamble_types.is_empty() {
         notes.push(format!("Preamble: {}", preamble_types.join(", ")));
         patterns.preamble = PatternGroup {
@@ -143,7 +143,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Constants
-    let const_types = find_matching(&named_types, &CONSTANT_HINTS);
+    let const_types = find_matching(&named_types, CONSTANT_HINTS);
     if !const_types.is_empty() {
         patterns.constant = PatternGroup {
             node_types: const_types,
@@ -152,7 +152,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Macros
-    let macro_types = find_matching(&named_types, &MACRO_HINTS);
+    let macro_types = find_matching(&named_types, MACRO_HINTS);
     if !macro_types.is_empty() {
         patterns.macro_def = PatternGroup {
             node_types: macro_types,
@@ -161,7 +161,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Type aliases
-    let type_types = find_matching(&named_types, &TYPE_ALIAS_HINTS);
+    let type_types = find_matching(&named_types, TYPE_ALIAS_HINTS);
     if !type_types.is_empty() {
         patterns.type_alias = PatternGroup {
             node_types: type_types,
@@ -186,7 +186,7 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Comment nodes
-    let comment_types = find_matching(&named_types, &COMMENT_HINTS);
+    let comment_types = find_matching(&named_types, COMMENT_HINTS);
     if !comment_types.is_empty() {
         patterns.comment_nodes = comment_types;
     }
