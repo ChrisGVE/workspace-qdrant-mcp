@@ -206,6 +206,47 @@ impl FileStrategy {
             }
         }
 
+        // === UPLIFT OPERATION: capability upgrade re-processing ===
+        // Bypasses hash comparison — the file content hasn't changed but
+        // capabilities have improved (grammar now available, LSP now ready,
+        // or a previous enrichment failure should be retried). Delete old
+        // points so the full re-ingest produces fresh chunks/enrichment.
+        if item.op == QueueOperation::Uplift {
+            let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
+                UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e))
+            })?;
+
+            if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+                pool,
+                &watch_folder_id,
+                &relative_path,
+                Some(item.branch.as_str()),
+            )
+            .await
+            {
+                info!(
+                    "Uplift: re-processing file for capability upgrade: {}",
+                    relative_path
+                );
+                update_preamble::execute_update_deletion(
+                    ctx,
+                    item,
+                    pool,
+                    &watch_folder_id,
+                    &relative_path,
+                    &payload,
+                    &existing,
+                    &new_hash,
+                )
+                .await?;
+            } else {
+                debug!(
+                    "Uplift: file not previously tracked, treating as fresh ingest: {}",
+                    relative_path
+                );
+            }
+        }
+
         ingest::ingest_file_content(
             ctx,
             item,

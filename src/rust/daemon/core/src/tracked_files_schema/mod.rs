@@ -41,7 +41,10 @@ pub use transactions::{
 };
 
 // Re-export reconcile operations
-pub use reconcile::{clear_reconcile_flag_tx, get_files_needing_reconcile, mark_needs_reconcile};
+pub use reconcile::{
+    clear_reconcile_flag_tx, get_files_needing_reconcile, get_files_needing_upgrade,
+    mark_needs_reconcile, UpgradeReason,
+};
 
 #[cfg(test)]
 mod tests;

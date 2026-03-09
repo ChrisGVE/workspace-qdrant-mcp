@@ -311,7 +311,10 @@ async fn run_keyword_and_graph_phases(
     points: &mut [crate::storage::DocumentPoint],
     timings: &mut Vec<PhaseTiming>,
 ) {
-    if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
+    if matches!(
+        item.op,
+        QueueOperation::Add | QueueOperation::Update | QueueOperation::Uplift
+    ) {
         let t0 = Instant::now();
         let extraction =
             keyword_extract::run_keyword_extraction(ctx, item, file_path, document_content, points)

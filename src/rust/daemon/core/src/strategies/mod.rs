@@ -11,6 +11,7 @@
 //! - `scan` -- directory scanning strategies
 //! - `retry` -- retry policy strategies
 
+pub mod capability_upgrade;
 pub mod processing;
 
 use async_trait::async_trait;
