@@ -24,6 +24,8 @@ pub struct StaleCleanupStats {
     pub items_reset: u64,
     /// Old done/failed queue items removed.
     pub items_cleaned: u64,
+    /// Failed items removed because their tenant no longer has a watch_folder.
+    pub orphan_tenant_items_removed: u64,
     /// Tracked files removed because the file no longer exists on disk.
     pub tracked_files_removed: u64,
     /// Orphan qdrant_chunks removed (file_id no longer in tracked_files).
@@ -35,6 +37,7 @@ impl StaleCleanupStats {
     pub fn has_changes(&self) -> bool {
         self.items_reset > 0
             || self.items_cleaned > 0
+            || self.orphan_tenant_items_removed > 0
             || self.tracked_files_removed > 0
             || self.orphan_chunks_removed > 0
     }
@@ -53,16 +56,18 @@ pub struct WatchValidationStats {
 
 /// Clean stale state from previous daemon runs.
 ///
-/// Performs four cleanup operations:
+/// Performs five cleanup operations:
 /// 1. Reset in_progress queue items back to pending.
 /// 2. Remove done/failed queue items older than 7 days.
-/// 3. Remove tracked_files entries whose files no longer exist on disk.
-/// 4. Remove orphan qdrant_chunks whose file_id is not in tracked_files.
+/// 3. Purge failed items whose tenant no longer has a watch_folder.
+/// 4. Remove tracked_files entries whose files no longer exist on disk.
+/// 5. Remove orphan qdrant_chunks whose file_id is not in tracked_files.
 pub async fn clean_stale_state(pool: &SqlitePool) -> Result<StaleCleanupStats, String> {
     let mut stats = StaleCleanupStats::default();
 
     stats.items_reset = reset_in_progress_items(pool).await?;
     stats.items_cleaned = purge_old_completed_items(pool).await?;
+    stats.orphan_tenant_items_removed = purge_orphan_tenant_items(pool).await?;
     stats.tracked_files_removed = remove_stale_tracked_files(pool).await?;
     stats.orphan_chunks_removed = remove_orphan_chunks(pool).await?;
 
@@ -111,7 +116,38 @@ async fn purge_old_completed_items(pool: &SqlitePool) -> Result<u64, String> {
     Ok(count)
 }
 
-/// Step 3: Remove tracked_files entries whose files no longer exist on disk.
+/// Step 3: Purge failed/pending items whose tenant no longer has a watch_folder.
+///
+/// When a project is unregistered or moved, queue items referencing the old
+/// tenant_id become orphaned. These items would fail permanently with
+/// "no watch_folder found" on every retry. Remove them proactively.
+async fn purge_orphan_tenant_items(pool: &SqlitePool) -> Result<u64, String> {
+    info!("Purging queue items for non-existent tenants...");
+    let result = sqlx::query(
+        "DELETE FROM unified_queue \
+         WHERE status IN ('failed', 'pending') \
+         AND item_type = 'file' \
+         AND tenant_id NOT IN ( \
+             SELECT DISTINCT tenant_id FROM watch_folders \
+         )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to purge orphan tenant items: {}", e))?;
+
+    let count = result.rows_affected();
+    if count > 0 {
+        info!(
+            "Purged {} queue items for non-existent tenants",
+            count
+        );
+    } else {
+        debug!("No orphan tenant queue items found");
+    }
+    Ok(count)
+}
+
+/// Step 4: Remove tracked_files entries whose files no longer exist on disk.
 async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     info!("Checking tracked files against filesystem...");
     let tracked_rows = sqlx::query(

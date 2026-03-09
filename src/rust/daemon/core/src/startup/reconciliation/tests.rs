@@ -40,6 +40,16 @@ async fn test_clean_stale_state_resets_in_progress() {
     let pool = create_test_pool().await;
     setup_schema(&pool).await;
 
+    // Insert a watch folder for tenant t1 (so items aren't purged as orphan tenant items)
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES ('w1', '/tmp/test-reset-in-progress', 'projects', 't1', \
+         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     // Insert two queue items with status='in_progress'
     sqlx::query(
         "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
@@ -445,8 +455,129 @@ async fn test_clean_stale_state_empty_tables() {
     assert!(!stats.has_changes(), "No changes expected on empty tables");
     assert_eq!(stats.items_reset, 0);
     assert_eq!(stats.items_cleaned, 0);
+    assert_eq!(stats.orphan_tenant_items_removed, 0);
     assert_eq!(stats.tracked_files_removed, 0);
     assert_eq!(stats.orphan_chunks_removed, 0);
+}
+
+#[tokio::test]
+async fn test_clean_stale_state_purges_orphan_tenant_items() {
+    let pool = create_test_pool().await;
+    setup_schema(&pool).await;
+
+    // Insert a watch folder for tenant t1 (valid tenant)
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES ('w1', '/tmp/test-orphan-tenant-512', 'projects', 't1', \
+         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Insert a failed queue item for t1 (has watch_folder → should NOT be removed)
+    // Use recent updated_at so step 2 (purge old done/failed) doesn't delete it
+    sqlx::query(
+        "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
+         idempotency_key) \
+         VALUES ('q_valid', 'file', 'add', 't1', 'projects', 'failed', \
+         'key_valid')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Insert failed queue items for t_gone (NO watch_folder → should be removed)
+    sqlx::query(
+        "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
+         idempotency_key, updated_at) \
+         VALUES ('q_orphan1', 'file', 'add', 't_gone', 'projects', 'failed', \
+         'key_orphan1', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
+         idempotency_key, updated_at) \
+         VALUES ('q_orphan2', 'file', 'add', 't_gone', 'projects', 'pending', \
+         'key_orphan2', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Insert an in_progress item for t_gone (should NOT be touched — only failed/pending)
+    sqlx::query(
+        "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
+         idempotency_key, updated_at) \
+         VALUES ('q_inprog', 'file', 'add', 't_gone', 'projects', 'in_progress', \
+         'key_inprog', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Insert a doc item for t_gone (should NOT be touched — only file items)
+    // Use recent updated_at so step 2 doesn't delete it
+    sqlx::query(
+        "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
+         idempotency_key) \
+         VALUES ('q_doc', 'doc', 'add', 't_gone', 'projects', 'failed', \
+         'key_doc')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let stats = clean_stale_state(&pool)
+        .await
+        .expect("clean_stale_state failed");
+
+    assert_eq!(
+        stats.orphan_tenant_items_removed, 2,
+        "Should remove 2 orphan tenant items (failed + pending file items for t_gone)"
+    );
+
+    // Verify orphan items are gone
+    let orphan_count: i32 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM unified_queue WHERE queue_id IN ('q_orphan1', 'q_orphan2')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(orphan_count, 0, "Orphan tenant items should be deleted");
+
+    // Verify valid tenant item still exists
+    let valid_count: i32 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE queue_id = 'q_valid'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(valid_count, 1, "Valid tenant item should remain");
+
+    // Verify in_progress item for t_gone was reset (by step 1) but not deleted by step 3
+    // Step 1 resets it to pending, then step 3 would delete it since t_gone has no watch_folder
+    // Actually: step 1 runs first → resets to pending; step 3 runs after → deletes pending+failed for missing tenants
+    // So q_inprog gets reset to pending by step 1, then deleted by step 3
+    let inprog_count: i32 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE queue_id = 'q_inprog'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        inprog_count, 0,
+        "in_progress item for orphan tenant should be reset then purged"
+    );
+
+    // Verify doc item still exists (only file items are purged)
+    let doc_count: i32 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE queue_id = 'q_doc'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(doc_count, 1, "Doc items should not be purged by orphan tenant cleanup");
 }
 
 #[tokio::test]
