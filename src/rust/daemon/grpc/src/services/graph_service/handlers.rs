@@ -22,6 +22,7 @@ use super::service_impl::GraphServiceImpl;
 
 #[tonic::async_trait]
 impl GraphService for GraphServiceImpl {
+    #[tracing::instrument(skip_all, fields(method = "GraphService.query_related"))]
     async fn query_related(
         &self,
         request: Request<QueryRelatedRequest>,
@@ -104,6 +105,7 @@ impl GraphService for GraphServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "GraphService.impact_analysis"))]
     async fn impact_analysis(
         &self,
         request: Request<ImpactAnalysisRequest>,
@@ -160,6 +162,7 @@ impl GraphService for GraphServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "GraphService.get_graph_stats"))]
     async fn get_graph_stats(
         &self,
         request: Request<GraphStatsRequest>,
@@ -194,6 +197,7 @@ impl GraphService for GraphServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "GraphService.compute_page_rank"))]
     async fn compute_page_rank(
         &self,
         request: Request<PageRankRequest>,
@@ -262,6 +266,7 @@ impl GraphService for GraphServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "GraphService.detect_communities"))]
     async fn detect_communities(
         &self,
         request: Request<CommunityRequest>,
@@ -330,6 +335,7 @@ impl GraphService for GraphServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "GraphService.compute_betweenness"))]
     async fn compute_betweenness(
         &self,
         request: Request<BetweennessRequest>,
@@ -403,6 +409,7 @@ impl GraphService for GraphServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "GraphService.migrate_graph"))]
     async fn migrate_graph(
         &self,
         request: Request<GraphMigrateRequest>,

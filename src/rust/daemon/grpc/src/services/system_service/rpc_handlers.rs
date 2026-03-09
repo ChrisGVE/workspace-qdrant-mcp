@@ -23,6 +23,7 @@ use super::service_impl::SystemServiceImpl;
 #[tonic::async_trait]
 impl SystemService for SystemServiceImpl {
     /// Quick health check for monitoring/alerting (spec: Health)
+    #[tracing::instrument(skip_all, fields(method = "SystemService.health"))]
     async fn health(&self, _request: Request<()>) -> Result<Response<HealthResponse>, Status> {
         debug!("Health check requested");
 
@@ -74,6 +75,7 @@ impl SystemService for SystemServiceImpl {
     }
 
     /// Queue statistics for monitoring (spec: GetQueueStats)
+    #[tracing::instrument(skip_all, fields(method = "SystemService.get_queue_stats"))]
     async fn get_queue_stats(
         &self,
         _request: Request<()>,
@@ -106,12 +108,14 @@ impl SystemService for SystemServiceImpl {
     }
 
     /// Graceful daemon shutdown (spec: Shutdown)
+    #[tracing::instrument(skip_all, fields(method = "SystemService.shutdown"))]
     async fn shutdown(&self, _request: Request<()>) -> Result<Response<()>, Status> {
         warn!("Shutdown requested via gRPC");
         Ok(Response::new(()))
     }
 
     /// Comprehensive system state snapshot
+    #[tracing::instrument(skip_all, fields(method = "SystemService.get_status"))]
     async fn get_status(
         &self,
         _request: Request<()>,
@@ -164,6 +168,7 @@ impl SystemService for SystemServiceImpl {
     }
 
     /// Current performance metrics (no historical data)
+    #[tracing::instrument(skip_all, fields(method = "SystemService.get_metrics"))]
     async fn get_metrics(
         &self,
         _request: Request<()>,
@@ -212,6 +217,7 @@ impl SystemService for SystemServiceImpl {
     /// - WATCHED_PROJECTS: Re-validates watch folder configurations
     /// - WATCHED_FOLDERS: Same as WATCHED_PROJECTS
     /// - TOOLS_AVAILABLE: Logs tool availability change (LSP/grammar)
+    #[tracing::instrument(skip_all, fields(method = "SystemService.send_refresh_signal"))]
     async fn send_refresh_signal(
         &self,
         request: Request<RefreshSignalRequest>,
@@ -261,6 +267,7 @@ impl SystemService for SystemServiceImpl {
     /// Stores server status updates and logs state transitions.
     /// When a project goes DOWN, its watch folder is deactivated.
     /// When a project comes UP, its watch folder is activated.
+    #[tracing::instrument(skip_all, fields(method = "SystemService.notify_server_status"))]
     async fn notify_server_status(
         &self,
         request: Request<ServerStatusNotification>,
@@ -278,6 +285,7 @@ impl SystemService for SystemServiceImpl {
     ///
     /// Sets is_paused=1 in watch_folders for all enabled watches and toggles
     /// the shared pause flag so connected FileWatcher instances react immediately.
+    #[tracing::instrument(skip_all, fields(method = "SystemService.pause_all_watchers"))]
     async fn pause_all_watchers(&self, _request: Request<()>) -> Result<Response<()>, Status> {
         info!("Pause all watchers requested");
 
@@ -337,6 +345,7 @@ impl SystemService for SystemServiceImpl {
     ///
     /// Sets is_paused=0 in watch_folders for all enabled watches and clears
     /// the shared pause flag so connected FileWatcher instances resume processing.
+    #[tracing::instrument(skip_all, fields(method = "SystemService.resume_all_watchers"))]
     async fn resume_all_watchers(&self, _request: Request<()>) -> Result<Response<()>, Status> {
         info!("Resume all watchers requested");
 
@@ -392,6 +401,7 @@ impl SystemService for SystemServiceImpl {
         Ok(Response::new(()))
     }
 
+    #[tracing::instrument(skip_all, fields(method = "SystemService.rebuild_index"))]
     async fn rebuild_index(
         &self,
         request: Request<RebuildIndexRequest>,

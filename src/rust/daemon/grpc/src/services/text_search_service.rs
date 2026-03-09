@@ -233,6 +233,7 @@ impl TextSearchServiceImpl {
 
 #[tonic::async_trait]
 impl TextSearchService for TextSearchServiceImpl {
+    #[tracing::instrument(skip_all, fields(method = "TextSearchService.search"))]
     async fn search(
         &self,
         request: Request<TextSearchRequest>,
@@ -273,6 +274,7 @@ impl TextSearchService for TextSearchServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip_all, fields(method = "TextSearchService.count_matches"))]
     async fn count_matches(
         &self,
         request: Request<TextSearchRequest>,

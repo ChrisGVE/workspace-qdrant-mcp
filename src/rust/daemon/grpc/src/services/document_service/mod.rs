@@ -83,6 +83,7 @@ impl DocumentServiceImpl {
 
 #[tonic::async_trait]
 impl DocumentService for DocumentServiceImpl {
+    #[tracing::instrument(skip_all, fields(method = "DocumentService.ingest_text"))]
     async fn ingest_text(
         &self,
         request: Request<IngestTextRequest>,
@@ -137,6 +138,7 @@ impl DocumentService for DocumentServiceImpl {
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all, fields(method = "DocumentService.update_document"))]
     async fn update_document(
         &self,
         request: Request<UpdateDocumentRequest>,
@@ -205,6 +207,7 @@ impl DocumentService for DocumentServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip_all, fields(method = "DocumentService.delete_document"))]
     async fn delete_document(
         &self,
         request: Request<DeleteDocumentRequest>,

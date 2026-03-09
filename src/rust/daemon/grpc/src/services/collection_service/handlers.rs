@@ -24,6 +24,7 @@ use super::{
 
 #[tonic::async_trait]
 impl CollectionService for CollectionServiceImpl {
+    #[tracing::instrument(skip_all, fields(method = "CollectionService.create_collection"))]
     async fn create_collection(
         &self,
         request: Request<CreateCollectionRequest>,
@@ -79,6 +80,7 @@ impl CollectionService for CollectionServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "CollectionService.delete_collection"))]
     async fn delete_collection(
         &self,
         request: Request<DeleteCollectionRequest>,
@@ -132,6 +134,7 @@ impl CollectionService for CollectionServiceImpl {
     }
 
     /// List all collections (spec: ListCollections)
+    #[tracing::instrument(skip_all, fields(method = "CollectionService.list_collections"))]
     async fn list_collections(
         &self,
         _request: Request<()>,
@@ -180,6 +183,7 @@ impl CollectionService for CollectionServiceImpl {
     }
 
     /// Get collection metadata (spec: GetCollection)
+    #[tracing::instrument(skip_all, fields(method = "CollectionService.get_collection"))]
     async fn get_collection(
         &self,
         request: Request<GetCollectionRequest>,
@@ -234,6 +238,7 @@ impl CollectionService for CollectionServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip_all, fields(method = "CollectionService.create_collection_alias"))]
     async fn create_collection_alias(
         &self,
         request: Request<CreateAliasRequest>,
@@ -286,6 +291,7 @@ impl CollectionService for CollectionServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "CollectionService.delete_collection_alias"))]
     async fn delete_collection_alias(
         &self,
         request: Request<DeleteAliasRequest>,
@@ -308,6 +314,7 @@ impl CollectionService for CollectionServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "CollectionService.rename_collection_alias"))]
     async fn rename_collection_alias(
         &self,
         request: Request<RenameAliasRequest>,

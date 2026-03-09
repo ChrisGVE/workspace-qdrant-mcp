@@ -235,6 +235,7 @@ impl Default for EmbeddingServiceImpl {
 
 #[tonic::async_trait]
 impl EmbeddingService for EmbeddingServiceImpl {
+    #[tracing::instrument(skip_all, fields(method = "EmbeddingService.embed_text"))]
     async fn embed_text(
         &self,
         request: Request<EmbedTextRequest>,
@@ -293,6 +294,7 @@ impl EmbeddingService for EmbeddingServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(method = "EmbeddingService.generate_sparse_vector"))]
     async fn generate_sparse_vector(
         &self,
         request: Request<SparseVectorRequest>,

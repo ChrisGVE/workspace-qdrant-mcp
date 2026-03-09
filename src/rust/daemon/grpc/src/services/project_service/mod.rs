@@ -212,6 +212,7 @@ impl ProjectServiceImpl {
 
 #[tonic::async_trait]
 impl ProjectService for ProjectServiceImpl {
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.register_project"))]
     async fn register_project(
         &self,
         request: Request<RegisterProjectRequest>,
@@ -220,6 +221,7 @@ impl ProjectService for ProjectServiceImpl {
         self.handle_register_project(req).await.map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.deprioritize_project"))]
     async fn deprioritize_project(
         &self,
         request: Request<DeprioritizeProjectRequest>,
@@ -230,6 +232,7 @@ impl ProjectService for ProjectServiceImpl {
             .map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.get_project_status"))]
     async fn get_project_status(
         &self,
         request: Request<GetProjectStatusRequest>,
@@ -238,6 +241,7 @@ impl ProjectService for ProjectServiceImpl {
         self.handle_get_project_status(req).await.map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.list_projects"))]
     async fn list_projects(
         &self,
         request: Request<ListProjectsRequest>,
@@ -246,6 +250,7 @@ impl ProjectService for ProjectServiceImpl {
         self.handle_list_projects(req).await.map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.heartbeat"))]
     async fn heartbeat(
         &self,
         request: Request<HeartbeatRequest>,
@@ -254,6 +259,7 @@ impl ProjectService for ProjectServiceImpl {
         self.handle_heartbeat(req).await.map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.rename_tenant"))]
     async fn rename_tenant(
         &self,
         request: Request<RenameTenantRequest>,
@@ -262,6 +268,7 @@ impl ProjectService for ProjectServiceImpl {
         self.handle_rename_tenant(req).await.map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.delete_project"))]
     async fn delete_project(
         &self,
         request: Request<DeleteProjectRequest>,
