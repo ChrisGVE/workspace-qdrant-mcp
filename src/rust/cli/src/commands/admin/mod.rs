@@ -12,6 +12,7 @@ use wqm_common::constants::{
 
 mod cleanup_orphans;
 mod idle_history;
+mod perf;
 mod prune_logs;
 mod rename_tenant;
 
@@ -95,6 +96,16 @@ enum AdminCommand {
         #[arg(long)]
         confirm: bool,
     },
+    /// Display pipeline performance statistics (per-phase timing breakdown)
+    Perf {
+        /// Time window in hours (default: 24)
+        #[arg(short = 'w', long, default_value = "24")]
+        window: f64,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Execute admin command
@@ -118,5 +129,6 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             cleanup_orphans::execute(delete, collection).await
         }
         AdminCommand::RecoverState { confirm } => super::recover_state::execute(confirm).await,
+        AdminCommand::Perf { window, json } => perf::execute(window, json).await,
     }
 }
