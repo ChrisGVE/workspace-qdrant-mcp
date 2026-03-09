@@ -6,9 +6,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::tree_sitter::{
-    detect_language, extract_chunks_with_provider, GrammarManager,
-};
+use workspace_qdrant_core::tree_sitter::{extract_chunks_with_provider, GrammarManager};
 
 /// Test files for each bookshelf language (relative to tests/language-support/).
 const BOOKSHELF_FILES: &[(&str, &str)] = &[
@@ -104,16 +102,13 @@ async fn test_all_bookshelf_grammars_produce_semantic_chunks() {
     // Write results to a file since test harness intercepts stdout/stderr
     let mut output = String::new();
     output.push_str("\n=== Semantic Chunking Results ===\n\n");
-    let mut pass = 0;
     let mut fail = 0;
 
     for (lang, semantic, count, detail) in &results {
         if *semantic {
             output.push_str(&format!("  [SEMANTIC] {}: {}\n", lang, detail));
-            pass += 1;
         } else if *count > 0 {
             output.push_str(&format!("  [TEXT]     {}: {}\n", lang, detail));
-            pass += 1;
         } else {
             output.push_str(&format!("  [FAIL]     {}: {}\n", lang, detail));
             fail += 1;
