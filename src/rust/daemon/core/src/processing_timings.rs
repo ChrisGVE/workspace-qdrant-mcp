@@ -33,6 +33,16 @@ pub async fn record_timings(
 
     let now = now_utc();
 
+    let tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            debug!("Failed to begin timing transaction: {}", e);
+            return;
+        }
+    };
+
+    // Use a mutable reference through the transaction
+    let mut tx = tx;
     for timing in timings {
         let result = sqlx::query(
             r#"
@@ -50,12 +60,17 @@ pub async fn record_timings(
         .bind(collection)
         .bind(language)
         .bind(&now)
-        .execute(pool)
+        .execute(&mut *tx)
         .await;
 
         if let Err(e) = result {
             debug!("Failed to record processing timing: {}", e);
+            return; // Transaction will rollback on drop
         }
+    }
+
+    if let Err(e) = tx.commit().await {
+        debug!("Failed to commit timing transaction: {}", e);
     }
 }
 
