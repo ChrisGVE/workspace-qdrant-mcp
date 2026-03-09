@@ -403,7 +403,9 @@ fn process_file_sync_inner(
         collection
     );
 
+    let extract_start = Instant::now();
     let (raw_text, mut metadata) = extract_by_document_type(file_path, &document_type)?;
+    let extract_ms = extract_start.elapsed().as_millis();
 
     // Run OCR on embedded images for supported document types
     #[cfg(feature = "ocr")]
@@ -413,6 +415,7 @@ fn process_file_sync_inner(
     metadata.insert("collection".to_string(), collection.to_string());
 
     // Generate chunks
+    let chunk_start = Instant::now();
     let chunks = generate_chunks(
         &raw_text,
         file_path,
@@ -420,6 +423,17 @@ fn process_file_sync_inner(
         &metadata,
         chunking_config,
         provider,
+    );
+    let chunk_ms = chunk_start.elapsed().as_millis();
+
+    let file_size = file_path.metadata().map(|m| m.len()).unwrap_or(0);
+    info!(
+        file = %file_path.display(),
+        file_size = file_size,
+        extract_ms = extract_ms,
+        chunk_count = chunks.len(),
+        chunk_ms = chunk_ms,
+        "document processed"
     );
 
     Ok(DocumentContent {

@@ -164,10 +164,7 @@ impl StorageClient {
             ));
         }
 
-        info!(
-            "Deleting points with file_path='{}' tenant_id='{}' from collection '{}'",
-            file_path, tenant_id, collection_name
-        );
+        let op_start = std::time::Instant::now();
 
         let filter = Filter::must([
             Condition::matches("file_path", file_path.to_string()),
@@ -191,8 +188,11 @@ impl StorageClient {
         .await?;
 
         info!(
-            "Deleted {} points with file_path='{}' tenant_id='{}' from '{}'",
-            count, file_path, tenant_id, collection_name
+            collection = collection_name,
+            op = "delete_by_filter",
+            point_count = count,
+            duration_ms = op_start.elapsed().as_millis() as u64,
+            "qdrant delete completed"
         );
 
         Ok(count)
@@ -212,10 +212,7 @@ impl StorageClient {
             ));
         }
 
-        info!(
-            "Deleting points with tenant_id='{}' from collection '{}'",
-            tenant_id, collection_name
-        );
+        let op_start = std::time::Instant::now();
 
         let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
         let count = self
@@ -237,8 +234,11 @@ impl StorageClient {
         .await?;
 
         info!(
-            "Deleted {} points with tenant_id='{}' from '{}'",
-            count, tenant_id, collection_name
+            collection = collection_name,
+            op = "delete_by_tenant",
+            point_count = count,
+            duration_ms = op_start.elapsed().as_millis() as u64,
+            "qdrant delete completed"
         );
 
         Ok(count)

@@ -5,6 +5,7 @@ use fastembed::{
 };
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::info;
 
@@ -115,12 +116,14 @@ impl EmbeddingGenerator {
 
         // Generate dense embedding
         let documents = vec![text];
+        let embed_start = Instant::now();
         let embeddings =
             model
                 .embed(documents, None)
                 .map_err(|e| EmbeddingError::GenerationError {
                     message: format!("Embedding generation failed: {}", e),
                 })?;
+        let embed_ms = embed_start.elapsed().as_millis();
 
         let dense_vector =
             embeddings
@@ -130,7 +133,15 @@ impl EmbeddingGenerator {
                     message: "No embedding returned".to_string(),
                 })?;
 
+        info!(
+            text_len = text.len(),
+            dim = dense_vector.len(),
+            embed_ms = embed_ms,
+            "dense embedding generated"
+        );
+
         // Generate sparse embedding using BM25
+        let bm25_start = Instant::now();
         let tokens = tokenize_for_bm25(text);
 
         let sparse = {
@@ -138,6 +149,14 @@ impl EmbeddingGenerator {
             bm25.add_document(&tokens);
             bm25.generate_sparse_vector(&tokens)
         };
+        let bm25_ms = bm25_start.elapsed().as_millis();
+
+        info!(
+            token_count = tokens.len(),
+            sparse_nnz = sparse.indices.len(),
+            bm25_ms = bm25_ms,
+            "BM25 sparse vector generated"
+        );
 
         let text_hash = {
             use std::hash::{Hash, Hasher};
@@ -163,10 +182,24 @@ impl EmbeddingGenerator {
         texts: &[String],
         model_name: &str,
     ) -> Result<Vec<EmbeddingResult>, EmbeddingError> {
-        let mut results = Vec::with_capacity(texts.len());
+        let batch_start = Instant::now();
+        let batch_size = texts.len();
+        let mut results = Vec::with_capacity(batch_size);
         for text in texts {
             results.push(self.generate_embedding(text, model_name).await?);
         }
+        let batch_ms = batch_start.elapsed().as_millis();
+        let per_item_ms = if batch_size > 0 {
+            batch_ms / batch_size as u128
+        } else {
+            0
+        };
+        info!(
+            batch_size = batch_size,
+            batch_ms = batch_ms,
+            per_item_ms = per_item_ms,
+            "embedding batch completed"
+        );
         Ok(results)
     }
 
@@ -224,11 +257,13 @@ impl EmbeddingGenerator {
         }
 
         let model = guard.as_mut().unwrap();
+        let splade_start = Instant::now();
         let results = model.embed(vec![text.to_string()], None).map_err(|e| {
             EmbeddingError::GenerationError {
                 message: format!("SPLADE++ embedding failed: {}", e),
             }
         })?;
+        let splade_ms = splade_start.elapsed().as_millis();
 
         let fe_sparse =
             results
@@ -237,6 +272,13 @@ impl EmbeddingGenerator {
                 .ok_or_else(|| EmbeddingError::GenerationError {
                     message: "SPLADE++ returned no embeddings".to_string(),
                 })?;
+
+        info!(
+            text_len = text.len(),
+            nnz = fe_sparse.indices.len(),
+            splade_ms = splade_ms,
+            "SPLADE++ sparse vector generated"
+        );
 
         // Convert fastembed usize indices to our u32 indices
         Ok(SparseEmbedding {
