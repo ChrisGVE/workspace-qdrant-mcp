@@ -25,11 +25,9 @@ pub async fn execute(window_hours: f64, json: bool) -> Result<()> {
         anyhow::bail!("Database not found at {}", db_path.display());
     }
 
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .context("Failed to open state database")?;
+    let conn =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .context("Failed to open state database")?;
 
     // Check if the processing_timings table exists
     let table_exists: bool = conn
@@ -41,7 +39,9 @@ pub async fn execute(window_hours: f64, json: bool) -> Result<()> {
         .unwrap_or(false);
 
     if !table_exists {
-        output::warning("No processing_timings table found. Daemon may not have recorded any timings yet.");
+        output::warning(
+            "No processing_timings table found. Daemon may not have recorded any timings yet.",
+        );
         return Ok(());
     }
 
@@ -81,10 +81,7 @@ pub async fn execute(window_hours: f64, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn query_phase_stats(
-    conn: &rusqlite::Connection,
-    cutoff: &str,
-) -> Result<Vec<PhaseStats>> {
+fn query_phase_stats(conn: &rusqlite::Connection, cutoff: &str) -> Result<Vec<PhaseStats>> {
     // SQLite doesn't have native percentile functions, so we compute them manually
     // by sorting durations per phase and picking the Nth element.
     let mut stmt = conn.prepare(
@@ -151,16 +148,8 @@ fn percentile(sorted: &[i64], pct: u8) -> f64 {
     sorted[idx] as f64
 }
 
-fn print_table(
-    stats: &[PhaseStats],
-    total_items: i64,
-    queue_depth: i64,
-    window_hours: f64,
-) {
-    output::section(format!(
-        "Pipeline Performance (last {}h)",
-        window_hours
-    ));
+fn print_table(stats: &[PhaseStats], total_items: i64, queue_depth: i64, window_hours: f64) {
+    output::section(format!("Pipeline Performance (last {}h)", window_hours));
 
     // Phase breakdown table
     println!(
@@ -184,19 +173,11 @@ fn print_table(
 
     if queue_depth > 0 && rate > 0.0 {
         let drain_minutes = (queue_depth as f64 / rate) * 60.0;
-        output::kv(
-            "Est. drain time",
-            &format!("{:.1} minutes", drain_minutes),
-        );
+        output::kv("Est. drain time", &format!("{:.1} minutes", drain_minutes));
     }
 }
 
-fn print_json(
-    stats: &[PhaseStats],
-    total_items: i64,
-    queue_depth: i64,
-    window_hours: f64,
-) {
+fn print_json(stats: &[PhaseStats], total_items: i64, queue_depth: i64, window_hours: f64) {
     let phases: Vec<serde_json::Value> = stats
         .iter()
         .map(|s| {
