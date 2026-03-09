@@ -49,8 +49,10 @@
     impl:
       node_types: []
     name_node: identifier
+    body_node: non_empty_declarative_part
     comment_nodes: [comment]
     docstring_style: preceding_comments
+    root_wrappers: [compilation_unit]
   lsp_servers: []
 
 # ── Bash ─────────────────────────────────────────────────────────────
@@ -957,9 +959,9 @@
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
-      node_types: [uses_clause, unit_header, program_header]
+      node_types: [declUses, pp]
     function:
-      node_types: [function_declaration, procedure_declaration, function_definition, procedure_definition]
+      node_types: [defProc, declProc]
       async_node_types: []
     class:
       node_types: [class_type]
@@ -986,6 +988,7 @@
     name_node: identifier
     comment_nodes: [comment, line_comment]
     docstring_style: preceding_comments
+    root_wrappers: [unit, interface, implementation]
   lsp_servers: []
 
 # ── Perl ─────────────────────────────────────────────────────────────
@@ -1551,18 +1554,18 @@
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
-      node_types: [line_comment, doc_comment, VarDecl, TopLevelDecl]
+      node_types: [variable_declaration]
     function:
-      node_types: [FnProto, TopLevelDecl]
+      node_types: [function_declaration]
       async_node_types: []
     class:
       node_types: []
     method:
       node_types: []
     struct:
-      node_types: [TopLevelDecl]
+      node_types: []
     enum:
-      node_types: [TopLevelDecl]
+      node_types: []
     trait:
       node_types: []
     interface:
@@ -1577,8 +1580,8 @@
       node_types: []
     impl:
       node_types: []
-    name_node: IDENTIFIER
-    body_node: Block
+    name_node: identifier
+    body_node: block
     comment_nodes: [line_comment, doc_comment]
     docstring_style: preceding_comments
   lsp_servers: []

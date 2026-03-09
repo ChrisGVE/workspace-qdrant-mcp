@@ -38,6 +38,26 @@ impl GenericExtractor {
 
     // ── Preamble extraction ───────────────────────────────────────────
 
+    /// Collect effective top-level children, unwrapping root_wrappers.
+    fn effective_children<'a>(&self, root: &Node<'a>) -> Vec<Node<'a>> {
+        let wrappers = &self.patterns.root_wrappers;
+        let mut result = Vec::new();
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.is_named() && wrappers.iter().any(|w| w == child.kind()) {
+                let mut inner = child.walk();
+                for grandchild in child.children(&mut inner) {
+                    if grandchild.is_named() {
+                        result.push(grandchild);
+                    }
+                }
+            } else {
+                result.push(child);
+            }
+        }
+        result
+    }
+
     fn extract_preamble(
         &self,
         root: &Node,
@@ -52,9 +72,9 @@ impl GenericExtractor {
         let comment_types = &self.patterns.comment_nodes;
         let mut preamble_items = Vec::new();
         let mut last_preamble_line = 0;
-        let mut cursor = root.walk();
+        let children = self.effective_children(root);
 
-        for child in root.children(&mut cursor) {
+        for child in &children {
             let kind = child.kind();
 
             if preamble_types.iter().any(|t| t == kind) {
@@ -586,46 +606,8 @@ impl ChunkExtractor for GenericExtractor {
             chunks.push(preamble);
         }
 
-        // Walk root children
-        let decorated_wrapper = self.patterns.decorated_wrapper.as_deref();
-        let mut cursor = root.walk();
-
-        for child in root.children(&mut cursor) {
-            let kind = child.kind();
-
-            if let Some(chunk_type) = self.classify_node(kind) {
-                match chunk_type {
-                    ChunkType::Class
-                    | ChunkType::Struct
-                    | ChunkType::Trait
-                    | ChunkType::Interface
-                    | ChunkType::Module
-                    | ChunkType::Impl => {
-                        chunks.extend(self.extract_container(
-                            &child,
-                            source,
-                            &file_path_str,
-                            chunk_type,
-                        ));
-                    }
-                    _ => {
-                        chunks.push(self.extract_definition(
-                            &child,
-                            source,
-                            &file_path_str,
-                            chunk_type,
-                            None,
-                        ));
-                    }
-                }
-            } else if Some(kind) == decorated_wrapper {
-                // Handle decorated definitions (Python, Java annotations)
-                self.handle_decorated_node(&child, source, &file_path_str, &mut chunks);
-            } else if kind == "call" {
-                // Elixir-style: defmodule/def/defp are call nodes
-                self.handle_call_node(&child, source, &file_path_str, &mut chunks);
-            }
-        }
+        // Walk root children, unwrapping root_wrappers transparently
+        self.walk_children(&root, source, &file_path_str, &mut chunks);
 
         Ok(chunks)
     }
@@ -638,6 +620,54 @@ impl ChunkExtractor for GenericExtractor {
 }
 
 impl GenericExtractor {
+    /// Walk children of a node, classifying each. If a child matches a
+    /// `root_wrappers` entry, recurse into it transparently instead.
+    fn walk_children(
+        &self,
+        parent: &Node,
+        source: &str,
+        file_path: &str,
+        chunks: &mut Vec<SemanticChunk>,
+    ) {
+        let decorated_wrapper = self.patterns.decorated_wrapper.as_deref();
+        let wrappers = &self.patterns.root_wrappers;
+        let mut cursor = parent.walk();
+
+        for child in parent.children(&mut cursor) {
+            let kind = child.kind();
+
+            // Unwrap root_wrappers transparently
+            if wrappers.iter().any(|w| w == kind) {
+                self.walk_children(&child, source, file_path, chunks);
+                continue;
+            }
+
+            if let Some(chunk_type) = self.classify_node(kind) {
+                match chunk_type {
+                    ChunkType::Class
+                    | ChunkType::Struct
+                    | ChunkType::Trait
+                    | ChunkType::Interface
+                    | ChunkType::Module
+                    | ChunkType::Impl => {
+                        chunks.extend(self.extract_container(
+                            &child, source, file_path, chunk_type,
+                        ));
+                    }
+                    _ => {
+                        chunks.push(self.extract_definition(
+                            &child, source, file_path, chunk_type, None,
+                        ));
+                    }
+                }
+            } else if Some(kind) == decorated_wrapper {
+                self.handle_decorated_node(&child, source, file_path, chunks);
+            } else if kind == "call" {
+                self.handle_call_node(&child, source, file_path, chunks);
+            }
+        }
+    }
+
     fn handle_decorated_node(
         &self,
         node: &Node,

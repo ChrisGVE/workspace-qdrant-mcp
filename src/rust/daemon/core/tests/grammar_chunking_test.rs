@@ -140,9 +140,7 @@ async fn test_all_bookshelf_grammars_produce_semantic_chunks() {
     // Also print for test harness
     print!("{}", output);
 
-    // Some languages have pattern-grammar mismatches that need investigation.
-    // Track known failures to avoid masking regressions in other languages.
-    let known_failures = ["ada", "pascal", "zig"];
+    let known_failures: [&str; 0] = [];
     let unexpected_failures: Vec<_> = results
         .iter()
         .filter(|(lang, _, count, _)| *count == 0 && !known_failures.contains(lang))

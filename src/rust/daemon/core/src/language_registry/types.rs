@@ -204,6 +204,12 @@ pub struct SemanticPatterns {
     /// Node type wrapping decorated definitions (e.g., Python decorators).
     #[serde(default)]
     pub decorated_wrapper: Option<String>,
+    /// AST node types at root level that should be "unwrapped" — the extractor
+    /// walks their children instead of classifying them directly. Used for
+    /// languages whose grammars wrap top-level definitions in container nodes
+    /// (e.g., Ada's `compilation_unit`, Pascal's `unit`).
+    #[serde(default)]
+    pub root_wrappers: Vec<String>,
 }
 
 /// A group of AST node types matching a semantic category.

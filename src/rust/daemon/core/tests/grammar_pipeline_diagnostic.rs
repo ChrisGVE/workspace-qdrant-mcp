@@ -302,9 +302,8 @@ async fn grammar_pipeline_diagnostic() {
     print!("{}", report);
 
     // Assertions: no unexpected grammar failures
-    // Known failures: ada, pascal, zig have pattern/grammar compatibility issues
     let known_grammar_failures: &[&str] = &[];
-    let known_chunk_failures: &[&str] = &["ada", "pascal", "zig"];
+    let known_chunk_failures: &[&str] = &[];
 
     let unexpected_grammar_failures: Vec<String> = results
         .iter()
