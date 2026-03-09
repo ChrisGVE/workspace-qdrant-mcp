@@ -69,6 +69,23 @@ impl IngestionLimitsConfig {
     }
 }
 
+impl Default for AutoIngestionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_create_watches: true,
+            include_common_files: true,
+            include_source_files: true,
+            target_collection_suffix: "scratchbook".to_string(),
+            max_files_per_batch: 5,
+            batch_delay_seconds: 2.0,
+            max_file_size_mb: 50,
+            recursive_depth: 5,
+            debounce_seconds: 10,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,22 +144,5 @@ mod tests {
             cfg2.extension_size_limits_kb.len()
         );
         assert_eq!(cfg2.size_limit_bytes("json"), Some(500 * 1024));
-    }
-}
-
-impl Default for AutoIngestionConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            auto_create_watches: true,
-            include_common_files: true,
-            include_source_files: true,
-            target_collection_suffix: "scratchbook".to_string(),
-            max_files_per_batch: 5,
-            batch_delay_seconds: 2.0,
-            max_file_size_mb: 50,
-            recursive_depth: 5,
-            debounce_seconds: 10,
-        }
     }
 }

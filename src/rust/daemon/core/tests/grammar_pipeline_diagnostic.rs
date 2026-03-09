@@ -19,9 +19,7 @@ use std::time::Instant;
 
 use workspace_qdrant_core::config::GrammarConfig;
 use workspace_qdrant_core::language_registry::providers::bundled::BundledProvider;
-use workspace_qdrant_core::tree_sitter::{
-    detect_language, extract_chunks_with_provider, GrammarManager,
-};
+use workspace_qdrant_core::tree_sitter::{extract_chunks_with_provider, GrammarManager};
 
 /// Bookshelf languages and their representative source files.
 const BOOKSHELF: &[(&str, &str)] = &[
