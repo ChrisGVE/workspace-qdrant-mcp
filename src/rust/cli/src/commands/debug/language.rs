@@ -2,10 +2,19 @@
 //!
 //! Checks LSP server availability, tree-sitter grammar presence,
 //! daemon language support status, and file extension mappings.
+//!
+//! All language metadata is sourced from the bundled language registry
+//! via `workspace_qdrant_core` — no hardcoded language lists.
 
 use anyhow::Result;
 use std::process::Command;
 
+use workspace_qdrant_core::config::GrammarConfig;
+use workspace_qdrant_core::language_registry::types::LanguageDefinition;
+use workspace_qdrant_core::lsp::detection::editor_paths::find_lsp_binary;
+use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
+
+use crate::commands::language::helpers::{find_language, load_definitions};
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
@@ -40,36 +49,40 @@ pub async fn diagnose_language(language: &str, verbose: bool) -> Result<()> {
     Ok(())
 }
 
-/// Check for LSP server binaries on PATH.
+/// Check for LSP server binaries on PATH using the language registry.
 fn check_lsp_server(language: &str, verbose: bool) -> bool {
     output::info("1. LSP Server Check");
 
-    let lang_lower = language.to_lowercase();
-    let fallback_lsp = format!("{}-language-server", lang_lower);
-    let lsp_binaries: Vec<&str> = match lang_lower.as_str() {
-        "python" => vec!["pyright", "pylsp", "pyright-langserver"],
-        "javascript" | "typescript" | "js" | "ts" => {
-            vec!["typescript-language-server", "tsserver"]
+    let def = match find_language(language) {
+        Some(d) => d,
+        None => {
+            output::warning(format!("  Unknown language: {}", language));
+            return false;
         }
-        "rust" => vec!["rust-analyzer"],
-        "go" | "golang" => vec!["gopls"],
-        "java" => vec!["jdtls", "java-language-server"],
-        "c" | "cpp" | "c++" => vec!["clangd", "ccls"],
-        "ruby" => vec!["solargraph", "ruby-lsp"],
-        "php" => vec!["phpactor", "psalm-language-server", "intelephense"],
-        _ => vec![fallback_lsp.as_str()],
     };
 
+    if def.lsp_servers.is_empty() {
+        output::warning(format!("  No LSP servers defined for {}", def.language));
+        return false;
+    }
+
     let mut lsp_found = false;
-    for binary in &lsp_binaries {
-        match which::which(binary) {
-            Ok(path) => {
-                output::success(format!("  Found: {} at {}", binary, path.display()));
+    for server in &def.lsp_servers {
+        match find_lsp_binary(&server.binary) {
+            Some(result) => {
+                output::success(format!(
+                    "  Found: {} ({}) at {}",
+                    server.name,
+                    server.binary,
+                    result.path.display()
+                ));
                 lsp_found = true;
 
                 if verbose {
-                    // Try to get version
-                    if let Ok(ver_output) = Command::new(binary).arg("--version").output() {
+                    output::kv("    Source", format!("{:?}", result.source));
+                    if let Ok(ver_output) =
+                        Command::new(&server.binary).arg("--version").output()
+                    {
                         if ver_output.status.success() {
                             let version = String::from_utf8_lossy(&ver_output.stdout);
                             output::kv("    Version", version.trim());
@@ -78,95 +91,98 @@ fn check_lsp_server(language: &str, verbose: bool) -> bool {
                 }
                 break;
             }
-            Err(_) => {
+            None => {
                 if verbose {
-                    output::info(format!("  Not found: {}", binary));
+                    output::info(format!("  Not found: {} ({})", server.name, server.binary));
                 }
             }
         }
     }
 
     if !lsp_found {
-        output::warning(format!("  No LSP server found for {}", language));
-        show_lsp_install_suggestions(language);
+        output::warning(format!("  No LSP server found for {}", def.language));
+        show_lsp_install_suggestions(&def);
     }
 
     lsp_found
 }
 
-/// Print LSP install suggestions for known languages.
-fn show_lsp_install_suggestions(language: &str) {
-    output::info("  Install suggestions:");
-    match language.to_lowercase().as_str() {
-        "python" => output::info("    npm install -g pyright"),
-        "javascript" | "typescript" => {
-            output::info("    npm install -g typescript-language-server typescript");
+/// Print LSP install suggestions from the language registry.
+fn show_lsp_install_suggestions(def: &LanguageDefinition) {
+    let mut has_suggestions = false;
+    for server in &def.lsp_servers {
+        if !server.install_methods.is_empty() {
+            if !has_suggestions {
+                output::info("  Install suggestions:");
+                has_suggestions = true;
+            }
+            for method in &server.install_methods {
+                output::info(format!("    {}", method.command));
+            }
         }
-        "rust" => output::info("    rustup component add rust-analyzer"),
-        "go" => output::info("    go install golang.org/x/tools/gopls@latest"),
-        "java" => output::info("    brew install jdtls"),
-        "ruby" => output::info("    gem install ruby-lsp"),
-        "php" => output::info("    composer global require phpactor/phpactor"),
-        "shell" | "bash" => output::info("    npm install -g bash-language-server"),
-        "html" => output::info("    npm install -g vscode-langservers-extracted"),
-        _ => output::info(format!("    Search for {}-language-server", language)),
+    }
+    if !has_suggestions {
+        output::info(format!(
+            "  Search for a language server for {}",
+            def.language
+        ));
     }
 }
 
-/// Check tree-sitter grammar availability in standard paths.
-fn check_tree_sitter_grammar(language: &str, _verbose: bool) -> bool {
+/// Check tree-sitter grammar availability using GrammarManager.
+fn check_tree_sitter_grammar(language: &str, verbose: bool) -> bool {
     output::info("2. Tree-sitter Grammar Check");
 
-    let grammar_paths = vec![
-        dirs::data_local_dir()
-            .map(|d| d.join("tree-sitter/lib"))
-            .unwrap_or_default(),
-        dirs::home_dir()
-            .map(|h| h.join(".local/share/tree-sitter/lib"))
-            .unwrap_or_default(),
-        std::path::PathBuf::from("/usr/local/lib/tree-sitter"),
-    ];
+    let lang_id = resolve_grammar_language_id(language);
 
-    let lang_lower = language.to_lowercase();
-    let grammar_name = format!("{}.so", lang_lower);
-    let alt_grammar_name = format!("tree-sitter-{}.so", lang_lower);
-    let dylib_name = format!("{}.dylib", lang_lower);
-    let alt_dylib_name = format!("tree-sitter-{}.dylib", lang_lower);
+    let config = GrammarConfig::default();
+    let manager = GrammarManager::new(config);
 
-    let mut grammar_found = false;
-    for base_path in &grammar_paths {
-        if !base_path.exists() {
-            continue;
+    let status = manager.grammar_status(&lang_id);
+
+    match status {
+        GrammarStatus::Loaded => {
+            output::success(format!("  Grammar loaded: {}", lang_id));
+            true
         }
-
-        for name in [
-            &grammar_name,
-            &alt_grammar_name,
-            &dylib_name,
-            &alt_dylib_name,
-        ] {
-            let grammar_path = base_path.join(name);
-            if grammar_path.exists() {
-                output::success(format!("  Found: {}", grammar_path.display()));
-                grammar_found = true;
-                break;
+        GrammarStatus::Cached => {
+            output::success(format!("  Grammar cached: {}", lang_id));
+            if verbose {
+                let path = manager.cache_paths().grammar_path(&lang_id);
+                output::kv("    Path", path.display());
             }
+            true
         }
-        if grammar_found {
-            break;
+        GrammarStatus::NeedsDownload => {
+            output::warning(format!("  Grammar not cached: {}", lang_id));
+            output::info("  Install with: wqm language ts-install <language>");
+            false
+        }
+        GrammarStatus::IncompatibleVersion => {
+            output::warning(format!("  Grammar cached but incompatible version: {}", lang_id));
+            output::info("  Reinstall with: wqm language ts-install --force <language>");
+            false
+        }
+        GrammarStatus::NotAvailable => {
+            output::warning(format!("  No tree-sitter grammar available for {}", lang_id));
+            if verbose {
+                output::info("  This language may not have tree-sitter support");
+            }
+            false
         }
     }
+}
 
-    if !grammar_found {
-        output::warning(format!("  No tree-sitter grammar found for {}", language));
-        output::info("  Grammar search paths:");
-        for path in &grammar_paths {
-            output::info(format!("    - {}", path.display()));
-        }
-        output::info("  Install with: wqm language install <language>");
+/// Resolve user-supplied language name to a grammar language ID.
+///
+/// Uses the language registry for alias resolution, falling back to
+/// lowercase normalization for unknown languages.
+fn resolve_grammar_language_id(language: &str) -> String {
+    if let Some(def) = find_language(language) {
+        def.id().to_string()
+    } else {
+        language.to_lowercase()
     }
-
-    grammar_found
 }
 
 /// Check daemon language support status via gRPC health endpoint.
@@ -203,30 +219,42 @@ async fn check_daemon_language_support(language: &str, verbose: bool) {
     }
 }
 
-/// Show file extension mapping for the language.
+/// Show file extension mapping from the language registry.
 fn show_extension_mapping(language: &str) {
     output::info("4. File Extension Mapping");
 
-    let extensions = match language.to_lowercase().as_str() {
-        "python" => vec![".py", ".pyi", ".pyw"],
-        "javascript" => vec![".js", ".mjs", ".cjs"],
-        "typescript" => vec![".ts", ".mts", ".cts", ".tsx"],
-        "rust" => vec![".rs"],
-        "go" => vec![".go"],
-        "java" => vec![".java"],
-        "c" => vec![".c", ".h"],
-        "cpp" | "c++" => vec![".cpp", ".hpp", ".cc", ".hh", ".cxx", ".hxx"],
-        "ruby" => vec![".rb", ".rake", ".gemspec"],
-        "php" => vec![".php", ".phtml"],
-        "shell" | "bash" | "sh" => vec![".sh", ".bash"],
-        "html" | "htm" => vec![".html", ".htm"],
-        _ => vec![],
-    };
+    match find_language(language) {
+        Some(def) => {
+            if !def.extensions.is_empty() {
+                output::kv("  Extensions", def.extensions.join(", "));
+            } else {
+                output::info(format!("  No file extensions defined for {}", def.language));
+            }
+        }
+        None => {
+            // Fallback: scan all definitions for any that match as alias
+            let defs = load_definitions();
+            let normalized = language.to_lowercase();
+            let matching: Vec<_> = defs
+                .iter()
+                .filter(|d| {
+                    d.extensions
+                        .iter()
+                        .any(|ext| ext.trim_start_matches('.') == normalized)
+                })
+                .collect();
 
-    if !extensions.is_empty() {
-        output::kv("  Extensions", extensions.join(", "));
-    } else {
-        output::info(format!("  Unknown file extensions for {}", language));
+            if matching.is_empty() {
+                output::info(format!("  Unknown language: {}", language));
+            } else {
+                for def in matching {
+                    output::kv(
+                        format!("  {} extensions", def.language),
+                        def.extensions.join(", "),
+                    );
+                }
+            }
+        }
     }
 }
 

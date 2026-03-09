@@ -7,7 +7,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-mod helpers;
+pub(crate) mod helpers;
 mod list;
 mod lsp;
 mod status;
