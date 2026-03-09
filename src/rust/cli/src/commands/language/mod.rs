@@ -12,6 +12,7 @@ mod list;
 mod lsp;
 mod status;
 mod treesitter;
+mod warm;
 
 /// Language command arguments
 #[derive(Args)]
@@ -116,6 +117,21 @@ enum LanguageCommand {
         language: String,
     },
 
+    /// Pre-warm tree-sitter grammars for a project
+    Warm {
+        /// Project directory to scan (default: current directory)
+        #[arg(short, long)]
+        project: Option<String>,
+
+        /// Comma-separated list of languages to warm (skips project scan)
+        #[arg(short, long)]
+        languages: Option<String>,
+
+        /// Force re-download even if already cached
+        #[arg(short, long)]
+        force: bool,
+    },
+
     /// Refresh language registry from upstream providers
     Refresh,
 }
@@ -142,6 +158,11 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
         LanguageCommand::TsSearch { language } => treesitter::ts_search(&language).await,
         LanguageCommand::LspList { all } => lsp::lsp_list(all).await,
         LanguageCommand::LspSearch { language } => lsp::lsp_search(&language).await,
+        LanguageCommand::Warm {
+            project,
+            languages,
+            force,
+        } => warm::warm(project.as_deref(), languages.as_deref(), force).await,
         LanguageCommand::Refresh => status::language_refresh().await,
     }
 }
