@@ -1,11 +1,12 @@
 //! `wqm admin perf` — display pipeline performance statistics
 //!
 //! Queries the `processing_timings` SQLite table to compute per-phase
-//! aggregates (avg, p50, p95, p99) and throughput over a configurable window.
-//! Supports `--group-by` for multi-dimensional breakdowns (project, phase,
-//! language, op) with up to 2 grouping levels.
+//! aggregates (avg ± std_err, p50, p95, p99) and throughput over a
+//! configurable window. Supports `--group-by` for multi-dimensional
+//! breakdowns (project, phase, language, op) with up to 2 grouping levels.
+//! Supports `--sort` for column-based sorting.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 
@@ -13,20 +14,31 @@ use crate::output;
 
 /// Aggregate stats for a group of timing records.
 struct GroupStats {
-    /// Label for this group (e.g. phase name, project name, language).
     group_key: String,
     count: i64,
     avg_ms: f64,
+    std_err: f64,
     p50_ms: f64,
     p95_ms: f64,
     p99_ms: f64,
+}
+
+/// Parsed sort specification.
+struct SortSpec {
+    column: String,
+    descending: bool,
 }
 
 /// Valid grouping dimensions.
 const VALID_DIMENSIONS: &[&str] = &["project", "phase", "language", "op"];
 
 /// Execute the perf subcommand.
-pub async fn execute(window_hours: f64, json: bool, group_by: Option<String>) -> Result<()> {
+pub async fn execute(
+    window_hours: f64,
+    json: bool,
+    group_by: Option<String>,
+    sort: Option<String>,
+) -> Result<()> {
     let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
@@ -36,6 +48,9 @@ pub async fn execute(window_hours: f64, json: bool, group_by: Option<String>) ->
     let conn =
         rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .context("Failed to open state database")?;
+
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set busy_timeout")?;
 
     // Check if the processing_timings table exists
     let table_exists: bool = conn
@@ -79,62 +94,58 @@ pub async fn execute(window_hours: f64, json: bool, group_by: Option<String>) ->
         .query_row("SELECT COUNT(*) FROM unified_queue", [], |row| row.get(0))
         .unwrap_or(0);
 
-    // Parse group-by dimensions
+    // Parse group-by dimensions and sort spec
     let dimensions = parse_group_by(group_by.as_deref())?;
+    let sort_spec = parse_sort(sort.as_deref())?;
 
-    // Build tenant→name mapping for human-readable project names
+    // Build tenant→name mapping (also gives us the set of valid tenant_ids)
     let tenant_names = build_tenant_name_map(&conn);
+    let valid_tenants: HashSet<String> = tenant_names.keys().cloned().collect();
 
     if dimensions.is_empty() {
-        // Default view: group by phase
-        let stats = query_grouped_stats(&conn, &cutoff, "phase", &tenant_names)?;
+        let mut stats =
+            query_grouped_stats(&conn, &cutoff, "phase", &tenant_names, &valid_tenants)?;
+        apply_sort(&mut stats, &sort_spec);
         if json {
-            print_json_grouped(&stats, None, total_items, queue_depth, window_hours);
+            print_json_grouped(&stats, total_items, queue_depth, window_hours);
         } else {
-            print_table_grouped(
-                &stats,
-                "Phase",
-                None,
-                total_items,
-                queue_depth,
-                window_hours,
-            );
+            print_table_grouped(&stats, "Phase", total_items, queue_depth, window_hours);
         }
     } else if dimensions.len() == 1 {
-        let stats = query_grouped_stats(&conn, &cutoff, &dimensions[0], &tenant_names)?;
+        let mut stats =
+            query_grouped_stats(&conn, &cutoff, &dimensions[0], &tenant_names, &valid_tenants)?;
+        apply_sort(&mut stats, &sort_spec);
         let label = dimension_label(&dimensions[0]);
         if json {
-            print_json_grouped(&stats, None, total_items, queue_depth, window_hours);
+            print_json_grouped(&stats, total_items, queue_depth, window_hours);
         } else {
-            print_table_grouped(&stats, label, None, total_items, queue_depth, window_hours);
+            print_table_grouped(&stats, label, total_items, queue_depth, window_hours);
         }
     } else {
-        // Two-level grouping
-        let stats = query_two_level_stats(
+        let mut stats = query_two_level_stats(
             &conn,
             &cutoff,
             &dimensions[0],
             &dimensions[1],
             &tenant_names,
+            &valid_tenants,
         )?;
+        for (_, sub) in &mut stats {
+            apply_sort(sub, &sort_spec);
+        }
         let label1 = dimension_label(&dimensions[0]);
         let label2 = dimension_label(&dimensions[1]);
         if json {
             print_json_two_level(&stats, total_items, queue_depth, window_hours);
         } else {
-            print_table_two_level(
-                &stats,
-                label1,
-                label2,
-                total_items,
-                queue_depth,
-                window_hours,
-            );
+            print_table_two_level(&stats, label1, label2, total_items, queue_depth, window_hours);
         }
     }
 
     Ok(())
 }
+
+// === Parsing helpers ===
 
 /// Parse and validate `--group-by` argument (comma-separated, max 2).
 fn parse_group_by(input: Option<&str>) -> Result<Vec<String>> {
@@ -169,7 +180,71 @@ fn parse_group_by(input: Option<&str>) -> Result<Vec<String>> {
     Ok(dims)
 }
 
-/// Map dimension name to SQL column.
+/// Parse and validate `--sort` argument (format: "column:direction").
+fn parse_sort(input: Option<&str>) -> Result<Option<SortSpec>> {
+    let input = match input {
+        Some(s) if !s.is_empty() => s,
+        _ => return Ok(None),
+    };
+
+    let valid_columns = ["count", "avg_ms", "p50_ms", "p95_ms", "p99_ms"];
+
+    let (col, desc) = if let Some((c, d)) = input.split_once(':') {
+        let desc = match d.to_lowercase().as_str() {
+            "desc" | "d" => true,
+            "asc" | "a" => false,
+            _ => anyhow::bail!("Invalid sort direction '{}'. Use asc or desc", d),
+        };
+        (c.to_lowercase(), desc)
+    } else {
+        (input.to_lowercase(), true)
+    };
+
+    if !valid_columns.contains(&col.as_str()) {
+        anyhow::bail!(
+            "Unknown sort column '{}'. Valid: {}",
+            col,
+            valid_columns.join(", ")
+        );
+    }
+
+    Ok(Some(SortSpec {
+        column: col,
+        descending: desc,
+    }))
+}
+
+/// Apply sort specification to grouped stats.
+fn apply_sort(stats: &mut [GroupStats], sort_spec: &Option<SortSpec>) {
+    let spec = match sort_spec {
+        Some(s) => s,
+        None => return,
+    };
+
+    let key_fn = |s: &GroupStats| -> f64 {
+        match spec.column.as_str() {
+            "count" => s.count as f64,
+            "avg_ms" => s.avg_ms,
+            "p50_ms" => s.p50_ms,
+            "p95_ms" => s.p95_ms,
+            "p99_ms" => s.p99_ms,
+            _ => 0.0,
+        }
+    };
+
+    stats.sort_by(|a, b| {
+        let va = key_fn(a);
+        let vb = key_fn(b);
+        if spec.descending {
+            vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
+        } else {
+            va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+}
+
+// === Dimension helpers ===
+
 fn dimension_column(dim: &str) -> &'static str {
     match dim {
         "project" => "tenant_id",
@@ -180,7 +255,6 @@ fn dimension_column(dim: &str) -> &'static str {
     }
 }
 
-/// Map dimension name to display label.
 fn dimension_label(dim: &str) -> &'static str {
     match dim {
         "project" => "Project",
@@ -191,13 +265,13 @@ fn dimension_label(dim: &str) -> &'static str {
     }
 }
 
+// === Tenant name resolution ===
+
 /// Build a tenant_id → project_name mapping from watch_folders.
-/// Falls back to the tenant_id itself if no name can be derived.
 fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let mut name_count: HashMap<String, usize> = HashMap::new();
 
-    // First pass: collect all tenant→path pairs and count name occurrences
     let mut entries: Vec<(String, String)> = Vec::new();
     if let Ok(mut stmt) = conn.prepare(
         "SELECT tenant_id, path FROM watch_folders \
@@ -207,18 +281,18 @@ fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String>
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         }) {
             for r in rows.flatten() {
-                let name =
-                    r.1.rsplit('/')
-                        .find(|s| !s.is_empty())
-                        .unwrap_or(&r.0)
-                        .to_string();
+                let name = r
+                    .1
+                    .rsplit('/')
+                    .find(|s| !s.is_empty())
+                    .unwrap_or(&r.0)
+                    .to_string();
                 *name_count.entry(name.clone()).or_default() += 1;
                 entries.push((r.0, name));
             }
         }
     }
 
-    // Second pass: use name alone when unique, name (ID) when ambiguous
     for (tenant_id, name) in entries {
         let display = if name_count.get(&name).copied().unwrap_or(0) > 1 {
             format!("{} ({})", name, tenant_id)
@@ -231,7 +305,6 @@ fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String>
     map
 }
 
-/// Resolve a raw group key to a display name (handles tenant_id→project name).
 fn resolve_group_key(dim: &str, raw: &str, tenant_names: &HashMap<String, String>) -> String {
     if dim == "project" {
         tenant_names
@@ -245,12 +318,14 @@ fn resolve_group_key(dim: &str, raw: &str, tenant_names: &HashMap<String, String
     }
 }
 
-/// Query aggregate stats grouped by a single dimension.
+// === Query functions ===
+
 fn query_grouped_stats(
     conn: &rusqlite::Connection,
     cutoff: &str,
     dim: &str,
     tenant_names: &HashMap<String, String>,
+    valid_tenants: &HashSet<String>,
 ) -> Result<Vec<GroupStats>> {
     let col = dimension_column(dim);
     let sql = format!(
@@ -270,12 +345,17 @@ fn query_grouped_stats(
 
     let mut results = Vec::new();
     for (raw_key, count) in &groups {
+        // Skip dead projects (tenant_id no longer in watch_folders)
+        if dim == "project" && !valid_tenants.contains(raw_key) {
+            continue;
+        }
         let durations = fetch_sorted_durations(conn, cutoff, col, raw_key)?;
         let avg = average(&durations);
         results.push(GroupStats {
             group_key: resolve_group_key(dim, raw_key, tenant_names),
             count: *count,
             avg_ms: avg,
+            std_err: std_error(&durations),
             p50_ms: percentile(&durations, 50),
             p95_ms: percentile(&durations, 95),
             p99_ms: percentile(&durations, 99),
@@ -285,18 +365,17 @@ fn query_grouped_stats(
     Ok(results)
 }
 
-/// Query aggregate stats with two-level grouping.
 fn query_two_level_stats(
     conn: &rusqlite::Connection,
     cutoff: &str,
     dim1: &str,
     dim2: &str,
     tenant_names: &HashMap<String, String>,
+    valid_tenants: &HashSet<String>,
 ) -> Result<Vec<(String, Vec<GroupStats>)>> {
     let col1 = dimension_column(dim1);
     let col2 = dimension_column(dim2);
 
-    // Get distinct values for the first dimension
     let sql1 = format!(
         "SELECT DISTINCT COALESCE({col1}, '') FROM processing_timings \
          WHERE created_at > datetime('now', ?1) ORDER BY 1"
@@ -310,9 +389,13 @@ fn query_two_level_stats(
     let mut results = Vec::new();
 
     for raw_key1 in &level1_keys {
+        // Skip dead projects at level 1
+        if dim1 == "project" && !valid_tenants.contains(raw_key1) {
+            continue;
+        }
+
         let display_key = resolve_group_key(dim1, raw_key1, tenant_names);
 
-        // Query sub-groups for this level-1 key
         let sql2 = format!(
             "SELECT COALESCE({col2}, '') as grp2, COUNT(*) \
              FROM processing_timings \
@@ -329,6 +412,10 @@ fn query_two_level_stats(
 
         let mut sub_stats = Vec::new();
         for (raw_key2, count) in &sub_groups {
+            // Skip dead projects at level 2
+            if dim2 == "project" && !valid_tenants.contains(raw_key2) {
+                continue;
+            }
             let durations =
                 fetch_sorted_durations_2d(conn, cutoff, col1, raw_key1, col2, raw_key2)?;
             let avg = average(&durations);
@@ -336,6 +423,7 @@ fn query_two_level_stats(
                 group_key: resolve_group_key(dim2, raw_key2, tenant_names),
                 count: *count,
                 avg_ms: avg,
+                std_err: std_error(&durations),
                 p50_ms: percentile(&durations, 50),
                 p95_ms: percentile(&durations, 95),
                 p99_ms: percentile(&durations, 99),
@@ -347,6 +435,8 @@ fn query_two_level_stats(
 
     Ok(results)
 }
+
+// === Duration fetchers ===
 
 fn fetch_sorted_durations(
     conn: &rusqlite::Connection,
@@ -390,6 +480,8 @@ fn fetch_sorted_durations_2d(
     Ok(durations)
 }
 
+// === Statistics ===
+
 fn percentile(sorted: &[i64], pct: u8) -> f64 {
     if sorted.is_empty() {
         return 0.0;
@@ -406,12 +498,34 @@ fn average(values: &[i64]) -> f64 {
     values.iter().sum::<i64>() as f64 / values.len() as f64
 }
 
+/// Standard error of the mean: std_dev / sqrt(n).
+fn std_error(values: &[i64]) -> f64 {
+    let n = values.len();
+    if n < 2 {
+        return 0.0;
+    }
+    let mean = average(values);
+    let variance =
+        values.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / (n as f64 - 1.0);
+    variance.sqrt() / (n as f64).sqrt()
+}
+
+/// Format avg ± std_err for table display.
+fn format_avg_with_uncertainty(avg: f64, std_err: f64, count: i64) -> String {
+    if count < 2 {
+        format!("{:>5.0}~", avg)
+    } else if std_err < 1.0 {
+        format!("{:>6.0}", avg)
+    } else {
+        format!("{:.0}±{:.0}", avg, std_err)
+    }
+}
+
 // === Table output ===
 
 fn print_table_grouped(
     stats: &[GroupStats],
     label: &str,
-    _label2: Option<&str>,
     total_items: i64,
     queue_depth: i64,
     window_hours: f64,
@@ -427,7 +541,7 @@ fn print_table_grouped(
         .min(30);
 
     println!(
-        "  {:<width$} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "  {:<width$} {:>8} {:>10} {:>8} {:>8} {:>8}",
         label,
         "Count",
         "Avg(ms)",
@@ -436,7 +550,7 @@ fn print_table_grouped(
         "P99(ms)",
         width = max_key_len
     );
-    println!("  {}", "-".repeat(max_key_len + 48));
+    println!("  {}", "-".repeat(max_key_len + 50));
 
     for s in stats {
         let key = if s.group_key.len() > 30 {
@@ -444,11 +558,12 @@ fn print_table_grouped(
         } else {
             s.group_key.clone()
         };
+        let avg_display = format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count);
         println!(
-            "  {:<width$} {:>8} {:>8.0} {:>8.0} {:>8.0} {:>8.0}",
+            "  {:<width$} {:>8} {:>10} {:>8.0} {:>8.0} {:>8.0}",
             key,
             s.count,
-            s.avg_ms,
+            avg_display,
             s.p50_ms,
             s.p95_ms,
             s.p99_ms,
@@ -481,7 +596,7 @@ fn print_table_two_level(
         println!();
         println!("  {} {}", label1, group_name);
         println!(
-            "    {:<width$} {:>8} {:>8} {:>8} {:>8} {:>8}",
+            "    {:<width$} {:>8} {:>10} {:>8} {:>8} {:>8}",
             label2,
             "Count",
             "Avg(ms)",
@@ -490,7 +605,7 @@ fn print_table_two_level(
             "P99(ms)",
             width = max_key2_len
         );
-        println!("    {}", "-".repeat(max_key2_len + 48));
+        println!("    {}", "-".repeat(max_key2_len + 50));
 
         for s in sub_stats {
             let key = if s.group_key.len() > 24 {
@@ -498,11 +613,12 @@ fn print_table_two_level(
             } else {
                 s.group_key.clone()
             };
+            let avg_display = format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count);
             println!(
-                "    {:<width$} {:>8} {:>8.0} {:>8.0} {:>8.0} {:>8.0}",
+                "    {:<width$} {:>8} {:>10} {:>8.0} {:>8.0} {:>8.0}",
                 key,
                 s.count,
-                s.avg_ms,
+                avg_display,
                 s.p50_ms,
                 s.p95_ms,
                 s.p99_ms,
@@ -531,7 +647,6 @@ fn print_summary(total_items: i64, queue_depth: i64, window_hours: f64) {
 
 fn print_json_grouped(
     stats: &[GroupStats],
-    _nested: Option<&str>,
     total_items: i64,
     queue_depth: i64,
     window_hours: f64,
@@ -543,6 +658,7 @@ fn print_json_grouped(
                 "group": s.group_key,
                 "count": s.count,
                 "avg_ms": s.avg_ms,
+                "avg_ms_margin": s.std_err,
                 "p50_ms": s.p50_ms,
                 "p95_ms": s.p95_ms,
                 "p99_ms": s.p99_ms,
@@ -578,6 +694,7 @@ fn print_json_two_level(
                         "group": s.group_key,
                         "count": s.count,
                         "avg_ms": s.avg_ms,
+                        "avg_ms_margin": s.std_err,
                         "p50_ms": s.p50_ms,
                         "p95_ms": s.p95_ms,
                         "p99_ms": s.p99_ms,

@@ -110,6 +110,10 @@ enum AdminCommand {
         /// Group by 1-2 dimensions: project, phase, language, op (comma-separated)
         #[arg(short = 'g', long)]
         group_by: Option<String>,
+
+        /// Sort by column:direction (e.g. avg_ms:desc, count:asc)
+        #[arg(short = 's', long)]
+        sort: Option<String>,
     },
     /// Fetch live Prometheus metrics from the daemon's metrics endpoint
     Metrics {
@@ -148,7 +152,8 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             window,
             json,
             group_by,
-        } => perf::execute(window, json, group_by).await,
+            sort,
+        } => perf::execute(window, json, group_by, sort).await,
         AdminCommand::Metrics { port, json } => metrics::execute(port, json).await,
     }
 }

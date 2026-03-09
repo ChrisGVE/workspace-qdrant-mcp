@@ -19,8 +19,11 @@ pub async fn execute(port: u16, json: bool) -> Result<()> {
     let response = client.get(&url).send().await.map_err(|e| {
         if e.is_connect() {
             anyhow::anyhow!(
-                "Cannot connect to metrics endpoint at {}. \
-                 Is the daemon running with --metrics-port {}?",
+                "Cannot connect to metrics endpoint at {}.\n\n\
+                 The metrics endpoint may not be enabled. To enable it:\n\
+                 1. Add '--metrics-port {}' to the daemon launch arguments\n\
+                 2. Restart the daemon with: launchctl unload/load the plist\n\n\
+                 Or check if the daemon is running: wqm service status",
                 url,
                 port
             )
