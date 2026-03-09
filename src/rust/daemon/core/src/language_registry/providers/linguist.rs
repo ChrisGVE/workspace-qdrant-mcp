@@ -125,9 +125,10 @@ impl LanguageSourceProvider for LinguistProvider {
             request = request.header("If-None-Match", etag.as_str());
         }
 
-        let response = request.send().await.map_err(|e| {
-            DaemonError::Other(format!("Failed to fetch Linguist data: {e}"))
-        })?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| DaemonError::Other(format!("Failed to fetch Linguist data: {e}")))?;
 
         if response.status() == reqwest::StatusCode::NOT_MODIFIED {
             // Data hasn't changed, use cache
@@ -150,9 +151,10 @@ impl LanguageSourceProvider for LinguistProvider {
             }
         }
 
-        let body = response.text().await.map_err(|e| {
-            DaemonError::Other(format!("Failed to read Linguist response: {e}"))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| DaemonError::Other(format!("Failed to read Linguist response: {e}")))?;
 
         let entries = Self::parse_languages(&body)?;
         *self.cached_data.lock().unwrap() = Some(entries.clone());

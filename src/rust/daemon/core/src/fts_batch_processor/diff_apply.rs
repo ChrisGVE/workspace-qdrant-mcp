@@ -49,8 +49,13 @@ pub(super) async fn apply_diff_to_code_lines(
     let existing_lines = fetch_existing_lines(tx, file_id).await?;
     let mut stats = FileDiffStats::default();
     let insertions = apply_diff_ops(tx, diff, &existing_lines, &mut stats).await?;
-    let orphan_deleted =
-        delete_orphaned_lines(tx, &existing_lines, &stats.retained_ids, &stats.explicitly_deleted_ids).await?;
+    let orphan_deleted = delete_orphaned_lines(
+        tx,
+        &existing_lines,
+        &stats.retained_ids,
+        &stats.explicitly_deleted_ids,
+    )
+    .await?;
     stats.lines_deleted += orphan_deleted;
     insert_pending_lines(tx, file_id, insertions, &mut stats).await?;
     renumber_after_changes(tx, file_id, &stats).await?;

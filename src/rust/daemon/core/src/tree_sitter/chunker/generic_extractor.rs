@@ -11,9 +11,7 @@ use tree_sitter::{Language, Node};
 
 use crate::error::DaemonError;
 use crate::language_registry::types::{DocstringStyle, SemanticPatterns};
-use crate::tree_sitter::chunker::helpers::{
-    extract_function_calls, find_child_by_kind, node_text,
-};
+use crate::tree_sitter::chunker::helpers::{extract_function_calls, find_child_by_kind, node_text};
 use crate::tree_sitter::parser::TreeSitterParser;
 use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
 
@@ -64,8 +62,7 @@ impl GenericExtractor {
                 last_preamble_line = child.end_position().row + 1;
             } else if comment_types.iter().any(|t| t == kind) {
                 // Include comments adjacent to preamble
-                if preamble_items.is_empty()
-                    || child.start_position().row <= last_preamble_line + 1
+                if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1
                 {
                     preamble_items.push(node_text(&child, source).to_string());
                     last_preamble_line = child.end_position().row + 1;
@@ -654,14 +651,13 @@ impl GenericExtractor {
             if let Some(chunk_type) = self.classify_node(kind) {
                 match chunk_type {
                     ChunkType::Class | ChunkType::Struct | ChunkType::Module => {
-                        chunks.extend(self.extract_container(
-                            &child, source, file_path, chunk_type,
-                        ));
+                        chunks
+                            .extend(self.extract_container(&child, source, file_path, chunk_type));
                     }
                     _ => {
-                        chunks.push(self.extract_definition(
-                            &child, source, file_path, chunk_type, None,
-                        ));
+                        chunks.push(
+                            self.extract_definition(&child, source, file_path, chunk_type, None),
+                        );
                     }
                 }
                 return;
@@ -698,13 +694,7 @@ impl GenericExtractor {
         } else if Self::matches_any("call", &self.patterns.macro_def.node_types)
             && matches!(first_word, "defmacro" | "defmacrop")
         {
-            chunks.push(self.extract_definition(
-                node,
-                source,
-                file_path,
-                ChunkType::Macro,
-                None,
-            ));
+            chunks.push(self.extract_definition(node, source, file_path, ChunkType::Macro, None));
         }
     }
 }
@@ -811,13 +801,14 @@ def hello():
             .extract_chunks(source, &PathBuf::from("test.py"))
             .unwrap();
 
-        let func = chunks
-            .iter()
-            .find(|c| c.chunk_type == ChunkType::Function);
+        let func = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
         assert!(func.is_some(), "Should find a function chunk");
         let func = func.unwrap();
         assert_eq!(func.symbol_name, "hello");
-        assert!(func.docstring.as_ref().is_some_and(|d| d.contains("Say hello")));
+        assert!(func
+            .docstring
+            .as_ref()
+            .is_some_and(|d| d.contains("Say hello")));
     }
 
     #[test]
@@ -910,9 +901,7 @@ def decorated_func():
             .extract_chunks(source, &PathBuf::from("test.py"))
             .unwrap();
 
-        let func = chunks
-            .iter()
-            .find(|c| c.chunk_type == ChunkType::Function);
+        let func = chunks.iter().find(|c| c.chunk_type == ChunkType::Function);
         assert!(func.is_some());
         assert_eq!(func.unwrap().symbol_name, "decorated_func");
     }

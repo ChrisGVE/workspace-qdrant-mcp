@@ -240,12 +240,10 @@ impl<'a> FtsBatchProcessor<'a> {
 
         // Fetch existing rows for incremental FTS5 delete
         let old_rows: Vec<(i64, String)> = {
-            let rows = sqlx::query(
-                "SELECT line_id, content FROM code_lines WHERE file_id = ?1",
-            )
-            .bind(file_id)
-            .fetch_all(&mut *tx)
-            .await?;
+            let rows = sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_all(&mut *tx)
+                .await?;
             rows.iter()
                 .map(|r| {
                     use sqlx::Row;
@@ -324,11 +322,10 @@ impl<'a> FtsBatchProcessor<'a> {
 
         // Fetch existing rows for incremental FTS5 delete
         let old_rows: Vec<(i64, String)> = {
-            let rows =
-                sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
-                    .bind(file_id)
-                    .fetch_all(pool)
-                    .await?;
+            let rows = sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_all(pool)
+                .await?;
             rows.iter()
                 .map(|r| {
                     use sqlx::Row;
@@ -396,12 +393,11 @@ impl<'a> FtsBatchProcessor<'a> {
         for file_id in &file_ids {
             // Fetch rows for incremental FTS5 delete
             let old_rows: Vec<(i64, String)> = {
-                let rows = sqlx::query(
-                    "SELECT line_id, content FROM code_lines WHERE file_id = ?1",
-                )
-                .bind(*file_id)
-                .fetch_all(&mut *tx)
-                .await?;
+                let rows =
+                    sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+                        .bind(*file_id)
+                        .fetch_all(&mut *tx)
+                        .await?;
                 rows.iter()
                     .map(|r| {
                         use sqlx::Row;

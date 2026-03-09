@@ -168,10 +168,7 @@ fn test_known_grammar_languages_list() {
     assert!(known.contains(&"java"), "java should be in known grammars");
     assert!(known.contains(&"c"), "c should be in known grammars");
     assert!(known.contains(&"cpp"), "cpp should be in known grammars");
-    assert!(
-        known.contains(&"json"),
-        "json should be in known grammars"
-    );
+    assert!(known.contains(&"json"), "json should be in known grammars");
     assert!(
         !known.contains(&"unknown"),
         "unknown should not be in known grammars"

@@ -133,7 +133,7 @@ async fn test_healthy_when_only_poll_is_recent() {
     let health = Arc::new(QueueProcessorHealth::new());
     health.set_running(true);
     health.record_poll(); // poll is fresh
-    // heartbeat stays at 0 (MAX seconds ago)
+                          // heartbeat stays at 0 (MAX seconds ago)
 
     let service = SystemServiceImpl::new().with_queue_health(health);
     let response = service.health(Request::new(())).await.unwrap();

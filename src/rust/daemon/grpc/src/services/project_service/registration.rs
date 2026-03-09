@@ -67,18 +67,11 @@ impl ProjectServiceImpl {
         let effective_path_str = effective_path.to_string_lossy().to_string();
 
         if effective_path_str != req.path {
-            info!(
-                "Resolved git root: {} -> {}",
-                req.path, effective_path_str
-            );
+            info!("Resolved git root: {} -> {}", req.path, effective_path_str);
         }
 
         // Detect git remote from the resolved path when the request lacks one
-        let effective_git_remote = if req
-            .git_remote
-            .as_ref()
-            .map_or(true, |r| r.is_empty())
-        {
+        let effective_git_remote = if req.git_remote.as_ref().map_or(true, |r| r.is_empty()) {
             detect_git_remote(&effective_path)
         } else {
             req.git_remote.clone()
@@ -91,11 +84,8 @@ impl ProjectServiceImpl {
             .unwrap_or("normal");
         let is_high_priority = effective_priority == "high";
 
-        let project_id = self.resolve_project_id(
-            &req,
-            &effective_path,
-            effective_git_remote.as_deref(),
-        )?;
+        let project_id =
+            self.resolve_project_id(&req, &effective_path, effective_git_remote.as_deref())?;
 
         info!(
             "Registering project: id={}, path={}, name={:?}, priority={}",
@@ -182,8 +172,7 @@ impl ProjectServiceImpl {
     ) -> Result<String, Status> {
         if req.project_id.is_empty() {
             let calculator = ProjectIdCalculator::new();
-            let generated =
-                calculator.calculate(effective_path, effective_git_remote, None);
+            let generated = calculator.calculate(effective_path, effective_git_remote, None);
             info!(
                 "Generated project_id for {}: {}",
                 effective_path.display(),
@@ -263,11 +252,7 @@ impl ProjectServiceImpl {
         let effective_root = resolve_git_root(Path::new(&req.path));
         let effective_root_str = effective_root.to_string_lossy().to_string();
 
-        let effective_git_remote = if req
-            .git_remote
-            .as_ref()
-            .map_or(true, |r| r.is_empty())
-        {
+        let effective_git_remote = if req.git_remote.as_ref().map_or(true, |r| r.is_empty()) {
             detect_git_remote(&effective_root)
         } else {
             req.git_remote.clone()

@@ -271,14 +271,12 @@ async fn handle_project_delete(
     }
 
     // 2. Delete tracked_files for this tenant
-    let files_deleted = sqlx::query(
-        "DELETE FROM tracked_files WHERE tenant_id = ?1",
-    )
-    .bind(&item.tenant_id)
-    .execute(pool)
-    .await
-    .map(|r| r.rows_affected())
-    .unwrap_or(0);
+    let files_deleted = sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
+        .bind(&item.tenant_id)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0);
 
     info!(
         "Deleted {} tracked_files for tenant={}",
@@ -287,15 +285,14 @@ async fn handle_project_delete(
 
     // 3. Delete watch_folders for this tenant+collection (children first via CASCADE,
     //    but also explicitly delete children in case CASCADE isn't configured)
-    let folders_deleted = sqlx::query(
-        "DELETE FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
-    )
-    .bind(&item.tenant_id)
-    .bind(&item.collection)
-    .execute(pool)
-    .await
-    .map(|r| r.rows_affected())
-    .unwrap_or(0);
+    let folders_deleted =
+        sqlx::query("DELETE FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2")
+            .bind(&item.tenant_id)
+            .bind(&item.collection)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+            .unwrap_or(0);
 
     info!(
         "Deleted {} watch_folders for tenant={}",

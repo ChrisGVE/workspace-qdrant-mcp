@@ -178,9 +178,11 @@ impl LanguageSourceProvider for MasonProvider {
             .build()
             .map_err(|e| DaemonError::Other(format!("HTTP client error: {e}")))?;
 
-        let response = client.get(&self.url).send().await.map_err(|e| {
-            DaemonError::Other(format!("Failed to fetch mason registry: {e}"))
-        })?;
+        let response = client
+            .get(&self.url)
+            .send()
+            .await
+            .map_err(|e| DaemonError::Other(format!("Failed to fetch mason registry: {e}")))?;
 
         if !response.status().is_success() {
             return Err(DaemonError::Other(format!(
@@ -189,9 +191,10 @@ impl LanguageSourceProvider for MasonProvider {
             )));
         }
 
-        let body = response.text().await.map_err(|e| {
-            DaemonError::Other(format!("Failed to read mason response: {e}"))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| DaemonError::Other(format!("Failed to read mason response: {e}")))?;
 
         let entries = Self::parse_registry(&body)?;
         *self.cached_data.lock().unwrap() = Some(entries.clone());

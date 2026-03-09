@@ -68,7 +68,7 @@ impl NvimTreesitterProvider {
                 language: language.clone(),
                 repo,
                 quality: GrammarQuality::Community, // nvim-treesitter curates but doesn't tier
-                has_cpp_scanner: false,              // Not available from lockfile
+                has_cpp_scanner: false,             // Not available from lockfile
                 src_subdir: None,
                 symbol_name: None,
                 archive_branch: None,
@@ -157,9 +157,10 @@ impl LanguageSourceProvider for NvimTreesitterProvider {
             )));
         }
 
-        let body = response.text().await.map_err(|e| {
-            DaemonError::Other(format!("Failed to read lockfile response: {e}"))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| DaemonError::Other(format!("Failed to read lockfile response: {e}")))?;
 
         let entries = Self::parse_lockfile(&body)?;
         *self.cached_data.lock().unwrap() = Some(entries.clone());
@@ -214,22 +215,13 @@ mod tests {
 
     #[test]
     fn test_infer_repo_overrides() {
-        assert_eq!(
-            infer_repo("c_sharp"),
-            "tree-sitter/tree-sitter-c-sharp"
-        );
+        assert_eq!(infer_repo("c_sharp"), "tree-sitter/tree-sitter-c-sharp");
         assert_eq!(
             infer_repo("markdown"),
             "tree-sitter-grammars/tree-sitter-markdown"
         );
-        assert_eq!(
-            infer_repo("toml"),
-            "tree-sitter-grammars/tree-sitter-toml"
-        );
-        assert_eq!(
-            infer_repo("latex"),
-            "latex-lsp/tree-sitter-latex"
-        );
+        assert_eq!(infer_repo("toml"), "tree-sitter-grammars/tree-sitter-toml");
+        assert_eq!(infer_repo("latex"), "latex-lsp/tree-sitter-latex");
     }
 
     #[test]

@@ -8,12 +8,7 @@ use crate::output;
 use super::db::connect_readwrite;
 
 /// Execute `wqm queue cancel`.
-pub async fn execute(
-    project: &str,
-    statuses: &[&str],
-    dry_run: bool,
-    yes: bool,
-) -> Result<()> {
+pub async fn execute(project: &str, statuses: &[&str], dry_run: bool, yes: bool) -> Result<()> {
     let conn = connect_readwrite()?;
 
     let (tenant_id, project_path) = resolve_tenant_by_hint(&conn, project)?;
@@ -44,15 +39,14 @@ pub async fn execute(
     // Build params for rusqlite (tenant_id first, then statuses)
     let count: i64 = {
         let mut stmt = conn.prepare(&count_sql)?;
-        let all_params: Vec<Box<dyn rusqlite::ToSql>> = std::iter::once(
-            Box::new(tenant_id.clone()) as Box<dyn rusqlite::ToSql>,
-        )
-        .chain(
-            safe_statuses
-                .iter()
-                .map(|s| Box::new(s.to_string()) as Box<dyn rusqlite::ToSql>),
-        )
-        .collect();
+        let all_params: Vec<Box<dyn rusqlite::ToSql>> =
+            std::iter::once(Box::new(tenant_id.clone()) as Box<dyn rusqlite::ToSql>)
+                .chain(
+                    safe_statuses
+                        .iter()
+                        .map(|s| Box::new(s.to_string()) as Box<dyn rusqlite::ToSql>),
+                )
+                .collect();
         let refs: Vec<&dyn rusqlite::ToSql> = all_params.iter().map(|b| b.as_ref()).collect();
         stmt.query_row(refs.as_slice(), |row| row.get(0))?
     };
@@ -98,15 +92,14 @@ pub async fn execute(
     );
 
     let deleted = {
-        let all_params: Vec<Box<dyn rusqlite::ToSql>> = std::iter::once(
-            Box::new(tenant_id.clone()) as Box<dyn rusqlite::ToSql>,
-        )
-        .chain(
-            safe_statuses
-                .iter()
-                .map(|s| Box::new(s.to_string()) as Box<dyn rusqlite::ToSql>),
-        )
-        .collect();
+        let all_params: Vec<Box<dyn rusqlite::ToSql>> =
+            std::iter::once(Box::new(tenant_id.clone()) as Box<dyn rusqlite::ToSql>)
+                .chain(
+                    safe_statuses
+                        .iter()
+                        .map(|s| Box::new(s.to_string()) as Box<dyn rusqlite::ToSql>),
+                )
+                .collect();
         let refs: Vec<&dyn rusqlite::ToSql> = all_params.iter().map(|b| b.as_ref()).collect();
         conn.execute(&delete_sql, refs.as_slice())?
     };
@@ -239,10 +232,8 @@ mod tests {
     #[test]
     fn resolve_tenant_by_exact_id() {
         let conn = setup_db();
-        let result = super::super::super::project::resolver::resolve_tenant_by_hint(
-            &conn,
-            "tenant-abc",
-        );
+        let result =
+            super::super::super::project::resolver::resolve_tenant_by_hint(&conn, "tenant-abc");
         assert!(result.is_ok());
         let (tid, _) = result.unwrap();
         assert_eq!(tid, "tenant-abc");
@@ -251,10 +242,8 @@ mod tests {
     #[test]
     fn resolve_tenant_by_name_substring() {
         let conn = setup_db();
-        let result = super::super::super::project::resolver::resolve_tenant_by_hint(
-            &conn,
-            "myproject",
-        );
+        let result =
+            super::super::super::project::resolver::resolve_tenant_by_hint(&conn, "myproject");
         assert!(result.is_ok());
         let (tid, _) = result.unwrap();
         assert_eq!(tid, "tenant-abc");

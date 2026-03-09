@@ -127,7 +127,9 @@ fn find_in_editor_paths(home: &Path, binary: &str) -> Option<LspDetectionResult>
             continue;
         }
 
-        if let Some(path) = find_binary_in_dir(&base, binary, search_path.recursive, search_path.max_depth) {
+        if let Some(path) =
+            find_binary_in_dir(&base, binary, search_path.recursive, search_path.max_depth)
+        {
             return Some(LspDetectionResult {
                 path,
                 source: DetectionSource::Editor(search_path.name.to_string()),

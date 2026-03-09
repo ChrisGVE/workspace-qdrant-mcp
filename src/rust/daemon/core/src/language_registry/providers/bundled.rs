@@ -34,10 +34,8 @@ impl BundledProvider {
     /// This should never happen in practice since the YAML is validated
     /// at test time.
     pub fn new() -> Result<Self, DaemonError> {
-        let definitions: Vec<LanguageDefinition> =
-            serde_yaml_ng::from_str(BUNDLED_YAML).map_err(|e| {
-                DaemonError::Other(format!("Failed to parse bundled languages: {e}"))
-            })?;
+        let definitions: Vec<LanguageDefinition> = serde_yaml_ng::from_str(BUNDLED_YAML)
+            .map_err(|e| DaemonError::Other(format!("Failed to parse bundled languages: {e}")))?;
         Ok(Self { definitions })
     }
 
@@ -268,9 +266,32 @@ mod tests {
         let provider = BundledProvider::new().unwrap();
 
         let languages_with_patterns = [
-            "python", "rust", "go", "java", "javascript", "typescript", "tsx", "c", "cpp",
-            "ruby", "swift", "bash", "lua", "elixir", "erlang", "scala", "haskell", "zig",
-            "odin", "clojure", "ocaml", "fortran", "ada", "perl", "pascal", "lisp",
+            "python",
+            "rust",
+            "go",
+            "java",
+            "javascript",
+            "typescript",
+            "tsx",
+            "c",
+            "cpp",
+            "ruby",
+            "swift",
+            "bash",
+            "lua",
+            "elixir",
+            "erlang",
+            "scala",
+            "haskell",
+            "zig",
+            "odin",
+            "clojure",
+            "ocaml",
+            "fortran",
+            "ada",
+            "perl",
+            "pascal",
+            "lisp",
         ];
 
         for lang_id in &languages_with_patterns {
@@ -291,21 +312,33 @@ mod tests {
         let provider = BundledProvider::new().unwrap();
 
         // Official grammars (tree-sitter org)
-        let rust_def = provider.definitions.iter().find(|d| d.id() == "rust").unwrap();
+        let rust_def = provider
+            .definitions
+            .iter()
+            .find(|d| d.id() == "rust")
+            .unwrap();
         assert_eq!(
             rust_def.grammar.sources[0].quality,
             crate::language_registry::types::GrammarQuality::Official
         );
 
         // Curated grammars (tree-sitter-grammars org)
-        let lua_def = provider.definitions.iter().find(|d| d.id() == "lua").unwrap();
+        let lua_def = provider
+            .definitions
+            .iter()
+            .find(|d| d.id() == "lua")
+            .unwrap();
         assert_eq!(
             lua_def.grammar.sources[0].quality,
             crate::language_registry::types::GrammarQuality::Curated
         );
 
         // Community grammars
-        let ada_def = provider.definitions.iter().find(|d| d.id() == "ada").unwrap();
+        let ada_def = provider
+            .definitions
+            .iter()
+            .find(|d| d.id() == "ada")
+            .unwrap();
         assert_eq!(
             ada_def.grammar.sources[0].quality,
             crate::language_registry::types::GrammarQuality::Community

@@ -112,8 +112,17 @@ impl QueueManager {
         created_at_order: &str,
         batch_size: i32,
     ) -> QueueResult<Vec<String>> {
-        let query = build_dequeue_query(tenant_id, item_type, priority_order, op_order, created_at_order);
-        let result = execute_dequeue_query(&self.pool, &query, now_str, tenant_id, item_type, batch_size).await?;
+        let query = build_dequeue_query(
+            tenant_id,
+            item_type,
+            priority_order,
+            op_order,
+            created_at_order,
+        );
+        let result = execute_dequeue_query(
+            &self.pool, &query, now_str, tenant_id, item_type, batch_size,
+        )
+        .await?;
         Ok(result)
     }
 
@@ -401,14 +410,20 @@ mod tests {
     #[test]
     fn test_build_dequeue_query_item_type_filter() {
         let q = build_dequeue_query(None, Some(ItemType::File), "DESC", "DESC", "ASC");
-        assert!(q.contains("item_type = ?2"), "should include item_type filter");
+        assert!(
+            q.contains("item_type = ?2"),
+            "should include item_type filter"
+        );
     }
 
     #[test]
     fn test_build_dequeue_query_both_filters() {
         let q = build_dequeue_query(Some("t1"), Some(ItemType::Folder), "DESC", "DESC", "ASC");
         assert!(q.contains("tenant_id = ?2"), "should include tenant filter");
-        assert!(q.contains("item_type = ?3"), "should include item_type filter");
+        assert!(
+            q.contains("item_type = ?3"),
+            "should include item_type filter"
+        );
         assert!(q.contains("?4"), "limit should be ?4 with both filters");
     }
 }

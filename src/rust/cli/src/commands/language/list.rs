@@ -47,7 +47,9 @@ pub async fn list_languages(
             "data" | "config" => Some(LanguageType::Data),
             "prose" => Some(LanguageType::Prose),
             _ => {
-                output::warning(format!("Unknown category '{cat}'. Valid: programming, markup, data, prose"));
+                output::warning(format!(
+                    "Unknown category '{cat}'. Valid: programming, markup, data, prose"
+                ));
                 None
             }
         };
@@ -132,7 +134,11 @@ pub async fn list_languages(
 
         println!(
             "  {:<16} {:<12} {:<8} {:<10} {}",
-            def.language, exts_display, grammar_status, lsp_status, type_label.dimmed()
+            def.language,
+            exts_display,
+            grammar_status,
+            lsp_status,
+            type_label.dimmed()
         );
 
         if verbose {

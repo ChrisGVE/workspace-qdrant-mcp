@@ -192,14 +192,13 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
     }
 
     // Docstring style heuristic
-    patterns.docstring_style = if named_types.contains(&"string_literal")
-        || named_types.contains(&"string")
-    {
-        // Might have Python-style docstrings
-        DocstringStyle::PrecedingComments // safer default
-    } else {
-        DocstringStyle::PrecedingComments
-    };
+    patterns.docstring_style =
+        if named_types.contains(&"string_literal") || named_types.contains(&"string") {
+            // Might have Python-style docstrings
+            DocstringStyle::PrecedingComments // safer default
+        } else {
+            DocstringStyle::PrecedingComments
+        };
 
     if matched == 0 {
         return None;
@@ -268,11 +267,7 @@ const FUNCTION_HINTS: &[&str] = &[
     "fun_declaration",
 ];
 
-const ASYNC_FUNCTION_HINTS: &[&str] = &[
-    "async_function",
-    "async_method",
-    "coroutine_definition",
-];
+const ASYNC_FUNCTION_HINTS: &[&str] = &["async_function", "async_method", "coroutine_definition"];
 
 const METHOD_HINTS: &[&str] = &[
     "method_definition",
@@ -366,12 +361,7 @@ const TYPE_ALIAS_HINTS: &[&str] = &[
     "newtype",
 ];
 
-const COMMENT_HINTS: &[&str] = &[
-    "comment",
-    "line_comment",
-    "block_comment",
-    "doc_comment",
-];
+const COMMENT_HINTS: &[&str] = &["comment", "line_comment", "block_comment", "doc_comment"];
 
 #[cfg(test)]
 mod tests {
@@ -404,13 +394,40 @@ mod tests {
 
         let discovered = result.unwrap();
         assert!(discovered.confidence > 0.5);
-        assert!(discovered.patterns.function.node_types.contains(&"function_item".to_string()));
-        assert!(discovered.patterns.struct_def.node_types.contains(&"struct_item".to_string()));
-        assert!(discovered.patterns.enum_def.node_types.contains(&"enum_item".to_string()));
-        assert!(discovered.patterns.trait_def.node_types.contains(&"trait_item".to_string()));
-        assert!(discovered.patterns.module.node_types.contains(&"mod_item".to_string()));
-        assert!(discovered.patterns.preamble.node_types.contains(&"use_declaration".to_string()));
-        assert_eq!(discovered.patterns.name_node, Some("identifier".to_string()));
+        assert!(discovered
+            .patterns
+            .function
+            .node_types
+            .contains(&"function_item".to_string()));
+        assert!(discovered
+            .patterns
+            .struct_def
+            .node_types
+            .contains(&"struct_item".to_string()));
+        assert!(discovered
+            .patterns
+            .enum_def
+            .node_types
+            .contains(&"enum_item".to_string()));
+        assert!(discovered
+            .patterns
+            .trait_def
+            .node_types
+            .contains(&"trait_item".to_string()));
+        assert!(discovered
+            .patterns
+            .module
+            .node_types
+            .contains(&"mod_item".to_string()));
+        assert!(discovered
+            .patterns
+            .preamble
+            .node_types
+            .contains(&"use_declaration".to_string()));
+        assert_eq!(
+            discovered.patterns.name_node,
+            Some("identifier".to_string())
+        );
         assert_eq!(discovered.patterns.body_node, Some("block".to_string()));
     }
 
@@ -432,8 +449,16 @@ mod tests {
         assert!(result.is_some());
 
         let discovered = result.unwrap();
-        assert!(discovered.patterns.function.node_types.contains(&"function_definition".to_string()));
-        assert!(discovered.patterns.class.node_types.contains(&"class_definition".to_string()));
+        assert!(discovered
+            .patterns
+            .function
+            .node_types
+            .contains(&"function_definition".to_string()));
+        assert!(discovered
+            .patterns
+            .class
+            .node_types
+            .contains(&"class_definition".to_string()));
         assert!(discovered.patterns.preamble.node_types.len() >= 2);
     }
 

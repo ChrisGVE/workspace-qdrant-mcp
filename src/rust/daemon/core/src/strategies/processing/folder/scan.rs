@@ -90,10 +90,7 @@ pub(crate) async fn scan_directory_single_level(
             // Gate 0: .gitignore / .wqmignore exclusion
             if let Some(ref m) = ignore_matcher {
                 if m.is_ignored(&path, false) {
-                    debug!(
-                        "Gate 0: file excluded by ignore file: {}",
-                        path.display()
-                    );
+                    debug!("Gate 0: file excluded by ignore file: {}", path.display());
                     files_excluded += 1;
                     continue;
                 }

@@ -103,8 +103,7 @@ pub const FTS5_OPTIMIZE_THRESHOLD: usize = 1000;
 /// For external content FTS5 tables, this adds one entry without scanning
 /// the entire content table. Call after inserting a row into `code_lines`.
 /// `?1` = line_id (rowid), `?2` = content.
-pub const FTS5_INSERT_ROW_SQL: &str =
-    "INSERT INTO code_lines_fts(rowid, content) VALUES(?1, ?2)";
+pub const FTS5_INSERT_ROW_SQL: &str = "INSERT INTO code_lines_fts(rowid, content) VALUES(?1, ?2)";
 
 /// SQL to incrementally delete a single row from the FTS5 index.
 ///

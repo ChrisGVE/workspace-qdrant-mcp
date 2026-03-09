@@ -97,9 +97,7 @@ async fn grammar_pipeline_diagnostic() {
     let base = test_base_dir();
 
     // Use system grammar cache
-    let cache_dir = dirs::home_dir()
-        .unwrap()
-        .join(".workspace-qdrant/grammars");
+    let cache_dir = dirs::home_dir().unwrap().join(".workspace-qdrant/grammars");
 
     let config = GrammarConfig {
         cache_dir,
@@ -116,12 +114,11 @@ async fn grammar_pipeline_diagnostic() {
         let file_path = base.join(file_rel);
 
         // Phase 1: Check cache status before loading
-        let was_cached = manager.get_loaded_grammar(lang).is_some()
-            || {
-                // Check if .dylib exists in cache without loading
-                let cache_paths = manager.cache_paths();
-                cache_paths.grammar_path(lang).exists()
-            };
+        let was_cached = manager.get_loaded_grammar(lang).is_some() || {
+            // Check if .dylib exists in cache without loading
+            let cache_paths = manager.cache_paths();
+            cache_paths.grammar_path(lang).exists()
+        };
 
         // Phase 2: Load/download grammar (timed)
         let t_load = Instant::now();
@@ -137,36 +134,39 @@ async fn grammar_pipeline_diagnostic() {
         let has_bundled_patterns = bundled.get(*lang).copied().unwrap_or(false);
 
         // Phase 4: Semantic chunking (timed)
-        let (chunk_count, has_semantic, chunk_ms, chunk_err, chunk_types) =
-            if grammar_load_ok && file_path.exists() {
-                let provider = manager.create_language_provider();
-                let source = std::fs::read_to_string(&file_path).unwrap_or_default();
-                let t_chunk = Instant::now();
-                match extract_chunks_with_provider(
-                    &source,
-                    &file_path,
-                    4096,
-                    Some(Arc::new(provider)),
-                ) {
-                    Ok(chunks) => {
-                        let elapsed = t_chunk.elapsed().as_millis() as u64;
-                        let types: Vec<String> =
-                            chunks.iter().map(|c| format!("{:?}", c.chunk_type)).collect();
-                        let semantic = chunks
-                            .iter()
-                            .any(|c| {
-                                let ct = format!("{:?}", c.chunk_type);
-                                ct != "Text" && ct != "Unknown"
-                            });
-                        (chunks.len(), semantic, elapsed, None, types)
-                    }
-                    Err(e) => (0, false, t_chunk.elapsed().as_millis() as u64, Some(format!("{}", e)), vec![]),
+        let (chunk_count, has_semantic, chunk_ms, chunk_err, chunk_types) = if grammar_load_ok
+            && file_path.exists()
+        {
+            let provider = manager.create_language_provider();
+            let source = std::fs::read_to_string(&file_path).unwrap_or_default();
+            let t_chunk = Instant::now();
+            match extract_chunks_with_provider(&source, &file_path, 4096, Some(Arc::new(provider)))
+            {
+                Ok(chunks) => {
+                    let elapsed = t_chunk.elapsed().as_millis() as u64;
+                    let types: Vec<String> = chunks
+                        .iter()
+                        .map(|c| format!("{:?}", c.chunk_type))
+                        .collect();
+                    let semantic = chunks.iter().any(|c| {
+                        let ct = format!("{:?}", c.chunk_type);
+                        ct != "Text" && ct != "Unknown"
+                    });
+                    (chunks.len(), semantic, elapsed, None, types)
                 }
-            } else if !file_path.exists() {
-                (0, false, 0, Some("file not found".to_string()), vec![])
-            } else {
-                (0, false, 0, Some("grammar not loaded".to_string()), vec![])
-            };
+                Err(e) => (
+                    0,
+                    false,
+                    t_chunk.elapsed().as_millis() as u64,
+                    Some(format!("{}", e)),
+                    vec![],
+                ),
+            }
+        } else if !file_path.exists() {
+            (0, false, 0, Some("file not found".to_string()), vec![])
+        } else {
+            (0, false, 0, Some("grammar not loaded".to_string()), vec![])
+        };
 
         results.push(LanguageResult {
             language: lang.to_string(),

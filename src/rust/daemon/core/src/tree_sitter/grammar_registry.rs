@@ -113,37 +113,26 @@ pub fn lookup(language: &str) -> Option<GrammarSource> {
         "clojure" => GrammarSource::new("sogaiu", "tree-sitter-clojure"),
         "cpp" => GrammarSource::new("tree-sitter", "tree-sitter-cpp").with_cpp_scanner(),
         "css" => GrammarSource::new("tree-sitter", "tree-sitter-css"),
-        "dart" => {
-            GrammarSource::new("UserNobworthy", "tree-sitter-dart").with_cpp_scanner()
-        }
-        "elixir" => {
-            GrammarSource::new("elixir-lang", "tree-sitter-elixir").with_cpp_scanner()
-        }
+        "dart" => GrammarSource::new("UserNobworthy", "tree-sitter-dart").with_cpp_scanner(),
+        "elixir" => GrammarSource::new("elixir-lang", "tree-sitter-elixir").with_cpp_scanner(),
         "elm" => GrammarSource::new("elm-tooling", "tree-sitter-elm"),
         "erlang" => GrammarSource::new("WhatsApp", "tree-sitter-erlang"),
         "fortran" => GrammarSource::new("stadelmanma", "tree-sitter-fortran"),
         "go" => GrammarSource::new("tree-sitter", "tree-sitter-go"),
-        "haskell" => {
-            GrammarSource::new("tree-sitter", "tree-sitter-haskell").with_cpp_scanner()
-        }
-        "html" => {
-            GrammarSource::new("tree-sitter", "tree-sitter-html").with_cpp_scanner()
-        }
+        "haskell" => GrammarSource::new("tree-sitter", "tree-sitter-haskell").with_cpp_scanner(),
+        "html" => GrammarSource::new("tree-sitter", "tree-sitter-html").with_cpp_scanner(),
         "java" => GrammarSource::new("tree-sitter", "tree-sitter-java"),
         "javascript" => GrammarSource::new("tree-sitter", "tree-sitter-javascript"),
         "json" => GrammarSource::new("tree-sitter", "tree-sitter-json"),
-        "julia" => {
-            GrammarSource::new("tree-sitter", "tree-sitter-julia").with_cpp_scanner()
-        }
+        "julia" => GrammarSource::new("tree-sitter", "tree-sitter-julia").with_cpp_scanner(),
         "kotlin" => GrammarSource::new("fwcd", "tree-sitter-kotlin"),
         "latex" => GrammarSource::new("latex-lsp", "tree-sitter-latex"),
-        "lisp" => GrammarSource::new("theHamsta", "tree-sitter-commonlisp")
-            .with_symbol("commonlisp"),
-        "lua" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-lua"),
-        "markdown" => {
-            GrammarSource::new("tree-sitter-grammars", "tree-sitter-markdown")
-                .with_subdir("tree-sitter-markdown")
+        "lisp" => {
+            GrammarSource::new("theHamsta", "tree-sitter-commonlisp").with_symbol("commonlisp")
         }
+        "lua" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-lua"),
+        "markdown" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-markdown")
+            .with_subdir("tree-sitter-markdown"),
         "nix" => GrammarSource::new("nix-community", "tree-sitter-nix"),
         "ocaml" => GrammarSource::new("tree-sitter", "tree-sitter-ocaml")
             .with_subdir("grammars/ocaml")
@@ -158,20 +147,12 @@ pub fn lookup(language: &str) -> Option<GrammarSource> {
             .with_cpp_scanner(),
         "python" => GrammarSource::new("tree-sitter", "tree-sitter-python"),
         "r" => GrammarSource::new("r-lib", "tree-sitter-r"),
-        "ruby" => {
-            GrammarSource::new("tree-sitter", "tree-sitter-ruby").with_cpp_scanner()
-        }
+        "ruby" => GrammarSource::new("tree-sitter", "tree-sitter-ruby").with_cpp_scanner(),
         "rust" => GrammarSource::new("tree-sitter", "tree-sitter-rust"),
-        "scala" => {
-            GrammarSource::new("tree-sitter", "tree-sitter-scala").with_cpp_scanner()
-        }
+        "scala" => GrammarSource::new("tree-sitter", "tree-sitter-scala").with_cpp_scanner(),
         "scheme" => GrammarSource::new("6cdh", "tree-sitter-scheme"),
-        "sql" => {
-            GrammarSource::new("derekstride", "tree-sitter-sql").with_cpp_scanner()
-        }
-        "swift" => {
-            GrammarSource::new("alex-pinkus", "tree-sitter-swift").with_cpp_scanner()
-        }
+        "sql" => GrammarSource::new("derekstride", "tree-sitter-sql").with_cpp_scanner(),
+        "swift" => GrammarSource::new("alex-pinkus", "tree-sitter-swift").with_cpp_scanner(),
         "toml" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-toml"),
         "tsx" => GrammarSource::new("tree-sitter", "tree-sitter-typescript")
             .with_subdir("tsx")
@@ -180,11 +161,8 @@ pub fn lookup(language: &str) -> Option<GrammarSource> {
             .with_subdir("typescript")
             .with_cpp_scanner(),
         "vala" => GrammarSource::new("vala-lang", "tree-sitter-vala"),
-        "vue" => {
-            GrammarSource::new("tree-sitter-grammars", "tree-sitter-vue").with_cpp_scanner()
-        }
-        "yaml" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-yaml")
-            .with_cpp_scanner(),
+        "vue" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-vue").with_cpp_scanner(),
+        "yaml" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-yaml").with_cpp_scanner(),
         "zig" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-zig"),
         _ => return None,
     };

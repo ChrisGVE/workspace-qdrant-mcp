@@ -41,8 +41,7 @@ pub async fn execute() -> Result<()> {
 ///
 /// Returns `true` if the daemon stopped successfully.
 async fn wait_for_shutdown(timeout_secs: u64) -> bool {
-    let deadline =
-        tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
 
     while tokio::time::Instant::now() < deadline {
         if !is_daemon_running().await {

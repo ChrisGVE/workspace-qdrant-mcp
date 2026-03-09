@@ -81,8 +81,9 @@ impl LanguageRegistry {
             // Merge language entries
             for lang_entry in &data.languages {
                 let id = lang_entry.id.to_lowercase();
-                let def = merged.entry(id.clone()).or_insert_with(|| {
-                    LanguageDefinition {
+                let def = merged
+                    .entry(id.clone())
+                    .or_insert_with(|| LanguageDefinition {
                         language: lang_entry.name.clone(),
                         aliases: Vec::new(),
                         extensions: Vec::new(),
@@ -91,8 +92,7 @@ impl LanguageRegistry {
                         semantic_patterns: None,
                         lsp_servers: Vec::new(),
                         sources: SourceMetadata::default(),
-                    }
-                });
+                    });
 
                 // Higher priority provider overwrites identity fields
                 def.language = lang_entry.name.clone();
@@ -109,8 +109,9 @@ impl LanguageRegistry {
             // Merge grammar entries
             for grammar in &data.grammars {
                 let id = grammar.language.to_lowercase();
-                let def = merged.entry(id.clone()).or_insert_with(|| {
-                    LanguageDefinition {
+                let def = merged
+                    .entry(id.clone())
+                    .or_insert_with(|| LanguageDefinition {
                         language: grammar.language.clone(),
                         aliases: Vec::new(),
                         extensions: Vec::new(),
@@ -119,15 +120,10 @@ impl LanguageRegistry {
                         semantic_patterns: None,
                         lsp_servers: Vec::new(),
                         sources: SourceMetadata::default(),
-                    }
-                });
+                    });
 
                 // Add grammar source if not already present (dedup by repo)
-                let already_has = def
-                    .grammar
-                    .sources
-                    .iter()
-                    .any(|s| s.repo == grammar.repo);
+                let already_has = def.grammar.sources.iter().any(|s| s.repo == grammar.repo);
                 if !already_has {
                     def.grammar.sources.push(GrammarSourceEntry {
                         repo: grammar.repo.clone(),
@@ -154,8 +150,9 @@ impl LanguageRegistry {
             // Merge LSP entries
             for lsp in &data.lsp_servers {
                 let id = lsp.language.to_lowercase();
-                let def = merged.entry(id.clone()).or_insert_with(|| {
-                    LanguageDefinition {
+                let def = merged
+                    .entry(id.clone())
+                    .or_insert_with(|| LanguageDefinition {
                         language: lsp.language.clone(),
                         aliases: Vec::new(),
                         extensions: Vec::new(),
@@ -164,8 +161,7 @@ impl LanguageRegistry {
                         semantic_patterns: None,
                         lsp_servers: Vec::new(),
                         sources: SourceMetadata::default(),
-                    }
-                });
+                    });
 
                 // Dedup LSP servers by binary name
                 let already_has = def
@@ -293,11 +289,7 @@ impl LanguageRegistry {
 
         // Search by alias
         for def in languages.values() {
-            if def
-                .aliases
-                .iter()
-                .any(|a| a.to_lowercase() == normalized)
-            {
+            if def.aliases.iter().any(|a| a.to_lowercase() == normalized) {
                 return Some(def.clone());
             }
         }
@@ -406,7 +398,11 @@ mod tests {
                 def.grammar.sources.iter().map(|s| s.quality).collect();
             let mut sorted = qualities.clone();
             sorted.sort();
-            assert_eq!(qualities, sorted, "Grammar sources for {} not sorted by quality", def.language);
+            assert_eq!(
+                qualities, sorted,
+                "Grammar sources for {} not sorted by quality",
+                def.language
+            );
         }
     }
 
@@ -427,8 +423,7 @@ grammar:
         )
         .unwrap();
 
-        let mut registry =
-            LanguageRegistry::new().with_user_dir(tmp_dir.path().to_path_buf());
+        let mut registry = LanguageRegistry::new().with_user_dir(tmp_dir.path().to_path_buf());
         registry.register_provider(Box::new(BundledProvider::new().unwrap()));
         registry.load().await.unwrap();
 

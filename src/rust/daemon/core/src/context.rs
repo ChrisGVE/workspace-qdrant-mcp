@@ -10,8 +10,8 @@ use tokio::sync::{RwLock, Semaphore};
 use std::collections::HashMap;
 
 use crate::allowed_extensions::AllowedExtensions;
-use crate::config::IngestionLimitsConfig;
 use crate::component_detection::ComponentMap;
+use crate::config::IngestionLimitsConfig;
 use crate::document_processor::DocumentProcessor;
 use crate::embedding::EmbeddingGenerator;
 use crate::graph::{SharedGraphStore, SqliteGraphStore};

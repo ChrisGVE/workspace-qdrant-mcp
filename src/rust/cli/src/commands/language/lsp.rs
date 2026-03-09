@@ -82,12 +82,7 @@ pub async fn lsp_install(language: &str) -> Result<()> {
             println!("  {} ({})", server.name.bold(), server.binary);
             for method in &available_methods {
                 option_num += 1;
-                println!(
-                    "    {}. {} {}",
-                    option_num,
-                    "▸".green(),
-                    method.command
-                );
+                println!("    {}. {} {}", option_num, "▸".green(), method.command);
             }
             if !unavailable_methods.is_empty() {
                 for method in &unavailable_methods {
@@ -165,10 +160,7 @@ pub async fn lsp_remove(language: &str) -> Result<()> {
             }
         }
         None => {
-            output::info(format!(
-                "{} language server is not installed",
-                def.language
-            ));
+            output::info(format!("{} language server is not installed", def.language));
         }
     }
 
@@ -299,9 +291,7 @@ pub async fn lsp_search(language: &str) -> Result<()> {
     }
 
     println!();
-    output::info(format!(
-        "Install with: wqm language lsp-install {language}"
-    ));
+    output::info(format!("Install with: wqm language lsp-install {language}"));
 
     Ok(())
 }

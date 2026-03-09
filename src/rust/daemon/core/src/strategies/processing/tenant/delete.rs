@@ -395,7 +395,10 @@ async fn sqlite_cascade_delete(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, ten
                 );
             }
             Err(e) => {
-                warn!("Step {}: {} delete failed for tenant={}: {}", step, table_name, tenant_id, e);
+                warn!(
+                    "Step {}: {} delete failed for tenant={}: {}",
+                    step, table_name, tenant_id, e
+                );
             }
             _ => {}
         }

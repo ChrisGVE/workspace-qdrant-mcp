@@ -118,9 +118,11 @@ impl LanguageSourceProvider for TreeSitterGrammarsOrgProvider {
 
         loop {
             let url = format!("{}?per_page=100&page={}", self.api_url, page);
-            let response = client.get(&url).send().await.map_err(|e| {
-                DaemonError::Other(format!("GitHub API request failed: {e}"))
-            })?;
+            let response = client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| DaemonError::Other(format!("GitHub API request failed: {e}")))?;
 
             if response.status() == reqwest::StatusCode::FORBIDDEN {
                 tracing::warn!("GitHub API rate limit hit for tree-sitter-grammars org");

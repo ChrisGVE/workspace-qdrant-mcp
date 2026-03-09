@@ -131,9 +131,8 @@ impl GrammarDownloader {
         language: &str,
         version: &str,
     ) -> DownloadResult<DownloadedGrammar> {
-        let source = grammar_registry::lookup(language).ok_or_else(|| {
-            DownloadError::UnknownGrammar(language.to_string())
-        })?;
+        let source = grammar_registry::lookup(language)
+            .ok_or_else(|| DownloadError::UnknownGrammar(language.to_string()))?;
 
         // Check compiler availability
         if source.has_cpp_scanner {
@@ -160,7 +159,9 @@ impl GrammarDownloader {
         let src_dir = find_src_dir(extract_dir, source.src_subdir)?;
 
         // Compile
-        let grammar_lib = self.compile_grammar(language, &src_dir, &source, extract_dir).await?;
+        let grammar_lib = self
+            .compile_grammar(language, &src_dir, &source, extract_dir)
+            .await?;
 
         // Move to cache
         self.cache_paths.create_directories(language)?;
@@ -430,15 +431,15 @@ fn extract_tarball(bytes: &[u8], dest: &Path) -> DownloadResult<()> {
     let mut archive = Archive::new(decoder);
     // Some release tarballs omit directory entries, so we extract
     // entry-by-entry and create parent directories as needed.
-    for entry in archive.entries().map_err(|e| {
-        DownloadError::ExtractionFailed(format!("Failed to read tarball: {}", e))
-    })? {
-        let mut entry = entry.map_err(|e| {
-            DownloadError::ExtractionFailed(format!("Failed to read entry: {}", e))
-        })?;
-        let path = entry.path().map_err(|e| {
-            DownloadError::ExtractionFailed(format!("Invalid entry path: {}", e))
-        })?;
+    for entry in archive
+        .entries()
+        .map_err(|e| DownloadError::ExtractionFailed(format!("Failed to read tarball: {}", e)))?
+    {
+        let mut entry = entry
+            .map_err(|e| DownloadError::ExtractionFailed(format!("Failed to read entry: {}", e)))?;
+        let path = entry
+            .path()
+            .map_err(|e| DownloadError::ExtractionFailed(format!("Invalid entry path: {}", e)))?;
         let full_path = dest.join(&*path);
 
         if entry.header().entry_type().is_dir() {
@@ -538,7 +539,13 @@ fn compile_c_args(src: &Path, obj: &Path, include_dir: &Path) -> Vec<String> {
     let ts_include = include_dir.join("tree_sitter");
     if ts_include.exists() {
         args.push("-I".to_string());
-        args.push(include_dir.parent().unwrap_or(include_dir).to_string_lossy().to_string());
+        args.push(
+            include_dir
+                .parent()
+                .unwrap_or(include_dir)
+                .to_string_lossy()
+                .to_string(),
+        );
     }
 
     args.push("-o".to_string());
@@ -721,9 +728,7 @@ mod tests {
             let tar_file = std::fs::File::create(&tar_path).unwrap();
             let enc = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
             let mut builder = tar::Builder::new(enc);
-            builder
-                .append_dir_all("test-grammar", &src_dir)
-                .unwrap();
+            builder.append_dir_all("test-grammar", &src_dir).unwrap();
             let enc = builder.into_inner().unwrap();
             enc.finish().unwrap();
         }

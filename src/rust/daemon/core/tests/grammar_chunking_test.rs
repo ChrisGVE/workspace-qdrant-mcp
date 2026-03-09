@@ -5,10 +5,10 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use workspace_qdrant_core::config::GrammarConfig;
 use workspace_qdrant_core::tree_sitter::{
     detect_language, extract_chunks_with_provider, GrammarManager,
 };
-use workspace_qdrant_core::config::GrammarConfig;
 
 /// Test files for each bookshelf language (relative to tests/language-support/).
 const BOOKSHELF_FILES: &[(&str, &str)] = &[
@@ -54,9 +54,7 @@ async fn test_all_bookshelf_grammars_produce_semantic_chunks() {
     let base = test_base_dir();
 
     // Use system grammar cache
-    let cache_dir = dirs::home_dir()
-        .unwrap()
-        .join(".workspace-qdrant/grammars");
+    let cache_dir = dirs::home_dir().unwrap().join(".workspace-qdrant/grammars");
 
     let config = GrammarConfig {
         cache_dir,
@@ -84,12 +82,7 @@ async fn test_all_bookshelf_grammars_produce_semantic_chunks() {
         let provider = manager.create_language_provider();
         let source = std::fs::read_to_string(&file_path).unwrap();
 
-        match extract_chunks_with_provider(
-            &source,
-            &file_path,
-            4096,
-            Some(Arc::new(provider)),
-        ) {
+        match extract_chunks_with_provider(&source, &file_path, 4096, Some(Arc::new(provider))) {
             Ok(chunks) => {
                 let has_semantic = chunks.iter().any(|c| {
                     let ct = format!("{:?}", c.chunk_type);
@@ -99,11 +92,7 @@ async fn test_all_bookshelf_grammars_produce_semantic_chunks() {
                     .iter()
                     .map(|c| format!("{:?}", c.chunk_type))
                     .collect();
-                let summary = format!(
-                    "{} chunks [{}]",
-                    chunks.len(),
-                    chunk_types.join(", ")
-                );
+                let summary = format!("{} chunks [{}]", chunks.len(), chunk_types.join(", "));
                 results.push((lang, has_semantic, chunks.len(), summary));
             }
             Err(e) => {
@@ -138,7 +127,8 @@ async fn test_all_bookshelf_grammars_produce_semantic_chunks() {
         semantic_count, text_count, fail,
     ));
 
-    let text_only: Vec<_> = results.iter()
+    let text_only: Vec<_> = results
+        .iter()
         .filter(|(_, s, c, _)| !s && *c > 0)
         .map(|(l, _, _, _)| *l)
         .collect();

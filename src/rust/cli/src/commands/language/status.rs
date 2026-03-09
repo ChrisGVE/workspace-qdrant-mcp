@@ -240,7 +240,10 @@ pub async fn language_info(language: &str) -> Result<()> {
                     } else {
                         "▸".dimmed().to_string()
                     };
-                    println!("    {} {} install: {}", marker, method.manager, method.command);
+                    println!(
+                        "    {} {} install: {}",
+                        marker, method.manager, method.command
+                    );
                 }
             }
         }
@@ -273,10 +276,22 @@ pub async fn language_refresh() -> Result<()> {
         Err(e) => output::warning(format!("  Bundled provider failed: {e}")),
     }
 
-    let upstream_providers: Vec<(&str, u8, Box<dyn workspace_qdrant_core::language_registry::provider::LanguageSourceProvider>)> = vec![
+    let upstream_providers: Vec<(
+        &str,
+        u8,
+        Box<dyn workspace_qdrant_core::language_registry::provider::LanguageSourceProvider>,
+    )> = vec![
         ("GitHub Linguist", 10, Box::new(LinguistProvider::new())),
-        ("tree-sitter-grammars org", 15, Box::new(TreeSitterGrammarsOrgProvider::new())),
-        ("nvim-treesitter", 20, Box::new(NvimTreesitterProvider::new())),
+        (
+            "tree-sitter-grammars org",
+            15,
+            Box::new(TreeSitterGrammarsOrgProvider::new()),
+        ),
+        (
+            "nvim-treesitter",
+            20,
+            Box::new(NvimTreesitterProvider::new()),
+        ),
         ("mason-registry", 30, Box::new(MasonProvider::new())),
     ];
 
