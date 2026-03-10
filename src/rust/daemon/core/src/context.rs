@@ -18,6 +18,7 @@ use crate::graph::{SharedGraphStore, SqliteGraphStore};
 use crate::keyword_extraction::cooccurrence_graph::CentralityCache;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
+use crate::patterns::GitattributesOverrides;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
@@ -79,6 +80,10 @@ pub struct ProcessingContext {
     /// Languages with in-flight background grammar downloads.
     /// Prevents duplicate download spawns for the same language.
     pub pending_grammar_downloads: Arc<tokio::sync::Mutex<HashSet<String>>>,
+
+    /// Per-project `.gitattributes` overrides cache, keyed by project root path.
+    /// Lazily populated on first file processed per project.
+    pub gitattributes_cache: Arc<RwLock<HashMap<String, GitattributesOverrides>>>,
 }
 
 impl ProcessingContext {
@@ -112,6 +117,7 @@ impl ProcessingContext {
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
             pending_grammar_downloads: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
+            gitattributes_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -163,6 +169,7 @@ mod tests {
             let _ = &ctx.grammar_manager;
             let _ = &ctx.ingestion_limits;
             let _ = &ctx.pending_grammar_downloads;
+            let _ = &ctx.gitattributes_cache;
         }
     }
 }

@@ -12,9 +12,10 @@ use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
 use crate::context::ProcessingContext;
+use crate::patterns::GitattributesOverrides;
 use crate::processing_timings::{self, PhaseTiming};
 use crate::tracked_files_schema;
-use crate::tree_sitter::{detect_language, parser::LanguageProvider};
+use crate::tree_sitter::{detect_language_with_overrides, parser::LanguageProvider};
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
     DestinationStatus, FilePayload, QueueOperation, UnifiedQueueItem,
@@ -141,11 +142,13 @@ async fn run_ingest_pipeline(
 ) -> UnifiedProcessorResult<()> {
     let mut timings: Vec<PhaseTiming> = Vec::new();
 
-    // Detect language for timing records
-    let detected_language = detect_language(file_path);
+    // Detect language for timing records (with gitattributes override)
+    let overrides = get_gitattributes(ctx, base_path).await;
+    let detected_language =
+        detect_language_with_overrides(file_path, relative_path, &overrides);
 
     // Phase 0: grammar availability + Phase 1: parse
-    let provider = ensure_grammar_available(ctx, file_path).await;
+    let provider = ensure_grammar_available(ctx, file_path, relative_path, &overrides).await;
     let t0 = Instant::now();
     let document_content = ctx
         .document_processor
@@ -367,6 +370,16 @@ async fn inject_component(
         );
     }
 
+    // Invalidate gitattributes cache when .gitattributes is modified
+    if is_gitattributes_file(relative_path) {
+        let mut cache = ctx.gitattributes_cache.write().await;
+        cache.remove(base_path);
+        debug!(
+            "Invalidated gitattributes cache for {} (.gitattributes changed)",
+            base_path
+        );
+    }
+
     let component = resolve_component(ctx, pool, watch_folder_id, base_path, relative_path).await;
 
     if let Some(ref comp) = component {
@@ -430,9 +443,11 @@ async fn update_search_index(
 async fn ensure_grammar_available(
     ctx: &ProcessingContext,
     file_path: &Path,
+    relative_path: &str,
+    overrides: &GitattributesOverrides,
 ) -> Option<Arc<dyn LanguageProvider>> {
     let grammar_mgr = ctx.grammar_manager.as_ref()?;
-    let language = detect_language(file_path)?;
+    let language = detect_language_with_overrides(file_path, relative_path, overrides)?;
 
     // Fast path: read lock to check if grammar is already loaded
     {
@@ -559,10 +574,40 @@ async fn get_distinct_tenants(pool: &SqlitePool) -> Vec<String> {
         .collect()
 }
 
+/// Get or load `.gitattributes` overrides for a project root.
+///
+/// Uses the per-project cache in ProcessingContext. On cache miss, parses
+/// the `.gitattributes` file from the project root and caches the result.
+async fn get_gitattributes(
+    ctx: &ProcessingContext,
+    base_path: &str,
+) -> GitattributesOverrides {
+    // Fast path: read lock
+    {
+        let cache = ctx.gitattributes_cache.read().await;
+        if let Some(overrides) = cache.get(base_path) {
+            return overrides.clone();
+        }
+    }
+
+    // Slow path: parse and cache
+    let overrides = GitattributesOverrides::load(Path::new(base_path));
+    {
+        let mut cache = ctx.gitattributes_cache.write().await;
+        cache.insert(base_path.to_string(), overrides.clone());
+    }
+    overrides
+}
+
 /// Check if a file is a workspace definition file that triggers component re-detection.
 fn is_workspace_definition_file(relative_path: &str) -> bool {
     let filename = relative_path.rsplit('/').next().unwrap_or(relative_path);
     filename == "Cargo.toml" || filename == "package.json"
+}
+
+/// Check if a file change should invalidate the gitattributes cache.
+fn is_gitattributes_file(relative_path: &str) -> bool {
+    relative_path == ".gitattributes"
 }
 
 /// Resolve the component for a file, using the per-watch-folder cache.
