@@ -1,48 +1,50 @@
-# Handover — All Tags Complete
+# Handover
 
 ## Current State
 
-**Branch:** `main`
-**All 22 tags complete** — no pending, in-progress, or blocked tasks anywhere.
+### Completed: Ingestion Pipeline Audit (ingestion-pipeline-audit tag: 24/24 done)
 
-## What Was Done (Latest Session, 2026-03-04)
+All tasks in the `ingestion-pipeline-audit` tag are complete.
 
-### Completed Oversized Function/File Refactoring Plan
+**Recent session completed Task 16: Build automated language registry update tool**
 
-Finished the remaining items from `.claude/plans/purrfect-spinning-pillow.md`:
+Created `registry-updater` CLI tool at `src/rust/tools/registry-updater/` with:
+- `scraper.rs` — Tier-based fetching from 7 upstream sources (Linguist, ts-grammars-org, ts-wiki, nvim-treesitter, microsoft-lsp, langserver-org, mason)
+- `merger.rs` — Priority-based merge with dedup, diff, bundled merge
+- `query_parser.rs` — Parses .scm query files to bootstrap semantic patterns
+- `validator.rs` — Schema validation for generated YAML
+- `main.rs` — CLI with `--output`, `--dry-run`, `--sources`, `--current`, `--github-token`
+- `.github/workflows/update-language-registry.yml` — Monthly GitHub Action with PR creation
 
-**Commits (this session):**
-1. `1f7587257` - backfill.rs helpers (+63 -158)
-2. `4f7fe9767` - 5 test files helpers (+271 -494): stress_tests_volume, queue_taxonomy, cascade_priority, qdrant_validation_search, qdrant_validation_concurrency
-3. `2574c4ab7` - workspace.rs → workspace/mod.rs + detection.rs module split (+445 -511)
-4. `1489dd9f8` - Fix flaky cpu pressure check test (+6 -1)
+21 registry-updater tests + 2090 core tests passing.
 
-### Remaining LargeCode Violations Assessed
+**Previous sessions completed Tasks 15, 17-21:**
+- Task 15: Dynamic language registry with 44 bundled YAML languages
+- Task 17: CLI `wqm language query` and `wqm language preferences` subcommands
+- Task 18: `.gitattributes` language override support with cache in ProcessingContext
+- Task 19: GenericExtractor pattern matching (done earlier)
+- Task 20: Per-project config design (`.wqmconfig.yaml`)
+- Task 21: Updated spec 15 documentation
 
-Refreshed `tmp/largecode.csv`. All remaining Rust items are:
-- **Dead code** (feature-gated, never compiled): `test_daemon_lifecycle_functional`, `test_processing_engine_with_rust_code`, `MockQdrantServer::start`
-- **LargeCode miscounts**: `test_file_update_adds_new_lines` (reported 139, actual ~47), `test_build_options_with_values` (reported 99, actual ~21)
-- **Data/dispatch tables** (can't be meaningfully shortened): `AllowedExtensions::default` (101 lines of extensions), `print_install_instructions` (111 lines of match arms)
-- **Excluded**: patches/, benches/, tests/language-support/, tests/artifacts/
-- **Marginal files**: benchmark/search.rs (507), reconstruction.rs (502), grammar_cache.rs (502) — all well-structured with functions under 80 lines
+### Previously Completed
+- **telemetry tag**: 10/10 done (enhanced perf grouping, admin metrics)
+- **ci-fixes tag**: 5/5 done
+- **components tag**: Task 13 may still be in-progress
 
-### Fixed Pre-existing Flaky Test
-- `test_cpu_pressure_check` read actual system load (fails during heavy compilation). Replaced with deterministic boundary tests.
+## Recent Commits
 
-### Verification
-- 2003/2003 unit tests passed, 0 failures
-- Release build successful, deployed to `~/.local/bin/memexd`, daemon restarted
-- All commits pushed to remote
+1. `171e83511` — feat(tools): add registry YAML validation to registry-updater
+2. `f9dd2bfa5` — feat(tools): add registry-updater for automated language registry generation
+3. `c8da6aa28` — docs(specs): update language registry spec for Tasks 15-20
+4. `987100473` — feat(ingest): wire gitattributes overrides into detection pipeline
+5. `e0959200a` — feat(detection): add .gitattributes language override support
 
-## Completed Tags (22 total)
+## Key File References
 
-All tags fully complete (same as before).
-
-## Next Session Instructions
-
-1. All tasks across all tags are complete
-2. No open work items remain
-3. Potential future work:
-   - Deferred enhancements: `wqm language ts-search`, user-managed LSP registration
-   - 1 deferred task in `libraries-instrumentation`, 1 deferred in `spec-audit`
-4. Ask user for new requirements or create a new tag for enhancement work
+- Registry updater tool: `src/rust/tools/registry-updater/`
+- Language registry YAML: `src/rust/daemon/core/src/language_registry/language_registry.yaml`
+- Language registry providers: `src/rust/daemon/core/src/language_registry/providers/`
+- Gitattributes parser: `src/rust/daemon/core/src/patterns/gitattributes.rs`
+- Language preferences CLI: `src/rust/cli/src/commands/language/preferences.rs`
+- Language query CLI: `src/rust/cli/src/commands/language/query.rs`
+- GitHub Action: `.github/workflows/update-language-registry.yml`
