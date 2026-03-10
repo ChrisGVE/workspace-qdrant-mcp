@@ -195,6 +195,199 @@ async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
 }
 
 #[tokio::test]
+async fn test_re_lease_item_preserves_retry_count() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_re_lease.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "test-tenant",
+            "test-collection",
+            r#"{"file_path":"/test/file.rs"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Dequeue → in_progress
+    manager
+        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .await
+        .unwrap();
+
+    // Simulate one real retry (burns retry budget)
+    let _ = manager
+        .mark_unified_failed(&queue_id, "[transient_resource] real failure", false, 3)
+        .await
+        .unwrap();
+
+    // Re-lease (subsystem unavailable — must NOT burn retry budget)
+    manager.re_lease_item(&queue_id, 5).await.unwrap();
+
+    // Verify retry_count is still 1 (only the real failure counted), status is pending
+    let row = sqlx::query("SELECT status, retry_count FROM unified_queue WHERE queue_id = ?1")
+        .bind(&queue_id)
+        .fetch_one(manager.pool())
+        .await
+        .unwrap();
+    let status: String = row.try_get("status").unwrap();
+    let retry_count: i32 = row.try_get("retry_count").unwrap();
+    assert_eq!(status, "pending", "re-leased item should be pending");
+    assert_eq!(retry_count, 1, "re_lease must not increment retry_count");
+}
+
+#[tokio::test]
+async fn test_resurrect_failed_transient_resets_items() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_resurrect.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    // Enqueue two items
+    let (transient_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant-a",
+            "projects",
+            r#"{"file_path":"/a/file.rs"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let (permanent_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant-b",
+            "projects",
+            r#"{"file_path":"/b/file.rs"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Force both to failed state with different error prefixes
+    sqlx::query(
+        "UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2",
+    )
+    .bind("[transient_resource] FastEmbed init failed")
+    .bind(&transient_id)
+    .execute(manager.pool())
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2",
+    )
+    .bind("[permanent_data] bad json payload")
+    .bind(&permanent_id)
+    .execute(manager.pool())
+    .await
+    .unwrap();
+
+    // Run resurrection — only transient item should be reset
+    let count = manager.resurrect_failed_transient().await.unwrap();
+    assert_eq!(count, 1, "only the transient item should be resurrected");
+
+    let transient_row =
+        sqlx::query("SELECT status, retry_count FROM unified_queue WHERE queue_id=?1")
+            .bind(&transient_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    let status: String = transient_row.try_get("status").unwrap();
+    let retry_count: i32 = transient_row.try_get("retry_count").unwrap();
+    assert_eq!(status, "pending", "transient item should be pending");
+    assert_eq!(retry_count, 0, "retry_count should be reset to 0");
+
+    let permanent_row =
+        sqlx::query("SELECT status FROM unified_queue WHERE queue_id=?1")
+            .bind(&permanent_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    let status: String = permanent_row.try_get("status").unwrap();
+    assert_eq!(
+        status, "failed",
+        "permanent item should remain failed"
+    );
+}
+
+#[tokio::test]
+async fn test_resurrect_failed_transient_infrastructure() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_resurrect_infra.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant-x",
+            "projects",
+            r#"{"file_path":"/x/file.rs"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Transient infrastructure failure (Qdrant was down)
+    sqlx::query(
+        "UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2",
+    )
+    .bind("[transient_infrastructure] Qdrant connection refused")
+    .bind(&id)
+    .execute(manager.pool())
+    .await
+    .unwrap();
+
+    let count = manager.resurrect_failed_transient().await.unwrap();
+    assert_eq!(count, 1, "transient_infrastructure item should be resurrected");
+
+    let row = sqlx::query("SELECT status FROM unified_queue WHERE queue_id=?1")
+        .bind(&id)
+        .fetch_one(manager.pool())
+        .await
+        .unwrap();
+    let status: String = row.try_get("status").unwrap();
+    assert_eq!(status, "pending");
+}
+
+#[tokio::test]
 async fn test_unified_queue_recover_stale_leases() {
     let temp_dir = tempdir().unwrap();
     let db_path = temp_dir.path().join("test_unified_stale.db");

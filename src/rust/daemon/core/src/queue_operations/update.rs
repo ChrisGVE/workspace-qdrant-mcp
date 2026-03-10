@@ -10,6 +10,78 @@ use crate::metrics::METRICS;
 use super::{QueueError, QueueManager, QueueResult};
 
 impl QueueManager {
+    /// Re-lease a unified queue item back to pending without incrementing retry_count.
+    ///
+    /// Used when the embedding subsystem is temporarily unavailable: the item is
+    /// parked for `delay_secs` seconds without burning its retry budget.
+    pub async fn re_lease_item(&self, queue_id: &str, delay_secs: i64) -> QueueResult<()> {
+        let retry_after_str = timestamps::format_utc(
+            &(chrono::Utc::now() + ChronoDuration::seconds(delay_secs)),
+        );
+
+        let rows = sqlx::query(
+            r#"
+            UPDATE unified_queue
+            SET status = 'pending',
+                lease_until = ?1,
+                worker_id = NULL,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE queue_id = ?2
+            "#,
+        )
+        .bind(&retry_after_str)
+        .bind(queue_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+
+        if rows == 0 {
+            warn!("re_lease_item: queue item not found: {}", queue_id);
+        } else {
+            debug!(
+                "Re-leased item {} for {}s (subsystem unavailable)",
+                queue_id, delay_secs
+            );
+        }
+        Ok(())
+    }
+
+    /// Reset all failed items whose error_message indicates a transient failure
+    /// back to pending so they can be retried.
+    ///
+    /// Called periodically from the processing loop idle path (default: every hour).
+    /// Only items prefixed `[transient_` are eligible — permanent failures are left
+    /// as-is.
+    ///
+    /// Returns the number of items resurrected.
+    pub async fn resurrect_failed_transient(&self) -> QueueResult<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE unified_queue
+            SET status      = 'pending',
+                retry_count = 0,
+                lease_until = NULL,
+                worker_id   = NULL,
+                updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE status = 'failed'
+              AND error_message LIKE '[transient_%'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        let count = result.rows_affected();
+        if count > 0 {
+            info!(
+                "Resurrected {} failed transient item(s) for retry",
+                count
+            );
+        } else {
+            debug!("Resurrection pass: no transient failed items to reset");
+        }
+        Ok(count)
+    }
+
     /// Delete a unified queue item after successful processing
     ///
     /// Per docs/specs/04-write-path.md:
