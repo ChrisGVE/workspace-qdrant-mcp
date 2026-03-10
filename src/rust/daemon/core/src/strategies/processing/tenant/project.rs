@@ -14,6 +14,8 @@ use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResu
 use crate::unified_queue_schema::{ItemType, ProjectPayload, QueueOperation, UnifiedQueueItem};
 use wqm_common::constants::COLLECTION_PROJECTS;
 
+use super::grammar_warm;
+
 /// Process project item -- create/manage project collections.
 pub(crate) async fn process_project_item(
     ctx: &ProcessingContext,
@@ -71,6 +73,12 @@ async fn handle_project_add(
     let git_status = crate::git::detect_git_status(std::path::Path::new(&payload.project_root));
     insert_watch_folder(ctx, item, payload, &git_status).await?;
     enqueue_project_scan(ctx, item, payload).await;
+
+    // Spawn background grammar pre-warming for this project's languages.
+    // Non-blocking: project registration returns immediately.
+    if let Some(ref gm) = ctx.grammar_manager {
+        grammar_warm::spawn_grammar_warming(gm.clone(), payload.project_root.clone());
+    }
 
     Ok(())
 }
@@ -435,3 +443,4 @@ async fn scan_project_directory(
 
     Ok(())
 }
+

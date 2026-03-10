@@ -12,6 +12,7 @@
 
 pub(crate) mod cleanup;
 mod delete;
+mod grammar_warm;
 mod library;
 mod project;
 #[cfg(test)]
