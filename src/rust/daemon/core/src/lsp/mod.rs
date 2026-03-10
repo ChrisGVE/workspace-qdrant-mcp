@@ -181,25 +181,36 @@ impl Language {
         }
     }
 
-    /// Create language from file extension
+    /// Create language from file extension.
+    ///
+    /// Uses the language registry for extension→language mapping, then
+    /// maps the language ID to the appropriate enum variant.
     pub fn from_extension(ext: &str) -> Self {
-        match ext.to_lowercase().as_str() {
-            "py" => Language::Python,
-            "rs" => Language::Rust,
-            "ts" => Language::TypeScript,
-            "js" | "mjs" => Language::JavaScript,
+        // Use the registry-driven detect_language for extension mapping
+        let path = std::path::PathBuf::from(format!("file.{ext}"));
+        let lang_id = crate::tree_sitter::detect_language(&path)
+            .unwrap_or(ext);
+        Self::from_id(lang_id)
+    }
+
+    /// Create a Language from a language ID string.
+    pub fn from_id(id: &str) -> Self {
+        match id {
+            "python" => Language::Python,
+            "rust" => Language::Rust,
+            "typescript" | "tsx" => Language::TypeScript,
+            "javascript" => Language::JavaScript,
             "json" => Language::Json,
             "go" => Language::Go,
             "java" => Language::Java,
-            "c" | "h" => Language::C,
-            "cpp" | "cc" | "cxx" | "hpp" => Language::Cpp,
-            "rb" => Language::Ruby,
+            "c" => Language::C,
+            "cpp" => Language::Cpp,
+            "ruby" => Language::Ruby,
             "php" => Language::Php,
-            "sh" | "bash" => Language::Shell,
-            "yaml" | "yml" => Language::Yaml,
+            "bash" => Language::Shell,
+            "yaml" => Language::Yaml,
             "toml" => Language::Toml,
-            "xml" => Language::Xml,
-            "html" | "htm" => Language::Html,
+            "html" => Language::Html,
             "css" => Language::Css,
             "sql" => Language::Sql,
             other => Language::Other(other.to_string()),
