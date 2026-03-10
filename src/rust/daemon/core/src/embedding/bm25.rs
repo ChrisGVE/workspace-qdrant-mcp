@@ -69,6 +69,9 @@ pub struct BM25 {
     pub(super) doc_freq: std::collections::HashMap<u32, u32>,
     /// Total number of documents added to the corpus
     total_docs: u32,
+    /// Term IDs modified since the last persist (new terms or incremented doc_freq).
+    /// Only these need to be written to SQLite on the next persist() call.
+    pub(super) dirty_ids: std::collections::HashSet<u32>,
 }
 
 impl BM25 {
@@ -79,6 +82,7 @@ impl BM25 {
             next_vocab_id: 0,
             doc_freq: std::collections::HashMap::new(),
             total_docs: 0,
+            dirty_ids: std::collections::HashSet::new(),
         }
     }
 
@@ -96,6 +100,7 @@ impl BM25 {
             next_vocab_id,
             doc_freq,
             total_docs,
+            dirty_ids: std::collections::HashSet::new(),
         }
     }
 
@@ -118,9 +123,38 @@ impl BM25 {
         }
 
         // Increment document frequency for each unique term in this document
+        // and mark them dirty so persist() only writes what changed.
         for term_id in seen_in_doc {
             *self.doc_freq.entry(term_id).or_insert(0) += 1;
+            self.dirty_ids.insert(term_id);
         }
+    }
+
+    /// Drain the set of dirty term IDs and return their (term, term_id, doc_count) triples.
+    ///
+    /// Used by `LexiconManager::persist()` to write only the terms modified since
+    /// the last persist, instead of the entire 3M+ vocabulary.
+    pub(crate) fn take_dirty_entries(&mut self) -> Vec<(String, u32, u32)> {
+        if self.dirty_ids.is_empty() {
+            return Vec::new();
+        }
+        // Build a reverse map: term_id → term (only for dirty IDs)
+        let id_to_term: std::collections::HashMap<u32, &str> = self
+            .vocab
+            .iter()
+            .filter(|(_, &id)| self.dirty_ids.contains(&id))
+            .map(|(term, &id)| (id, term.as_str()))
+            .collect();
+
+        let mut entries = Vec::with_capacity(self.dirty_ids.len());
+        for &id in &self.dirty_ids {
+            if let Some(term) = id_to_term.get(&id) {
+                let df = self.doc_freq.get(&id).copied().unwrap_or(0);
+                entries.push(((*term).to_string(), id, df));
+            }
+        }
+        self.dirty_ids.clear();
+        entries
     }
 
     pub fn generate_sparse_vector(&self, tokens: &[String]) -> SparseEmbedding {

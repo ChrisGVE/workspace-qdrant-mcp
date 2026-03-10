@@ -108,79 +108,82 @@ impl LexiconManager {
         Ok(())
     }
 
-    /// Persist current BM25 state for a collection to SQLite.
+    /// Persist modified BM25 terms for a collection to SQLite.
     ///
-    /// Uses INSERT OR REPLACE to upsert vocabulary entries and corpus statistics.
+    /// Only writes the terms that changed since the last persist (dirty tracking),
+    /// rather than the entire vocabulary. This reduces the write volume from
+    /// O(vocab_size) to O(terms_in_last_N_docs), eliminating multi-second stalls.
     pub async fn persist(&self, collection: &str) -> Result<(), sqlx::Error> {
-        let instances = self.instances.read().await;
-        let bm25 = match instances.get(collection) {
-            Some(b) => b,
-            None => return Ok(()),
+        let (dirty_entries, total_docs) = {
+            let mut instances = self.instances.write().await;
+            let bm25 = match instances.get_mut(collection) {
+                Some(b) => b,
+                None => return Ok(()),
+            };
+            (bm25.take_dirty_entries(), bm25.total_docs())
         };
 
-        let vocab = bm25.vocab().clone();
-        let doc_freq = bm25.doc_freq().clone();
-        let total_docs = bm25.total_docs();
-        drop(instances);
-
-        let now = timestamps::now_utc();
-
-        // Batch upsert vocabulary via temp table + single INSERT...SELECT
-        let mut tx = self.pool.begin().await?;
-
-        sqlx::query(
-            "CREATE TEMP TABLE IF NOT EXISTS _vocab_batch(\
-             term_id INTEGER, term TEXT, doc_count INTEGER)",
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query("DELETE FROM _vocab_batch")
-            .execute(&mut *tx)
-            .await?;
-
-        // Batch-insert into temp table (chunks of 100 → 300 params, under 999 limit)
-        let vocab_vec: Vec<_> = vocab.iter().collect();
-        const CHUNK_SIZE: usize = 100;
-        for chunk in vocab_vec.chunks(CHUNK_SIZE) {
-            let placeholders: Vec<String> = (0..chunk.len())
-                .map(|i| format!("(?{}, ?{}, ?{})", i * 3 + 1, i * 3 + 2, i * 3 + 3))
-                .collect();
-            let sql = format!(
-                "INSERT INTO _vocab_batch(term_id, term, doc_count) VALUES {}",
-                placeholders.join(", ")
-            );
-            let mut q = sqlx::query(&sql);
-            for (term, term_id) in chunk {
-                let df = doc_freq.get(term_id).copied().unwrap_or(0);
-                q = q.bind(**term_id as i64).bind(*term).bind(df as i64);
-            }
-            q.execute(&mut *tx).await?;
+        if dirty_entries.is_empty() && total_docs == 0 {
+            return Ok(());
         }
 
-        // Update existing terms, then insert new ones (two-step upsert)
-        sqlx::query(
-            "UPDATE sparse_vocabulary SET document_count = b.doc_count \
-             FROM _vocab_batch b \
-             WHERE sparse_vocabulary.term = b.term AND sparse_vocabulary.collection = ?1",
-        )
-        .bind(collection)
-        .execute(&mut *tx)
-        .await?;
+        let now = timestamps::now_utc();
+        let mut tx = self.pool.begin().await?;
 
-        sqlx::query(
-            "INSERT OR IGNORE INTO sparse_vocabulary \
-             (term_id, term, collection, document_count, created_at) \
-             SELECT b.term_id, b.term, ?1, b.doc_count, ?2 FROM _vocab_batch b",
-        )
-        .bind(collection)
-        .bind(&now)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query("DROP TABLE IF EXISTS _vocab_batch")
+        if !dirty_entries.is_empty() {
+            sqlx::query(
+                "CREATE TEMP TABLE IF NOT EXISTS _vocab_batch(\
+                 term_id INTEGER, term TEXT, doc_count INTEGER)",
+            )
             .execute(&mut *tx)
             .await?;
+
+            sqlx::query("DELETE FROM _vocab_batch")
+                .execute(&mut *tx)
+                .await?;
+
+            // Batch-insert dirty terms into temp table (chunks of 100 → 300 params)
+            const CHUNK_SIZE: usize = 100;
+            for chunk in dirty_entries.chunks(CHUNK_SIZE) {
+                let placeholders: Vec<String> = (0..chunk.len())
+                    .map(|i| format!("(?{}, ?{}, ?{})", i * 3 + 1, i * 3 + 2, i * 3 + 3))
+                    .collect();
+                let sql = format!(
+                    "INSERT INTO _vocab_batch(term_id, term, doc_count) VALUES {}",
+                    placeholders.join(", ")
+                );
+                let mut q = sqlx::query(&sql);
+                for (term, term_id, df) in chunk {
+                    q = q.bind(*term_id as i64).bind(term).bind(*df as i64);
+                }
+                q.execute(&mut *tx).await?;
+            }
+
+            // Update existing terms (uses UNIQUE index on (term, collection))
+            sqlx::query(
+                "UPDATE sparse_vocabulary SET document_count = b.doc_count \
+                 FROM _vocab_batch b \
+                 WHERE sparse_vocabulary.term = b.term AND sparse_vocabulary.collection = ?1",
+            )
+            .bind(collection)
+            .execute(&mut *tx)
+            .await?;
+
+            // Insert new terms (those not already present)
+            sqlx::query(
+                "INSERT OR IGNORE INTO sparse_vocabulary \
+                 (term_id, term, collection, document_count, created_at) \
+                 SELECT b.term_id, b.term, ?1, b.doc_count, ?2 FROM _vocab_batch b",
+            )
+            .bind(collection)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query("DROP TABLE IF EXISTS _vocab_batch")
+                .execute(&mut *tx)
+                .await?;
+        }
 
         // Upsert corpus statistics
         sqlx::query(
@@ -202,9 +205,9 @@ impl LexiconManager {
         dirty.insert(collection.to_string(), 0);
 
         debug!(
-            "Persisted lexicon for '{}': {} terms, {} total docs",
+            "Persisted lexicon for '{}': {} dirty terms, {} total docs",
             collection,
-            vocab.len(),
+            dirty_entries.len(),
             total_docs,
         );
 

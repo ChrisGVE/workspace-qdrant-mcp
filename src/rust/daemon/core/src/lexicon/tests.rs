@@ -284,6 +284,59 @@ async fn test_generate_sparse_vector_empty_collection() {
 }
 
 #[tokio::test]
+async fn test_persist_only_writes_dirty_terms() {
+    // Verify that a second persist (after no new add_document calls) writes nothing.
+    let pool = create_test_pool().await;
+    setup_tables(&pool).await;
+
+    let mgr = LexiconManager::new(pool.clone(), 1.2);
+    mgr.add_document("projects", &["alpha".into(), "beta".into()])
+        .await
+        .unwrap();
+    mgr.persist("projects").await.unwrap();
+
+    // Snapshot row count after first persist
+    let count_after_first: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count_after_first, 2);
+
+    // Second persist with no new documents — dirty set is empty, nothing is written.
+    mgr.persist("projects").await.unwrap();
+
+    let count_after_second: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count_after_second, count_after_first,
+        "Second persist with no new docs must not alter vocabulary row count"
+    );
+
+    // Add one new term and persist — only that term should be new.
+    mgr.add_document("projects", &["gamma".into()])
+        .await
+        .unwrap();
+    mgr.persist("projects").await.unwrap();
+
+    let count_after_third: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count_after_third, 3,
+        "Third persist should add exactly one new term 'gamma'"
+    );
+}
+
+#[tokio::test]
 async fn test_cleanup_junk_terms() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
