@@ -7,9 +7,11 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
+mod health;
 pub(crate) mod helpers;
 mod list;
 mod lsp;
+mod projects;
 mod status;
 mod treesitter;
 mod warm;
@@ -132,6 +134,16 @@ enum LanguageCommand {
         force: bool,
     },
 
+    /// Compact overview of grammar and LSP status for all languages
+    Health,
+
+    /// Per-project language support gaps
+    Projects {
+        /// Show only languages with missing grammar or LSP
+        #[arg(short, long)]
+        gaps: bool,
+    },
+
     /// Refresh language registry from upstream providers
     Refresh,
 }
@@ -163,6 +175,8 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
             languages,
             force,
         } => warm::warm(project.as_deref(), languages.as_deref(), force).await,
+        LanguageCommand::Health => health::language_health().await,
+        LanguageCommand::Projects { gaps } => projects::language_projects(gaps).await,
         LanguageCommand::Refresh => status::language_refresh().await,
     }
 }
