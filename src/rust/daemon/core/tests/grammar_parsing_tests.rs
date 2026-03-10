@@ -57,7 +57,7 @@ fn test_language_detection() {
         ("test.js", Some("javascript"), true),
         ("test.ts", Some("typescript"), true),
         ("test.tsx", Some("tsx"), true),
-        ("test.jsx", Some("jsx"), true),
+        ("test.jsx", Some("javascript"), true),
         ("test.go", Some("go"), true),
         ("test.java", Some("java"), true),
         ("test.c", Some("c"), true),
@@ -163,7 +163,11 @@ fn test_known_grammar_languages_list() {
         "typescript should be in known grammars"
     );
     assert!(known.contains(&"tsx"), "tsx should be in known grammars");
-    assert!(known.contains(&"jsx"), "jsx should be in known grammars");
+    // jsx is not a separate language — .jsx files map to "javascript"
+    assert!(
+        !known.contains(&"jsx"),
+        "jsx is not a standalone grammar language"
+    );
     assert!(known.contains(&"go"), "go should be in known grammars");
     assert!(known.contains(&"java"), "java should be in known grammars");
     assert!(known.contains(&"c"), "c should be in known grammars");
