@@ -4,10 +4,15 @@ use fastembed::{
     EmbeddingModel, InitOptions, SparseInitOptions, SparseModel, SparseTextEmbedding, TextEmbedding,
 };
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, warn};
+
+/// Exponential backoff schedule (seconds) for failed init attempts.
+/// Indexed by `init_failure_count - 1`, capped at the last entry.
+const INIT_BACKOFF_SECS: &[u64] = &[30, 60, 120, 300, 600];
 
 use super::bm25::{tokenize_for_bm25, BM25};
 use super::types::{
@@ -25,6 +30,10 @@ pub struct EmbeddingGenerator {
     model_cache_dir: Option<PathBuf>,
     /// SPLADE++ sparse embedding model (lazy-initialized)
     splade_model: Arc<Mutex<Option<SparseTextEmbedding>>>,
+    /// Timestamp of the last failed initialization attempt (None = never failed)
+    last_failed_init: Arc<Mutex<Option<Instant>>>,
+    /// Number of consecutive initialization failures
+    init_failure_count: Arc<AtomicU32>,
 }
 
 impl std::fmt::Debug for EmbeddingGenerator {
@@ -50,13 +59,37 @@ impl EmbeddingGenerator {
             initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             model_cache_dir,
             splade_model: Arc::new(Mutex::new(None)),
+            last_failed_init: Arc::new(Mutex::new(None)),
+            init_failure_count: Arc::new(AtomicU32::new(0)),
         })
     }
 
-    /// Initialize the embedding model (lazy initialization)
+    /// Initialize the embedding model (lazy initialization with backoff).
+    ///
+    /// If a previous initialization attempt failed, subsequent calls are rate-limited
+    /// using an exponential backoff schedule (`INIT_BACKOFF_SECS`). While within the
+    /// backoff window, returns `EmbeddingError::TemporarilyUnavailable` so the caller
+    /// can re-lease the queue item without burning its retry budget.
     async fn ensure_initialized(&self) -> Result<(), EmbeddingError> {
         if self.initialized.load(std::sync::atomic::Ordering::SeqCst) {
             return Ok(());
+        }
+
+        // Check backoff window before attempting initialization.
+        let failure_count = self
+            .init_failure_count
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if failure_count > 0 {
+            let last_failed = self.last_failed_init.lock().await;
+            if let Some(last_attempt) = *last_failed {
+                let backoff_idx = (failure_count as usize - 1).min(INIT_BACKOFF_SECS.len() - 1);
+                let backoff = INIT_BACKOFF_SECS[backoff_idx];
+                let elapsed = last_attempt.elapsed().as_secs();
+                if elapsed < backoff {
+                    let retry_after = backoff - elapsed;
+                    return Err(EmbeddingError::TemporarilyUnavailable { retry_after_secs: retry_after });
+                }
+            }
         }
 
         let mut model_guard = self.model.lock().await;
@@ -83,17 +116,48 @@ impl EmbeddingGenerator {
             info!("Initializing FastEmbed model (all-MiniLM-L6-v2) with default cache dir...");
         }
 
-        let model = TextEmbedding::try_new(init_options).map_err(|e| {
-            EmbeddingError::InitializationError {
-                message: format!("Failed to initialize FastEmbed: {}", e),
+        match TextEmbedding::try_new(init_options) {
+            Ok(model) => {
+                *model_guard = Some(model);
+                self.initialized
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                // Reset failure tracking on success
+                self.init_failure_count
+                    .store(0, std::sync::atomic::Ordering::SeqCst);
+                *self.last_failed_init.lock().await = None;
+                info!("FastEmbed model initialized successfully");
+                Ok(())
             }
-        })?;
+            Err(e) => {
+                let new_count = self
+                    .init_failure_count
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    + 1;
+                *self.last_failed_init.lock().await = Some(Instant::now());
+                let backoff_idx = (new_count as usize - 1).min(INIT_BACKOFF_SECS.len() - 1);
+                let next_retry = INIT_BACKOFF_SECS[backoff_idx];
+                warn!(
+                    failure_count = new_count,
+                    next_retry_secs = next_retry,
+                    "FastEmbed initialization failed (attempt {}), next retry in {}s: {}",
+                    new_count, next_retry, e
+                );
+                Err(EmbeddingError::InitializationError {
+                    message: format!("Failed to initialize FastEmbed: {}", e),
+                })
+            }
+        }
+    }
 
-        *model_guard = Some(model);
-        self.initialized
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        info!("FastEmbed model initialized successfully");
-        Ok(())
+    /// Returns true if the embedding subsystem is currently available.
+    pub fn is_available(&self) -> bool {
+        self.initialized.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Returns the number of consecutive initialization failures.
+    pub fn init_failure_count(&self) -> u32 {
+        self.init_failure_count
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub async fn initialize_model(&self, _model_name: &str) -> Result<(), EmbeddingError> {

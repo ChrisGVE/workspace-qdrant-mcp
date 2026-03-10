@@ -18,6 +18,12 @@ pub enum EmbeddingError {
 
     #[error("Invalid input: {message}")]
     InvalidInput { message: String },
+
+    /// Embedding subsystem is temporarily unavailable (within backoff window after
+    /// a failed init). The caller should not count this against the item's retry
+    /// budget — just re-lease the item for later.
+    #[error("Embedding subsystem temporarily unavailable, retry after {retry_after_secs}s")]
+    TemporarilyUnavailable { retry_after_secs: u64 },
 }
 
 /// Configuration for embedding generation

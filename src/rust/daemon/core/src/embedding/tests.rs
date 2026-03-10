@@ -2,7 +2,7 @@
 
 use super::bm25::{tokenize_for_bm25, BM25};
 use super::generator::EmbeddingGenerator;
-use super::types::{EmbeddingConfig, SparseEmbedding};
+use super::types::{EmbeddingConfig, EmbeddingError, SparseEmbedding};
 
 #[test]
 fn test_tokenize_for_bm25_splits_punctuation() {
@@ -254,6 +254,29 @@ fn test_embedding_generator_sparse_mode_accessor() {
     };
     let gen = EmbeddingGenerator::new(config).unwrap();
     assert_eq!(gen.sparse_vector_mode(), "splade");
+}
+
+#[test]
+fn test_embedding_generator_initially_unavailable() {
+    let gen = EmbeddingGenerator::new(EmbeddingConfig::default()).unwrap();
+    // A freshly created generator has not yet tried to init — is_available is false,
+    // failure count is 0, and no backoff is in effect.
+    assert!(!gen.is_available());
+    assert_eq!(gen.init_failure_count(), 0);
+}
+
+#[test]
+fn test_temporarily_unavailable_error_display() {
+    let err = EmbeddingError::TemporarilyUnavailable { retry_after_secs: 120 };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("120"),
+        "Error message should contain retry_after_secs: {msg}"
+    );
+    assert!(
+        msg.to_lowercase().contains("unavailable"),
+        "Error message should mention 'unavailable': {msg}"
+    );
 }
 
 #[test]
