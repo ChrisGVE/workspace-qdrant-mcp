@@ -197,7 +197,7 @@ impl LanguageRegistry {
     /// Load semantic patterns from providers that have full definitions.
     ///
     /// Standard provider methods return flat entries (LanguageEntry, GrammarEntry,
-    /// LspEntry). Providers with `full_definitions()` (like BundledProvider) can
+    /// LspEntry). Providers with `full_definitions()` (like RegistryProvider) can
     /// also contribute semantic_patterns, which the merge loop doesn't cover.
     fn load_full_definition_extras(&self, merged: &mut LanguageMap) {
         // Apply in reverse priority order so higher-priority providers win
@@ -338,13 +338,13 @@ impl LanguageRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::language_registry::providers::bundled::BundledProvider;
+    use crate::language_registry::providers::registry::RegistryProvider;
     use crate::language_registry::types::GrammarQuality;
 
     #[tokio::test]
     async fn test_registry_loads_bundled() {
         let mut registry = LanguageRegistry::new();
-        let bundled = BundledProvider::new().unwrap();
+        let bundled = RegistryProvider::new().unwrap();
         registry.register_provider(Box::new(bundled));
 
         registry.load().await.unwrap();
@@ -355,7 +355,7 @@ mod tests {
     #[tokio::test]
     async fn test_registry_get_by_id() {
         let mut registry = LanguageRegistry::new();
-        registry.register_provider(Box::new(BundledProvider::new().unwrap()));
+        registry.register_provider(Box::new(RegistryProvider::new().unwrap()));
         registry.load().await.unwrap();
 
         let rust = registry.get("rust").await;
@@ -367,7 +367,7 @@ mod tests {
     #[tokio::test]
     async fn test_registry_get_by_alias() {
         let mut registry = LanguageRegistry::new();
-        registry.register_provider(Box::new(BundledProvider::new().unwrap()));
+        registry.register_provider(Box::new(RegistryProvider::new().unwrap()));
         registry.load().await.unwrap();
 
         // "py" is an alias for python
@@ -378,7 +378,7 @@ mod tests {
     #[tokio::test]
     async fn test_registry_unknown_language() {
         let mut registry = LanguageRegistry::new();
-        registry.register_provider(Box::new(BundledProvider::new().unwrap()));
+        registry.register_provider(Box::new(RegistryProvider::new().unwrap()));
         registry.load().await.unwrap();
 
         let unknown = registry.get("brainfuck").await;
@@ -388,7 +388,7 @@ mod tests {
     #[tokio::test]
     async fn test_grammar_sources_sorted_by_quality() {
         let mut registry = LanguageRegistry::new();
-        registry.register_provider(Box::new(BundledProvider::new().unwrap()));
+        registry.register_provider(Box::new(RegistryProvider::new().unwrap()));
         registry.load().await.unwrap();
 
         let languages = registry.all().await;
@@ -424,7 +424,7 @@ grammar:
         .unwrap();
 
         let mut registry = LanguageRegistry::new().with_user_dir(tmp_dir.path().to_path_buf());
-        registry.register_provider(Box::new(BundledProvider::new().unwrap()));
+        registry.register_provider(Box::new(RegistryProvider::new().unwrap()));
         registry.load().await.unwrap();
 
         let test_lang = registry.get("test-lang").await;
@@ -435,7 +435,7 @@ grammar:
     #[tokio::test]
     async fn test_languages_with_grammars() {
         let mut registry = LanguageRegistry::new();
-        registry.register_provider(Box::new(BundledProvider::new().unwrap()));
+        registry.register_provider(Box::new(RegistryProvider::new().unwrap()));
         registry.load().await.unwrap();
 
         let with_grammars = registry.languages_with_grammars().await;

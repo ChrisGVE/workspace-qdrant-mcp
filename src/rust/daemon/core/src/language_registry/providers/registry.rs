@@ -1,6 +1,6 @@
-//! Bundled default language registry provider.
+//! Language registry provider — single source of truth.
 //!
-//! Embeds language definitions at compile time as a YAML resource.
+//! Embeds language definitions at compile time from `language_registry.yaml`.
 //! This provider serves as the offline fallback when no network
 //! providers are available.
 
@@ -13,19 +13,19 @@ use crate::language_registry::types::{
 };
 use crate::language_registry::LanguageDefinition;
 
-const BUNDLED_YAML: &str = include_str!("../bundled_languages.yaml");
+const REGISTRY_YAML: &str = include_str!("../language_registry.yaml");
 
-/// Provider that loads language definitions from the bundled YAML resource.
+/// Provider that loads language definitions from the embedded registry YAML.
 ///
 /// This provider has the lowest priority (255) and serves as the offline
 /// fallback when no network-based providers are available. All 44 known
 /// language grammars are included, with semantic patterns for the 25
 /// languages that have dedicated extractors.
-pub struct BundledProvider {
+pub struct RegistryProvider {
     definitions: Vec<LanguageDefinition>,
 }
 
-impl BundledProvider {
+impl RegistryProvider {
     /// Create a new bundled provider by parsing the embedded YAML.
     ///
     /// # Errors
@@ -34,7 +34,7 @@ impl BundledProvider {
     /// This should never happen in practice since the YAML is validated
     /// at test time.
     pub fn new() -> Result<Self, DaemonError> {
-        let definitions: Vec<LanguageDefinition> = serde_yaml_ng::from_str(BUNDLED_YAML)
+        let definitions: Vec<LanguageDefinition> = serde_yaml_ng::from_str(REGISTRY_YAML)
             .map_err(|e| DaemonError::Other(format!("Failed to parse bundled languages: {e}")))?;
         Ok(Self { definitions })
     }
@@ -46,9 +46,9 @@ impl BundledProvider {
 }
 
 #[async_trait]
-impl LanguageSourceProvider for BundledProvider {
+impl LanguageSourceProvider for RegistryProvider {
     fn name(&self) -> &str {
-        "bundled"
+        "registry"
     }
 
     fn priority(&self) -> u8 {
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_bundled_yaml_parses() {
-        let provider = BundledProvider::new().expect("bundled YAML should parse");
+        let provider = RegistryProvider::new().expect("bundled YAML should parse");
         assert!(
             provider.definitions.len() > 40,
             "expected > 40 languages, got {}",
@@ -139,7 +139,7 @@ mod tests {
 
     #[test]
     fn test_all_44_languages_present() {
-        let provider = BundledProvider::new().unwrap();
+        let provider = RegistryProvider::new().unwrap();
         let ids: Vec<String> = provider.definitions.iter().map(|d| d.id()).collect();
 
         let expected = [
@@ -200,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bundled_languages_cover_known_grammars() {
-        let provider = BundledProvider::new().unwrap();
+        let provider = RegistryProvider::new().unwrap();
         let languages = provider.fetch_languages().await.unwrap();
         let ids: Vec<&str> = languages.iter().map(|l| l.id.as_str()).collect();
         assert!(ids.contains(&"rust"));
@@ -210,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bundled_grammars() {
-        let provider = BundledProvider::new().unwrap();
+        let provider = RegistryProvider::new().unwrap();
         let grammars = provider.fetch_grammars().await.unwrap();
         assert!(
             grammars.len() >= 44,
@@ -223,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bundled_lsp_servers() {
-        let provider = BundledProvider::new().unwrap();
+        let provider = RegistryProvider::new().unwrap();
         let servers = provider.fetch_lsp_servers().await.unwrap();
 
         // We have LSP entries for: python, rust, javascript, typescript, tsx,
@@ -244,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bundled_refresh() {
-        let provider = BundledProvider::new().unwrap();
+        let provider = RegistryProvider::new().unwrap();
         let data = provider.refresh().await.unwrap();
 
         assert!(!data.languages.is_empty());
@@ -254,8 +254,8 @@ mod tests {
 
     #[test]
     fn test_provider_metadata() {
-        let provider = BundledProvider::new().unwrap();
-        assert_eq!(provider.name(), "bundled");
+        let provider = RegistryProvider::new().unwrap();
+        assert_eq!(provider.name(), "registry");
         assert_eq!(provider.priority(), 255);
         assert!(provider.last_updated().is_none());
         assert!(provider.is_enabled());
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_semantic_patterns_present_for_extractors() {
-        let provider = BundledProvider::new().unwrap();
+        let provider = RegistryProvider::new().unwrap();
 
         let languages_with_patterns = [
             "python",
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_grammar_quality_tiers() {
-        let provider = BundledProvider::new().unwrap();
+        let provider = RegistryProvider::new().unwrap();
 
         // Official grammars (tree-sitter org)
         let rust_def = provider

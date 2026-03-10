@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::language_registry::providers::bundled::BundledProvider;
+use workspace_qdrant_core::language_registry::providers::registry::RegistryProvider;
 use workspace_qdrant_core::tree_sitter::{extract_chunks_with_provider, GrammarManager};
 
 /// Bookshelf languages and their representative source files.
@@ -76,7 +76,7 @@ fn test_base_dir() -> std::path::PathBuf {
 /// Load bundled YAML patterns keyed by language id.
 fn load_bundled_patterns() -> HashMap<String, bool> {
     let mut map = HashMap::new();
-    match BundledProvider::new() {
+    match RegistryProvider::new() {
         Ok(provider) => {
             for def in provider.definitions() {
                 let has = def.semantic_patterns.is_some();

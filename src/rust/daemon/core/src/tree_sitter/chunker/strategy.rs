@@ -9,17 +9,17 @@ use std::sync::OnceLock;
 
 use tree_sitter::Language;
 
-use crate::language_registry::providers::bundled::BundledProvider;
+use crate::language_registry::providers::registry::RegistryProvider;
 use crate::language_registry::types::SemanticPatterns;
 use crate::tree_sitter::chunker::generic_extractor::GenericExtractor;
 use crate::tree_sitter::parser::LanguageProvider;
 use crate::tree_sitter::types::ChunkExtractor;
 
-/// Lazily loaded semantic patterns from the bundled YAML registry.
-fn bundled_patterns() -> &'static HashMap<String, SemanticPatterns> {
+/// Lazily loaded semantic patterns from the language registry YAML.
+fn registry_patterns() -> &'static HashMap<String, SemanticPatterns> {
     static PATTERNS: OnceLock<HashMap<String, SemanticPatterns>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
-        let provider = match BundledProvider::new() {
+        let provider = match RegistryProvider::new() {
             Ok(p) => p,
             Err(e) => {
                 tracing::warn!("Failed to load bundled language definitions: {e}");
@@ -46,7 +46,7 @@ pub(super) fn create_extractor(
     dynamic_lang: Option<Language>,
 ) -> Option<Box<dyn ChunkExtractor>> {
     let lang = dynamic_lang?;
-    let patterns = bundled_patterns().get(language)?;
+    let patterns = registry_patterns().get(language)?;
     Some(Box::new(GenericExtractor::new(
         language,
         lang,

@@ -1,6 +1,6 @@
 //! Shared helper functions for language command submodules
 
-use workspace_qdrant_core::language_registry::providers::bundled::BundledProvider;
+use workspace_qdrant_core::language_registry::providers::registry::RegistryProvider;
 use workspace_qdrant_core::language_registry::types::LanguageDefinition;
 use workspace_qdrant_core::lsp::detection::editor_paths::{
     find_lsp_binary, DetectionSource, LspDetectionResult,
@@ -8,7 +8,7 @@ use workspace_qdrant_core::lsp::detection::editor_paths::{
 
 /// Load all language definitions from the bundled registry.
 pub fn load_definitions() -> Vec<LanguageDefinition> {
-    match BundledProvider::new() {
+    match RegistryProvider::new() {
         Ok(p) => p.definitions().to_vec(),
         Err(e) => {
             eprintln!("Warning: failed to load language registry: {e}");

@@ -51,13 +51,13 @@ pub trait LanguageSourceProvider: Send + Sync {
 
 | Provider | Priority | Source | Data |
 | --- | --- | --- | --- |
-| **BundledProvider** | 255 | Embedded YAML (compile-time) | Full definitions: identity, grammar, patterns, LSP |
+| **RegistryProvider** | 255 | Embedded YAML (compile-time) | Full definitions: identity, grammar, patterns, LSP |
 | **MasonProvider** | 30 | mason-registry/registry.json | LSP server metadata with install methods |
 | **NvimTreesitterProvider** | 20 | nvim-treesitter/lockfile.json | Grammar-to-repo mappings (200+ languages) |
 | **TreeSitterGrammarsOrgProvider** | 15 | GitHub tree-sitter-grammars org | Curated grammar repos |
 | **LinguistProvider** | 10 | GitHub Linguist languages.yml | Language identity (name, extensions, aliases, type) |
 
-**Merge strategy:** Providers are loaded in reverse priority order (lowest first). Higher-priority providers overwrite identity fields. Grammar sources and LSP servers are deduplicated and accumulated. Semantic patterns come only from providers with `full_definitions()` (currently: BundledProvider).
+**Merge strategy:** Providers are loaded in reverse priority order (lowest first). Higher-priority providers overwrite identity fields. Grammar sources and LSP servers are deduplicated and accumulated. Semantic patterns come only from providers with `full_definitions()` (currently: RegistryProvider).
 
 ### YAML Schema
 
@@ -168,7 +168,7 @@ To add support for a new language (e.g., COBOL):
 
 1. Create `assets/languages/cobol.yaml` with the schema above
 2. Define file extensions, grammar repo, and semantic patterns
-3. Rebuild — the `BundledProvider` embeds the YAML at compile time
+3. Rebuild — the `RegistryProvider` embeds the YAML at compile time
 4. No Rust code changes required
 
 For user-local additions without rebuilding, place YAML files in `~/.workspace-qdrant/languages/`. These take highest precedence and override bundled definitions.

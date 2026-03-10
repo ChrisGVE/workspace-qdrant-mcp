@@ -14,7 +14,7 @@
 //!   ├── NvimTreesitterProvider (grammar repos)
 //!   ├── TreeSitterGrammarsOrgProvider (curated grammars)
 //!   ├── MasonProvider         (LSP servers)
-//!   └── BundledProvider       (offline fallback)
+//!   └── RegistryProvider      (offline fallback)
 //!         │
 //!         v
 //!   LanguageRegistry (merge + cache)
@@ -42,7 +42,7 @@ pub use intelligence_provider::{
     Capability, CodeIntelligenceProvider, EnrichedSymbols, SymbolReference, SymbolTypeInfo,
 };
 pub use provider::{LanguageSourceProvider, ProviderConfig};
-pub use providers::bundled::BundledProvider;
+pub use providers::registry::RegistryProvider;
 pub use registry::LanguageRegistry;
 pub use syntax_provider::SyntaxProvider;
 pub use types::{

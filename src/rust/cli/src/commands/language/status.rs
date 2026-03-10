@@ -254,7 +254,7 @@ pub async fn language_info(language: &str) -> Result<()> {
 
 /// Refresh language registry from upstream providers.
 pub async fn language_refresh() -> Result<()> {
-    use workspace_qdrant_core::language_registry::providers::bundled::BundledProvider;
+    use workspace_qdrant_core::language_registry::providers::registry::RegistryProvider;
     use workspace_qdrant_core::language_registry::providers::linguist::LinguistProvider;
     use workspace_qdrant_core::language_registry::providers::mason::MasonProvider;
     use workspace_qdrant_core::language_registry::providers::nvim_treesitter::NvimTreesitterProvider;
@@ -268,7 +268,7 @@ pub async fn language_refresh() -> Result<()> {
     // Register all providers
     output::info("Registering providers...");
 
-    match BundledProvider::new() {
+    match RegistryProvider::new() {
         Ok(bundled) => {
             output::info("  Bundled definitions (priority 255, offline)");
             registry.register_provider(Box::new(bundled));

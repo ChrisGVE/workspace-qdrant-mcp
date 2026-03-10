@@ -3,7 +3,7 @@
 //! Each provider implements `LanguageSourceProvider` to fetch language
 //! metadata from a specific upstream source of truth.
 
-pub mod bundled;
+pub mod registry;
 pub mod linguist;
 pub mod mason;
 pub mod nvim_treesitter;
