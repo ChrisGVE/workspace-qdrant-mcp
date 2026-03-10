@@ -72,7 +72,15 @@ pub(super) async fn embed_chunks(
             .embedding_generator
             .generate_embedding(&chunk.content, "bge-small-en-v1.5")
             .await
-            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+            .map_err(|e| {
+                use crate::embedding::EmbeddingError;
+                match e {
+                    EmbeddingError::TemporarilyUnavailable { .. } => {
+                        UnifiedProcessorError::EmbeddingUnavailable(e.to_string())
+                    }
+                    _ => UnifiedProcessorError::Embedding(e.to_string()),
+                }
+            })?;
         drop(_permit);
 
         let mut point_payload = build_chunk_payload(
