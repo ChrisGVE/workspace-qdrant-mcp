@@ -15,6 +15,7 @@
 mod merger;
 mod query_parser;
 mod scraper;
+mod validator;
 
 use std::path::PathBuf;
 
@@ -100,7 +101,21 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Phase 4: Output
+    // Phase 4: Validate
+    let issues = validator::validate_definitions(&merged);
+    let errors: Vec<_> = issues
+        .iter()
+        .filter(|i| i.severity == validator::Severity::Error)
+        .collect();
+    if !errors.is_empty() {
+        validator::print_report(&issues);
+        anyhow::bail!("{} validation errors found", errors.len());
+    }
+    if !issues.is_empty() {
+        validator::print_report(&issues);
+    }
+
+    // Phase 5: Output
     if cli.dry_run {
         print_summary(&merged);
     } else {
