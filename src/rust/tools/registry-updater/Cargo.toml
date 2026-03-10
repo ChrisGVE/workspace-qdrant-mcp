@@ -1,0 +1,38 @@
+[package]
+name = "registry-updater"
+version = "0.1.0"
+edition = "2021"
+description = "Automated language registry updater — scrapes upstream sources and generates bundled_languages.yaml"
+
+[[bin]]
+name = "registry-updater"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# HTTP
+reqwest = { version = "0.12", features = ["json"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Error handling
+anyhow = "1"
+
+# Core types (LanguageDefinition, provider types, merge logic)
+workspace-qdrant-core = { path = "../../daemon/core" }
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"

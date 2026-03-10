@@ -15,6 +15,7 @@ members = [
     "daemon/grpc",
     "daemon/memexd",
     "daemon/shared-test-utils",
+    "tools/registry-updater",
 ]
 
 # Release profile: optimized for size and performance
