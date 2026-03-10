@@ -672,15 +672,51 @@ fn std_error(values: &[i64]) -> f64 {
     variance.sqrt() / (n as f64).sqrt()
 }
 
-/// Format avg ± std_err for table display.
-/// Returns a fixed-width string with right-aligned content.
-fn format_avg_with_uncertainty(avg: f64, std_err: f64, count: i64) -> String {
+/// Split avg ± std_err into (value_str, Option<error_str>) for table alignment.
+///
+/// Returns the value and, when the error is meaningful, the error as separate
+/// strings so the caller can right-align them in independent sub-columns.
+fn avg_uncertainty_parts(avg: f64, std_err: f64, count: i64) -> (String, Option<String>) {
     if count < 2 {
-        format!("{}~", fmt_thousands_f(avg))
+        (format!("{}~", fmt_thousands_f(avg)), None)
     } else if std_err < 1.0 {
-        fmt_thousands_f(avg)
+        (fmt_thousands_f(avg), None)
     } else {
-        format!("{}±{}", fmt_thousands_f(avg), fmt_thousands_f(std_err))
+        (fmt_thousands_f(avg), Some(fmt_thousands_f(std_err)))
+    }
+}
+
+/// Render a pre-aligned avg cell as three logical sub-columns:
+///   `<right-aligned value> ± <right-aligned error>`
+///
+/// When `err_width == 0` (no row in this table has an error term) the cell is
+/// just the right-aligned value.  When the current row has no error but other
+/// rows do, the ` ± ` separator is replaced by spaces so columns stay aligned.
+fn format_avg_cols(
+    parts: &(String, Option<String>),
+    val_width: usize,
+    err_width: usize,
+) -> String {
+    let (value, error) = parts;
+    if err_width == 0 {
+        format!("{:>vw$}", value, vw = val_width)
+    } else {
+        match error {
+            Some(err) => format!(
+                "{:>vw$} \u{00b1} {:>ew$}",
+                value,
+                err,
+                vw = val_width,
+                ew = err_width
+            ),
+            None => format!(
+                "{:>vw$}   {:>ew$}",
+                value,
+                "",
+                vw = val_width,
+                ew = err_width
+            ),
+        }
     }
 }
 
@@ -703,12 +739,24 @@ fn print_table_grouped(
         .max(label.len())
         .min(30);
 
-    // Pre-format all avg columns to find max width for alignment
-    let avg_strs: Vec<String> = stats
+    // Split avg into (value, Option<error>) for independent sub-column alignment
+    let avg_parts: Vec<(String, Option<String>)> = stats
         .iter()
-        .map(|s| format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count))
+        .map(|s| avg_uncertainty_parts(s.avg_ms, s.std_err, s.count))
         .collect();
-    let avg_width = avg_strs.iter().map(|s| s.len()).max().unwrap_or(10).max(7);
+    let val_width = avg_parts
+        .iter()
+        .map(|(v, _)| v.len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
+    let err_width = avg_parts
+        .iter()
+        .filter_map(|(_, e)| e.as_ref())
+        .map(|e| e.len())
+        .max()
+        .unwrap_or(0);
+    let avg_col_width = val_width + if err_width > 0 { 3 + err_width } else { 0 };
 
     println!(
         "  {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
@@ -719,25 +767,21 @@ fn print_table_grouped(
         "P95(ms)",
         "P99(ms)",
         width = max_key_len,
-        avg_w = avg_width,
+        avg_w = avg_col_width,
     );
-    println!(
-        "  {}",
-        "-".repeat(max_key_len + avg_width + 38)
-    );
+    println!("  {}", "-".repeat(max_key_len + avg_col_width + 38));
 
     for (i, s) in stats.iter().enumerate() {
         let key = truncate_key(&s.group_key, 30);
         println!(
-            "  {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
+            "  {:<width$} {:>8} {} {:>8} {:>8} {:>8}",
             key,
             fmt_thousands(s.count),
-            avg_strs[i],
+            format_avg_cols(&avg_parts[i], val_width, err_width),
             fmt_thousands_f(s.p50_ms),
             fmt_thousands_f(s.p95_ms),
             fmt_thousands_f(s.p99_ms),
             width = max_key_len,
-            avg_w = avg_width,
         );
     }
 
@@ -763,12 +807,24 @@ fn print_table_two_level(
         .min(24);
 
     for (group_name, sub_stats) in stats {
-        // Pre-format avg column for this group
-        let avg_strs: Vec<String> = sub_stats
+        // Split avg into (value, Option<error>) for independent sub-column alignment
+        let avg_parts: Vec<(String, Option<String>)> = sub_stats
             .iter()
-            .map(|s| format_avg_with_uncertainty(s.avg_ms, s.std_err, s.count))
+            .map(|s| avg_uncertainty_parts(s.avg_ms, s.std_err, s.count))
             .collect();
-        let avg_width = avg_strs.iter().map(|s| s.len()).max().unwrap_or(10).max(7);
+        let val_width = avg_parts
+            .iter()
+            .map(|(v, _)| v.len())
+            .max()
+            .unwrap_or(7)
+            .max(7);
+        let err_width = avg_parts
+            .iter()
+            .filter_map(|(_, e)| e.as_ref())
+            .map(|e| e.len())
+            .max()
+            .unwrap_or(0);
+        let avg_col_width = val_width + if err_width > 0 { 3 + err_width } else { 0 };
 
         println!();
         println!("  {} {}", label1, group_name);
@@ -781,25 +837,21 @@ fn print_table_two_level(
             "P95(ms)",
             "P99(ms)",
             width = max_key2_len,
-            avg_w = avg_width,
+            avg_w = avg_col_width,
         );
-        println!(
-            "    {}",
-            "-".repeat(max_key2_len + avg_width + 38)
-        );
+        println!("    {}", "-".repeat(max_key2_len + avg_col_width + 38));
 
         for (i, s) in sub_stats.iter().enumerate() {
             let key = truncate_key(&s.group_key, 24);
             println!(
-                "    {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
+                "    {:<width$} {:>8} {} {:>8} {:>8} {:>8}",
                 key,
                 fmt_thousands(s.count),
-                avg_strs[i],
+                format_avg_cols(&avg_parts[i], val_width, err_width),
                 fmt_thousands_f(s.p50_ms),
                 fmt_thousands_f(s.p95_ms),
                 fmt_thousands_f(s.p99_ms),
                 width = max_key2_len,
-                avg_w = avg_width,
             );
         }
     }
@@ -945,24 +997,47 @@ mod tests {
     }
 
     #[test]
-    fn test_format_avg_low_count() {
-        let s = format_avg_with_uncertainty(42.0, 0.0, 1);
-        assert!(s.contains("42"), "low count: {}", s);
-        assert!(s.contains("~"), "low count should have ~: {}", s);
+    fn test_avg_parts_low_count() {
+        let (val, err) = avg_uncertainty_parts(42.0, 0.0, 1);
+        assert!(val.contains("42"), "low count value: {}", val);
+        assert!(val.contains("~"), "low count should have ~: {}", val);
+        assert!(err.is_none(), "low count should have no error term");
     }
 
     #[test]
-    fn test_format_avg_low_stderr() {
-        let s = format_avg_with_uncertainty(42.0, 0.3, 100);
-        assert_eq!(s, "42");
+    fn test_avg_parts_low_stderr() {
+        let (val, err) = avg_uncertainty_parts(42.0, 0.3, 100);
+        assert_eq!(val, "42");
+        assert!(err.is_none(), "sub-1 stderr should produce no error term");
     }
 
     #[test]
-    fn test_format_avg_with_uncertainty_display() {
-        let s = format_avg_with_uncertainty(3168.0, 340.0, 50);
-        assert!(s.contains("3'168"), "should have thousands sep: {}", s);
-        assert!(s.contains("±"), "should have ±: {}", s);
-        assert!(s.contains("340"), "should show margin: {}", s);
+    fn test_avg_parts_with_uncertainty() {
+        let (val, err) = avg_uncertainty_parts(3168.0, 340.0, 50);
+        assert!(val.contains("3'168"), "should have thousands sep: {}", val);
+        assert_eq!(err.as_deref(), Some("340"), "error term: {:?}", err);
+    }
+
+    #[test]
+    fn test_format_avg_cols_alignment() {
+        // Both rows have an error term — three sub-columns
+        let with_err = (String::from("1'448"), Some(String::from("33")));
+        let no_err = (String::from("28"), None);
+        let val_w = 5;
+        let err_w = 2;
+        let s_with = format_avg_cols(&with_err, val_w, err_w);
+        let s_none = format_avg_cols(&no_err, val_w, err_w);
+        // Both strings must be the same display width (compare char count, not bytes;
+        // ± is 2 bytes but 1 display column).
+        assert_eq!(
+            s_with.chars().count(),
+            s_none.chars().count(),
+            "cells must have equal display width: {:?} vs {:?}",
+            s_with,
+            s_none
+        );
+        assert!(s_with.contains('±'), "error row should contain ±");
+        assert!(!s_none.contains('±'), "no-error row must not contain ±");
     }
 
     #[test]
