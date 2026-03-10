@@ -29,6 +29,40 @@ impl LexiconManager {
         }
     }
 
+    /// Batch document-frequency lookup for a set of terms.
+    ///
+    /// Acquires the read lock once for all terms instead of once per term,
+    /// eliminating the N async-lock overhead of calling `document_frequency` in a loop.
+    /// Returns a map from term → document_count (absent = 0).
+    pub async fn document_frequencies_batch(
+        &self,
+        collection: &str,
+        terms: &std::collections::HashSet<String>,
+    ) -> std::collections::HashMap<String, u64> {
+        if terms.is_empty() {
+            return std::collections::HashMap::new();
+        }
+        if let Err(e) = self.ensure_loaded(collection).await {
+            warn!("Failed to load lexicon for '{}': {}", collection, e);
+            return std::collections::HashMap::new();
+        }
+        let instances = self.instances.read().await;
+        let bm25 = match instances.get(collection) {
+            Some(b) => b,
+            None => return std::collections::HashMap::new(),
+        };
+        let mut result = std::collections::HashMap::with_capacity(terms.len());
+        for term in terms {
+            if let Some(&term_id) = bm25.vocab().get(term.as_str()) {
+                let df = bm25.doc_freq().get(&term_id).copied().unwrap_or(0);
+                if df > 0 {
+                    result.insert(term.clone(), df as u64);
+                }
+            }
+        }
+        result
+    }
+
     /// Get corpus size (total documents) for a collection.
     pub async fn corpus_size(&self, collection: &str) -> u64 {
         if let Err(e) = self.ensure_loaded(collection).await {

@@ -3,7 +3,6 @@
 //! Runs the 8-stage keyword/tag extraction pipeline after chunk embeddings
 //! are generated. Results are injected into point payloads before Qdrant upsert.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use tracing::{info, warn};
@@ -38,7 +37,9 @@ pub(super) async fn run_keyword_extraction(
     let corpus_size = ctx.lexicon_manager.corpus_size(&item.collection).await;
     let full_text = chunk_texts.join("\n");
 
-    // Build per-document DF lookup for unique terms in this document
+    // Build per-document DF lookup for unique terms in this document.
+    // Use a single batch call to acquire the lexicon read lock once for all terms
+    // instead of N individual async calls.
     let unique_terms: std::collections::HashSet<String> = full_text
         .split_whitespace()
         .map(|w| {
@@ -48,16 +49,10 @@ pub(super) async fn run_keyword_extraction(
         })
         .filter(|w| w.len() >= 2)
         .collect();
-    let mut df_lookup = HashMap::new();
-    for term in &unique_terms {
-        let df = ctx
-            .lexicon_manager
-            .document_frequency(&item.collection, term)
-            .await;
-        if df > 0 {
-            df_lookup.insert(term.clone(), df as u64);
-        }
-    }
+    let df_lookup = ctx
+        .lexicon_manager
+        .document_frequencies_batch(&item.collection, &unique_terms)
+        .await;
 
     // Fetch co-occurrence centrality scores for code files (Task 31)
     let centrality_scores = if is_code {
