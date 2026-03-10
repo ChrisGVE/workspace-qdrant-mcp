@@ -74,6 +74,11 @@ impl UnifiedQueueProcessor {
         let mut adaptive_target_permits: Option<usize> = None;
         let metrics_log_interval = ChronoDuration::minutes(1);
         let mut warmup_logged = false;
+        // Resurrection tracking
+        let resurrection_interval_secs = config.failed_resurrection_interval_secs;
+        let mut last_resurrection = std::time::Instant::now()
+            .checked_sub(Duration::from_secs(resurrection_interval_secs))
+            .unwrap_or_else(std::time::Instant::now);
         // Metadata uplift tracking
         let mut uplift_config = crate::metadata_uplift::UpliftConfig::default();
         let mut last_uplift_attempt = std::time::Instant::now()
@@ -287,6 +292,27 @@ impl UnifiedQueueProcessor {
                             }
                         }
 
+                        // Periodic resurrection of transient failed items
+                        if resurrection_interval_secs > 0
+                            && last_resurrection.elapsed().as_secs()
+                                >= resurrection_interval_secs
+                        {
+                            match queue_manager.resurrect_failed_transient().await {
+                                Ok(count) => {
+                                    if count > 0 {
+                                        info!(
+                                            "Resurrection pass: reset {} failed transient item(s) to pending",
+                                            count
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Resurrection pass failed (non-fatal): {}", e);
+                                }
+                            }
+                            last_resurrection = std::time::Instant::now();
+                        }
+
                         debug!(
                             "Unified queue is empty, waiting {}ms",
                             config.poll_interval_ms
@@ -427,6 +453,22 @@ impl UnifiedQueueProcessor {
                                         error!(
                                             "Failed to delete gone item {}: {}",
                                             item.queue_id, del_err
+                                        );
+                                    }
+                                } else if error_category == "subsystem_unavailable" {
+                                    // Embedding subsystem is within its backoff window.
+                                    // Re-lease the item without burning its retry budget.
+                                    debug!(
+                                        "Item {} parked: embedding subsystem unavailable ({})",
+                                        item.queue_id, e
+                                    );
+                                    if let Err(rel_err) = queue_manager
+                                        .re_lease_item(&item.queue_id, 60)
+                                        .await
+                                    {
+                                        error!(
+                                            "Failed to re-lease unavailable item {}: {}",
+                                            item.queue_id, rel_err
                                         );
                                     }
                                 } else {

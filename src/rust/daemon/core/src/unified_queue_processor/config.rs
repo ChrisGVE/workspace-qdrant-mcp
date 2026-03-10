@@ -96,6 +96,11 @@ pub struct UnifiedProcessorConfig {
     // ONNX thread tuning
     /// Number of ONNX intra-op threads per embedding session (default: 2)
     pub onnx_intra_threads: usize,
+
+    // Failed item resurrection
+    /// How often (seconds) to scan for failed transient items and reset them to pending.
+    /// Default: 3600 (1 hour). Set to 0 to disable.
+    pub failed_resurrection_interval_secs: u64,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -126,6 +131,8 @@ impl Default for UnifiedProcessorConfig {
             warmup_inter_item_delay_ms: 200,
             // ONNX thread tuning
             onnx_intra_threads: 2,
+            // Failed item resurrection
+            failed_resurrection_interval_secs: 3600,
         }
     }
 }
