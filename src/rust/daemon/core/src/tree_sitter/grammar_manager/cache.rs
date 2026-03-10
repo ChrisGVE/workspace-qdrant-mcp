@@ -5,6 +5,11 @@ use crate::tree_sitter::version_checker::check_grammar_compatibility;
 use tracing::info;
 
 impl GrammarManager {
+    /// Check if a grammar is loaded in memory (no disk or network I/O).
+    pub fn is_loaded(&self, language: &str) -> bool {
+        self.loaded_grammars.contains_key(language)
+    }
+
     /// Check the status of a grammar.
     pub fn grammar_status(&self, language: &str) -> GrammarStatus {
         if self.loaded_grammars.contains_key(language) {

@@ -7,7 +7,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::{RwLock, Semaphore};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::component_detection::ComponentMap;
@@ -75,6 +75,10 @@ pub struct ProcessingContext {
 
     /// Per-extension ingestion size limits (Task 14).
     pub ingestion_limits: Arc<IngestionLimitsConfig>,
+
+    /// Languages with in-flight background grammar downloads.
+    /// Prevents duplicate download spawns for the same language.
+    pub pending_grammar_downloads: Arc<tokio::sync::Mutex<HashSet<String>>>,
 }
 
 impl ProcessingContext {
@@ -107,6 +111,7 @@ impl ProcessingContext {
             component_cache: Arc::new(RwLock::new(HashMap::new())),
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
+            pending_grammar_downloads: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
         }
     }
 }
@@ -157,6 +162,7 @@ mod tests {
             let _ = &ctx.component_cache;
             let _ = &ctx.grammar_manager;
             let _ = &ctx.ingestion_limits;
+            let _ = &ctx.pending_grammar_downloads;
         }
     }
 }
