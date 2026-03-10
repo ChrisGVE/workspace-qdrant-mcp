@@ -102,6 +102,42 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
         .map(|s| s.as_str())
 }
 
+/// Detect the language of a file, checking `.gitattributes` overrides first.
+///
+/// Detection chain: `.gitattributes` override → extension-based registry lookup.
+///
+/// The `relative_path` is the file's path relative to the project root,
+/// used for matching against gitattributes glob patterns.
+pub fn detect_language_with_overrides(
+    path: &Path,
+    relative_path: &str,
+    overrides: &crate::patterns::GitattributesOverrides,
+) -> Option<&'static str> {
+    // Check gitattributes override first
+    if let Some(lang) = overrides.language_override(relative_path) {
+        // Map the override language to a static string if known
+        let data = registry_data();
+        if let Some(static_lang) = data.extension_map.values().find(|v| v.as_str() == lang) {
+            return Some(static_lang.as_str());
+        }
+        // Also check the known_languages set directly
+        if data.known_languages.contains(&lang) {
+            // Find it in the sorted list for a static reference
+            if let Some(found) = data
+                .known_languages_sorted
+                .iter()
+                .find(|s| s.as_str() == lang)
+            {
+                return Some(found.as_str());
+            }
+        }
+        // Language from gitattributes is not in our registry — fall through
+    }
+
+    // Fall through to extension-based detection
+    detect_language(path)
+}
+
 /// Get the list of known grammar languages available for download.
 pub fn known_grammar_languages() -> Vec<&'static str> {
     registry_data()
@@ -262,5 +298,37 @@ mod tests {
 
         // Without auto_download, uncached grammars are NotAvailable
         assert!(!is_language_available("rust", &manager));
+    }
+
+    #[test]
+    fn test_detect_language_with_overrides_no_override() {
+        let overrides = crate::patterns::GitattributesOverrides::default();
+        assert_eq!(
+            detect_language_with_overrides(Path::new("foo.rs"), "foo.rs", &overrides),
+            Some("rust")
+        );
+    }
+
+    #[test]
+    fn test_detect_language_with_overrides_language_override() {
+        let overrides =
+            crate::patterns::GitattributesOverrides::parse("*.h linguist-language=cpp\n");
+        // .h normally maps to "c", but gitattributes overrides to "cpp"
+        assert_eq!(
+            detect_language_with_overrides(Path::new("util.h"), "util.h", &overrides),
+            Some("cpp")
+        );
+    }
+
+    #[test]
+    fn test_detect_language_with_overrides_fallback() {
+        // Override to unknown language falls back to extension
+        let overrides = crate::patterns::GitattributesOverrides::parse(
+            "*.rs linguist-language=unknown_lang_xyz\n",
+        );
+        assert_eq!(
+            detect_language_with_overrides(Path::new("foo.rs"), "foo.rs", &overrides),
+            Some("rust") // falls back to extension detection
+        );
     }
 }
