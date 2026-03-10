@@ -31,135 +31,91 @@ pub use version_checker::{
     check_grammar_compatibility, CompatibilityStatus, RuntimeInfo, VersionError,
 };
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::error::DaemonError;
+use crate::language_registry::providers::registry::RegistryProvider;
 
-/// Known languages with well-known tree-sitter grammars.
-///
-/// These languages have grammars available for download from the grammar
-/// registry. When `auto_download` is enabled, any of these languages
-/// can be used for semantic chunking.
-const KNOWN_GRAMMAR_LANGUAGES: &[&str] = &[
-    "ada",
-    "bash",
-    "c",
-    "clojure",
-    "cpp",
-    "css",
-    "dart",
-    "elixir",
-    "elm",
-    "erlang",
-    "fortran",
-    "go",
-    "haskell",
-    "html",
-    "java",
-    "javascript",
-    "json",
-    "jsx",
-    "julia",
-    "kotlin",
-    "latex",
-    "lisp",
-    "lua",
-    "markdown",
-    "nix",
-    "ocaml",
-    "odin",
-    "pascal",
-    "perl",
-    "php",
-    "python",
-    "r",
-    "ruby",
-    "rust",
-    "scala",
-    "scheme",
-    "sql",
-    "swift",
-    "toml",
-    "tsx",
-    "typescript",
-    "vala",
-    "vue",
-    "yaml",
-    "zig",
-];
+/// Lazily loaded language registry data derived from the YAML registry.
+struct RegistryData {
+    /// Set of language IDs that have grammar sources.
+    known_languages: HashSet<String>,
+    /// Sorted list of known language IDs (for the public API).
+    known_languages_sorted: Vec<String>,
+    /// Extension (without dot, lowercased) → language ID.
+    extension_map: HashMap<String, String>,
+}
 
-/// Language registry mapping file extensions to language identifiers.
+fn registry_data() -> &'static RegistryData {
+    static DATA: OnceLock<RegistryData> = OnceLock::new();
+    DATA.get_or_init(|| {
+        let provider = match RegistryProvider::new() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Failed to load language registry: {e}");
+                return RegistryData {
+                    known_languages: HashSet::new(),
+                    known_languages_sorted: Vec::new(),
+                    extension_map: HashMap::new(),
+                };
+            }
+        };
+
+        let mut known = HashSet::new();
+        let mut ext_map = HashMap::new();
+
+        for def in provider.definitions() {
+            let lang_id = def.id();
+
+            // Only add to known languages if the language has grammar sources
+            if def.has_grammar() {
+                known.insert(lang_id.clone());
+            }
+
+            // Build extension → language_id map (first definition wins)
+            for ext in &def.extensions {
+                let normalized = ext.trim_start_matches('.').to_lowercase();
+                ext_map.entry(normalized).or_insert_with(|| lang_id.clone());
+            }
+        }
+
+        let mut sorted: Vec<String> = known.iter().cloned().collect();
+        sorted.sort();
+
+        RegistryData {
+            known_languages: known,
+            known_languages_sorted: sorted,
+            extension_map: ext_map,
+        }
+    })
+}
+
+/// Detect the language of a file from its extension using the registry.
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?;
-    match extension.to_lowercase().as_str() {
-        // Systems languages
-        "rs" => Some("rust"),
-        "c" | "h" => Some("c"),
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "c++" | "h++" => Some("cpp"),
-        "go" => Some("go"),
-        "zig" => Some("zig"),
-        "odin" => Some("odin"),
-        "adb" | "ads" => Some("ada"),
-        "swift" => Some("swift"),
-        // JVM languages
-        "java" => Some("java"),
-        "scala" | "sc" => Some("scala"),
-        "kt" | "kts" => Some("kotlin"),
-        "clj" | "cljs" | "cljc" | "edn" => Some("clojure"),
-        // Scripting languages
-        "py" | "pyi" | "pyw" => Some("python"),
-        "rb" | "rake" | "gemspec" => Some("ruby"),
-        "js" | "mjs" | "cjs" => Some("javascript"),
-        "ts" | "mts" | "cts" => Some("typescript"),
-        "tsx" => Some("tsx"),
-        "jsx" => Some("jsx"),
-        "lua" => Some("lua"),
-        "pl" | "pm" | "t" => Some("perl"),
-        "sh" | "bash" | "zsh" => Some("bash"),
-        "php" => Some("php"),
-        "r" => Some("r"),
-        // Functional languages
-        "hs" | "lhs" => Some("haskell"),
-        "ml" | "mli" => Some("ocaml"),
-        "erl" | "hrl" => Some("erlang"),
-        "ex" | "exs" => Some("elixir"),
-        "lisp" | "cl" | "lsp" | "asd" => Some("lisp"),
-        "scm" | "ss" => Some("scheme"),
-        "elm" => Some("elm"),
-        // Other
-        "f" | "for" | "f90" | "f95" | "f03" | "f08" => Some("fortran"),
-        "pas" | "pp" | "inc" | "lpr" => Some("pascal"),
-        "sql" => Some("sql"),
-        "dart" => Some("dart"),
-        "nix" => Some("nix"),
-        "vala" | "vapi" => Some("vala"),
-        "vue" => Some("vue"),
-        "jl" => Some("julia"),
-        "tex" | "sty" | "cls" => Some("latex"),
-        // Data/config
-        "json" => Some("json"),
-        "yaml" | "yml" => Some("yaml"),
-        "toml" => Some("toml"),
-        "html" | "htm" => Some("html"),
-        "css" => Some("css"),
-        "md" | "markdown" => Some("markdown"),
-        _ => None,
-    }
+    let normalized = extension.to_lowercase();
+    let data = registry_data();
+    data.extension_map
+        .get(&normalized)
+        .map(|s| s.as_str())
 }
 
 /// Get the list of known grammar languages available for download.
-pub fn known_grammar_languages() -> &'static [&'static str] {
-    KNOWN_GRAMMAR_LANGUAGES
+pub fn known_grammar_languages() -> Vec<&'static str> {
+    registry_data()
+        .known_languages_sorted
+        .iter()
+        .map(|s| s.as_str())
+        .collect()
 }
 
 /// Check if a language is supported for semantic chunking.
 ///
-/// Without a `GrammarManager`, checks against the hardcoded list of known
-/// grammar languages. With a manager, also considers dynamically cached
-/// or downloadable grammars.
+/// Checks against the registry of languages with grammar sources.
 pub fn is_language_supported(language: &str) -> bool {
-    KNOWN_GRAMMAR_LANGUAGES.contains(&language)
+    registry_data().known_languages.contains(language)
 }
 
 /// Check if a language has an available grammar via the GrammarManager.
@@ -175,9 +131,8 @@ pub fn is_language_available(language: &str, manager: &GrammarManager) -> bool {
     match status {
         GrammarStatus::Loaded | GrammarStatus::Cached => true,
         GrammarStatus::NeedsDownload => {
-            // The manager reports NeedsDownload for any language when auto_download
-            // is on. Gate this to known grammar languages to avoid pointless downloads.
-            KNOWN_GRAMMAR_LANGUAGES.contains(&language)
+            // Gate to known grammar languages to avoid pointless downloads.
+            registry_data().known_languages.contains(language)
         }
         _ => false,
     }
@@ -210,7 +165,7 @@ pub fn extract_chunks_with_provider(
     let language = match detect_language(path) {
         Some(lang) if is_language_supported(lang) => lang,
         Some(lang) => {
-            // Language detected but not in the hardcoded supported list —
+            // Language detected but not in the registry's supported list —
             // check whether the provider has a grammar for it
             if provider
                 .as_ref()
