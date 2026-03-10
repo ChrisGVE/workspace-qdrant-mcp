@@ -11,7 +11,9 @@ mod health;
 pub(crate) mod helpers;
 mod list;
 mod lsp;
+pub(crate) mod preferences;
 mod projects;
+mod query;
 mod status;
 mod treesitter;
 mod warm;
@@ -144,8 +146,43 @@ enum LanguageCommand {
         gaps: bool,
     },
 
+    /// Explore the language registry (list all or detail one)
+    Query {
+        /// Language to inspect (all if omitted)
+        language: Option<String>,
+    },
+
+    /// Manage per-language preferences (LSP server, grammar repo)
+    Preferences {
+        #[command(subcommand)]
+        action: PreferencesAction,
+    },
+
     /// Refresh language registry from upstream providers
     Refresh,
+}
+
+/// Preferences sub-subcommands
+#[derive(Subcommand)]
+enum PreferencesAction {
+    /// Set preferred LSP server or grammar repo for a language
+    Set {
+        /// Language ID (e.g., rust, python)
+        language: String,
+        /// Preferred LSP server name
+        #[arg(long)]
+        lsp: Option<String>,
+        /// Preferred grammar repo (e.g., tree-sitter/tree-sitter-rust)
+        #[arg(long)]
+        grammar: Option<String>,
+    },
+    /// List all user language preferences
+    List,
+    /// Reset preferences for a language
+    Reset {
+        /// Language ID to reset
+        language: String,
+    },
 }
 
 /// Execute language command
@@ -177,6 +214,21 @@ pub async fn execute(args: LanguageArgs) -> Result<()> {
         } => warm::warm(project.as_deref(), languages.as_deref(), force).await,
         LanguageCommand::Health => health::language_health().await,
         LanguageCommand::Projects { gaps } => projects::language_projects(gaps).await,
+        LanguageCommand::Query { language } => match language {
+            Some(lang) => query::query_language(&lang).await,
+            None => query::query_all().await,
+        },
+        LanguageCommand::Preferences { action } => match action {
+            PreferencesAction::Set {
+                language,
+                lsp,
+                grammar,
+            } => preferences::preferences_set(&language, lsp, grammar).await,
+            PreferencesAction::List => preferences::preferences_list().await,
+            PreferencesAction::Reset { language } => {
+                preferences::preferences_reset(&language).await
+            }
+        },
         LanguageCommand::Refresh => status::language_refresh().await,
     }
 }
