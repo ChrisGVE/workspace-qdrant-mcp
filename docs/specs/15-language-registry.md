@@ -11,7 +11,7 @@ The Language Registry is the central data-driven system for language support. Al
 ├─────────────────────────────────────────────────────┤
 │                                                       │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────┐  │
-│  │   Bundled    │  │  Linguist    │  │  nvim-ts   │  │
+│  │  Registry    │  │  Linguist    │  │  nvim-ts   │  │
 │  │  (pri 255)   │  │  (pri 10)    │  │  (pri 20)  │  │
 │  └─────────────┘  └──────────────┘  └────────────┘  │
 │                                                       │
@@ -27,6 +27,50 @@ The Language Registry is the central data-driven system for language support. Al
 │  (reads SemanticPatterns, walks AST via patterns)    │
 └─────────────────────────────────────────────────────┘
 ```
+
+### Language Detection Chain
+
+Language detection follows a priority chain:
+
+1. **`.gitattributes` override** — `linguist-language=<lang>` directives (per-project)
+2. **Extension-based registry lookup** — maps file extensions to language IDs via `language_registry.yaml`
+
+The detection function `detect_language_with_overrides()` checks gitattributes first, then falls back to extension mapping. The daemon caches parsed `.gitattributes` per project root in `ProcessingContext`, invalidating on file change.
+
+Additional `.gitattributes` attributes:
+- `linguist-vendored` — skip file (vendored dependency)
+- `linguist-generated` — skip file (generated code)
+- `linguist-documentation` — skip file (documentation)
+
+### User Preferences
+
+Users can override default LSP server and grammar choices per language:
+
+**Resolution order:** User preference → Registry default (highest tier) → fallback
+
+Preferences are stored in `~/.workspace-qdrant/language_preferences.yaml`:
+
+```yaml
+rust:
+  lsp: rust-analyzer
+  grammar: tree-sitter/tree-sitter-rust
+python:
+  lsp: ruff
+```
+
+CLI commands:
+- `wqm language preferences set <lang> --lsp <server> --grammar <repo>`
+- `wqm language preferences list`
+- `wqm language preferences reset <lang>`
+
+### Per-Project Configuration (Future)
+
+A `.wqmconfig.yaml` file at the project root will support project-level overrides:
+- Language preferences (LSP/grammar)
+- Custom semantic patterns
+- Project-specific settings
+
+Resolution: `.wqmconfig.yaml` > global preferences > registry default.
 
 ### Provider Abstraction
 
@@ -61,7 +105,7 @@ pub trait LanguageSourceProvider: Send + Sync {
 
 ### YAML Schema
 
-Each bundled language is defined in `assets/languages/*.yaml`:
+All 44 bundled languages are defined in a single file: `src/rust/daemon/core/src/language_registry/language_registry.yaml`. Each entry follows this schema:
 
 ```yaml
 language: Python
@@ -150,27 +194,58 @@ Supported `DocstringStyle` variants:
 ### CLI Commands
 
 ```bash
+# Discovery & status
 wqm language list [--installed] [--category <cat>] [--verbose]
 wqm language info <lang>
 wqm language status [<lang>] [--verbose]
-wqm language refresh
+wqm language query [<lang>]              # Registry explorer with preference status
+wqm language health                       # Compact grammar/LSP status table
+wqm language projects [--gaps]            # Per-project language support gaps
+wqm language refresh                      # Refresh from upstream providers
+
+# Tree-sitter grammar management
 wqm language ts-install <lang> [--force]
 wqm language ts-remove <lang|all>
 wqm language ts-search <lang>
+wqm language ts-list [--all]
+wqm language warm [--project <dir>] [--languages <list>] [--force]
+
+# LSP server management
 wqm language lsp-install <lang>
 wqm language lsp-remove <lang>
 wqm language lsp-search <lang>
+wqm language lsp-list [--all]
+
+# User preferences
+wqm language preferences set <lang> --lsp <server> --grammar <repo>
+wqm language preferences list
+wqm language preferences reset <lang>
 ```
 
 ### Adding a New Language
 
 To add support for a new language (e.g., COBOL):
 
-1. Create `assets/languages/cobol.yaml` with the schema above
+1. Add a new entry to `src/rust/daemon/core/src/language_registry/language_registry.yaml`
 2. Define file extensions, grammar repo, and semantic patterns
-3. Rebuild — the `RegistryProvider` embeds the YAML at compile time
-4. No Rust code changes required
+3. Rebuild — the `RegistryProvider` embeds the YAML at compile time via `include_str!`
+4. No other Rust code changes required
 
 For user-local additions without rebuilding, place YAML files in `~/.workspace-qdrant/languages/`. These take highest precedence and override bundled definitions.
+
+### Key Implementation Files
+
+| File | Purpose |
+| --- | --- |
+| `daemon/core/src/language_registry/language_registry.yaml` | Single source of truth (44 languages) |
+| `daemon/core/src/language_registry/providers/registry.rs` | `RegistryProvider` — loads embedded YAML |
+| `daemon/core/src/tree_sitter/mod.rs` | `detect_language()`, `detect_language_with_overrides()` |
+| `daemon/core/src/tree_sitter/grammar_registry.rs` | Grammar source lookup (derives from YAML) |
+| `daemon/core/src/patterns/gitattributes.rs` | `.gitattributes` parser and override map |
+| `daemon/core/src/context.rs` | `ProcessingContext` with gitattributes cache |
+| `cli/src/commands/language/query.rs` | `wqm language query` command |
+| `cli/src/commands/language/preferences.rs` | Preference read/write and resolution logic |
+| `cli/src/commands/language/health.rs` | `wqm language health` command |
+| `cli/src/commands/language/projects.rs` | `wqm language projects` command |
 
 ---
