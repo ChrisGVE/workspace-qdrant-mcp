@@ -5,7 +5,7 @@ use crate::queue_config::QueueConnectionConfig;
 use crate::unified_queue_schema::{
     DestinationStatus, ItemType, QueueOperation as UnifiedOp, QueueStatus,
 };
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 use tempfile::tempdir;
 
