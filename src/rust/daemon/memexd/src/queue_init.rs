@@ -63,21 +63,43 @@ pub async fn setup_ipc_server(
     Ok(ipc_server)
 }
 
+/// Resolve the model cache directory, falling back to `~/.workspace-qdrant/models`.
+///
+/// Uses the same `$HOME/.workspace-qdrant/` convention as the database path so
+/// the daemon always has an absolute, writable location — regardless of the
+/// working directory launchd assigns.  The directory is created if absent.
+fn resolve_model_cache_dir(configured: Option<std::path::PathBuf>) -> std::path::PathBuf {
+    let dir = configured.unwrap_or_else(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        std::path::PathBuf::from(home)
+            .join(".workspace-qdrant")
+            .join("models")
+    });
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!(
+            "Could not create model cache directory {}: {}",
+            dir.display(),
+            e
+        );
+    }
+    dir
+}
+
 /// Create the embedding generator from daemon configuration.
 fn create_embedding_generator(
     daemon_config: &DaemonConfig,
     config: &Config,
 ) -> Result<Arc<EmbeddingGenerator>, Box<dyn std::error::Error>> {
+    let model_cache_dir =
+        resolve_model_cache_dir(daemon_config.embedding.model_cache_dir.clone());
+    info!("Model cache directory: {}", model_cache_dir.display());
+
     let embedding_config = EmbeddingConfig {
         max_cache_size: daemon_config.embedding.cache_max_entries,
-        model_cache_dir: daemon_config.embedding.model_cache_dir.clone(),
+        model_cache_dir: Some(model_cache_dir),
         num_threads: Some(config.resource_limits.onnx_intra_threads),
         ..EmbeddingConfig::default()
     };
-
-    if let Some(ref cache_dir) = embedding_config.model_cache_dir {
-        info!("Using model cache directory: {}", cache_dir.display());
-    }
 
     let generator = EmbeddingGenerator::new(embedding_config)
         .map_err(|e| format!("Failed to create embedding generator: {}", e))?;

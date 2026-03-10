@@ -39,17 +39,7 @@ impl EmbeddingSettings {
             return Err("cache_max_entries should not exceed 100,000".to_string());
         }
 
-        // Validate model_cache_dir if specified
-        if let Some(ref path) = self.model_cache_dir {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() && !parent.exists() {
-                    return Err(format!(
-                        "Parent directory for model_cache_dir does not exist: {}",
-                        parent.display()
-                    ));
-                }
-            }
-        }
+        // model_cache_dir is created by the daemon at startup if absent; no existence check here.
 
         Ok(())
     }
@@ -95,11 +85,11 @@ mod tests {
         assert!(settings.validate().is_err());
         settings.cache_max_entries = 1000;
 
-        // Valid with custom cache dir (parent exists)
-        settings.model_cache_dir = Some(PathBuf::from("/tmp/test_cache"));
+        // model_cache_dir is accepted regardless of whether the path exists yet;
+        // the daemon creates it at startup.
+        settings.model_cache_dir = Some(PathBuf::from("/tmp/test_cache/nonexistent/path"));
         assert!(settings.validate().is_ok());
 
-        // Reset for other tests
         settings.model_cache_dir = None;
         assert!(settings.validate().is_ok());
     }
