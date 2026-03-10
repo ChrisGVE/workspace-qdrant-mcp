@@ -17,6 +17,11 @@ pub enum UnifiedProcessorError {
     #[error("Embedding error: {0}")]
     Embedding(String),
 
+    /// Embedding subsystem is within its backoff window after a failed init.
+    /// The item should be re-leased without incrementing its retry count.
+    #[error("Embedding subsystem temporarily unavailable: {0}")]
+    EmbeddingUnavailable(String),
+
     #[error("File not found: {0}")]
     FileNotFound(String),
 

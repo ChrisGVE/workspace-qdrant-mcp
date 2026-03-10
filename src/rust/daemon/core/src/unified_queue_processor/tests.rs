@@ -382,6 +382,15 @@ mod tests {
             "transient_resource"
         );
 
+        // EmbeddingUnavailable -> subsystem_unavailable (not burned against retry budget)
+        let err = UnifiedProcessorError::EmbeddingUnavailable(
+            "Embedding subsystem temporarily unavailable, retry after 60s".into(),
+        );
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "subsystem_unavailable"
+        );
+
         // Generic ProcessingFailed -> transient_infrastructure
         let err = UnifiedProcessorError::ProcessingFailed("timeout".into());
         assert_eq!(
@@ -412,5 +421,9 @@ mod tests {
             "transient_resource"
         ));
         assert!(!UnifiedQueueProcessor::is_permanent_category("partial"));
+        // subsystem_unavailable is not permanent — items should be re-leased, not failed
+        assert!(!UnifiedQueueProcessor::is_permanent_category(
+            "subsystem_unavailable"
+        ));
     }
 }

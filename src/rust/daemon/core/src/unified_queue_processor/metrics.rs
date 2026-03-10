@@ -37,11 +37,12 @@ impl UnifiedQueueProcessor {
         }
     }
 
-    /// Classify a processing error into one of 5 categories:
-    /// - `permanent_data`: invalid payload, unsupported format -- no retry
-    /// - `permanent_gone`: file deleted, permission denied -- no retry
+    /// Classify a processing error into one of 6 categories:
+    /// - `permanent_data`: invalid payload, unsupported format -- no retry, no resurrection
+    /// - `permanent_gone`: file deleted, permission denied -- silently dequeue
     /// - `transient_infrastructure`: Qdrant down, network error -- retry with standard backoff
-    /// - `transient_resource`: OOM, embedding failure -- retry with longer backoff
+    /// - `transient_resource`: OOM, embedding inference failure -- retry with longer backoff
+    /// - `subsystem_unavailable`: embedding subsystem within backoff window -- re-lease, no retry burn
     /// - `partial`: partial enrichment -- retry enrichment only
     pub(crate) fn classify_error(error: &UnifiedProcessorError) -> &'static str {
         match error {
@@ -77,8 +78,10 @@ impl UnifiedQueueProcessor {
             }
             // Qdrant storage errors -- transient infrastructure
             UnifiedProcessorError::Storage(_) => "transient_infrastructure",
-            // Embedding errors -- transient resource (model/memory)
+            // Embedding inference failure -- transient resource (model/memory)
             UnifiedProcessorError::Embedding(_) => "transient_resource",
+            // Embedding subsystem within backoff window -- re-lease without burning retry budget
+            UnifiedProcessorError::EmbeddingUnavailable(_) => "subsystem_unavailable",
             // Default: treat as transient infrastructure (retry)
             _ => "transient_infrastructure",
         }
@@ -103,6 +106,7 @@ impl UnifiedQueueProcessor {
             UnifiedProcessorError::FileNotFound(_) => "file_not_found",
             UnifiedProcessorError::Storage(_) => "storage_error",
             UnifiedProcessorError::Embedding(_) => "embedding_error",
+            UnifiedProcessorError::EmbeddingUnavailable(_) => "embedding_unavailable",
             _ => "other",
         };
 
