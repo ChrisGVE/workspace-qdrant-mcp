@@ -156,7 +156,7 @@ impl GrammarDownloader {
         extract_tarball(&tarball_bytes, extract_dir)?;
 
         // Find the src/ directory (may be in a subdirectory)
-        let src_dir = find_src_dir(extract_dir, source.src_subdir)?;
+        let src_dir = find_src_dir(extract_dir, source.src_subdir.as_deref())?;
 
         // Compile
         let grammar_lib = self
@@ -222,9 +222,9 @@ impl GrammarDownloader {
 
         // Fallback: download from branch archive
         // Some repos keep generated parser.c only on a specific branch
-        let mut branches = Vec::new();
-        if let Some(branch) = source.archive_branch {
-            branches.push(branch);
+        let mut branches: Vec<&str> = Vec::new();
+        if let Some(ref branch) = source.archive_branch {
+            branches.push(branch.as_str());
         }
         branches.extend_from_slice(&["main", "master"]);
         for branch in &branches {

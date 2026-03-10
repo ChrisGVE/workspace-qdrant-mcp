@@ -1,70 +1,43 @@
 //! Registry of known tree-sitter grammar sources.
 //!
 //! Maps language names to their GitHub repository and build metadata.
-//! Grammar source tarballs are downloaded from GitHub releases when available,
-//! or from the default branch archive as a fallback.
+//! Derives all grammar source data from the language registry YAML.
+
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+use crate::language_registry::providers::registry::RegistryProvider;
 
 /// Information about a tree-sitter grammar source.
 #[derive(Debug, Clone)]
 pub struct GrammarSource {
     /// GitHub owner/org (e.g., "tree-sitter")
-    pub owner: &'static str,
+    pub owner: String,
     /// GitHub repository name (e.g., "tree-sitter-rust")
-    pub repo: &'static str,
+    pub repo: String,
     /// The symbol name suffix exported by the grammar.
     /// Usually matches the language name, but some grammars differ
     /// (e.g., "commonlisp" grammar exports `tree_sitter_commonlisp`).
     /// If None, derived from the language name.
-    pub symbol_name: Option<&'static str>,
+    pub symbol_name: Option<String>,
     /// Whether the grammar includes a C++ scanner (scanner.cc).
     /// Requires a C++ compiler instead of just a C compiler.
     pub has_cpp_scanner: bool,
     /// Subdirectory within the repo that contains the grammar src/.
     /// Most grammars have src/ at the root. Some monorepos (like
     /// tree-sitter-typescript) have it under a subdirectory.
-    pub src_subdir: Option<&'static str>,
+    pub src_subdir: Option<String>,
     /// Non-standard branch to use for archive fallback.
     /// Defaults to trying "main" then "master". Some repos keep
     /// generated parser.c only on a "release" branch.
-    pub archive_branch: Option<&'static str>,
+    pub archive_branch: Option<String>,
 }
 
 impl GrammarSource {
-    const fn new(owner: &'static str, repo: &'static str) -> Self {
-        Self {
-            owner,
-            repo,
-            symbol_name: None,
-            has_cpp_scanner: false,
-            src_subdir: None,
-            archive_branch: None,
-        }
-    }
-
-    const fn with_cpp_scanner(mut self) -> Self {
-        self.has_cpp_scanner = true;
-        self
-    }
-
-    const fn with_symbol(mut self, symbol: &'static str) -> Self {
-        self.symbol_name = Some(symbol);
-        self
-    }
-
-    const fn with_subdir(mut self, subdir: &'static str) -> Self {
-        self.src_subdir = Some(subdir);
-        self
-    }
-
-    const fn with_branch(mut self, branch: &'static str) -> Self {
-        self.archive_branch = Some(branch);
-        self
-    }
-
     /// Get the C symbol name for this grammar.
     /// Returns the explicit symbol_name if set, otherwise derives from repo name.
     pub fn c_symbol_name(&self, language: &str) -> String {
-        if let Some(sym) = self.symbol_name {
+        if let Some(ref sym) = self.symbol_name {
             format!("tree_sitter_{sym}")
         } else {
             format!("tree_sitter_{}", language.replace('-', "_"))
@@ -88,137 +61,95 @@ impl GrammarSource {
     }
 }
 
+/// Lazily loaded grammar registry data.
+struct GrammarRegistryData {
+    /// language_id → GrammarSource
+    sources: HashMap<String, GrammarSource>,
+    /// alias → canonical language_id
+    aliases: HashMap<String, String>,
+}
+
+fn registry_data() -> &'static GrammarRegistryData {
+    static DATA: OnceLock<GrammarRegistryData> = OnceLock::new();
+    DATA.get_or_init(|| {
+        let provider = match RegistryProvider::new() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Failed to load language registry for grammar sources: {e}");
+                return GrammarRegistryData {
+                    sources: HashMap::new(),
+                    aliases: HashMap::new(),
+                };
+            }
+        };
+
+        let mut sources = HashMap::new();
+        let mut aliases = HashMap::new();
+
+        for def in provider.definitions() {
+            let lang_id = def.id();
+
+            // Build alias map
+            for alias in &def.aliases {
+                aliases.insert(alias.to_lowercase(), lang_id.clone());
+            }
+
+            // Use the first (highest-quality) grammar source
+            if let Some(src) = def.grammar.sources.first() {
+                let (owner, repo) = parse_repo(&src.repo);
+                sources.insert(
+                    lang_id,
+                    GrammarSource {
+                        owner,
+                        repo,
+                        symbol_name: def.grammar.symbol_name.clone(),
+                        has_cpp_scanner: def.grammar.has_cpp_scanner,
+                        src_subdir: def.grammar.src_subdir.clone(),
+                        archive_branch: def.grammar.archive_branch.clone(),
+                    },
+                );
+            }
+        }
+
+        GrammarRegistryData { sources, aliases }
+    })
+}
+
+/// Parse "owner/repo" format into (owner, repo).
+fn parse_repo(full_repo: &str) -> (String, String) {
+    match full_repo.split_once('/') {
+        Some((owner, repo)) => (owner.to_string(), repo.to_string()),
+        None => ("unknown".to_string(), full_repo.to_string()),
+    }
+}
+
 /// Look up the grammar source for a language.
 ///
 /// Returns `None` for unknown languages — the caller should fall back
 /// to guessing `tree-sitter/tree-sitter-{language}`.
 pub fn lookup(language: &str) -> Option<GrammarSource> {
-    // Normalize language name
-    let lang = match language {
-        "shell" | "sh" | "zsh" => "bash",
-        "commonlisp" | "common_lisp" | "common-lisp" => "lisp",
-        "c_sharp" | "csharp" => "c-sharp",
-        "objective-c" | "objc" => "objc",
-        "objectpascal" => "pascal",
-        other => other,
-    };
+    let data = registry_data();
+    let normalized = language.to_lowercase();
 
-    let source = match lang {
-        "ada" => GrammarSource::new("briot", "tree-sitter-ada"),
-        "bash" => GrammarSource::new("tree-sitter", "tree-sitter-bash"),
-        "c" => GrammarSource::new("tree-sitter", "tree-sitter-c"),
-        "c-sharp" => GrammarSource::new("tree-sitter", "tree-sitter-c-sharp")
-            .with_symbol("c_sharp")
-            .with_cpp_scanner(),
-        "clojure" => GrammarSource::new("sogaiu", "tree-sitter-clojure"),
-        "cpp" => GrammarSource::new("tree-sitter", "tree-sitter-cpp").with_cpp_scanner(),
-        "css" => GrammarSource::new("tree-sitter", "tree-sitter-css"),
-        "dart" => GrammarSource::new("UserNobworthy", "tree-sitter-dart").with_cpp_scanner(),
-        "elixir" => GrammarSource::new("elixir-lang", "tree-sitter-elixir").with_cpp_scanner(),
-        "elm" => GrammarSource::new("elm-tooling", "tree-sitter-elm"),
-        "erlang" => GrammarSource::new("WhatsApp", "tree-sitter-erlang"),
-        "fortran" => GrammarSource::new("stadelmanma", "tree-sitter-fortran"),
-        "go" => GrammarSource::new("tree-sitter", "tree-sitter-go"),
-        "haskell" => GrammarSource::new("tree-sitter", "tree-sitter-haskell").with_cpp_scanner(),
-        "html" => GrammarSource::new("tree-sitter", "tree-sitter-html").with_cpp_scanner(),
-        "java" => GrammarSource::new("tree-sitter", "tree-sitter-java"),
-        "javascript" => GrammarSource::new("tree-sitter", "tree-sitter-javascript"),
-        "json" => GrammarSource::new("tree-sitter", "tree-sitter-json"),
-        "julia" => GrammarSource::new("tree-sitter", "tree-sitter-julia").with_cpp_scanner(),
-        "kotlin" => GrammarSource::new("fwcd", "tree-sitter-kotlin"),
-        "latex" => GrammarSource::new("latex-lsp", "tree-sitter-latex"),
-        "lisp" => {
-            GrammarSource::new("theHamsta", "tree-sitter-commonlisp").with_symbol("commonlisp")
-        }
-        "lua" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-lua"),
-        "markdown" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-markdown")
-            .with_subdir("tree-sitter-markdown"),
-        "nix" => GrammarSource::new("nix-community", "tree-sitter-nix"),
-        "ocaml" => GrammarSource::new("tree-sitter", "tree-sitter-ocaml")
-            .with_subdir("grammars/ocaml")
-            .with_cpp_scanner(),
-        "odin" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-odin"),
-        "pascal" => GrammarSource::new("Isopod", "tree-sitter-pascal"),
-        "perl" => GrammarSource::new("tree-sitter-perl", "tree-sitter-perl")
-            .with_cpp_scanner()
-            .with_branch("release"),
-        "php" => GrammarSource::new("tree-sitter", "tree-sitter-php")
-            .with_subdir("php")
-            .with_cpp_scanner(),
-        "python" => GrammarSource::new("tree-sitter", "tree-sitter-python"),
-        "r" => GrammarSource::new("r-lib", "tree-sitter-r"),
-        "ruby" => GrammarSource::new("tree-sitter", "tree-sitter-ruby").with_cpp_scanner(),
-        "rust" => GrammarSource::new("tree-sitter", "tree-sitter-rust"),
-        "scala" => GrammarSource::new("tree-sitter", "tree-sitter-scala").with_cpp_scanner(),
-        "scheme" => GrammarSource::new("6cdh", "tree-sitter-scheme"),
-        "sql" => GrammarSource::new("derekstride", "tree-sitter-sql").with_cpp_scanner(),
-        "swift" => GrammarSource::new("alex-pinkus", "tree-sitter-swift").with_cpp_scanner(),
-        "toml" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-toml"),
-        "tsx" => GrammarSource::new("tree-sitter", "tree-sitter-typescript")
-            .with_subdir("tsx")
-            .with_cpp_scanner(),
-        "typescript" => GrammarSource::new("tree-sitter", "tree-sitter-typescript")
-            .with_subdir("typescript")
-            .with_cpp_scanner(),
-        "vala" => GrammarSource::new("vala-lang", "tree-sitter-vala"),
-        "vue" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-vue").with_cpp_scanner(),
-        "yaml" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-yaml").with_cpp_scanner(),
-        "zig" => GrammarSource::new("tree-sitter-grammars", "tree-sitter-zig"),
-        _ => return None,
-    };
+    // Direct lookup
+    if let Some(src) = data.sources.get(&normalized) {
+        return Some(src.clone());
+    }
 
-    Some(source)
+    // Alias lookup
+    if let Some(canonical) = data.aliases.get(&normalized) {
+        return data.sources.get(canonical).cloned();
+    }
+
+    None
 }
 
 /// List all languages with known grammar sources.
-pub fn known_languages() -> Vec<&'static str> {
-    vec![
-        "ada",
-        "bash",
-        "c",
-        "c-sharp",
-        "clojure",
-        "cpp",
-        "css",
-        "dart",
-        "elixir",
-        "elm",
-        "erlang",
-        "fortran",
-        "go",
-        "haskell",
-        "html",
-        "java",
-        "javascript",
-        "json",
-        "julia",
-        "kotlin",
-        "latex",
-        "lisp",
-        "lua",
-        "markdown",
-        "nix",
-        "ocaml",
-        "odin",
-        "pascal",
-        "perl",
-        "php",
-        "python",
-        "r",
-        "ruby",
-        "rust",
-        "scala",
-        "scheme",
-        "sql",
-        "swift",
-        "toml",
-        "tsx",
-        "typescript",
-        "vala",
-        "vue",
-        "yaml",
-        "zig",
-    ]
+pub fn known_languages() -> Vec<String> {
+    let data = registry_data();
+    let mut langs: Vec<String> = data.sources.keys().cloned().collect();
+    langs.sort();
+    langs
 }
 
 #[cfg(test)]
@@ -243,16 +174,16 @@ mod tests {
     #[test]
     fn test_lookup_with_subdir() {
         let ts = lookup("typescript").unwrap();
-        assert_eq!(ts.src_subdir, Some("typescript"));
+        assert_eq!(ts.src_subdir.as_deref(), Some("typescript"));
     }
 
     #[test]
     fn test_lookup_alias() {
-        let bash = lookup("shell").unwrap();
-        assert_eq!(bash.repo, "tree-sitter-bash");
-
         let lisp = lookup("commonlisp").unwrap();
         assert_eq!(lisp.repo, "tree-sitter-commonlisp");
+
+        let csharp = lookup("csharp").unwrap();
+        assert_eq!(csharp.repo, "tree-sitter-c-sharp");
     }
 
     #[test]
@@ -285,7 +216,14 @@ mod tests {
     fn test_known_languages_not_empty() {
         let langs = known_languages();
         assert!(langs.len() > 40);
-        assert!(langs.contains(&"rust"));
-        assert!(langs.contains(&"python"));
+        assert!(langs.contains(&"rust".to_string()));
+        assert!(langs.contains(&"python".to_string()));
+    }
+
+    #[test]
+    fn test_parse_repo() {
+        let (owner, repo) = parse_repo("tree-sitter/tree-sitter-rust");
+        assert_eq!(owner, "tree-sitter");
+        assert_eq!(repo, "tree-sitter-rust");
     }
 }
