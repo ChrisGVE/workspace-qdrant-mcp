@@ -36,7 +36,7 @@ enum BackupCommand {
         collection: String,
 
         /// Output directory to download snapshot to
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = crate::path_arg::parse_path)]
         output: Option<PathBuf>,
 
         /// Add description/label to the snapshot

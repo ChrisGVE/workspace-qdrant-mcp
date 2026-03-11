@@ -11,6 +11,7 @@ mod config;
 mod error;
 mod grpc;
 mod output;
+pub(crate) mod path_arg;
 mod queue;
 
 /// Custom help template with grouped subcommands

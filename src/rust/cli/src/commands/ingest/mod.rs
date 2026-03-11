@@ -34,6 +34,7 @@ enum IngestCommand {
     /// Ingest a single file
     File {
         /// Path to file
+        #[arg(value_parser = crate::path_arg::parse_path)]
         path: PathBuf,
 
         /// Target collection (optional, auto-detected)
@@ -48,6 +49,7 @@ enum IngestCommand {
     /// Ingest a folder recursively
     Folder {
         /// Path to folder
+        #[arg(value_parser = crate::path_arg::parse_path)]
         path: PathBuf,
 
         /// Target collection (optional, auto-detected)

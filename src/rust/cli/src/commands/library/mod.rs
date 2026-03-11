@@ -54,6 +54,7 @@ enum LibraryCommand {
         tag: String,
 
         /// Path to library content
+        #[arg(value_parser = crate::path_arg::parse_path)]
         path: PathBuf,
 
         /// Sync mode: 'sync' (delete vectors for removed files) or 'incremental' (append-only, default)
@@ -67,6 +68,7 @@ enum LibraryCommand {
         tag: String,
 
         /// Path to library content
+        #[arg(value_parser = crate::path_arg::parse_path)]
         path: PathBuf,
 
         /// File patterns to include (e.g., "*.pdf", "*.md")
@@ -116,6 +118,7 @@ enum LibraryCommand {
     /// Ingest a single document into a library
     Ingest {
         /// Path to the document file
+        #[arg(value_parser = crate::path_arg::parse_path)]
         file: PathBuf,
 
         /// Library tag to ingest into
@@ -160,7 +163,7 @@ enum LibraryCommand {
     /// Set or clear the incremental (do-not-delete) flag on tracked files
     SetIncremental {
         /// File path(s) to set the flag on (absolute paths)
-        #[arg(required = true)]
+        #[arg(required = true, value_parser = crate::path_arg::parse_path)]
         files: Vec<PathBuf>,
 
         /// Clear the incremental flag (allow deletions)
