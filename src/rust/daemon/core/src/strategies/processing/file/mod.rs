@@ -155,6 +155,26 @@ impl FileStrategy {
             .await;
             // File is gone — cleanup already handled above. Treat as a no-op
             // success so the queue item is deleted rather than stuck in 'failed'.
+            //
+            // Explicitly mark both destinations done so check_and_finalize() can
+            // finalise the item even if a previous failed attempt left qdrant_status
+            // stuck at 'in_progress' (stale state from an interrupted pipeline).
+            let _ = ctx
+                .queue_manager
+                .update_destination_status(
+                    &item.queue_id,
+                    "qdrant",
+                    crate::unified_queue_schema::DestinationStatus::Done,
+                )
+                .await;
+            let _ = ctx
+                .queue_manager
+                .update_destination_status(
+                    &item.queue_id,
+                    "search",
+                    crate::unified_queue_schema::DestinationStatus::Done,
+                )
+                .await;
             info!(
                 "File no longer exists, cleaned up and dequeuing: {}",
                 payload.file_path

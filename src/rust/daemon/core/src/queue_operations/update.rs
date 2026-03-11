@@ -58,11 +58,13 @@ impl QueueManager {
         let result = sqlx::query(
             r#"
             UPDATE unified_queue
-            SET status      = 'pending',
-                retry_count = 0,
-                lease_until = NULL,
-                worker_id   = NULL,
-                updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            SET status        = 'pending',
+                retry_count   = 0,
+                lease_until   = NULL,
+                worker_id     = NULL,
+                qdrant_status = NULL,
+                search_status = NULL,
+                updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE status = 'failed'
               AND error_message LIKE '[transient_%'
             "#,
@@ -219,6 +221,7 @@ async fn mark_unified_retry(
         SET status = 'pending', retry_count = ?1, error_message = ?2,
             last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
             lease_until = ?3, worker_id = NULL,
+            qdrant_status = NULL, search_status = NULL,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE queue_id = ?4
     "#,
@@ -258,6 +261,7 @@ async fn mark_unified_permanent(
         SET status = 'failed', retry_count = ?1, error_message = ?2,
             last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
             lease_until = NULL, worker_id = NULL,
+            qdrant_status = NULL, search_status = NULL,
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE queue_id = ?3
     "#,
