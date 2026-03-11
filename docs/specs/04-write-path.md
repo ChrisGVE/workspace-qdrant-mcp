@@ -830,8 +830,11 @@ resource_limits:
 
 Every ~60 seconds (12 polls at 5s interval), the adaptive resource manager logs:
 ```
-Adaptive resources heartbeat: mode=Active, idle_secs=0, cpu_high=false, embeddings=3, delay=25ms
+Adaptive resources heartbeat: level=Normal, effective=Active, mode=active, idle=0s, cpu_pressure=false, embeddings=3, delay=25ms
 ```
+
+`level` is the state machine level (Normal/Active/Elevated/Burst based on idle ramp-up/ramp-down).
+`effective` is the profile actually emitted — may differ from `level` when Active Processing Mode overlay is in effect (user present + queue has work while state machine is at Normal).
 
 ---
 
