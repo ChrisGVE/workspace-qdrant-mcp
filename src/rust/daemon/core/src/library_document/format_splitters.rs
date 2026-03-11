@@ -27,37 +27,28 @@ use super::{LibraryDocumentError, StructuralUnit};
 
 /// Split a PDF into per-page structural units.
 ///
-/// Uses `pdf-extract` which inserts form feed (`\x0C`) characters between pages.
-/// Falls back to paragraph-based splitting if no form feeds are found.
+/// Primary: `pdf-extract`, which inserts form feed (`\x0C`) between pages.
+/// Fallback: `lopdf` for PDFs with malformed Type 1 font encodings that cause
+/// `pdf-extract` to panic (common in old scanned documents). If neither can
+/// extract text the function returns an empty vec (image-only PDF, not an error).
 pub fn split_pdf(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
     let path_buf = file_path.to_path_buf();
     let result = std::panic::catch_unwind(|| pdf_extract::extract_text(&path_buf));
 
-    let full_text = match result {
-        Ok(Ok(text)) => text,
-        Ok(Err(e)) => {
-            return Err(LibraryDocumentError::Extraction {
-                format: "pdf".into(),
-                message: e.to_string(),
-            })
-        }
-        Err(_panic) => {
-            return Err(LibraryDocumentError::Extraction {
-                format: "pdf".into(),
-                message: format!(
-                    "PDF parsing panicked (likely malformed font encoding): {}",
-                    file_path.display()
-                ),
-            })
-        }
-    };
+    match result {
+        Ok(Ok(text)) => split_pdf_text_by_formfeed(&text),
+        Ok(Err(_)) | Err(_) => split_pdf_lopdf_fallback(file_path),
+    }
+}
 
-    // Split by form feed characters (inserted between pages by pdf-extract)
+/// Split pre-extracted PDF text at form feed boundaries (one unit per page).
+fn split_pdf_text_by_formfeed(
+    full_text: &str,
+) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
     let pages: Vec<&str> = full_text.split('\x0C').collect();
 
     if pages.len() <= 1 {
-        // No form feeds — treat entire document as a single page
-        let cleaned = clean_text(&full_text);
+        let cleaned = clean_text(full_text);
         if cleaned.is_empty() {
             return Ok(vec![]);
         }
@@ -84,6 +75,33 @@ pub fn split_pdf(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumen
     }
 
     debug!("PDF split into {} pages", units.len());
+    Ok(units)
+}
+
+/// Fallback PDF splitter using lopdf for PDFs that pdf-extract cannot handle.
+/// Returns an empty vec (not an error) if no text can be extracted.
+fn split_pdf_lopdf_fallback(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
+    let doc = match lopdf::Document::load(file_path) {
+        Ok(d) => d,
+        Err(_) => return Ok(vec![]),
+    };
+
+    let mut units = Vec::new();
+    for (&page_num, _) in &doc.get_pages() {
+        if let Ok(text) = doc.extract_text(&[page_num]) {
+            let cleaned = clean_text(&text);
+            if !cleaned.is_empty() {
+                units.push(StructuralUnit {
+                    unit_type: UNIT_TYPE_PDF_PAGE.to_string(),
+                    unit_locator: serde_json::json!({"page": page_num}),
+                    text: cleaned,
+                    title: None,
+                });
+            }
+        }
+    }
+
+    debug!("PDF (lopdf fallback) split into {} pages", units.len());
     Ok(units)
 }
 
