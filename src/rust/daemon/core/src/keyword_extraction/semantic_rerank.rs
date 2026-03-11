@@ -3,6 +3,8 @@
 //! Scores each candidate phrase by cosine similarity to the parent document's
 //! summary vector. Combines semantic score with lexical (TF) score for final ranking.
 
+use std::collections::HashMap;
+
 use super::lexical_candidates::LexicalCandidate;
 use crate::embedding::{EmbeddingError, EmbeddingGenerator};
 
@@ -115,60 +117,62 @@ pub fn weighted_mean_vector(vectors: &[(Vec<f32>, f64)]) -> Option<Vec<f32>> {
 /// * `config` - Reranking configuration
 ///
 /// # Returns
-/// Ranked candidates sorted by combined score descending.
+/// Tuple of:
+/// - Ranked candidates sorted by combined score descending (only those passing
+///   the `min_similarity` threshold).
+/// - A `phrase → dense vector` map for every surviving candidate, to be reused
+///   by downstream pipeline stages (tag selection, basket assignment) without
+///   re-embedding.
 pub async fn rerank_candidates(
     candidates: Vec<LexicalCandidate>,
     parent_vector: &[f32],
     embedding_generator: &EmbeddingGenerator,
     config: &RerankConfig,
-) -> Result<Vec<RankedCandidate>, EmbeddingError> {
+) -> Result<(Vec<RankedCandidate>, HashMap<String, Vec<f32>>), EmbeddingError> {
     if candidates.is_empty() || parent_vector.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), HashMap::new()));
     }
 
     let phrases: Vec<String> = candidates.iter().map(|c| c.phrase.clone()).collect();
 
-    // Embed all candidate phrases in batches
+    // Embed all candidate phrases in a single batch call
     let embeddings = embedding_generator
         .generate_embeddings_batch(&phrases, "all-MiniLM-L6-v2")
         .await?;
 
-    // Score each candidate
     let sem_weight = config.semantic_weight;
     let lex_weight = 1.0 - sem_weight;
 
-    let mut ranked: Vec<RankedCandidate> = candidates
-        .into_iter()
-        .zip(embeddings.iter())
-        .filter_map(|(candidate, embedding)| {
-            let semantic_score = cosine_similarity(&embedding.dense.vector, parent_vector);
+    let mut ranked: Vec<RankedCandidate> = Vec::with_capacity(candidates.len());
+    let mut phrase_cache: HashMap<String, Vec<f32>> = HashMap::with_capacity(candidates.len());
 
-            // Filter by minimum similarity
-            if semantic_score < config.min_similarity {
-                return None;
-            }
+    for (candidate, embedding) in candidates.into_iter().zip(embeddings.into_iter()) {
+        let dense_vec = embedding.dense.vector;
+        let semantic_score = cosine_similarity(&dense_vec, parent_vector);
 
-            let combined = sem_weight * semantic_score + lex_weight * candidate.tf_score;
+        if semantic_score < config.min_similarity {
+            continue;
+        }
 
-            Some(RankedCandidate {
-                phrase: candidate.phrase,
-                ngram_size: candidate.ngram_size,
-                raw_tf: candidate.raw_tf,
-                lexical_score: candidate.tf_score,
-                semantic_score,
-                combined_score: combined,
-            })
-        })
-        .collect();
+        let combined = sem_weight * semantic_score + lex_weight * candidate.tf_score;
+        phrase_cache.insert(candidate.phrase.clone(), dense_vec);
+        ranked.push(RankedCandidate {
+            phrase: candidate.phrase,
+            ngram_size: candidate.ngram_size,
+            raw_tf: candidate.raw_tf,
+            lexical_score: candidate.tf_score,
+            semantic_score,
+            combined_score: combined,
+        });
+    }
 
-    // Sort by combined score descending
     ranked.sort_by(|a, b| {
         b.combined_score
             .partial_cmp(&a.combined_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    Ok(ranked)
+    Ok((ranked, phrase_cache))
 }
 
 #[cfg(test)]

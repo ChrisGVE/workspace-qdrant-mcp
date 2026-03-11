@@ -10,9 +10,12 @@
 //! 7. Keyword basket assignment
 //! 8. Structural tag extraction (code only)
 
+use std::collections::HashMap;
 use std::path::Path;
 
-use crate::embedding::{EmbeddingError, EmbeddingGenerator};
+use crate::embedding::EmbeddingGenerator;
+
+use super::embedding_cache::resolve_embeddings;
 
 use super::basket_assignment::{self, BasketConfig, KeywordBasket};
 use super::keyword_selector::{self, KeywordSelectionConfig, SelectedKeyword};
@@ -145,8 +148,9 @@ pub async fn run_pipeline(
         None => return minimal_result(None, gist_indices, input),
     };
 
-    // Steps 2-4: Extract and rerank candidates
-    let ranked = extract_and_rerank(input, parent_vector, embedding_generator, config).await;
+    // Steps 2-4: Extract and rerank candidates; collect phrase→vector cache
+    let (ranked, phrase_cache) =
+        extract_and_rerank(input, parent_vector, embedding_generator, config).await;
     if ranked.is_empty() {
         return minimal_result(summary_vector, gist_indices, input);
     }
@@ -155,26 +159,34 @@ pub async fn run_pipeline(
     let keywords = select_keywords(input, &ranked, config);
 
     // Steps 6-7: Select tags with MMR diversity and centrality boosting
-    let (tags, _candidate_vectors) =
-        match select_tags_with_diversity(input, &ranked, embedding_generator, config).await {
-            Some(result) => result,
-            None => {
-                return ExtractionResult {
-                    summary_vector,
-                    gist_indices,
-                    keywords,
-                    tags: Vec::new(),
-                    structural_tags: extract_structural(input),
-                    baskets: Vec::new(),
-                };
-            }
-        };
-
-    // Step 8: Keyword basket assignment
-    let baskets = match build_baskets(&keywords, &tags, embedding_generator, config).await {
-        Some(b) => b,
-        None => Vec::new(),
+    let (tags, _candidate_vectors) = match select_tags_with_diversity(
+        input,
+        &ranked,
+        &phrase_cache,
+        embedding_generator,
+        config,
+    )
+    .await
+    {
+        Some(result) => result,
+        None => {
+            return ExtractionResult {
+                summary_vector,
+                gist_indices,
+                keywords,
+                tags: Vec::new(),
+                structural_tags: extract_structural(input),
+                baskets: Vec::new(),
+            };
+        }
     };
+
+    // Step 8: Keyword basket assignment (reuses phrase_cache from step 2-4)
+    let baskets =
+        match build_baskets(&keywords, &tags, &phrase_cache, embedding_generator, config).await {
+            Some(b) => b,
+            None => Vec::new(),
+        };
 
     ExtractionResult {
         summary_vector,
@@ -209,12 +221,15 @@ fn generate_summary(
 }
 
 /// Steps 2-4: Extract lexical/LSP candidates and semantically rerank them.
+///
+/// Returns the ranked candidates and a `phrase → dense vector` cache for all
+/// surviving candidates. Downstream stages use the cache to avoid re-embedding.
 async fn extract_and_rerank(
     input: &PipelineInput<'_>,
     parent_vector: &[f32],
     embedding_generator: &EmbeddingGenerator,
     config: &PipelineConfig,
-) -> Vec<semantic_rerank::RankedCandidate> {
+) -> (Vec<semantic_rerank::RankedCandidate>, HashMap<String, Vec<f32>>) {
     let lexical_config = LexicalConfig {
         is_code: input.is_code,
         ..config.lexical.clone()
@@ -237,10 +252,10 @@ async fn extract_and_rerank(
     )
     .await
     {
-        Ok(r) => r,
+        Ok(result) => result,
         Err(e) => {
             tracing::warn!("Semantic reranking failed, using empty candidates: {}", e);
-            Vec::new()
+            (Vec::new(), HashMap::new())
         }
     }
 }
@@ -269,22 +284,24 @@ fn select_keywords(
     )
 }
 
-/// Steps 6-7: Embed candidates, apply centrality boosting, select tags with MMR diversity.
-/// Returns None if embedding fails.
+/// Steps 6-7: Resolve candidate embeddings (from cache), apply centrality boosting,
+/// select tags with MMR diversity. Returns None if embedding fails.
 async fn select_tags_with_diversity(
     input: &PipelineInput<'_>,
     ranked: &[semantic_rerank::RankedCandidate],
+    phrase_cache: &HashMap<String, Vec<f32>>,
     embedding_generator: &EmbeddingGenerator,
     config: &PipelineConfig,
 ) -> Option<(Vec<SelectedTag>, Vec<Vec<f32>>)> {
     let candidate_phrases: Vec<String> = ranked.iter().take(50).map(|c| c.phrase.clone()).collect();
-    let candidate_vectors = match embed_phrases(&candidate_phrases, embedding_generator).await {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!("Failed to embed candidates for tag selection: {}", e);
-            return None;
-        }
-    };
+    let candidate_vectors =
+        match resolve_embeddings(&candidate_phrases, phrase_cache, embedding_generator).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to embed candidates for tag selection: {}", e);
+                return None;
+            }
+        };
 
     let mut ranked_subset: Vec<_> = ranked.iter().take(50).cloned().collect();
     if let Some(centrality) = input.centrality_scores {
@@ -307,10 +324,11 @@ async fn select_tags_with_diversity(
     Some((tags, candidate_vectors))
 }
 
-/// Step 8: Embed keywords and tags, then assign keyword baskets.
+/// Step 8: Resolve embeddings for keywords and tags (from cache), then assign baskets.
 async fn build_baskets(
     keywords: &[SelectedKeyword],
     tags: &[SelectedTag],
+    phrase_cache: &HashMap<String, Vec<f32>>,
     embedding_generator: &EmbeddingGenerator,
     config: &PipelineConfig,
 ) -> Option<Vec<KeywordBasket>> {
@@ -318,8 +336,8 @@ async fn build_baskets(
     let tag_phrases: Vec<String> = tags.iter().map(|t| t.phrase.clone()).collect();
 
     match (
-        embed_phrases(&keyword_phrases, embedding_generator).await,
-        embed_phrases(&tag_phrases, embedding_generator).await,
+        resolve_embeddings(&keyword_phrases, phrase_cache, embedding_generator).await,
+        resolve_embeddings(&tag_phrases, phrase_cache, embedding_generator).await,
     ) {
         (Ok(kv), Ok(tv)) => Some(basket_assignment::assign_baskets(
             keywords,
@@ -370,22 +388,6 @@ fn tokenize_for_summary(text: &str) -> Vec<String> {
         })
         .filter(|w| !w.is_empty() && w.len() >= 2)
         .collect()
-}
-
-/// Embed a batch of phrases using the embedding generator.
-async fn embed_phrases(
-    phrases: &[String],
-    generator: &EmbeddingGenerator,
-) -> Result<Vec<Vec<f32>>, EmbeddingError> {
-    if phrases.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let embeddings = generator
-        .generate_embeddings_batch(phrases, "all-MiniLM-L6-v2")
-        .await?;
-
-    Ok(embeddings.into_iter().map(|e| e.dense.vector).collect())
 }
 
 #[cfg(test)]
