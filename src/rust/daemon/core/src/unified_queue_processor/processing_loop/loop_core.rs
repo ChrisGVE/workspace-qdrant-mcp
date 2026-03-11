@@ -142,11 +142,14 @@ impl UnifiedQueueProcessor {
                                 "Adaptive: added {} semaphore permits (target: {})",
                                 permits_to_add, target
                             );
+                        } else if target < current_target {
+                            let excess = current_target - target;
+                            let removed = embedding_semaphore.forget_permits(excess);
+                            debug!(
+                                "Adaptive: removed {} semaphore permits (requested: {}, target: {})",
+                                removed, excess, target
+                            );
                         }
-                        // Note: tokio::sync::Semaphore doesn't support shrinking permits.
-                        // When scaling down, in-flight operations keep their permits and
-                        // new acquires will block once available permits drop below the
-                        // new target. We track the target so subsequent transitions are correct.
                         adaptive_target_permits = Some(target);
                     }
                 }

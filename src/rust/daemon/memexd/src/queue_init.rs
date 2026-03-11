@@ -263,10 +263,13 @@ pub async fn initialize(
     );
 
     // Adaptive resources + health monitoring
+    // Pass the queue depth counter so the manager can detect Active Processing mode
+    // (user present + queue has work → boost to Active profile).
     let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
     let adaptive_config = AdaptiveResourceConfig::from_resource_limits(&config.resource_limits);
+    let queue_depth = uqp.queue_depth();
     let adaptive_manager =
-        AdaptiveResourceManager::start(adaptive_config, adaptive_shutdown_token.clone());
+        AdaptiveResourceManager::start(adaptive_config, adaptive_shutdown_token.clone(), queue_depth);
     let adaptive_state = adaptive_manager.state();
     uqp = uqp.with_adaptive_resources(adaptive_manager.subscribe());
 
