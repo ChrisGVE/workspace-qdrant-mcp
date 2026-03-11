@@ -237,6 +237,30 @@ impl LexiconManager {
         // Reset dirty counter
         let mut dirty = self.dirty_counts.write().await;
         dirty.insert(collection.to_string(), 0);
+        drop(dirty);
+
+        // Evict hapax legomena from in-memory vocab and SQLite.
+        // Done after commit so the DELETE is independent of the upsert tx.
+        let evicted_count = {
+            let mut instances = self.instances.write().await;
+            if let Some(bm25) = instances.get_mut(collection) {
+                bm25.evict_hapax()
+            } else {
+                0
+            }
+        };
+        if evicted_count > 0 {
+            sqlx::query(
+                "DELETE FROM sparse_vocabulary WHERE collection = ?1 AND document_count = 1",
+            )
+            .bind(collection)
+            .execute(&self.pool)
+            .await?;
+            debug!(
+                "Evicted {} hapax legomena from '{}' vocabulary",
+                evicted_count, collection
+            );
+        }
 
         debug!(
             "Persisted lexicon for '{}': {} dirty terms, {} total docs",

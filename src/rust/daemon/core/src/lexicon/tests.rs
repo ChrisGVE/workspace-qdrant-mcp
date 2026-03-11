@@ -3,7 +3,6 @@
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::time::Duration;
-use wqm_common::timestamps;
 
 use super::manager::LexiconManager;
 
@@ -80,10 +79,14 @@ async fn test_persist_and_reload() {
     setup_tables(&pool).await;
 
     let mgr = LexiconManager::new(pool.clone(), 1.2);
+    // Three documents so fn/main/test all appear in 2+ docs (hapax terms are evicted)
     mgr.add_document("projects", &["fn".into(), "main".into()])
         .await
         .unwrap();
     mgr.add_document("projects", &["fn".into(), "test".into()])
+        .await
+        .unwrap();
+    mgr.add_document("projects", &["main".into(), "test".into()])
         .await
         .unwrap();
     mgr.persist("projects").await.unwrap();
@@ -92,10 +95,10 @@ async fn test_persist_and_reload() {
     let mgr2 = LexiconManager::new(pool, 1.2);
     mgr2.load_collection("projects").await.unwrap();
 
-    assert_eq!(mgr2.corpus_size("projects").await, 2);
+    assert_eq!(mgr2.corpus_size("projects").await, 3);
     assert_eq!(mgr2.document_frequency("projects", "fn").await, 2);
-    assert_eq!(mgr2.document_frequency("projects", "main").await, 1);
-    assert_eq!(mgr2.document_frequency("projects", "test").await, 1);
+    assert_eq!(mgr2.document_frequency("projects", "main").await, 2);
+    assert_eq!(mgr2.document_frequency("projects", "test").await, 2);
 }
 
 #[tokio::test]
@@ -125,11 +128,14 @@ async fn test_persist_all() {
     setup_tables(&pool).await;
 
     let mgr = LexiconManager::new(pool.clone(), 1.2);
+    // Add each term twice so they survive hapax eviction (df >= 2)
     mgr.add_document("projects", &["a".into()]).await.unwrap();
+    mgr.add_document("projects", &["a".into()]).await.unwrap();
+    mgr.add_document("libraries", &["b".into()]).await.unwrap();
     mgr.add_document("libraries", &["b".into()]).await.unwrap();
     mgr.persist_all().await.unwrap();
 
-    // Verify both persisted
+    // Verify both persisted (terms with df >= 2 survive eviction)
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
             .fetch_one(&pool)
@@ -151,6 +157,10 @@ async fn test_persist_is_idempotent() {
     setup_tables(&pool).await;
 
     let mgr = LexiconManager::new(pool.clone(), 1.2);
+    // Add "hello" twice so it survives hapax eviction (df=2)
+    mgr.add_document("projects", &["hello".into()])
+        .await
+        .unwrap();
     mgr.add_document("projects", &["hello".into()])
         .await
         .unwrap();
@@ -167,22 +177,24 @@ async fn test_persist_is_idempotent() {
 
 #[tokio::test]
 async fn test_incremental_persist_updates_df() {
+    // Verify that document_count is correctly updated when terms accumulate
+    // across multiple persist cycles.  Terms must reach df>=2 within a single
+    // persist cycle to survive hapax eviction.
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
     let mgr = LexiconManager::new(pool.clone(), 1.2);
+
+    // First cycle: "hello" in 2 docs → df=2, survives
     mgr.add_document("projects", &["hello".into()])
         .await
         .unwrap();
-    mgr.persist("projects").await.unwrap();
-
-    // Add more documents
     mgr.add_document("projects", &["hello".into(), "world".into()])
         .await
         .unwrap();
     mgr.persist("projects").await.unwrap();
 
-    // Verify updated DF
+    // "hello" df=2 persisted, "world" df=1 evicted
     let df: i64 = sqlx::query_scalar(
         "SELECT document_count FROM sparse_vocabulary WHERE term = 'hello' AND collection = 'projects'",
     )
@@ -191,13 +203,31 @@ async fn test_incremental_persist_updates_df() {
     .unwrap();
     assert_eq!(df, 2);
 
+    // Second cycle: "hello" in 2 more docs → in-memory df increments to 4; "world" in 2 docs → survives
+    mgr.add_document("projects", &["hello".into(), "world".into()])
+        .await
+        .unwrap();
+    mgr.add_document("projects", &["hello".into(), "world".into()])
+        .await
+        .unwrap();
+    mgr.persist("projects").await.unwrap();
+
+    // "hello" should now show df=4 (accumulated across cycles)
+    let df: i64 = sqlx::query_scalar(
+        "SELECT document_count FROM sparse_vocabulary WHERE term = 'hello' AND collection = 'projects'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(df, 4);
+
     let total: i64 = sqlx::query_scalar(
         "SELECT total_documents FROM corpus_statistics WHERE collection = 'projects'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(total, 2);
+    assert_eq!(total, 4);
 }
 
 #[tokio::test]
@@ -286,6 +316,7 @@ async fn test_generate_sparse_vector_empty_collection() {
 #[tokio::test]
 async fn test_persist_only_writes_dirty_terms() {
     // Verify that a second persist (after no new add_document calls) writes nothing.
+    // Terms appear in 2 docs each so they survive hapax eviction (df >= 2).
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
@@ -293,9 +324,12 @@ async fn test_persist_only_writes_dirty_terms() {
     mgr.add_document("projects", &["alpha".into(), "beta".into()])
         .await
         .unwrap();
+    mgr.add_document("projects", &["alpha".into(), "beta".into()])
+        .await
+        .unwrap();
     mgr.persist("projects").await.unwrap();
 
-    // Snapshot row count after first persist
+    // Snapshot row count after first persist (alpha and beta survive with df=2)
     let count_after_first: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
     )
@@ -318,7 +352,10 @@ async fn test_persist_only_writes_dirty_terms() {
         "Second persist with no new docs must not alter vocabulary row count"
     );
 
-    // Add one new term and persist — only that term should be new.
+    // Add "gamma" twice and persist — gamma survives with df=2.
+    mgr.add_document("projects", &["gamma".into()])
+        .await
+        .unwrap();
     mgr.add_document("projects", &["gamma".into()])
         .await
         .unwrap();
@@ -336,56 +373,3 @@ async fn test_persist_only_writes_dirty_terms() {
     );
 }
 
-#[tokio::test]
-async fn test_cleanup_junk_terms() {
-    let pool = create_test_pool().await;
-    setup_tables(&pool).await;
-
-    let now = timestamps::now_utc();
-
-    // Insert a mix of valid and junk terms
-    let terms = vec![
-        (0, "function", "projects"),     // valid
-        (1, "120", "projects"),          // junk: pure digits
-        (2, "2.0.0", "projects"),        // junk: version string
-        (3, "abc123def456", "projects"), // junk: hex hash (12 chars)
-        (4, "0xff", "projects"),         // junk: hex literal
-        (5, "usr/bin", "projects"),      // junk: contains path separator
-        (6, "a", "projects"),            // junk: single char
-        (7, "hello", "projects"),        // valid
-        (8, "v1.2.3", "projects"),       // junk: version with v prefix
-    ];
-
-    for (id, term, collection) in &terms {
-        sqlx::query(
-            "INSERT INTO sparse_vocabulary (term_id, term, collection, document_count, created_at) VALUES (?1, ?2, ?3, 1, ?4)"
-        )
-        .bind(*id as i64)
-        .bind(*term)
-        .bind(*collection)
-        .bind(&now)
-        .execute(&pool)
-        .await
-        .unwrap();
-    }
-
-    let mgr = LexiconManager::new(pool.clone(), 1.2);
-    let removed = mgr.cleanup_junk_terms().await.unwrap();
-
-    // Should have removed 7 junk terms (120, 2.0.0, abc123def456, 0xff, usr/bin, a, v1.2.3)
-    assert_eq!(
-        removed, 7,
-        "Should remove 7 junk terms, removed {}",
-        removed
-    );
-
-    // Verify valid terms remain
-    let remaining: Vec<(String,)> =
-        sqlx::query_as("SELECT term FROM sparse_vocabulary ORDER BY term")
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-
-    let remaining_terms: Vec<&str> = remaining.iter().map(|(t,)| t.as_str()).collect();
-    assert_eq!(remaining_terms, vec!["function", "hello"]);
-}

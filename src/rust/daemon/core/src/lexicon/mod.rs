@@ -13,5 +13,7 @@ mod operations;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod hapax_tests;
 
 pub use manager::LexiconManager;

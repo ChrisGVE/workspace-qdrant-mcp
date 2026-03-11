@@ -197,6 +197,44 @@ impl BM25 {
         }
     }
 
+    /// Evict all hapax legomena (terms with document_frequency == 1) from the
+    /// in-memory vocabulary.
+    ///
+    /// Hapax terms have maximal IDF (`ln(N)`) but zero discriminative value
+    /// — they appear in exactly one document, so every query containing them
+    /// matches only that document. They dominate vocabulary size without
+    /// contributing useful signal.
+    ///
+    /// Eviction is self-rebalancing: if an evicted term later appears in a
+    /// second document it is re-added with df=2 and is no longer a hapax.
+    ///
+    /// Returns the number of evicted terms.
+    pub(crate) fn evict_hapax(&mut self) -> usize {
+        let hapax_ids: std::collections::HashSet<u32> = self
+            .doc_freq
+            .iter()
+            .filter(|(_, &df)| df == 1)
+            .map(|(id, _)| *id)
+            .collect();
+
+        if hapax_ids.is_empty() {
+            return 0;
+        }
+
+        let count = hapax_ids.len();
+
+        // Remove from doc_freq and dirty tracking
+        for &id in &hapax_ids {
+            self.doc_freq.remove(&id);
+            self.dirty_ids.remove(&id);
+        }
+
+        // Remove from vocab (single O(vocab_size) scan using retain)
+        self.vocab.retain(|_, id| !hapax_ids.contains(id));
+
+        count
+    }
+
     pub fn vocab_size(&self) -> usize {
         self.vocab.len()
     }
