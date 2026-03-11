@@ -2,33 +2,49 @@
 
 ## Current State
 
-All tasks in the `perf-extract` tag are complete and pushed to main.
+All three `smart-processing` tasks are complete. Two commits on the `resource-management`
+branch have been pushed to remote. The branch is NOT yet merged to `main` — it was kept
+separate for experimentation per user instructions.
 
-## Completed Tasks (perf-extract tag)
+## Completed Work (smart-processing tag)
 
-1. Embedding cache reuse
-2. Hapax eviction
-3. LRU phrase cache
-4. Background persistence
-5. IDF drift correction (`wqm admin rebalance-idf`)
+### Task 1 — mtime-based scan pruning (commit `aacfd8d6f`, main)
 
-## Bug Fix (committed to main, 2026-03-11)
+Eliminates redundant queue churn on daemon restart. `FolderPayload` now carries
+`last_scan: Option<String>`. During `scan_directory_single_level`, files with
+`mtime ≤ last_scan` are skipped. The timestamp is propagated down the directory tree in
+each child's payload so child scans skip the DB query. `handle_project_scan` reads
+`last_scan` from `watch_folders` before scanning and updates it after.
 
-Diagnosed and fixed two bugs that caused 4 queue items to loop indefinitely:
+### Task 2 — CLAUDE.md workspace-qdrant mandatory first tool (committed, main)
 
-- `mark_unified_retry` / `mark_unified_permanent` / `resurrect_failed_transient` now
-  reset `qdrant_status = NULL` and `search_status = NULL` when requeueing, preventing
-  stale `in_progress` from surviving across retry cycles.
-- The "file no longer exists" cleanup path now explicitly marks both destinations `Done`
-  before returning `Ok(())`, so `check_and_finalize` can delete the item.
+Global `~/.claude/CLAUDE.md` and `README.md` CLAUDE.md snippet both updated to:
+- Three-step protocol: start with workspace-qdrant → fall back only if insufficient → store findings
+- Mandatory for main thread AND every sub-agent (verbatim instruction required in each agent prompt)
 
-All 4 stuck items were cleared immediately after daemon restart.
+### Task 3 — Adaptive resource management (branch: `resource-management`)
 
-## Feature (committed to main, 2026-03-11)
+Two gaps in the existing adaptive resource manager were closed:
 
-CLI path arguments now expand tilde and env vars before use (`feat(cli): expand tilde and env vars in path arguments`).
-Affected commands: `library add/watch/ingest/set-incremental`, `ingest file/folder`, `backup create --output`.
-Implementation: `wqm-common::env_expand::expand_path`, `cli::path_arg::parse_path` clap value_parser.
-Command substitution `$(...)` remains shell-level only.
+**Semaphore scale-down** (`loop_core.rs`):
+When the adaptive profile target decreases, `embedding_semaphore.forget_permits(excess)`
+is now called. Previously scale-down was documented as a known gap (permits only drained
+naturally as in-flight ops completed).
 
-No pending work. Await new instructions.
+**Active Processing Mode wiring** (`manager.rs`, `queue_init.rs`):
+`AdaptiveResourceManager::start()` now accepts `queue_depth: Option<Arc<AtomicUsize>>`.
+The `queue_depth_counter` from `UnifiedQueueProcessor` is passed at init time.
+When user is present (not idle) and state machine is at Normal but queue has pending work,
+the manager emits the `Active` profile (+50% concurrency, 25ms delay) as an overlay —
+the state machine level stays at Normal so ramp-up/ramp-down is unaffected.
+
+Spec `docs/specs/04-write-path.md` updated to reflect actual heartbeat log format.
+
+## Branch Status
+
+- `main`: Tasks 1 and 2 merged and pushed.
+- `resource-management`: Task 3 (2 commits). Awaiting user decision to merge.
+
+## No Pending Work
+
+All tasks complete. Await new instructions.
