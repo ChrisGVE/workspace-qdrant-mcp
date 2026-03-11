@@ -3,6 +3,8 @@
 use tracing::{debug, warn};
 use wqm_common::timestamps;
 
+use super::background_persist::PersistRequest;
+
 use super::manager::LexiconManager;
 
 /// Threshold for auto-persisting (number of documents processed since last persist).
@@ -132,11 +134,39 @@ impl LexiconManager {
         };
 
         if should_persist {
-            debug!(
-                "Auto-persisting lexicon for '{}' (threshold {} reached)",
-                collection, AUTO_PERSIST_THRESHOLD
-            );
-            self.persist(collection).await?;
+            // Try to dispatch to background task (non-blocking).
+            // Fall back to inline persist if the background task isn't running.
+            let tx = {
+                let guard = self.persist_tx.read().await;
+                guard.clone()
+            };
+            match tx {
+                Some(sender) => {
+                    let request = PersistRequest::Persist {
+                        collection: collection.to_string(),
+                    };
+                    if let Err(e) = sender.try_send(request) {
+                        debug!(
+                            "Background persist channel full for '{}', falling back to inline: {}",
+                            collection, e
+                        );
+                        self.persist(collection).await?;
+                    } else {
+                        debug!(
+                            "Queued background persist for '{}' (threshold {} reached)",
+                            collection, AUTO_PERSIST_THRESHOLD
+                        );
+                    }
+                }
+                None => {
+                    // Background task not started — persist inline
+                    debug!(
+                        "Auto-persisting lexicon for '{}' inline (threshold {} reached)",
+                        collection, AUTO_PERSIST_THRESHOLD
+                    );
+                    self.persist(collection).await?;
+                }
+            }
         }
 
         Ok(())

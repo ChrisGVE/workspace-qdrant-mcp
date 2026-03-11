@@ -361,6 +361,9 @@ impl UnifiedQueueProcessor {
         }
 
         let task_handle = tokio::spawn(async move {
+            // Start background persistence task (off-loads SQLite writes from hot path)
+            lexicon_manager.start_background_persister().await;
+
             // One-time cleanup of junk BM25 terms from sparse_vocabulary (Task 22)
             if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
                 warn!(
@@ -428,6 +431,9 @@ impl UnifiedQueueProcessor {
                 }
             }
         }
+
+        // Flush any pending lexicon persist requests to SQLite before exiting
+        self.lexicon_manager.flush_all_background().await;
 
         Ok(())
     }

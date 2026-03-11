@@ -8,6 +8,7 @@
 //! `corpus_statistics` tables. During processing, accumulates new terms
 //! in memory and periodically flushes to SQLite.
 
+mod background_persist;
 mod manager;
 mod operations;
 
@@ -15,5 +16,7 @@ mod operations;
 mod tests;
 #[cfg(test)]
 mod hapax_tests;
+#[cfg(test)]
+mod background_tests;
 
 pub use manager::LexiconManager;

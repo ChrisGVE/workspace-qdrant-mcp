@@ -4,10 +4,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
-use tokio::sync::RwLock;
+use tokio::sync::{oneshot, mpsc, RwLock};
 use tracing::info;
 
 use crate::embedding::BM25;
+
+use super::background_persist::{spawn_background_persister, PersistRequest};
 
 /// Manages per-collection BM25 vocabulary with SQLite persistence.
 pub struct LexiconManager {
@@ -18,6 +20,9 @@ pub struct LexiconManager {
     pub(super) dirty_counts: Arc<RwLock<HashMap<String, u32>>>,
     /// BM25 k1 parameter for new instances.
     pub(super) k1: f32,
+    /// Channel to the background persistence task.
+    /// `None` until `start_background_persister()` is called.
+    pub(super) persist_tx: Arc<RwLock<Option<mpsc::Sender<PersistRequest>>>>,
 }
 
 impl LexiconManager {
@@ -27,6 +32,36 @@ impl LexiconManager {
             instances: Arc::new(RwLock::new(HashMap::new())),
             dirty_counts: Arc::new(RwLock::new(HashMap::new())),
             k1,
+            persist_tx: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Spawn the background persistence task.
+    ///
+    /// Must be called once after wrapping `LexiconManager` in `Arc`.
+    /// After this call, `add_document()` dispatches persist requests to the
+    /// background task instead of blocking on SQLite writes inline.
+    pub async fn start_background_persister(self: &Arc<Self>) {
+        let tx = spawn_background_persister(Arc::clone(self));
+        *self.persist_tx.write().await = Some(tx);
+        info!("LexiconManager background persistence task started");
+    }
+
+    /// Flush all pending persist requests and wait for completion.
+    ///
+    /// Call before daemon shutdown to ensure all in-flight dirty terms
+    /// are written to SQLite before the process exits.
+    pub async fn flush_all_background(&self) {
+        let tx = {
+            let guard = self.persist_tx.read().await;
+            guard.clone()
+        };
+        if let Some(tx) = tx {
+            let (reply_tx, reply_rx) = oneshot::channel();
+            if tx.send(PersistRequest::Flush { reply: reply_tx }).await.is_ok() {
+                let _ = reply_rx.await;
+                info!("LexiconManager background flush complete");
+            }
         }
     }
 
