@@ -24,4 +24,11 @@ Diagnosed and fixed two bugs that caused 4 queue items to loop indefinitely:
 
 All 4 stuck items were cleared immediately after daemon restart.
 
+## Feature (committed to main, 2026-03-11)
+
+CLI path arguments now expand tilde and env vars before use (`feat(cli): expand tilde and env vars in path arguments`).
+Affected commands: `library add/watch/ingest/set-incremental`, `ingest file/folder`, `backup create --output`.
+Implementation: `wqm-common::env_expand::expand_path`, `cli::path_arg::parse_path` clap value_parser.
+Command substitution `$(...)` remains shell-level only.
+
 No pending work. Await new instructions.
