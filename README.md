@@ -99,21 +99,23 @@ Add the following to your project's `CLAUDE.md` (or your global `~/.claude/CLAUD
 
 The `workspace-qdrant` MCP server provides codebase-aware search, library knowledge retrieval, and persistent behavioral rules. The tool schemas are self-describing; these instructions cover *when* and *how* to use them.
 
+### Primary Search — Mandatory First Tool
+
+**`workspace-qdrant` is the mandatory first tool for ALL searches without exception** — general knowledge, codebase (symbols, functions, classes, patterns, relationships), library documentation, and previously stored findings.
+
+**Three-step search protocol (non-negotiable):**
+1. **Start** with `workspace-qdrant` (`search`, `grep`, `list`, or `retrieve`)
+2. **Fall back** to traditional tools (`Grep`, `Glob`, `WebSearch`) only when workspace-qdrant is insufficient or unavailable
+3. **Return** — store any new knowledge or findings via `store` so they are retrievable in future sessions
+
+Use `scope="project"` for the current codebase, `scope="all"` when library docs are also relevant. Use `grep` for exact strings or regex. Use `list` with `format="summary"` to explore project structure. Use the scratchpad to store analysis, brainstorming transcripts, and intermediate results.
+
+Every sub-agent you launch must follow the same protocol. Include this in every agent prompt:
+> "Use `workspace-qdrant` as your primary and mandatory first tool for all searches. Fall back to Grep/Glob/WebSearch only when workspace-qdrant is insufficient. Store any new findings back via `store`."
+
 ### Project Registration
 
 At session start, check whether the current project is registered with workspace-qdrant. If it is not, ask the user whether they want to register it (do not register silently). Once registered, the daemon handles file watching and ingestion automatically — no further action is needed.
-
-### Codebase Intelligence
-
-Use `search` as the primary tool for understanding project code:
-- Search for symbols, functions, classes, and structural patterns across the codebase
-- Understand project architecture and module relationships
-- Locate code relevant to the current task before making changes
-- Use `scope="project"` for the current project, `scope="all"` when library docs are also relevant
-
-### Library and Document Retrieval
-
-Use `retrieve` and `search` (on the `libraries` collection) to access stored reference documentation, file extracts, and knowledge base content. Use `store` with `type="library"` to add reference material the user provides.
 
 ### Behavioral Rules
 
