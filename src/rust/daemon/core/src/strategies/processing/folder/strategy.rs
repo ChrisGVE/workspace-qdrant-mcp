@@ -56,8 +56,10 @@ impl FolderStrategy {
         item: &UnifiedQueueItem,
         queue_manager: &Arc<QueueManager>,
         allowed_extensions: &Arc<AllowedExtensions>,
+        last_scan: Option<&str>,
     ) -> UnifiedProcessorResult<(u64, u64, u64, u64)> {
-        scan_directory_single_level(dir_path, item, queue_manager, allowed_extensions).await
+        scan_directory_single_level(dir_path, item, queue_manager, allowed_extensions, last_scan)
+            .await
     }
 }
 
@@ -74,6 +76,10 @@ pub(crate) async fn process_folder_item(
     );
 
     let payload: FolderPayload = parse_payload(item)?;
+
+    // last_scan from the payload provides the mtime baseline for pruning.
+    // For Add/Update (force-rescan) we ignore it so all files are re-examined.
+    let last_scan_for_scan = payload.last_scan.as_deref();
 
     match item.op {
         QueueOperation::Scan => {
@@ -92,6 +98,7 @@ pub(crate) async fn process_folder_item(
                     item,
                     &ctx.queue_manager,
                     &ctx.allowed_extensions,
+                    last_scan_for_scan,
                 )
                 .await?;
                 info!(
@@ -112,7 +119,7 @@ pub(crate) async fn process_folder_item(
         }
         QueueOperation::Delete => process_folder_delete(item, &payload, &ctx.queue_manager).await,
         QueueOperation::Update | QueueOperation::Add => {
-            // Folder update/add is equivalent to a rescan
+            // Folder update/add is a forced rescan — no mtime pruning.
             info!(
                 "Folder {:?} operation treated as rescan for: {}",
                 item.op, payload.folder_path
@@ -131,6 +138,7 @@ pub(crate) async fn process_folder_item(
                     item,
                     &ctx.queue_manager,
                     &ctx.allowed_extensions,
+                    None, // forced rescan: no pruning
                 )
                 .await?;
                 info!(

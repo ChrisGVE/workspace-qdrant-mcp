@@ -2,7 +2,9 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::SystemTime;
 
+use chrono::DateTime;
 use tracing::{debug, warn};
 
 use crate::allowed_extensions::AllowedExtensions;
@@ -15,12 +17,16 @@ use crate::unified_queue_schema::{
     FilePayload, FolderPayload, ItemType, ProjectPayload, QueueOperation, UnifiedQueueItem,
 };
 
-/// Progressive single-level directory scan.
+/// Progressive single-level directory scan with mtime-based pruning.
 ///
 /// Enumerates only the immediate children of `dir_path`:
-/// - Files: check exclusion + allowlist, enqueue `(File, Add)`
-/// - Directories: check exclusion, enqueue `(Folder, Scan)`
+/// - Files: check exclusion + allowlist + mtime, enqueue `(File, Add)`
+/// - Directories: check exclusion + mtime, enqueue `(Folder, Scan)`
 /// - Directories with `.git`: submodule detection, enqueue `(Tenant, Add)`
+///
+/// `last_scan` is an ISO 8601 timestamp string. Entries with mtime ≤ this
+/// value are skipped — they are unchanged since the previous scan. Pass
+/// `None` for a full scan (first-time or forced rescan).
 ///
 /// Returns `(files_queued, dirs_queued, files_excluded, errors)`.
 pub(crate) async fn scan_directory_single_level(
@@ -28,11 +34,15 @@ pub(crate) async fn scan_directory_single_level(
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
+    last_scan: Option<&str>,
 ) -> UnifiedProcessorResult<(u64, u64, u64, u64)> {
     let mut files_queued = 0u64;
     let mut dirs_queued = 0u64;
     let mut files_excluded = 0u64;
     let mut errors = 0u64;
+
+    // Parse baseline once; comparison is O(1) per entry.
+    let baseline: Option<SystemTime> = last_scan.and_then(parse_iso8601_to_system_time);
 
     // Gate 0: build per-directory ignore matcher from .gitignore + .wqmignore.
     // Returns None when neither file exists (fast path).
@@ -83,6 +93,7 @@ pub(crate) async fn scan_directory_single_level(
                 &entry.file_name().to_string_lossy().to_string(),
                 item,
                 queue_manager,
+                last_scan,
                 &mut errors,
             )
             .await;
@@ -100,6 +111,7 @@ pub(crate) async fn scan_directory_single_level(
                 item,
                 queue_manager,
                 allowed_extensions,
+                baseline.as_ref(),
                 &mut files_excluded,
                 &mut errors,
             )
@@ -111,7 +123,18 @@ pub(crate) async fn scan_directory_single_level(
     Ok((files_queued, dirs_queued, files_excluded, errors))
 }
 
+/// Parse an ISO 8601 / RFC 3339 timestamp string into a `SystemTime`.
+/// Returns `None` on parse failure (safe fallback: scan everything).
+fn parse_iso8601_to_system_time(s: &str) -> Option<SystemTime> {
+    DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| SystemTime::from(dt))
+}
+
 /// Process a single directory entry encountered during scan.
+///
+/// `last_scan` is propagated into the child `FolderPayload` so that
+/// mtime pruning continues through the entire directory tree.
 ///
 /// Returns 1 if an item was enqueued, 0 otherwise.
 async fn process_directory_entry(
@@ -119,6 +142,7 @@ async fn process_directory_entry(
     dir_name: &str,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
+    last_scan: Option<&str>,
     errors: &mut u64,
 ) -> u64 {
     // Check directory exclusion
@@ -132,7 +156,7 @@ async fn process_directory_entry(
     }
 
     // Regular subdirectory -> (Folder, Scan)
-    enqueue_subdirectory(path, item, queue_manager).await
+    enqueue_subdirectory(path, item, queue_manager, last_scan).await
 }
 
 /// Enqueue a submodule directory as a Tenant/Add item.
@@ -183,11 +207,15 @@ async fn enqueue_submodule(
 
 /// Enqueue a regular subdirectory as a Folder/Scan item.
 ///
+/// `last_scan` is embedded in the payload so the child scan can prune
+/// unchanged entries without an extra DB query.
+///
 /// Returns 1 if enqueued successfully, 0 otherwise.
 async fn enqueue_subdirectory(
     path: &Path,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
+    last_scan: Option<&str>,
 ) -> u64 {
     let folder_payload = FolderPayload {
         folder_path: path.to_string_lossy().to_string(),
@@ -196,6 +224,7 @@ async fn enqueue_subdirectory(
         patterns: vec![],
         ignore_patterns: vec![],
         old_path: None,
+        last_scan: last_scan.map(|s| s.to_string()),
     };
     let payload_json = serde_json::to_string(&folder_payload)
         .unwrap_or_else(|_| format!(r#"{{"folder_path":"{}"}}"#, path.display()));
@@ -219,12 +248,16 @@ async fn enqueue_subdirectory(
 
 /// Process a single file entry encountered during scan.
 ///
+/// `baseline` is the parsed mtime pruning threshold: files with
+/// `mtime ≤ baseline` are skipped as unchanged.
+///
 /// Returns 1 if the file was enqueued, 0 otherwise.
 async fn process_file_entry(
     path: &Path,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
+    baseline: Option<&SystemTime>,
     files_excluded: &mut u64,
     errors: &mut u64,
 ) -> u64 {
@@ -251,6 +284,16 @@ async fn process_file_entry(
             return 0;
         }
     };
+
+    // mtime pruning: skip files that haven't changed since the last scan.
+    // On metadata error we fall through and include the file (safe default).
+    if let Some(bl) = baseline {
+        if metadata.modified().map(|m| m <= *bl).unwrap_or(false) {
+            debug!("mtime prune: skipping unchanged file {}", abs_path);
+            *files_excluded += 1;
+            return 0;
+        }
+    }
 
     // Skip files that are too large (100MB limit)
     const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;

@@ -49,6 +49,13 @@ pub struct FolderPayload {
     /// Previous path before rename (used when op=Rename)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub old_path: Option<String>,
+    /// Baseline ISO 8601 timestamp for mtime-based pruning.
+    ///
+    /// Files and subdirectory scans with mtime ≤ this value are skipped —
+    /// they haven't changed since the last full scan. `None` on the first
+    /// scan (no baseline → scan everything).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_scan: Option<String>,
 }
 
 #[cfg(test)]
@@ -100,6 +107,7 @@ mod tests {
             patterns: vec![],
             ignore_patterns: vec![],
             old_path: Some("/src/old_dir".to_string()),
+            last_scan: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("old_dir"));

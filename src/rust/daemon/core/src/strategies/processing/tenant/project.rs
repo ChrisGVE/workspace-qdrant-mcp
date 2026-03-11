@@ -204,6 +204,8 @@ async fn enqueue_project_scan(
 
 /// Handle Tenant/Scan for the projects collection.
 ///
+/// Reads `last_scan` from the watch_folder record before scanning so that
+/// mtime-based pruning can skip files unchanged since the previous scan.
 /// Enumerates the project directory (single-level progressive scan) and
 /// queues file ingestion items, then cleans up excluded files.
 async fn handle_project_scan(
@@ -211,7 +213,18 @@ async fn handle_project_scan(
     item: &UnifiedQueueItem,
     payload: &ProjectPayload,
 ) -> UnifiedProcessorResult<()> {
-    scan_project_directory(ctx, item, payload).await?;
+    // Read the previous scan timestamp to seed mtime pruning.
+    let last_scan: Option<String> = sqlx::query_scalar(
+        "SELECT last_scan FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
+    )
+    .bind(&item.tenant_id)
+    .bind(COLLECTION_PROJECTS)
+    .fetch_optional(ctx.queue_manager.pool())
+    .await
+    .unwrap_or(None)
+    .flatten();
+
+    scan_project_directory(ctx, item, payload, last_scan.as_deref()).await?;
 
     // Update last_scan timestamp for this project's watch_folder
     let update_result = sqlx::query(
@@ -385,10 +398,15 @@ async fn handle_project_uplift(
 }
 
 /// Scan a project directory and queue file ingestion items.
+///
+/// `last_scan` is the ISO 8601 timestamp from the watch_folder record.
+/// It is threaded into the scan so files unchanged since that time are
+/// skipped, avoiding redundant embedding work on restart.
 async fn scan_project_directory(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     payload: &ProjectPayload,
+    last_scan: Option<&str>,
 ) -> UnifiedProcessorResult<()> {
     let project_root = Path::new(&payload.project_root);
 
@@ -411,18 +429,20 @@ async fn scan_project_directory(
         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
     info!(
-        "Scanning project directory (single level): {} (tenant_id={})",
-        payload.project_root, item.tenant_id
+        "Scanning project directory (single level): {} (tenant_id={}, last_scan={:?})",
+        payload.project_root, item.tenant_id, last_scan
     );
 
     // Progressive scan: enumerate only the immediate children of the directory.
     // Subdirectories are enqueued as (Folder, Scan) for deferred processing.
+    // last_scan enables mtime pruning to skip unchanged files.
     let (files_queued, dirs_queued, files_excluded, errors) =
         crate::strategies::processing::folder::FolderStrategy::scan_directory_single_level(
             project_root,
             item,
             &ctx.queue_manager,
             &ctx.allowed_extensions,
+            last_scan,
         )
         .await?;
 
