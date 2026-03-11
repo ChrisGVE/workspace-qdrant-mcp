@@ -16,6 +16,7 @@ mod metrics;
 mod metrics_setup;
 mod perf;
 mod prune_logs;
+mod rebalance_idf;
 mod rename_tenant;
 
 /// Canonical collection names (validated against wqm-common constants)
@@ -98,6 +99,25 @@ enum AdminCommand {
         #[arg(long)]
         confirm: bool,
     },
+    /// Correct IDF drift in stored sparse vectors
+    ///
+    /// Sparse vectors are computed with IDF statistics from the corpus size N
+    /// at ingest time. As N grows, stored weights become stale. This command
+    /// applies correction factors to bring all points to the current N.
+    RebalanceIdf {
+        /// Target collection (default: all collections with corpus statistics)
+        #[arg(long)]
+        collection: Option<String>,
+
+        /// Report drift without updating any vectors
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Minimum corpus growth (%) required before correction runs (default: 10.0)
+        #[arg(long, default_value = "10.0")]
+        min_growth_pct: f64,
+    },
+
     /// Display pipeline performance statistics (per-phase timing breakdown)
     Perf {
         /// Time window in hours (default: 24)
@@ -177,6 +197,11 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             cleanup_orphans::execute(delete, collection).await
         }
         AdminCommand::RecoverState { confirm } => super::recover_state::execute(confirm).await,
+        AdminCommand::RebalanceIdf {
+            collection,
+            dry_run,
+            min_growth_pct,
+        } => rebalance_idf::execute(collection, dry_run, min_growth_pct).await,
         AdminCommand::Perf {
             window,
             json,

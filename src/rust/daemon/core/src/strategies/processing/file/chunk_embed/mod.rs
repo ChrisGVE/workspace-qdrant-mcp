@@ -62,6 +62,10 @@ pub(super) async fn embed_chunks(
     let mut chunk_records = Vec::new();
     let embedding_start = std::time::Instant::now();
 
+    // Capture corpus size once before the loop so all chunks in this document
+    // share the same idf_epoch, enabling consistent IDF drift correction later.
+    let idf_epoch = ctx.lexicon_manager.corpus_size(&item.collection).await;
+
     for (chunk_idx, chunk) in document_content.chunks.iter().enumerate() {
         // Semaphore-gated embedding generation (Task 504)
         let _permit =
@@ -179,6 +183,7 @@ pub(super) async fn embed_chunks(
         let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
 
         // Generate sparse vector based on configured mode (bm25 or splade)
+        let mut used_lexicon_bm25 = false;
         let sparse = if ctx.embedding_generator.sparse_vector_mode() == "splade" {
             // SPLADE++ learned sparse vectors (Task 38)
             match ctx
@@ -205,11 +210,19 @@ pub(super) async fn embed_chunks(
                 .await;
             // Fall back to embedding generator's ephemeral BM25 if lexicon has no corpus stats
             if !lexicon_sparse.indices.is_empty() {
+                used_lexicon_bm25 = true;
                 lexicon_sparse
             } else {
                 embedding_result.sparse.clone()
             }
         };
+
+        // Store corpus size at ingest time for IDF drift correction (Task 5).
+        // Only written when lexicon-backed BM25 is used — SPLADE vectors don't
+        // use N-dependent IDF, and ephemeral-BM25 fallback has no stored epoch.
+        if used_lexicon_bm25 && idf_epoch > 0 {
+            point_payload.insert("idf_epoch".to_string(), serde_json::json!(idf_epoch));
+        }
 
         let point = crate::storage::DocumentPoint {
             id: point_id.clone(),

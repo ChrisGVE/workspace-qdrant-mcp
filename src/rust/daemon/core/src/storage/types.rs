@@ -74,6 +74,20 @@ impl MultiTenantInitResult {
     }
 }
 
+/// A point returned by scroll operations that include the sparse vector.
+///
+/// Carries only the data needed for IDF drift correction: point ID,
+/// `idf_epoch` from the payload, and the sparse vector.
+#[derive(Debug, Clone)]
+pub struct SparsePointData {
+    /// Qdrant point UUID
+    pub id: String,
+    /// Corpus size at ingest time (from payload `idf_epoch`), None if not set.
+    pub idf_epoch: Option<u64>,
+    /// Sparse vector as term_id → BM25 weight map, None if not present.
+    pub sparse_vector: Option<HashMap<u32, f32>>,
+}
+
 /// Document point for Qdrant insertion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentPoint {
