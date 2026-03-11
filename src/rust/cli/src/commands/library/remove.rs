@@ -64,13 +64,53 @@ pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
     Ok(())
 }
 
-/// Delete watch folder config from SQLite
+/// Delete watch folder config from SQLite, cleaning up child records atomically
 fn delete_watch_config(conn: &rusqlite::Connection, tag: &str, watch_id: &str) -> Result<()> {
     output::info("Removing watch configuration...");
-    let deleted = conn
-        .execute("DELETE FROM watch_folders WHERE watch_id = ?", [watch_id])
-        .context("Failed to delete watch folder config")?;
 
+    // Run all deletes in a single transaction with FK checks off so child-record
+    // cleanup is atomic with the parent delete — prevents races with the daemon.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")
+        .context("Failed to disable FK enforcement")?;
+
+    let result = (|| -> Result<(usize, usize)> {
+        let tx = conn.unchecked_transaction().context("Failed to begin transaction")?;
+
+        let cancelled = tx
+            .execute(
+                "DELETE FROM unified_queue WHERE tenant_id = ?1 AND collection = 'libraries'",
+                [tag],
+            )
+            .context("Failed to cancel queue items")?;
+
+        tx.execute(
+            "DELETE FROM project_components WHERE watch_folder_id = ?1",
+            [watch_id],
+        )
+        .context("Failed to delete project components")?;
+
+        tx.execute(
+            "DELETE FROM tracked_files WHERE watch_folder_id = ?1",
+            [watch_id],
+        )
+        .context("Failed to delete tracked files")?;
+
+        let deleted = tx
+            .execute("DELETE FROM watch_folders WHERE watch_id = ?1", [watch_id])
+            .context("Failed to delete watch folder config")?;
+
+        tx.commit().context("Failed to commit removal transaction")?;
+        Ok((cancelled, deleted))
+    })();
+
+    conn.execute_batch("PRAGMA foreign_keys = ON;")
+        .context("Failed to re-enable FK enforcement")?;
+
+    let (cancelled, deleted) = result?;
+
+    if cancelled > 0 {
+        output::info(format!("Cancelled {} pending queue items", cancelled));
+    }
     if deleted > 0 {
         output::success(format!("Removed watch config for '{}'", tag));
     }
