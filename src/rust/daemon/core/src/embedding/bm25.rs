@@ -209,7 +209,7 @@ impl BM25 {
     /// second document it is re-added with df=2 and is no longer a hapax.
     ///
     /// Returns the number of evicted terms.
-    pub(crate) fn evict_hapax(&mut self) -> usize {
+    pub fn evict_hapax(&mut self) -> usize {
         let hapax_ids: std::collections::HashSet<u32> = self
             .doc_freq
             .iter()
