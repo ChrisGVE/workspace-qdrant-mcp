@@ -10,6 +10,7 @@
 
 mod bm25;
 mod generator;
+mod phrase_cache;
 mod types;
 
 #[cfg(test)]

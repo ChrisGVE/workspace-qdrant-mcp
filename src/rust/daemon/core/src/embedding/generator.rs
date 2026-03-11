@@ -15,6 +15,7 @@ use tracing::{info, warn};
 const INIT_BACKOFF_SECS: &[u64] = &[30, 60, 120, 300, 600];
 
 use super::bm25::{tokenize_for_bm25, BM25};
+use super::phrase_cache::PhraseCache;
 use super::types::{
     DenseEmbedding, EmbeddingConfig, EmbeddingError, EmbeddingResult, PreprocessedText,
     SparseEmbedding,
@@ -34,6 +35,8 @@ pub struct EmbeddingGenerator {
     last_failed_init: Arc<Mutex<Option<Instant>>>,
     /// Number of consecutive initialization failures
     init_failure_count: Arc<AtomicU32>,
+    /// LRU cache for short-phrase dense embeddings (cross-document reuse)
+    phrase_cache: PhraseCache,
 }
 
 impl std::fmt::Debug for EmbeddingGenerator {
@@ -52,6 +55,7 @@ impl std::fmt::Debug for EmbeddingGenerator {
 impl EmbeddingGenerator {
     pub fn new(config: EmbeddingConfig) -> Result<Self, EmbeddingError> {
         let model_cache_dir = config.model_cache_dir.clone();
+        let phrase_cache = PhraseCache::new(config.max_cache_size);
         Ok(Self {
             config: config.clone(),
             model: Arc::new(Mutex::new(None)),
@@ -61,6 +65,7 @@ impl EmbeddingGenerator {
             splade_model: Arc::new(Mutex::new(None)),
             last_failed_init: Arc::new(Mutex::new(None)),
             init_failure_count: Arc::new(AtomicU32::new(0)),
+            phrase_cache,
         })
     }
 
@@ -169,40 +174,50 @@ impl EmbeddingGenerator {
         text: &str,
         _model_name: &str,
     ) -> Result<EmbeddingResult, EmbeddingError> {
-        self.ensure_initialized().await?;
+        // Check phrase cache before initializing the model (avoids lock contention
+        // on hot phrases like common keywords and stdlib names)
+        let cached_dense = self.phrase_cache.get(text).await;
 
-        let mut model_guard = self.model.lock().await;
-        let model = model_guard
-            .as_mut()
-            .ok_or_else(|| EmbeddingError::InitializationError {
-                message: "Model not initialized".to_string(),
-            })?;
+        let dense_vector = if let Some(v) = cached_dense {
+            v
+        } else {
+            self.ensure_initialized().await?;
 
-        // Generate dense embedding
-        let documents = vec![text];
-        let embed_start = Instant::now();
-        let embeddings =
-            model
-                .embed(documents, None)
-                .map_err(|e| EmbeddingError::GenerationError {
-                    message: format!("Embedding generation failed: {}", e),
+            let mut model_guard = self.model.lock().await;
+            let model = model_guard
+                .as_mut()
+                .ok_or_else(|| EmbeddingError::InitializationError {
+                    message: "Model not initialized".to_string(),
                 })?;
-        let embed_ms = embed_start.elapsed().as_millis();
 
-        let dense_vector =
-            embeddings
+            // Generate dense embedding
+            let documents = vec![text];
+            let embed_start = Instant::now();
+            let embeddings = model.embed(documents, None).map_err(|e| {
+                EmbeddingError::GenerationError {
+                    message: format!("Embedding generation failed: {}", e),
+                }
+            })?;
+            let embed_ms = embed_start.elapsed().as_millis();
+
+            let v = embeddings
                 .into_iter()
                 .next()
                 .ok_or_else(|| EmbeddingError::GenerationError {
                     message: "No embedding returned".to_string(),
                 })?;
 
-        info!(
-            text_len = text.len(),
-            dim = dense_vector.len(),
-            embed_ms = embed_ms,
-            "dense embedding generated"
-        );
+            info!(
+                text_len = text.len(),
+                dim = v.len(),
+                embed_ms = embed_ms,
+                "dense embedding generated"
+            );
+
+            // Populate cache for eligible phrases
+            self.phrase_cache.put(text, v.clone()).await;
+            v
+        };
 
         // Generate sparse embedding using BM25
         let bm25_start = Instant::now();
@@ -273,12 +288,15 @@ impl EmbeddingGenerator {
         bm25.add_document(&tokens);
     }
 
+    /// Returns `(hits, misses)` for the phrase embedding cache.
     pub async fn cache_stats(&self) -> (usize, usize) {
-        (0, self.config.max_cache_size)
+        let (hits, misses, _) = self.phrase_cache.stats().await;
+        (hits as usize, misses as usize)
     }
 
+    /// Clear the phrase embedding cache.
     pub async fn clear_cache(&self) {
-        // No-op for now
+        self.phrase_cache.clear().await;
     }
 
     pub fn available_models(&self) -> Vec<String> {
