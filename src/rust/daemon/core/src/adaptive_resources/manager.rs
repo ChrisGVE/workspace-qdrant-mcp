@@ -4,6 +4,7 @@
 //! then communicates resource profile changes via a watch channel using
 //! a 4-level state machine with gradual transitions.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -40,7 +41,11 @@ impl AdaptiveResourceManager {
     /// `queue_depth` is an optional shared counter of pending queue items.
     /// When provided and > 0 while the user is active, the manager enters
     /// Active Processing mode with +50% resources.
-    pub fn start(config: AdaptiveResourceConfig, cancellation_token: CancellationToken) -> Self {
+    pub fn start(
+        config: AdaptiveResourceConfig,
+        cancellation_token: CancellationToken,
+        queue_depth: Option<Arc<AtomicUsize>>,
+    ) -> Self {
         let profiles = build_profiles(&config);
         let normal_profile = profiles.normal;
 
@@ -60,6 +65,7 @@ impl AdaptiveResourceManager {
                 tx,
                 state_clone,
                 physical_cores,
+                queue_depth,
             )
             .await;
         });
@@ -91,6 +97,7 @@ async fn run_adaptive_loop(
     tx: watch::Sender<ResourceProfile>,
     state: Arc<AdaptiveResourceState>,
     physical_cores: usize,
+    queue_depth: Option<Arc<AtomicUsize>>,
 ) {
     let poll_interval = Duration::from_secs(config.poll_interval_secs);
     let idle_confirmation = Duration::from_secs(config.idle_confirmation_secs);
@@ -125,17 +132,33 @@ async fn run_adaptive_loop(
                     evaluate_ramp_down(&mut sys_state, &config, ramp_down_step, burst_hold);
                 }
 
+                // Active Processing Mode overlay: when user is present (not idle) and the
+                // state machine is at Normal (no idle ramp-up), boost to Active profile if
+                // the queue has pending work. The state machine level stays at Normal so
+                // ramp-up/ramp-down logic is unaffected.
+                let queue_has_work = queue_depth
+                    .as_ref()
+                    .map_or(false, |c| c.load(Ordering::Relaxed) > 0);
+                let effective_level = if !user_is_idle
+                    && sys_state.level == ResourceLevel::Normal
+                    && queue_has_work
+                {
+                    ResourceLevel::Active
+                } else {
+                    sys_state.level
+                };
+
                 let new_profile = profile_for_level(
-                    sys_state.level, &profiles.normal, &profiles.active,
+                    effective_level, &profiles.normal, &profiles.active,
                     &profiles.elevated, &profiles.burst,
                 );
-                let new_mode = ResourceMode::from(sys_state.level);
+                let new_mode = ResourceMode::from(effective_level);
                 state.set_mode(new_mode);
                 state.set_profile(&new_profile);
-                mode_tracker.on_mode_change(sys_state.level, idle_secs);
+                mode_tracker.on_mode_change(effective_level, idle_secs);
 
                 if new_profile != current_profile {
-                    if old_level != sys_state.level {
+                    if old_level != sys_state.level || effective_level != sys_state.level {
                         info!("Profile changed: embeddings {} -> {}, delay {}ms -> {}ms",
                             current_profile.max_concurrent_embeddings, new_profile.max_concurrent_embeddings,
                             current_profile.inter_item_delay_ms, new_profile.inter_item_delay_ms);
@@ -146,8 +169,8 @@ async fn run_adaptive_loop(
 
                 heartbeat_counter += 1;
                 if heartbeat_counter % heartbeat_interval == 0 {
-                    info!("Adaptive resources heartbeat: level={:?}, mode={}, idle={:.0}s, cpu_pressure={}, embeddings={}, delay={}ms",
-                        sys_state.level, new_mode.as_str(), idle_secs, !cpu_ok,
+                    info!("Adaptive resources heartbeat: level={:?}, effective={:?}, mode={}, idle={:.0}s, cpu_pressure={}, embeddings={}, delay={}ms",
+                        sys_state.level, effective_level, new_mode.as_str(), idle_secs, !cpu_ok,
                         new_profile.max_concurrent_embeddings, new_profile.inter_item_delay_ms);
                 }
                 if heartbeat_counter % rotation_interval == 0 {

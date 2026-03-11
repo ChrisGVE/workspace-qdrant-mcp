@@ -229,7 +229,7 @@ async fn test_adaptive_manager_starts_with_normal_profile() {
     let limits = test_limits();
     let config = AdaptiveResourceConfig::from_resource_limits(&limits);
     let token = CancellationToken::new();
-    let manager = AdaptiveResourceManager::start(config, token.clone());
+    let manager = AdaptiveResourceManager::start(config, token.clone(), None);
 
     let profile = manager.current_profile();
     assert_eq!(profile.max_concurrent_embeddings, 2);
@@ -244,7 +244,7 @@ async fn test_adaptive_manager_subscribe() {
     let limits = test_limits();
     let config = AdaptiveResourceConfig::from_resource_limits(&limits);
     let token = CancellationToken::new();
-    let manager = AdaptiveResourceManager::start(config, token.clone());
+    let manager = AdaptiveResourceManager::start(config, token.clone(), None);
 
     let rx = manager.subscribe();
     let profile = *rx.borrow();
