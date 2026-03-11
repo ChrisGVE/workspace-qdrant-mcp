@@ -12,7 +12,7 @@ Documents with explicit page boundaries and fixed positions. Processing extracts
 
 | Format | Extension | Extractor | Notes |
 |--------|-----------|-----------|-------|
-| PDF | `.pdf` | `pdf-extract` | Wrapped in `catch_unwind` to handle font parsing panics |
+| PDF | `.pdf` | `pdf-extract` → `lopdf` fallback | Wrapped in `catch_unwind` to trap Type 1 font encoding panics. If `pdf-extract` panics or errors, `lopdf` is tried. If neither yields text (e.g. old scanned documents with no text layer), the file is treated as image-only: indexed by filename/metadata, not an error. |
 | Microsoft Word | `.docx` | ZIP + XML | Extracts from `word/document.xml` |
 | Microsoft Word (Legacy) | `.doc` | Text extraction | Limited support, fallback to text mode |
 | Microsoft PowerPoint | `.pptx` | ZIP + XML | Extracts slide text from `ppt/slides/slide*.xml` |

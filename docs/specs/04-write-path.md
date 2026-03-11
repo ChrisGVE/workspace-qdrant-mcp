@@ -293,13 +293,22 @@ Single daemon process - no need for complex status states.
 Update SQL:
 ```sql
 UPDATE unified_queue SET
-  retry_count = retry_count + 1,
+  retry_count   = retry_count + 1,
   error_message = COALESCE(error_message || char(10), '') || strftime('%Y-%m-%dT%H:%M:%fZ', 'now') || ' ' || :error_text,
   last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-  status = CASE WHEN retry_count + 1 >= max_retries THEN 'failed' ELSE status END,
-  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  status        = CASE WHEN retry_count + 1 >= max_retries THEN 'failed' ELSE status END,
+  qdrant_status = NULL,
+  search_status = NULL,
+  updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE queue_id = :queue_id;
 ```
+
+> **Why reset destination statuses on retry:** `qdrant_status` and
+> `search_status` track per-destination progress within a single processing
+> attempt. When an item is re-queued for a retry, any stale `in_progress` value
+> left from the previous attempt would cause `ensure_destinations_resolved()` to
+> preserve it, preventing `check_and_finalize()` from ever deleting the item.
+> Always reset to `NULL` (≡ pending) on any path that sets `status = 'pending'`.
 
 **Failed items:**
 
@@ -898,16 +907,26 @@ current content at processing time, achieving the same result.
 When a project is deleted via `DeleteProject` gRPC:
 
 ```
-1. gRPC handler enqueues (Tenant, Delete) with tenant_id + collection
-2. Queue processor handles (Tenant, Delete):
+1. wqm library remove <tag> invoked:
+   a. Single atomic SQLite transaction (PRAGMA foreign_keys = OFF):
+      - DELETE FROM unified_queue WHERE tenant_id = ? AND collection = 'libraries'
+        (cancels all pending/in-progress queue items immediately)
+      - DELETE FROM project_components WHERE watch_folder_id = ?
+      - DELETE FROM tracked_files WHERE watch_folder_id = ?
+      - DELETE FROM watch_folders WHERE watch_id = ?
+   b. Enqueue (Tenant, Delete) for async Qdrant vector cleanup
+   c. Signal daemon to reload watch configuration
+2. Daemon processes (Tenant, Delete):
    a. Scroll Qdrant for all points matching tenant_id → batch delete
-   b. SQLite transaction:
-      - DELETE FROM qdrant_chunks WHERE file_id IN
-        (SELECT file_id FROM tracked_files WHERE tenant_id = ?)
-      - DELETE FROM tracked_files WHERE tenant_id = ?
-      - DELETE FROM watch_folders WHERE tenant_id = ?
+   b. SQLite: DELETE FROM qdrant_chunks WHERE tenant_id = ?
 3. Queue entry marked done
 ```
+
+**Why atomic with FK disabled:** `tracked_files` and `project_components` have
+non-cascading foreign keys on `watch_folders(watch_id)`. A simple sequential
+DELETE would race with the daemon inserting new child records between statements.
+Disabling FK enforcement within the transaction and deleting all child records
+before the parent row makes the removal atomic and race-free.
 
 **Enqueue-only pattern:** gRPC handlers never perform direct database mutations.
 All destructive operations are routed through the unified queue for consistency

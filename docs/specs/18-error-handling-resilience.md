@@ -34,6 +34,13 @@ meaningless and would flood logs.
 filesystem-watching system. The item is quietly removed without incrementing any
 error counter.
 
+**Invariant — both destinations must be marked Done before returning Ok:**
+The `cleanup_missing_file` path must explicitly set `qdrant_status = Done` and
+`search_status = Done` before returning `Ok(())`. `check_and_finalize()` only
+deletes an item when both destinations are `Done`; if either remains
+`in_progress` (a stale value from a prior failed attempt), the item survives
+finalization and re-enters the queue on the next stale-lease recovery cycle.
+
 ### 1.2 `permanent_data`
 
 **Definition:** The payload or data is structurally invalid and retrying will
@@ -248,14 +255,23 @@ etc.). If an item never resolves, it will oscillate between `pending` and
 **SQL:**
 ```sql
 UPDATE unified_queue
-SET status   = 'pending',
-    retry_count = 0,
-    lease_until = NULL,
-    worker_id   = NULL,
-    updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+SET status        = 'pending',
+    retry_count   = 0,
+    lease_until   = NULL,
+    worker_id     = NULL,
+    qdrant_status = NULL,
+    search_status = NULL,
+    updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE status = 'failed'
   AND error_message LIKE '[transient_%'
 ```
+
+> **Invariant:** Any operation that resets `status` back to `pending` (retry,
+> resurrection, stale-lease recovery) **must** also reset `qdrant_status` and
+> `search_status` to `NULL`. Leaving stale `in_progress` in a destination column
+> while `status = 'pending'` causes `ensure_destinations_resolved()` to preserve
+> the stale value, which then prevents `check_and_finalize()` from ever deleting
+> the item — creating an infinite processing loop.
 
 ---
 
