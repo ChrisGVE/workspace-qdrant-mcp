@@ -377,5 +377,8 @@ async fn test_pdf_placeholder() {
     // See extraction/pdf.rs: pdf-extract and lopdf failures both return Ok with
     // empty text and image_only=true metadata rather than propagating the error.
     let result = processor.process_file(temp_file.path(), "pdf_test").await;
-    assert!(result.is_ok(), "Invalid PDF should return Ok (image-only fallback)");
+    assert!(
+        result.is_ok(),
+        "Invalid PDF should return Ok (image-only fallback)"
+    );
 }
