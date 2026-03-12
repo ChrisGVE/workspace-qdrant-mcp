@@ -99,6 +99,7 @@ pub fn validate_definitions(definitions: &[LanguageDefinition]) -> Vec<Validatio
 }
 
 /// Validate that a YAML string can be parsed as a valid registry.
+#[allow(dead_code)]
 pub fn validate_yaml(yaml: &str) -> Result<Vec<LanguageDefinition>, String> {
     serde_yaml_ng::from_str::<Vec<LanguageDefinition>>(yaml)
         .map_err(|e| format!("YAML parse error: {e}"))

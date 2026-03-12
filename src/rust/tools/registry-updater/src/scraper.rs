@@ -20,6 +20,7 @@ pub struct ScrapedData {
 }
 
 /// All available source names for filtering.
+#[allow(dead_code)]
 const ALL_SOURCES: &[&str] = &[
     "linguist",
     "ts-grammars",
@@ -458,6 +459,7 @@ fn extract_github_repo(url: &str) -> Option<String> {
 }
 
 /// Get the list of all available source names.
+#[allow(dead_code)]
 pub fn available_sources() -> &'static [&'static str] {
     ALL_SOURCES
 }

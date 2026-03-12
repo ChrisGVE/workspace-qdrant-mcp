@@ -214,102 +214,6 @@ pub struct WatchingQueueStats {
     pub events_throttled: u64, // Task 461.8: Events skipped due to queue depth
 }
 
-#[cfg(test)]
-mod debouncer_tests {
-    use notify::event::ModifyKind;
-    use notify::EventKind;
-    use std::path::PathBuf;
-    use std::thread;
-    use std::time::{Duration, SystemTime};
-
-    use super::{EventDebouncer, FileEvent};
-
-    fn make_event(path: &str, kind: EventKind) -> FileEvent {
-        FileEvent {
-            path: PathBuf::from(path),
-            event_kind: kind,
-            timestamp: SystemTime::now(),
-        }
-    }
-
-    fn remove_event(path: &str) -> FileEvent {
-        make_event(path, EventKind::Remove(notify::event::RemoveKind::File))
-    }
-
-    fn create_event(path: &str) -> FileEvent {
-        make_event(path, EventKind::Create(notify::event::CreateKind::File))
-    }
-
-    fn modify_event(path: &str) -> FileEvent {
-        make_event(
-            path,
-            EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
-        )
-    }
-
-    /// add_event always returns false — no immediate processing.
-    #[test]
-    fn test_add_event_always_defers() {
-        let mut d = EventDebouncer::new(100);
-        let ev = modify_event("/tmp/foo.rs");
-        assert!(!d.add_event(ev), "first event must be deferred");
-
-        let ev2 = modify_event("/tmp/foo.rs");
-        assert!(!d.add_event(ev2), "subsequent events must also be deferred");
-    }
-
-    /// Remove followed by Create within the debounce window coalesces to Create.
-    #[test]
-    fn test_remove_create_coalesces_to_create() {
-        let mut d = EventDebouncer::new(500);
-        d.add_event(remove_event("/tmp/bar.rs"));
-        d.add_event(create_event("/tmp/bar.rs"));
-
-        // No ready events yet (within debounce window)
-        let ready = d.get_ready_events();
-        assert!(ready.is_empty(), "events should still be debouncing");
-
-        // After debounce window only the Create remains
-        thread::sleep(Duration::from_millis(550));
-        let ready = d.get_ready_events();
-        assert_eq!(ready.len(), 1);
-        assert!(
-            matches!(ready[0].event_kind, EventKind::Create(_)),
-            "coalesced event must be Create, got {:?}",
-            ready[0].event_kind
-        );
-    }
-
-    /// Events for different paths are independent.
-    #[test]
-    fn test_independent_paths_dont_interfere() {
-        let mut d = EventDebouncer::new(100);
-        d.add_event(modify_event("/tmp/a.rs"));
-        d.add_event(modify_event("/tmp/b.rs"));
-
-        thread::sleep(Duration::from_millis(150));
-        let ready = d.get_ready_events();
-        assert_eq!(ready.len(), 2);
-    }
-
-    /// get_ready_events only returns events past the debounce window.
-    #[test]
-    fn test_get_ready_events_respects_window() {
-        let mut d = EventDebouncer::new(200);
-        d.add_event(modify_event("/tmp/c.rs"));
-
-        let ready = d.get_ready_events();
-        assert!(
-            ready.is_empty(),
-            "event should not be ready before debounce window"
-        );
-
-        thread::sleep(Duration::from_millis(250));
-        let ready = d.get_ready_events();
-        assert_eq!(ready.len(), 1);
-    }
-}
-
 /// Get the current Git branch name for a repository
 ///
 /// This function detects the current Git branch for a directory within a Git repository.
@@ -403,5 +307,101 @@ pub fn get_current_branch(repo_path: &Path) -> String {
             );
             DEFAULT_BRANCH.to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod debouncer_tests {
+    use notify::event::ModifyKind;
+    use notify::EventKind;
+    use std::path::PathBuf;
+    use std::thread;
+    use std::time::{Duration, SystemTime};
+
+    use super::{EventDebouncer, FileEvent};
+
+    fn make_event(path: &str, kind: EventKind) -> FileEvent {
+        FileEvent {
+            path: PathBuf::from(path),
+            event_kind: kind,
+            timestamp: SystemTime::now(),
+        }
+    }
+
+    fn remove_event(path: &str) -> FileEvent {
+        make_event(path, EventKind::Remove(notify::event::RemoveKind::File))
+    }
+
+    fn create_event(path: &str) -> FileEvent {
+        make_event(path, EventKind::Create(notify::event::CreateKind::File))
+    }
+
+    fn modify_event(path: &str) -> FileEvent {
+        make_event(
+            path,
+            EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
+        )
+    }
+
+    /// add_event always returns false — no immediate processing.
+    #[test]
+    fn test_add_event_always_defers() {
+        let mut d = EventDebouncer::new(100);
+        let ev = modify_event("/tmp/foo.rs");
+        assert!(!d.add_event(ev), "first event must be deferred");
+
+        let ev2 = modify_event("/tmp/foo.rs");
+        assert!(!d.add_event(ev2), "subsequent events must also be deferred");
+    }
+
+    /// Remove followed by Create within the debounce window coalesces to Create.
+    #[test]
+    fn test_remove_create_coalesces_to_create() {
+        let mut d = EventDebouncer::new(500);
+        d.add_event(remove_event("/tmp/bar.rs"));
+        d.add_event(create_event("/tmp/bar.rs"));
+
+        // No ready events yet (within debounce window)
+        let ready = d.get_ready_events();
+        assert!(ready.is_empty(), "events should still be debouncing");
+
+        // After debounce window only the Create remains
+        thread::sleep(Duration::from_millis(550));
+        let ready = d.get_ready_events();
+        assert_eq!(ready.len(), 1);
+        assert!(
+            matches!(ready[0].event_kind, EventKind::Create(_)),
+            "coalesced event must be Create, got {:?}",
+            ready[0].event_kind
+        );
+    }
+
+    /// Events for different paths are independent.
+    #[test]
+    fn test_independent_paths_dont_interfere() {
+        let mut d = EventDebouncer::new(100);
+        d.add_event(modify_event("/tmp/a.rs"));
+        d.add_event(modify_event("/tmp/b.rs"));
+
+        thread::sleep(Duration::from_millis(150));
+        let ready = d.get_ready_events();
+        assert_eq!(ready.len(), 2);
+    }
+
+    /// get_ready_events only returns events past the debounce window.
+    #[test]
+    fn test_get_ready_events_respects_window() {
+        let mut d = EventDebouncer::new(200);
+        d.add_event(modify_event("/tmp/c.rs"));
+
+        let ready = d.get_ready_events();
+        assert!(
+            ready.is_empty(),
+            "event should not be ready before debounce window"
+        );
+
+        thread::sleep(Duration::from_millis(250));
+        let ready = d.get_ready_events();
+        assert_eq!(ready.len(), 1);
     }
 }
