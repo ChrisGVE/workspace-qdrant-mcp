@@ -200,8 +200,7 @@ pub struct WindowsConfig {
 impl Default for WindowsConfig {
     fn default() -> Self {
         use winapi::um::winnt::{
-            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
-            FILE_NOTIFY_CHANGE_SIZE,
+            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
         };
 
         Self {
