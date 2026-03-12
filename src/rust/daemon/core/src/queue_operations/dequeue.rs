@@ -59,7 +59,7 @@ impl QueueManager {
 
         // Select queue_ids with calculated priority (Task 20)
         let queue_ids = select_queue_ids(
-            &mut *tx,
+            &mut tx,
             &now_str,
             tenant_id,
             item_type,
@@ -77,10 +77,10 @@ impl QueueManager {
         }
 
         // Update the selected items to in_progress
-        lease_items(&mut *tx, &queue_ids, worker_id, &lease_until_str).await?;
+        lease_items(&mut tx, &queue_ids, worker_id, &lease_until_str).await?;
 
         // Fetch the updated items
-        let mut items = fetch_items(&mut *tx, &queue_ids).await?;
+        let mut items = fetch_items(&mut tx, &queue_ids).await?;
 
         tx.commit().await.map_err(QueueError::Database)?;
 

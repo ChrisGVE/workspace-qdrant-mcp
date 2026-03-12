@@ -87,7 +87,7 @@ fn split_pdf_lopdf_fallback(file_path: &Path) -> Result<Vec<StructuralUnit>, Lib
     };
 
     let mut units = Vec::new();
-    for (&page_num, _) in &doc.get_pages() {
+    for &page_num in doc.get_pages().keys() {
         if let Ok(text) = doc.extract_text(&[page_num]) {
             let cleaned = clean_text(&text);
             if !cleaned.is_empty() {
