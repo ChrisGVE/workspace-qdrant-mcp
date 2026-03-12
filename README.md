@@ -97,21 +97,35 @@ Add the following to your project's `CLAUDE.md` (or your global `~/.claude/CLAUD
 ````markdown
 ## workspace-qdrant
 
-The `workspace-qdrant` MCP server provides codebase-aware search, library knowledge retrieval, and persistent behavioral rules. The tool schemas are self-describing; these instructions cover *when* and *how* to use them.
+The `workspace-qdrant` MCP server provides codebase-aware search, a library knowledge base, a scratchpad for accumulated insights, and persistent behavioral rules. The tool schemas are self-describing; these instructions cover *when* and *how* to use them.
 
-### Primary Search — Mandatory First Tool
+### Primary Search and Knowledge Base
 
-**`workspace-qdrant` is the mandatory first tool for ALL searches without exception** — general knowledge, codebase (symbols, functions, classes, patterns, relationships), library documentation, and previously stored findings.
+**Use `workspace-qdrant` first whenever context is uncertain** — first session on a project, returning after a significant gap, or exploring an unfamiliar subsystem. It is faster and more accurate than walking files manually, and it retrieves findings from prior sessions that would otherwise be lost.
 
-**Three-step search protocol (non-negotiable):**
-1. **Start** with `workspace-qdrant` (`search`, `grep`, `list`, or `retrieve`)
-2. **Fall back** to traditional tools (`Grep`, `Glob`, `WebSearch`) only when workspace-qdrant is insufficient or unavailable
-3. **Return** — store any new knowledge or findings via `store` so they are retrievable in future sessions
+**Three-step protocol:**
+1. **Search** with `workspace-qdrant` (`search`, `grep`, `list`, or `retrieve`)
+2. **Fall back** to `Grep`, `Glob`, `WebSearch` only when workspace-qdrant is insufficient or unavailable
+3. **Store** any new findings, analysis, or design rationale via `store` so they are retrievable in future sessions
 
-Use `scope="project"` for the current codebase, `scope="all"` when library docs are also relevant. Use `grep` for exact strings or regex. Use `list` with `format="summary"` to explore project structure. Use the scratchpad to store analysis, brainstorming transcripts, and intermediate results.
+When a fresh handover or strong prior context already covers what you need, skip the exploratory search — but always store new findings at the end.
 
-Every sub-agent you launch must follow the same protocol. Include this in every agent prompt:
-> "Use `workspace-qdrant` as your primary and mandatory first tool for all searches. Fall back to Grep/Glob/WebSearch only when workspace-qdrant is insufficient. Store any new findings back via `store`."
+**Collections and their purpose:**
+- `projects` — indexed codebase; use `scope="project"` (current project) or `scope="all"` (across all projects)
+- `libraries` — external reference docs, API specs, third-party documentation; add via `store` with `collection="libraries"` and search with `includeLibraries=true`
+- `scratchpad` — analysis, design rationale, research transcripts, architectural insights; complements session handovers by building a growing, semantically searchable knowledge layer across sessions
+- `rules` — persistent behavioral rules; load at session start via `rules` → `action="list"`
+
+**Practical notes:**
+- Use `grep` for exact strings or regex; `list` with `format="summary"` to explore project structure
+- Store external docs or specs into `libraries` so they are searchable alongside code
+- Use the scratchpad to record *why* decisions were made, not just *what* was done — future sessions can retrieve the reasoning
+
+### Sub-Agents
+
+Sub-agents start with only the prompt you give them — they have no session history or handover context. They must always use `workspace-qdrant` first for any code exploration, without exception. Include this verbatim in every agent prompt:
+
+> "You have no prior context about this codebase. Use `workspace-qdrant` as your mandatory first tool for ALL code searches — symbols, functions, architecture, patterns, prior findings. Use `search`, `grep`, `list`, or `retrieve` before touching any file with Read/Grep/Glob. Store any new findings, analysis, or design rationale via `store` (scratchpad for insights, libraries for reference docs) so they persist for future sessions."
 
 ### Project Registration
 
