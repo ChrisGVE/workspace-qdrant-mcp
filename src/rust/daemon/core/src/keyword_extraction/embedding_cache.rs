@@ -51,7 +51,6 @@ pub(super) async fn resolve_embeddings(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
 
     #[test]
