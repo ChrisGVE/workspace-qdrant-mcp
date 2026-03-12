@@ -373,7 +373,9 @@ async fn test_pdf_placeholder() {
     let content = "This is not a real PDF file";
     let temp_file = create_temp_file(content, "pdf").await;
 
-    // pdf_extract correctly rejects invalid PDF content
+    // Invalid PDFs are treated as image-only: processor returns Ok (not an error).
+    // See extraction/pdf.rs: pdf-extract and lopdf failures both return Ok with
+    // empty text and image_only=true metadata rather than propagating the error.
     let result = processor.process_file(temp_file.path(), "pdf_test").await;
-    assert!(result.is_err(), "Expected error for invalid PDF content");
+    assert!(result.is_ok(), "Invalid PDF should return Ok (image-only fallback)");
 }
