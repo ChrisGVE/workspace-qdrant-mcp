@@ -2,41 +2,57 @@
 
 ## Current State
 
-All CI checks green. v0.0.1-alpha tag pushed. Release Build workflow running (ID 23011349312).
+**v0.0.1 released.** All 6 platform builds green. Release published at:
+https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/tag/v0.0.1
+
+Branch protection on `main` is active (requires CI + Security Audit status checks).
 
 ## Completed This Session
 
-### CI fixes (multiple commits on main)
+### v0.0.1 Release — Cross-platform build fixes
 
-**Clippy fixes:**
-- `dequeue.rs`: `&mut *tx` → `&mut tx` (explicit_auto_deref)
-- `format_splitters.rs`: `for (&k, _) in &map` → `for &k in map.keys()` (for_kv_map)
-- `registry-updater/merger.rs`: `&mut Vec` → `&mut [T]` (ptr_arg) + `#[allow(dead_code)]`
-- `registry-updater/query_parser.rs`: `#[allow(dead_code)]` on two unused pub functions
-- `registry-updater/scraper.rs`: `#[allow(dead_code)]` on `ALL_SOURCES` and `available_sources`, `.last()` → `.next_back()` (double_ended_iterator_last)
-- `registry-updater/validator.rs`: `#[allow(dead_code)]` on `validate_yaml`
-- `embedding_cache.rs`: removed unused `use super::*` import
-- `watching_queue/types.rs`: moved `debouncer_tests` module to end of file (items_after_test_module lint)
+All CI checks were already green from the previous session. This session fixed the
+Release Build workflow which cross-compiles for 6 targets.
 
-**Test fixes:**
-- `document_processor_tests.rs`: `test_pdf_placeholder` — updated to expect `Ok` instead of `Err` (PDF extractor returns Ok with empty text for invalid PDFs, by design)
-- `intelligence_layer_tests.rs`: `test_lexicon_persist_survives_reload` — updated to not assert that hapax terms (df=1) survive persist+reload, since they are intentionally evicted
+**Linux fixes:**
+- Added `liblzma.so`, `libz.so`, `libssl.so`, `libcrypto.so` to Linux verify allowlist
+  (from libgit2 for compression/HTTPS; standard on all modern Linux)
+- Changed `reqwest = "0.11"` to use `rustls-tls` (removes OpenSSL dynamic dep)
+- Changed `git2 = "0.20"` to `default-features = false` (disables HTTPS/SSH transport,
+  only local git ops needed; removes OpenSSL dynamic dep from macOS and Linux)
 
-**Root cause on lexicon test**: hapax legomena eviction (in `lexicon/operations.rs`) deletes terms with df=1 after every persist. The test was asserting that "search" (df=1, single-document term) survived reload. Fixed the test to assert that df=2 terms ("vector") survive and df=1 terms ("search") do not.
+**macOS fixes:**
+- Disabling git2 HTTPS feature removed the Homebrew OpenSSL dylib dependency
+  (binaries are now self-contained — no Homebrew needed)
 
-### v0.0.1-alpha release
-- Tag `v0.0.1-alpha` pushed to main
-- Release Build CI workflow running (run ID 23011349312)
+**Windows fixes:**
+- `watching/platform/mod.rs`: Replaced `windows::Win32::Storage::FileSystem::*` constants
+  with `winapi::um::winnt` equivalents (removed `windows = 0.52` dep, which had feature
+  resolution issues on Windows CI)
+- `storage/client.rs` + `memexd/src/main.rs`: Fixed `SetStdHandle` cast from
+  `*mut std::ffi::c_void` to `*mut winapi::ctypes::c_void` (type mismatch on MSVC)
+- Added missing Windows DLLs to verify allowlist: `bcryptprimitives.dll`, `pdh.dll`,
+  `powrprof.dll`, `d3d12.dll`, `directml.dll`, `dxgi.dll`, `setupapi.dll`, `MSVCP140_1.dll`
+- Skip smoke test for `aarch64-pc-windows-msvc` (ARM64 binary can't run on x64 runner)
+
+**Release publishing:**
+- Retag: removed `-alpha` suffix per user request → released as `v0.0.1`
+- `softprops/action-gh-release@v2` had a transient "Not Found" error on one asset update,
+  leaving release in Draft state → manually published via `gh release edit --draft=false`
+
+### Branch protection on `main`
+- Required status checks: CI (ubuntu-latest), CI (macos-latest), TypeScript MCP server,
+  Security Audit
+- Force pushes disabled, deletions disabled
+- Admins not enforced (can push directly if needed)
 
 ## Branch Status
 
-- `main`: all CI green, v0.0.1-alpha tagged and pushed
+- `main`: all CI green, v0.0.1 released and published
 
-## Pending
+## No Further Work Required
 
-- Monitor Release Build CI (run ID 23011349312) to confirm release artifacts published
-- If release fails, check the release workflow for errors
-
-## No Further Code Work Required
-
-All test and CI failures resolved. Await release completion.
+All tasks complete. The project is at v0.0.1 with:
+- 39 release assets (binaries, archives, checksums, napi addons)
+- 6 platforms: linux-x64, linux-arm64, darwin-arm64, darwin-x64, windows-x64, windows-arm64
+- Branch protection on main
