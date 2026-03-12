@@ -132,14 +132,25 @@ async fn test_lexicon_persist_survives_reload() {
     }
 
     // Second session: load and verify
+    //
+    // Note: hapax legomena (df=1) are evicted from the vocabulary on persist.
+    // "search" and "qdrant" each appear in only 1 document, so they are not
+    // present after reload. Only "vector" (df=2) survives eviction.
     {
         let mgr = LexiconManager::new(pool.clone(), 1.2);
         mgr.load_collection("projects").await.unwrap();
 
         assert_eq!(mgr.corpus_size("projects").await, 2);
-        assert_eq!(mgr.document_frequency("projects", "vector").await, 2);
-        assert_eq!(mgr.document_frequency("projects", "search").await, 1);
-        assert_eq!(mgr.document_frequency("projects", "qdrant").await, 1);
+        assert_eq!(
+            mgr.document_frequency("projects", "vector").await,
+            2,
+            "'vector' (df=2) must survive hapax eviction"
+        );
+        assert_eq!(
+            mgr.document_frequency("projects", "search").await,
+            0,
+            "'search' (df=1) is evicted as a hapax legomenon"
+        );
     }
 }
 
