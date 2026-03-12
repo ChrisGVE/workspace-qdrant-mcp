@@ -50,8 +50,7 @@ async fn persist_inner(
 
     delete_old_records(doc_id, &mut tx).await?;
     insert_keywords(doc_id, tenant_id, collection, &extraction.keywords, &mut tx).await?;
-    let mut tag_ids =
-        insert_tags(doc_id, tenant_id, collection, &extraction.tags, &mut tx).await?;
+    let mut tag_ids = insert_tags(doc_id, tenant_id, collection, &extraction.tags, &mut tx).await?;
     let struct_tag_ids = insert_tags(
         doc_id,
         tenant_id,
@@ -180,8 +179,7 @@ async fn insert_baskets(
         };
 
         let kw_phrases: Vec<&str> = basket.keywords.iter().map(|k| k.phrase.as_str()).collect();
-        let keywords_json =
-            serde_json::to_string(&kw_phrases).unwrap_or_else(|_| "[]".to_string());
+        let keywords_json = serde_json::to_string(&kw_phrases).unwrap_or_else(|_| "[]".to_string());
 
         sqlx::query(
             "INSERT INTO keyword_baskets (tag_id, keywords_json, tenant_id) VALUES (?1, ?2, ?3)",

@@ -650,14 +650,13 @@ impl GenericExtractor {
                     | ChunkType::Interface
                     | ChunkType::Module
                     | ChunkType::Impl => {
-                        chunks.extend(self.extract_container(
-                            &child, source, file_path, chunk_type,
-                        ));
+                        chunks
+                            .extend(self.extract_container(&child, source, file_path, chunk_type));
                     }
                     _ => {
-                        chunks.push(self.extract_definition(
-                            &child, source, file_path, chunk_type, None,
-                        ));
+                        chunks.push(
+                            self.extract_definition(&child, source, file_path, chunk_type, None),
+                        );
                     }
                 }
             } else if Some(kind) == decorated_wrapper {

@@ -463,4 +463,3 @@ async fn scan_project_directory(
 
     Ok(())
 }
-

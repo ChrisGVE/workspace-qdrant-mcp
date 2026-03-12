@@ -83,7 +83,8 @@ pub fn validate_definitions(definitions: &[LanguageDefinition]) -> Vec<Validatio
         }
 
         // Warning: programming language with no grammar
-        if def.language_type == workspace_qdrant_core::language_registry::types::LanguageType::Programming
+        if def.language_type
+            == workspace_qdrant_core::language_registry::types::LanguageType::Programming
             && !def.has_grammar()
         {
             issues.push(ValidationIssue {
@@ -105,8 +106,14 @@ pub fn validate_yaml(yaml: &str) -> Result<Vec<LanguageDefinition>, String> {
 
 /// Print a validation report.
 pub fn print_report(issues: &[ValidationIssue]) {
-    let errors: Vec<_> = issues.iter().filter(|i| i.severity == Severity::Error).collect();
-    let warnings: Vec<_> = issues.iter().filter(|i| i.severity == Severity::Warning).collect();
+    let errors: Vec<_> = issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .collect();
+    let warnings: Vec<_> = issues
+        .iter()
+        .filter(|i| i.severity == Severity::Warning)
+        .collect();
 
     if errors.is_empty() && warnings.is_empty() {
         println!("Validation: PASS (no issues)");
@@ -132,7 +139,7 @@ pub fn print_report(issues: &[ValidationIssue]) {
 mod tests {
     use super::*;
     use workspace_qdrant_core::language_registry::types::{
-        GrammarConfig, GrammarSourceEntry, GrammarQuality, LanguageType, LspServerEntry,
+        GrammarConfig, GrammarQuality, GrammarSourceEntry, LanguageType, LspServerEntry,
         SourceMetadata,
     };
 
@@ -166,7 +173,10 @@ mod tests {
     fn test_valid_definition_passes() {
         let defs = vec![valid_definition()];
         let issues = validate_definitions(&defs);
-        let errors: Vec<_> = issues.iter().filter(|i| i.severity == Severity::Error).collect();
+        let errors: Vec<_> = issues
+            .iter()
+            .filter(|i| i.severity == Severity::Error)
+            .collect();
         assert!(errors.is_empty(), "Expected no errors: {:?}", errors);
     }
 
@@ -182,7 +192,9 @@ mod tests {
         let mut def = valid_definition();
         def.grammar.sources[0].repo = "no-slash".to_string();
         let issues = validate_definitions(&[def]);
-        assert!(issues.iter().any(|i| i.message.contains("Invalid grammar repo")));
+        assert!(issues
+            .iter()
+            .any(|i| i.message.contains("Invalid grammar repo")));
     }
 
     #[test]
@@ -231,7 +243,9 @@ mod tests {
     #[test]
     fn test_validate_bundled_registry() {
         // Validate the actual bundled language_registry.yaml
-        let provider = workspace_qdrant_core::language_registry::providers::registry::RegistryProvider::new().unwrap();
+        let provider =
+            workspace_qdrant_core::language_registry::providers::registry::RegistryProvider::new()
+                .unwrap();
         let defs: Vec<LanguageDefinition> = provider.definitions().to_vec();
 
         let issues = validate_definitions(&defs);

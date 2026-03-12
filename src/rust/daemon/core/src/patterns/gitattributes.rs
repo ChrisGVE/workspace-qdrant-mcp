@@ -89,26 +89,19 @@ impl GitattributesOverrides {
                 if let Some(lang) = attr.strip_prefix("linguist-language=") {
                     rules.push(GitattributeRule {
                         pattern: pattern.clone(),
-                        action: GitattributeAction::LanguageOverride(
-                            lang.to_lowercase(),
-                        ),
+                        action: GitattributeAction::LanguageOverride(lang.to_lowercase()),
                     });
-                } else if attr == "linguist-vendored"
-                    || attr == "linguist-vendored=true"
-                {
+                } else if attr == "linguist-vendored" || attr == "linguist-vendored=true" {
                     rules.push(GitattributeRule {
                         pattern: pattern.clone(),
                         action: GitattributeAction::Vendored,
                     });
-                } else if attr == "linguist-generated"
-                    || attr == "linguist-generated=true"
-                {
+                } else if attr == "linguist-generated" || attr == "linguist-generated=true" {
                     rules.push(GitattributeRule {
                         pattern: pattern.clone(),
                         action: GitattributeAction::Generated,
                     });
-                } else if attr == "linguist-documentation"
-                    || attr == "linguist-documentation=true"
+                } else if attr == "linguist-documentation" || attr == "linguist-documentation=true"
                 {
                     rules.push(GitattributeRule {
                         pattern: pattern.clone(),
@@ -151,9 +144,7 @@ impl GitattributesOverrides {
                     GitattributeAction::LanguageOverride(lang) => {
                         GitattributeResult::LanguageOverride(lang.clone())
                     }
-                    GitattributeAction::Vendored => {
-                        GitattributeResult::Skip(SkipReason::Vendored)
-                    }
+                    GitattributeAction::Vendored => GitattributeResult::Skip(SkipReason::Vendored),
                     GitattributeAction::Generated => {
                         GitattributeResult::Skip(SkipReason::Generated)
                     }
@@ -243,8 +234,7 @@ fn glob_match_inner(pattern: &[u8], text: &[u8]) -> bool {
             star_ti = ti;
             pi += 1;
         } else if pi < pattern.len()
-            && (pattern[pi] == b'?' && text[ti] != b'/'
-                || pattern[pi] == text[ti])
+            && (pattern[pi] == b'?' && text[ti] != b'/' || pattern[pi] == text[ti])
         {
             pi += 1;
             ti += 1;
@@ -269,9 +259,7 @@ fn glob_match_inner(pattern: &[u8], text: &[u8]) -> bool {
 /// Build a language override map from gitattributes.
 ///
 /// Returns a HashMap of glob pattern → language ID for quick reference.
-pub fn build_language_override_map(
-    project_root: &Path,
-) -> HashMap<String, String> {
+pub fn build_language_override_map(project_root: &Path) -> HashMap<String, String> {
     let overrides = GitattributesOverrides::load(project_root);
     let mut map = HashMap::new();
 

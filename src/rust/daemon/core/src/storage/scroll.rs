@@ -3,9 +3,7 @@
 //! Paginated retrieval of points from Qdrant collections using the
 //! scroll API with tenant filtering.
 
-use qdrant_client::qdrant::{
-    Condition, Filter, ScrollPointsBuilder, VectorsSelector,
-};
+use qdrant_client::qdrant::{Condition, Filter, ScrollPointsBuilder, VectorsSelector};
 use tracing::debug;
 
 use super::types::SparsePointData;
@@ -172,9 +170,7 @@ impl StorageClient {
         batch_size: u32,
         offset_cursor: Option<String>,
     ) -> Result<(Vec<SparsePointData>, Option<String>), StorageError> {
-        use qdrant_client::qdrant::{
-            point_id, value, vector_output, vectors_output, PointId,
-        };
+        use qdrant_client::qdrant::{point_id, value, vector_output, vectors_output, PointId};
 
         // Decode opaque string cursor back to PointId (UUID only).
         let offset: Option<PointId> = offset_cursor.map(|s| PointId {
@@ -218,46 +214,49 @@ impl StorageClient {
                 };
 
                 // Extract optional idf_epoch from payload.
-                let idf_epoch = p.payload.get("idf_epoch").and_then(|v| {
-                    match &v.kind {
-                        Some(value::Kind::IntegerValue(n)) => Some(*n as u64),
-                        Some(value::Kind::DoubleValue(f)) => Some(*f as u64),
-                        _ => None,
-                    }
+                let idf_epoch = p.payload.get("idf_epoch").and_then(|v| match &v.kind {
+                    Some(value::Kind::IntegerValue(n)) => Some(*n as u64),
+                    Some(value::Kind::DoubleValue(f)) => Some(*f as u64),
+                    _ => None,
                 });
 
                 // Extract sparse vector (may be absent for SPLADE or old points).
-                let sparse_vector = p.vectors.as_ref().and_then(|vout| {
-                    match &vout.vectors_options {
-                        Some(vectors_output::VectorsOptions::Vectors(named)) => {
-                            let sv_out = named.vectors.get("sparse")?;
-                            match &sv_out.vector {
-                                Some(vector_output::Vector::Sparse(sv)) => Some(
-                                    sv.indices
-                                        .iter()
-                                        .zip(sv.values.iter())
-                                        .map(|(&i, &v)| (i, v))
-                                        .collect(),
-                                ),
-                                _ => None,
+                let sparse_vector =
+                    p.vectors
+                        .as_ref()
+                        .and_then(|vout| match &vout.vectors_options {
+                            Some(vectors_output::VectorsOptions::Vectors(named)) => {
+                                let sv_out = named.vectors.get("sparse")?;
+                                match &sv_out.vector {
+                                    Some(vector_output::Vector::Sparse(sv)) => Some(
+                                        sv.indices
+                                            .iter()
+                                            .zip(sv.values.iter())
+                                            .map(|(&i, &v)| (i, v))
+                                            .collect(),
+                                    ),
+                                    _ => None,
+                                }
                             }
-                        }
-                        _ => None,
-                    }
-                });
+                            _ => None,
+                        });
 
-                Some(SparsePointData { id, idf_epoch, sparse_vector })
+                Some(SparsePointData {
+                    id,
+                    idf_epoch,
+                    sparse_vector,
+                })
             })
             .collect();
 
         // Encode next-page offset as UUID string cursor.
-        let next_cursor = response.next_page_offset.and_then(|pid| {
-            match pid.point_id_options {
+        let next_cursor = response
+            .next_page_offset
+            .and_then(|pid| match pid.point_id_options {
                 Some(point_id::PointIdOptions::Uuid(uuid)) => Some(uuid),
                 Some(point_id::PointIdOptions::Num(n)) => Some(n.to_string()),
                 None => None,
-            }
-        });
+            });
 
         Ok((points, next_cursor))
     }

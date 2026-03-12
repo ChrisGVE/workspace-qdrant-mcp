@@ -254,10 +254,10 @@ pub async fn language_info(language: &str) -> Result<()> {
 
 /// Refresh language registry from upstream providers.
 pub async fn language_refresh() -> Result<()> {
-    use workspace_qdrant_core::language_registry::providers::registry::RegistryProvider;
     use workspace_qdrant_core::language_registry::providers::linguist::LinguistProvider;
     use workspace_qdrant_core::language_registry::providers::mason::MasonProvider;
     use workspace_qdrant_core::language_registry::providers::nvim_treesitter::NvimTreesitterProvider;
+    use workspace_qdrant_core::language_registry::providers::registry::RegistryProvider;
     use workspace_qdrant_core::language_registry::providers::ts_grammars_org::TreeSitterGrammarsOrgProvider;
     use workspace_qdrant_core::language_registry::registry::LanguageRegistry;
 

@@ -97,9 +97,7 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?;
     let normalized = extension.to_lowercase();
     let data = registry_data();
-    data.extension_map
-        .get(&normalized)
-        .map(|s| s.as_str())
+    data.extension_map.get(&normalized).map(|s| s.as_str())
 }
 
 /// Detect the language of a file, checking `.gitattributes` overrides first.

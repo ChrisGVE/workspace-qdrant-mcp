@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
-use tokio::sync::{oneshot, mpsc, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::info;
 
 use crate::embedding::BM25;
@@ -58,7 +58,11 @@ impl LexiconManager {
         };
         if let Some(tx) = tx {
             let (reply_tx, reply_rx) = oneshot::channel();
-            if tx.send(PersistRequest::Flush { reply: reply_tx }).await.is_ok() {
+            if tx
+                .send(PersistRequest::Flush { reply: reply_tx })
+                .await
+                .is_ok()
+            {
                 let _ = reply_rx.await;
                 info!("LexiconManager background flush complete");
             }

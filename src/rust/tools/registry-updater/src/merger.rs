@@ -89,7 +89,9 @@ pub fn merge_all(scraped: &ScrapedData) -> Result<Vec<LanguageDefinition>> {
             def.grammar.symbol_name.clone_from(&grammar.symbol_name);
         }
         if grammar.archive_branch.is_some() {
-            def.grammar.archive_branch.clone_from(&grammar.archive_branch);
+            def.grammar
+                .archive_branch
+                .clone_from(&grammar.archive_branch);
         }
 
         def.sources.grammar = Some("scraped".to_string());
@@ -136,15 +138,17 @@ pub fn merge_all(scraped: &ScrapedData) -> Result<Vec<LanguageDefinition>> {
 }
 
 /// Compare generated definitions against the current registry YAML file.
-pub fn diff_with_current(current_path: &Path, generated: &[LanguageDefinition]) -> Result<RegistryDiff> {
+pub fn diff_with_current(
+    current_path: &Path,
+    generated: &[LanguageDefinition],
+) -> Result<RegistryDiff> {
     let content = std::fs::read_to_string(current_path)
         .with_context(|| format!("Reading current registry: {}", current_path.display()))?;
 
-    let current: Vec<LanguageDefinition> = serde_yaml_ng::from_str(&content)
-        .with_context(|| "Parsing current registry YAML")?;
+    let current: Vec<LanguageDefinition> =
+        serde_yaml_ng::from_str(&content).with_context(|| "Parsing current registry YAML")?;
 
-    let current_ids: std::collections::HashSet<String> =
-        current.iter().map(|d| d.id()).collect();
+    let current_ids: std::collections::HashSet<String> = current.iter().map(|d| d.id()).collect();
     let generated_ids: std::collections::HashSet<String> =
         generated.iter().map(|d| d.id()).collect();
 
@@ -175,8 +179,7 @@ pub fn diff_with_current(current_path: &Path, generated: &[LanguageDefinition]) 
 
 /// Serialize language definitions to YAML.
 pub fn serialize_definitions(definitions: &[LanguageDefinition]) -> Result<String> {
-    let yaml = serde_yaml_ng::to_string(definitions)
-        .context("Serializing definitions to YAML")?;
+    let yaml = serde_yaml_ng::to_string(definitions).context("Serializing definitions to YAML")?;
     Ok(yaml)
 }
 
@@ -189,8 +192,8 @@ pub fn merge_with_bundled(
     let content = std::fs::read_to_string(bundled_path)
         .with_context(|| format!("Reading bundled registry: {}", bundled_path.display()))?;
 
-    let bundled: Vec<LanguageDefinition> = serde_yaml_ng::from_str(&content)
-        .with_context(|| "Parsing bundled registry YAML")?;
+    let bundled: Vec<LanguageDefinition> =
+        serde_yaml_ng::from_str(&content).with_context(|| "Parsing bundled registry YAML")?;
 
     let bundled_map: HashMap<String, LanguageDefinition> =
         bundled.into_iter().map(|d| (d.id(), d)).collect();
@@ -200,7 +203,8 @@ pub fn merge_with_bundled(
         if let Some(bundled_def) = bundled_map.get(&def.id()) {
             // Keep hand-crafted semantic patterns
             if def.semantic_patterns.is_none() && bundled_def.semantic_patterns.is_some() {
-                def.semantic_patterns.clone_from(&bundled_def.semantic_patterns);
+                def.semantic_patterns
+                    .clone_from(&bundled_def.semantic_patterns);
             }
 
             // Keep hand-crafted LSP server entries (with args, priority, install methods)
@@ -221,7 +225,9 @@ pub fn merge_with_bundled(
                     if !bundled_lsp.install_methods.is_empty()
                         && gen_lsp.install_methods.iter().all(|m| m.manager == "see")
                     {
-                        gen_lsp.install_methods.clone_from(&bundled_lsp.install_methods);
+                        gen_lsp
+                            .install_methods
+                            .clone_from(&bundled_lsp.install_methods);
                     }
                 }
             }

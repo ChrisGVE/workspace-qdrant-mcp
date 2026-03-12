@@ -13,10 +13,10 @@ mod manager;
 mod operations;
 
 #[cfg(test)]
-mod tests;
+mod background_tests;
 #[cfg(test)]
 mod hapax_tests;
 #[cfg(test)]
-mod background_tests;
+mod tests;
 
 pub use manager::LexiconManager;

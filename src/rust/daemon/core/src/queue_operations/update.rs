@@ -15,9 +15,8 @@ impl QueueManager {
     /// Used when the embedding subsystem is temporarily unavailable: the item is
     /// parked for `delay_secs` seconds without burning its retry budget.
     pub async fn re_lease_item(&self, queue_id: &str, delay_secs: i64) -> QueueResult<()> {
-        let retry_after_str = timestamps::format_utc(
-            &(chrono::Utc::now() + ChronoDuration::seconds(delay_secs)),
-        );
+        let retry_after_str =
+            timestamps::format_utc(&(chrono::Utc::now() + ChronoDuration::seconds(delay_secs)));
 
         let rows = sqlx::query(
             r#"
@@ -74,10 +73,7 @@ impl QueueManager {
 
         let count = result.rows_affected();
         if count > 0 {
-            info!(
-                "Resurrected {} failed transient item(s) for retry",
-                count
-            );
+            info!("Resurrected {} failed transient item(s) for retry", count);
         } else {
             debug!("Resurrection pass: no transient failed items to reset");
         }

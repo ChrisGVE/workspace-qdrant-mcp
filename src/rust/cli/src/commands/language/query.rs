@@ -227,10 +227,7 @@ fn format_lsp_status(
     format!("{} {}", "x".red(), first_name)
 }
 
-fn format_preference(
-    lang_id: &str,
-    prefs: &preferences::LanguagePreferences,
-) -> String {
+fn format_preference(lang_id: &str, prefs: &preferences::LanguagePreferences) -> String {
     match prefs.languages.get(lang_id) {
         Some(pref) => {
             let mut parts = Vec::new();

@@ -143,12 +143,11 @@ async fn test_hapax_eviction_does_not_affect_corpus_size() {
     mgr.persist("projects").await.unwrap();
 
     // All 5 terms evicted (each df=1), but corpus_size is 5
-    let vocab_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let vocab_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(vocab_count, 0, "All hapax terms must be evicted");
     assert_eq!(
         mgr.corpus_size("projects").await,

@@ -229,7 +229,10 @@ async fn extract_and_rerank(
     parent_vector: &[f32],
     embedding_generator: &EmbeddingGenerator,
     config: &PipelineConfig,
-) -> (Vec<semantic_rerank::RankedCandidate>, HashMap<String, Vec<f32>>) {
+) -> (
+    Vec<semantic_rerank::RankedCandidate>,
+    HashMap<String, Vec<f32>>,
+) {
     let lexical_config = LexicalConfig {
         is_code: input.is_code,
         ..config.lexical.clone()

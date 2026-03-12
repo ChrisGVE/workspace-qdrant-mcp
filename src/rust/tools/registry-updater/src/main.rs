@@ -140,7 +140,10 @@ fn print_summary(
 ) {
     let with_grammar = definitions.iter().filter(|d| d.has_grammar()).count();
     let with_lsp = definitions.iter().filter(|d| d.has_lsp()).count();
-    let with_patterns = definitions.iter().filter(|d| d.has_semantic_patterns()).count();
+    let with_patterns = definitions
+        .iter()
+        .filter(|d| d.has_semantic_patterns())
+        .count();
 
     println!("Registry Update Summary");
     println!("=======================");

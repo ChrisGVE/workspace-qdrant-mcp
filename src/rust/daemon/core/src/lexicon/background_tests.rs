@@ -68,12 +68,11 @@ async fn test_background_persister_flushes_dirty_terms() {
     // Flush ensures background task has written everything
     mgr.flush_all_background().await;
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     assert_eq!(count, 2, "Both terms must be persisted after flush");
 }
@@ -111,12 +110,14 @@ async fn test_background_persister_inline_fallback_without_start() {
         .unwrap();
     mgr.persist("projects").await.unwrap();
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
-    assert_eq!(count, 1, "inline_term (df=2) must survive eviction after inline persist");
+    assert_eq!(
+        count, 1,
+        "inline_term (df=2) must survive eviction after inline persist"
+    );
 }

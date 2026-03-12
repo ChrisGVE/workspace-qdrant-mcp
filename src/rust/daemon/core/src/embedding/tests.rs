@@ -267,7 +267,9 @@ fn test_embedding_generator_initially_unavailable() {
 
 #[test]
 fn test_temporarily_unavailable_error_display() {
-    let err = EmbeddingError::TemporarilyUnavailable { retry_after_secs: 120 };
+    let err = EmbeddingError::TemporarilyUnavailable {
+        retry_after_secs: 120,
+    };
     let msg = err.to_string();
     assert!(
         msg.contains("120"),

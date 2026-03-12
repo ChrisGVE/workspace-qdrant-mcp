@@ -52,8 +52,10 @@ pub fn open_db() -> Result<Connection> {
         );
     }
     let conn = Connection::open(&db_path).context("Failed to open state database")?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")
-        .context("Failed to set SQLite pragmas")?;
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+    )
+    .context("Failed to set SQLite pragmas")?;
     Ok(conn)
 }
 

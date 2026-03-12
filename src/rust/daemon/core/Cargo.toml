@@ -42,7 +42,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 base64 = "0.22"
 
 # Git integration
-git2 = "0.19"
+git2 = "0.20"
 
 # .gitignore / .wqmignore pattern matching (Gate 0 per-project exclusion)
 ignore = "0.4"

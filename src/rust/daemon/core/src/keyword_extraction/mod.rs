@@ -10,10 +10,10 @@
 //! - `tag_selector`: MMR diversity-based tag selection
 
 pub mod basket_assignment;
-pub(super) mod embedding_cache;
 pub mod canonical_tags;
 pub mod collection_config;
 pub mod cooccurrence_graph;
+pub(super) mod embedding_cache;
 pub mod hierarchy_builder;
 pub mod keyword_selector;
 pub mod lexical_candidates;

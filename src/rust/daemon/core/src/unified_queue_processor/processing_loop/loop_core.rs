@@ -297,8 +297,7 @@ impl UnifiedQueueProcessor {
 
                         // Periodic resurrection of transient failed items
                         if resurrection_interval_secs > 0
-                            && last_resurrection.elapsed().as_secs()
-                                >= resurrection_interval_secs
+                            && last_resurrection.elapsed().as_secs() >= resurrection_interval_secs
                         {
                             match queue_manager.resurrect_failed_transient().await {
                                 Ok(count) => {
@@ -465,9 +464,8 @@ impl UnifiedQueueProcessor {
                                         "Item {} parked: embedding subsystem unavailable ({})",
                                         item.queue_id, e
                                     );
-                                    if let Err(rel_err) = queue_manager
-                                        .re_lease_item(&item.queue_id, 60)
-                                        .await
+                                    if let Err(rel_err) =
+                                        queue_manager.re_lease_item(&item.queue_id, 60).await
                                     {
                                         error!(
                                             "Failed to re-lease unavailable item {}: {}",

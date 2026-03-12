@@ -81,13 +81,9 @@ pub async fn get_files_needing_upgrade(
     language: Option<&str>,
 ) -> Result<Vec<(i64, String, String, String)>, sqlx::Error> {
     let status_filter = match reason {
-        UpgradeReason::GrammarAvailable => {
-            "treesitter_status IN ('none', 'failed', 'skipped')"
-        }
+        UpgradeReason::GrammarAvailable => "treesitter_status IN ('none', 'failed', 'skipped')",
         UpgradeReason::LspAvailable => "lsp_status IN ('none', 'failed')",
-        UpgradeReason::EnrichmentRetry => {
-            "lsp_status = 'failed' OR treesitter_status = 'failed'"
-        }
+        UpgradeReason::EnrichmentRetry => "lsp_status = 'failed' OR treesitter_status = 'failed'",
     };
 
     let query = if language.is_some() {
@@ -118,10 +114,7 @@ pub async fn get_files_needing_upgrade(
             .fetch_all(pool)
             .await?
     } else {
-        sqlx::query(&query)
-            .bind(tenant_id)
-            .fetch_all(pool)
-            .await?
+        sqlx::query(&query).bind(tenant_id).fetch_all(pool).await?
     };
 
     use sqlx::Row;

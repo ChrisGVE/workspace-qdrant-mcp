@@ -116,11 +116,7 @@ pub fn parse_query_file(content: &str) -> ExtractedPatterns {
 }
 
 /// Classify a @capture and add the associated node type to the right pattern group.
-fn classify_capture(
-    node_type: &str,
-    capture: &str,
-    patterns: &mut ExtractedPatterns,
-) {
+fn classify_capture(node_type: &str, capture: &str, patterns: &mut ExtractedPatterns) {
     match capture {
         // Function definitions
         c if c.starts_with("function") || c == "definition.function" => {
@@ -391,7 +387,9 @@ mod tests {
 "#;
 
         let result = parse_query_file(scm);
-        assert!(result.function_nodes.contains(&"function_definition".to_string()));
+        assert!(result
+            .function_nodes
+            .contains(&"function_definition".to_string()));
         assert!(result.class_nodes.contains(&"class_definition".to_string()));
     }
 

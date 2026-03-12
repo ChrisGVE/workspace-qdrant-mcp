@@ -378,8 +378,7 @@ async fn scrape_langserver_org() -> Result<Vec<LspEntry>> {
     use workspace_qdrant_core::language_registry::types::{InstallMethod, LspServerEntry};
 
     // langserver.org data is available via their GitHub repo
-    let url =
-        "https://raw.githubusercontent.com/nicktomlin/lsp-servers/main/data/langservers.json";
+    let url = "https://raw.githubusercontent.com/nicktomlin/lsp-servers/main/data/langservers.json";
     let client = reqwest::Client::builder()
         .user_agent("workspace-qdrant-mcp/registry-updater")
         .build()?;
@@ -494,10 +493,7 @@ mod tests {
             "linguist",
             Some(&["linguist".to_string(), "mason".to_string()])
         ));
-        assert!(!is_enabled(
-            "linguist",
-            Some(&["mason".to_string()])
-        ));
+        assert!(!is_enabled("linguist", Some(&["mason".to_string()])));
     }
 
     #[test]

@@ -40,8 +40,7 @@ impl PhraseCache {
     /// Returns true if the phrase is eligible for caching (short enough).
     pub(super) fn is_cacheable(phrase: &str) -> bool {
         let trimmed = phrase.trim();
-        trimmed.len() <= MAX_CACHE_CHARS
-            && trimmed.split_whitespace().count() <= MAX_CACHE_WORDS
+        trimmed.len() <= MAX_CACHE_CHARS && trimmed.split_whitespace().count() <= MAX_CACHE_WORDS
     }
 
     /// Look up a phrase in the cache. Returns `None` on cache miss.
@@ -135,24 +134,30 @@ mod tests {
     #[tokio::test]
     async fn test_long_phrase_not_cached() {
         let cache = PhraseCache::new(16);
-        let long = "a b c d e f";  // 6 words — exceeds MAX_CACHE_WORDS
+        let long = "a b c d e f"; // 6 words — exceeds MAX_CACHE_WORDS
 
         cache.put(long, vec![1.0]).await;
-        assert!(cache.get(long).await.is_none(), "6-word phrase must not be cached");
+        assert!(
+            cache.get(long).await.is_none(),
+            "6-word phrase must not be cached"
+        );
     }
 
     #[tokio::test]
     async fn test_long_char_phrase_not_cached() {
         let cache = PhraseCache::new(16);
-        let long_char = "a".repeat(65);  // 65 chars — exceeds MAX_CACHE_CHARS
+        let long_char = "a".repeat(65); // 65 chars — exceeds MAX_CACHE_CHARS
 
         cache.put(&long_char, vec![1.0]).await;
-        assert!(cache.get(&long_char).await.is_none(), "65-char phrase must not be cached");
+        assert!(
+            cache.get(&long_char).await.is_none(),
+            "65-char phrase must not be cached"
+        );
     }
 
     #[tokio::test]
     async fn test_lru_eviction() {
-        let cache = PhraseCache::new(2);  // capacity = 2
+        let cache = PhraseCache::new(2); // capacity = 2
 
         cache.put("alpha", vec![1.0]).await;
         cache.put("beta", vec![2.0]).await;
@@ -163,8 +168,14 @@ mod tests {
         // Insert gamma — should evict beta (least recently used)
         cache.put("gamma", vec![3.0]).await;
 
-        assert!(cache.get("alpha").await.is_some(), "alpha should survive LRU eviction");
-        assert!(cache.get("gamma").await.is_some(), "gamma should be present");
+        assert!(
+            cache.get("alpha").await.is_some(),
+            "alpha should survive LRU eviction"
+        );
+        assert!(
+            cache.get("gamma").await.is_some(),
+            "gamma should be present"
+        );
         // beta may have been evicted (LRU after alpha was accessed)
     }
 
@@ -174,7 +185,10 @@ mod tests {
         cache.put("foo", vec![1.0]).await;
         cache.clear().await;
 
-        assert!(cache.get("foo").await.is_none(), "cache should be empty after clear");
+        assert!(
+            cache.get("foo").await.is_none(),
+            "cache should be empty after clear"
+        );
         let (hits, misses, size) = cache.stats().await;
         assert_eq!(hits, 0);
         assert_eq!(misses, 0);

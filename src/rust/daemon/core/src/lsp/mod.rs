@@ -188,8 +188,7 @@ impl Language {
     pub fn from_extension(ext: &str) -> Self {
         // Use the registry-driven detect_language for extension mapping
         let path = std::path::PathBuf::from(format!("file.{ext}"));
-        let lang_id = crate::tree_sitter::detect_language(&path)
-            .unwrap_or(ext);
+        let lang_id = crate::tree_sitter::detect_language(&path).unwrap_or(ext);
         Self::from_id(lang_id)
     }
 

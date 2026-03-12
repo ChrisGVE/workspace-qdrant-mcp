@@ -137,10 +137,7 @@ async fn purge_orphan_tenant_items(pool: &SqlitePool) -> Result<u64, String> {
 
     let count = result.rows_affected();
     if count > 0 {
-        info!(
-            "Purged {} queue items for non-existent tenants",
-            count
-        );
+        info!("Purged {} queue items for non-existent tenants", count);
     } else {
         debug!("No orphan tenant queue items found");
     }

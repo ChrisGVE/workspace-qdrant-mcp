@@ -115,10 +115,7 @@ async fn enable_launchctl(port: u16) -> Result<()> {
 
     if let Some(existing) = parse_metrics_port_from_plist() {
         if existing == port {
-            output::info(format!(
-                "Metrics endpoint already enabled on port {}",
-                port
-            ));
+            output::info(format!("Metrics endpoint already enabled on port {}", port));
             return Ok(());
         }
         output::info(format!(
@@ -139,7 +136,10 @@ async fn enable_launchctl(port: u16) -> Result<()> {
         "Metrics endpoint enabled on port {} — daemon restarting",
         port
     ));
-    output::info(format!("View metrics: wqm admin metrics show --port {}", port));
+    output::info(format!(
+        "View metrics: wqm admin metrics show --port {}",
+        port
+    ));
 
     Ok(())
 }
@@ -184,10 +184,7 @@ fn restart_launchctl(plist_path: &std::path::Path) -> Result<()> {
 
     if !status.success() {
         output::warning("Daemon may need manual restart");
-        output::info(format!(
-            "launchctl load -w {}",
-            plist_path.display()
-        ));
+        output::info(format!("launchctl load -w {}", plist_path.display()));
     }
 
     Ok(())

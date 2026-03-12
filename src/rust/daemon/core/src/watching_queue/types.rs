@@ -216,8 +216,8 @@ pub struct WatchingQueueStats {
 
 #[cfg(test)]
 mod debouncer_tests {
-    use notify::EventKind;
     use notify::event::ModifyKind;
+    use notify::EventKind;
     use std::path::PathBuf;
     use std::thread;
     use std::time::{Duration, SystemTime};
@@ -241,7 +241,10 @@ mod debouncer_tests {
     }
 
     fn modify_event(path: &str) -> FileEvent {
-        make_event(path, EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)))
+        make_event(
+            path,
+            EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
+        )
     }
 
     /// add_event always returns false — no immediate processing.
@@ -296,7 +299,10 @@ mod debouncer_tests {
         d.add_event(modify_event("/tmp/c.rs"));
 
         let ready = d.get_ready_events();
-        assert!(ready.is_empty(), "event should not be ready before debounce window");
+        assert!(
+            ready.is_empty(),
+            "event should not be ready before debounce window"
+        );
 
         thread::sleep(Duration::from_millis(250));
         let ready = d.get_ready_events();

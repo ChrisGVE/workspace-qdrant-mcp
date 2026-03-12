@@ -330,23 +330,21 @@ async fn test_persist_only_writes_dirty_terms() {
     mgr.persist("projects").await.unwrap();
 
     // Snapshot row count after first persist (alpha and beta survive with df=2)
-    let count_after_first: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count_after_first: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count_after_first, 2);
 
     // Second persist with no new documents — dirty set is empty, nothing is written.
     mgr.persist("projects").await.unwrap();
 
-    let count_after_second: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count_after_second: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         count_after_second, count_after_first,
         "Second persist with no new docs must not alter vocabulary row count"
@@ -361,15 +359,13 @@ async fn test_persist_only_writes_dirty_terms() {
         .unwrap();
     mgr.persist("projects").await.unwrap();
 
-    let count_after_third: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count_after_third: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sparse_vocabulary WHERE collection = 'projects'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         count_after_third, 3,
         "Third persist should add exactly one new term 'gamma'"
     );
 }
-

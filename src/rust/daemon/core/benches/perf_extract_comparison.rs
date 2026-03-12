@@ -34,11 +34,7 @@ use workspace_qdrant_core::embedding::BM25;
 
 /// Build a BM25 from pre-generated vocab + doc_freq (no full corpus ingest).
 /// All terms are hapax (df=1) unless `doc_freq_fn` says otherwise.
-fn bm25_from_vocab(
-    vocab_size: usize,
-    total_docs: u32,
-    doc_freq_fn: impl Fn(u32) -> u32,
-) -> BM25 {
+fn bm25_from_vocab(vocab_size: usize, total_docs: u32, doc_freq_fn: impl Fn(u32) -> u32) -> BM25 {
     let vocab: HashMap<String, u32> = (0..vocab_size as u32)
         .map(|i| (format!("t{i}"), i))
         .collect();
@@ -91,13 +87,15 @@ fn idf_correction(old_n: u64, new_n: u64, df: u64) -> f32 {
 
 fn bench_task2_vocab_size(c: &mut Criterion) {
     const LARGE_VOCAB: usize = 3_000_000; // simulates no eviction
-    const SMALL_VOCAB: usize = 100_000;   // simulates after-eviction steady state
+    const SMALL_VOCAB: usize = 100_000; // simulates after-eviction steady state
     const TOTAL_DOCS: u32 = 10_000;
 
     // All-hapax large vocab (df=1 for every term)
     let bm25_before = bm25_from_vocab(LARGE_VOCAB, TOTAL_DOCS, |_| 1);
     // Recurring small vocab (df = total_docs/vocab_size, all > 1)
-    let bm25_after = bm25_from_vocab(SMALL_VOCAB, TOTAL_DOCS, |_| TOTAL_DOCS / SMALL_VOCAB as u32 + 2);
+    let bm25_after = bm25_from_vocab(SMALL_VOCAB, TOTAL_DOCS, |_| {
+        TOTAL_DOCS / SMALL_VOCAB as u32 + 2
+    });
 
     let q_before = query_tokens(LARGE_VOCAB);
     let q_after = query_tokens(SMALL_VOCAB);
@@ -271,12 +269,12 @@ fn bench_task5_idf_error_magnitude(c: &mut Criterion) {
 
     // Relative error = |new_idf - old_idf| / old_idf for each (N_old, N_new, df)
     for (label, old_n, new_n, df) in [
-        ("rare_df5_10pct_growth",   1_000u64, 1_100u64, 5u64),
-        ("rare_df5_50pct_growth",   1_000u64, 1_500u64, 5u64),
-        ("rare_df5_10x_growth",     1_000u64, 10_000u64, 5u64),
-        ("mid_df100_10pct_growth",  1_000u64, 1_100u64, 100u64),
-        ("mid_df100_10x_growth",    1_000u64, 10_000u64, 100u64),
-        ("common_df1000_10x_growth",1_000u64, 10_000u64, 1_000u64),
+        ("rare_df5_10pct_growth", 1_000u64, 1_100u64, 5u64),
+        ("rare_df5_50pct_growth", 1_000u64, 1_500u64, 5u64),
+        ("rare_df5_10x_growth", 1_000u64, 10_000u64, 5u64),
+        ("mid_df100_10pct_growth", 1_000u64, 1_100u64, 100u64),
+        ("mid_df100_10x_growth", 1_000u64, 10_000u64, 100u64),
+        ("common_df1000_10x_growth", 1_000u64, 10_000u64, 1_000u64),
     ] {
         group.bench_function(label, |b| {
             b.iter(|| {
@@ -366,20 +364,11 @@ fn bench_task5_idempotency_guard(c: &mut Criterion) {
 // Criterion groups
 // ---------------------------------------------------------------------------
 
-criterion_group!(
-    task2,
-    bench_task2_vocab_size,
-);
+criterion_group!(task2, bench_task2_vocab_size,);
 
-criterion_group!(
-    task3,
-    bench_task3_phrase_cache,
-);
+criterion_group!(task3, bench_task3_phrase_cache,);
 
-criterion_group!(
-    task4,
-    bench_task4_persist_path,
-);
+criterion_group!(task4, bench_task4_persist_path,);
 
 criterion_group!(
     task5,

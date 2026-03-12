@@ -31,8 +31,10 @@ pub fn connect_readwrite() -> Result<Connection> {
         .context(format!("Failed to open state database at {:?}", db_path))?;
 
     // Enable WAL mode for better concurrency
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")
-        .context("Failed to set SQLite pragmas")?;
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+    )
+    .context("Failed to set SQLite pragmas")?;
     Ok(conn)
 }
 

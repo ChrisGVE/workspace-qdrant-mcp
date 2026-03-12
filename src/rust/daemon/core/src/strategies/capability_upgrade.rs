@@ -23,22 +23,21 @@ pub async fn trigger_capability_upgrade(
     reason: UpgradeReason,
     language: Option<&str>,
 ) -> u32 {
-    let files = match tracked_files_schema::get_files_needing_upgrade(
-        pool, tenant_id, reason, language,
-    )
-    .await
-    {
-        Ok(f) => f,
-        Err(e) => {
-            warn!(
-                tenant_id = tenant_id,
-                reason = reason.as_str(),
-                error = %e,
-                "Failed to query files needing capability upgrade"
-            );
-            return 0;
-        }
-    };
+    let files =
+        match tracked_files_schema::get_files_needing_upgrade(pool, tenant_id, reason, language)
+            .await
+        {
+            Ok(f) => f,
+            Err(e) => {
+                warn!(
+                    tenant_id = tenant_id,
+                    reason = reason.as_str(),
+                    error = %e,
+                    "Failed to query files needing capability upgrade"
+                );
+                return 0;
+            }
+        };
 
     if files.is_empty() {
         return 0;

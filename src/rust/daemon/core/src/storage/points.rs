@@ -392,8 +392,8 @@ impl StorageClient {
         updates: Vec<(String, std::collections::HashMap<u32, f32>)>,
     ) -> Result<(), StorageError> {
         use qdrant_client::qdrant::{
-            NamedVectors, PointVectors, SparseVector, UpdatePointVectorsBuilder, Vector, Vectors,
-            point_id, vector, vectors,
+            point_id, vector, vectors, NamedVectors, PointVectors, SparseVector,
+            UpdatePointVectorsBuilder, Vector, Vectors,
         };
 
         if updates.is_empty() {
@@ -434,9 +434,7 @@ impl StorageClient {
             self.client
                 .update_vectors(builder.clone())
                 .await
-                .map_err(|e| {
-                    StorageError::Point(format!("Failed to update sparse vectors: {}", e))
-                })
+                .map_err(|e| StorageError::Point(format!("Failed to update sparse vectors: {}", e)))
         })
         .await?;
 
@@ -453,7 +451,7 @@ impl StorageClient {
         point_id: &str,
         payload: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<(), StorageError> {
-        use qdrant_client::qdrant::{PointId, SetPayloadPointsBuilder, point_id};
+        use qdrant_client::qdrant::{point_id, PointId, SetPayloadPointsBuilder};
 
         let id = PointId {
             point_id_options: Some(point_id::PointIdOptions::Uuid(point_id.to_string())),
@@ -466,10 +464,9 @@ impl StorageClient {
                 .collect();
 
         // Vec<PointId> implements Into<PointsIdsList> which implements Into<PointsSelectorOneOf>.
-        let set_payload_request =
-            SetPayloadPointsBuilder::new(collection_name, qdrant_payload)
-                .points_selector(vec![id])
-                .wait(true);
+        let set_payload_request = SetPayloadPointsBuilder::new(collection_name, qdrant_payload)
+            .points_selector(vec![id])
+            .wait(true);
 
         self.retry_operation(|| async {
             self.client

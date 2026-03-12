@@ -74,11 +74,7 @@ pub async fn execute(
     if let Some(ref c) = collection {
         let valid = ["projects", "libraries", "rules", "scratchpad"];
         if !valid.contains(&c.as_str()) {
-            anyhow::bail!(
-                "Unknown collection '{}'. Valid: {}",
-                c,
-                valid.join(", ")
-            );
+            anyhow::bail!("Unknown collection '{}'. Valid: {}", c, valid.join(", "));
         }
     }
 
@@ -175,7 +171,14 @@ pub async fn execute(
         if json {
             print_json_two_level(&stats, total_items, queue_depth, window_hours);
         } else {
-            print_table_two_level(&stats, label1, label2, total_items, queue_depth, window_hours);
+            print_table_two_level(
+                &stats,
+                label1,
+                label2,
+                total_items,
+                queue_depth,
+                window_hours,
+            );
         }
     }
 
@@ -342,12 +345,11 @@ fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String>
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         }) {
             for r in rows.flatten() {
-                let name = r
-                    .1
-                    .rsplit('/')
-                    .find(|s| !s.is_empty())
-                    .unwrap_or(&r.0)
-                    .to_string();
+                let name =
+                    r.1.rsplit('/')
+                        .find(|s| !s.is_empty())
+                        .unwrap_or(&r.0)
+                        .to_string();
                 *name_count.entry(name.clone()).or_default() += 1;
                 entries.push((r.0, name));
             }
@@ -380,11 +382,7 @@ fn resolve_group_key(dim: &str, raw: &str, tenant_names: &HashMap<String, String
 }
 
 /// Returns true if this row should be skipped (unknown language, dead project).
-fn should_skip_row(
-    dim: &str,
-    raw_key: &str,
-    valid_tenants: &HashSet<String>,
-) -> bool {
+fn should_skip_row(dim: &str, raw_key: &str, valid_tenants: &HashSet<String>) -> bool {
     // Skip dead projects
     if dim == "project" && !valid_tenants.contains(raw_key) {
         return true;
@@ -667,8 +665,11 @@ fn std_error(values: &[i64]) -> f64 {
         return 0.0;
     }
     let mean = average(values);
-    let variance =
-        values.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / (n as f64 - 1.0);
+    let variance = values
+        .iter()
+        .map(|&v| (v as f64 - mean).powi(2))
+        .sum::<f64>()
+        / (n as f64 - 1.0);
     variance.sqrt() / (n as f64).sqrt()
 }
 
@@ -692,11 +693,7 @@ fn avg_uncertainty_parts(avg: f64, std_err: f64, count: i64) -> (String, Option<
 /// When `err_width == 0` (no row in this table has an error term) the cell is
 /// just the right-aligned value.  When the current row has no error but other
 /// rows do, the ` ± ` separator is replaced by spaces so columns stay aligned.
-fn format_avg_cols(
-    parts: &(String, Option<String>),
-    val_width: usize,
-    err_width: usize,
-) -> String {
+fn format_avg_cols(parts: &(String, Option<String>), val_width: usize, err_width: usize) -> String {
     let (value, error) = parts;
     if err_width == 0 {
         format!("{:>vw$}", value, vw = val_width)
@@ -871,7 +868,10 @@ fn print_summary(total_items: i64, queue_depth: i64, window_hours: f64) {
     println!();
     output::kv("Items processed", &fmt_thousands(total_items));
     let rate = total_items as f64 / window_hours;
-    output::kv("Processing rate", &format!("{} items/hour", fmt_thousands_f(rate)));
+    output::kv(
+        "Processing rate",
+        &format!("{} items/hour", fmt_thousands_f(rate)),
+    );
     output::kv("Queue depth", &fmt_thousands(queue_depth));
 
     if queue_depth > 0 && rate > 0.0 {
@@ -882,12 +882,7 @@ fn print_summary(total_items: i64, queue_depth: i64, window_hours: f64) {
 
 // === JSON output ===
 
-fn print_json_grouped(
-    stats: &[GroupStats],
-    total_items: i64,
-    queue_depth: i64,
-    window_hours: f64,
-) {
+fn print_json_grouped(stats: &[GroupStats], total_items: i64, queue_depth: i64, window_hours: f64) {
     let groups: Vec<serde_json::Value> = stats
         .iter()
         .map(|s| {

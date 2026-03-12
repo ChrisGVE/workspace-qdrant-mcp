@@ -45,26 +45,21 @@ pub fn idf_correction(old_n: u64, new_n: u64, df: u64) -> f32 {
 
 /// Open state.db in read-write mode (as opposed to the read-only `open_state_db()`).
 fn open_state_db_rw() -> Result<rusqlite::Connection> {
-    let db_path =
-        crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
         anyhow::bail!("Database not found at {}", db_path.display());
     }
 
-    let conn = rusqlite::Connection::open(&db_path)
-        .context("Failed to open state database read-write")?;
+    let conn =
+        rusqlite::Connection::open(&db_path).context("Failed to open state database read-write")?;
     conn.execute_batch("PRAGMA busy_timeout=10000; PRAGMA journal_mode=WAL;")
         .context("Failed to configure SQLite connection")?;
     Ok(conn)
 }
 
 /// Run IDF drift correction for one or all collections.
-pub async fn execute(
-    collection: Option<String>,
-    dry_run: bool,
-    min_growth_pct: f64,
-) -> Result<()> {
+pub async fn execute(collection: Option<String>, dry_run: bool, min_growth_pct: f64) -> Result<()> {
     output::section("IDF Drift Correction");
 
     if dry_run {
@@ -85,9 +80,7 @@ pub async fn execute(
         Some(c) => vec![c],
         None => {
             let mut stmt = conn
-                .prepare(
-                    "SELECT collection FROM corpus_statistics WHERE total_documents > 0",
-                )
+                .prepare("SELECT collection FROM corpus_statistics WHERE total_documents > 0")
                 .context("Failed to query corpus_statistics")?;
             // Collect eagerly so the iterator (which borrows stmt) is dropped
             // before stmt goes out of scope.
@@ -113,15 +106,7 @@ pub async fn execute(
     let mut total_updated = 0u64;
 
     for coll in &collections {
-        match rebalance_collection(
-            &conn,
-            &storage_client,
-            coll,
-            dry_run,
-            min_growth_pct,
-        )
-        .await
-        {
+        match rebalance_collection(&conn, &storage_client, coll, dry_run, min_growth_pct).await {
             Ok(updated) => total_updated += updated,
             Err(e) => output::error(format!("  {} — failed: {}", coll, e)),
         }
@@ -167,8 +152,7 @@ async fn rebalance_collection(
 
     // Check growth threshold.
     if last_corrected_n > 0 {
-        let growth = (current_n as f64 - last_corrected_n as f64) / last_corrected_n as f64
-            * 100.0;
+        let growth = (current_n as f64 - last_corrected_n as f64) / last_corrected_n as f64 * 100.0;
         if growth < min_growth_pct {
             output::info(format!(
                 "  Growth {:.1}% < {:.1}% threshold — skipping",
@@ -176,7 +160,10 @@ async fn rebalance_collection(
             ));
             return Ok(0);
         }
-        output::info(format!("  Growth {:.1}% — proceeding with correction", growth));
+        output::info(format!(
+            "  Growth {:.1}% — proceeding with correction",
+            growth
+        ));
     }
 
     // Load term_id → df mapping for this collection.
@@ -198,7 +185,10 @@ async fn rebalance_collection(
     };
 
     if df_map.is_empty() {
-        output::info(format!("  No vocabulary entries for '{}' — skipping", collection));
+        output::info(format!(
+            "  No vocabulary entries for '{}' — skipping",
+            collection
+        ));
         return Ok(0);
     }
 
@@ -263,13 +253,7 @@ async fn rebalance_collection(
             // Update idf_epoch in payload for each corrected point.
             // Use set_payload on a per-point-ID filter.
             for (pid, new_epoch) in updated_epochs {
-                let _ = update_idf_epoch_payload(
-                    storage_client,
-                    collection,
-                    &pid,
-                    new_epoch,
-                )
-                .await;
+                let _ = update_idf_epoch_payload(storage_client, collection, &pid, new_epoch).await;
             }
         }
 
@@ -292,7 +276,11 @@ async fn rebalance_collection(
         "  '{}': {} point(s) {}",
         collection,
         total_updated,
-        if dry_run { "would be updated" } else { "updated" }
+        if dry_run {
+            "would be updated"
+        } else {
+            "updated"
+        }
     ));
 
     // Update last_corrected_n in SQLite (not in dry-run).

@@ -80,9 +80,7 @@ fn check_lsp_server(language: &str, verbose: bool) -> bool {
 
                 if verbose {
                     output::kv("    Source", format!("{:?}", result.source));
-                    if let Ok(ver_output) =
-                        Command::new(&server.binary).arg("--version").output()
-                    {
+                    if let Ok(ver_output) = Command::new(&server.binary).arg("--version").output() {
                         if ver_output.status.success() {
                             let version = String::from_utf8_lossy(&ver_output.stdout);
                             output::kv("    Version", version.trim());
@@ -159,12 +157,18 @@ fn check_tree_sitter_grammar(language: &str, verbose: bool) -> bool {
             false
         }
         GrammarStatus::IncompatibleVersion => {
-            output::warning(format!("  Grammar cached but incompatible version: {}", lang_id));
+            output::warning(format!(
+                "  Grammar cached but incompatible version: {}",
+                lang_id
+            ));
             output::info("  Reinstall with: wqm language ts-install --force <language>");
             false
         }
         GrammarStatus::NotAvailable => {
-            output::warning(format!("  No tree-sitter grammar available for {}", lang_id));
+            output::warning(format!(
+                "  No tree-sitter grammar available for {}",
+                lang_id
+            ));
             if verbose {
                 output::info("  This language may not have tree-sitter support");
             }

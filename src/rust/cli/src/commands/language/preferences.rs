@@ -37,8 +37,7 @@ pub struct LanguagePreferences {
 // ── File I/O ─────────────────────────────────────────────────────────
 
 fn preferences_path() -> Result<PathBuf> {
-    let dir = wqm_common::paths::get_config_dir()
-        .context("cannot determine config directory")?;
+    let dir = wqm_common::paths::get_config_dir().context("cannot determine config directory")?;
     Ok(dir.join("language_preferences.yaml"))
 }
 
@@ -47,13 +46,13 @@ pub fn load_preferences() -> Result<LanguagePreferences> {
     if !path.exists() {
         return Ok(LanguagePreferences::default());
     }
-    let content = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let content =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     if content.trim().is_empty() {
         return Ok(LanguagePreferences::default());
     }
-    let prefs: LanguagePreferences = serde_yaml_ng::from_str(&content)
-        .with_context(|| format!("parsing {}", path.display()))?;
+    let prefs: LanguagePreferences =
+        serde_yaml_ng::from_str(&content).with_context(|| format!("parsing {}", path.display()))?;
     Ok(prefs)
 }
 
@@ -63,10 +62,8 @@ fn save_preferences(prefs: &LanguagePreferences) -> Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
     }
-    let yaml = serde_yaml_ng::to_string(prefs)
-        .context("serializing preferences")?;
-    std::fs::write(&path, yaml)
-        .with_context(|| format!("writing {}", path.display()))?;
+    let yaml = serde_yaml_ng::to_string(prefs).context("serializing preferences")?;
+    std::fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -113,7 +110,12 @@ pub async fn preferences_set(
     // Validate grammar repo if provided
     if let Some(ref grammar_repo) = grammar {
         if let Some(def) = find_language(&normalized) {
-            let known: Vec<&str> = def.grammar.sources.iter().map(|s| s.repo.as_str()).collect();
+            let known: Vec<&str> = def
+                .grammar
+                .sources
+                .iter()
+                .map(|s| s.repo.as_str())
+                .collect();
             if !known.iter().any(|r| r == grammar_repo) {
                 output::warning(format!(
                     "Grammar repo '{grammar_repo}' not in registry for {language}"
@@ -129,12 +131,13 @@ pub async fn preferences_set(
     }
 
     let mut prefs = load_preferences()?;
-    let entry = prefs.languages.entry(normalized.clone()).or_insert_with(|| {
-        LanguagePreference {
+    let entry = prefs
+        .languages
+        .entry(normalized.clone())
+        .or_insert_with(|| LanguagePreference {
             lsp: None,
             grammar: None,
-        }
-    });
+        });
     if let Some(ref l) = lsp {
         entry.lsp = Some(l.clone());
     }

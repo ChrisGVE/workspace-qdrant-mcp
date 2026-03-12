@@ -144,8 +144,7 @@ async fn run_ingest_pipeline(
 
     // Detect language for timing records (with gitattributes override)
     let overrides = get_gitattributes(ctx, base_path).await;
-    let detected_language =
-        detect_language_with_overrides(file_path, relative_path, &overrides);
+    let detected_language = detect_language_with_overrides(file_path, relative_path, &overrides);
 
     // Phase 0: grammar availability + Phase 1: parse
     let provider = ensure_grammar_available(ctx, file_path, relative_path, &overrides).await;
@@ -465,7 +464,10 @@ async fn ensure_grammar_available(
     {
         use crate::tree_sitter::GrammarStatus;
         let status = grammar_mgr.read().await.grammar_status(language);
-        if matches!(status, GrammarStatus::Cached | GrammarStatus::IncompatibleVersion) {
+        if matches!(
+            status,
+            GrammarStatus::Cached | GrammarStatus::IncompatibleVersion
+        ) {
             let mut mgr = grammar_mgr.write().await;
             if let Err(e) = mgr.get_grammar(language).await {
                 warn!(
@@ -554,10 +556,7 @@ async fn spawn_background_grammar_download(ctx: &ProcessingContext, language: &'
                 .await;
             }
         } else {
-            warn!(
-                language = language,
-                "Background grammar download failed"
-            );
+            warn!(language = language, "Background grammar download failed");
         }
     });
 }
@@ -578,10 +577,7 @@ async fn get_distinct_tenants(pool: &SqlitePool) -> Vec<String> {
 ///
 /// Uses the per-project cache in ProcessingContext. On cache miss, parses
 /// the `.gitattributes` file from the project root and caches the result.
-async fn get_gitattributes(
-    ctx: &ProcessingContext,
-    base_path: &str,
-) -> GitattributesOverrides {
+async fn get_gitattributes(ctx: &ProcessingContext, base_path: &str) -> GitattributesOverrides {
     // Fast path: read lock
     {
         let cache = ctx.gitattributes_cache.read().await;

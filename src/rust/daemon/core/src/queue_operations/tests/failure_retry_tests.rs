@@ -291,23 +291,19 @@ async fn test_resurrect_failed_transient_resets_items() {
         .unwrap();
 
     // Force both to failed state with different error prefixes
-    sqlx::query(
-        "UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2",
-    )
-    .bind("[transient_resource] FastEmbed init failed")
-    .bind(&transient_id)
-    .execute(manager.pool())
-    .await
-    .unwrap();
+    sqlx::query("UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2")
+        .bind("[transient_resource] FastEmbed init failed")
+        .bind(&transient_id)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
-    sqlx::query(
-        "UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2",
-    )
-    .bind("[permanent_data] bad json payload")
-    .bind(&permanent_id)
-    .execute(manager.pool())
-    .await
-    .unwrap();
+    sqlx::query("UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2")
+        .bind("[permanent_data] bad json payload")
+        .bind(&permanent_id)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     // Run resurrection — only transient item should be reset
     let count = manager.resurrect_failed_transient().await.unwrap();
@@ -324,17 +320,13 @@ async fn test_resurrect_failed_transient_resets_items() {
     assert_eq!(status, "pending", "transient item should be pending");
     assert_eq!(retry_count, 0, "retry_count should be reset to 0");
 
-    let permanent_row =
-        sqlx::query("SELECT status FROM unified_queue WHERE queue_id=?1")
-            .bind(&permanent_id)
-            .fetch_one(manager.pool())
-            .await
-            .unwrap();
+    let permanent_row = sqlx::query("SELECT status FROM unified_queue WHERE queue_id=?1")
+        .bind(&permanent_id)
+        .fetch_one(manager.pool())
+        .await
+        .unwrap();
     let status: String = permanent_row.try_get("status").unwrap();
-    assert_eq!(
-        status, "failed",
-        "permanent item should remain failed"
-    );
+    assert_eq!(status, "failed", "permanent item should remain failed");
 }
 
 #[tokio::test]
@@ -366,17 +358,18 @@ async fn test_resurrect_failed_transient_infrastructure() {
         .unwrap();
 
     // Transient infrastructure failure (Qdrant was down)
-    sqlx::query(
-        "UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2",
-    )
-    .bind("[transient_infrastructure] Qdrant connection refused")
-    .bind(&id)
-    .execute(manager.pool())
-    .await
-    .unwrap();
+    sqlx::query("UPDATE unified_queue SET status='failed', error_message=?1 WHERE queue_id=?2")
+        .bind("[transient_infrastructure] Qdrant connection refused")
+        .bind(&id)
+        .execute(manager.pool())
+        .await
+        .unwrap();
 
     let count = manager.resurrect_failed_transient().await.unwrap();
-    assert_eq!(count, 1, "transient_infrastructure item should be resurrected");
+    assert_eq!(
+        count, 1,
+        "transient_infrastructure item should be resurrected"
+    );
 
     let row = sqlx::query("SELECT status FROM unified_queue WHERE queue_id=?1")
         .bind(&id)

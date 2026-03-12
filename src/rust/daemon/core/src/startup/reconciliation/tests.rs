@@ -577,7 +577,10 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(doc_count, 1, "Doc items should not be purged by orphan tenant cleanup");
+    assert_eq!(
+        doc_count, 1,
+        "Doc items should not be purged by orphan tenant cleanup"
+    );
 }
 
 #[tokio::test]

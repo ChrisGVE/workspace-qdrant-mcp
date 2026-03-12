@@ -58,7 +58,11 @@ pub async fn language_health() -> Result<()> {
             GrammarStatus::Loaded | GrammarStatus::Cached => stats.grammar_ok += 1,
             _ => stats.grammar_missing += 1,
         }
-        if def.lsp_servers.iter().any(|s| which_cmd(&s.binary).is_some()) {
+        if def
+            .lsp_servers
+            .iter()
+            .any(|s| which_cmd(&s.binary).is_some())
+        {
             stats.lsp_ok += 1;
         } else if def.has_lsp() {
             stats.lsp_missing += 1;

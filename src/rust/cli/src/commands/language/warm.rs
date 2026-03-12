@@ -18,11 +18,7 @@ use workspace_qdrant_core::tree_sitter::{detect_language, GrammarManager};
 use crate::output;
 
 /// Pre-warm tree-sitter grammars for a project or explicit language list.
-pub async fn warm(
-    project_path: Option<&str>,
-    languages: Option<&str>,
-    force: bool,
-) -> Result<()> {
+pub async fn warm(project_path: Option<&str>, languages: Option<&str>, force: bool) -> Result<()> {
     output::section("Grammar Pre-warming");
 
     let target_languages = if let Some(lang_list) = languages {

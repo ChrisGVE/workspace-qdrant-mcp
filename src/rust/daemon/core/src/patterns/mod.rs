@@ -30,9 +30,7 @@ pub use exclusion::{
     should_exclude_file, should_exclude_file_with_context, ExclusionCategory, ExclusionEngine,
     ExclusionResult, ExclusionRule, ExclusionStats,
 };
-pub use gitattributes::{
-    GitattributeResult, GitattributesOverrides, SkipReason,
-};
+pub use gitattributes::{GitattributeResult, GitattributesOverrides, SkipReason};
 pub use gitignore::ProjectIgnoreMatcher;
 pub use manager::PatternManager;
 pub use project::{

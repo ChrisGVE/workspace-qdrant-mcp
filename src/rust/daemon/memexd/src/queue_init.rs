@@ -90,8 +90,7 @@ fn create_embedding_generator(
     daemon_config: &DaemonConfig,
     config: &Config,
 ) -> Result<Arc<EmbeddingGenerator>, Box<dyn std::error::Error>> {
-    let model_cache_dir =
-        resolve_model_cache_dir(daemon_config.embedding.model_cache_dir.clone());
+    let model_cache_dir = resolve_model_cache_dir(daemon_config.embedding.model_cache_dir.clone());
     info!("Model cache directory: {}", model_cache_dir.display());
 
     let embedding_config = EmbeddingConfig {
@@ -268,8 +267,11 @@ pub async fn initialize(
     let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
     let adaptive_config = AdaptiveResourceConfig::from_resource_limits(&config.resource_limits);
     let queue_depth = uqp.queue_depth();
-    let adaptive_manager =
-        AdaptiveResourceManager::start(adaptive_config, adaptive_shutdown_token.clone(), queue_depth);
+    let adaptive_manager = AdaptiveResourceManager::start(
+        adaptive_config,
+        adaptive_shutdown_token.clone(),
+        queue_depth,
+    );
     let adaptive_state = adaptive_manager.state();
     uqp = uqp.with_adaptive_resources(adaptive_manager.subscribe());
 

@@ -74,7 +74,9 @@ fn delete_watch_config(conn: &rusqlite::Connection, tag: &str, watch_id: &str) -
         .context("Failed to disable FK enforcement")?;
 
     let result = (|| -> Result<(usize, usize)> {
-        let tx = conn.unchecked_transaction().context("Failed to begin transaction")?;
+        let tx = conn
+            .unchecked_transaction()
+            .context("Failed to begin transaction")?;
 
         let cancelled = tx
             .execute(
@@ -99,7 +101,8 @@ fn delete_watch_config(conn: &rusqlite::Connection, tag: &str, watch_id: &str) -
             .execute("DELETE FROM watch_folders WHERE watch_id = ?1", [watch_id])
             .context("Failed to delete watch folder config")?;
 
-        tx.commit().context("Failed to commit removal transaction")?;
+        tx.commit()
+            .context("Failed to commit removal transaction")?;
         Ok((cancelled, deleted))
     })();
 

@@ -92,7 +92,9 @@ impl EmbeddingGenerator {
                 let elapsed = last_attempt.elapsed().as_secs();
                 if elapsed < backoff {
                     let retry_after = backoff - elapsed;
-                    return Err(EmbeddingError::TemporarilyUnavailable { retry_after_secs: retry_after });
+                    return Err(EmbeddingError::TemporarilyUnavailable {
+                        retry_after_secs: retry_after,
+                    });
                 }
             }
         }
@@ -145,7 +147,9 @@ impl EmbeddingGenerator {
                     failure_count = new_count,
                     next_retry_secs = next_retry,
                     "FastEmbed initialization failed (attempt {}), next retry in {}s: {}",
-                    new_count, next_retry, e
+                    new_count,
+                    next_retry,
+                    e
                 );
                 Err(EmbeddingError::InitializationError {
                     message: format!("Failed to initialize FastEmbed: {}", e),
@@ -178,46 +182,48 @@ impl EmbeddingGenerator {
         // on hot phrases like common keywords and stdlib names)
         let cached_dense = self.phrase_cache.get(text).await;
 
-        let dense_vector = if let Some(v) = cached_dense {
-            v
-        } else {
-            self.ensure_initialized().await?;
+        let dense_vector =
+            if let Some(v) = cached_dense {
+                v
+            } else {
+                self.ensure_initialized().await?;
 
-            let mut model_guard = self.model.lock().await;
-            let model = model_guard
-                .as_mut()
-                .ok_or_else(|| EmbeddingError::InitializationError {
-                    message: "Model not initialized".to_string(),
+                let mut model_guard = self.model.lock().await;
+                let model =
+                    model_guard
+                        .as_mut()
+                        .ok_or_else(|| EmbeddingError::InitializationError {
+                            message: "Model not initialized".to_string(),
+                        })?;
+
+                // Generate dense embedding
+                let documents = vec![text];
+                let embed_start = Instant::now();
+                let embeddings =
+                    model
+                        .embed(documents, None)
+                        .map_err(|e| EmbeddingError::GenerationError {
+                            message: format!("Embedding generation failed: {}", e),
+                        })?;
+                let embed_ms = embed_start.elapsed().as_millis();
+
+                let v = embeddings.into_iter().next().ok_or_else(|| {
+                    EmbeddingError::GenerationError {
+                        message: "No embedding returned".to_string(),
+                    }
                 })?;
 
-            // Generate dense embedding
-            let documents = vec![text];
-            let embed_start = Instant::now();
-            let embeddings = model.embed(documents, None).map_err(|e| {
-                EmbeddingError::GenerationError {
-                    message: format!("Embedding generation failed: {}", e),
-                }
-            })?;
-            let embed_ms = embed_start.elapsed().as_millis();
+                info!(
+                    text_len = text.len(),
+                    dim = v.len(),
+                    embed_ms = embed_ms,
+                    "dense embedding generated"
+                );
 
-            let v = embeddings
-                .into_iter()
-                .next()
-                .ok_or_else(|| EmbeddingError::GenerationError {
-                    message: "No embedding returned".to_string(),
-                })?;
-
-            info!(
-                text_len = text.len(),
-                dim = v.len(),
-                embed_ms = embed_ms,
-                "dense embedding generated"
-            );
-
-            // Populate cache for eligible phrases
-            self.phrase_cache.put(text, v.clone()).await;
-            v
-        };
+                // Populate cache for eligible phrases
+                self.phrase_cache.put(text, v.clone()).await;
+                v
+            };
 
         // Generate sparse embedding using BM25
         let bm25_start = Instant::now();

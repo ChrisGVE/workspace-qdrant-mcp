@@ -27,11 +27,7 @@ use workspace_qdrant_core::embedding::{tokenize_for_bm25, BM25};
 
 /// Build a BM25 corpus of `n_docs` with `unique_terms_per_doc` unique terms
 /// and `shared_terms_per_doc` terms repeated across all documents.
-fn build_corpus(
-    n_docs: usize,
-    unique_terms_per_doc: usize,
-    shared_terms_per_doc: usize,
-) -> BM25 {
+fn build_corpus(n_docs: usize, unique_terms_per_doc: usize, shared_terms_per_doc: usize) -> BM25 {
     let mut bm25 = BM25::new(1.2);
     let shared: Vec<String> = (0..shared_terms_per_doc)
         .map(|i| format!("shared_term_{i}"))
@@ -113,10 +109,36 @@ fn bench_tokenize_for_bm25(c: &mut Criterion) {
 fn bench_bm25_add_document(c: &mut Criterion) {
     // Representative token set for a Rust source file chunk (~30 tokens)
     let tokens: Vec<String> = vec![
-        "fn", "async", "process", "document", "path", "collection", "result",
-        "vec", "error", "content", "read", "string", "tokens", "tokenize",
-        "embed", "await", "return", "impl", "pub", "self", "let", "mut",
-        "bm25", "add", "ok", "lexicon", "manager", "instances", "write", "entry",
+        "fn",
+        "async",
+        "process",
+        "document",
+        "path",
+        "collection",
+        "result",
+        "vec",
+        "error",
+        "content",
+        "read",
+        "string",
+        "tokens",
+        "tokenize",
+        "embed",
+        "await",
+        "return",
+        "impl",
+        "pub",
+        "self",
+        "let",
+        "mut",
+        "bm25",
+        "add",
+        "ok",
+        "lexicon",
+        "manager",
+        "instances",
+        "write",
+        "entry",
     ]
     .into_iter()
     .map(String::from)
@@ -148,8 +170,16 @@ fn bench_bm25_add_document(c: &mut Criterion) {
 
 fn bench_bm25_generate_sparse_vector(c: &mut Criterion) {
     let query_tokens: Vec<String> = vec![
-        "async", "fn", "process", "document", "collection", "result", "error",
-        "tokens", "embed", "lexicon",
+        "async",
+        "fn",
+        "process",
+        "document",
+        "collection",
+        "result",
+        "error",
+        "tokens",
+        "embed",
+        "lexicon",
     ]
     .into_iter()
     .map(String::from)
@@ -182,9 +212,9 @@ fn bench_bm25_hapax_eviction(c: &mut Criterion) {
     // Test at varying hapax fractions of the vocabulary
     for (label, n_docs, unique_per_doc, shared_per_doc) in [
         // (label,     docs,   unique, shared)  → hapax fraction ≈ unique/(unique+shared)
-        ("10pct_hapax", 1_000, 5, 45),   // 10% hapax: 5 unique (df=1), 45 shared (df>1)
-        ("50pct_hapax", 1_000, 25, 25),  // 50% hapax
-        ("90pct_hapax", 1_000, 45, 5),   // 90% hapax (worst-case for vocabulary bloat)
+        ("10pct_hapax", 1_000, 5, 45), // 10% hapax: 5 unique (df=1), 45 shared (df>1)
+        ("50pct_hapax", 1_000, 25, 25), // 50% hapax
+        ("90pct_hapax", 1_000, 45, 5), // 90% hapax (worst-case for vocabulary bloat)
     ] {
         group.bench_function(label, |b| {
             b.iter_batched(
