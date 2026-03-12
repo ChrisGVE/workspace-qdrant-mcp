@@ -78,13 +78,13 @@ impl GenericExtractor {
             let kind = child.kind();
 
             if preamble_types.iter().any(|t| t == kind) {
-                preamble_items.push(node_text(&child, source).to_string());
+                preamble_items.push(node_text(child, source).to_string());
                 last_preamble_line = child.end_position().row + 1;
             } else if comment_types.iter().any(|t| t == kind) {
                 // Include comments adjacent to preamble
                 if preamble_items.is_empty() || child.start_position().row <= last_preamble_line + 1
                 {
-                    preamble_items.push(node_text(&child, source).to_string());
+                    preamble_items.push(node_text(child, source).to_string());
                     last_preamble_line = child.end_position().row + 1;
                 }
             } else if kind == "expression_statement"
@@ -92,8 +92,8 @@ impl GenericExtractor {
             {
                 // Python-style: module docstring as first expression
                 if preamble_items.is_empty() || last_preamble_line == 0 {
-                    if find_child_by_kind(&child, "string").is_some() {
-                        preamble_items.push(node_text(&child, source).to_string());
+                    if find_child_by_kind(child, "string").is_some() {
+                        preamble_items.push(node_text(child, source).to_string());
                         last_preamble_line = child.end_position().row + 1;
                         continue;
                     }
@@ -103,11 +103,11 @@ impl GenericExtractor {
                 }
             } else if kind == "shebang" {
                 // Shell shebang lines
-                preamble_items.push(node_text(&child, source).to_string());
+                preamble_items.push(node_text(child, source).to_string());
                 last_preamble_line = child.end_position().row + 1;
             } else if kind == "call" {
                 // Elixir-style: use/import/alias/require are call nodes
-                let text = node_text(&child, source);
+                let text = node_text(child, source);
                 let first_word = text.split_whitespace().next().unwrap_or("");
                 if preamble_types.iter().any(|t| t == first_word)
                     || matches!(first_word, "use" | "import" | "alias" | "require")
