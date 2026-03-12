@@ -271,7 +271,7 @@ async fn scrape_ts_wiki_markdown() -> Result<Vec<GrammarEntry>> {
                 // Infer language from repo name
                 let language = repo
                     .split('/')
-                    .last()
+                    .next_back()
                     .unwrap_or("")
                     .strip_prefix("tree-sitter-")
                     .unwrap_or("")

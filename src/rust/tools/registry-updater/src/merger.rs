@@ -185,9 +185,10 @@ pub fn serialize_definitions(definitions: &[LanguageDefinition]) -> Result<Strin
 
 /// Merge generated definitions with the existing bundled registry,
 /// preserving hand-crafted semantic_patterns from the bundled YAML.
+#[allow(dead_code)]
 pub fn merge_with_bundled(
     bundled_path: &Path,
-    generated: &mut Vec<LanguageDefinition>,
+    generated: &mut [LanguageDefinition],
 ) -> Result<()> {
     let content = std::fs::read_to_string(bundled_path)
         .with_context(|| format!("Reading bundled registry: {}", bundled_path.display()))?;

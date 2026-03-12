@@ -235,6 +235,7 @@ pub fn to_semantic_patterns(extracted: &ExtractedPatterns) -> SemanticPatterns {
 }
 
 /// Fetch query files for a language from nvim-treesitter GitHub repo.
+#[allow(dead_code)]
 pub async fn fetch_query_files(language: &str) -> Result<HashMap<String, String>> {
     let base_url = format!(
         "https://api.github.com/repos/nvim-treesitter/nvim-treesitter/contents/queries/{}",
@@ -279,6 +280,7 @@ pub async fn fetch_query_files(language: &str) -> Result<HashMap<String, String>
 }
 
 /// Bootstrap semantic patterns for a language from its query files.
+#[allow(dead_code)]
 pub async fn bootstrap_patterns(language: &str) -> Result<Option<SemanticPatterns>> {
     let files = fetch_query_files(language)
         .await
