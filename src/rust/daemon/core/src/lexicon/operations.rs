@@ -10,6 +10,13 @@ use super::manager::LexiconManager;
 /// Threshold for auto-persisting (number of documents processed since last persist).
 pub(super) const AUTO_PERSIST_THRESHOLD: u32 = 50;
 
+/// Minimum corpus size before hapax legomena eviction kicks in.
+///
+/// With fewer documents than this, single-occurrence terms are legitimate
+/// vocabulary entries rather than noise. Evicting them on a small corpus
+/// would cause false "term not found" results.
+const HAPAX_EVICTION_MIN_CORPUS: u32 = 100;
+
 impl LexiconManager {
     /// Get document frequency for a term in a collection.
     ///
@@ -269,15 +276,18 @@ impl LexiconManager {
         dirty.insert(collection.to_string(), 0);
         drop(dirty);
 
-        // Evict hapax legomena from in-memory vocab and SQLite.
-        // Done after commit so the DELETE is independent of the upsert tx.
-        let evicted_count = {
+        // Evict hapax legomena from in-memory vocab and SQLite, but only when
+        // the corpus is large enough that single-occurrence terms are noise
+        // rather than legitimate vocabulary entries.
+        let evicted_count = if total_docs >= HAPAX_EVICTION_MIN_CORPUS {
             let mut instances = self.instances.write().await;
             if let Some(bm25) = instances.get_mut(collection) {
                 bm25.evict_hapax()
             } else {
                 0
             }
+        } else {
+            0
         };
         if evicted_count > 0 {
             sqlx::query(
