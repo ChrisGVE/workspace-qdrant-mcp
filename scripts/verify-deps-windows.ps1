@@ -32,8 +32,20 @@ $AllowedDlls = @(
     "VCRUNTIME140.dll",
     "VCRUNTIME140_1.dll",
     "MSVCP140.dll",
+    "MSVCP140_1.dll",     # MSVC C++ runtime sub-DLL (VS 2019+)
     "ucrtbase.dll",
-    "api-ms-win-*"
+    "api-ms-win-*",
+    # Windows system DLLs for performance monitoring (sysinfo crate)
+    "pdh.dll",
+    "powrprof.dll",
+    # Windows cryptographic primitives
+    "bcryptprimitives.dll",
+    # Windows DirectX / ONNX Runtime DirectML backend
+    "d3d12.dll",
+    "directml.dll",
+    "dxgi.dll",
+    # Windows setup/hardware API
+    "setupapi.dll"
 )
 
 function Test-Binary {

@@ -69,11 +69,13 @@ jobs:
             build_napi: false
 
           # Windows ARM64 - Rust cross-compiles to ARM64 on x64 runner
+          # Smoke test is skipped: ARM64 binaries cannot run on x64 runner
           - target: aarch64-pc-windows-msvc
             os: windows-latest
             artifact_name: windows-arm64
             needs_ort_download: false
             build_napi: false
+            skip_smoke_test: true
 
           # Linux x64 - ort has prebuilt binaries
           - target: x86_64-unknown-linux-gnu
@@ -261,7 +263,7 @@ jobs:
           echo "Smoke tests passed"
 
       - name: Smoke test (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !matrix.skip_smoke_test
         shell: pwsh
         run: |
           Write-Host "Running smoke tests..."
