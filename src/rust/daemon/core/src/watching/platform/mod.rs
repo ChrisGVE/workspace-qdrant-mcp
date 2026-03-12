@@ -199,14 +199,17 @@ pub struct WindowsConfig {
 #[cfg(target_os = "windows")]
 impl Default for WindowsConfig {
     fn default() -> Self {
-        use windows::Win32::Storage::FileSystem::*;
+        use winapi::um::winnt::{
+            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
+            FILE_NOTIFY_CHANGE_SIZE,
+        };
 
         Self {
             watch_subtree: true,
             buffer_size: 65536, // 64KB buffer
-            filter_flags: (FILE_NOTIFY_CHANGE_FILE_NAME.0
-                | FILE_NOTIFY_CHANGE_SIZE.0
-                | FILE_NOTIFY_CHANGE_LAST_WRITE.0) as u32,
+            filter_flags: FILE_NOTIFY_CHANGE_FILE_NAME
+                | FILE_NOTIFY_CHANGE_SIZE
+                | FILE_NOTIFY_CHANGE_LAST_WRITE,
             use_completion_ports: true,
             monitor_file_name: true,
             monitor_dir_name: true,

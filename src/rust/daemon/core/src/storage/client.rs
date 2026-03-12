@@ -399,11 +399,11 @@ where
         unsafe {
             winapi::um::processenv::SetStdHandle(
                 winapi::um::winbase::STD_OUTPUT_HANDLE,
-                null_file.as_raw_handle() as *mut std::ffi::c_void,
+                null_file.as_raw_handle() as *mut winapi::ctypes::c_void,
             );
             winapi::um::processenv::SetStdHandle(
                 winapi::um::winbase::STD_ERROR_HANDLE,
-                null_file.as_raw_handle() as *mut std::ffi::c_void,
+                null_file.as_raw_handle() as *mut winapi::ctypes::c_void,
             );
         }
     }

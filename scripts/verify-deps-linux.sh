@@ -15,6 +15,8 @@ ALLOWED_LIBS=(
     "librt.so"
     "liblzma.so"      # Required by libgit2 (XZ pack file support)
     "libz.so"         # Required by libgit2 (zlib compression)
+    "libssl.so"       # Required by libgit2 (HTTPS transport via OpenSSL)
+    "libcrypto.so"    # Required by libgit2 (HTTPS transport via OpenSSL)
 )
 
 check_binary() {
