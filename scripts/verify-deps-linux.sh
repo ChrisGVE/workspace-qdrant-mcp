@@ -13,6 +13,8 @@ ALLOWED_LIBS=(
     "libgcc_s.so"
     "libstdc++.so"    # Required by ONNX Runtime C++ runtime
     "librt.so"
+    "liblzma.so"      # Required by libgit2 (XZ pack file support)
+    "libz.so"         # Required by libgit2 (zlib compression)
 )
 
 check_binary() {
