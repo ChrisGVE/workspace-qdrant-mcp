@@ -1,0 +1,30 @@
+# Smithery configuration: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - qdrantUrl
+    properties:
+      qdrantUrl:
+        type: string
+        description: URL of the Qdrant instance to connect to.
+        default: "http://localhost:6333"
+      qdrantApiKey:
+        type: string
+        description: API key for Qdrant Cloud (optional, leave empty for local Qdrant).
+        default: ""
+  commandFunction:
+    |-
+    (config) => ({
+      command: "npx",
+      args: ["-y", "workspace-qdrant-mcp@latest"],
+      env: {
+        QDRANT_URL: config.qdrantUrl,
+        ...(config.qdrantApiKey ? { QDRANT_API_KEY: config.qdrantApiKey } : {}),
+      }
+    })
+  exampleConfig:
+    qdrantUrl: "http://localhost:6333"
+    qdrantApiKey: ""
