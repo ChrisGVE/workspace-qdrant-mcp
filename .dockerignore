@@ -1,0 +1,33 @@
+# Git
+.git/
+.gitignore
+
+# Rust build artifacts
+src/rust/target/
+src/rust/**/*.d
+
+# Node.js dependencies (rebuilt in Docker)
+src/typescript/mcp-server/node_modules/
+src/typescript/mcp-server/dist/
+
+# Old Docker folder
+docker/
+
+# TaskMaster and Claude config
+.taskmaster/
+.claude/
+
+# Temporary files
+tmp/
+
+# Documentation and research (not needed for build)
+docs/
+research/
+
+# Test files
+src/typescript/mcp-server/src/**/*.test.ts
+src/typescript/mcp-server/src/**/*.spec.ts
+
+# OS artifacts
+.DS_Store
+Thumbs.db
