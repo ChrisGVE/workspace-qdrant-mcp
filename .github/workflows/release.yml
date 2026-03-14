@@ -114,7 +114,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
+          sudo apt-get install -y cmake liblzma-dev
+          # Install protoc from GitHub releases (apt version on ubuntu-22.04 is too old for proto3 optional)
+          PROTOC_VERSION=25.3
+          PROTOC_ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch_64/')
+          curl -fsSL "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip" -o /tmp/protoc.zip
+          sudo unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+          rm /tmp/protoc.zip
 
       # Windows specific: Install dependencies
       - name: Install Windows dependencies
