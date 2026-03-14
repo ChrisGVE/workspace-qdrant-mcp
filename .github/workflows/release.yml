@@ -77,17 +77,18 @@ jobs:
             build_napi: false
             skip_smoke_test: true
 
-          # Linux x64 - ort has prebuilt binaries
+          # Linux x64 - use ubuntu-22.04 (GLIBC 2.35) for broad compatibility
+          # ubuntu-latest is 24.04 (GLIBC 2.39) which breaks on Debian Bookworm (2.36)
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
             artifact_name: linux-x64
             needs_ort_download: false
             build_napi: true
             napi_node_name: linux-x64-gnu
 
-          # Linux ARM64 - native build on ARM runner
+          # Linux ARM64 - use ubuntu-22.04-arm (GLIBC 2.35) for broad compatibility
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04-arm
+            os: ubuntu-22.04-arm
             artifact_name: linux-arm64
             needs_ort_download: false
             build_napi: true
