@@ -77,7 +77,7 @@ logroller = "0.1"
 reqwest = { version = "0.11", features = ["stream", "json", "rustls-tls"], default-features = false }
 url = "2.5"
 ahash = "0.8"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 regex = "1.12"
 grep-searcher = "0.1"
 grep-regex = "0.1"

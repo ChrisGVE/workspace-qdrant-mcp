@@ -22,7 +22,7 @@ clap = { version = "4.5", features = ["derive", "string"] }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "signal", "fs"] }
 
 # Database (SqlitePool used in phase-module signatures)
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
 
 # Logging
 tracing = { version = "0.1", features = ["log", "attributes", "std"] }

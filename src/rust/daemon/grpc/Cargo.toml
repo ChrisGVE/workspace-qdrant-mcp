@@ -60,7 +60,7 @@ sha2 = "0.10"
 qdrant-client = "1.17"
 
 # Database access (for ProjectService)
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono"] }
 
 # File system traversal (for language detection)
 walkdir = "2.4"

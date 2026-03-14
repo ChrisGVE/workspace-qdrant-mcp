@@ -52,8 +52,7 @@ dirs = "5.0"
 which = "6.0"
 
 # SQLite for unified queue fallback (Task 37.11)
-# Using 0.31 for libsqlite3-sys compatibility with sqlx 0.8
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # UUID for queue item IDs
 uuid = { version = "1.21", features = ["v4", "v5"] }
