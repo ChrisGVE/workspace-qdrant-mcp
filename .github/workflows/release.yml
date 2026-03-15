@@ -77,22 +77,38 @@ jobs:
             build_napi: false
             skip_smoke_test: true
 
-          # Linux x64 - use ubuntu-22.04 (GLIBC 2.35) for broad compatibility
-          # ubuntu-latest is 24.04 (GLIBC 2.39) which breaks on Debian Bookworm (2.36)
+          # Linux x64 - ubuntu-latest for ORT ABI compatibility; napi built separately
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: linux-x64
+            needs_ort_download: false
+            build_napi: false
+
+          # Linux ARM64 - native build on ARM runner; napi built separately
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            artifact_name: linux-arm64
+            needs_ort_download: false
+            build_napi: false
+
+          # Linux x64 napi addon - ubuntu-22.04 (GLIBC 2.35) for container compatibility
+          # The napi addon does not use ONNX Runtime so ORT ABI is not a concern
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
-            artifact_name: linux-x64
+            artifact_name: linux-x64-napi
             needs_ort_download: false
             build_napi: true
             napi_node_name: linux-x64-gnu
+            skip_binaries: true
 
-          # Linux ARM64 - use ubuntu-22.04-arm (GLIBC 2.35) for broad compatibility
+          # Linux ARM64 napi addon - ubuntu-22.04-arm (GLIBC 2.35) for container compatibility
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
-            artifact_name: linux-arm64
+            artifact_name: linux-arm64-napi
             needs_ort_download: false
             build_napi: true
             napi_node_name: linux-arm64-gnu
+            skip_binaries: true
 
     steps:
       - name: Checkout repository
@@ -185,8 +201,9 @@ jobs:
           OPENSSL_PREFIX=$(arch -x86_64 /usr/local/bin/brew --prefix openssl@3)
           echo "OPENSSL_DIR=$OPENSSL_PREFIX" >> $GITHUB_ENV
 
-      # Build binaries
+      # Build binaries (skipped for napi-only jobs)
       - name: Build
+        if: ${{ !matrix.skip_binaries }}
         working-directory: src/rust
         run: cargo build --release --target ${{ matrix.target }}
 
@@ -213,7 +230,7 @@ jobs:
 
       # Prepare artifacts - all binaries are self-contained with ONNX Runtime statically linked
       - name: Prepare artifacts (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.skip_binaries
         shell: bash
         run: |
           mkdir -p artifacts
@@ -245,23 +262,23 @@ jobs:
 
       # Verify binaries are self-contained (no unexpected dynamic dependencies)
       - name: Verify binary dependencies (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && !matrix.skip_binaries
         shell: bash
         run: scripts/verify-deps-macos.sh artifacts/memexd artifacts/wqm
 
       - name: Verify binary dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !matrix.skip_binaries
         shell: bash
         run: scripts/verify-deps-linux.sh artifacts/memexd artifacts/wqm
 
       - name: Verify binary dependencies (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !matrix.skip_binaries
         shell: pwsh
         run: scripts/verify-deps-windows.ps1 artifacts/memexd.exe artifacts/wqm.exe
 
       # Smoke tests - verify binaries are runnable
       - name: Smoke test (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.skip_binaries
         shell: bash
         run: |
           echo "Running smoke tests..."
@@ -270,7 +287,7 @@ jobs:
           echo "Smoke tests passed"
 
       - name: Smoke test (Windows)
-        if: runner.os == 'Windows' && !matrix.skip_smoke_test
+        if: runner.os == 'Windows' && !matrix.skip_smoke_test && !matrix.skip_binaries
         shell: pwsh
         run: |
           Write-Host "Running smoke tests..."
@@ -280,7 +297,7 @@ jobs:
 
       # Create individual binary files for direct download (used by wqm update)
       - name: Prepare individual binaries (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.skip_binaries
         shell: bash
         run: |
           # Copy daemon binary with target-specific name
@@ -294,7 +311,7 @@ jobs:
           sha256sum wqm-${{ matrix.target }} | awk '{print $1}' > wqm-${{ matrix.target }}.sha256
 
       - name: Prepare individual binaries (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !matrix.skip_binaries
         shell: pwsh
         run: |
           # Copy daemon binary with target-specific name
@@ -310,8 +327,8 @@ jobs:
           $hash | Out-File -NoNewline wqm-${{ matrix.target }}.exe.sha256
 
       # Upload artifacts
-      - name: Upload artifact (Unix)
-        if: runner.os != 'Windows'
+      - name: Upload artifact (Unix, full)
+        if: runner.os != 'Windows' && !matrix.skip_binaries
         uses: actions/upload-artifact@v4
         with:
           name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
@@ -321,6 +338,15 @@ jobs:
             memexd-${{ matrix.target }}.sha256
             wqm-${{ matrix.target }}
             wqm-${{ matrix.target }}.sha256
+            wqm-common-node.*.node
+            wqm-common-node.*.node.sha256
+
+      - name: Upload artifact (Unix, napi-only)
+        if: runner.os != 'Windows' && matrix.skip_binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
+          path: |
             wqm-common-node.*.node
             wqm-common-node.*.node.sha256
 
