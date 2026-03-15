@@ -396,6 +396,7 @@ jobs:
             artifacts/**/wqm-common-node.*.node.sha256
             artifacts/checksums.txt
           draft: false
+          allow_override: true
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
           generate_release_notes: true
           body: |
