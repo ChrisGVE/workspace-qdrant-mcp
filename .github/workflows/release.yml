@@ -136,9 +136,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src/rust/target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-
+            ${{ runner.os }}-${{ matrix.os }}-${{ matrix.target }}-cargo-
 
       # Download ONNX Runtime static library for Intel Mac (ort crate handles other platforms)
       # Uses supertone-inc/onnxruntime-build which provides static libraries (.a)
