@@ -147,15 +147,33 @@ async fn test_heartbeat_updates_timestamp() {
 }
 
 #[tokio::test]
-async fn test_heartbeat_ignored_without_active_session() {
+async fn test_heartbeat_reactivates_inactive_project() {
     let (pool, _temp_dir) = setup_test_db().await;
     let priority_manager = PriorityManager::new(pool.clone());
 
-    // Create test project without active sessions
+    // Create test project without active sessions (is_active=0)
     create_test_project(&pool, "abcd12345678", "/test/project").await;
 
-    // Heartbeat should be ignored
+    // Heartbeat should reactivate the project — it is proof of a live session
     let updated = priority_manager.heartbeat("abcd12345678").await.unwrap();
+    assert!(updated);
+
+    // Verify is_active was set to 1
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(info.is_active);
+}
+
+#[tokio::test]
+async fn test_heartbeat_returns_false_for_unknown_project() {
+    let (pool, _temp_dir) = setup_test_db().await;
+    let priority_manager = PriorityManager::new(pool.clone());
+
+    // Heartbeat for a project that doesn't exist should return false
+    let updated = priority_manager.heartbeat("nonexistent12").await.unwrap();
     assert!(!updated);
 }
 

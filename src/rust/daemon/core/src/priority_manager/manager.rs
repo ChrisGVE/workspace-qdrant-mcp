@@ -176,14 +176,24 @@ impl PriorityManager {
 
         let now = Utc::now();
 
+        // A heartbeat is proof that a session is alive — it should keep the project
+        // active regardless of its current is_active state. The previous design
+        // filtered with `AND is_active = 1`, which caused a race: if another session's
+        // cleanup set is_active=0, ongoing heartbeats silently no-oped and the project
+        // remained inactive for up to one heartbeat interval (~1 hour).
+        //
+        // Removing the is_active filter and adding `SET is_active = 1` makes heartbeat
+        // idempotent: it acts as a full keep-alive. The inactivity timeout
+        // (`deactivate_inactive_projects`) is the authoritative deactivation path —
+        // when heartbeats stop, that timeout fires and cleans up correctly.
         let result = sqlx::query(
             r#"
             UPDATE watch_folders
-            SET last_activity_at = ?1,
+            SET is_active = 1,
+                last_activity_at = ?1,
                 updated_at = ?1
             WHERE tenant_id = ?2
               AND collection = ?3
-              AND is_active = 1
             "#,
         )
         .bind(timestamps::format_utc(&now))
@@ -204,8 +214,8 @@ impl PriorityManager {
             );
         } else {
             warn!(
-                "Heartbeat for project {} ignored (not active or not found)",
-                tenant_id
+                "Heartbeat for project {} not found (tenant_id={})",
+                tenant_id, tenant_id
             );
         }
 
