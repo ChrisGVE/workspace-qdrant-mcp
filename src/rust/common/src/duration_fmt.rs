@@ -70,6 +70,59 @@ pub fn format_duration_column(durations: &[f64]) -> Vec<String> {
         .collect()
 }
 
+/// Format a duration in seconds as an approximate human-readable string.
+///
+/// Inspired by Apple's adaptive time display:
+/// - < 60 s  → "less than a minute"
+/// - < 3600 s → "about N minute(s)"
+/// - < 86400 s → "about N hour(s)"
+/// - ≥ 86400 s → "about N day(s)" or "N day(s) and N hour(s)" when hours > 0
+pub fn fmt_approx_duration(seconds: f64) -> String {
+    if seconds < 0.0 {
+        return "unknown".to_string();
+    }
+
+    let secs = seconds as u64;
+    let minutes = secs / 60;
+    let hours = secs / 3600;
+    let days = secs / 86400;
+    let remaining_hours = (secs % 86400) / 3600;
+
+    if secs < 60 {
+        "less than a minute".to_string()
+    } else if hours < 1 {
+        if minutes == 1 {
+            "about 1 minute".to_string()
+        } else {
+            format!("about {} minutes", minutes)
+        }
+    } else if days < 1 {
+        if hours == 1 {
+            "about 1 hour".to_string()
+        } else {
+            format!("about {} hours", hours)
+        }
+    } else if remaining_hours == 0 {
+        if days == 1 {
+            "about 1 day".to_string()
+        } else {
+            format!("about {} days", days)
+        }
+    } else {
+        let day_str = if days == 1 {
+            "1 day".to_string()
+        } else {
+            format!("{} days", days)
+        };
+        let hour_str = if remaining_hours == 1 {
+            "1 hour".to_string()
+        } else {
+            format!("{} hours", remaining_hours)
+        };
+        format!("{} and {}", day_str, hour_str)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +214,47 @@ mod tests {
         // 2 days, 3 hours, 4 minutes, 5 seconds
         let secs = 2.0 * 86400.0 + 3.0 * 3600.0 + 4.0 * 60.0 + 5.0;
         assert_eq!(format_duration(secs, 0), "2:03:04:05");
+    }
+
+    // fmt_approx_duration tests
+
+    #[test]
+    fn test_approx_under_minute() {
+        assert_eq!(fmt_approx_duration(0.0), "less than a minute");
+        assert_eq!(fmt_approx_duration(30.0), "less than a minute");
+        assert_eq!(fmt_approx_duration(59.9), "less than a minute");
+    }
+
+    #[test]
+    fn test_approx_minutes() {
+        assert_eq!(fmt_approx_duration(60.0), "about 1 minute");
+        assert_eq!(fmt_approx_duration(90.0), "about 1 minute");
+        assert_eq!(fmt_approx_duration(120.0), "about 2 minutes");
+        assert_eq!(fmt_approx_duration(3599.0), "about 59 minutes");
+    }
+
+    #[test]
+    fn test_approx_hours() {
+        assert_eq!(fmt_approx_duration(3600.0), "about 1 hour");
+        assert_eq!(fmt_approx_duration(7200.0), "about 2 hours");
+        assert_eq!(fmt_approx_duration(86399.0), "about 23 hours");
+    }
+
+    #[test]
+    fn test_approx_days_exact() {
+        assert_eq!(fmt_approx_duration(86400.0), "about 1 day");
+        assert_eq!(fmt_approx_duration(172800.0), "about 2 days");
+    }
+
+    #[test]
+    fn test_approx_days_and_hours() {
+        assert_eq!(fmt_approx_duration(86400.0 + 3600.0), "1 day and 1 hour");
+        assert_eq!(fmt_approx_duration(86400.0 + 14400.0), "1 day and 4 hours");
+        assert_eq!(fmt_approx_duration(172800.0 + 7200.0), "2 days and 2 hours");
+    }
+
+    #[test]
+    fn test_approx_negative() {
+        assert_eq!(fmt_approx_duration(-1.0), "unknown");
     }
 }

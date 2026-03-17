@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
+use wqm_common::duration_fmt::fmt_approx_duration;
 
 use crate::output;
 
@@ -875,8 +876,8 @@ fn print_summary(total_items: i64, queue_depth: i64, window_hours: f64) {
     output::kv("Queue depth", &fmt_thousands(queue_depth));
 
     if queue_depth > 0 && rate > 0.0 {
-        let drain_minutes = (queue_depth as f64 / rate) * 60.0;
-        output::kv("Est. drain time", &format!("{:.1} minutes", drain_minutes));
+        let drain_secs = (queue_depth as f64 / rate) * 3600.0;
+        output::kv("Est. drain time", &fmt_approx_duration(drain_secs));
     }
 }
 
