@@ -11,8 +11,8 @@ use super::types::FileRoute;
 /// (e.g., `.md`, `.txt`, `.html`) stay in `projects` because they are typically
 /// project documentation meant to be searched alongside code.
 pub(super) const LIBRARY_ROUTED_EXTENSIONS: &[&str] = &[
-    ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt", ".mobi", ".pptx", ".ppt", ".pages", ".key",
-    ".odp", ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
+    ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt", ".mobi", ".chm", ".pptx", ".ppt", ".pages",
+    ".key", ".odp", ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
 ];
 
 /// Two-tier allowlist of file extensions for project and library ingestion.
@@ -168,8 +168,8 @@ impl Default for AllowedExtensions {
         // library_extensions = project_extensions ∪ library_only_extensions
         let library_only: HashSet<String> = [
             // Documents
-            ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt",  // Ebooks
-            ".mobi", // Presentations
+            ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt", // Ebooks
+            ".mobi", ".chm", // Presentations
             ".pptx", ".ppt", ".pages", ".key", ".odp",
             // Spreadsheets (formats not already in project_extensions)
             ".xlsx", ".xls", ".ods", ".numbers", ".parquet",

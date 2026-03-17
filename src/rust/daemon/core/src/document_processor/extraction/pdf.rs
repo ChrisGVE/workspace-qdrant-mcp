@@ -1,4 +1,12 @@
 //! PDF text extraction.
+//!
+//! Uses pdf-extract as the primary extractor, with lopdf as a fallback.
+//! Both are pure-Rust and statically linked (Principle 8).
+//!
+//! TODO: Replace with a statically-linked Poppler C++ integration for ~4x
+//! throughput improvement. The pdftotext crate's static-poppler feature has
+//! a build.rs include-path bug that prevents use today; a proper wrapper
+//! crate is needed (see docs/specs/14-future-development.md).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,10 +26,6 @@ use crate::document_processor::types::DocumentProcessorResult;
 pub fn extract_pdf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
     let mut metadata = HashMap::new();
     metadata.insert("source_format".to_string(), "pdf".to_string());
-
-    // Count images (Tier 1: metadata only)
-    let image_count = count_pdf_images(file_path);
-    metadata.insert("images_detected".to_string(), image_count.to_string());
 
     let path_buf = file_path.to_path_buf();
     let result = std::panic::catch_unwind(|| pdf_extract::extract_text(&path_buf));
@@ -60,47 +64,4 @@ fn try_lopdf_text(file_path: &Path) -> String {
         Ok(text) => clean_extracted_text(&text),
         Err(_) => String::new(),
     }
-}
-
-/// Count images in a PDF by scanning for image XObjects in page resources.
-pub fn count_pdf_images(file_path: &Path) -> usize {
-    let doc = match lopdf::Document::load(file_path) {
-        Ok(d) => d,
-        Err(_) => return 0,
-    };
-
-    let mut count = 0;
-    for (_page_num, page_id) in doc.get_pages() {
-        if let Ok(page) = doc.get_object(page_id) {
-            if let Ok(resources) = page
-                .as_dict()
-                .and_then(|d| d.get(b"Resources"))
-                .and_then(|r| doc.dereference(r).map(|(_, obj)| obj))
-                .and_then(|obj| obj.as_dict())
-            {
-                if let Ok(xobjects) = resources
-                    .get(b"XObject")
-                    .and_then(|x| doc.dereference(x).map(|(_, obj)| obj))
-                    .and_then(|obj| obj.as_dict())
-                {
-                    for (_name, xobj_ref) in xobjects.iter() {
-                        if let Ok((_, xobj)) = doc.dereference(xobj_ref) {
-                            if let Ok(stream) = xobj.as_stream() {
-                                if stream
-                                    .dict
-                                    .get(b"Subtype")
-                                    .ok()
-                                    .and_then(|v| v.as_name_str().ok())
-                                    == Some("Image")
-                                {
-                                    count += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    count
 }

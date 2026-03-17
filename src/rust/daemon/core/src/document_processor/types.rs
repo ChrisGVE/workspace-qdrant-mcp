@@ -33,6 +33,12 @@ pub enum DocumentProcessorError {
     #[error("Jupyter extraction error: {0}")]
     JupyterExtraction(String),
 
+    #[error("MOBI extraction error: {0}")]
+    MobiExtraction(String),
+
+    #[error("CHM extraction error: {0}")]
+    ChmExtraction(String),
+
     #[error("OCR extraction error: {0}")]
     OcrError(String),
 
@@ -97,6 +103,8 @@ pub fn detect_document_type(file_path: &Path) -> DocumentType {
             "key" => DocumentType::Key,
             "markdown" => DocumentType::Markdown,
             "text" => DocumentType::Text,
+            "mobi" => DocumentType::Mobi,
+            "chm" => DocumentType::Chm,
             "unknown" => DocumentType::Unknown,
             _ => DocumentType::Unknown,
         };

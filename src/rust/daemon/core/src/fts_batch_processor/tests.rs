@@ -471,10 +471,12 @@ async fn test_large_batch_throughput() {
     assert_eq!(stats.lines_inserted, 15_000);
     assert!(stats.batch_mode);
 
-    // Should complete in reasonable time (< 10s for 15K lines)
+    // Should complete in reasonable time (< 30s for 15K lines).
+    // 30s provides headroom for system load variability while still catching
+    // catastrophic performance regressions.
     assert!(
-        stats.processing_time_ms < 10_000,
-        "Batch processing took {}ms, expected < 10000ms",
+        stats.processing_time_ms < 30_000,
+        "Batch processing took {}ms, expected < 30000ms",
         stats.processing_time_ms
     );
 

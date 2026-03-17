@@ -9,30 +9,20 @@ use super::types::{EmbeddedImage, ImageFormat};
 
 /// Extract embedded images from an EPUB document.
 pub fn extract_epub_images(file_path: &Path) -> Vec<EmbeddedImage> {
-    let mut doc = match epub::doc::EpubDoc::new(file_path) {
-        Ok(d) => d,
+    let epub = match rbook::Epub::open(file_path) {
+        Ok(e) => e,
         Err(e) => {
             warn!(path = %file_path.display(), error = %e, "Failed to open EPUB for image extraction");
             return Vec::new();
         }
     };
 
-    // Collect image resource IDs
-    // epub resources: HashMap<String, ResourceItem> where ResourceItem has path, mime, properties
-    let image_ids: Vec<String> = doc
-        .resources
-        .iter()
-        .filter(|(_id, item)| item.mime.starts_with("image/"))
-        .map(|(id, _item)| id.clone())
-        .collect();
-
     let mut images = Vec::new();
 
-    for (idx, id) in image_ids.iter().enumerate() {
-        // get_resource returns Option<(Vec<u8>, String)> — (bytes, mime_type)
-        let (bytes, _mime_type) = match doc.get_resource(id) {
-            Some(data) => data,
-            None => continue,
+    for (idx, entry) in epub.manifest().images().enumerate() {
+        let bytes = match entry.read_bytes() {
+            Ok(b) => b,
+            Err(_) => continue,
         };
 
         if bytes.is_empty() {

@@ -3,7 +3,7 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 use super::super::extraction::{
-    count_docx_images, count_pdf_images, extract_csv, extract_jupyter, extract_spreadsheet,
+    count_docx_images, extract_csv, extract_jupyter, extract_spreadsheet,
 };
 
 // --- New format detection tests ---
@@ -304,7 +304,7 @@ fn test_allowed_extensions_new_formats() {
     assert!(ae.is_allowed("legacy.xls", "libraries"));
 }
 
-// --- Image counting tests ---
+// --- Image counting tests (DOCX only; PDF image counting removed with lopdf) ---
 
 #[test]
 fn test_count_docx_images_with_media() {
@@ -345,20 +345,6 @@ fn test_count_docx_images_no_media() {
     let file = File::open(temp.path()).unwrap();
     let archive = zip::ZipArchive::new(file).unwrap();
     assert_eq!(count_docx_images(&archive), 0);
-}
-
-#[test]
-fn test_count_pdf_images_nonexistent_file() {
-    // Gracefully returns 0 for non-existent files
-    assert_eq!(count_pdf_images(Path::new("/tmp/nonexistent.pdf")), 0);
-}
-
-#[test]
-fn test_count_pdf_images_invalid_file() {
-    // Gracefully returns 0 for invalid PDF files
-    let temp = NamedTempFile::with_suffix(".pdf").unwrap();
-    std::fs::write(temp.path(), b"not a pdf").unwrap();
-    assert_eq!(count_pdf_images(temp.path()), 0);
 }
 
 #[cfg(feature = "ocr")]

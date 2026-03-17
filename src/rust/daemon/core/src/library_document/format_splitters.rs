@@ -349,45 +349,37 @@ pub fn split_rtf(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumen
 
 /// Split an EPUB into per-chapter structural units.
 pub fn split_epub(file_path: &Path) -> Result<Vec<StructuralUnit>, LibraryDocumentError> {
-    let mut doc =
-        epub::doc::EpubDoc::new(file_path).map_err(|e| LibraryDocumentError::Extraction {
+    let epub = rbook::Epub::open(file_path).map_err(|e| LibraryDocumentError::Extraction {
+        format: "epub".into(),
+        message: e.to_string(),
+    })?;
+
+    let mut units = Vec::new();
+
+    for (spine_index, result) in epub.reader().enumerate() {
+        let data = result.map_err(|e| LibraryDocumentError::Extraction {
             format: "epub".into(),
             message: e.to_string(),
         })?;
 
-    let mut units = Vec::new();
-    let mut spine_index = 0usize;
+        let content = data.content();
+        let text = html2text::from_read(content.as_bytes(), 80);
+        let cleaned = clean_text(&text);
 
-    loop {
-        let spine_id = doc
-            .get_current_id()
-            .unwrap_or_else(|| format!("spine_{}", spine_index));
+        if !cleaned.is_empty() {
+            let chapter_title = extract_html_heading(content);
 
-        if let Some((content, _mime)) = doc.get_current_str() {
-            let text = html2text::from_read(content.as_bytes(), 80);
-            let cleaned = clean_text(&text);
-
-            if !cleaned.is_empty() {
-                // Try to extract chapter title from HTML content
-                let chapter_title = extract_html_heading(&content);
-
-                let mut locator = serde_json::json!({"spine_id": spine_id});
-                if let Some(ref title) = chapter_title {
-                    locator["chapter_title"] = serde_json::Value::String(title.clone());
-                }
-
-                units.push(StructuralUnit {
-                    unit_type: UNIT_TYPE_EPUB_SECTION.to_string(),
-                    unit_locator: locator,
-                    text: cleaned,
-                    title: chapter_title,
-                });
+            let mut locator = serde_json::json!({"spine_index": spine_index});
+            if let Some(ref title) = chapter_title {
+                locator["chapter_title"] = serde_json::Value::String(title.clone());
             }
-        }
 
-        spine_index += 1;
-        if !doc.go_next() {
-            break;
+            units.push(StructuralUnit {
+                unit_type: UNIT_TYPE_EPUB_SECTION.to_string(),
+                unit_locator: locator,
+                text: cleaned,
+                title: chapter_title,
+            });
         }
     }
 

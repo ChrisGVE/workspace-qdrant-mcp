@@ -329,7 +329,10 @@ extensions:
     document_type: epub
   mobi:
     file_type: docs
-    document_type: unknown
+    document_type: mobi
+  chm:
+    file_type: docs
+    document_type: chm
   docx:
     file_type: docs
     document_type: docx

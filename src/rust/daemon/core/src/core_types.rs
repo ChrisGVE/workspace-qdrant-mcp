@@ -60,6 +60,8 @@ pub enum DocumentType {
     Jupyter,
     Pages,
     Key,
+    Mobi,
+    Chm,
     Text,
     Markdown,
     Code(String), // Language name
@@ -88,6 +90,8 @@ impl DocumentType {
             Self::Jupyter => "jupyter",
             Self::Pages => "pages",
             Self::Key => "key",
+            Self::Mobi => "mobi",
+            Self::Chm => "chm",
             Self::Text => "text",
             Self::Markdown => "markdown",
             Self::Code(_) => "code",

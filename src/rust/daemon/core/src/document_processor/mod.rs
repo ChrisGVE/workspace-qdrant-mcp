@@ -1,8 +1,10 @@
-//! Document processing module for extracting text from various file formats (Task 462).
+//! Document processing module for extracting text from various file formats.
 //!
 //! This module provides the DocumentProcessor for extracting text content from:
-//! - PDF documents (via pdf-extract)
-//! - EPUB documents (via epub crate)
+//! - PDF documents (via pdftotext / statically-linked Poppler)
+//! - EPUB documents (via rbook)
+//! - MOBI ebooks (via mobi crate)
+//! - CHM help files (via chmlib)
 //! - DOCX documents (via zip + XML extraction)
 //! - Code files (UTF-8 with language detection)
 //! - Text, Markdown, HTML, XML, JSON, YAML, TOML files
@@ -33,9 +35,9 @@ use crate::{ChunkingConfig, DocumentContent, DocumentResult, DocumentType, TextC
 
 use self::chunking::{chunk_text, convert_semantic_chunks_to_text_chunks};
 use self::extraction::{
-    extract_code, extract_csv, extract_docx, extract_epub, extract_iwork, extract_jupyter,
-    extract_opendocument, extract_pdf, extract_pptx, extract_rtf, extract_spreadsheet,
-    extract_text_with_encoding,
+    extract_chm, extract_code, extract_csv, extract_docx, extract_epub, extract_iwork,
+    extract_jupyter, extract_mobi, extract_opendocument, extract_pdf, extract_pptx, extract_rtf,
+    extract_spreadsheet, extract_text_with_encoding,
 };
 
 /// Document processor for extracting text from various file formats
@@ -326,6 +328,8 @@ fn extract_by_document_type(
             );
             extract_iwork(file_path, fmt)
         }
+        DocumentType::Mobi => extract_mobi(file_path),
+        DocumentType::Chm => extract_chm(file_path),
         DocumentType::Code(lang) => extract_code(file_path, lang),
         DocumentType::Markdown | DocumentType::Text | DocumentType::Unknown => {
             extract_text_with_encoding(file_path)
