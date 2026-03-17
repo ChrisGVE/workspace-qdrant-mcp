@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     git_remote_url TEXT,
     remote_hash TEXT,
     disambiguation_path TEXT,
-    is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
+    is_active INTEGER DEFAULT 0 CHECK (is_active >= 0),
     last_activity_at TEXT,
     is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1)),
     pause_start_time TEXT,
@@ -195,7 +195,7 @@ pub const CREATE_WATCH_FOLDERS_INDEXES_SQL: &[&str] = &[
        ON watch_folders(remote_hash)"#,
     // Index for active project lookups (used in queue priority calculation)
     r#"CREATE INDEX IF NOT EXISTS idx_watch_active
-       ON watch_folders(is_active) WHERE is_active = 1"#,
+       ON watch_folders(is_active) WHERE is_active > 0"#,
     // Index for daemon polling (find recently updated watches)
     r#"CREATE INDEX IF NOT EXISTS idx_watch_updated
        ON watch_folders(updated_at)"#,
@@ -282,7 +282,7 @@ WITH RECURSIVE descendants AS (
     JOIN descendants d ON j.parent_watch_id = d.watch_id
 )
 UPDATE watch_folders
-SET is_active = 1,
+SET is_active = is_active + 1,
     last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE watch_id IN (SELECT watch_id FROM descendants)

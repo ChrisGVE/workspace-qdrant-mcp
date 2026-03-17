@@ -20,6 +20,8 @@ use crate::lifecycle::WatchFolderLifecycle;
 /// Statistics returned by `clean_stale_state`.
 #[derive(Debug, Clone, Default)]
 pub struct StaleCleanupStats {
+    /// Session reference counts reset to 0 (all sessions from previous run are gone).
+    pub sessions_reset: u64,
     /// Queue items reset from in_progress back to pending.
     pub items_reset: u64,
     /// Old done/failed queue items removed.
@@ -35,7 +37,8 @@ pub struct StaleCleanupStats {
 impl StaleCleanupStats {
     /// Returns true if any cleanup action was performed.
     pub fn has_changes(&self) -> bool {
-        self.items_reset > 0
+        self.sessions_reset > 0
+            || self.items_reset > 0
             || self.items_cleaned > 0
             || self.orphan_tenant_items_removed > 0
             || self.tracked_files_removed > 0
@@ -65,6 +68,9 @@ pub struct WatchValidationStats {
 pub async fn clean_stale_state(pool: &SqlitePool) -> Result<StaleCleanupStats, String> {
     let mut stats = StaleCleanupStats::default();
 
+    // Reset session counts before anything else: all MCP sessions from the previous
+    // daemon run are gone. MCP clients will re-register as they reconnect.
+    stats.sessions_reset = reset_session_counts(pool).await?;
     stats.items_reset = reset_in_progress_items(pool).await?;
     stats.items_cleaned = purge_old_completed_items(pool).await?;
     stats.orphan_tenant_items_removed = purge_orphan_tenant_items(pool).await?;
@@ -72,6 +78,32 @@ pub async fn clean_stale_state(pool: &SqlitePool) -> Result<StaleCleanupStats, S
     stats.orphan_chunks_removed = remove_orphan_chunks(pool).await?;
 
     Ok(stats)
+}
+
+/// Step 0: Reset all session reference counts to 0.
+///
+/// On daemon restart every MCP session from the previous run is gone. Reset
+/// is_active to 0 so MCP clients can re-register cleanly as they reconnect.
+/// Without this reset, stale counts would leave projects incorrectly active
+/// after a daemon restart even when no sessions are present.
+async fn reset_session_counts(pool: &SqlitePool) -> Result<u64, String> {
+    info!("Resetting session reference counts to 0 on startup...");
+    let result = sqlx::query(
+        "UPDATE watch_folders SET is_active = 0, \
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE is_active > 0",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to reset session counts: {}", e))?;
+
+    let count = result.rows_affected();
+    if count > 0 {
+        info!("Reset session counts for {} watch folders", count);
+    } else {
+        debug!("No active session counts to reset");
+    }
+    Ok(count)
 }
 
 /// Step 1: Reset in_progress queue items back to pending.

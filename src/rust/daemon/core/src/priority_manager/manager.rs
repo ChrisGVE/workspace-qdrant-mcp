@@ -105,7 +105,8 @@ impl PriorityManager {
 
     /// Set project priority explicitly
     ///
-    /// Maps a priority string ("high"/"normal") to watch_folders.is_active (1/0).
+    /// Maps a priority string ("high"/"normal") to a session count increment/decrement.
+    /// "high" increments is_active, "normal" decrements it (floor 0).
     /// Queue ordering is computed at dequeue time based on is_active.
     pub async fn set_priority(
         &self,
@@ -116,15 +117,12 @@ impl PriorityManager {
             return Err(PriorityError::EmptyParameter);
         }
 
-        let new_is_active = match priority_str {
-            "high" => 1,
-            "normal" => 0,
-            other => {
-                return Err(PriorityError::InvalidPriority(
-                    other.parse::<i32>().unwrap_or(-1),
-                ))
-            }
-        };
+        // Validate priority string early
+        if priority_str != "high" && priority_str != "normal" {
+            return Err(PriorityError::InvalidPriority(
+                priority_str.parse::<i32>().unwrap_or(-1),
+            ));
+        }
 
         // Get current state
         let current_active: Option<i32> = sqlx::query_scalar(
@@ -142,17 +140,19 @@ impl PriorityManager {
             }
         };
 
-        let previous_priority = if current_active == 1 {
-            "high"
-        } else {
-            "normal"
-        };
+        let previous_priority = if current_active > 0 { "high" } else { "normal" };
 
         // Delegate is_active mutation to WatchFolderLifecycle
         let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
-        lifecycle
-            .set_active_by_tenant(tenant_id, COLLECTION_PROJECTS, new_is_active == 1)
-            .await?;
+        if priority_str == "high" {
+            lifecycle
+                .activate_by_tenant(tenant_id, COLLECTION_PROJECTS)
+                .await?;
+        } else {
+            lifecycle
+                .deactivate_by_tenant(tenant_id, COLLECTION_PROJECTS)
+                .await?;
+        }
 
         info!(
             "Set priority for project {}: {} -> {}",
@@ -176,24 +176,21 @@ impl PriorityManager {
 
         let now = Utc::now();
 
-        // A heartbeat is proof that a session is alive — it should keep the project
-        // active regardless of its current is_active state. The previous design
-        // filtered with `AND is_active = 1`, which caused a race: if another session's
-        // cleanup set is_active=0, ongoing heartbeats silently no-oped and the project
-        // remained inactive for up to one heartbeat interval (~1 hour).
-        //
-        // Removing the is_active filter and adding `SET is_active = 1` makes heartbeat
-        // idempotent: it acts as a full keep-alive. The inactivity timeout
-        // (`deactivate_inactive_projects`) is the authoritative deactivation path —
-        // when heartbeats stop, that timeout fires and cleans up correctly.
+        // A heartbeat refreshes the activity timestamp for a project that has at least
+        // one active session (is_active > 0). With reference counting, is_active
+        // accurately reflects the number of live sessions — a heartbeat cannot
+        // resurrect a project with 0 sessions, because that would bypass the register/
+        // unregister lifecycle. The race condition that required `SET is_active = 1`
+        // (Task 518) is resolved by reference counting: one session ending no longer
+        // drops the count to 0 while another session is still alive.
         let result = sqlx::query(
             r#"
             UPDATE watch_folders
-            SET is_active = 1,
-                last_activity_at = ?1,
+            SET last_activity_at = ?1,
                 updated_at = ?1
             WHERE tenant_id = ?2
               AND collection = ?3
+              AND is_active > 0
             "#,
         )
         .bind(timestamps::format_utc(&now))
@@ -313,7 +310,7 @@ impl PriorityManager {
         let query = r#"
             SELECT watch_id, tenant_id, is_active, last_activity_at
             FROM watch_folders
-            WHERE is_active = 1
+            WHERE is_active > 0
               AND collection = ?1
             ORDER BY last_activity_at DESC
         "#;

@@ -564,7 +564,7 @@ async fn spawn_background_grammar_download(ctx: &ProcessingContext, language: &'
 /// Get distinct tenant IDs from watch_folders for capability upgrade triggering.
 async fn get_distinct_tenants(pool: &SqlitePool) -> Vec<String> {
     use sqlx::Row;
-    sqlx::query("SELECT DISTINCT tenant_id FROM watch_folders WHERE is_active = 1")
+    sqlx::query("SELECT DISTINCT tenant_id FROM watch_folders WHERE is_active > 0")
         .fetch_all(pool)
         .await
         .unwrap_or_default()

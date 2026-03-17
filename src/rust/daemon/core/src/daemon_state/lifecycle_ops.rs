@@ -123,7 +123,7 @@ impl DaemonStateManager {
         let stale_watches: Vec<String> = sqlx::query_scalar(
             r#"
             SELECT watch_id FROM watch_folders
-            WHERE is_active = 1
+            WHERE is_active > 0
               AND collection = ?1
               AND parent_watch_id IS NULL
               AND last_activity_at IS NOT NULL

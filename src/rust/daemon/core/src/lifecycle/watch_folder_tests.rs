@@ -79,12 +79,16 @@ async fn insert_submodule(
     .unwrap();
 }
 
-async fn is_active(pool: &SqlitePool, watch_id: &str) -> bool {
-    sqlx::query_scalar::<_, bool>("SELECT is_active FROM watch_folders WHERE watch_id = ?1")
+async fn session_count(pool: &SqlitePool, watch_id: &str) -> i32 {
+    sqlx::query_scalar::<_, i32>("SELECT is_active FROM watch_folders WHERE watch_id = ?1")
         .bind(watch_id)
         .fetch_one(pool)
         .await
         .unwrap()
+}
+
+async fn is_active(pool: &SqlitePool, watch_id: &str) -> bool {
+    session_count(pool, watch_id).await > 0
 }
 
 // ── tests ────────────────────────────────────────────────────────────
@@ -271,4 +275,83 @@ async fn test_nonexistent_tenant_returns_zero_rows() {
         .await
         .unwrap();
     assert_eq!(rows, 0);
+}
+
+// ── reference counting tests ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_reference_counting_two_sessions() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+    insert_project(&pool, "w1", "tenant_rc", "/rc").await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    // Two sessions register
+    lc.activate_by_tenant("tenant_rc", "projects")
+        .await
+        .unwrap();
+    lc.activate_by_tenant("tenant_rc", "projects")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "w1").await, 2);
+    assert!(is_active(&pool, "w1").await);
+
+    // One session ends — still active
+    lc.deactivate_by_tenant("tenant_rc", "projects")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "w1").await, 1);
+    assert!(is_active(&pool, "w1").await);
+
+    // Last session ends — now inactive
+    lc.deactivate_by_tenant("tenant_rc", "projects")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "w1").await, 0);
+    assert!(!is_active(&pool, "w1").await);
+}
+
+#[tokio::test]
+async fn test_deactivate_floors_at_zero() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+    insert_project(&pool, "w1", "tenant_floor", "/floor").await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    // Count is already 0; decrement must not go negative
+    lc.deactivate_by_tenant("tenant_floor", "projects")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "w1").await, 0);
+}
+
+#[tokio::test]
+async fn test_hard_reset_zeroes_all_sessions() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+    insert_project(&pool, "w1", "tenant_hr", "/hr").await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    // Simulate 3 sessions via activate
+    lc.activate_by_tenant("tenant_hr", "projects")
+        .await
+        .unwrap();
+    lc.activate_by_tenant("tenant_hr", "projects")
+        .await
+        .unwrap();
+    lc.activate_by_tenant("tenant_hr", "projects")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "w1").await, 3);
+
+    // Hard reset (orphaned/timeout path)
+    let rows = lc
+        .deactivate_orphaned_tenants(&["tenant_hr".to_string()], "projects")
+        .await
+        .unwrap();
+    assert_eq!(rows, 1);
+    assert_eq!(session_count(&pool, "w1").await, 0);
 }

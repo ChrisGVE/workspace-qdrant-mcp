@@ -69,7 +69,7 @@ impl WatchFolderLifecycle {
                 JOIN descendants d ON j.parent_watch_id = d.watch_id
             )
             UPDATE watch_folders
-            SET is_active = 1,
+            SET is_active = is_active + 1,
                 last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE watch_id IN (SELECT watch_id FROM descendants)
@@ -82,7 +82,7 @@ impl WatchFolderLifecycle {
         let rows = result.rows_affected();
         info!(
             "watch_folder lifecycle: activate_project_group watch_id={} \
-             -> is_active=1 ({} rows)",
+             -> is_active+1 ({} rows)",
             watch_id, rows
         );
         Ok(rows)
@@ -134,7 +134,7 @@ impl WatchFolderLifecycle {
         let result = sqlx::query(
             r#"
             UPDATE watch_folders
-            SET is_active = 1,
+            SET is_active = is_active + 1,
                 last_activity_at = ?1,
                 updated_at = ?1
             WHERE tenant_id = ?2
@@ -150,7 +150,7 @@ impl WatchFolderLifecycle {
         let rows = result.rows_affected();
         info!(
             "watch_folder lifecycle: tenant_id={} collection={} \
-             -> is_active=1 ({} rows)",
+             -> is_active+1 ({} rows)",
             tenant_id, collection, rows
         );
         Ok(rows)
@@ -167,7 +167,7 @@ impl WatchFolderLifecycle {
         let result = sqlx::query(
             r#"
             UPDATE watch_folders
-            SET is_active = 0,
+            SET is_active = MAX(0, is_active - 1),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE tenant_id = ?1
               AND collection = ?2
@@ -181,7 +181,7 @@ impl WatchFolderLifecycle {
         let rows = result.rows_affected();
         info!(
             "watch_folder lifecycle: tenant_id={} collection={} \
-             -> is_active=0 ({} rows)",
+             -> is_active-1 ({} rows)",
             tenant_id, collection, rows
         );
         Ok(rows)
@@ -351,7 +351,7 @@ impl WatchFolderLifecycle {
             r#"
             SELECT tenant_id
             FROM watch_folders
-            WHERE is_active = 1
+            WHERE is_active > 0
               AND collection = ?1
               AND last_activity_at IS NOT NULL
               AND last_activity_at < ?2

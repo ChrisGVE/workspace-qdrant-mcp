@@ -64,7 +64,7 @@ pub async fn check_remote_url_changes(
             SELECT watch_id, path, tenant_id, git_remote_url,
                    remote_hash, disambiguation_path
             FROM watch_folders
-            WHERE is_active = 1
+            WHERE is_active > 0
               AND COALESCE(is_archived, 0) = 0
               AND collection = ?1
               AND parent_watch_id IS NULL
@@ -297,7 +297,7 @@ pub async fn check_git_state_changes(
                    COALESCE(is_git_tracked, 0) AS is_git_tracked,
                    git_remote_url, disambiguation_path
             FROM watch_folders
-            WHERE is_active = 1
+            WHERE is_active > 0
               AND COALESCE(is_archived, 0) = 0
               AND collection = ?1
               AND parent_watch_id IS NULL

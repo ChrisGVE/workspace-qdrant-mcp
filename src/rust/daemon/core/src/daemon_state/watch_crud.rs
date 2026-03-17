@@ -154,7 +154,7 @@ impl DaemonStateManager {
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
             FROM watch_folders
-            WHERE collection = ?1 AND is_active = 1 AND enabled = 1
+            WHERE collection = ?1 AND is_active > 0 AND enabled = 1
             ORDER BY last_activity_at DESC
             "#,
         )

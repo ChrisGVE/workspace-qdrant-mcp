@@ -301,7 +301,7 @@ fn build_dequeue_query(
             CASE
                 WHEN q.collection = '{coll_memory}' THEN 1
                 WHEN q.collection = '{coll_libraries}' THEN 0
-                WHEN w.is_active = 1 THEN 1
+                WHEN w.is_active > 0 THEN 1
                 ELSE 0
             END {priority_order},
             CASE WHEN q.op = 'delete' THEN 10

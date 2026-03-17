@@ -147,24 +147,26 @@ async fn test_heartbeat_updates_timestamp() {
 }
 
 #[tokio::test]
-async fn test_heartbeat_reactivates_inactive_project() {
+async fn test_heartbeat_no_op_for_inactive_project() {
     let (pool, _temp_dir) = setup_test_db().await;
     let priority_manager = PriorityManager::new(pool.clone());
 
     // Create test project without active sessions (is_active=0)
     create_test_project(&pool, "abcd12345678", "/test/project").await;
 
-    // Heartbeat should reactivate the project — it is proof of a live session
+    // Heartbeat should not update a project with no active sessions.
+    // With reference counting, only live sessions can keep a project active;
+    // heartbeat cannot resurrect a project with 0 sessions.
     let updated = priority_manager.heartbeat("abcd12345678").await.unwrap();
-    assert!(updated);
+    assert!(!updated);
 
-    // Verify is_active was set to 1
+    // Verify project remains inactive
     let info = priority_manager
         .get_session_info("abcd12345678")
         .await
         .unwrap()
         .unwrap();
-    assert!(info.is_active);
+    assert!(!info.is_active);
 }
 
 #[tokio::test]
@@ -383,4 +385,74 @@ async fn test_set_priority_nonexistent_project() {
 
     let result = priority_manager.set_priority("nonexistent12", "high").await;
     assert!(matches!(result, Err(PriorityError::ProjectNotFound(_))));
+}
+
+#[tokio::test]
+async fn test_reference_counting_two_sessions() {
+    let (pool, _temp_dir) = setup_test_db().await;
+    let priority_manager = PriorityManager::new(pool.clone());
+
+    create_test_project(&pool, "abcd12345678", "/test/project").await;
+
+    // Two sessions register
+    priority_manager
+        .register_session("abcd12345678", "s1")
+        .await
+        .unwrap();
+    priority_manager
+        .register_session("abcd12345678", "s2")
+        .await
+        .unwrap();
+
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(info.is_active);
+    assert_eq!(info.priority, "high");
+
+    // First session ends — project still active
+    priority_manager
+        .unregister_session("abcd12345678", "s1")
+        .await
+        .unwrap();
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        info.is_active,
+        "project should remain active with one session left"
+    );
+
+    // Last session ends — project goes inactive
+    priority_manager
+        .unregister_session("abcd12345678", "s2")
+        .await
+        .unwrap();
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!info.is_active);
+    assert_eq!(info.priority, "normal");
+}
+
+#[tokio::test]
+async fn test_heartbeat_active_session() {
+    let (pool, _temp_dir) = setup_test_db().await;
+    let priority_manager = PriorityManager::new(pool.clone());
+
+    create_test_project(&pool, "abcd12345678", "/test/project").await;
+    priority_manager
+        .register_session("abcd12345678", "main")
+        .await
+        .unwrap();
+
+    // Heartbeat on an active project (is_active > 0) should return true
+    let updated = priority_manager.heartbeat("abcd12345678").await.unwrap();
+    assert!(updated);
 }

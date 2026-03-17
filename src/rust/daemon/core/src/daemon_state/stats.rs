@@ -52,7 +52,7 @@ impl DaemonStateManager {
 
         // Active projects count
         let active_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM watch_folders WHERE is_active = 1 AND collection = ?1",
+            "SELECT COUNT(*) FROM watch_folders WHERE is_active > 0 AND collection = ?1",
         )
         .bind(COLLECTION_PROJECTS)
         .fetch_one(&self.pool)

@@ -531,7 +531,7 @@ impl UnifiedQueueProcessor {
                         for tenant_id in &processed_tenants {
                             if let Err(e) = sqlx::query(
                                 "UPDATE watch_folders SET last_activity_at = ?1, updated_at = ?1 \
-                                 WHERE tenant_id = ?2 AND collection = 'projects' AND is_active = 1"
+                                 WHERE tenant_id = ?2 AND collection = 'projects' AND is_active > 0"
                             )
                             .bind(&now_str)
                             .bind(tenant_id)
