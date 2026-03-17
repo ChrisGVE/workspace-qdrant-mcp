@@ -90,7 +90,6 @@ tokio-util = "0.7"
 zip = "2.1"
 rbook = { version = "0.7.3", default-features = false, features = ["threadsafe"] }
 mobi = "0.8.0"
-chmlib = "1.0.0"
 fastrand = "2.0"
 rand = "0.8"
 clap = { version = "4.5", features = ["derive", "string"] }
@@ -131,6 +130,11 @@ leptess = { workspace = true, optional = true }
 lbug = { workspace = true, optional = true }
 
 # Platform-specific dependencies
+# chmlib-sys v1.0.0 cannot compile on Windows (path handling bug in build script).
+# CHM is a legacy Windows format, but the daemon runs primarily on Linux/macOS.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+chmlib = "1.0.0"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

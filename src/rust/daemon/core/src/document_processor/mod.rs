@@ -34,9 +34,11 @@ use crate::tree_sitter::{extract_chunks_with_provider, is_language_supported};
 use crate::{ChunkingConfig, DocumentContent, DocumentResult, DocumentType, TextChunk};
 
 use self::chunking::{chunk_text, convert_semantic_chunks_to_text_chunks};
+#[cfg(not(target_os = "windows"))]
+use self::extraction::extract_chm;
 use self::extraction::{
-    extract_chm, extract_code, extract_csv, extract_docx, extract_epub, extract_iwork,
-    extract_jupyter, extract_mobi, extract_opendocument, extract_pdf, extract_pptx, extract_rtf,
+    extract_code, extract_csv, extract_docx, extract_epub, extract_iwork, extract_jupyter,
+    extract_mobi, extract_opendocument, extract_pdf, extract_pptx, extract_rtf,
     extract_spreadsheet, extract_text_with_encoding,
 };
 
@@ -329,7 +331,12 @@ fn extract_by_document_type(
             extract_iwork(file_path, fmt)
         }
         DocumentType::Mobi => extract_mobi(file_path),
+        #[cfg(not(target_os = "windows"))]
         DocumentType::Chm => extract_chm(file_path),
+        #[cfg(target_os = "windows")]
+        DocumentType::Chm => Err(DocumentProcessorError::UnsupportedFormat(
+            "CHM extraction is not supported on Windows".to_string(),
+        )),
         DocumentType::Code(lang) => extract_code(file_path, lang),
         DocumentType::Markdown | DocumentType::Text | DocumentType::Unknown => {
             extract_text_with_encoding(file_path)

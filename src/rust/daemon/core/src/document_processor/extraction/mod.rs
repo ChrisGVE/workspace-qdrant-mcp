@@ -1,5 +1,6 @@
 //! Document content extraction for various file formats.
 
+#[cfg(not(target_os = "windows"))]
 pub mod chm;
 pub mod docx;
 pub mod epub;
@@ -14,6 +15,7 @@ pub mod spreadsheet;
 pub mod text;
 pub mod xml_utils;
 
+#[cfg(not(target_os = "windows"))]
 pub use self::chm::extract_chm;
 pub use self::docx::{count_docx_images, extract_docx, extract_text_from_docx_xml};
 pub use self::epub::extract_epub;
