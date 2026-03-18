@@ -36,12 +36,13 @@ pub fn kv(key: impl Display, value: impl Display) {
 
 /// Print a horizontal separator
 pub fn separator() {
-    println!("{}", "─".repeat(60).dimmed());
+    let width = super::table::terminal_width().min(100);
+    println!("{}", "─".repeat(width).dimmed());
 }
 
 /// Print a section header
 pub fn section(title: impl Display) {
-    println!("\n{}", title.to_string().bold().underline());
+    println!("\n{}", title.to_string().bold());
 }
 
 /// Print a status line with colored status indicator
