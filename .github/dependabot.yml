@@ -4,6 +4,9 @@
 #   - tree-sitter-version-bump.yml (daily crates.io check → direct push + tag)
 #   - onnx-runtime-version-bump.yml (daily crates.io check → direct push + tag)
 #   - security.yml (cargo audit + npm audit for vulnerability alerts)
+#
+# Pre-release policy: alpha, beta, and release candidate versions are ignored
+# for all managed dependencies.
 
 version: 2
 updates:
@@ -25,6 +28,9 @@ updates:
       - "rust"
     allow:
       - dependency-name: "qdrant-client"
+    ignore:
+      - dependency-name: "qdrant-client"
+        versions: ["*-alpha*", "*-beta*", "*-rc*", "*-pre*"]
 
   # TypeScript: only MCP SDK and Qdrant client
   - package-ecosystem: "npm"
@@ -45,3 +51,8 @@ updates:
     allow:
       - dependency-name: "@modelcontextprotocol/sdk"
       - dependency-name: "@qdrant/js-client-rest"
+    ignore:
+      - dependency-name: "@modelcontextprotocol/sdk"
+        versions: ["*-alpha*", "*-beta*", "*-rc*", "*-pre*"]
+      - dependency-name: "@qdrant/js-client-rest"
+        versions: ["*-alpha*", "*-beta*", "*-rc*", "*-pre*"]

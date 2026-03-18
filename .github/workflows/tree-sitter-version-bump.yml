@@ -45,27 +45,36 @@ jobs:
           echo "version=$CURRENT" >> $GITHUB_OUTPUT
           echo "Current tree-sitter version: $CURRENT"
 
-      - name: Get latest tree-sitter version from crates.io
+      - name: Get latest stable tree-sitter version from crates.io
         id: latest
         run: |
-          # Query crates.io API for latest tree-sitter version
-          # Retry up to 3 times with backoff (crates.io can be flaky)
+          # Query crates.io API for the latest STABLE tree-sitter version.
+          # max_stable_version excludes alpha, beta, and release candidates.
+          # No fallback to max_version — if no stable exists, skip cleanly.
+          # Retry up to 3 times with backoff (crates.io can be flaky).
           for attempt in 1 2 3; do
             LATEST=$(curl -sSf -H "User-Agent: workspace-qdrant-mcp CI (github.com/ChrisGVE/workspace-qdrant-mcp)" \
               'https://crates.io/api/v1/crates/tree-sitter' \
-              | jq -r '.crate.max_stable_version // .crate.max_version') && break
+              | jq -r '.crate.max_stable_version // empty') && break
             echo "Attempt $attempt failed, retrying in $((attempt * 5))s..."
             sleep $((attempt * 5))
           done
 
-          # Validate: must look like a semver (digits.digits or digits.digits.digits)
-          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ] || ! echo "$LATEST" | grep -qE '^[0-9]+\.[0-9]+'; then
-            echo "ERROR: crates.io returned invalid version: '$LATEST'"
+          # No stable release — exit cleanly
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+            echo "No stable tree-sitter version available. Skipping update."
+            echo "version=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Validate: must look like a semver without pre-release suffix
+          if ! echo "$LATEST" | grep -qE '^[0-9]+\.[0-9]+'; then
+            echo "ERROR: max_stable_version returned unexpected format: '$LATEST'"
             exit 1
           fi
 
           echo "version=$LATEST" >> $GITHUB_OUTPUT
-          echo "Latest tree-sitter version: $LATEST"
+          echo "Latest stable tree-sitter version: $LATEST"
 
       - name: Compare versions and enforce grace period
         id: compare
@@ -79,7 +88,10 @@ jobs:
           echo "current_version=$CURRENT" >> $GITHUB_OUTPUT
           echo "latest_version=$LATEST" >> $GITHUB_OUTPUT
 
-          if [ "${{ inputs.force_check }}" == "true" ]; then
+          if [ -z "$LATEST" ]; then
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "No stable version available. Nothing to do."
+          elif [ "${{ inputs.force_check }}" == "true" ]; then
             echo "needs_update=true" >> $GITHUB_OUTPUT
             echo "Force check enabled, bypassing grace period"
           elif [ "$CURRENT" = "$LATEST" ]; then
