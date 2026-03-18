@@ -299,12 +299,15 @@ impl UnifiedQueueProcessor {
                         if resurrection_interval_secs > 0
                             && last_resurrection.elapsed().as_secs() >= resurrection_interval_secs
                         {
-                            match queue_manager.resurrect_failed_transient().await {
-                                Ok(count) => {
-                                    if count > 0 {
+                            match queue_manager
+                                .resurrect_failed_transient(config.max_resurrections)
+                                .await
+                            {
+                                Ok((resurrected, exhausted)) => {
+                                    if resurrected > 0 || exhausted > 0 {
                                         info!(
-                                            "Resurrection pass: reset {} failed transient item(s) to pending",
-                                            count
+                                            "Resurrection pass: reset {} item(s), exhausted {} item(s)",
+                                            resurrected, exhausted
                                         );
                                     }
                                 }

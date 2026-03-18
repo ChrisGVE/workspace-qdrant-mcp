@@ -45,39 +45,101 @@ impl QueueManager {
         Ok(())
     }
 
-    /// Reset all failed items whose error_message indicates a transient failure
-    /// back to pending so they can be retried.
+    /// Reset eligible failed transient items back to pending for retry.
     ///
     /// Called periodically from the processing loop idle path (default: every hour).
     /// Only items prefixed `[transient_` are eligible — permanent failures are left
-    /// as-is.
+    /// as-is. Items that have been resurrected `max_resurrections` times are promoted
+    /// to `[permanent_exhausted]` and stop being resurrected.
     ///
-    /// Returns the number of items resurrected.
-    pub async fn resurrect_failed_transient(&self) -> QueueResult<u64> {
-        let result = sqlx::query(
-            r#"
-            UPDATE unified_queue
-            SET status        = 'pending',
-                retry_count   = 0,
-                lease_until   = NULL,
-                worker_id     = NULL,
-                qdrant_status = NULL,
-                search_status = NULL,
-                updated_at    = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE status = 'failed'
-              AND error_message LIKE '[transient_%'
-            "#,
+    /// Returns `(resurrected, exhausted)` counts.
+    pub async fn resurrect_failed_transient(
+        &self,
+        max_resurrections: i32,
+    ) -> QueueResult<(u64, u64)> {
+        // Fetch eligible items to check resurrection_count in metadata
+        let rows = sqlx::query(
+            r#"SELECT queue_id, metadata, error_message
+               FROM unified_queue
+               WHERE status = 'failed'
+                 AND error_message LIKE '[transient_%'"#,
         )
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        let count = result.rows_affected();
-        if count > 0 {
-            info!("Resurrected {} failed transient item(s) for retry", count);
-        } else {
+        if rows.is_empty() {
             debug!("Resurrection pass: no transient failed items to reset");
+            return Ok((0, 0));
         }
-        Ok(count)
+
+        let mut resurrected: u64 = 0;
+        let mut exhausted: u64 = 0;
+
+        for row in &rows {
+            let queue_id: &str = row.try_get("queue_id")?;
+            let metadata_str: &str = row.try_get("metadata").unwrap_or(&"{}");
+            let error_message: &str = row.try_get("error_message").unwrap_or(&"");
+
+            let mut metadata: serde_json::Value =
+                serde_json::from_str(metadata_str).unwrap_or_else(|_| serde_json::json!({}));
+            let count = metadata
+                .get("resurrection_count")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+
+            if count >= max_resurrections {
+                // Promote to permanent — stop resurrecting
+                let exhausted_msg = format!("[permanent_exhausted] {}", error_message);
+                sqlx::query(
+                    r#"UPDATE unified_queue
+                       SET error_message = ?1,
+                           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                       WHERE queue_id = ?2"#,
+                )
+                .bind(&exhausted_msg)
+                .bind(queue_id)
+                .execute(&self.pool)
+                .await?;
+                exhausted += 1;
+                warn!(
+                    "Item {} exceeded max resurrections ({}/{}), marked permanent_exhausted",
+                    queue_id, count, max_resurrections
+                );
+            } else {
+                // Resurrect with incremented count
+                metadata["resurrection_count"] = serde_json::json!(count + 1);
+                let new_metadata = serde_json::to_string(&metadata).unwrap_or_default();
+
+                sqlx::query(
+                    r#"UPDATE unified_queue
+                       SET status = 'pending', retry_count = 0,
+                           lease_until = NULL, worker_id = NULL,
+                           qdrant_status = NULL, search_status = NULL,
+                           metadata = ?1,
+                           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                       WHERE queue_id = ?2"#,
+                )
+                .bind(&new_metadata)
+                .bind(queue_id)
+                .execute(&self.pool)
+                .await?;
+                resurrected += 1;
+            }
+        }
+
+        if resurrected > 0 {
+            info!(
+                "Resurrected {} failed transient item(s) for retry",
+                resurrected
+            );
+        }
+        if exhausted > 0 {
+            warn!(
+                "Marked {} item(s) as permanently exhausted (>{} resurrections)",
+                exhausted, max_resurrections
+            );
+        }
+        Ok((resurrected, exhausted))
     }
 
     /// Delete a unified queue item after successful processing
