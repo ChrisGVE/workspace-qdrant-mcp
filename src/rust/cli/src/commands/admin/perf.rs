@@ -9,6 +9,8 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
+use serde::Serialize;
+use tabled::Tabled;
 use wqm_common::duration_fmt::fmt_approx_duration;
 
 use crate::output;
@@ -22,6 +24,29 @@ struct GroupStats {
     p50_ms: f64,
     p95_ms: f64,
     p99_ms: f64,
+}
+
+/// Row struct for the standard borderless table output.
+#[derive(Tabled, Serialize)]
+struct PerfRow {
+    #[tabled(rename = "Group")]
+    #[serde(rename = "group")]
+    group: String,
+    #[tabled(rename = "Count")]
+    #[serde(rename = "count")]
+    count: String,
+    #[tabled(rename = "Avg(ms)")]
+    #[serde(rename = "avg_ms")]
+    avg_ms: String,
+    #[tabled(rename = "P50(ms)")]
+    #[serde(rename = "p50_ms")]
+    p50_ms: String,
+    #[tabled(rename = "P95(ms)")]
+    #[serde(rename = "p95_ms")]
+    p95_ms: String,
+    #[tabled(rename = "P99(ms)")]
+    #[serde(rename = "p99_ms")]
+    p99_ms: String,
 }
 
 /// Parsed sort specification.
@@ -119,7 +144,7 @@ pub async fn execute(
     let dimensions = parse_group_by(group_by.as_deref())?;
     let sort_spec = parse_sort(sort.as_deref())?;
 
-    // Build tenant→name mapping (also gives us the set of valid tenant_ids)
+    // Build tenant->name mapping (also gives us the set of valid tenant_ids)
     let tenant_names = build_tenant_name_map(&conn);
     let valid_tenants: HashSet<String> = tenant_names.keys().cloned().collect();
 
@@ -136,7 +161,7 @@ pub async fn execute(
         if json {
             print_json_grouped(&stats, total_items, queue_depth, window_hours);
         } else {
-            print_table_grouped(&stats, "Phase", total_items, queue_depth, window_hours);
+            print_table_grouped(&stats, total_items, queue_depth, window_hours);
         }
     } else if dimensions.len() == 1 {
         let mut stats = query_grouped_stats(
@@ -148,11 +173,10 @@ pub async fn execute(
             coll_filter,
         )?;
         apply_sort(&mut stats, &sort_spec);
-        let label = dimension_label(&dimensions[0]);
         if json {
             print_json_grouped(&stats, total_items, queue_depth, window_hours);
         } else {
-            print_table_grouped(&stats, label, total_items, queue_depth, window_hours);
+            print_table_grouped(&stats, total_items, queue_depth, window_hours);
         }
     } else {
         let mut stats = query_two_level_stats(
@@ -168,18 +192,10 @@ pub async fn execute(
             apply_sort(sub, &sort_spec);
         }
         let label1 = dimension_label(&dimensions[0]);
-        let label2 = dimension_label(&dimensions[1]);
         if json {
             print_json_two_level(&stats, total_items, queue_depth, window_hours);
         } else {
-            print_table_two_level(
-                &stats,
-                label1,
-                label2,
-                total_items,
-                queue_depth,
-                window_hours,
-            );
+            print_table_two_level(&stats, label1, total_items, queue_depth, window_hours);
         }
     }
 
@@ -208,6 +224,24 @@ fn fmt_thousands(n: i64) -> String {
 /// Format a float as integer with apostrophe thousand separators.
 fn fmt_thousands_f(v: f64) -> String {
     fmt_thousands(v.round() as i64)
+}
+
+/// Format avg with uncertainty as a single cell string.
+///
+/// Preserves the `~` suffix for low-count rows and `\u{00b1}` for rows with
+/// meaningful standard error, yielding e.g. `5'788 \u{00b1} 121` or `537`.
+fn format_avg_cell(avg: f64, std_err: f64, count: i64) -> String {
+    if count < 2 {
+        format!("{}~", fmt_thousands_f(avg))
+    } else if std_err < 1.0 {
+        fmt_thousands_f(avg)
+    } else {
+        format!(
+            "{} \u{00b1} {}",
+            fmt_thousands_f(avg),
+            fmt_thousands_f(std_err)
+        )
+    }
 }
 
 // === Parsing helpers ===
@@ -332,7 +366,7 @@ fn dimension_label(dim: &str) -> &'static str {
 
 // === Tenant name resolution ===
 
-/// Build a tenant_id → project_name mapping from watch_folders.
+/// Build a tenant_id -> project_name mapping from watch_folders.
 fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let mut name_count: HashMap<String, usize> = HashMap::new();
@@ -674,47 +708,17 @@ fn std_error(values: &[i64]) -> f64 {
     variance.sqrt() / (n as f64).sqrt()
 }
 
-/// Split avg ± std_err into (value_str, Option<error_str>) for table alignment.
-///
-/// Returns the value and, when the error is meaningful, the error as separate
-/// strings so the caller can right-align them in independent sub-columns.
-fn avg_uncertainty_parts(avg: f64, std_err: f64, count: i64) -> (String, Option<String>) {
-    if count < 2 {
-        (format!("{}~", fmt_thousands_f(avg)), None)
-    } else if std_err < 1.0 {
-        (fmt_thousands_f(avg), None)
-    } else {
-        (fmt_thousands_f(avg), Some(fmt_thousands_f(std_err)))
-    }
-}
+// === Table row conversion ===
 
-/// Render a pre-aligned avg cell as three logical sub-columns:
-///   `<right-aligned value> ± <right-aligned error>`
-///
-/// When `err_width == 0` (no row in this table has an error term) the cell is
-/// just the right-aligned value.  When the current row has no error but other
-/// rows do, the ` ± ` separator is replaced by spaces so columns stay aligned.
-fn format_avg_cols(parts: &(String, Option<String>), val_width: usize, err_width: usize) -> String {
-    let (value, error) = parts;
-    if err_width == 0 {
-        format!("{:>vw$}", value, vw = val_width)
-    } else {
-        match error {
-            Some(err) => format!(
-                "{:>vw$} \u{00b1} {:>ew$}",
-                value,
-                err,
-                vw = val_width,
-                ew = err_width
-            ),
-            None => format!(
-                "{:>vw$}   {:>ew$}",
-                value,
-                "",
-                vw = val_width,
-                ew = err_width
-            ),
-        }
+/// Convert internal `GroupStats` into a `PerfRow` for table display.
+fn stats_to_row(s: &GroupStats) -> PerfRow {
+    PerfRow {
+        group: truncate_key(&s.group_key, 30),
+        count: fmt_thousands(s.count),
+        avg_ms: format_avg_cell(s.avg_ms, s.std_err, s.count),
+        p50_ms: fmt_thousands_f(s.p50_ms),
+        p95_ms: fmt_thousands_f(s.p95_ms),
+        p99_ms: fmt_thousands_f(s.p99_ms),
     }
 }
 
@@ -722,136 +726,30 @@ fn format_avg_cols(parts: &(String, Option<String>), val_width: usize, err_width
 
 fn print_table_grouped(
     stats: &[GroupStats],
-    label: &str,
     total_items: i64,
     queue_depth: i64,
     window_hours: f64,
 ) {
     output::section(format!("Pipeline Performance (last {}h)", window_hours));
-
-    let max_key_len = stats
-        .iter()
-        .map(|s| s.group_key.len())
-        .max()
-        .unwrap_or(10)
-        .max(label.len())
-        .min(30);
-
-    // Split avg into (value, Option<error>) for independent sub-column alignment
-    let avg_parts: Vec<(String, Option<String>)> = stats
-        .iter()
-        .map(|s| avg_uncertainty_parts(s.avg_ms, s.std_err, s.count))
-        .collect();
-    let val_width = avg_parts
-        .iter()
-        .map(|(v, _)| v.len())
-        .max()
-        .unwrap_or(7)
-        .max(7);
-    let err_width = avg_parts
-        .iter()
-        .filter_map(|(_, e)| e.as_ref())
-        .map(|e| e.len())
-        .max()
-        .unwrap_or(0);
-    let avg_col_width = val_width + if err_width > 0 { 3 + err_width } else { 0 };
-
-    println!(
-        "  {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
-        label,
-        "Count",
-        "Avg(ms)",
-        "P50(ms)",
-        "P95(ms)",
-        "P99(ms)",
-        width = max_key_len,
-        avg_w = avg_col_width,
-    );
-    println!("  {}", "-".repeat(max_key_len + avg_col_width + 38));
-
-    for (i, s) in stats.iter().enumerate() {
-        let key = truncate_key(&s.group_key, 30);
-        println!(
-            "  {:<width$} {:>8} {} {:>8} {:>8} {:>8}",
-            key,
-            fmt_thousands(s.count),
-            format_avg_cols(&avg_parts[i], val_width, err_width),
-            fmt_thousands_f(s.p50_ms),
-            fmt_thousands_f(s.p95_ms),
-            fmt_thousands_f(s.p99_ms),
-            width = max_key_len,
-        );
-    }
-
+    let rows: Vec<PerfRow> = stats.iter().map(stats_to_row).collect();
+    output::print_table(&rows);
     print_summary(total_items, queue_depth, window_hours);
 }
 
 fn print_table_two_level(
     stats: &[(String, Vec<GroupStats>)],
     label1: &str,
-    label2: &str,
     total_items: i64,
     queue_depth: i64,
     window_hours: f64,
 ) {
     output::section(format!("Pipeline Performance (last {}h)", window_hours));
 
-    let max_key2_len = stats
-        .iter()
-        .flat_map(|(_, subs)| subs.iter().map(|s| s.group_key.len()))
-        .max()
-        .unwrap_or(10)
-        .max(label2.len())
-        .min(24);
-
     for (group_name, sub_stats) in stats {
-        // Split avg into (value, Option<error>) for independent sub-column alignment
-        let avg_parts: Vec<(String, Option<String>)> = sub_stats
-            .iter()
-            .map(|s| avg_uncertainty_parts(s.avg_ms, s.std_err, s.count))
-            .collect();
-        let val_width = avg_parts
-            .iter()
-            .map(|(v, _)| v.len())
-            .max()
-            .unwrap_or(7)
-            .max(7);
-        let err_width = avg_parts
-            .iter()
-            .filter_map(|(_, e)| e.as_ref())
-            .map(|e| e.len())
-            .max()
-            .unwrap_or(0);
-        let avg_col_width = val_width + if err_width > 0 { 3 + err_width } else { 0 };
-
         println!();
-        println!("  {} {}", label1, group_name);
-        println!(
-            "    {:<width$} {:>8} {:>avg_w$} {:>8} {:>8} {:>8}",
-            label2,
-            "Count",
-            "Avg(ms)",
-            "P50(ms)",
-            "P95(ms)",
-            "P99(ms)",
-            width = max_key2_len,
-            avg_w = avg_col_width,
-        );
-        println!("    {}", "-".repeat(max_key2_len + avg_col_width + 38));
-
-        for (i, s) in sub_stats.iter().enumerate() {
-            let key = truncate_key(&s.group_key, 24);
-            println!(
-                "    {:<width$} {:>8} {} {:>8} {:>8} {:>8}",
-                key,
-                fmt_thousands(s.count),
-                format_avg_cols(&avg_parts[i], val_width, err_width),
-                fmt_thousands_f(s.p50_ms),
-                fmt_thousands_f(s.p95_ms),
-                fmt_thousands_f(s.p99_ms),
-                width = max_key2_len,
-            );
-        }
+        output::info(format!("{} {}", label1, group_name));
+        let rows: Vec<PerfRow> = sub_stats.iter().map(stats_to_row).collect();
+        output::print_table(&rows);
     }
 
     print_summary(total_items, queue_depth, window_hours);
@@ -993,47 +891,49 @@ mod tests {
     }
 
     #[test]
-    fn test_avg_parts_low_count() {
-        let (val, err) = avg_uncertainty_parts(42.0, 0.0, 1);
-        assert!(val.contains("42"), "low count value: {}", val);
-        assert!(val.contains("~"), "low count should have ~: {}", val);
-        assert!(err.is_none(), "low count should have no error term");
+    fn test_format_avg_cell_low_count() {
+        let cell = format_avg_cell(42.0, 0.0, 1);
+        assert!(cell.contains("42"), "low count value: {}", cell);
+        assert!(cell.contains("~"), "low count should have ~: {}", cell);
     }
 
     #[test]
-    fn test_avg_parts_low_stderr() {
-        let (val, err) = avg_uncertainty_parts(42.0, 0.3, 100);
-        assert_eq!(val, "42");
-        assert!(err.is_none(), "sub-1 stderr should produce no error term");
+    fn test_format_avg_cell_low_stderr() {
+        let cell = format_avg_cell(42.0, 0.3, 100);
+        assert_eq!(cell, "42");
     }
 
     #[test]
-    fn test_avg_parts_with_uncertainty() {
-        let (val, err) = avg_uncertainty_parts(3168.0, 340.0, 50);
-        assert!(val.contains("3'168"), "should have thousands sep: {}", val);
-        assert_eq!(err.as_deref(), Some("340"), "error term: {:?}", err);
-    }
-
-    #[test]
-    fn test_format_avg_cols_alignment() {
-        // Both rows have an error term — three sub-columns
-        let with_err = (String::from("1'448"), Some(String::from("33")));
-        let no_err = (String::from("28"), None);
-        let val_w = 5;
-        let err_w = 2;
-        let s_with = format_avg_cols(&with_err, val_w, err_w);
-        let s_none = format_avg_cols(&no_err, val_w, err_w);
-        // Both strings must be the same display width (compare char count, not bytes;
-        // ± is 2 bytes but 1 display column).
-        assert_eq!(
-            s_with.chars().count(),
-            s_none.chars().count(),
-            "cells must have equal display width: {:?} vs {:?}",
-            s_with,
-            s_none
+    fn test_format_avg_cell_with_uncertainty() {
+        let cell = format_avg_cell(3168.0, 340.0, 50);
+        assert!(
+            cell.contains("3'168"),
+            "should have thousands sep: {}",
+            cell
         );
-        assert!(s_with.contains('±'), "error row should contain ±");
-        assert!(!s_none.contains('±'), "no-error row must not contain ±");
+        assert!(cell.contains('\u{00b1}'), "should contain +/-: {}", cell);
+        assert!(cell.contains("340"), "should contain error: {}", cell);
+    }
+
+    #[test]
+    fn test_stats_to_row_preserves_formatting() {
+        let stats = GroupStats {
+            group_key: "embed".to_string(),
+            count: 6812,
+            avg_ms: 5788.0,
+            std_err: 121.0,
+            p50_ms: 532.0,
+            p95_ms: 22340.0,
+            p99_ms: 45895.0,
+        };
+        let row = stats_to_row(&stats);
+        assert_eq!(row.group, "embed");
+        assert_eq!(row.count, "6'812");
+        assert!(row.avg_ms.contains("5'788"));
+        assert!(row.avg_ms.contains("121"));
+        assert_eq!(row.p50_ms, "532");
+        assert_eq!(row.p95_ms, "22'340");
+        assert_eq!(row.p99_ms, "45'895");
     }
 
     #[test]
