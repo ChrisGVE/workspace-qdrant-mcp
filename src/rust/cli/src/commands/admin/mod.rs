@@ -2,7 +2,7 @@
 //!
 //! Provides administrative operations that affect the daemon's persistent state.
 //! Subcommands: rename-tenant, idle-history, prune-logs, cleanup-orphans, recover-state,
-//! collections
+//! collections, rebuild, backup, restore, stats
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -149,6 +149,18 @@ enum AdminCommand {
 
     /// Collection management (list, reset)
     Collections(super::collections::CollectionsArgs),
+
+    /// Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
+    Rebuild(super::rebuild::RebuildArgs),
+
+    /// Backup Qdrant collections (create, list, delete snapshots)
+    Backup(super::backup::BackupArgs),
+
+    /// Restore Qdrant collections from snapshots (snapshot, from-backup, list, verify)
+    Restore(super::restore::RestoreArgs),
+
+    /// Search instrumentation analytics (overview, processing, log-search)
+    Stats(super::stats::StatsArgs),
 }
 
 /// Metrics subcommands
@@ -220,5 +232,9 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             MetricsCommand::Status { port } => metrics_setup::status(port).await,
         },
         AdminCommand::Collections(args) => super::collections::execute(args).await,
+        AdminCommand::Rebuild(args) => super::rebuild::execute(args).await,
+        AdminCommand::Backup(args) => super::backup::execute(args).await,
+        AdminCommand::Restore(args) => super::restore::execute(args).await,
+        AdminCommand::Stats(args) => super::stats::execute(args).await,
     }
 }

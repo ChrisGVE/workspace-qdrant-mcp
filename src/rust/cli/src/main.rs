@@ -32,25 +32,16 @@ Project & Library:
   library      Library management (list, add, ingest, watch, remove, config)
   tags         Keyword/tag management and hierarchy
 
-Queue & Analytics:
+Queue:
   queue        Unified queue inspector (list, show, stats, cancel)
-  stats        Search instrumentation analytics
 
 Service & Admin:
   service      Daemon service management (start, stop, restart, status)
   status       System status monitoring (queue, watch, health)
-  admin        Administrative operations
+  admin        Administrative operations (collections, rebuild, backup, restore, stats, ...)
   config       Configuration management (generate, default, xdg, show, path)
-  collections  Collection management (list, reset)
   language     Language tools (LSP, Tree-sitter)
   update       Update system from GitHub releases
-
-Maintenance & Recovery:
-  rebuild      Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
-
-Data Management:
-  backup       Backup Qdrant collections (create snapshots)
-  restore      Restore Qdrant collections from snapshots
 
 Code Graph:
   graph        Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
@@ -130,19 +121,10 @@ enum Commands {
     #[command(display_order = 24)]
     Graph(commands::graph::GraphArgs),
 
-    // --- Queue & Analytics ---
+    // --- Queue ---
     /// Unified queue inspector (list, show, stats)
     #[command(display_order = 30)]
     Queue(commands::queue::QueueArgs),
-
-    /// Search instrumentation analytics (overview, log-search)
-    #[command(display_order = 31)]
-    Stats(commands::stats::StatsArgs),
-
-    // --- Maintenance ---
-    /// Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
-    #[command(display_order = 35)]
-    Rebuild(commands::rebuild::RebuildArgs),
 
     // --- Service & Admin ---
     /// Daemon service management (start, stop, restart, status)
@@ -153,17 +135,13 @@ enum Commands {
     #[command(display_order = 41)]
     Status(commands::status::StatusArgs),
 
-    /// Administrative operations (rename-tenant, idle-history, prune-logs)
+    /// Administrative operations (rename-tenant, idle-history, prune-logs, collections, rebuild, backup, restore, stats)
     #[command(display_order = 42)]
     Admin(commands::admin::AdminArgs),
 
     /// Configuration management (generate, show, path)
     #[command(display_order = 43)]
     Config(commands::config_cmd::ConfigCmdArgs),
-
-    /// Collection management (list, reset)
-    #[command(display_order = 44)]
-    Collections(commands::collections::CollectionsArgs),
 
     /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
     #[command(display_order = 45)]
@@ -172,15 +150,6 @@ enum Commands {
     /// Update system from GitHub releases
     #[command(display_order = 46)]
     Update(commands::update::UpdateArgs),
-
-    // --- Data Management ---
-    /// Backup Qdrant collections (create snapshots)
-    #[command(display_order = 50)]
-    Backup(commands::backup::BackupArgs),
-
-    /// Restore Qdrant collections from snapshots
-    #[command(display_order = 51)]
-    Restore(commands::restore::RestoreArgs),
 
     // --- Setup & Diagnostics ---
     /// Setup tools: completions, man pages, hooks
@@ -203,6 +172,26 @@ enum Commands {
     /// Benchmarking tools (sparse vectors, search engines)
     #[command(display_order = 70)]
     Benchmark(commands::benchmark::BenchmarkArgs),
+
+    /// Rebuild indexes and sync state (hidden alias for `admin rebuild`)
+    #[command(display_order = 902, hide = true)]
+    Rebuild(commands::rebuild::RebuildArgs),
+
+    /// Collection management (hidden alias for `admin collections`)
+    #[command(display_order = 903, hide = true)]
+    Collections(commands::collections::CollectionsArgs),
+
+    /// Backup Qdrant collections (hidden alias for `admin backup`)
+    #[command(display_order = 904, hide = true)]
+    Backup(commands::backup::BackupArgs),
+
+    /// Restore Qdrant collections from snapshots (hidden alias for `admin restore`)
+    #[command(display_order = 905, hide = true)]
+    Restore(commands::restore::RestoreArgs),
+
+    /// Search instrumentation analytics (hidden alias for `admin stats`)
+    #[command(display_order = 906, hide = true)]
+    Stats(commands::stats::StatsArgs),
 }
 
 /// Apply CLI argument overrides to configuration and validate it.
@@ -265,12 +254,8 @@ async fn main() -> Result<()> {
         Commands::Tags(args) => commands::tags::execute(args).await,
         Commands::Graph(args) => commands::graph::execute(args).await,
 
-        // Queue & Analytics
+        // Queue
         Commands::Queue(args) => commands::queue::execute(args).await,
-        Commands::Stats(args) => commands::stats::execute(args).await,
-
-        // Maintenance
-        Commands::Rebuild(args) => commands::rebuild::execute(args).await,
 
         // Service & Admin
         Commands::Service(args) => {
@@ -280,13 +265,8 @@ async fn main() -> Result<()> {
         Commands::Status(args) => commands::status::execute(args).await,
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Config(args) => commands::config_cmd::execute(args).await,
-        Commands::Collections(args) => commands::collections::execute(args).await,
         Commands::Language(args) => commands::language::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
-
-        // Data Management
-        Commands::Backup(args) => commands::backup::execute(args).await,
-        Commands::Restore(args) => commands::restore::execute(args).await,
 
         // Setup & Diagnostics
         Commands::Init(args) => {
@@ -304,6 +284,13 @@ async fn main() -> Result<()> {
 
         // Benchmarking
         Commands::Benchmark(args) => commands::benchmark::execute(args).await,
+
+        // Hidden aliases for commands moved under admin
+        Commands::Rebuild(args) => commands::rebuild::execute(args).await,
+        Commands::Collections(args) => commands::collections::execute(args).await,
+        Commands::Backup(args) => commands::backup::execute(args).await,
+        Commands::Restore(args) => commands::restore::execute(args).await,
+        Commands::Stats(args) => commands::stats::execute(args).await,
     };
 
     // Handle result
