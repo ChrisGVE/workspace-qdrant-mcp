@@ -28,9 +28,8 @@ Search & Content:
   scratch      Scratchpad entries
 
 Project & Library:
-  project      Project lifecycle (list, info, remove)
+  project      Project lifecycle (list, info, remove, watch)
   library      Library management (list, add, ingest, watch, remove, config)
-  watch        Watch folder management (list, enable, disable, show)
   tags         Keyword/tag management and hierarchy
 
 Queue & Analytics:
@@ -57,9 +56,7 @@ Code Graph:
   graph        Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
 
 Setup & Diagnostics:
-  init         Shell completion setup (bash, zsh, fish)
-  man          Man page generation and installation
-  hooks        Claude Code hooks management
+  init         Setup tools: completions, man pages, hooks
   debug        Diagnostic tools (logs, errors)
 
 Benchmarking:
@@ -113,7 +110,7 @@ enum Commands {
     Scratch(commands::scratch::ScratchArgs),
 
     // --- Project & Library ---
-    /// Project lifecycle (list, info, remove)
+    /// Project lifecycle (list, info, remove, watch)
     #[command(display_order = 20)]
     Project(commands::project::ProjectArgs),
 
@@ -121,8 +118,8 @@ enum Commands {
     #[command(display_order = 21)]
     Library(commands::library::LibraryArgs),
 
-    /// Watch folder management (list, enable, disable, show)
-    #[command(display_order = 22)]
+    /// Watch folder management (hidden alias for `project watch`)
+    #[command(display_order = 22, hide = true)]
     Watch(commands::watch::WatchArgs),
 
     /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, search, baskets)
@@ -186,21 +183,22 @@ enum Commands {
     Restore(commands::restore::RestoreArgs),
 
     // --- Setup & Diagnostics ---
-    /// Shell completion setup (bash, zsh, fish)
+    /// Setup tools: completions, man pages, hooks
     #[command(display_order = 60)]
     Init(commands::init::InitArgs),
-
-    /// Man page generation and installation
-    #[command(display_order = 61)]
-    Man(commands::man::ManArgs),
-
-    /// Claude Code hooks management (install, uninstall, status)
-    #[command(display_order = 62)]
-    Hooks(commands::hooks::HooksArgs),
 
     /// Diagnostic tools (logs, errors, queue-errors, language)
     #[command(display_order = 63)]
     Debug(commands::debug::DebugArgs),
+
+    // --- Hidden backward-compat aliases ---
+    /// Man page generation and installation (alias for `init man`)
+    #[command(display_order = 900, hide = true)]
+    Man(commands::man::ManArgs),
+
+    /// Claude Code hooks management (alias for `init hooks`)
+    #[command(display_order = 901, hide = true)]
+    Hooks(commands::hooks::HooksArgs),
 
     /// Benchmarking tools (sparse vectors, search engines)
     #[command(display_order = 70)]
@@ -262,6 +260,7 @@ async fn main() -> Result<()> {
         // Project & Library
         Commands::Project(args) => commands::project::execute(args).await,
         Commands::Library(args) => commands::library::execute(args).await,
+        // Hidden alias: `wqm watch` delegates to the same handler as `wqm project watch`
         Commands::Watch(args) => commands::watch::execute(args).await,
         Commands::Tags(args) => commands::tags::execute(args).await,
         Commands::Graph(args) => commands::graph::execute(args).await,
@@ -294,12 +293,14 @@ async fn main() -> Result<()> {
             let mut cmd = Cli::command();
             commands::init::execute(args, &mut cmd).await
         }
+        Commands::Debug(args) => commands::debug::execute(args).await,
+
+        // Hidden backward-compat aliases (delegate to same handlers)
         Commands::Man(args) => {
             let mut cmd = Cli::command();
             commands::man::execute(args, &mut cmd).await
         }
         Commands::Hooks(args) => commands::hooks::execute(args).await,
-        Commands::Debug(args) => commands::debug::execute(args).await,
 
         // Benchmarking
         Commands::Benchmark(args) => commands::benchmark::execute(args).await,

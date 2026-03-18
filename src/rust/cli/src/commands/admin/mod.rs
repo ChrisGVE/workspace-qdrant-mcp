@@ -1,7 +1,8 @@
 //! Admin command - system administration operations
 //!
 //! Provides administrative operations that affect the daemon's persistent state.
-//! Subcommands: rename-tenant, idle-history, prune-logs, cleanup-orphans, recover-state
+//! Subcommands: rename-tenant, idle-history, prune-logs, cleanup-orphans, recover-state,
+//! collections
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -145,6 +146,9 @@ enum AdminCommand {
         #[command(subcommand)]
         command: MetricsCommand,
     },
+
+    /// Collection management (list, reset)
+    Collections(super::collections::CollectionsArgs),
 }
 
 /// Metrics subcommands
@@ -215,5 +219,6 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             MetricsCommand::Disable => metrics_setup::disable().await,
             MetricsCommand::Status { port } => metrics_setup::status(port).await,
         },
+        AdminCommand::Collections(args) => super::collections::execute(args).await,
     }
 }
