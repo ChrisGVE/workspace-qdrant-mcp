@@ -9,6 +9,7 @@ mod destination;
 mod enqueue;
 mod legacy;
 mod query;
+mod triage;
 mod update;
 mod validation;
 

@@ -85,6 +85,19 @@ impl UnifiedQueueProcessor {
             .checked_sub(Duration::from_secs(uplift_config.min_interval_secs))
             .unwrap_or_else(std::time::Instant::now);
 
+        // Qdrant health check tracking
+        let health_check_interval_secs = config.health_check_interval_secs;
+        let mut last_health_check = std::time::Instant::now()
+            .checked_sub(Duration::from_secs(health_check_interval_secs))
+            .unwrap_or_else(std::time::Instant::now);
+        let mut qdrant_was_unhealthy = false;
+
+        // Failed item triage tracking
+        let triage_interval_secs = config.triage_interval_secs;
+        let mut last_triage = std::time::Instant::now()
+            .checked_sub(Duration::from_secs(triage_interval_secs))
+            .unwrap_or_else(std::time::Instant::now);
+
         // Grammar idle-time update check tracking
         let mut idle_since: Option<std::time::Instant> = None;
         let mut last_grammar_check = std::time::Instant::now()
@@ -323,6 +336,42 @@ impl UnifiedQueueProcessor {
                                 }
                             }
                             last_resurrection = std::time::Instant::now();
+                        }
+
+                        // Qdrant health check (feeds circuit breaker)
+                        if health_check_interval_secs > 0
+                            && last_health_check.elapsed().as_secs() >= health_check_interval_secs
+                        {
+                            match storage_client.test_connection().await {
+                                Ok(true) => {
+                                    if qdrant_was_unhealthy {
+                                        info!(
+                                            "Qdrant recovered — triggering resurrection of infrastructure failures"
+                                        );
+                                        let _ = queue_manager
+                                            .resurrect_failed_transient(config.max_resurrections)
+                                            .await;
+                                        qdrant_was_unhealthy = false;
+                                    }
+                                }
+                                _ => {
+                                    if !qdrant_was_unhealthy {
+                                        warn!("Qdrant health check failed");
+                                    }
+                                    qdrant_was_unhealthy = true;
+                                }
+                            }
+                            last_health_check = std::time::Instant::now();
+                        }
+
+                        // Failed item triage
+                        if triage_interval_secs > 0
+                            && last_triage.elapsed().as_secs() >= triage_interval_secs
+                        {
+                            if let Err(e) = queue_manager.triage_failed_items().await {
+                                warn!("Triage pass failed (non-fatal): {}", e);
+                            }
+                            last_triage = std::time::Instant::now();
                         }
 
                         debug!(

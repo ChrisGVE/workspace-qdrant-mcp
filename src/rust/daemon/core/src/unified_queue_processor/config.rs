@@ -104,6 +104,12 @@ pub struct UnifiedProcessorConfig {
     /// Maximum number of resurrections before an item is marked as permanently exhausted.
     /// Default: 5. After this many resurrection cycles, the item stops being resurrected.
     pub max_resurrections: i32,
+    /// Qdrant health check interval in seconds. 0 to disable.
+    /// Default: 30. When health check succeeds after a failure, triggers resurrection.
+    pub health_check_interval_secs: u64,
+    /// Failed item triage interval in seconds. 0 to disable.
+    /// Default: 300 (5 minutes). Examines failed items for salvageable conditions.
+    pub triage_interval_secs: u64,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -137,6 +143,8 @@ impl Default for UnifiedProcessorConfig {
             // Failed item resurrection
             failed_resurrection_interval_secs: 3600,
             max_resurrections: 5,
+            health_check_interval_secs: 30,
+            triage_interval_secs: 300,
         }
     }
 }
