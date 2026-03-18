@@ -170,6 +170,13 @@ impl UnifiedQueueProcessor {
                 continue;
             }
 
+            // Qdrant circuit breaker: pause dequeuing when Qdrant is presumed down
+            if !storage_client.is_qdrant_available() {
+                debug!("Qdrant circuit breaker open, pausing queue processing for 5s");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+
             // Update queue depth in metrics and adaptive resource counter
             if let Ok(depth) = queue_manager.get_unified_queue_depth(None, None).await {
                 let mut m = metrics.write().await;
