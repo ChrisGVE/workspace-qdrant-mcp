@@ -180,10 +180,13 @@ export interface RegisterProjectResponse {
   priority: string;
   is_active: boolean;
   newly_registered: boolean;
+  is_worktree?: boolean;
+  watch_path?: string;
 }
 
 export interface DeprioritizeProjectRequest {
   project_id: string;
+  watch_path?: string;
 }
 
 export interface DeprioritizeProjectResponse {
@@ -220,6 +223,7 @@ export interface ProjectInfo {
   priority: string;
   is_active: boolean;
   last_active?: { seconds: number; nanos: number };
+  is_worktree?: boolean;
 }
 
 export interface ListProjectsResponse {

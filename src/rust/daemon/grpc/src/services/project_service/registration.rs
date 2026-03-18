@@ -108,6 +108,8 @@ impl ProjectServiceImpl {
                     priority: "none".to_string(),
                     is_active: false,
                     newly_registered: false,
+                    is_worktree: false,
+                    watch_path: None,
                 })
             }
             RegistrationAction::ExistingActivated => {
@@ -120,6 +122,8 @@ impl ProjectServiceImpl {
                     priority: effective_priority.to_string(),
                     is_active: true,
                     newly_registered: false,
+                    is_worktree: false,
+                    watch_path: None,
                 })
             }
             RegistrationAction::ExistingNoop => Ok(RegisterProjectResponse {
@@ -128,6 +132,8 @@ impl ProjectServiceImpl {
                 priority: effective_priority.to_string(),
                 is_active: false,
                 newly_registered: false,
+                is_worktree: false,
+                watch_path: None,
             }),
             RegistrationAction::NewlyEnqueued {
                 is_high_priority: hp,
@@ -143,6 +149,8 @@ impl ProjectServiceImpl {
                     priority: effective_priority.to_string(),
                     is_active: hp,
                     newly_registered: true,
+                    is_worktree: false,
+                    watch_path: None,
                 })
             }
         }

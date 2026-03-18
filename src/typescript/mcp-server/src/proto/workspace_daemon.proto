@@ -412,11 +412,14 @@ message RegisterProjectResponse {
     string priority = 3;                          // Current priority: "high", "normal", "low"
     bool is_active = 4;                           // Activity flag (spec-compliant boolean)
     bool newly_registered = 5;                    // True only if register_if_new was true and project was new
+    bool is_worktree = 6;                         // True if registered as a worktree
+    optional string watch_path = 7;               // The actual registered watch path
 }
 
 // DeprioritizeProject Request/Response
 message DeprioritizeProjectRequest {
     string project_id = 1;                        // 12-char hex identifier
+    optional string watch_path = 2;               // Absolute path to specific watch root
 }
 
 message DeprioritizeProjectResponse {
@@ -460,6 +463,7 @@ message ProjectInfo {
     string priority = 4;
     bool is_active = 5;                           // Activity flag (spec-compliant boolean)
     google.protobuf.Timestamp last_active = 6;
+    bool is_worktree = 7;                         // True if this is a worktree watch root
 }
 
 // Heartbeat Request/Response

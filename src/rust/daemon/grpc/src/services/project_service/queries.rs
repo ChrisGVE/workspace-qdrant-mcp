@@ -205,6 +205,7 @@ impl ProjectServiceImpl {
             priority: priority.to_string(),
             is_active: is_active_int == 1,
             last_active,
+            is_worktree: false,
         })
     }
 
