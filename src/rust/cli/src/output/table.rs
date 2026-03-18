@@ -5,8 +5,10 @@
 //! custom peakers in `peakers.rs`.
 
 use serde::Serialize;
+use tabled::settings::object::Rows;
 use tabled::settings::peaker::PriorityMax;
-use tabled::settings::{Style, Width};
+use tabled::settings::style::{HorizontalLine, Style};
+use tabled::settings::{Color, Modify, Width};
 use tabled::{Table, Tabled};
 
 use super::formatters::strip_ansi;
@@ -16,8 +18,11 @@ use super::peakers::{
 };
 use crate::config::OutputFormat;
 
-/// Cell padding used by `Style::rounded()` (1 space each side).
+/// Cell padding used by tabled's default layout (1 space each side).
 const CELL_PADDING: usize = 2;
+
+/// Dim ANSI color for the header separator line.
+const DIM_COLOR: Color = Color::FG_BRIGHT_BLACK;
 
 /// Compute content-aware minimum widths for each column.
 ///
@@ -60,6 +65,16 @@ fn compute_column_min_widths<T: Tabled>(data: &[T], content_columns: &[usize]) -
     }
 
     min_widths
+}
+
+/// Apply borderless formatting to a table: no outer borders, bold headers,
+/// a dim `─` separator under the header, and space-separated columns.
+fn apply_borderless(table: &mut Table) {
+    let style = Style::blank().horizontals([(1, HorizontalLine::new('─').intersection('─'))]);
+    table
+        .with(style)
+        .with(Modify::new(Rows::first()).with(Color::BOLD))
+        .with(Modify::new(Rows::new(1..2)).with(DIM_COLOR));
 }
 
 /// Get the current terminal width, falling back to 120 columns
@@ -126,10 +141,10 @@ pub fn print_script<T: Tabled>(data: &[T], include_headers: bool) {
 
 /// Print data as a formatted table that fills the full terminal width.
 ///
-/// 1. Wraps content to fit within terminal width (`PriorityMax` shrinks the
-///    widest column first, `keep_words` breaks at word/comma boundaries).
-/// 2. Stretches the table to fill the full terminal width, giving extra
-///    space to the widest columns (text/content) via `PriorityMax`.
+/// Uses a borderless layout with bold headers and a dim separator line.
+/// Wraps content to fit within terminal width (`PriorityMax` shrinks the
+/// widest column first, `keep_words` breaks at word/comma boundaries),
+/// then stretches to fill the full terminal width.
 pub fn print_table<T: Tabled>(data: &[T]) {
     if data.is_empty() {
         info("No data to display");
@@ -137,12 +152,13 @@ pub fn print_table<T: Tabled>(data: &[T]) {
     }
 
     let width = terminal_width();
-    let table = Table::new(data)
-        .with(Style::rounded())
+    let mut table = Table::new(data);
+    apply_borderless(&mut table);
+    let output = table
         .with(Width::wrap(width).priority::<PriorityMax>().keep_words())
         .with(Width::increase(width).priority::<PriorityMax>())
         .to_string();
-    println!("{}", table);
+    println!("{}", output);
 }
 
 /// Print data as plain text (one item per line)
@@ -182,8 +198,9 @@ pub fn print_table_with_hints<T: Tabled>(data: &[T], content_columns: &[usize]) 
         *cmw.borrow_mut() = col_mins;
     });
 
-    let table = Table::new(data)
-        .with(Style::rounded())
+    let mut table = Table::new(data);
+    apply_borderless(&mut table);
+    let output = table
         .with(
             Width::wrap(width)
                 .priority::<ShrinkCategoricalFirst>()
@@ -196,7 +213,7 @@ pub fn print_table_with_hints<T: Tabled>(data: &[T], content_columns: &[usize]) 
     CONTENT_COLUMNS.with(|cc| cc.borrow_mut().clear());
     COLUMN_MIN_WIDTHS.with(|cmw| cmw.borrow_mut().clear());
 
-    println!("{}", table);
+    println!("{}", output);
 }
 
 /// Trait for structs that know which of their columns are content columns.
@@ -376,5 +393,79 @@ mod tests {
         assert_eq!(mins[0], 2 + CELL_PADDING); // "42" = 2, "ID" = 2
                                                // "longvalue," = 10 (no whitespace, so entire string is one word)
         assert_eq!(mins[2], 10 + CELL_PADDING);
+    }
+
+    #[test]
+    fn test_borderless_style_has_no_outer_borders() {
+        let data = vec![TestRow {
+            id: "1".into(),
+            title: "Hello".into(),
+            tags: "a".into(),
+        }];
+        let mut table = Table::new(&data);
+        apply_borderless(&mut table);
+        let output = table.to_string();
+        let clean = strip_ansi(&output);
+
+        // No box-drawing border characters
+        assert!(!clean.contains('╭'), "should not contain top-left corner");
+        assert!(!clean.contains('╮'), "should not contain top-right corner");
+        assert!(
+            !clean.contains('╰'),
+            "should not contain bottom-left corner"
+        );
+        assert!(
+            !clean.contains('╯'),
+            "should not contain bottom-right corner"
+        );
+        assert!(!clean.contains('│'), "should not contain vertical border");
+        assert!(!clean.contains('├'), "should not contain left tee");
+        assert!(!clean.contains('┤'), "should not contain right tee");
+        assert!(!clean.contains('┼'), "should not contain cross");
+    }
+
+    #[test]
+    fn test_borderless_style_has_header_separator() {
+        let data = vec![TestRow {
+            id: "1".into(),
+            title: "Hello".into(),
+            tags: "a".into(),
+        }];
+        let mut table = Table::new(&data);
+        apply_borderless(&mut table);
+        let output = table.to_string();
+        let clean = strip_ansi(&output);
+
+        // Should have a separator line made of '─' characters
+        let lines: Vec<&str> = clean.lines().collect();
+        assert!(
+            lines.len() >= 3,
+            "expected at least 3 lines (header, sep, data)"
+        );
+        // Second line should be the separator
+        assert!(
+            lines[1].contains('─'),
+            "separator line should contain ─, got: {:?}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn test_borderless_style_bold_header() {
+        let data = vec![TestRow {
+            id: "1".into(),
+            title: "Hello".into(),
+            tags: "a".into(),
+        }];
+        let mut table = Table::new(&data);
+        apply_borderless(&mut table);
+        let output = table.to_string();
+
+        // Header row should contain bold ANSI escape codes
+        let first_line = output.lines().next().unwrap();
+        assert!(
+            first_line.contains("\x1b[1m"),
+            "header should contain bold ANSI code"
+        );
     }
 }
