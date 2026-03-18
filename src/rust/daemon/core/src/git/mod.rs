@@ -5,6 +5,7 @@ mod reflog;
 mod types;
 mod watcher;
 mod watcher_types;
+mod worktree;
 
 // Re-export from types
 pub use types::{detect_git_status, CacheStats, GitError, GitResult, GitStatus};
@@ -35,3 +36,6 @@ pub use diff_tree::{
     diff_tree, get_blob_hash, ls_tree_submodules, parse_diff_tree_output, FileChange,
     FileChangeStatus,
 };
+
+// Re-export from worktree
+pub use worktree::find_main_worktree_path;
