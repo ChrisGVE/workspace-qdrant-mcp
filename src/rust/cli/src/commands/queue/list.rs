@@ -3,6 +3,7 @@
 use anyhow::Result;
 
 use crate::output;
+use crate::output::style::short_id;
 
 use super::db::connect_readonly;
 use super::formatters::{format_relative_time, format_status, QueueListItem, QueueListItemVerbose};
@@ -180,7 +181,7 @@ fn print_compact(items: &[RowTuple], json: bool, script: bool, no_headers: bool)
                 _worker_id,
             )| {
                 QueueListItem {
-                    queue_id: queue_id.clone(),
+                    queue_id: short_id(queue_id),
                     item_type: item_type.clone(),
                     op: op.clone(),
                     collection: collection.clone(),

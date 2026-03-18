@@ -8,6 +8,7 @@ use colored::Colorize;
 use rusqlite::Connection;
 
 use crate::output;
+use crate::output::style::short_id;
 
 use super::db::connect_readonly;
 use super::formatters::{format_status, QueueStatsSummary, StatusBreakdown};
@@ -164,7 +165,7 @@ fn print_text(
             wqm_common::duration_fmt::format_duration(age, 0),
         );
         if let Some(ref id) = summary.oldest_pending_id {
-            output::kv("Oldest Pending ID", id);
+            output::kv("Oldest Pending ID", short_id(id));
         }
     }
 

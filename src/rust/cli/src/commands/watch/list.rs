@@ -3,6 +3,7 @@
 use anyhow::Result;
 
 use crate::output;
+use crate::output::style::short_id;
 
 use super::helpers::{
     connect_readonly, format_bool, format_bool_archived, format_bool_paused, format_relative_time,
@@ -195,7 +196,7 @@ fn print_compact(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
                 _library_mode,
             )| {
                 WatchListItem {
-                    watch_id: watch_id.clone(),
+                    watch_id: short_id(watch_id),
                     path: path.clone(),
                     collection: collection.clone(),
                     enabled: format_bool(*enabled),
