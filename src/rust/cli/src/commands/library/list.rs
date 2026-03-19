@@ -111,8 +111,8 @@ fn list_watch_folders(
     output::info(format!("Library watch folders ({count}):"));
     output::separator();
 
-    for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in
-        &libraries
+    for (i, (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity)) in
+        libraries.iter().enumerate()
     {
         known_tags.insert(tenant_id.clone());
         let status = if *enabled { "watching" } else { "paused" };
@@ -132,7 +132,9 @@ fn list_watch_folders(
                 output::kv("  Last Activity", activity);
             }
         }
-        output::separator();
+        if i + 1 < count {
+            println!();
+        }
     }
 
     Ok(count)
@@ -177,7 +179,7 @@ fn list_format_routed(
     output::info(format!("Format-routed from projects ({count} project(s)):"));
     output::separator();
 
-    for (tenant_id, project_path, file_count) in &routed {
+    for (i, (tenant_id, project_path, file_count)) in routed.iter().enumerate() {
         known_tags.insert(tenant_id.clone());
         output::kv("  Project", tenant_id);
         output::kv("  Path", home_to_tilde(project_path));
@@ -186,7 +188,9 @@ fn list_format_routed(
         if let Some(doc_count) = qdrant_counts.get(tenant_id) {
             output::kv("  Documents", doc_count.to_string());
         }
-        output::separator();
+        if i + 1 < count {
+            println!();
+        }
     }
 
     Ok(count)
@@ -213,14 +217,16 @@ fn list_orphans(
     output::warning(format!("Orphaned libraries ({count}):"));
     output::separator();
 
-    for (tag, doc_count) in &orphan_tags {
+    for (i, (tag, doc_count)) in orphan_tags.iter().enumerate() {
         output::kv("  Tag", format!("{} (ORPHAN)", tag));
         output::kv("  Documents", doc_count.to_string());
         output::kv(
             "  Status",
             "no watch folder \u{2014} run: wqm admin cleanup-orphans",
         );
-        output::separator();
+        if i + 1 < count {
+            println!();
+        }
     }
 
     count
