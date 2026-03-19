@@ -2,7 +2,7 @@
 name = "wqm-cli"
 version = "0.1.0"
 edition = "2021"
-description = "High-performance CLI for workspace-qdrant-mcp"
+description = "High-performance companion for workspace-qdrant-mcp"
 authors = ["Chris Van Eerden"]
 license = "MIT"
 repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
