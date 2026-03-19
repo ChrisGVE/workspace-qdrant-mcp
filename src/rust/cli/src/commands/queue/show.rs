@@ -10,7 +10,7 @@ use crate::output;
 use crate::output::style::{home_to_tilde, short_id};
 
 use super::db::connect_readonly;
-use super::formatters::{extract_subject, format_relative_time, format_status, QueueDetailItem};
+use super::formatters::{extract_object, format_relative_time, format_status, QueueDetailItem};
 
 pub async fn execute(queue_id: &str, json: bool) -> Result<()> {
     let conn = connect_readonly()?;
@@ -112,12 +112,12 @@ fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String>
 }
 
 /// Resolve a tenant_id to a human-readable project name, falling back to
-/// a shortened tenant_id when no mapping exists.
+/// the raw tenant_id when no mapping exists.
 fn resolve_project_name(tenant_id: &str, tenant_names: &HashMap<String, String>) -> String {
     tenant_names
         .get(tenant_id)
         .cloned()
-        .unwrap_or_else(|| short_id(tenant_id))
+        .unwrap_or_else(|| tenant_id.to_string())
 }
 
 /// Look up the full project path for a tenant from `watch_folders`.
@@ -144,7 +144,7 @@ fn format_timestamp_rich(utc_str: &str) -> String {
 fn print_detail(item: &QueueDetailItem, tenant_names: &HashMap<String, String>) {
     let conn = connect_readonly().ok();
     let project_name = resolve_project_name(&item.tenant_id, tenant_names);
-    let subject = extract_subject(&item.item_type, &item.payload_json);
+    let object = extract_object(&item.item_type, &item.payload_json);
 
     // ── Identity ────────────────────────────────────────────────────
     output::section("Queue Item Details");
@@ -167,8 +167,8 @@ fn print_detail(item: &QueueDetailItem, tenant_names: &HashMap<String, String>) 
             output::kv("Project Path", home_to_tilde(&path));
         }
     }
-    if !subject.is_empty() {
-        output::kv("Subject", &subject);
+    if !object.is_empty() {
+        output::kv("Object", &object);
     }
 
     // ── Status ──────────────────────────────────────────────────────

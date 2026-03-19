@@ -7,15 +7,41 @@ use tabled::Tabled;
 
 use crate::output::ColumnHints;
 
-/// Queue item for list display
+/// Queue item for compact list display (no ID column)
+#[derive(Debug, Tabled, Serialize)]
+pub struct QueueListItemCompact {
+    #[tabled(rename = "Project")]
+    pub project: String,
+    #[tabled(rename = "Object")]
+    pub object: String,
+    #[tabled(rename = "Type")]
+    pub item_type: String,
+    #[tabled(rename = "Op")]
+    pub op: String,
+    #[tabled(rename = "Status")]
+    pub status: String,
+    #[tabled(rename = "Age")]
+    pub age: String,
+    #[tabled(rename = "Retry")]
+    pub retry_count: i32,
+}
+
+impl ColumnHints for QueueListItemCompact {
+    fn content_columns() -> &'static [usize] {
+        // Project (index 0) and Object (index 1) are content columns
+        &[0, 1]
+    }
+}
+
+/// Queue item for list display (with ID column, shown via --id flag)
 #[derive(Debug, Tabled, Serialize)]
 pub struct QueueListItem {
     #[tabled(rename = "ID")]
     pub queue_id: String,
     #[tabled(rename = "Project")]
     pub project: String,
-    #[tabled(rename = "Subject")]
-    pub subject: String,
+    #[tabled(rename = "Object")]
+    pub object: String,
     #[tabled(rename = "Type")]
     pub item_type: String,
     #[tabled(rename = "Op")]
@@ -30,20 +56,48 @@ pub struct QueueListItem {
 
 impl ColumnHints for QueueListItem {
     fn content_columns() -> &'static [usize] {
-        // Project (index 1) and Subject (index 2) are content columns
+        // Project (index 1) and Object (index 2) are content columns
         &[1, 2]
     }
 }
 
-/// Queue item for list display with error column (shown when failed items exist)
+/// Queue item for list display with error column (shown when failed items exist, no ID)
+#[derive(Debug, Tabled, Serialize)]
+pub struct QueueListItemCompactWithError {
+    #[tabled(rename = "Project")]
+    pub project: String,
+    #[tabled(rename = "Object")]
+    pub object: String,
+    #[tabled(rename = "Type")]
+    pub item_type: String,
+    #[tabled(rename = "Op")]
+    pub op: String,
+    #[tabled(rename = "Status")]
+    pub status: String,
+    #[tabled(rename = "Age")]
+    pub age: String,
+    #[tabled(rename = "Retry")]
+    pub retry_count: i32,
+    #[tabled(rename = "Error")]
+    pub error_message: String,
+}
+
+impl ColumnHints for QueueListItemCompactWithError {
+    fn content_columns() -> &'static [usize] {
+        // Project (index 0), Object (index 1), and Error (index 7) are content columns
+        &[0, 1, 7]
+    }
+}
+
+/// Queue item for list display with error column and ID
 #[derive(Debug, Tabled, Serialize)]
 pub struct QueueListItemWithError {
     #[tabled(rename = "ID")]
     pub queue_id: String,
     #[tabled(rename = "Project")]
     pub project: String,
-    #[tabled(rename = "Subject")]
-    pub subject: String,
+    #[tabled(rename = "Object")]
+    pub object: String,
     #[tabled(rename = "Type")]
     pub item_type: String,
     #[tabled(rename = "Op")]
@@ -60,7 +114,7 @@ pub struct QueueListItemWithError {
 
 impl ColumnHints for QueueListItemWithError {
     fn content_columns() -> &'static [usize] {
-        // Project (index 1), Subject (index 2), and Error (index 8) are content columns
+        // Project (index 1), Object (index 2), and Error (index 8) are content columns
         &[1, 2, 8]
     }
 }
@@ -74,8 +128,8 @@ pub struct QueueListItemVerbose {
     pub idempotency_key: String,
     #[tabled(rename = "Project")]
     pub project: String,
-    #[tabled(rename = "Subject")]
-    pub subject: String,
+    #[tabled(rename = "Object")]
+    pub object: String,
     #[tabled(rename = "Type")]
     pub item_type: String,
     #[tabled(rename = "Op")]
@@ -94,7 +148,7 @@ pub struct QueueListItemVerbose {
 
 impl ColumnHints for QueueListItemVerbose {
     fn content_columns() -> &'static [usize] {
-        // Project (index 2) and Subject (index 3) are content columns
+        // Project (index 2) and Object (index 3) are content columns
         &[2, 3]
     }
 }
@@ -141,7 +195,9 @@ pub struct StatusBreakdown {
     pub failed: i64,
 }
 
-/// Format relative time from ISO timestamp
+/// Format relative time from ISO timestamp.
+///
+/// Returns a compact, non-wrapping string like "22h", "3m", "5d".
 pub fn format_relative_time(timestamp_str: &str) -> String {
     if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp_str) {
         let now = Utc::now();
@@ -153,13 +209,13 @@ pub fn format_relative_time(timestamp_str: &str) -> String {
         }
 
         if secs < 60 {
-            format!("{}s ago", secs)
+            format!("{}s", secs)
         } else if secs < 3600 {
-            format!("{}m ago", secs / 60)
+            format!("{}m", secs / 60)
         } else if secs < 86400 {
-            format!("{}h ago", secs / 3600)
+            format!("{}h", secs / 3600)
         } else {
-            format!("{}d ago", secs / 86400)
+            format!("{}d", secs / 86400)
         }
     } else {
         "unknown".to_string()
@@ -177,14 +233,14 @@ pub fn format_status(status: &str) -> String {
     }
 }
 
-/// Extract a human-readable subject from `payload_json` based on item type.
+/// Extract a human-readable object name from `payload_json` based on item type.
 ///
 /// For file operations, returns the file basename (e.g. `main.rs`).
 /// For folder operations, returns the folder name with a trailing `/`.
 /// For URL operations, returns the URL.
 /// For text/content operations, returns a truncated content preview.
 /// Falls back to an empty string on parse failure.
-pub fn extract_subject(item_type: &str, payload_json: &str) -> String {
+pub fn extract_object(item_type: &str, payload_json: &str) -> String {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(payload_json) else {
         return String::new();
     };
@@ -221,7 +277,7 @@ pub fn extract_subject(item_type: &str, payload_json: &str) -> String {
             }
         }
         "tenant" | "collection" => {
-            // Administrative operations -- no meaningful file subject
+            // Administrative operations -- no meaningful file object
             String::new()
         }
         _ => String::new(),

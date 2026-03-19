@@ -9,8 +9,9 @@ use crate::output::style::short_id;
 
 use super::db::connect_readonly;
 use super::formatters::{
-    extract_subject, format_relative_time, format_status, truncate_str, QueueListItem,
-    QueueListItemVerbose, QueueListItemWithError,
+    extract_object, format_relative_time, format_status, truncate_str, QueueListItem,
+    QueueListItemCompact, QueueListItemCompactWithError, QueueListItemVerbose,
+    QueueListItemWithError,
 };
 
 /// Maximum character width for error messages in the table view.
@@ -28,6 +29,7 @@ pub async fn execute(
     script: bool,
     no_headers: bool,
     verbose: bool,
+    show_id: bool,
 ) -> Result<()> {
     let conn = connect_readonly()?;
     let (query, params_vec) = build_list_query(
@@ -81,6 +83,8 @@ pub async fn execute(
 
     if verbose {
         print_verbose(&items, &tenant_names, total, json, script, no_headers);
+    } else if show_id {
+        print_with_id(&items, &tenant_names, total, json, script, no_headers);
     } else {
         print_compact(&items, &tenant_names, total, json, script, no_headers);
     }
@@ -217,13 +221,15 @@ fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String>
     map
 }
 
-/// Resolve a tenant_id to a human-readable project name, falling back to
-/// a shortened tenant_id when no mapping exists.
+/// Resolve a tenant_id to a human-readable project name.
+///
+/// Returns the full project name from the mapping, or the raw tenant_id
+/// when no mapping exists (do NOT apply `short_id` to project names).
 fn resolve_project_name(tenant_id: &str, tenant_names: &HashMap<String, String>) -> String {
     tenant_names
         .get(tenant_id)
         .cloned()
-        .unwrap_or_else(|| short_id(tenant_id))
+        .unwrap_or_else(|| tenant_id.to_string())
 }
 
 type RowTuple = (
@@ -270,11 +276,11 @@ fn print_verbose(
                     queue_id: queue_id.clone(),
                     idempotency_key: idempotency_key.clone(),
                     project: resolve_project_name(tenant_id, tenant_names),
-                    subject: extract_subject(item_type, payload_json),
+                    object: extract_object(item_type, payload_json),
                     item_type: item_type.clone(),
                     op: op.clone(),
                     collection: collection.clone(),
-                    status: status.clone(),
+                    status: format_status(status),
                     created_at: wqm_common::timestamp_fmt::format_local(created_at),
                     retry_count: *retry_count,
                     worker_id: worker_id.clone().unwrap_or_default(),
@@ -294,6 +300,114 @@ fn print_verbose(
             total,
             "queue items",
         ));
+    }
+}
+
+fn print_with_id(
+    items: &[RowTuple],
+    tenant_names: &HashMap<String, String>,
+    total: usize,
+    json: bool,
+    script: bool,
+    no_headers: bool,
+) {
+    // Show the Error column when any item in the result set has a non-empty error_message
+    let has_errors = items
+        .iter()
+        .any(|(_, _, _, _, _, _, _, _, _, _, _, err)| err.is_some());
+
+    if has_errors {
+        let display_items: Vec<QueueListItemWithError> = items
+            .iter()
+            .map(
+                |(
+                    queue_id,
+                    _idempotency_key,
+                    item_type,
+                    op,
+                    _collection,
+                    status,
+                    created_at,
+                    retry_count,
+                    _worker_id,
+                    tenant_id,
+                    payload_json,
+                    error_message,
+                )| {
+                    QueueListItemWithError {
+                        queue_id: short_id(queue_id),
+                        project: resolve_project_name(tenant_id, tenant_names),
+                        object: extract_object(item_type, payload_json),
+                        item_type: item_type.clone(),
+                        op: op.clone(),
+                        status: format_status(status),
+                        age: format_relative_time(created_at),
+                        retry_count: *retry_count,
+                        error_message: error_message
+                            .as_deref()
+                            .map(|e| truncate_str(e, ERROR_TRUNCATE_LEN))
+                            .unwrap_or_default(),
+                    }
+                },
+            )
+            .collect();
+
+        if json {
+            output::print_json(&display_items);
+        } else if script {
+            output::print_script(&display_items, !no_headers);
+        } else {
+            output::print_table_auto(&display_items);
+            output::summary(output::summary_line(
+                display_items.len(),
+                total,
+                "queue items",
+            ));
+        }
+    } else {
+        let display_items: Vec<QueueListItem> = items
+            .iter()
+            .map(
+                |(
+                    queue_id,
+                    _idempotency_key,
+                    item_type,
+                    op,
+                    _collection,
+                    status,
+                    created_at,
+                    retry_count,
+                    _worker_id,
+                    tenant_id,
+                    payload_json,
+                    _error_message,
+                )| {
+                    QueueListItem {
+                        queue_id: short_id(queue_id),
+                        project: resolve_project_name(tenant_id, tenant_names),
+                        object: extract_object(item_type, payload_json),
+                        item_type: item_type.clone(),
+                        op: op.clone(),
+                        status: format_status(status),
+                        age: format_relative_time(created_at),
+                        retry_count: *retry_count,
+                    }
+                },
+            )
+            .collect();
+
+        if json {
+            output::print_json(&display_items);
+        } else if script {
+            output::print_script(&display_items, !no_headers);
+        } else {
+            output::print_table_auto(&display_items);
+            output::summary(output::summary_line(
+                display_items.len(),
+                total,
+                "queue items",
+            ));
+        }
     }
 }
 
@@ -325,11 +439,11 @@ fn print_compact_plain(
     script: bool,
     no_headers: bool,
 ) {
-    let display_items: Vec<QueueListItem> = items
+    let display_items: Vec<QueueListItemCompact> = items
         .iter()
         .map(
             |(
-                queue_id,
+                _queue_id,
                 _idempotency_key,
                 item_type,
                 op,
@@ -342,10 +456,9 @@ fn print_compact_plain(
                 payload_json,
                 _error_message,
             )| {
-                QueueListItem {
-                    queue_id: short_id(queue_id),
+                QueueListItemCompact {
                     project: resolve_project_name(tenant_id, tenant_names),
-                    subject: extract_subject(item_type, payload_json),
+                    object: extract_object(item_type, payload_json),
                     item_type: item_type.clone(),
                     op: op.clone(),
                     status: format_status(status),
@@ -378,11 +491,11 @@ fn print_compact_with_error(
     script: bool,
     no_headers: bool,
 ) {
-    let display_items: Vec<QueueListItemWithError> = items
+    let display_items: Vec<QueueListItemCompactWithError> = items
         .iter()
         .map(
             |(
-                queue_id,
+                _queue_id,
                 _idempotency_key,
                 item_type,
                 op,
@@ -395,10 +508,9 @@ fn print_compact_with_error(
                 payload_json,
                 error_message,
             )| {
-                QueueListItemWithError {
-                    queue_id: short_id(queue_id),
+                QueueListItemCompactWithError {
                     project: resolve_project_name(tenant_id, tenant_names),
-                    subject: extract_subject(item_type, payload_json),
+                    object: extract_object(item_type, payload_json),
                     item_type: item_type.clone(),
                     op: op.clone(),
                     status: format_status(status),

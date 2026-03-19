@@ -82,6 +82,10 @@ enum QueueCommand {
         #[arg(long, requires = "script")]
         no_headers: bool,
 
+        /// Show the ID column
+        #[arg(long)]
+        id: bool,
+
         /// Show more columns
         #[arg(short, long)]
         verbose: bool,
@@ -206,6 +210,7 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             json,
             script,
             no_headers,
+            id,
             verbose,
         } => {
             let effective_limit = if all { i64::MAX } else { limit };
@@ -221,6 +226,7 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
                 script,
                 no_headers,
                 verbose,
+                id || verbose,
             )
             .await
         }

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
 use crate::commands::queue::db::connect_readonly;
-use crate::commands::queue::formatters::extract_subject;
+use crate::commands::queue::formatters::extract_object;
 use crate::output::style::short_id;
 
 /// Maximum items to fetch per query.
@@ -68,8 +68,8 @@ pub struct QueueRow {
     pub short_id: String,
     /// Resolved project name.
     pub project: String,
-    /// Extracted subject (file name, URL, etc.).
-    pub subject: String,
+    /// Extracted object name (file name, URL, etc.).
+    pub object: String,
     /// Item type (file, folder, url, etc.).
     pub item_type: String,
     /// Operation (add, update, delete, etc.).
@@ -91,7 +91,7 @@ pub struct QueueDetail {
     pub status: String,
     pub project: String,
     pub tenant_id: String,
-    pub subject: String,
+    pub object: String,
     pub payload_json: String,
     pub error_message: Option<String>,
     pub created_at: String,
@@ -134,7 +134,7 @@ pub fn fetch_queue_rows(filter: StatusFilter) -> Vec<QueueRow> {
             |(queue_id, item_type, op, status, created_at, tenant_id, payload_json)| QueueRow {
                 short_id: short_id(&queue_id),
                 project: resolve_project_name(&tenant_id, &tenant_names),
-                subject: extract_subject(&item_type, &payload_json),
+                object: extract_object(&item_type, &payload_json),
                 age: format_relative_time(&created_at),
                 queue_id,
                 item_type,
@@ -164,7 +164,7 @@ pub fn fetch_queue_detail(queue_id: &str) -> Option<QueueDetail> {
         let tenant_id: String = row.get(6)?;
         let payload_json: String = row.get(7)?;
         let project = resolve_project_name(&tenant_id, &tenant_names);
-        let subject = extract_subject(&item_type, &payload_json);
+        let object = extract_object(&item_type, &payload_json);
 
         Ok(QueueDetail {
             queue_id: row.get(0)?,
@@ -175,7 +175,7 @@ pub fn fetch_queue_detail(queue_id: &str) -> Option<QueueDetail> {
             status: row.get(5)?,
             tenant_id,
             project,
-            subject,
+            object,
             payload_json,
             error_message: row.get(8)?,
             created_at: row.get(9)?,
@@ -342,7 +342,7 @@ mod tests {
             queue_id: "abc123".to_string(),
             short_id: "abc1".to_string(),
             project: "my-project".to_string(),
-            subject: "main.rs".to_string(),
+            object: "main.rs".to_string(),
             item_type: "file".to_string(),
             op: "add".to_string(),
             status: "pending".to_string(),

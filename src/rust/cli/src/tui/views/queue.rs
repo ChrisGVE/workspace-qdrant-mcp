@@ -154,7 +154,7 @@ impl QueueBrowser {
     /// Draw the scrollable table of queue items.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
         let header = Row::new(vec![
-            "ID", "Project", "Subject", "Type", "Op", "Status", "Age",
+            "ID", "Project", "Object", "Type", "Op", "Status", "Age",
         ])
         .style(
             Style::default()
@@ -206,7 +206,7 @@ impl QueueBrowser {
                 Row::new(vec![
                     Span::styled(&item.short_id, base_style.fg(Color::Cyan)),
                     Span::styled(truncate_str(&item.project, 20), base_style),
-                    Span::styled(truncate_str(&item.subject, 24), base_style),
+                    Span::styled(truncate_str(&item.object, 24), base_style),
                     Span::styled(&item.item_type, base_style),
                     Span::styled(&item.op, base_style),
                     Span::styled(&item.status, base_style.fg(fg)),
@@ -244,7 +244,7 @@ impl QueueBrowser {
             Line::from(""),
             detail_line("Project", &detail.project),
             detail_line("Tenant ID", &truncate_str(&detail.tenant_id, 40)),
-            detail_line("Subject", &detail.subject),
+            detail_line("Object", &detail.object),
             Line::from(""),
             detail_line("Type", &detail.item_type),
             detail_line("Operation", &detail.op),
@@ -404,7 +404,7 @@ mod tests {
             status: "done".into(),
             project: "proj".into(),
             tenant_id: "t1".into(),
-            subject: "main.rs".into(),
+            object: "main.rs".into(),
             payload_json: "{}".into(),
             error_message: None,
             created_at: "2025-01-01T00:00:00Z".into(),
@@ -459,7 +459,7 @@ mod tests {
                 queue_id: format!("id-{i}"),
                 short_id: format!("id-{i}"),
                 project: "project".into(),
-                subject: "file.rs".into(),
+                object: "file.rs".into(),
                 item_type: "file".into(),
                 op: "add".into(),
                 status: "pending".into(),

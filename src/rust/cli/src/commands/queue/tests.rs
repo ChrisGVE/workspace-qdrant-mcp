@@ -5,9 +5,7 @@ mod tests {
     use chrono::Utc;
     use rusqlite::{params, Connection};
 
-    use crate::commands::queue::formatters::{
-        extract_subject, format_relative_time, format_status,
-    };
+    use crate::commands::queue::formatters::{extract_object, format_relative_time, format_status};
 
     #[test]
     fn test_format_relative_time() {
@@ -15,12 +13,12 @@ mod tests {
         let now = Utc::now();
         let timestamp = (now - chrono::Duration::seconds(30)).to_rfc3339();
         let result = format_relative_time(&timestamp);
-        assert!(result.contains("s ago") || result.contains("0m ago"));
+        assert!(result.ends_with('s') || result.ends_with('m'));
 
         // Test with a timestamp 2 hours ago
         let timestamp = (now - chrono::Duration::hours(2)).to_rfc3339();
         let result = format_relative_time(&timestamp);
-        assert!(result.contains("h ago"));
+        assert!(result.ends_with('h'));
 
         // Test with invalid timestamp
         let result = format_relative_time("invalid");
@@ -37,97 +35,97 @@ mod tests {
         let _ = format_status("unknown");
     }
 
-    // --- extract_subject tests ---
+    // --- extract_object tests ---
 
     #[test]
-    fn test_extract_subject_file() {
+    fn test_extract_object_file() {
         let payload = r#"{"file_path":"/home/user/project/src/main.rs"}"#;
-        assert_eq!(extract_subject("file", payload), "main.rs");
+        assert_eq!(extract_object("file", payload), "main.rs");
     }
 
     #[test]
-    fn test_extract_subject_file_nested_path() {
+    fn test_extract_object_file_nested_path() {
         let payload = r#"{"file_path":"/a/b/c/lib.rs","file_type":"code"}"#;
-        assert_eq!(extract_subject("file", payload), "lib.rs");
+        assert_eq!(extract_object("file", payload), "lib.rs");
     }
 
     #[test]
-    fn test_extract_subject_file_trailing_slash() {
+    fn test_extract_object_file_trailing_slash() {
         // Edge case: file_path with trailing slash (shouldn't happen, but be robust)
         let payload = r#"{"file_path":"/a/b/c/"}"#;
-        assert_eq!(extract_subject("file", payload), "c");
+        assert_eq!(extract_object("file", payload), "c");
     }
 
     #[test]
-    fn test_extract_subject_folder() {
+    fn test_extract_object_folder() {
         let payload = r#"{"folder_path":"/home/user/project/src"}"#;
-        assert_eq!(extract_subject("folder", payload), "src/");
+        assert_eq!(extract_object("folder", payload), "src/");
     }
 
     #[test]
-    fn test_extract_subject_folder_trailing_slash() {
+    fn test_extract_object_folder_trailing_slash() {
         let payload = r#"{"folder_path":"/home/user/project/src/"}"#;
-        assert_eq!(extract_subject("folder", payload), "src/");
+        assert_eq!(extract_object("folder", payload), "src/");
     }
 
     #[test]
-    fn test_extract_subject_url() {
+    fn test_extract_object_url() {
         let payload = r#"{"url":"https://docs.rs/tokio"}"#;
-        assert_eq!(extract_subject("url", payload), "https://docs.rs/tokio");
+        assert_eq!(extract_object("url", payload), "https://docs.rs/tokio");
     }
 
     #[test]
-    fn test_extract_subject_website() {
+    fn test_extract_object_website() {
         let payload = r#"{"url":"https://example.com","max_depth":3}"#;
-        assert_eq!(extract_subject("website", payload), "https://example.com");
+        assert_eq!(extract_object("website", payload), "https://example.com");
     }
 
     #[test]
-    fn test_extract_subject_text_with_title() {
+    fn test_extract_object_text_with_title() {
         let payload = r#"{"content":"long content here","title":"My Note"}"#;
-        assert_eq!(extract_subject("text", payload), "My Note");
+        assert_eq!(extract_object("text", payload), "My Note");
     }
 
     #[test]
-    fn test_extract_subject_text_without_title() {
+    fn test_extract_object_text_without_title() {
         let payload = r#"{"content":"short content","source_type":"cli"}"#;
-        assert_eq!(extract_subject("text", payload), "short content");
+        assert_eq!(extract_object("text", payload), "short content");
     }
 
     #[test]
-    fn test_extract_subject_text_truncated() {
+    fn test_extract_object_text_truncated() {
         let long_content = "a".repeat(60);
         let payload = format!(r#"{{"content":"{}","source_type":"cli"}}"#, long_content);
-        let result = extract_subject("text", &payload);
+        let result = extract_object("text", &payload);
         assert!(result.ends_with("..."));
         assert!(result.len() <= 43); // 37 chars + "..."
     }
 
     #[test]
-    fn test_extract_subject_tenant_empty() {
+    fn test_extract_object_tenant_empty() {
         let payload = r#"{"some":"data"}"#;
-        assert_eq!(extract_subject("tenant", payload), "");
+        assert_eq!(extract_object("tenant", payload), "");
     }
 
     #[test]
-    fn test_extract_subject_collection_empty() {
-        assert_eq!(extract_subject("collection", r#"{}"#), "");
+    fn test_extract_object_collection_empty() {
+        assert_eq!(extract_object("collection", r#"{}"#), "");
     }
 
     #[test]
-    fn test_extract_subject_unknown_type() {
-        assert_eq!(extract_subject("unknown", r#"{"foo":"bar"}"#), "");
+    fn test_extract_object_unknown_type() {
+        assert_eq!(extract_object("unknown", r#"{"foo":"bar"}"#), "");
     }
 
     #[test]
-    fn test_extract_subject_invalid_json() {
-        assert_eq!(extract_subject("file", "not json"), "");
+    fn test_extract_object_invalid_json() {
+        assert_eq!(extract_object("file", "not json"), "");
     }
 
     #[test]
-    fn test_extract_subject_missing_field() {
+    fn test_extract_object_missing_field() {
         // file type but no file_path field
-        assert_eq!(extract_subject("file", r#"{"other":"value"}"#), "");
+        assert_eq!(extract_object("file", r#"{"other":"value"}"#), "");
     }
 
     /// Helper: create in-memory database with unified_queue schema
