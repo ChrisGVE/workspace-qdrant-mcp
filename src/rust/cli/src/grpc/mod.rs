@@ -7,4 +7,4 @@
 pub mod client;
 
 pub use client::workspace_daemon as proto;
-pub use client::DaemonClient;
+pub use client::{ensure_daemon_available, DaemonClient};
