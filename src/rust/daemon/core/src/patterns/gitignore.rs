@@ -39,6 +39,7 @@
 use std::path::Path;
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use tracing::warn;
 
 /// Per-directory matcher for `.gitignore` and `.wqmignore` (Gate 0).
 ///
@@ -69,7 +70,9 @@ impl ProjectIgnoreMatcher {
         // the directory that contains the ignore file (same as git behaviour).
         let mut exclusion_builder = GitignoreBuilder::new(dir);
         if gitignore_path.exists() {
-            let _ = exclusion_builder.add(&gitignore_path);
+            if let Some(e) = exclusion_builder.add(&gitignore_path) {
+                warn!("Error reading {}: {}", gitignore_path.display(), e);
+            }
         }
 
         // Parse .wqmignore: split into exclusions and re-inclusions
@@ -136,11 +139,27 @@ fn parse_wqmignore(
 
         if let Some(pattern) = reinclusion_pattern {
             if !pattern.is_empty() {
-                let _ = reinc_builder.add_line(Some(wqmignore_path.to_path_buf()), pattern);
+                if let Err(e) = reinc_builder.add_line(Some(wqmignore_path.to_path_buf()), pattern)
+                {
+                    warn!(
+                        "Malformed re-inclusion pattern '{}' in {}: {}",
+                        pattern,
+                        wqmignore_path.display(),
+                        e
+                    );
+                }
                 has_reinclusions = true;
             }
         } else {
-            let _ = exclusion_builder.add_line(Some(wqmignore_path.to_path_buf()), trimmed);
+            if let Err(e) = exclusion_builder.add_line(Some(wqmignore_path.to_path_buf()), trimmed)
+            {
+                warn!(
+                    "Malformed exclusion pattern '{}' in {}: {}",
+                    trimmed,
+                    wqmignore_path.display(),
+                    e
+                );
+            }
         }
     }
 
