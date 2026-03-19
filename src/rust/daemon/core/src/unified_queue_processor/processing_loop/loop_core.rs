@@ -188,12 +188,24 @@ impl UnifiedQueueProcessor {
                 debug!("Qdrant circuit breaker open — probing before dequeue");
                 match storage_client.test_connection().await {
                     Ok(true) => {
+                        // Record success so the circuit breaker transitions
+                        // from HalfOpen → Closed (requires success_threshold successes).
+                        storage_client.circuit_breaker().record_success();
                         info!("Qdrant recovered — resuming queue processing");
-                        // Circuit breaker transitions via is_available() → half-open check.
-                        // Trigger resurrection so recovered items get retried promptly.
-                        let _ = queue_manager
+                        match queue_manager
                             .resurrect_failed_transient(config.max_resurrections)
-                            .await;
+                            .await
+                        {
+                            Ok((resurrected, exhausted)) => {
+                                if resurrected > 0 || exhausted > 0 {
+                                    info!(
+                                        "Recovery resurrection: reset {} item(s), exhausted {} item(s)",
+                                        resurrected, exhausted
+                                    );
+                                }
+                            }
+                            Err(e) => warn!("Recovery resurrection failed: {}", e),
+                        }
                     }
                     _ => {
                         debug!("Qdrant still unavailable, sleeping 5s");

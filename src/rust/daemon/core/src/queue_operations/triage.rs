@@ -50,10 +50,10 @@ impl QueueManager {
 
         for row in &rows {
             let queue_id: &str = row.try_get("queue_id")?;
-            let item_type: &str = row.try_get("item_type").unwrap_or(&"");
-            let op: &str = row.try_get("op").unwrap_or(&"");
+            let item_type: &str = row.try_get("item_type")?;
+            let op: &str = row.try_get("op")?;
             let file_path: Option<&str> = row.try_get("file_path").ok();
-            let error_message: &str = row.try_get("error_message").unwrap_or(&"");
+            let error_message: &str = row.try_get("error_message")?;
 
             // Skip items already marked as permanently exhausted
             if error_message.starts_with("[permanent_exhausted]")
@@ -128,16 +128,32 @@ impl QueueManager {
         match tracked {
             Ok(Some(row)) => {
                 // File is tracked — check if it has any Qdrant chunks
-                let file_id: i64 = row.try_get("file_id").unwrap_or(0);
-                let chunk_count =
-                    sqlx::query("SELECT COUNT(*) as cnt FROM qdrant_chunks WHERE file_id = ?1")
-                        .bind(file_id)
-                        .fetch_optional(&self.pool)
-                        .await
-                        .ok()
-                        .flatten()
-                        .and_then(|r| r.try_get::<i64, _>("cnt").ok())
-                        .unwrap_or(0);
+                let file_id: i64 = match row.try_get("file_id") {
+                    Ok(id) => id,
+                    Err(e) => {
+                        warn!(
+                            "Triage: failed to read file_id for {}: {} — skipping",
+                            path, e
+                        );
+                        return false;
+                    }
+                };
+                let chunk_count = match sqlx::query(
+                    "SELECT COUNT(*) as cnt FROM qdrant_chunks WHERE file_id = ?1",
+                )
+                .bind(file_id)
+                .fetch_one(&self.pool)
+                .await
+                {
+                    Ok(r) => r.try_get::<i64, _>("cnt").unwrap_or(0),
+                    Err(e) => {
+                        warn!(
+                            "Triage: failed to count qdrant_chunks for file_id={}: {} — skipping",
+                            file_id, e
+                        );
+                        return false;
+                    }
+                };
 
                 if chunk_count == 0 {
                     debug!(
@@ -155,7 +171,13 @@ impl QueueManager {
                 );
                 true // Never tracked
             }
-            Err(_) => false, // DB error — don't drop
+            Err(e) => {
+                warn!(
+                    "Triage: DB error checking tracked_files for {:?}: {}",
+                    path, e
+                );
+                false
+            }
         }
     }
 

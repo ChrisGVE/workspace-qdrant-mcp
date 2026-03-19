@@ -41,33 +41,33 @@ impl QdrantCircuitBreaker {
     /// Check if the circuit allows a request. Returns `true` if requests
     /// should proceed, `false` if the circuit is open (Qdrant presumed down).
     pub fn is_available(&self) -> bool {
-        let mut cb = self.inner.lock().unwrap();
+        let mut cb = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let (can_proceed, _reason) = cb.check();
         can_proceed
     }
 
     /// Record a successful Qdrant operation.
     pub fn record_success(&self) {
-        let mut cb = self.inner.lock().unwrap();
+        let mut cb = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         cb.record_success();
     }
 
     /// Record a failed Qdrant operation. Returns `true` if the circuit
     /// just transitioned to open.
     pub fn record_failure(&self) -> bool {
-        let mut cb = self.inner.lock().unwrap();
+        let mut cb = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         cb.record_failure()
     }
 
     /// Return the current state as a string ("closed", "open", "half-open").
     pub fn state_str(&self) -> &'static str {
-        let cb = self.inner.lock().unwrap();
+        let cb = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         cb.state_str()
     }
 
     /// Return `true` if the circuit is closed (normal operation).
     pub fn is_closed(&self) -> bool {
-        let cb = self.inner.lock().unwrap();
+        let cb = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         cb.is_closed()
     }
 

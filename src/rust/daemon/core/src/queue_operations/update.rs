@@ -80,8 +80,16 @@ impl QueueManager {
             let metadata_str: &str = row.try_get("metadata").unwrap_or(&"{}");
             let error_message: &str = row.try_get("error_message").unwrap_or(&"");
 
-            let mut metadata: serde_json::Value =
-                serde_json::from_str(metadata_str).unwrap_or_else(|_| serde_json::json!({}));
+            let mut metadata: serde_json::Value = match serde_json::from_str(metadata_str) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(
+                        "Item {}: unparseable metadata '{}': {} — resetting to empty",
+                        queue_id, metadata_str, e
+                    );
+                    serde_json::json!({})
+                }
+            };
             let count = metadata
                 .get("resurrection_count")
                 .and_then(|v| v.as_i64())
@@ -108,7 +116,8 @@ impl QueueManager {
             } else {
                 // Resurrect with incremented count
                 metadata["resurrection_count"] = serde_json::json!(count + 1);
-                let new_metadata = serde_json::to_string(&metadata).unwrap_or_default();
+                let new_metadata =
+                    serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
 
                 sqlx::query(
                     r#"UPDATE unified_queue

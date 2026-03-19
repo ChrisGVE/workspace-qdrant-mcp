@@ -75,8 +75,15 @@ impl MaintenanceTask for OrphanCleanupTask {
         .bind(self.batch_size)
         .bind(self.offset)
         .fetch_all(ctx.pool)
-        .await
-        .unwrap_or_default();
+        .await;
+
+        let rows = match rows {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Orphan cleanup query failed: {} — will retry", e);
+                return MaintenanceResult::Yielded;
+            }
+        };
 
         if rows.is_empty() {
             if self.orphans_cleaned > 0 {
@@ -98,9 +105,17 @@ impl MaintenanceTask for OrphanCleanupTask {
                 return MaintenanceResult::Yielded;
             }
 
-            let file_id: i64 = row.try_get("file_id").unwrap_or(0);
-            let file_path: String = row.try_get("file_path").unwrap_or_default();
-            let collection: String = row.try_get("collection").unwrap_or_default();
+            let (file_id, file_path, collection) = match (
+                row.try_get::<i64, _>("file_id"),
+                row.try_get::<String, _>("file_path"),
+                row.try_get::<String, _>("collection"),
+            ) {
+                (Ok(id), Ok(path), Ok(col)) => (id, path, col),
+                _ => {
+                    warn!("Orphan cleanup: skipping row with missing fields");
+                    continue;
+                }
+            };
             self.total_checked += 1;
 
             // Get point IDs tracked in SQLite for this file

@@ -73,8 +73,15 @@ impl MaintenanceTask for FilesystemReconcileTask {
         .bind(self.batch_size)
         .bind(self.offset)
         .fetch_all(ctx.pool)
-        .await
-        .unwrap_or_default();
+        .await;
+
+        let rows = match rows {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Filesystem reconcile query failed: {} — will retry", e);
+                return MaintenanceResult::Yielded;
+            }
+        };
 
         if rows.is_empty() {
             if self.files_missing > 0 {
