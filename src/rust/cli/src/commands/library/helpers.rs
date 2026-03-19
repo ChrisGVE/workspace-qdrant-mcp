@@ -42,7 +42,8 @@ pub fn get_db_path() -> Result<PathBuf> {
     get_database_path().map_err(|e| anyhow::anyhow!("{}", e))
 }
 
-/// Open a connection to the state database with WAL mode
+/// Open a read-only connection to the state database.
+/// All write operations now go through gRPC to the daemon.
 pub fn open_db() -> Result<Connection> {
     let db_path = get_db_path()?;
     if !db_path.exists() {
@@ -51,11 +52,13 @@ pub fn open_db() -> Result<Connection> {
             db_path.display()
         );
     }
-    let conn = Connection::open(&db_path).context("Failed to open state database")?;
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+    let conn = Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .context("Failed to set SQLite pragmas")?;
+    .context("Failed to open state database")?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set SQLite pragmas")?;
     Ok(conn)
 }
 
@@ -89,21 +92,6 @@ pub fn classify_document_extension(ext: &str) -> Option<(&'static str, &'static 
         "md" | "markdown" => Some(("markdown", "stream_based")),
         "txt" => Some(("text", "stream_based")),
         _ => None,
-    }
-}
-
-/// Signal the daemon to reload watched folders configuration.
-/// Logs success/failure but does not propagate errors.
-pub async fn signal_daemon_watch_folders() {
-    if let Ok(mut client) = DaemonClient::connect_default().await {
-        let request = RefreshSignalRequest {
-            queue_type: QueueType::WatchedFolders as i32,
-            lsp_languages: vec![],
-            grammar_languages: vec![],
-        };
-        if client.system().send_refresh_signal(request).await.is_ok() {
-            output::success("Daemon notified of configuration change");
-        }
     }
 }
 

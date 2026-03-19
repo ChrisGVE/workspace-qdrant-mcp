@@ -137,7 +137,8 @@ pub async fn execute(args: StatsArgs) -> Result<()> {
     }
 }
 
-/// Open state database with read-only pragmas
+/// Open state database read-only.
+/// All write operations now go through gRPC to the daemon.
 fn open_db() -> Result<Connection> {
     let db_path = get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
     if !db_path.exists() {
@@ -146,11 +147,13 @@ fn open_db() -> Result<Connection> {
             db_path.display()
         );
     }
-    let conn = Connection::open(&db_path).context("Failed to open state database")?;
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+    let conn = Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .context("Failed to set SQLite pragmas")?;
+    .context("Failed to open state database")?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set SQLite pragmas")?;
     Ok(conn)
 }
 

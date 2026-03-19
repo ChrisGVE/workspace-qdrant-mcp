@@ -194,7 +194,9 @@ async fn reset_single_collection(
     Ok(())
 }
 
-/// Clean pending/failed queue items for specified collections
+/// Clean pending/failed queue items for specified collections.
+/// TODO: Migrate to gRPC QueueWriteService once a CleanQueueByCollection RPC is added.
+/// This is the last remaining direct SQLite write in the CLI (besides recover-state).
 async fn clean_queue_items(collections: &[String]) -> Result<usize> {
     let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
