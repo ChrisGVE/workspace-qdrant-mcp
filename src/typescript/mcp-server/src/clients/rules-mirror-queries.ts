@@ -44,8 +44,9 @@ export function upsertRulesMirror(
   if (entry.scope !== null) request.scope = entry.scope;
   if (entry.tenantId !== null) request.tenant_id = entry.tenantId;
 
-  daemonClient.upsertRuleMirror(request).catch(() => {
+  daemonClient.upsertRuleMirror(request).catch((err: unknown) => {
     // rules_mirror is advisory — errors must not break rule operations
+    console.warn('upsertRuleMirror failed:', err instanceof Error ? err.message : err);
   });
 }
 
@@ -57,8 +58,9 @@ export function upsertRulesMirror(
 export function deleteRulesMirror(daemonClient: DaemonClient | null, ruleId: string): void {
   if (!daemonClient) return;
 
-  daemonClient.deleteRuleMirror({ rule_id: ruleId }).catch(() => {
+  daemonClient.deleteRuleMirror({ rule_id: ruleId }).catch((err: unknown) => {
     // rules_mirror is advisory — errors must not break rule operations
+    console.warn('deleteRuleMirror failed:', err instanceof Error ? err.message : err);
   });
 }
 
@@ -98,7 +100,11 @@ export function listRulesMirror(
     params.push(limit);
 
     return db.prepare(sql).all(...params) as RulesMirrorEntry[];
-  } catch {
-    return [];
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('no such table')) {
+      return [];
+    }
+    throw err;
   }
 }

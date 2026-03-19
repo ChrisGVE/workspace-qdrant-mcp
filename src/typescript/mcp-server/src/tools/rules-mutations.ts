@@ -17,6 +17,21 @@ import {
 import type { RuleAction, RuleOptions, RuleResponse, RuleScope } from './rules-types.js';
 import { RULES_BASENAME, RULES_COLLECTION } from './rules-types.js';
 
+/** Check if an error is a connectivity error (daemon unavailable). */
+function isConnectivityError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string })?.code;
+  return (
+    code === 'UNAVAILABLE' ||
+    code === 'DEADLINE_EXCEEDED' ||
+    code === 'ECONNREFUSED' ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('DEADLINE_EXCEEDED') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('connect ECONNREFUSED')
+  );
+}
+
 /** Queue a rule operation for daemon processing via unified_queue. */
 async function queueRuleOperation(
   stateManager: SqliteStateManager,
@@ -137,8 +152,9 @@ export async function addRule(
         message: 'Rule added successfully',
       };
     }
-  } catch {
-    // Daemon unavailable - fall back to queue
+  } catch (err: unknown) {
+    // Only fall back to queue for connectivity errors; rethrow others
+    if (!isConnectivityError(err)) throw err;
   }
 
   // Fallback: queue the operation
@@ -219,8 +235,9 @@ export async function updateRule(
       });
       return { success: true, action: 'update', label, message: 'Rule updated successfully' };
     }
-  } catch {
-    // Daemon unavailable - fall back to queue
+  } catch (err: unknown) {
+    // Only fall back to queue for connectivity errors; rethrow others
+    if (!isConnectivityError(err)) throw err;
   }
 
   const updateOp: {

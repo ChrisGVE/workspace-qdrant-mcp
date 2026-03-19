@@ -73,8 +73,12 @@ export function logSearchEvent(daemonClient: DaemonClient | null, event: SearchE
   if (event.outcome !== undefined) request.outcome = event.outcome;
   if (event.parentEventId !== undefined) request.parent_event_id = event.parentEventId;
 
-  daemonClient.logSearchEvent(request).catch(() => {
-    // Instrumentation must never break search
+  daemonClient.logSearchEvent(request).catch((err: unknown) => {
+    // Instrumentation must never break search, but log for diagnostics
+    console.warn(
+      'logSearchEvent instrumentation failed:',
+      err instanceof Error ? err.message : err
+    );
   });
 }
 
@@ -106,7 +110,11 @@ export function updateSearchEvent(
   if (update.topResultRefs !== undefined) request.top_result_refs = update.topResultRefs;
   if (update.outcome !== undefined) request.outcome = update.outcome;
 
-  daemonClient.updateSearchEvent(request).catch(() => {
-    // Instrumentation must never break search
+  daemonClient.updateSearchEvent(request).catch((err: unknown) => {
+    // Instrumentation must never break search, but log for diagnostics
+    console.warn(
+      'updateSearchEvent instrumentation failed:',
+      err instanceof Error ? err.message : err
+    );
   });
 }

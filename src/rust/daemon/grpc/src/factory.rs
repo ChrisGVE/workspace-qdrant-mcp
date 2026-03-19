@@ -152,11 +152,15 @@ impl GrpcServer {
     ///
     /// If an external handle was injected via `with_write_actor`, use it.
     /// Otherwise, spawn a new WriteActor from the db_pool.
+    ///
+    /// **Note**: The fallback path spawns a new, untracked WriteActor each call.
+    /// This method must only be called once during `serve()`. The injected handle
+    /// path (`with_write_actor`) is preferred for production use.
     fn resolve_write_actor(&self) -> Option<workspace_qdrant_core::write_actor::WriteActorHandle> {
         if let Some(ref handle) = self.write_actor {
             return Some(handle.clone());
         }
-        // Fallback: spawn a WriteActor from the pool
+        // Fallback: spawn a WriteActor from the pool (single-call only)
         let pool = self.db_pool.as_ref()?;
         let handle = workspace_qdrant_core::write_actor::WriteActor::spawn(pool.clone());
         Some(handle)
@@ -276,6 +280,11 @@ impl GrpcServer {
                 .add_service(admin_write_svc);
             tracing::info!(
                 "Registered 5 write services via WriteActor for serialized SQLite mutations"
+            );
+        } else {
+            tracing::warn!(
+                "Write services NOT registered: no db_pool or write_actor available. \
+                 Queue, watch, library, tracking, and admin mutations will be unavailable."
             );
         }
 

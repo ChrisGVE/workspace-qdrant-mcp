@@ -88,11 +88,7 @@ impl WriteActor {
             .await
             .map_err(|e| format!("transaction error: {}", e))?;
 
-        sqlx::query("PRAGMA foreign_keys = OFF")
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("database error: {}", e))?;
-
+        // Delete children first (dependency order) to respect FK constraints
         let cancelled = sqlx::query(
             "DELETE FROM unified_queue WHERE tenant_id = ?1 AND collection = 'libraries'",
         )
@@ -116,13 +112,9 @@ impl WriteActor {
             .map_err(|e| format!("database error: {}", e))?
             .rows_affected() as u32;
 
+        // Parent deleted last — all children already removed
         sqlx::query("DELETE FROM watch_folders WHERE watch_id = ?1")
             .bind(&watch_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("database error: {}", e))?;
-
-        sqlx::query("PRAGMA foreign_keys = ON")
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("database error: {}", e))?;
@@ -218,6 +210,10 @@ impl WriteActor {
         &self,
         data: ConfigureLibraryData,
     ) -> WriteResult<u32> {
+        if data.enable == Some(true) && data.disable == Some(true) {
+            return Err("cannot enable and disable a library simultaneously".into());
+        }
+
         let watch_id = format!("lib-{}", data.tag);
         let now = timestamps::now_utc();
         let mut affected = 0u32;

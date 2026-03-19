@@ -46,7 +46,14 @@ impl WriteActor {
             .await
         {
             Ok(r) => total += r.rows_affected() as u32,
-            Err(_) => {} // Table may lack column
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("no such column") || msg.contains("has no column named") {
+                    // Table may lack tenant_id column in older schema versions
+                } else {
+                    return Err(format!("database error updating tracked_files: {}", e));
+                }
+            }
         }
 
         tx.commit()

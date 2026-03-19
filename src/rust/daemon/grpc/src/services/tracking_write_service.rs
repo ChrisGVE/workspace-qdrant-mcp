@@ -31,8 +31,8 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<LogSearchEventRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-        // Fire-and-forget: errors logged inside WriteActor
-        let _ = self
+        // Fire-and-forget: log errors but never fail the gRPC call
+        if let Err(e) = self
             .write_actor
             .log_search_event(LogSearchEventData {
                 id: req.id,
@@ -50,7 +50,10 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
                 outcome: req.outcome,
                 parent_event_id: req.parent_event_id,
             })
-            .await;
+            .await
+        {
+            tracing::warn!("log_search_event failed (fire-and-forget): {}", e);
+        }
         Ok(Response::new(()))
     }
 
@@ -59,7 +62,7 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<UpdateSearchEventRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-        let _ = self
+        if let Err(e) = self
             .write_actor
             .update_search_event(UpdateSearchEventData {
                 event_id: req.event_id,
@@ -68,7 +71,10 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
                 top_result_refs: req.top_result_refs,
                 outcome: req.outcome,
             })
-            .await;
+            .await
+        {
+            tracing::warn!("update_search_event failed (fire-and-forget): {}", e);
+        }
         Ok(Response::new(()))
     }
 
@@ -77,7 +83,7 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<UpsertRuleMirrorRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-        let _ = self
+        if let Err(e) = self
             .write_actor
             .upsert_rule_mirror(UpsertRuleMirrorData {
                 rule_id: req.rule_id,
@@ -87,7 +93,10 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
                 created_at: req.created_at,
                 updated_at: req.updated_at,
             })
-            .await;
+            .await
+        {
+            tracing::warn!("upsert_rule_mirror failed (fire-and-forget): {}", e);
+        }
         Ok(Response::new(()))
     }
 
@@ -96,12 +105,15 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<DeleteRuleMirrorRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-        let _ = self
+        if let Err(e) = self
             .write_actor
             .delete_rule_mirror(DeleteRuleMirrorData {
                 rule_id: req.rule_id,
             })
-            .await;
+            .await
+        {
+            tracing::warn!("delete_rule_mirror failed (fire-and-forget): {}", e);
+        }
         Ok(Response::new(()))
     }
 }

@@ -1,16 +1,14 @@
 //! SQL execution for TrackingWriteService commands.
 
-use tracing::warn;
-use wqm_common::timestamps;
-
 use super::actor::WriteActor;
 use super::commands::*;
+use wqm_common::timestamps;
 
 impl WriteActor {
     pub(super) async fn exec_log_search_event(&self, data: LogSearchEventData) -> WriteResult<()> {
         let now = timestamps::now_utc();
 
-        if let Err(e) = sqlx::query(
+        sqlx::query(
             "INSERT INTO search_events (
                 id, ts, session_id, project_id, actor, tool, op,
                 query_text, filters, top_k, result_count, latency_ms,
@@ -34,9 +32,7 @@ impl WriteActor {
         .bind(&data.parent_event_id)
         .execute(&self.pool)
         .await
-        {
-            warn!("failed to log search event: {}", e);
-        }
+        .map_err(|e| format!("failed to log search event: {}", e))?;
 
         Ok(())
     }
@@ -45,7 +41,7 @@ impl WriteActor {
         &self,
         data: UpdateSearchEventData,
     ) -> WriteResult<()> {
-        if let Err(e) = sqlx::query(
+        sqlx::query(
             "UPDATE search_events \
              SET result_count = ?1, latency_ms = ?2, top_result_refs = ?3, outcome = ?4 \
              WHERE id = ?5",
@@ -57,9 +53,7 @@ impl WriteActor {
         .bind(&data.event_id)
         .execute(&self.pool)
         .await
-        {
-            warn!("failed to update search event: {}", e);
-        }
+        .map_err(|e| format!("failed to update search event: {}", e))?;
 
         Ok(())
     }
@@ -68,7 +62,7 @@ impl WriteActor {
         &self,
         data: UpsertRuleMirrorData,
     ) -> WriteResult<()> {
-        if let Err(e) = sqlx::query(
+        sqlx::query(
             "INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
              ON CONFLICT(rule_id) DO UPDATE SET \
@@ -85,9 +79,7 @@ impl WriteActor {
         .bind(&data.updated_at)
         .execute(&self.pool)
         .await
-        {
-            warn!("failed to upsert rules mirror: {}", e);
-        }
+        .map_err(|e| format!("failed to upsert rules mirror: {}", e))?;
 
         Ok(())
     }
@@ -96,13 +88,11 @@ impl WriteActor {
         &self,
         data: DeleteRuleMirrorData,
     ) -> WriteResult<()> {
-        if let Err(e) = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
+        sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
             .bind(&data.rule_id)
             .execute(&self.pool)
             .await
-        {
-            warn!("failed to delete rules mirror: {}", e);
-        }
+            .map_err(|e| format!("failed to delete rules mirror: {}", e))?;
 
         Ok(())
     }

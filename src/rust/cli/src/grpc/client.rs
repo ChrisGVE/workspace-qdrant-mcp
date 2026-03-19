@@ -174,10 +174,12 @@ impl DaemonClient {
 /// Returns a clear error message if the daemon is not available.
 /// Use this before any write operation that requires the daemon.
 pub async fn ensure_daemon_available() -> Result<DaemonClient> {
-    DaemonClient::connect_default().await.map_err(|_| {
+    DaemonClient::connect_default().await.map_err(|e| {
         anyhow::anyhow!(
             "Daemon not running. Start memexd to execute this command.\n\
-             Hint: wqm service start"
+             Hint: wqm service start\n\
+             Cause: {}",
+            e
         )
     })
 }
