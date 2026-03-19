@@ -11,8 +11,9 @@ use workspace_qdrant_core::storage::{StorageClient, StorageConfig};
 use workspace_qdrant_core::{LanguageServerManager, ProjectLspConfig};
 
 use crate::services::{
-    CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl, ProjectServiceImpl,
-    SystemServiceImpl, TextSearchServiceImpl,
+    AdminWriteServiceImpl, CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl,
+    LibraryWriteServiceImpl, ProjectServiceImpl, QueueWriteServiceImpl, SystemServiceImpl,
+    TextSearchServiceImpl, TrackingWriteServiceImpl, WatchWriteServiceImpl,
 };
 use crate::{GrpcError, GrpcServer, ServerConfig};
 
@@ -232,6 +233,34 @@ impl GrpcServer {
             let graph_svc = proto::graph_service_server::GraphServiceServer::new(graph_svc_impl);
             tracing::info!("Registering GraphService gRPC endpoint");
             router = router.add_service(graph_svc);
+        }
+
+        // Register write services (daemon-exclusive SQLite mutations)
+        if let Some(pool) = self.db_pool.as_ref() {
+            let queue_write_svc = proto::queue_write_service_server::QueueWriteServiceServer::new(
+                QueueWriteServiceImpl::new(pool.clone()),
+            );
+            let watch_write_svc = proto::watch_write_service_server::WatchWriteServiceServer::new(
+                WatchWriteServiceImpl::new(pool.clone()),
+            );
+            let library_write_svc =
+                proto::library_write_service_server::LibraryWriteServiceServer::new(
+                    LibraryWriteServiceImpl::new(pool.clone()),
+                );
+            let tracking_write_svc =
+                proto::tracking_write_service_server::TrackingWriteServiceServer::new(
+                    TrackingWriteServiceImpl::new(pool.clone()),
+                );
+            let admin_write_svc = proto::admin_write_service_server::AdminWriteServiceServer::new(
+                AdminWriteServiceImpl::new(pool.clone()),
+            );
+            router = router
+                .add_service(queue_write_svc)
+                .add_service(watch_write_svc)
+                .add_service(library_write_svc)
+                .add_service(tracking_write_svc)
+                .add_service(admin_write_svc);
+            tracing::info!("Registered 5 write services for daemon-exclusive SQLite mutations");
         }
 
         // Start server with graceful shutdown
