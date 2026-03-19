@@ -125,13 +125,15 @@ describe('SqliteStateManager', () => {
     it('should return longest match when multiple projects match', () => {
       // Insert a parent project
       const db2 = new Database(dbPath);
-      db2.prepare(
-        `
+      db2
+        .prepare(
+          `
         INSERT INTO watch_folders
         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
         VALUES ('watch-parent', '/test', 'projects', 'parent000000', 1, datetime('now'), datetime('now'))
       `
-      ).run();
+        )
+        .run();
       db2.close();
 
       const result = manager.getProjectByPath('/test/project/src');
@@ -165,6 +167,68 @@ describe('SqliteStateManager', () => {
       expect(result.status).toBe('ok');
       expect(result.data).toHaveLength(1);
       expect(result.data[0].project_id).toBe('abc123456789');
+    });
+  });
+
+  // T-13: getProjectByPath returns correct result for a registered worktree
+  describe('worktree project lookup', () => {
+    let manager: SqliteStateManager;
+
+    beforeEach(() => {
+      const db = new Database(dbPath);
+
+      // Add is_worktree column as the daemon does via migration
+      db.exec('ALTER TABLE watch_folders ADD COLUMN is_worktree INTEGER DEFAULT 0');
+
+      // Insert the main project
+      db.prepare(
+        `INSERT INTO watch_folders
+         (watch_id, path, collection, tenant_id, is_active, is_worktree, created_at, updated_at)
+         VALUES ('watch-main', '/repos/main-project', 'projects', 'main0000000000', 1, 0,
+                 datetime('now'), datetime('now'))`
+      ).run();
+
+      // Insert a worktree entry pointing to a different directory
+      db.prepare(
+        `INSERT INTO watch_folders
+         (watch_id, path, collection, tenant_id, is_active, is_worktree, created_at, updated_at)
+         VALUES ('watch-wt', '/repos/worktrees/feature-branch', 'projects', 'worktreeid0000', 1, 1,
+                 datetime('now'), datetime('now'))`
+      ).run();
+
+      db.close();
+
+      manager = new SqliteStateManager({ dbPath });
+      manager.initialize();
+    });
+
+    afterEach(() => {
+      manager.close();
+    });
+
+    it('should return the worktree project_id when queried by worktree path', () => {
+      const result = manager.getProjectByPath('/repos/worktrees/feature-branch');
+
+      expect(result.status).toBe('ok');
+      expect(result.data).not.toBeNull();
+      expect(result.data!.project_id).toBe('worktreeid0000');
+      expect(result.data!.project_path).toBe('/repos/worktrees/feature-branch');
+    });
+
+    it('should not confuse worktree with main project when paths differ', () => {
+      const mainResult = manager.getProjectByPath('/repos/main-project');
+      const worktreeResult = manager.getProjectByPath('/repos/worktrees/feature-branch');
+
+      expect(mainResult.data!.project_id).toBe('main0000000000');
+      expect(worktreeResult.data!.project_id).toBe('worktreeid0000');
+    });
+
+    it('should match a subdirectory of the worktree path', () => {
+      const result = manager.getProjectByPath('/repos/worktrees/feature-branch/src/lib');
+
+      expect(result.status).toBe('ok');
+      expect(result.data).not.toBeNull();
+      expect(result.data!.project_id).toBe('worktreeid0000');
     });
   });
 
