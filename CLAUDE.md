@@ -78,11 +78,17 @@ launchctl load ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
 Use `wqm --help` and `wqm <subcommand> --help` for full usage. Key commands:
 
 ```bash
-wqm service status              # Check daemon status
-wqm admin health                # Health diagnostics
-wqm queue list / stats          # Queue monitoring
-wqm watch pause / resume        # File watcher control
-wqm graph stats --tenant <t>    # Graph subsystem
+wqm service status                # Check daemon status
+wqm status health                 # Health diagnostics
+wqm queue list / stats            # Queue monitoring
+wqm project watch pause / resume  # File watcher control
+wqm admin perf                    # Pipeline performance stats
+wqm admin collections list        # Collection management
+wqm admin rebuild all             # Rebuild all indexes
+wqm graph stats --tenant <t>      # Graph subsystem
+wqm init completions zsh          # Shell completions
+wqm init man install              # Install man pages
+wqm init hooks install            # Install Claude Code hooks
 ```
 
 ## Code Architecture
