@@ -11,10 +11,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import type { ServerConfig } from './types/index.js';
 import { logInfo, logError, logDebug, logToolCall } from './utils/logger.js';
@@ -56,6 +53,8 @@ export class WorkspaceQdrantMcpServer {
     sessionId: '',
     projectId: null,
     projectPath: null,
+    watchPath: null,
+    isWorktree: false,
     heartbeatInterval: null,
     daemonConnected: false,
   };
@@ -72,8 +71,8 @@ export class WorkspaceQdrantMcpServer {
       {
         capabilities: { tools: {} },
         instructions: [
-          'This server provides access to the user\'s indexed codebase and knowledge libraries.',
-          'ALWAYS use the `search` tool before answering questions about the user\'s code, project structure, or library documentation.',
+          "This server provides access to the user's indexed codebase and knowledge libraries.",
+          "ALWAYS use the `search` tool before answering questions about the user's code, project structure, or library documentation.",
           'Use the `rules` tool to check for behavioral preferences before starting work.',
           'Use `retrieve` to access specific documents when you know the document ID.',
           'Use `list` to browse project file/folder structure — start with format "summary" to get an overview.',
@@ -109,7 +108,17 @@ export class WorkspaceQdrantMcpServer {
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
     const startTime = Date.now();
-    const { searchTool, retrieveTool, rulesTool, storeTool, grepTool, listTool, healthMonitor, daemonClient, stateManager } = this.components;
+    const {
+      searchTool,
+      retrieveTool,
+      rulesTool,
+      storeTool,
+      grepTool,
+      listTool,
+      healthMonitor,
+      daemonClient,
+      stateManager,
+    } = this.components;
 
     // Implicit heartbeat — fire-and-forget to avoid latency
     sendHeartbeat(this.sessionState, daemonClient);
@@ -170,11 +179,8 @@ export class WorkspaceQdrantMcpServer {
         logInfo('State manager degraded', { reason: initResult.reason });
       }
 
-      await initializeSession(
-        this.sessionState,
-        daemonClient,
-        projectDetector,
-        () => startHeartbeat(this.sessionState, () => sendHeartbeat(this.sessionState, daemonClient))
+      await initializeSession(this.sessionState, daemonClient, projectDetector, () =>
+        startHeartbeat(this.sessionState, () => sendHeartbeat(this.sessionState, daemonClient))
       );
 
       healthMonitor.start();

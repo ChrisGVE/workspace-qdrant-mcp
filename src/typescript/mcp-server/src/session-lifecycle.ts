@@ -107,10 +107,12 @@ export async function registerProject(
     }
 
     if (response.is_worktree) {
+      sessionState.isWorktree = true;
+      sessionState.watchPath = response.watch_path ?? sessionState.projectPath;
       logInfo('Registered as worktree', {
         project_path: sessionState.projectPath,
         project_id: response.project_id,
-        watch_path: response.watch_path,
+        watch_path: sessionState.watchPath,
       });
     }
 
@@ -263,7 +265,9 @@ export async function cleanup(
       const projectId = sessionState.projectId!;
       const response = await daemonClient.deprioritizeProject({
         project_id: projectId,
-        ...(sessionState.projectPath ? { watch_path: sessionState.projectPath } : {}),
+        ...(sessionState.isWorktree && sessionState.watchPath
+          ? { watch_path: sessionState.watchPath }
+          : {}),
       });
       logSessionEvent('deprioritize', {
         project_id: sessionState.projectId,

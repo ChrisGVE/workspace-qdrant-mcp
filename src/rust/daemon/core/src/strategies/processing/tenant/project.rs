@@ -216,7 +216,7 @@ async fn resolve_worktree_info(
     );
 
     // Look up the watch_id of the main worktree in watch_folders
-    let main_watch_id: Option<String> = sqlx::query_scalar(
+    let main_watch_id = sqlx::query_scalar::<_, String>(
         "SELECT watch_id FROM watch_folders \
          WHERE path = ?1 AND tenant_id = ?2 AND collection = ?3",
     )
@@ -224,8 +224,18 @@ async fn resolve_worktree_info(
     .bind(&item.tenant_id)
     .bind(COLLECTION_PROJECTS)
     .fetch_optional(ctx.queue_manager.pool())
-    .await
-    .unwrap_or(None);
+    .await;
+
+    let main_watch_id = match main_watch_id {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                "Failed to look up main worktree watch_id for path={} tenant={}: {}",
+                main_path_str, item.tenant_id, e
+            );
+            None
+        }
+    };
 
     if main_watch_id.is_none() {
         debug!(

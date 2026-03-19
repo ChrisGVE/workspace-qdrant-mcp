@@ -15,6 +15,7 @@ pub(crate) mod lsp_lifecycle;
 mod mutations;
 mod queries;
 mod registration;
+mod worktree;
 
 #[cfg(test)]
 mod tests;

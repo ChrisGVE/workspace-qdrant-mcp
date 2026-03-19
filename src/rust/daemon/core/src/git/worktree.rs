@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 /// Find the main working tree path for a git worktree.
 ///
@@ -7,7 +8,7 @@ use std::path::{Path, PathBuf};
 /// returns its parent as the main working tree root.
 ///
 /// Returns `None` if:
-/// - The `commondir` file doesn't exist or is unreadable (not a worktree)
+/// - The `commondir` file doesn't exist (not a worktree)
 /// - The resolved path doesn't exist on disk
 ///
 /// # Examples
@@ -22,7 +23,18 @@ use std::path::{Path, PathBuf};
 /// ```
 pub fn find_main_worktree_path(worktree_git_dir: &Path) -> Option<PathBuf> {
     let commondir_file = worktree_git_dir.join("commondir");
-    let content = std::fs::read_to_string(&commondir_file).ok()?;
+    let content = match std::fs::read_to_string(&commondir_file) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            warn!(
+                "Failed to read commondir at {}: {}",
+                commondir_file.display(),
+                e
+            );
+            return None;
+        }
+    };
     let common_path = content.trim();
 
     // Resolve absolute or relative path
