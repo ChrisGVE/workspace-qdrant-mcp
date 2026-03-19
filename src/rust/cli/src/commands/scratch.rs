@@ -8,10 +8,9 @@ use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::grpc::client::DaemonClient;
-use crate::grpc::proto::{QueueType, RefreshSignalRequest};
+use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::{EnqueueItemRequest, QueueType, RefreshSignalRequest};
 use crate::output::{self, ColumnHints};
-use crate::queue::{ScratchpadPayload, UnifiedQueueClient};
 
 /// Scratchpad command arguments
 #[derive(Args)]
@@ -108,28 +107,40 @@ async fn add_entry(
         })
         .unwrap_or_default();
 
-    let payload = ScratchpadPayload {
-        content: content.clone(),
-        title: title.clone(),
-        tags: tag_vec.clone(),
-        source_type: "scratchpad".to_string(),
-    };
+    let payload_json = serde_json::json!({
+        "content": content,
+        "title": title,
+        "tags": tag_vec,
+        "source_type": "scratchpad",
+    })
+    .to_string();
 
-    let queue = UnifiedQueueClient::connect()?;
-    let result = queue.enqueue_scratchpad(&tenant_id, &payload)?;
+    let mut client = ensure_daemon_available().await?;
+
+    let response = client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "text".to_string(),
+            op: "add".to_string(),
+            tenant_id: tenant_id.to_string(),
+            collection: wqm_common::constants::COLLECTION_SCRATCHPAD.to_string(),
+            payload_json,
+            branch: "main".to_string(),
+            metadata_json: None,
+        })
+        .await?
+        .into_inner();
 
     // Signal daemon to process queue
-    if let Ok(mut client) = DaemonClient::connect_default().await {
-        let request = RefreshSignalRequest {
-            queue_type: QueueType::IngestQueue as i32,
-            lsp_languages: vec![],
-            grammar_languages: vec![],
-        };
-        let _ = client.system().send_refresh_signal(request).await;
-    }
+    let request = RefreshSignalRequest {
+        queue_type: QueueType::IngestQueue as i32,
+        lsp_languages: vec![],
+        grammar_languages: vec![],
+    };
+    let _ = client.system().send_refresh_signal(request).await;
 
     output::section("Scratchpad Entry Queued");
-    output::kv("Queue ID", &result.queue_id);
+    output::kv("Queue ID", &response.queue_id);
     output::kv("Tenant", &tenant_id);
     if let Some(t) = &title {
         output::kv("Title", t);
@@ -143,7 +154,7 @@ async fn add_entry(
         content
     };
     output::kv("Content", &preview);
-    if result.was_duplicate {
+    if !response.is_new {
         output::warning("Duplicate entry (already queued)");
     }
 
