@@ -130,6 +130,8 @@ impl DaemonStateManager {
             is_archived: row.try_get::<i32, _>("is_archived").unwrap_or(0) != 0,
             last_commit_hash: row.try_get("last_commit_hash").unwrap_or(None),
             is_git_tracked: row.try_get::<i32, _>("is_git_tracked").unwrap_or(0) != 0,
+            // unwrap_or defaults handle pre-v31 databases lacking these columns.
+            // TODO: convert to ? after v0.2.0 when all databases are guaranteed migrated.
             is_worktree: row.try_get::<i32, _>("is_worktree").unwrap_or(0) != 0,
             main_worktree_watch_id: row.try_get("main_worktree_watch_id").unwrap_or(None),
             library_mode: row.try_get("library_mode")?,

@@ -113,7 +113,7 @@ impl PriorityManager {
         tenant_id: &str,
         path: &str,
     ) -> PriorityResult<i32> {
-        if tenant_id.is_empty() {
+        if tenant_id.is_empty() || path.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }
 

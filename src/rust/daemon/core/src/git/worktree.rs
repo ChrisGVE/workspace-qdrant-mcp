@@ -45,7 +45,18 @@ pub fn find_main_worktree_path(worktree_git_dir: &Path) -> Option<PathBuf> {
     };
 
     // Canonicalize to resolve ".." components and verify existence
-    let canonical = resolved.canonicalize().ok()?;
+    let canonical = match resolved.canonicalize() {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            warn!(
+                "Failed to canonicalize worktree common dir {}: {}",
+                resolved.display(),
+                e
+            );
+            return None;
+        }
+    };
 
     // The common dir points to the main .git directory;
     // its parent is the main working tree root

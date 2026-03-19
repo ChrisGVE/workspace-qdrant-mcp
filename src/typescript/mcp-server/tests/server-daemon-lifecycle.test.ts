@@ -208,13 +208,7 @@ describe('Session lifecycle with connected daemon', () => {
       connect: vi.fn().mockResolvedValue(undefined),
       close: vi.fn(),
       isConnected: vi.fn().mockReturnValue(true),
-      registerProject: vi.fn().mockResolvedValue({
-        created: false,
-        project_id: 'proj-with-path',
-        priority: 'high',
-        is_active: true,
-        newly_registered: false,
-      }),
+      registerProject: vi.fn(), // configured below after realProjectPath is known
       deprioritizeProject: vi.fn().mockResolvedValue({
         success: true,
         is_active: false,
@@ -230,6 +224,17 @@ describe('Session lifecycle with connected daemon', () => {
     mkdirSync(projectPath);
     mkdirSync(join(projectPath, '.git'));
     const realProjectPath = realpathSync(projectPath);
+
+    // Configure registerProject mock now that realProjectPath is known
+    mockInstance.registerProject.mockResolvedValue({
+      created: false,
+      project_id: 'proj-with-path',
+      priority: 'high',
+      is_active: true,
+      newly_registered: false,
+      is_worktree: true,
+      watch_path: realProjectPath,
+    });
 
     const db = new Database(join(tempDir, 'state.db'));
     db.prepare(
