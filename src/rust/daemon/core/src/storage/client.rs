@@ -15,6 +15,7 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 use super::config::{StorageConfig, TransportMode};
+use super::qdrant_circuit_breaker::QdrantCircuitBreaker;
 use super::types::StorageError;
 
 /// Connection pool statistics
@@ -35,6 +36,8 @@ pub struct StorageClient {
     pub(crate) config: StorageConfig,
     /// Connection pool statistics
     pub(crate) stats: Arc<tokio::sync::Mutex<ConnectionStats>>,
+    /// Circuit breaker for Qdrant availability tracking
+    circuit_breaker: Arc<QdrantCircuitBreaker>,
 }
 
 impl StorageClient {
@@ -98,6 +101,7 @@ impl StorageClient {
             client,
             config,
             stats: Arc::new(tokio::sync::Mutex::new(ConnectionStats::default())),
+            circuit_breaker: Arc::new(QdrantCircuitBreaker::with_defaults()),
         }
     }
 
@@ -121,6 +125,16 @@ impl StorageClient {
         }
     }
 
+    /// Return a shared reference to the Qdrant circuit breaker.
+    pub fn circuit_breaker(&self) -> &Arc<QdrantCircuitBreaker> {
+        &self.circuit_breaker
+    }
+
+    /// Quick check: is Qdrant presumed available (circuit not open)?
+    pub fn is_qdrant_available(&self) -> bool {
+        self.circuit_breaker.is_available()
+    }
+
     /// Get connection statistics
     pub async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
         let stats = self.stats.lock().await;
@@ -141,12 +155,24 @@ impl StorageClient {
         Ok(result)
     }
 
-    /// Retry operation with exponential backoff
+    /// Retry operation with exponential backoff and circuit breaker integration.
+    ///
+    /// If the circuit breaker is open, returns immediately with a
+    /// `StorageError::Connection` indicating Qdrant is unavailable.
+    /// Successful operations feed `record_success()` into the circuit
+    /// breaker; failures feed `record_failure()`.
     pub(crate) async fn retry_operation<F, Fut, T>(&self, operation: F) -> Result<T, StorageError>
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<T, StorageError>>,
     {
+        // Circuit breaker gate: fail fast when Qdrant is presumed down
+        if !self.circuit_breaker.is_available() {
+            return Err(StorageError::Connection(
+                "Qdrant circuit breaker open — service presumed unavailable".to_string(),
+            ));
+        }
+
         let mut attempt = 0;
         let max_retries = self.config.max_retries;
         let base_delay = Duration::from_millis(self.config.retry_delay_ms);
@@ -158,6 +184,7 @@ impl StorageClient {
                         info!("Operation succeeded after {} retries", attempt);
                     }
                     self.update_stats(|stats| stats.total_requests += 1).await;
+                    self.circuit_breaker.record_success();
                     return Ok(result);
                 }
                 Err(e) => {
@@ -167,9 +194,17 @@ impl StorageClient {
                         stats.total_errors += 1;
                     })
                     .await;
+                    let just_opened = self.circuit_breaker.record_failure();
 
-                    if attempt >= max_retries {
-                        error!("Operation failed after {} attempts: {}", attempt, e);
+                    if attempt >= max_retries || just_opened {
+                        if just_opened {
+                            error!(
+                                "Qdrant circuit breaker opened after {} failures — halting retries: {}",
+                                attempt, e
+                            );
+                        } else {
+                            error!("Operation failed after {} attempts: {}", attempt, e);
+                        }
                         return Err(e);
                     }
 

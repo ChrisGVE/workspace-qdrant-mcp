@@ -101,6 +101,12 @@ pub struct UnifiedProcessorConfig {
     /// How often (seconds) to scan for failed transient items and reset them to pending.
     /// Default: 3600 (1 hour). Set to 0 to disable.
     pub failed_resurrection_interval_secs: u64,
+    /// Maximum number of resurrections before an item is marked as permanently exhausted.
+    /// Default: 5. After this many resurrection cycles, the item stops being resurrected.
+    pub max_resurrections: i32,
+    /// Failed item triage interval in seconds. 0 to disable.
+    /// Default: 300 (5 minutes). Examines failed items for salvageable conditions.
+    pub triage_interval_secs: u64,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -133,6 +139,8 @@ impl Default for UnifiedProcessorConfig {
             onnx_intra_threads: 2,
             // Failed item resurrection
             failed_resurrection_interval_secs: 3600,
+            max_resurrections: 5,
+            triage_interval_secs: 300,
         }
     }
 }

@@ -81,11 +81,23 @@ pub(super) async fn process_file_delete(
                 .unwrap_or_default();
 
             if !point_ids.is_empty() {
-                // Delete from Qdrant first (irreversible), scoped to tenant
-                ctx.storage_client
+                // Delete from Qdrant (best-effort for deletes — orphaned points are
+                // acceptable; blocking the queue is not).
+                match ctx
+                    .storage_client
                     .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
                     .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!(
+                            "Qdrant delete failed for {} ({} tracked points): {} — proceeding with SQLite cleanup",
+                            relative_path,
+                            point_ids.len(),
+                            e
+                        );
+                    }
+                }
             }
         }
         timings.push(PhaseTiming {
@@ -179,26 +191,37 @@ pub(super) async fn process_file_delete(
         return Ok(());
     }
 
-    // Fallback: file not in tracked_files, attempt Qdrant filter delete (tenant-scoped)
-    warn!(
-        "File not in tracked_files, falling back to Qdrant filter delete: {}",
+    // Fallback: file not in tracked_files, attempt Qdrant filter delete (tenant-scoped).
+    // Best-effort: if Qdrant is down the file was likely never indexed (or points
+    // are already gone). Orphaned points are acceptable; blocking the queue is not.
+    debug!(
+        "File not in tracked_files, attempting Qdrant filter delete: {}",
         abs_file_path
     );
     let t0 = Instant::now();
-    ctx.storage_client
+    match ctx
+        .storage_client
         .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
         .await
-        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+    {
+        Ok(_) => {
+            info!(
+                "Deleted points for file (fallback) in {}ms: {}",
+                delete_start.elapsed().as_millis(),
+                abs_file_path
+            );
+        }
+        Err(e) => {
+            warn!(
+                "Qdrant fallback delete failed for {}: {} — treating as success (points may not exist)",
+                abs_file_path, e
+            );
+        }
+    }
     timings.push(PhaseTiming {
         phase: "qdrant_delete",
         duration_ms: t0.elapsed().as_millis() as u64,
     });
-
-    info!(
-        "Deleted points for file (fallback) in {}ms: {}",
-        delete_start.elapsed().as_millis(),
-        abs_file_path
-    );
 
     record_delete_timings(ctx, item, pool, detected_language, &timings).await;
     Ok(())

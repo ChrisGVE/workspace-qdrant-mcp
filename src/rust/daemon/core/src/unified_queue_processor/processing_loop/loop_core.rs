@@ -85,16 +85,28 @@ impl UnifiedQueueProcessor {
             .checked_sub(Duration::from_secs(uplift_config.min_interval_secs))
             .unwrap_or_else(std::time::Instant::now);
 
+        // Failed item triage tracking
+        let triage_interval_secs = config.triage_interval_secs;
+        let mut last_triage = std::time::Instant::now()
+            .checked_sub(Duration::from_secs(triage_interval_secs))
+            .unwrap_or_else(std::time::Instant::now);
+
         // Grammar idle-time update check tracking
         let mut idle_since: Option<std::time::Instant> = None;
         let mut last_grammar_check = std::time::Instant::now()
             .checked_sub(Duration::from_secs(3600))
             .unwrap_or_else(std::time::Instant::now);
 
+        // Maintenance scheduler
+        let mut maintenance_scheduler = crate::idle::MaintenanceScheduler::new();
+        maintenance_scheduler
+            .register(Box::new(crate::idle::tasks::FilesystemReconcileTask::new()));
+        maintenance_scheduler.register(Box::new(crate::idle::tasks::OrphanCleanupTask::new()));
+
         info!(
-            "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s)",
+            "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s, maintenance_tasks={})",
             config.batch_size, config.worker_id, config.fairness_enabled,
-            config.warmup_window_secs
+            config.warmup_window_secs, maintenance_scheduler.task_count()
         );
 
         loop {
@@ -170,6 +182,39 @@ impl UnifiedQueueProcessor {
                 continue;
             }
 
+            // Qdrant circuit breaker: when open, probe once to detect recovery
+            // instead of dequeuing items that will immediately fail.
+            if !storage_client.is_qdrant_available() {
+                debug!("Qdrant circuit breaker open — probing before dequeue");
+                match storage_client.test_connection().await {
+                    Ok(true) => {
+                        // Record success so the circuit breaker transitions
+                        // from HalfOpen → Closed (requires success_threshold successes).
+                        storage_client.circuit_breaker().record_success();
+                        info!("Qdrant recovered — resuming queue processing");
+                        match queue_manager
+                            .resurrect_failed_transient(config.max_resurrections)
+                            .await
+                        {
+                            Ok((resurrected, exhausted)) => {
+                                if resurrected > 0 || exhausted > 0 {
+                                    info!(
+                                        "Recovery resurrection: reset {} item(s), exhausted {} item(s)",
+                                        resurrected, exhausted
+                                    );
+                                }
+                            }
+                            Err(e) => warn!("Recovery resurrection failed: {}", e),
+                        }
+                    }
+                    _ => {
+                        debug!("Qdrant still unavailable, sleeping 5s");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
+            }
+
             // Update queue depth in metrics and adaptive resource counter
             if let Ok(depth) = queue_manager.get_unified_queue_depth(None, None).await {
                 let mut m = metrics.write().await;
@@ -222,6 +267,29 @@ impl UnifiedQueueProcessor {
                         }
 
                         let idle_elapsed = idle_since.map_or(0, |t| t.elapsed().as_secs());
+
+                        // Maintenance scheduler — run one batch if eligible
+                        {
+                            let qdrant_available = storage_client.is_qdrant_available();
+                            let memory_pressure =
+                                Self::check_memory_pressure(config.max_memory_percent).await;
+                            let idle_state = crate::idle::IdleState::determine(
+                                0, // queue is empty (we're in the empty branch)
+                                qdrant_available,
+                                memory_pressure,
+                            );
+                            if idle_state.allows_maintenance() {
+                                let maint_ctx = crate::idle::MaintenanceContext {
+                                    pool: queue_manager.pool(),
+                                    storage_client: &storage_client,
+                                    search_db: search_db.as_ref(),
+                                    queue_manager: &queue_manager,
+                                };
+                                let _ = maintenance_scheduler
+                                    .tick(idle_state, idle_elapsed, &maint_ctx)
+                                    .await;
+                            }
+                        }
 
                         // Run grammar update check when idle long enough (Task 5)
                         if let Some(ref gm) = grammar_manager {
@@ -299,12 +367,15 @@ impl UnifiedQueueProcessor {
                         if resurrection_interval_secs > 0
                             && last_resurrection.elapsed().as_secs() >= resurrection_interval_secs
                         {
-                            match queue_manager.resurrect_failed_transient().await {
-                                Ok(count) => {
-                                    if count > 0 {
+                            match queue_manager
+                                .resurrect_failed_transient(config.max_resurrections)
+                                .await
+                            {
+                                Ok((resurrected, exhausted)) => {
+                                    if resurrected > 0 || exhausted > 0 {
                                         info!(
-                                            "Resurrection pass: reset {} failed transient item(s) to pending",
-                                            count
+                                            "Resurrection pass: reset {} item(s), exhausted {} item(s)",
+                                            resurrected, exhausted
                                         );
                                     }
                                 }
@@ -315,6 +386,16 @@ impl UnifiedQueueProcessor {
                             last_resurrection = std::time::Instant::now();
                         }
 
+                        // Failed item triage
+                        if triage_interval_secs > 0
+                            && last_triage.elapsed().as_secs() >= triage_interval_secs
+                        {
+                            if let Err(e) = queue_manager.triage_failed_items().await {
+                                warn!("Triage pass failed (non-fatal): {}", e);
+                            }
+                            last_triage = std::time::Instant::now();
+                        }
+
                         debug!(
                             "Unified queue is empty, waiting {}ms",
                             config.poll_interval_ms
@@ -323,7 +404,8 @@ impl UnifiedQueueProcessor {
                         continue;
                     }
 
-                    // Queue has items — reset idle tracker
+                    // Queue has items — cancel maintenance and reset idle tracker
+                    maintenance_scheduler.cancel_active();
                     idle_since = None;
 
                     info!(

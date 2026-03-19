@@ -18,7 +18,8 @@ use wqm_common::hashing::compute_content_hash;
 ///
 /// Reads the file from disk, compares content hash against indexed_content cache.
 /// If changed (or new), computes line diff and applies to code_lines + FTS5.
-/// Failures are logged but non-fatal -- they don't block Qdrant ingestion.
+/// Returns `Ok(true)` if updated, `Ok(false)` if skipped (unchanged/binary),
+/// `Err` if the FTS5 write failed.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn update_fts5_for_file(
     search_db: &Arc<SearchDbManager>,
@@ -30,7 +31,7 @@ pub(super) async fn update_fts5_for_file(
     base_point: Option<&str>,
     relative_path: Option<&str>,
     file_hash: Option<&str>,
-) {
+) -> Result<bool, String> {
     let fts_start = std::time::Instant::now();
 
     // Read file content from disk
@@ -41,7 +42,7 @@ pub(super) async fn update_fts5_for_file(
                 "FTS5: cannot read file for indexing (may be binary): {}: {}",
                 file_path, e
             );
-            return;
+            return Ok(false);
         }
     };
 
@@ -55,7 +56,7 @@ pub(super) async fn update_fts5_for_file(
                     "FTS5: content unchanged (hash match), skipping: {}",
                     file_path
                 );
-                return;
+                return Ok(false);
             }
             // Content changed -- use cached content as diff base
             String::from_utf8(cached_bytes).unwrap_or_default()
@@ -134,12 +135,11 @@ pub(super) async fn update_fts5_for_file(
                     file_id, e
                 );
             }
+            Ok(true)
         }
         Err(e) => {
-            warn!(
-                "FTS5: failed to update code_lines for {}: {} (non-fatal)",
-                file_path, e
-            );
+            warn!("FTS5: failed to update code_lines for {}: {}", file_path, e);
+            Err(format!("FTS5 indexing failed for {}: {}", file_path, e))
         }
     }
 }
