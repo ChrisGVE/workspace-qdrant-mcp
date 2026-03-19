@@ -1,6 +1,6 @@
-//! WQM - Workspace Qdrant MCP CLI
+//! WQM - Workspace Qdrant MCP Companion
 //!
-//! A high-performance CLI for managing workspace-qdrant-mcp daemon.
+//! A high-performance companion for the workspace-qdrant-mcp daemon.
 //! Designed for <100ms startup time using minimal tokio runtime.
 
 use anyhow::Result;
@@ -19,46 +19,46 @@ mod tui;
 const HELP_TEMPLATE: &str = "\
 {before-help}{name} {version}
 {about-with-newline}
-{usage-heading} {usage}
+USAGE: {usage}
 
-Options:
+OPTIONS:
 {options}
-Search & Content:
+SEARCH & CONTENT:
   search       Search collections (project, library, rules, global)
   ingest       Ingest documents (file, folder, web)
   rules        Behavioral rules management
   scratch      Scratchpad entries
 
-Project & Library:
+PROJECT & LIBRARY:
   project      Project lifecycle (list, info, register, watch, branch)
   library      Library management (list, add, ingest, watch, remove)
 
-Queue & Monitoring:
+QUEUE & MONITORING:
   queue        Queue inspector (list, show, stats, cancel)
   status       System status and monitoring
   tui          Interactive terminal UI
 
-Service & Admin:
+SERVICE & ADMIN:
   service      Daemon management (start, stop, restart, status)
   admin        Administration (collections, backup, restore, rebuild, stats, perf, metrics)
   config       Configuration management
 
-Code Analysis:
+CODE ANALYSIS:
   graph        Code relationship graph
   language     Language tools (LSP, Tree-sitter)
   tags         Keyword/tag hierarchy
 
-Setup & Diagnostics:
-  init         Setup tools (completions, man pages, hooks)
+SETUP & DIAGNOSTICS:
+  init         Setup (shell completions, hooks)
   update       Update from GitHub releases
   debug        Diagnostic tools (logs, errors)
   benchmark    Benchmarking tools
 {after-help}";
 
-/// Workspace Qdrant MCP CLI
+/// Workspace Qdrant MCP Companion
 #[derive(Parser)]
 #[command(name = "wqm")]
-#[command(author, version, about = "Workspace Qdrant MCP CLI", long_about = None)]
+#[command(author, version, about = "Workspace Qdrant MCP Companion", long_about = None)]
 #[command(long_version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_NUMBER"), ")"))]
 #[command(propagate_version = true)]
 #[command(arg_required_else_help = true)]
@@ -155,7 +155,7 @@ enum Commands {
     Config(commands::config_cmd::ConfigCmdArgs),
 
     // --- Setup & Diagnostics ---
-    /// Setup tools (completions, man pages, hooks)
+    /// Setup (shell completions, hooks)
     #[command(display_order = 60)]
     Init(commands::init::InitArgs),
 
