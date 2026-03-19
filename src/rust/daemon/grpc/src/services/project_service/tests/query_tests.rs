@@ -30,7 +30,8 @@ async fn test_deprioritize_project() {
 
     let request = Request::new(DeprioritizeProjectRequest {
         project_id: "abcd12345678".to_string(),
-        watch_path: None,    });
+        watch_path: None,
+    });
 
     let response = service.deprioritize_project(request).await.unwrap();
     let response = response.into_inner();
@@ -141,7 +142,8 @@ async fn test_list_projects_active_only() {
 
     let request = Request::new(DeprioritizeProjectRequest {
         project_id: "abcd12345678".to_string(),
-        watch_path: None,    });
+        watch_path: None,
+    });
     service.deprioritize_project(request).await.unwrap();
 
     let request = Request::new(ListProjectsRequest {
