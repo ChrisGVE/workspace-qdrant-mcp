@@ -31,6 +31,8 @@ fn make_test_watch_folder(watch_id: &str, path: &str, tenant_id: &str) -> WatchF
         is_archived: false,
         last_commit_hash: None,
         is_git_tracked: false,
+        is_worktree: false,
+        main_worktree_watch_id: None,
         library_mode: None,
         follow_symlinks: false,
         enabled: true,

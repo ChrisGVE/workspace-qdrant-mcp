@@ -40,6 +40,8 @@ fn test_watch_record(id: &str, path: &str) -> WatchFolderRecord {
         is_archived: false,
         last_commit_hash: None,
         is_git_tracked: false,
+        is_worktree: false,
+        main_worktree_watch_id: None,
         library_mode: None,
         follow_symlinks: false,
         enabled: true,

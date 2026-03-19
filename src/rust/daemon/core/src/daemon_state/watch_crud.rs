@@ -19,10 +19,11 @@ impl DaemonStateManager {
                 parent_watch_id, submodule_path,
                 git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
                 is_paused, pause_start_time, is_archived, last_commit_hash, is_git_tracked,
+                is_worktree, main_worktree_watch_id,
                 library_mode,
                 follow_symlinks, enabled, cleanup_on_disable,
                 created_at, updated_at, last_scan
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
             "#,
         )
         .bind(&record.watch_id)
@@ -41,6 +42,8 @@ impl DaemonStateManager {
         .bind(record.is_archived as i32)
         .bind(&record.last_commit_hash)
         .bind(record.is_git_tracked as i32)
+        .bind(record.is_worktree as i32)
+        .bind(&record.main_worktree_watch_id)
         .bind(&record.library_mode)
         .bind(record.follow_symlinks as i32)
         .bind(record.enabled as i32)
@@ -81,6 +84,7 @@ impl DaemonStateManager {
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
                    is_paused, pause_start_time, is_archived, last_commit_hash, is_git_tracked,
+                   is_worktree, main_worktree_watch_id,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -109,6 +113,7 @@ impl DaemonStateManager {
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
                    is_paused, pause_start_time, is_archived, last_commit_hash, is_git_tracked,
+                   is_worktree, main_worktree_watch_id,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -150,6 +155,7 @@ impl DaemonStateManager {
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
                    is_paused, pause_start_time, is_archived, last_commit_hash, is_git_tracked,
+                   is_worktree, main_worktree_watch_id,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -183,6 +189,7 @@ impl DaemonStateManager {
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
                    is_paused, pause_start_time, is_archived, last_commit_hash, is_git_tracked,
+                   is_worktree, main_worktree_watch_id,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
