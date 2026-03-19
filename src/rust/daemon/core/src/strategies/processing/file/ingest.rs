@@ -96,7 +96,7 @@ async fn handle_retry_skip(
                 .queue_manager
                 .update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress)
                 .await;
-            fts5_index::update_fts5_for_file(
+            let fts_status = match fts5_index::update_fts5_for_file(
                 sdb,
                 pool,
                 existing.file_id,
@@ -107,10 +107,20 @@ async fn handle_retry_skip(
                 Some(relative_path),
                 Some(existing.file_hash.as_str()),
             )
-            .await;
+            .await
+            {
+                Ok(_) => DestinationStatus::Done,
+                Err(e) => {
+                    warn!(
+                        "FTS5 retry failed for {} — search_status set to Failed: {}",
+                        payload.file_path, e
+                    );
+                    DestinationStatus::Failed
+                }
+            };
             let _ = ctx
                 .queue_manager
-                .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
+                .update_destination_status(&item.queue_id, "search", fts_status)
                 .await;
         } else {
             let _ = ctx
@@ -408,8 +418,9 @@ async fn update_search_index(
         .update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress)
         .await;
     let t0 = Instant::now();
+    let mut fts_ok = true;
     if let Some(sdb) = &ctx.search_db {
-        fts5_index::update_fts5_for_file(
+        match fts5_index::update_fts5_for_file(
             sdb,
             pool,
             file_id,
@@ -420,15 +431,30 @@ async fn update_search_index(
             Some(relative_path),
             Some(file_hash),
         )
-        .await;
+        .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                warn!(
+                    "FTS5 indexing failed for {} — search_status set to Failed: {}",
+                    payload.file_path, e
+                );
+                fts_ok = false;
+            }
+        }
     }
     timings.push(PhaseTiming {
         phase: "fts5",
         duration_ms: t0.elapsed().as_millis() as u64,
     });
+    let search_status = if fts_ok {
+        DestinationStatus::Done
+    } else {
+        DestinationStatus::Failed
+    };
     let _ = ctx
         .queue_manager
-        .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
+        .update_destination_status(&item.queue_id, "search", search_status)
         .await;
 }
 
