@@ -120,12 +120,18 @@ async fn insert_watch_folder(
         0
     };
 
+    // Detect worktree status and resolve main worktree watch_id if applicable
+    let (is_worktree, main_worktree_watch_id) =
+        resolve_worktree_info(ctx, item, payload, git_status).await;
+
     let result = sqlx::query(
         r#"INSERT OR IGNORE INTO watch_folders (
             watch_id, path, collection, tenant_id, is_active,
             git_remote_url, last_activity_at, follow_symlinks, enabled,
-            cleanup_on_disable, is_git_tracked, last_commit_hash, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1, 0, ?8, ?9, ?7, ?7)"#,
+            cleanup_on_disable, is_git_tracked, last_commit_hash,
+            is_worktree, main_worktree_watch_id,
+            created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1, 0, ?8, ?9, ?10, ?11, ?7, ?7)"#,
     )
     .bind(&watch_id)
     .bind(&payload.project_root)
@@ -136,6 +142,8 @@ async fn insert_watch_folder(
     .bind(&now)
     .bind(git_status.is_git as i32)
     .bind(&git_status.commit_hash)
+    .bind(is_worktree as i32)
+    .bind(&main_worktree_watch_id)
     .execute(ctx.queue_manager.pool())
     .await
     .map_err(|e| {
@@ -144,9 +152,15 @@ async fn insert_watch_folder(
 
     if result.rows_affected() > 0 {
         info!(
-            "Created watch_folder for tenant={} path={} (active={}, git={}, branch={}, worktree={})",
-            item.tenant_id, payload.project_root, is_active,
-            git_status.is_git, git_status.branch, git_status.is_worktree,
+            "Created watch_folder for tenant={} path={} \
+             (active={}, git={}, branch={}, worktree={}, main_wt_id={:?})",
+            item.tenant_id,
+            payload.project_root,
+            is_active,
+            git_status.is_git,
+            git_status.branch,
+            is_worktree,
+            main_worktree_watch_id,
         );
     } else {
         info!(
@@ -155,6 +169,73 @@ async fn insert_watch_folder(
         );
     }
     Ok(())
+}
+
+/// Resolve worktree information for a project being registered.
+///
+/// If `git_status.is_worktree` is true, resolves the git directory, finds the
+/// main worktree path, and looks up the corresponding watch_id from
+/// `watch_folders`. Returns `(is_worktree, main_worktree_watch_id)`.
+async fn resolve_worktree_info(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    payload: &ProjectPayload,
+    git_status: &crate::git::GitStatus,
+) -> (bool, Option<String>) {
+    if !git_status.is_worktree {
+        return (false, None);
+    }
+
+    let project_path = Path::new(&payload.project_root);
+    let git_dir = match crate::git::resolve_git_dir(project_path) {
+        Some(d) => d,
+        None => {
+            warn!(
+                "Worktree detected but could not resolve git dir for {}",
+                payload.project_root
+            );
+            return (true, None);
+        }
+    };
+
+    let main_path = match crate::git::find_main_worktree_path(&git_dir) {
+        Some(p) => p,
+        None => {
+            warn!(
+                "Worktree detected but could not find main worktree path for {}",
+                payload.project_root
+            );
+            return (true, None);
+        }
+    };
+
+    let main_path_str = main_path.to_string_lossy().to_string();
+    debug!(
+        "Worktree {} -> main worktree at {}",
+        payload.project_root, main_path_str
+    );
+
+    // Look up the watch_id of the main worktree in watch_folders
+    let main_watch_id: Option<String> = sqlx::query_scalar(
+        "SELECT watch_id FROM watch_folders \
+         WHERE path = ?1 AND tenant_id = ?2 AND collection = ?3",
+    )
+    .bind(&main_path_str)
+    .bind(&item.tenant_id)
+    .bind(COLLECTION_PROJECTS)
+    .fetch_optional(ctx.queue_manager.pool())
+    .await
+    .unwrap_or(None);
+
+    if main_watch_id.is_none() {
+        debug!(
+            "Main worktree {} not yet registered for tenant={}; \
+             main_worktree_watch_id will be NULL",
+            main_path_str, item.tenant_id
+        );
+    }
+
+    (true, main_watch_id)
 }
 
 async fn enqueue_project_scan(
