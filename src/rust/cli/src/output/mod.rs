@@ -12,6 +12,8 @@ mod messages;
 mod peakers;
 pub mod style;
 mod table;
+#[cfg(test)]
+mod tests;
 
 // ─── Re-exports ───────────────────────────────────────────────────────────
 
