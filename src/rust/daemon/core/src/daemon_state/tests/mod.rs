@@ -10,6 +10,7 @@ mod operational_state_tests;
 mod registration_tests;
 mod submodule_tests;
 mod watch_folder_tests;
+mod worktree_tests;
 
 /// Build a `WatchFolderRecord` with sensible defaults.
 /// Override any field via the returned struct.
