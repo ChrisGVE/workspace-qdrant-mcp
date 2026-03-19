@@ -12,6 +12,8 @@ mod error;
 mod grpc;
 mod output;
 pub(crate) mod path_arg;
+#[cfg(feature = "tui")]
+mod tui;
 
 /// Custom help template with grouped subcommands
 const HELP_TEMPLATE: &str = "\
