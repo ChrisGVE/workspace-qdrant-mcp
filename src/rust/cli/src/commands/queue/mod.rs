@@ -6,6 +6,7 @@
 mod cancel;
 mod clean;
 mod db;
+mod drop;
 pub mod formatters;
 mod list;
 mod remove;
@@ -119,6 +120,10 @@ enum QueueCommand {
         /// Retry all failed items
         #[arg(long)]
         all: bool,
+
+        /// Retry only transient failed items (clears resurrection count)
+        #[arg(long)]
+        all_transient: bool,
     },
 
     /// Clean old completed or failed queue items
@@ -140,6 +145,24 @@ enum QueueCommand {
     Remove {
         /// Queue ID or ID prefix
         queue_id: String,
+    },
+
+    /// Drop failed items from the queue
+    Drop {
+        /// Queue ID to drop (omit for bulk operations)
+        queue_id: Option<String>,
+
+        /// Drop all permanently failed items ([permanent_*] prefix)
+        #[arg(long)]
+        all_permanent: bool,
+
+        /// Drop all stale items (files no longer on disk)
+        #[arg(long)]
+        all_stale: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Cancel all pending (or failed) queue items for a project
@@ -193,9 +216,19 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             by_op,
             by_collection,
         } => stats::execute(json, by_type, by_op, by_collection).await,
-        QueueCommand::Retry { queue_id, all } => retry::execute(queue_id, all).await,
+        QueueCommand::Retry {
+            queue_id,
+            all,
+            all_transient,
+        } => retry::execute(queue_id, all, all_transient).await,
         QueueCommand::Clean { days, status, yes } => clean::execute(days, status, yes).await,
         QueueCommand::Remove { queue_id } => remove::execute(&queue_id).await,
+        QueueCommand::Drop {
+            queue_id,
+            all_permanent,
+            all_stale,
+            yes,
+        } => drop::execute(queue_id, all_permanent, all_stale, yes).await,
         QueueCommand::Cancel {
             project,
             status,

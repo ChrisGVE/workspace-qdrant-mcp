@@ -7,15 +7,17 @@ use crate::output;
 
 use super::db::connect_readwrite;
 
-pub async fn execute(queue_id: Option<String>, all: bool) -> Result<()> {
-    if !all && queue_id.is_none() {
-        anyhow::bail!("Specify a queue_id or use --all to retry all failed items");
+pub async fn execute(queue_id: Option<String>, all: bool, all_transient: bool) -> Result<()> {
+    if !all && !all_transient && queue_id.is_none() {
+        anyhow::bail!("Specify a queue_id, --all, or --all-transient to retry failed items");
     }
 
     let conn = connect_readwrite()?;
 
     if all {
         retry_all(&conn)
+    } else if all_transient {
+        retry_all_transient(&conn)
     } else {
         retry_one(&conn, &queue_id.unwrap())
     }
@@ -52,10 +54,48 @@ fn retry_all(conn: &rusqlite::Connection) -> Result<()> {
     Ok(())
 }
 
+fn retry_all_transient(conn: &rusqlite::Connection) -> Result<()> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM unified_queue WHERE status = 'failed' \
+         AND error_message LIKE '[transient_%'",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if count == 0 {
+        output::success("No transient failed items to retry");
+        return Ok(());
+    }
+
+    // Reset status and also clear resurrection_count in metadata
+    let updated = conn.execute(
+        r#"
+        UPDATE unified_queue
+        SET status = 'pending',
+            retry_count = 0,
+            error_message = NULL,
+            last_error_at = NULL,
+            lease_until = NULL,
+            worker_id = NULL,
+            metadata = json_set(COALESCE(metadata, '{}'), '$.resurrection_count', 0),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE status = 'failed'
+          AND error_message LIKE '[transient_%'
+        "#,
+        [],
+    )?;
+
+    output::success(format!(
+        "Reset {} transient failed items to pending (resurrection count cleared)",
+        updated
+    ));
+    Ok(())
+}
+
 fn retry_one(conn: &rusqlite::Connection, id: &str) -> Result<()> {
     let prefix = format!("{}%", id);
 
-    let result: Result<(String, String, i32), _> = conn.query_row(
+    let result: std::result::Result<(String, String, i32), _> = conn.query_row(
         "SELECT queue_id, status, retry_count FROM unified_queue \
          WHERE queue_id = ?1 OR queue_id LIKE ?2 LIMIT 1",
         params![id, &prefix],
@@ -82,6 +122,7 @@ fn retry_one(conn: &rusqlite::Connection, id: &str) -> Result<()> {
                     last_error_at = NULL,
                     lease_until = NULL,
                     worker_id = NULL,
+                    metadata = json_set(COALESCE(metadata, '{}'), '$.resurrection_count', 0),
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE queue_id = ?1
                 "#,
