@@ -13,6 +13,7 @@ use super::event::{Event, EventHandler};
 use super::terminal;
 use super::views::dashboard::Dashboard;
 use super::views::logs::LogViewer;
+use super::views::queue::QueueBrowser;
 
 /// Active view in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +75,8 @@ pub struct App {
     pub daemon_addr: String,
     /// Dashboard view state (lazily initialized on first Dashboard view).
     dashboard: Option<Dashboard>,
+    /// Queue browser state (lazily initialized on first Queue view).
+    queue_browser: Option<QueueBrowser>,
     /// Log viewer state (lazily initialized on first Logs view).
     log_viewer: Option<LogViewer>,
 }
@@ -87,6 +90,7 @@ impl App {
             show_help: false,
             daemon_addr,
             dashboard: None,
+            queue_browser: None,
             log_viewer: None,
         }
     }
@@ -94,6 +98,11 @@ impl App {
     /// Return a mutable reference to the dashboard, creating it if needed.
     fn dashboard(&mut self) -> &mut Dashboard {
         self.dashboard.get_or_insert_with(Dashboard::new)
+    }
+
+    /// Return a mutable reference to the queue browser, creating it if needed.
+    fn queue_browser(&mut self) -> &mut QueueBrowser {
+        self.queue_browser.get_or_insert_with(QueueBrowser::new)
     }
 
     /// Return a mutable reference to the log viewer, creating it if needed.
@@ -127,6 +136,9 @@ impl App {
             View::Dashboard => {
                 self.dashboard().on_tick();
             }
+            View::Queue => {
+                self.queue_browser().on_tick();
+            }
             View::Logs => {
                 self.log_viewer().on_tick();
             }
@@ -147,35 +159,97 @@ impl App {
             return;
         }
 
-        // Delegate scrolling keys to the log viewer when on Logs view
-        if self.current_view == View::Logs {
-            match key.code {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    self.log_viewer().scroll_down();
-                    return;
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    self.log_viewer().scroll_up();
-                    return;
-                }
-                KeyCode::Char('G') => {
-                    self.log_viewer().scroll_to_bottom();
-                    return;
-                }
-                KeyCode::PageUp => {
-                    // Use a reasonable default page size; actual height
-                    // is not available here, so use 20 as an approximation.
-                    self.log_viewer().page_up(20);
-                    return;
-                }
-                KeyCode::PageDown => {
-                    self.log_viewer().page_down(20);
-                    return;
-                }
-                _ => {}
+        // Delegate keys to the queue browser when on Queue view
+        if self.current_view == View::Queue {
+            if self.handle_queue_key(key) {
+                return;
             }
         }
 
+        // Delegate scrolling keys to the log viewer when on Logs view
+        if self.current_view == View::Logs {
+            if self.handle_log_key(key) {
+                return;
+            }
+        }
+
+        self.handle_global_key(key);
+    }
+
+    /// Handle queue-specific keys. Returns true if the key was consumed.
+    fn handle_queue_key(&mut self, key: KeyEvent) -> bool {
+        let browser = self.queue_browser();
+
+        // When detail popup is open, only Esc closes it
+        if browser.detail_open() {
+            if key.code == KeyCode::Esc {
+                browser.close_detail();
+            }
+            return true; // consume all keys while popup is open
+        }
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                browser.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                browser.select_prev();
+                true
+            }
+            KeyCode::PageUp => {
+                browser.page_up(20);
+                true
+            }
+            KeyCode::PageDown => {
+                browser.page_down(20);
+                true
+            }
+            KeyCode::Enter => {
+                browser.open_detail();
+                true
+            }
+            KeyCode::Esc => {
+                browser.close_detail();
+                true
+            }
+            KeyCode::Char('f') => {
+                browser.cycle_filter();
+                true
+            }
+            _ => false, // not consumed, fall through to global
+        }
+    }
+
+    /// Handle log-specific keys. Returns true if the key was consumed.
+    fn handle_log_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.log_viewer().scroll_down();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.log_viewer().scroll_up();
+                true
+            }
+            KeyCode::Char('G') => {
+                self.log_viewer().scroll_to_bottom();
+                true
+            }
+            KeyCode::PageUp => {
+                self.log_viewer().page_up(20);
+                true
+            }
+            KeyCode::PageDown => {
+                self.log_viewer().page_down(20);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle global key bindings (quit, view switching, help).
+    fn handle_global_key(&mut self, key: KeyEvent) {
         match key.code {
             // Quit
             KeyCode::Char('q') => self.running = false,
@@ -197,7 +271,6 @@ impl App {
             // Help
             KeyCode::Char('?') => self.show_help = true,
 
-            // Delegate to view-specific handlers (future)
             _ => {}
         }
     }
@@ -211,7 +284,17 @@ impl App {
         ])
         .split(frame.area());
 
-        // Tab bar
+        self.draw_tab_bar(frame, chunks[0]);
+        self.draw_main_content(frame, chunks[1]);
+        self.draw_status_bar(frame, chunks[2]);
+
+        if self.show_help {
+            self.draw_help_overlay(frame);
+        }
+    }
+
+    /// Draw the tab bar.
+    fn draw_tab_bar(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let titles: Vec<Line> = View::ALL
             .iter()
             .enumerate()
@@ -236,22 +319,31 @@ impl App {
                     .title(" wqm ")
                     .title_style(Style::default().add_modifier(Modifier::BOLD)),
             );
-        frame.render_widget(tabs, chunks[0]);
+        frame.render_widget(tabs, area);
+    }
 
-        // Main content area
+    /// Draw the main content area for the active view.
+    fn draw_main_content(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         match self.current_view {
             View::Dashboard => {
                 if let Some(dash) = &self.dashboard {
-                    dash.draw(frame, chunks[1]);
+                    dash.draw(frame, area);
                 } else {
-                    draw_loading(frame, chunks[1], "Dashboard");
+                    draw_loading(frame, area, "Dashboard");
+                }
+            }
+            View::Queue => {
+                if let Some(browser) = &self.queue_browser {
+                    browser.draw(frame, area);
+                } else {
+                    draw_loading(frame, area, "Queue");
                 }
             }
             View::Logs => {
                 if let Some(viewer) = &self.log_viewer {
-                    viewer.draw(frame, chunks[1]);
+                    viewer.draw(frame, area);
                 } else {
-                    draw_loading(frame, chunks[1], "Logs");
+                    draw_loading(frame, area, "Logs");
                 }
             }
             _ => {
@@ -261,13 +353,27 @@ impl App {
                 ))
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::DarkGray));
-                frame.render_widget(content, chunks[1]);
+                frame.render_widget(content, area);
             }
         }
+    }
 
-        // Status bar
-        let status_spans = if self.current_view == View::Logs {
-            vec![
+    /// Draw the status bar with context-sensitive hints.
+    fn draw_status_bar(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let status_spans = match self.current_view {
+            View::Queue => vec![
+                Span::styled(" q", Style::default().fg(Color::Yellow)),
+                Span::raw(" quit  "),
+                Span::styled("j/k", Style::default().fg(Color::Yellow)),
+                Span::raw(" navigate  "),
+                Span::styled("Enter", Style::default().fg(Color::Yellow)),
+                Span::raw(" detail  "),
+                Span::styled("f", Style::default().fg(Color::Yellow)),
+                Span::raw(" filter  "),
+                Span::styled("?", Style::default().fg(Color::Yellow)),
+                Span::raw(" help"),
+            ],
+            View::Logs => vec![
                 Span::styled(" q", Style::default().fg(Color::Yellow)),
                 Span::raw(" quit  "),
                 Span::styled("j/k", Style::default().fg(Color::Yellow)),
@@ -278,9 +384,8 @@ impl App {
                 Span::raw(" switch  "),
                 Span::styled("?", Style::default().fg(Color::Yellow)),
                 Span::raw(" help"),
-            ]
-        } else {
-            vec![
+            ],
+            _ => vec![
                 Span::styled(" q", Style::default().fg(Color::Yellow)),
                 Span::raw(" quit  "),
                 Span::styled("Tab", Style::default().fg(Color::Yellow)),
@@ -289,23 +394,18 @@ impl App {
                 Span::raw(" help  "),
                 Span::styled("1-5", Style::default().fg(Color::Yellow)),
                 Span::raw(" jump"),
-            ]
+            ],
         };
         let status =
             Paragraph::new(Line::from(status_spans)).style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(status, chunks[2]);
-
-        // Help overlay
-        if self.show_help {
-            self.draw_help_overlay(frame);
-        }
+        frame.render_widget(status, area);
     }
 
     /// Draw the help overlay centered on screen.
     fn draw_help_overlay(&self, frame: &mut Frame) {
         let area = frame.area();
         let help_width = 50u16.min(area.width.saturating_sub(4));
-        let help_height = 14u16.min(area.height.saturating_sub(4));
+        let help_height = 16u16.min(area.height.saturating_sub(4));
 
         let x = (area.width.saturating_sub(help_width)) / 2;
         let y = (area.height.saturating_sub(help_height)) / 2;
@@ -335,19 +435,23 @@ impl App {
             ]),
             Line::from(vec![
                 Span::styled("  j/k         ", Style::default().fg(Color::Yellow)),
-                Span::raw("Scroll up/down (Logs)"),
+                Span::raw("Navigate/scroll (Queue, Logs)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  Enter       ", Style::default().fg(Color::Yellow)),
+                Span::raw("Open detail popup (Queue)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  f           ", Style::default().fg(Color::Yellow)),
+                Span::raw("Cycle status filter (Queue)"),
             ]),
             Line::from(vec![
                 Span::styled("  G           ", Style::default().fg(Color::Yellow)),
                 Span::raw("Jump to bottom (Logs)"),
             ]),
             Line::from(vec![
-                Span::styled("  /           ", Style::default().fg(Color::Yellow)),
-                Span::raw("Filter/search (future)"),
-            ]),
-            Line::from(vec![
-                Span::styled("  Esc / ?     ", Style::default().fg(Color::Yellow)),
-                Span::raw("Close this help"),
+                Span::styled("  Esc         ", Style::default().fg(Color::Yellow)),
+                Span::raw("Close popup / help"),
             ]),
             Line::from(""),
         ];
@@ -387,6 +491,7 @@ mod tests {
         assert!(!app.show_help);
         assert!(app.log_viewer.is_none());
         assert!(app.dashboard.is_none());
+        assert!(app.queue_browser.is_none());
     }
 
     #[test]
@@ -494,5 +599,55 @@ mod tests {
         assert!(app.dashboard.is_none());
         let _ = app.dashboard();
         assert!(app.dashboard.is_some());
+    }
+
+    #[test]
+    fn queue_browser_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.queue_browser.is_none());
+        let _ = app.queue_browser();
+        assert!(app.queue_browser.is_some());
+    }
+
+    #[test]
+    fn queue_keys_initialize_browser() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Queue;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.queue_browser.is_some());
+    }
+
+    #[test]
+    fn queue_keys_do_not_quit() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Queue;
+        // j/k/f should not trigger quit
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.running);
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert!(app.running);
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert!(app.running);
+    }
+
+    #[test]
+    fn queue_filter_cycles_via_f_key() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Queue;
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        // After one f press, filter should have cycled from All to Pending
+        let browser = app.queue_browser.as_ref().unwrap();
+        assert_eq!(
+            browser.filter(),
+            super::super::views::queue_data::StatusFilter::Pending
+        );
+    }
+
+    #[test]
+    fn on_tick_initializes_queue_on_queue_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Queue;
+        app.on_tick();
+        assert!(app.queue_browser.is_some());
     }
 }
