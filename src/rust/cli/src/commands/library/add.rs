@@ -8,6 +8,7 @@ use super::helpers::LibraryMode;
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::AddLibraryRequest;
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 /// Add a library (unwatched - metadata only)
 pub async fn execute(tag: &str, path: &PathBuf, mode: LibraryMode) -> Result<()> {
@@ -43,7 +44,7 @@ pub async fn execute(tag: &str, path: &PathBuf, mode: LibraryMode) -> Result<()>
 
     output::success(format!("Library '{}' added (not watching yet)", tag));
     output::kv("  Tag", tag);
-    output::kv("  Path", &abs_path_str);
+    output::kv("  Path", home_to_tilde(&abs_path_str));
     output::kv("  Mode", mode.to_string());
     output::separator();
     output::info("To start watching: wqm library watch <tag> <path>");

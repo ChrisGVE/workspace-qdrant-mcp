@@ -12,6 +12,7 @@ use super::helpers::{classify_document_extension, signal_daemon_ingest_queue};
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::EnqueueItemRequest;
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 /// Ingest a single document into a library
 pub async fn execute(
@@ -40,7 +41,7 @@ pub async fn execute(
 
     let (source_format, document_type) = classify_extension(&abs_path)?;
 
-    output::kv("  File", &abs_path_str);
+    output::kv("  File", home_to_tilde(&abs_path_str));
     output::kv("  Library", library);
     output::kv("  Format", source_format);
     output::kv("  Type", document_type);

@@ -8,6 +8,7 @@ use std::process::Command;
 use tokio::io::AsyncWriteExt;
 
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 use super::github::GitHubRelease;
 use super::platform::{
@@ -199,13 +200,16 @@ pub async fn perform_update(client: &Client, release: &GitHubRelease, _force: bo
 
     // Find installation location and install
     let install_path = find_install_location()?;
-    output::kv("Install location", install_path.display().to_string());
+    output::kv(
+        "Install location",
+        home_to_tilde(&install_path.display().to_string()),
+    );
     replace_binary(&temp_binary, &install_path)?;
 
     output::success(format!(
         "Installed {} to {}",
         release.tag_name,
-        install_path.display()
+        home_to_tilde(&install_path.display().to_string())
     ));
 
     // Restart daemon

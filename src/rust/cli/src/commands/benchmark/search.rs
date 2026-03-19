@@ -16,6 +16,7 @@ use workspace_qdrant_core::text_search::{self, SearchOptions};
 use super::stats::LatencyStats;
 use crate::config::get_database_path;
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 /// A single benchmark query with its search parameters.
 struct BenchQuery {
@@ -216,7 +217,10 @@ fn print_benchmark_header(
 ) {
     println!("Search Benchmark: FTS5 vs ripgrep");
     println!("=================================");
-    println!("Project root: {}", project_root.display());
+    println!(
+        "Project root: {}",
+        home_to_tilde(&project_root.display().to_string())
+    );
     if let Some(tid) = tenant_id {
         println!("Tenant ID:    {}", tid);
     }

@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use tabled::Tabled;
 
 use crate::output;
+use crate::output::style::home_to_tilde;
 use crate::output::ColumnHints;
 
 /// Format bytes into a human-readable string
@@ -40,7 +41,10 @@ pub fn execute(dry_run: bool, retention_hours: u64) -> Result<()> {
     let log_dir = wqm_common::paths::get_canonical_log_dir();
 
     output::section("Log Pruning");
-    output::kv("Log directory", log_dir.display().to_string());
+    output::kv(
+        "Log directory",
+        home_to_tilde(&log_dir.display().to_string()),
+    );
     output::kv("Retention", format!("{}h", retention_hours));
     if dry_run {
         output::info("Dry run — no files will be deleted");

@@ -11,6 +11,7 @@ use crate::grpc::proto::{
     EnqueueItemRequest, QueueType, RefreshSignalRequest, WatchLibraryRequest,
 };
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 /// Watch a library path for changes
 pub async fn execute(
@@ -46,7 +47,7 @@ pub async fn execute(
 
     output::success(&response.message);
     output::kv("  Tag", tag);
-    output::kv("  Path", &abs_path_str);
+    output::kv("  Path", home_to_tilde(&abs_path_str));
     output::kv("  Mode", format!("{} ({})", mode, mode_description(mode)));
 
     let effective_patterns: Vec<String> = if patterns.is_empty() {

@@ -3,6 +3,7 @@
 use anyhow::Result;
 
 use crate::grpc::client::DaemonClient;
+use crate::output::style::home_to_tilde;
 use crate::output::{self, ServiceStatus};
 
 pub async fn ingest_status(verbose: bool) -> Result<()> {
@@ -42,7 +43,7 @@ pub async fn ingest_status(verbose: bool) -> Result<()> {
                             .unwrap_or_default();
                         output::info(format!(
                             "  sqlite3 {} 'SELECT * FROM unified_queue LIMIT 20'",
-                            db_path.display()
+                            home_to_tilde(&db_path.display().to_string())
                         ));
                     }
                 }

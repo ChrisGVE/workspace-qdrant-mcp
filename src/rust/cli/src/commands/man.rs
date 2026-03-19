@@ -9,6 +9,7 @@ use clap_mangen::Man;
 use std::path::PathBuf;
 
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 /// Man command arguments
 #[derive(Args)]
@@ -49,7 +50,7 @@ async fn generate(cmd: &mut Command, output_dir: Option<PathBuf>) -> Result<()> 
             output::success(format!(
                 "Generated {} man pages in {}",
                 count,
-                dir.display()
+                home_to_tilde(&dir.display().to_string())
             ));
         }
         None => {
@@ -73,7 +74,7 @@ async fn install(cmd: &mut Command) -> Result<()> {
     output::success(format!(
         "Installed {} man pages to {}",
         count,
-        man_dir.display()
+        home_to_tilde(&man_dir.display().to_string())
     ));
     output::info("View with: man wqm");
     Ok(())
@@ -87,7 +88,11 @@ pub fn install_man_pages(cmd: &mut Command) -> Result<()> {
     let count = write_man_pages(cmd, &man_dir)?;
     output::kv(
         "Man pages",
-        format!("{} pages installed to {}", count, man_dir.display()),
+        format!(
+            "{} pages installed to {}",
+            count,
+            home_to_tilde(&man_dir.display().to_string())
+        ),
     );
     Ok(())
 }
