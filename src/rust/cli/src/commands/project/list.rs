@@ -76,7 +76,12 @@ fn print_project_list(
         } else {
             ServiceStatus::Inactive
         };
-        output::status_line(&proj.project_name, status);
+        let name_display = if proj.is_worktree {
+            format!("{} [worktree]", proj.project_name)
+        } else {
+            proj.project_name.clone()
+        };
+        output::status_line(&name_display, status);
         output::kv("  ID", &proj.project_id);
         output::kv("  Path", &proj.project_root);
         output::kv("  Priority", &proj.priority);

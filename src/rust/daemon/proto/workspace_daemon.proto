@@ -459,6 +459,8 @@ message GetProjectStatusResponse {
     google.protobuf.Timestamp last_active = 7;    // Last heartbeat/activity
     google.protobuf.Timestamp registered_at = 8;
     optional string git_remote = 9;
+    bool is_worktree = 10;                        // True if this is a worktree watch root
+    optional string main_worktree_path = 11;      // Path to the main working tree (if worktree)
 }
 
 // ListProjects Request/Response

@@ -70,6 +70,16 @@ pub(super) async fn register_project(
                     }
                     output::kv("Priority", &result.priority);
                     output::kv("Active", if result.is_active { "Yes" } else { "No" });
+                    if result.is_worktree {
+                        output::info(format!(
+                            "Note: This path is a git worktree. \
+                             It is indexed under project {}",
+                            result.project_id
+                        ));
+                        if let Some(watch_path) = &result.watch_path {
+                            output::kv("Watch Path", watch_path);
+                        }
+                    }
                 }
                 Err(e) => {
                     output::error(format!("Failed to register project: {}", e));
