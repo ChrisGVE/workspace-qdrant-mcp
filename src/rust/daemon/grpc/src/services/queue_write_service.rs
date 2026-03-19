@@ -13,8 +13,9 @@ use wqm_common::timestamps;
 
 use crate::proto::{
     queue_write_service_server::QueueWriteService, CancelItemsRequest, CancelItemsResponse,
-    CleanQueueRequest, CleanQueueResponse, EnqueueItemRequest, EnqueueItemResponse,
-    RemoveItemRequest, RemoveItemResponse, RetryAllResponse, RetryItemRequest, RetryItemResponse,
+    CleanQueueByCollectionRequest, CleanQueueRequest, CleanQueueResponse, EnqueueItemRequest,
+    EnqueueItemResponse, RemoveItemRequest, RemoveItemResponse, RetryAllResponse, RetryItemRequest,
+    RetryItemResponse,
 };
 
 pub struct QueueWriteServiceImpl {
@@ -375,6 +376,74 @@ impl QueueWriteService for QueueWriteServiceImpl {
             op,
             collection,
             status,
+        }))
+    }
+
+    async fn clean_queue_by_collection(
+        &self,
+        request: Request<CleanQueueByCollectionRequest>,
+    ) -> Result<Response<CleanQueueResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.collections.is_empty() {
+            return Err(Status::invalid_argument(
+                "at least one collection name is required",
+            ));
+        }
+
+        // Default statuses: pending + failed. Never allow in_progress.
+        let statuses: Vec<&str> = if req.statuses.is_empty() {
+            vec!["pending", "failed"]
+        } else {
+            req.statuses
+                .iter()
+                .map(|s| s.as_str())
+                .filter(|s| *s != "in_progress")
+                .collect()
+        };
+
+        if statuses.is_empty() {
+            return Err(Status::invalid_argument(
+                "no deletable statuses specified (in_progress cannot be deleted)",
+            ));
+        }
+
+        // Build dynamic placeholders for collections and statuses
+        let col_placeholders: String = req
+            .collections
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let status_placeholders: String = statuses
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1 + req.collections.len()))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let sql = format!(
+            "DELETE FROM unified_queue WHERE collection IN ({}) AND status IN ({})",
+            col_placeholders, status_placeholders
+        );
+
+        let mut query = sqlx::query(&sql);
+        for c in &req.collections {
+            query = query.bind(c);
+        }
+        for s in &statuses {
+            query = query.bind(*s);
+        }
+
+        let result = query
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Status::internal(format!("database error: {}", e)))?;
+
+        Ok(Response::new(CleanQueueResponse {
+            deleted_count: result.rows_affected() as u32,
         }))
     }
 }

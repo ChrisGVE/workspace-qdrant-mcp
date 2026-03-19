@@ -194,37 +194,23 @@ async fn reset_single_collection(
     Ok(())
 }
 
-/// Clean pending/failed queue items for specified collections.
-/// TODO: Migrate to gRPC QueueWriteService once a CleanQueueByCollection RPC is added.
-/// This is the last remaining direct SQLite write in the CLI (besides recover-state).
+/// Clean pending/failed queue items for specified collections via gRPC.
 async fn clean_queue_items(collections: &[String]) -> Result<usize> {
-    let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let mut client = DaemonClient::connect_default()
+        .await
+        .context("Failed to connect to daemon for queue cleanup")?;
 
-    if !db_path.exists() {
-        return Ok(0);
-    }
+    let response = client
+        .queue_write()
+        .clean_queue_by_collection(crate::grpc::proto::CleanQueueByCollectionRequest {
+            collections: collections.to_vec(),
+            statuses: vec![], // default: pending + failed
+        })
+        .await
+        .context("CleanQueueByCollection RPC failed")?
+        .into_inner();
 
-    let conn = rusqlite::Connection::open(&db_path).context("Failed to open state database")?;
-    conn.execute_batch("PRAGMA busy_timeout=5000;")
-        .context("Failed to set busy_timeout")?;
-
-    // Build placeholders for IN clause
-    let placeholders: Vec<String> = (1..=collections.len()).map(|i| format!("?{}", i)).collect();
-    let sql = format!(
-        "DELETE FROM unified_queue WHERE status IN ('pending', 'failed') AND collection IN ({})",
-        placeholders.join(", ")
-    );
-
-    let params: Vec<&dyn rusqlite::types::ToSql> = collections
-        .iter()
-        .map(|s| s as &dyn rusqlite::types::ToSql)
-        .collect();
-
-    let count = conn
-        .execute(&sql, params.as_slice())
-        .context("Failed to clean queue items")?;
-
-    Ok(count)
+    Ok(response.deleted_count as usize)
 }
 
 /// Try to pause daemon watchers via gRPC. Returns true if daemon was reachable.
