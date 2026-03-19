@@ -85,13 +85,6 @@ impl UnifiedQueueProcessor {
             .checked_sub(Duration::from_secs(uplift_config.min_interval_secs))
             .unwrap_or_else(std::time::Instant::now);
 
-        // Qdrant health check tracking
-        let health_check_interval_secs = config.health_check_interval_secs;
-        let mut last_health_check = std::time::Instant::now()
-            .checked_sub(Duration::from_secs(health_check_interval_secs))
-            .unwrap_or_else(std::time::Instant::now);
-        let mut qdrant_was_unhealthy = false;
-
         // Failed item triage tracking
         let triage_interval_secs = config.triage_interval_secs;
         let mut last_triage = std::time::Instant::now()
@@ -183,11 +176,25 @@ impl UnifiedQueueProcessor {
                 continue;
             }
 
-            // Qdrant circuit breaker: pause dequeuing when Qdrant is presumed down
+            // Qdrant circuit breaker: when open, probe once to detect recovery
+            // instead of dequeuing items that will immediately fail.
             if !storage_client.is_qdrant_available() {
-                debug!("Qdrant circuit breaker open, pausing queue processing for 5s");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                continue;
+                debug!("Qdrant circuit breaker open — probing before dequeue");
+                match storage_client.test_connection().await {
+                    Ok(true) => {
+                        info!("Qdrant recovered — resuming queue processing");
+                        // Circuit breaker transitions via is_available() → half-open check.
+                        // Trigger resurrection so recovered items get retried promptly.
+                        let _ = queue_manager
+                            .resurrect_failed_transient(config.max_resurrections)
+                            .await;
+                    }
+                    _ => {
+                        debug!("Qdrant still unavailable, sleeping 5s");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
             }
 
             // Update queue depth in metrics and adaptive resource counter
@@ -336,32 +343,6 @@ impl UnifiedQueueProcessor {
                                 }
                             }
                             last_resurrection = std::time::Instant::now();
-                        }
-
-                        // Qdrant health check (feeds circuit breaker)
-                        if health_check_interval_secs > 0
-                            && last_health_check.elapsed().as_secs() >= health_check_interval_secs
-                        {
-                            match storage_client.test_connection().await {
-                                Ok(true) => {
-                                    if qdrant_was_unhealthy {
-                                        info!(
-                                            "Qdrant recovered — triggering resurrection of infrastructure failures"
-                                        );
-                                        let _ = queue_manager
-                                            .resurrect_failed_transient(config.max_resurrections)
-                                            .await;
-                                        qdrant_was_unhealthy = false;
-                                    }
-                                }
-                                _ => {
-                                    if !qdrant_was_unhealthy {
-                                        warn!("Qdrant health check failed");
-                                    }
-                                    qdrant_was_unhealthy = true;
-                                }
-                            }
-                            last_health_check = std::time::Instant::now();
                         }
 
                         // Failed item triage
