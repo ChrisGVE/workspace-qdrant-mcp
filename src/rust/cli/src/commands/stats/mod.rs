@@ -165,21 +165,32 @@ fn table_exists(conn: &Connection, name: &str) -> bool {
 }
 
 async fn log_search(tool: &str, query: &str, actor: &str, session_id: Option<&str>) -> Result<()> {
-    let conn = open_db()?;
-
-    if !table_exists(&conn, "search_events") {
-        anyhow::bail!("search_events table not found. Run daemon to initialize schema.");
-    }
+    use crate::grpc::ensure_daemon_available;
+    use crate::grpc::proto::LogSearchEventRequest;
 
     let event_id = uuid::Uuid::new_v4().to_string();
-    let now = timestamps::now_utc();
+    let mut client = ensure_daemon_available().await?;
 
-    conn.execute(
-        "INSERT INTO search_events (id, session_id, actor, tool, op, query_text, ts, created_at) \
-         VALUES (?1, ?2, ?3, ?4, 'search', ?5, ?6, ?6)",
-        rusqlite::params![&event_id, session_id, actor, tool, query, &now],
-    )
-    .context("Failed to insert search event")?;
+    client
+        .tracking_write()
+        .log_search_event(LogSearchEventRequest {
+            id: event_id.clone(),
+            session_id: session_id.map(|s| s.to_string()),
+            project_id: None,
+            actor: actor.to_string(),
+            tool: tool.to_string(),
+            op: "search".to_string(),
+            query_text: Some(query.to_string()),
+            filters: None,
+            top_k: None,
+            result_count: None,
+            latency_ms: None,
+            top_result_refs: None,
+            outcome: None,
+            parent_event_id: None,
+        })
+        .await
+        .context("Failed to log search event")?;
 
     println!("{}", event_id);
     Ok(())

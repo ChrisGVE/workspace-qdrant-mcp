@@ -283,13 +283,20 @@ async fn rebalance_collection(
         }
     ));
 
-    // Update last_corrected_n in SQLite (not in dry-run).
+    // Update last_corrected_n via daemon gRPC (not in dry-run).
     if !dry_run && total_updated > 0 {
-        conn.execute(
-            "UPDATE corpus_statistics SET last_corrected_n = ?1 WHERE collection = ?2",
-            rusqlite::params![current_n as i64, collection],
-        )
-        .context("Failed to update last_corrected_n")?;
+        use crate::grpc::ensure_daemon_available;
+        use crate::grpc::proto::RebalanceIdfRequest;
+
+        let mut grpc_client = ensure_daemon_available().await?;
+        grpc_client
+            .admin_write()
+            .rebalance_idf(RebalanceIdfRequest {
+                collection: collection.to_string(),
+                last_corrected_n: current_n as i64,
+            })
+            .await
+            .context("Failed to update last_corrected_n via daemon")?;
     }
 
     Ok(total_updated)
