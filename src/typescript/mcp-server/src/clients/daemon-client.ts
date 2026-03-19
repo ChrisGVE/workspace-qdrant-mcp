@@ -17,6 +17,8 @@ import type {
   EmbeddingServiceClient,
   TextSearchServiceClient,
   GraphServiceClient,
+  QueueWriteServiceClient,
+  TrackingWriteServiceClient,
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
@@ -39,6 +41,12 @@ import type {
   TextSearchCountResponse,
   QueryRelatedRequest,
   QueryRelatedResponse,
+  EnqueueItemRequest,
+  EnqueueItemResponse,
+  LogSearchEventRequest,
+  UpdateSearchEventRequest,
+  UpsertRuleMirrorRequest,
+  DeleteRuleMirrorRequest,
 } from './grpc-types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +82,8 @@ interface ProtoGrpcType {
     EmbeddingService: GrpcServiceDefinition;
     TextSearchService: GrpcServiceDefinition;
     GraphService: GrpcServiceDefinition;
+    QueueWriteService: GrpcServiceDefinition;
+    TrackingWriteService: GrpcServiceDefinition;
   };
 }
 
@@ -81,19 +91,25 @@ interface ProtoGrpcType {
  * Generic gRPC unary call wrapper — turns callback-style into Promise.
  * The `method` must be a function(request, callback) on the service client.
  */
-function grpcUnary<TReq, TRes>(
-  client: unknown,
-  methodName: string,
-  request: TReq,
-): Promise<TRes> {
+function grpcUnary<TReq, TRes>(client: unknown, methodName: string, request: TReq): Promise<TRes> {
   return new Promise<TRes>((resolve, reject) => {
-    if (!client) { reject(new Error('Client not connected')); return; }
+    if (!client) {
+      reject(new Error('Client not connected'));
+      return;
+    }
     const fn = (client as Record<string, unknown>)[methodName];
-    if (typeof fn !== 'function') { reject(new Error(`Unknown method: ${methodName}`)); return; }
-    (fn as (req: TReq, cb: (err: Error | null, res: TRes) => void) => void)
-      .call(client, request, (error, response) => {
-        if (error) reject(error); else resolve(response);
-      });
+    if (typeof fn !== 'function') {
+      reject(new Error(`Unknown method: ${methodName}`));
+      return;
+    }
+    (fn as (req: TReq, cb: (err: Error | null, res: TRes) => void) => void).call(
+      client,
+      request,
+      (error, response) => {
+        if (error) reject(error);
+        else resolve(response);
+      }
+    );
   });
 }
 
@@ -109,6 +125,8 @@ export class DaemonClient {
   private embeddingClient?: EmbeddingServiceClient;
   private textSearchClient?: TextSearchServiceClient;
   private graphClient?: GraphServiceClient;
+  private queueWriteClient?: QueueWriteServiceClient;
+  private trackingWriteClient?: TrackingWriteServiceClient;
 
   private connectionState: ConnectionState = { connected: false };
 
@@ -119,13 +137,20 @@ export class DaemonClient {
     this.maxRetries = config.maxRetries ?? MAX_RETRIES;
   }
 
-  getConnectionState(): ConnectionState { return { ...this.connectionState }; }
-  isConnected(): boolean { return this.connectionState.connected; }
+  getConnectionState(): ConnectionState {
+    return { ...this.connectionState };
+  }
+  isConnected(): boolean {
+    return this.connectionState.connected;
+  }
 
   async connect(): Promise<void> {
     const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
-      keepCase: true, longs: String, enums: Number,
-      defaults: true, oneofs: true,
+      keepCase: true,
+      longs: String,
+      enums: Number,
+      defaults: true,
+      oneofs: true,
       includeDirs: [join(__dirname, '..', 'proto')],
     });
 
@@ -133,25 +158,62 @@ export class DaemonClient {
     const address = `${this.host}:${this.port}`;
     const credentials = grpc.credentials.createInsecure();
 
-    this.systemClient = new proto.workspace_daemon.SystemService(address, credentials) as unknown as SystemServiceClient;
-    this.projectClient = new proto.workspace_daemon.ProjectService(address, credentials) as unknown as ProjectServiceClient;
-    this.documentClient = new proto.workspace_daemon.DocumentService(address, credentials) as unknown as DocumentServiceClient;
-    this.embeddingClient = new proto.workspace_daemon.EmbeddingService(address, credentials) as unknown as EmbeddingServiceClient;
-    this.textSearchClient = new proto.workspace_daemon.TextSearchService(address, credentials) as unknown as TextSearchServiceClient;
-    this.graphClient = new proto.workspace_daemon.GraphService(address, credentials) as unknown as GraphServiceClient;
+    this.systemClient = new proto.workspace_daemon.SystemService(
+      address,
+      credentials
+    ) as unknown as SystemServiceClient;
+    this.projectClient = new proto.workspace_daemon.ProjectService(
+      address,
+      credentials
+    ) as unknown as ProjectServiceClient;
+    this.documentClient = new proto.workspace_daemon.DocumentService(
+      address,
+      credentials
+    ) as unknown as DocumentServiceClient;
+    this.embeddingClient = new proto.workspace_daemon.EmbeddingService(
+      address,
+      credentials
+    ) as unknown as EmbeddingServiceClient;
+    this.textSearchClient = new proto.workspace_daemon.TextSearchService(
+      address,
+      credentials
+    ) as unknown as TextSearchServiceClient;
+    this.graphClient = new proto.workspace_daemon.GraphService(
+      address,
+      credentials
+    ) as unknown as GraphServiceClient;
+    this.queueWriteClient = new proto.workspace_daemon.QueueWriteService(
+      address,
+      credentials
+    ) as unknown as QueueWriteServiceClient;
+    this.trackingWriteClient = new proto.workspace_daemon.TrackingWriteService(
+      address,
+      credentials
+    ) as unknown as TrackingWriteServiceClient;
 
     try {
       await this.healthCheck();
       this.connectionState = { connected: true, lastHealthCheck: new Date() };
     } catch (error) {
-      this.connectionState = { connected: false, lastError: error instanceof Error ? error.message : 'Unknown error' };
+      this.connectionState = {
+        connected: false,
+        lastError: error instanceof Error ? error.message : 'Unknown error',
+      };
       throw error;
     }
   }
 
   close(): void {
-    const clients = [this.systemClient, this.projectClient, this.documentClient,
-                     this.embeddingClient, this.textSearchClient, this.graphClient];
+    const clients = [
+      this.systemClient,
+      this.projectClient,
+      this.documentClient,
+      this.embeddingClient,
+      this.textSearchClient,
+      this.graphClient,
+      this.queueWriteClient,
+      this.trackingWriteClient,
+    ];
     for (const c of clients) {
       if (c) grpc.closeClient(c as unknown as grpc.Client);
     }
@@ -161,17 +223,25 @@ export class DaemonClient {
   // ── SystemService ──
 
   async healthCheck(): Promise<HealthCheckResponse> {
-    return this.callWithRetry(() =>
-      new Promise<HealthCheckResponse>((resolve, reject) => {
-        if (!this.systemClient) { reject(new Error('Client not connected')); return; }
-        const deadline = new Date(Date.now() + this.timeoutMs);
-        (this.systemClient as unknown as grpc.Client).waitForReady(deadline, (err) => {
-          if (err) { reject(err); return; }
-          this.systemClient!.health({}, (error, response) => {
-            if (error) reject(error); else resolve(response);
+    return this.callWithRetry(
+      () =>
+        new Promise<HealthCheckResponse>((resolve, reject) => {
+          if (!this.systemClient) {
+            reject(new Error('Client not connected'));
+            return;
+          }
+          const deadline = new Date(Date.now() + this.timeoutMs);
+          (this.systemClient as unknown as grpc.Client).waitForReady(deadline, (err) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            this.systemClient!.health({}, (error, response) => {
+              if (error) reject(error);
+              else resolve(response);
+            });
           });
-        });
-      }),
+        })
     );
   }
 
@@ -183,11 +253,17 @@ export class DaemonClient {
     return this.callWithRetry(() => grpcUnary(this.systemClient, 'getMetrics', {}));
   }
 
-  async notifyServerStatus(state: ServerState, projectName?: string, projectRoot?: string): Promise<void> {
+  async notifyServerStatus(
+    state: ServerState,
+    projectName?: string,
+    projectRoot?: string
+  ): Promise<void> {
     const notification: ServerStatusNotification = { state };
     if (projectName !== undefined) notification.project_name = projectName;
     if (projectRoot !== undefined) notification.project_root = projectRoot;
-    return this.callWithRetry(() => grpcUnary(this.systemClient, 'notifyServerStatus', notification));
+    return this.callWithRetry(() =>
+      grpcUnary(this.systemClient, 'notifyServerStatus', notification)
+    );
   }
 
   // ── ProjectService ──
@@ -196,7 +272,9 @@ export class DaemonClient {
     return this.callWithRetry(() => grpcUnary(this.projectClient, 'registerProject', request));
   }
 
-  async deprioritizeProject(request: DeprioritizeProjectRequest): Promise<DeprioritizeProjectResponse> {
+  async deprioritizeProject(
+    request: DeprioritizeProjectRequest
+  ): Promise<DeprioritizeProjectResponse> {
     return this.callWithRetry(() => grpcUnary(this.projectClient, 'deprioritizeProject', request));
   }
 
@@ -217,7 +295,9 @@ export class DaemonClient {
   }
 
   async generateSparseVector(request: SparseVectorRequest): Promise<SparseVectorResponse> {
-    return this.callWithRetry(() => grpcUnary(this.embeddingClient, 'generateSparseVector', request));
+    return this.callWithRetry(() =>
+      grpcUnary(this.embeddingClient, 'generateSparseVector', request)
+    );
   }
 
   // ── TextSearchService ──
@@ -234,6 +314,36 @@ export class DaemonClient {
 
   async queryRelated(request: QueryRelatedRequest): Promise<QueryRelatedResponse> {
     return this.callWithRetry(() => grpcUnary(this.graphClient, 'queryRelated', request));
+  }
+
+  // ── QueueWriteService ──
+
+  async enqueueItem(request: EnqueueItemRequest): Promise<EnqueueItemResponse> {
+    return this.callWithRetry(() => grpcUnary(this.queueWriteClient, 'enqueueItem', request));
+  }
+
+  // ── TrackingWriteService ──
+
+  async logSearchEvent(request: LogSearchEventRequest): Promise<void> {
+    return this.callWithRetry(() => grpcUnary(this.trackingWriteClient, 'logSearchEvent', request));
+  }
+
+  async updateSearchEvent(request: UpdateSearchEventRequest): Promise<void> {
+    return this.callWithRetry(() =>
+      grpcUnary(this.trackingWriteClient, 'updateSearchEvent', request)
+    );
+  }
+
+  async upsertRuleMirror(request: UpsertRuleMirrorRequest): Promise<void> {
+    return this.callWithRetry(() =>
+      grpcUnary(this.trackingWriteClient, 'upsertRuleMirror', request)
+    );
+  }
+
+  async deleteRuleMirror(request: DeleteRuleMirrorRequest): Promise<void> {
+    return this.callWithRetry(() =>
+      grpcUnary(this.trackingWriteClient, 'deleteRuleMirror', request)
+    );
   }
 
   // ── Retry logic ──
@@ -262,23 +372,50 @@ export class DaemonClient {
   }
 
   private isRetryableError(error: Error): boolean {
-    const retryableCodes = [grpc.status.UNAVAILABLE, grpc.status.DEADLINE_EXCEEDED, grpc.status.RESOURCE_EXHAUSTED];
+    const retryableCodes = [
+      grpc.status.UNAVAILABLE,
+      grpc.status.DEADLINE_EXCEEDED,
+      grpc.status.RESOURCE_EXHAUSTED,
+    ];
     const grpcError = error as { code?: number };
     if (typeof grpcError.code === 'number') return retryableCodes.includes(grpcError.code);
-    return error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT') || error.message.includes('ENOTFOUND');
+    return (
+      error.message.includes('ECONNREFUSED') ||
+      error.message.includes('ETIMEDOUT') ||
+      error.message.includes('ENOTFOUND')
+    );
   }
 }
 
 // Re-export types for convenience
 export { ServiceStatus } from './grpc-types.js';
 export type {
-  HealthCheckResponse, SystemStatusResponse, MetricsResponse,
-  RegisterProjectRequest, RegisterProjectResponse,
-  DeprioritizeProjectRequest, DeprioritizeProjectResponse,
-  HeartbeatRequest, HeartbeatResponse,
-  IngestTextRequest, IngestTextResponse,
-  EmbedTextRequest, EmbedTextResponse,
-  SparseVectorRequest, SparseVectorResponse,
-  TextSearchRequest, TextSearchResponse, TextSearchCountResponse, TextSearchMatch,
-  QueryRelatedRequest, QueryRelatedResponse, TraversalNodeProto,
+  HealthCheckResponse,
+  SystemStatusResponse,
+  MetricsResponse,
+  RegisterProjectRequest,
+  RegisterProjectResponse,
+  DeprioritizeProjectRequest,
+  DeprioritizeProjectResponse,
+  HeartbeatRequest,
+  HeartbeatResponse,
+  IngestTextRequest,
+  IngestTextResponse,
+  EmbedTextRequest,
+  EmbedTextResponse,
+  SparseVectorRequest,
+  SparseVectorResponse,
+  TextSearchRequest,
+  TextSearchResponse,
+  TextSearchCountResponse,
+  TextSearchMatch,
+  QueryRelatedRequest,
+  QueryRelatedResponse,
+  TraversalNodeProto,
+  EnqueueItemRequest,
+  EnqueueItemResponse,
+  LogSearchEventRequest,
+  UpdateSearchEventRequest,
+  UpsertRuleMirrorRequest,
+  DeleteRuleMirrorRequest,
 } from './grpc-types.js';

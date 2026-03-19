@@ -266,6 +266,64 @@ export interface SparseVectorResponse {
   error_message?: string;
 }
 
+// ── QueueWriteService ──
+
+export interface EnqueueItemRequest {
+  item_type: string;
+  op: string;
+  tenant_id: string;
+  collection: string;
+  payload_json: string;
+  branch: string;
+  metadata_json?: string;
+}
+
+export interface EnqueueItemResponse {
+  queue_id: string;
+  idempotency_key: string;
+  is_new: boolean;
+}
+
+// ── TrackingWriteService ──
+
+export interface LogSearchEventRequest {
+  id: string;
+  session_id?: string;
+  project_id?: string;
+  actor: string;
+  tool: string;
+  op: string;
+  query_text?: string;
+  filters?: string;
+  top_k?: number;
+  result_count?: number;
+  latency_ms?: number;
+  top_result_refs?: string;
+  outcome?: string;
+  parent_event_id?: string;
+}
+
+export interface UpdateSearchEventRequest {
+  event_id: string;
+  result_count: number;
+  latency_ms: number;
+  top_result_refs?: string;
+  outcome?: string;
+}
+
+export interface UpsertRuleMirrorRequest {
+  rule_id: string;
+  rule_text: string;
+  scope?: string;
+  tenant_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeleteRuleMirrorRequest {
+  rule_id: string;
+}
+
 // ── TextSearchService + GraphService ──
 // Re-exported from grpc-types-search-graph.ts
 export type {

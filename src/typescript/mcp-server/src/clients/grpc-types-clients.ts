@@ -38,6 +38,12 @@ import type {
   TextSearchCountResponse,
   QueryRelatedRequest,
   QueryRelatedResponse,
+  EnqueueItemRequest,
+  EnqueueItemResponse,
+  LogSearchEventRequest,
+  UpdateSearchEventRequest,
+  UpsertRuleMirrorRequest,
+  DeleteRuleMirrorRequest,
 } from './grpc-types-messages.js';
 
 export interface SystemServiceClient {
@@ -158,5 +164,31 @@ export interface GraphServiceClient {
   queryRelated(
     request: QueryRelatedRequest,
     callback: (error: Error | null, response: QueryRelatedResponse) => void
+  ): void;
+}
+
+export interface QueueWriteServiceClient {
+  enqueueItem(
+    request: EnqueueItemRequest,
+    callback: (error: Error | null, response: EnqueueItemResponse) => void
+  ): void;
+}
+
+export interface TrackingWriteServiceClient {
+  logSearchEvent(
+    request: LogSearchEventRequest,
+    callback: (error: Error | null, response: Record<string, never>) => void
+  ): void;
+  updateSearchEvent(
+    request: UpdateSearchEventRequest,
+    callback: (error: Error | null, response: Record<string, never>) => void
+  ): void;
+  upsertRuleMirror(
+    request: UpsertRuleMirrorRequest,
+    callback: (error: Error | null, response: Record<string, never>) => void
+  ): void;
+  deleteRuleMirror(
+    request: DeleteRuleMirrorRequest,
+    callback: (error: Error | null, response: Record<string, never>) => void
   ): void;
 }

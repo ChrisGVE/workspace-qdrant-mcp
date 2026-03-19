@@ -63,6 +63,14 @@ export {
   type ImpactAnalysisRequest,
   type ImpactAnalysisResponse,
   type ImpactNodeProto,
+  // QueueWriteService
+  type EnqueueItemRequest,
+  type EnqueueItemResponse,
+  // TrackingWriteService
+  type LogSearchEventRequest,
+  type UpdateSearchEventRequest,
+  type UpsertRuleMirrorRequest,
+  type DeleteRuleMirrorRequest,
 } from './grpc-types-messages.js';
 
 export type {
@@ -73,4 +81,6 @@ export type {
   EmbeddingServiceClient,
   TextSearchServiceClient,
   GraphServiceClient,
+  QueueWriteServiceClient,
+  TrackingWriteServiceClient,
 } from './grpc-types-clients.js';
