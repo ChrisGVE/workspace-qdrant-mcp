@@ -129,4 +129,16 @@ impl GrpcServer {
         self.storage_client = Some(client);
         self
     }
+
+    /// Set the WriteActor handle for serialized state.db mutations.
+    ///
+    /// When provided, all 5 write services delegate mutations through
+    /// the WriteActor channel instead of using direct pool access.
+    pub fn with_write_actor(
+        mut self,
+        handle: workspace_qdrant_core::write_actor::WriteActorHandle,
+    ) -> Self {
+        self.write_actor = Some(handle);
+        self
+    }
 }

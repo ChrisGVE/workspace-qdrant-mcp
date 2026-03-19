@@ -1,13 +1,13 @@
 //! TrackingWriteService gRPC implementation
 //!
-//! Daemon-exclusive writes for observability and mirror tables.
-//! Replaces direct SQLite writes from MCP server and CLI.
+//! Delegates all state.db mutations to the WriteActor via WriteActorHandle.
 //! Errors are logged but not propagated — instrumentation must never block.
 
-use sqlx::SqlitePool;
 use tonic::{Request, Response, Status};
-use tracing::warn;
-use wqm_common::timestamps;
+use workspace_qdrant_core::write_actor::{
+    DeleteRuleMirrorData, LogSearchEventData, UpdateSearchEventData, UpsertRuleMirrorData,
+    WriteActorHandle,
+};
 
 use crate::proto::{
     tracking_write_service_server::TrackingWriteService, DeleteRuleMirrorRequest,
@@ -15,12 +15,12 @@ use crate::proto::{
 };
 
 pub struct TrackingWriteServiceImpl {
-    pool: SqlitePool,
+    write_actor: WriteActorHandle,
 }
 
 impl TrackingWriteServiceImpl {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(write_actor: WriteActorHandle) -> Self {
+        Self { write_actor }
     }
 }
 
@@ -31,36 +31,26 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<LogSearchEventRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-        let now = timestamps::now_utc();
-
-        if let Err(e) = sqlx::query(
-            "INSERT INTO search_events (
-                id, ts, session_id, project_id, actor, tool, op,
-                query_text, filters, top_k, result_count, latency_ms,
-                top_result_refs, outcome, parent_event_id, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?2)",
-        )
-        .bind(&req.id)
-        .bind(&now)
-        .bind(&req.session_id)
-        .bind(&req.project_id)
-        .bind(&req.actor)
-        .bind(&req.tool)
-        .bind(&req.op)
-        .bind(&req.query_text)
-        .bind(&req.filters)
-        .bind(req.top_k)
-        .bind(req.result_count)
-        .bind(req.latency_ms)
-        .bind(&req.top_result_refs)
-        .bind(&req.outcome)
-        .bind(&req.parent_event_id)
-        .execute(&self.pool)
-        .await
-        {
-            warn!("failed to log search event: {}", e);
-        }
-
+        // Fire-and-forget: errors logged inside WriteActor
+        let _ = self
+            .write_actor
+            .log_search_event(LogSearchEventData {
+                id: req.id,
+                session_id: req.session_id,
+                project_id: req.project_id,
+                actor: req.actor,
+                tool: req.tool,
+                op: req.op,
+                query_text: req.query_text,
+                filters: req.filters,
+                top_k: req.top_k,
+                result_count: req.result_count,
+                latency_ms: req.latency_ms,
+                top_result_refs: req.top_result_refs,
+                outcome: req.outcome,
+                parent_event_id: req.parent_event_id,
+            })
+            .await;
         Ok(Response::new(()))
     }
 
@@ -69,23 +59,16 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<UpdateSearchEventRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-
-        if let Err(e) = sqlx::query(
-            "UPDATE search_events \
-             SET result_count = ?1, latency_ms = ?2, top_result_refs = ?3, outcome = ?4 \
-             WHERE id = ?5",
-        )
-        .bind(req.result_count)
-        .bind(req.latency_ms)
-        .bind(&req.top_result_refs)
-        .bind(&req.outcome)
-        .bind(&req.event_id)
-        .execute(&self.pool)
-        .await
-        {
-            warn!("failed to update search event: {}", e);
-        }
-
+        let _ = self
+            .write_actor
+            .update_search_event(UpdateSearchEventData {
+                event_id: req.event_id,
+                result_count: Some(req.result_count),
+                latency_ms: Some(req.latency_ms),
+                top_result_refs: req.top_result_refs,
+                outcome: req.outcome,
+            })
+            .await;
         Ok(Response::new(()))
     }
 
@@ -94,28 +77,17 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<UpsertRuleMirrorRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-
-        if let Err(e) = sqlx::query(
-            "INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
-             ON CONFLICT(rule_id) DO UPDATE SET \
-                 rule_text = excluded.rule_text, \
-                 scope = excluded.scope, \
-                 tenant_id = excluded.tenant_id, \
-                 updated_at = excluded.updated_at",
-        )
-        .bind(&req.rule_id)
-        .bind(&req.rule_text)
-        .bind(&req.scope)
-        .bind(&req.tenant_id)
-        .bind(&req.created_at)
-        .bind(&req.updated_at)
-        .execute(&self.pool)
-        .await
-        {
-            warn!("failed to upsert rules mirror: {}", e);
-        }
-
+        let _ = self
+            .write_actor
+            .upsert_rule_mirror(UpsertRuleMirrorData {
+                rule_id: req.rule_id,
+                rule_text: req.rule_text,
+                scope: req.scope.unwrap_or_default(),
+                tenant_id: req.tenant_id.unwrap_or_default(),
+                created_at: req.created_at,
+                updated_at: req.updated_at,
+            })
+            .await;
         Ok(Response::new(()))
     }
 
@@ -124,15 +96,12 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<DeleteRuleMirrorRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
-
-        if let Err(e) = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
-            .bind(&req.rule_id)
-            .execute(&self.pool)
-            .await
-        {
-            warn!("failed to delete rules mirror: {}", e);
-        }
-
+        let _ = self
+            .write_actor
+            .delete_rule_mirror(DeleteRuleMirrorData {
+                rule_id: req.rule_id,
+            })
+            .await;
         Ok(Response::new(()))
     }
 }

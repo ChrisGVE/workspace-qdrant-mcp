@@ -85,6 +85,7 @@ pub mod unified_queue_schema;
 pub mod watch_folders_schema;
 pub mod watching;
 pub mod watching_queue;
+pub mod write_actor;
 
 // ── Architectural refactoring modules (Phase 0+) ────────────────────────
 pub mod context;
@@ -287,3 +288,4 @@ pub use crate::watching_queue::{
     WatchQueueCoordinator, WatchType, WatchingQueueError, WatchingQueueStats,
 };
 pub use wqm_common::project_id::calculate_tenant_id;
+pub use write_actor::{WriteActor, WriteActorHandle};

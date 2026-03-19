@@ -19,6 +19,7 @@ use sqlx::SqlitePool;
 use thiserror::Error;
 use tokio::sync::{Notify, RwLock};
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
+use workspace_qdrant_core::write_actor::WriteActorHandle;
 use workspace_qdrant_core::LanguageServerManager;
 use workspace_qdrant_core::SearchDbManager;
 
@@ -309,6 +310,8 @@ pub struct GrpcServer {
     pub(crate) lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
     /// Storage client for Qdrant operations (rules rebuild)
     pub(crate) storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
+    /// WriteActor handle for serialized state.db mutations
+    pub(crate) write_actor: Option<WriteActorHandle>,
 }
 
 /// Server metrics for monitoring
@@ -339,6 +342,7 @@ impl GrpcServer {
             hierarchy_builder: None,
             lexicon_manager: None,
             storage_client: None,
+            write_actor: None,
         }
     }
 }
