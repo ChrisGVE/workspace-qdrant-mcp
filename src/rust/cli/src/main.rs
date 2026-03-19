@@ -36,6 +36,7 @@ Project & Library:
 Queue & Monitoring:
   queue        Queue inspector (list, show, stats, cancel)
   status       System status and monitoring
+  tui          Interactive terminal UI
 
 Service & Admin:
   service      Daemon management (start, stop, restart, status)
@@ -134,6 +135,11 @@ enum Commands {
     /// System status and monitoring
     #[command(display_order = 31)]
     Status(commands::status::StatusArgs),
+
+    /// Interactive terminal UI for browsing and monitoring
+    #[command(display_order = 32)]
+    #[cfg(feature = "tui")]
+    Tui,
 
     // --- Service & Admin ---
     /// Daemon management (start, stop, restart, status)
@@ -261,6 +267,8 @@ async fn main() -> Result<()> {
         // Queue & Monitoring
         Commands::Queue(args) => commands::queue::execute(args).await,
         Commands::Status(args) => commands::status::execute(args).await,
+        #[cfg(feature = "tui")]
+        Commands::Tui => tui::run_tui(cfg.daemon_address.clone()),
 
         // Service & Admin
         Commands::Service(args) => {
