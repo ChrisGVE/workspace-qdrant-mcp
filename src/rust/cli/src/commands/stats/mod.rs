@@ -12,7 +12,6 @@ use clap::{Args, Subcommand, ValueEnum};
 use rusqlite::Connection;
 
 use crate::config::get_database_path;
-use wqm_common::timestamps;
 
 /// Time period filter for stats queries
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
