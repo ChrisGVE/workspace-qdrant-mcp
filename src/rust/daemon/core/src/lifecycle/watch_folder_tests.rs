@@ -355,3 +355,133 @@ async fn test_hard_reset_zeroes_all_sessions() {
     assert_eq!(rows, 1);
     assert_eq!(session_count(&pool, "w1").await, 0);
 }
+
+// ── path-scoped deactivation tests ──────────────────────────────────
+
+#[tokio::test]
+async fn test_deactivate_by_tenant_and_path_only_targets_one_entry() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+
+    // Two watch folders sharing the same tenant (main + worktree)
+    insert_project(&pool, "main", "shared_t", "/main").await;
+    insert_project(&pool, "wt1", "shared_t", "/worktree1").await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    // Activate both to is_active=2
+    lc.activate_by_tenant("shared_t", "projects").await.unwrap();
+    lc.activate_by_tenant("shared_t", "projects").await.unwrap();
+    assert_eq!(session_count(&pool, "main").await, 2);
+    assert_eq!(session_count(&pool, "wt1").await, 2);
+
+    // Deactivate only the worktree path
+    let rows = lc
+        .deactivate_by_tenant_and_path("shared_t", "/worktree1")
+        .await
+        .unwrap();
+    assert_eq!(rows, 1);
+
+    // Main is untouched, worktree decremented by 1
+    assert_eq!(session_count(&pool, "main").await, 2);
+    assert_eq!(session_count(&pool, "wt1").await, 1);
+}
+
+#[tokio::test]
+async fn test_deactivate_by_tenant_and_path_floors_at_zero() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+    insert_project(&pool, "w1", "t_floor_p", "/floor_path").await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    // Already at 0; must not go negative
+    lc.deactivate_by_tenant_and_path("t_floor_p", "/floor_path")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "w1").await, 0);
+}
+
+#[tokio::test]
+async fn test_deactivate_by_tenant_and_path_nonexistent_returns_zero() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    let rows = lc
+        .deactivate_by_tenant_and_path("no_tenant", "/no_path")
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+}
+
+#[tokio::test]
+async fn test_get_is_active_by_tenant_and_path() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+    insert_project(&pool, "w1", "t_query", "/query_path").await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    // Initially 0
+    let val = lc
+        .get_is_active_by_tenant_and_path("t_query", "/query_path")
+        .await
+        .unwrap();
+    assert_eq!(val, Some(0));
+
+    // Activate twice
+    lc.activate_by_tenant("t_query", "projects").await.unwrap();
+    lc.activate_by_tenant("t_query", "projects").await.unwrap();
+
+    let val = lc
+        .get_is_active_by_tenant_and_path("t_query", "/query_path")
+        .await
+        .unwrap();
+    assert_eq!(val, Some(2));
+
+    // Nonexistent returns None
+    let val = lc
+        .get_is_active_by_tenant_and_path("t_query", "/wrong_path")
+        .await
+        .unwrap();
+    assert_eq!(val, None);
+}
+
+#[tokio::test]
+async fn test_path_scoped_refcount_full_lifecycle() {
+    let pool = test_pool().await;
+    setup(&pool).await;
+
+    // Simulate: main repo + two worktrees, same tenant
+    insert_project(&pool, "main", "wt_tenant", "/repo").await;
+    insert_project(&pool, "wt_a", "wt_tenant", "/repo-wt-a").await;
+    insert_project(&pool, "wt_b", "wt_tenant", "/repo-wt-b").await;
+
+    let lc = WatchFolderLifecycle::new(pool.clone());
+
+    // Session opens in worktree A (tenant-wide activate, as register_session does)
+    lc.activate_by_tenant("wt_tenant", "projects")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "main").await, 1);
+    assert_eq!(session_count(&pool, "wt_a").await, 1);
+    assert_eq!(session_count(&pool, "wt_b").await, 1);
+
+    // Session opens in worktree B
+    lc.activate_by_tenant("wt_tenant", "projects")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "main").await, 2);
+    assert_eq!(session_count(&pool, "wt_a").await, 2);
+    assert_eq!(session_count(&pool, "wt_b").await, 2);
+
+    // Worktree A session ends (path-scoped)
+    lc.deactivate_by_tenant_and_path("wt_tenant", "/repo-wt-a")
+        .await
+        .unwrap();
+    assert_eq!(session_count(&pool, "main").await, 2); // untouched
+    assert_eq!(session_count(&pool, "wt_a").await, 1); // decremented
+    assert_eq!(session_count(&pool, "wt_b").await, 2); // untouched
+}

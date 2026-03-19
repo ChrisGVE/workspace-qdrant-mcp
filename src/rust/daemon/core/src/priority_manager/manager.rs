@@ -103,6 +103,53 @@ impl PriorityManager {
         Ok(0)
     }
 
+    /// Deactivate a single watch folder by `(tenant_id, path)`.
+    ///
+    /// Decrements `is_active` by 1 (clamped to 0) for only the watch folder
+    /// at the specified path, leaving other entries for the same tenant
+    /// untouched. Returns the `is_active` value after the decrement.
+    pub async fn unregister_session_by_path(
+        &self,
+        tenant_id: &str,
+        path: &str,
+    ) -> PriorityResult<i32> {
+        if tenant_id.is_empty() {
+            return Err(PriorityError::EmptyParameter);
+        }
+
+        let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
+
+        // Check existence before mutating
+        let current = lifecycle
+            .get_is_active_by_tenant_and_path(tenant_id, path)
+            .await?;
+
+        if current.is_none() {
+            return Err(PriorityError::ProjectNotFound(format!(
+                "{tenant_id} at path {path}"
+            )));
+        }
+
+        lifecycle
+            .deactivate_by_tenant_and_path(tenant_id, path)
+            .await?;
+
+        // Read back the updated value
+        let updated = lifecycle
+            .get_is_active_by_tenant_and_path(tenant_id, path)
+            .await?
+            .unwrap_or(0);
+
+        METRICS.session_ended(tenant_id, "normal", 0.0);
+
+        info!(
+            "Session unregistered for project {} at path {}: is_active={}",
+            tenant_id, path, updated
+        );
+
+        Ok(updated)
+    }
+
     /// Set project priority explicitly
     ///
     /// Maps a priority string ("high"/"normal") to a session count increment/decrement.

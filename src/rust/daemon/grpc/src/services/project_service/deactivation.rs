@@ -2,6 +2,10 @@
 //!
 //! Handles deprioritization: unregistering sessions, updating watch_folders
 //! activity state, and triggering LSP shutdown (immediate or deferred).
+//!
+//! Supports path-scoped deactivation: when `watch_path` is set, only the
+//! specific watch folder at that path is decremented rather than all entries
+//! for the tenant.
 
 use tonic::Status;
 use tracing::{debug, error, info, warn};
@@ -20,11 +24,27 @@ impl ProjectServiceImpl {
             return Err(Status::invalid_argument("project_id cannot be empty"));
         }
 
-        info!("Deprioritizing project: {}", req.project_id);
+        let watch_path = req.watch_path.as_deref().filter(|p| !p.is_empty());
+
+        if let Some(path) = watch_path {
+            self.deprioritize_by_path(&req.project_id, path).await
+        } else {
+            self.deprioritize_tenant_wide(&req.project_id).await
+        }
+    }
+
+    /// Tenant-wide deprioritization (original behaviour).
+    ///
+    /// Decrements `is_active` for every watch folder sharing the `tenant_id`.
+    async fn deprioritize_tenant_wide(
+        &self,
+        project_id: &str,
+    ) -> Result<DeprioritizeProjectResponse, Status> {
+        info!("Deprioritizing project (tenant-wide): {}", project_id);
 
         match self
             .priority_manager
-            .unregister_session(&req.project_id, "main")
+            .unregister_session(project_id, "main")
             .await
         {
             Ok(active_flag) => {
@@ -32,13 +52,13 @@ impl ProjectServiceImpl {
                 let new_priority = if is_active { "high" } else { "normal" };
 
                 if !is_active {
-                    self.deactivate_project(&req.project_id).await;
-                    self.handle_lsp_shutdown(&req.project_id).await;
+                    self.deactivate_project(project_id).await;
+                    self.handle_lsp_shutdown(project_id).await;
 
                     if let Some(ref signal) = self.watch_refresh_signal {
                         signal.notify_one();
                         debug!(
-                            project_id = %req.project_id,
+                            project_id = %project_id,
                             "Signaled WatchManager refresh for project deactivation"
                         );
                     }
@@ -56,6 +76,62 @@ impl ProjectServiceImpl {
             }
             Err(e) => {
                 error!("Failed to deprioritize project: {e}");
+                Err(Status::internal(format!("Failed to deprioritize: {e}")))
+            }
+        }
+    }
+
+    /// Path-scoped deprioritization for worktree sessions.
+    ///
+    /// Decrements `is_active` only for the watch folder at `watch_path`,
+    /// leaving other entries for the same tenant untouched.
+    async fn deprioritize_by_path(
+        &self,
+        project_id: &str,
+        watch_path: &str,
+    ) -> Result<DeprioritizeProjectResponse, Status> {
+        info!(
+            "Deprioritizing project (path-scoped): {} at {}",
+            project_id, watch_path
+        );
+
+        match self
+            .priority_manager
+            .unregister_session_by_path(project_id, watch_path)
+            .await
+        {
+            Ok(active_flag) => {
+                let is_active = active_flag > 0;
+                let new_priority = if is_active { "high" } else { "normal" };
+
+                // When this specific path reaches zero, signal a watch refresh
+                // so the watcher can stop monitoring it if needed.
+                if !is_active {
+                    if let Some(ref signal) = self.watch_refresh_signal {
+                        signal.notify_one();
+                        debug!(
+                            project_id = %project_id,
+                            watch_path = %watch_path,
+                            "Signaled WatchManager refresh for path deactivation"
+                        );
+                    }
+                }
+
+                Ok(DeprioritizeProjectResponse {
+                    success: true,
+                    is_active,
+                    new_priority: new_priority.to_string(),
+                })
+            }
+            Err(workspace_qdrant_core::PriorityError::ProjectNotFound(id)) => {
+                warn!(
+                    "Watch folder not found for deprioritization: {} at {}",
+                    id, watch_path
+                );
+                Err(Status::not_found(format!("Watch folder not found: {id}")))
+            }
+            Err(e) => {
+                error!("Failed to deprioritize project by path: {e}");
                 Err(Status::internal(format!("Failed to deprioritize: {e}")))
             }
         }
