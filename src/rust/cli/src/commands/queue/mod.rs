@@ -50,13 +50,17 @@ enum QueueCommand {
         #[arg(short = 't', long)]
         item_type: Option<String>,
 
-        /// Maximum number of items to show
-        #[arg(short, long, default_value = "50")]
+        /// Maximum number of items to show (default: 50)
+        #[arg(short, long, default_value = "50", conflicts_with = "all")]
         limit: i64,
 
         /// Skip first N items (for pagination)
         #[arg(long, default_value = "0")]
         offset: i64,
+
+        /// Show all items (override default page size)
+        #[arg(short, long)]
+        all: bool,
 
         /// Order by field (created_at, priority, status)
         #[arg(short = 'o', long, default_value = "created_at")]
@@ -196,6 +200,7 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             item_type,
             limit,
             offset,
+            all,
             order_by,
             desc,
             json,
@@ -203,9 +208,19 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             no_headers,
             verbose,
         } => {
+            let effective_limit = if all { i64::MAX } else { limit };
             list::execute(
-                status, collection, item_type, limit, offset, &order_by, desc, json, script,
-                no_headers, verbose,
+                status,
+                collection,
+                item_type,
+                effective_limit,
+                offset,
+                &order_by,
+                desc,
+                json,
+                script,
+                no_headers,
+                verbose,
             )
             .await
         }
