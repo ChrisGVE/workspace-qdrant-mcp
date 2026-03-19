@@ -69,13 +69,16 @@ fn print_project_list(
 
     let mut known_ids = HashSet::new();
 
-    for proj in &list.projects {
+    for (i, proj) in list.projects.iter().enumerate() {
         known_ids.insert(proj.project_id.clone());
         let status = if proj.is_active {
             ServiceStatus::Active
         } else {
             ServiceStatus::Inactive
         };
+        if i > 0 {
+            println!();
+        }
         let name_display = if proj.is_worktree {
             format!("{} [worktree]", proj.project_name)
         } else {
