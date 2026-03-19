@@ -11,13 +11,7 @@ import type { ProjectDetector } from './utils/project-detector.js';
 import { getGitRemoteUrl } from './utils/project-detector.js';
 import { findGitRoot } from './utils/git-utils.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
-import {
-  logInfo,
-  logError,
-  logDebug,
-  logSessionEvent,
-  logDaemonStatus,
-} from './utils/logger.js';
+import { logInfo, logError, logDebug, logSessionEvent, logDaemonStatus } from './utils/logger.js';
 import { HEARTBEAT_INTERVAL_MS } from './server-types.js';
 import type { SessionState } from './server-types.js';
 
@@ -112,6 +106,14 @@ export async function registerProject(
       logDebug('Project ID assigned by daemon', { project_id: response.project_id });
     }
 
+    if (response.is_worktree) {
+      logInfo('Registered as worktree', {
+        project_path: sessionState.projectPath,
+        project_id: response.project_id,
+        watch_path: response.watch_path,
+      });
+    }
+
     logSessionEvent('register', {
       project_id: response.project_id,
       project_path: sessionState.projectPath,
@@ -119,6 +121,8 @@ export async function registerProject(
       priority: response.priority,
       is_active: response.is_active,
       newly_registered: response.newly_registered,
+      is_worktree: response.is_worktree,
+      watch_path: response.watch_path,
     });
   } catch (error) {
     logError('Failed to register project', error, {
@@ -192,10 +196,7 @@ export async function registerProjectFromTool(
 /**
  * Start the heartbeat interval. Mutates sessionState in place.
  */
-export function startHeartbeat(
-  sessionState: SessionState,
-  sendHeartbeatFn: () => void
-): void {
+export function startHeartbeat(sessionState: SessionState, sendHeartbeatFn: () => void): void {
   if (sessionState.heartbeatInterval) {
     clearInterval(sessionState.heartbeatInterval);
   }
@@ -259,8 +260,10 @@ export async function cleanup(
 
   if (sessionState.projectId && sessionState.daemonConnected) {
     try {
+      const projectId = sessionState.projectId!;
       const response = await daemonClient.deprioritizeProject({
-        project_id: sessionState.projectId,
+        project_id: projectId,
+        ...(sessionState.projectPath ? { watch_path: sessionState.projectPath } : {}),
       });
       logSessionEvent('deprioritize', {
         project_id: sessionState.projectId,
