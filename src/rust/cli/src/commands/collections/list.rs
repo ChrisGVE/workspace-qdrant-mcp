@@ -65,7 +65,7 @@ pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Res
 
             if body.result.collections.is_empty() {
                 if !script {
-                    output::info("No collections found");
+                    output::info("No collections found. Register a project to get started.");
                 }
                 return Ok(());
             }

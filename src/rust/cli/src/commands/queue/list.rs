@@ -9,8 +9,12 @@ use crate::output::style::short_id;
 
 use super::db::connect_readonly;
 use super::formatters::{
-    extract_subject, format_relative_time, format_status, QueueListItem, QueueListItemVerbose,
+    extract_subject, format_relative_time, format_status, truncate_str, QueueListItem,
+    QueueListItemVerbose, QueueListItemWithError,
 };
+
+/// Maximum character width for error messages in the table view.
+const ERROR_TRUNCATE_LEN: usize = 60;
 
 pub async fn execute(
     status: Option<String>,
@@ -41,17 +45,18 @@ pub async fn execute(
     let mut stmt = conn.prepare(&query)?;
     let rows = stmt.query_map(params_slice.as_slice(), |row| {
         Ok((
-            row.get::<_, String>(0)?,         // queue_id
-            row.get::<_, String>(1)?,         // idempotency_key
-            row.get::<_, String>(2)?,         // item_type
-            row.get::<_, String>(3)?,         // op
-            row.get::<_, String>(4)?,         // collection
-            row.get::<_, String>(5)?,         // status
-            row.get::<_, String>(6)?,         // created_at
-            row.get::<_, i32>(7)?,            // retry_count
-            row.get::<_, Option<String>>(8)?, // worker_id
-            row.get::<_, String>(9)?,         // tenant_id
-            row.get::<_, String>(10)?,        // payload_json
+            row.get::<_, String>(0)?,          // queue_id
+            row.get::<_, String>(1)?,          // idempotency_key
+            row.get::<_, String>(2)?,          // item_type
+            row.get::<_, String>(3)?,          // op
+            row.get::<_, String>(4)?,          // collection
+            row.get::<_, String>(5)?,          // status
+            row.get::<_, String>(6)?,          // created_at
+            row.get::<_, i32>(7)?,             // retry_count
+            row.get::<_, Option<String>>(8)?,  // worker_id
+            row.get::<_, String>(9)?,          // tenant_id
+            row.get::<_, String>(10)?,         // payload_json
+            row.get::<_, Option<String>>(11)?, // error_message
         ))
     })?;
 
@@ -61,7 +66,9 @@ pub async fn execute(
         if json {
             println!("[]");
         } else {
-            output::info("No queue items found");
+            output::info(
+                "No queue items found. Projects are processed automatically when registered.",
+            );
         }
         return Ok(());
     }
@@ -69,7 +76,7 @@ pub async fn execute(
     // Get total count for summary line
     let total = count_total(&conn, status, collection, item_type)?;
 
-    // Build tenant_id → project_name mapping
+    // Build tenant_id -> project_name mapping
     let tenant_names = build_tenant_name_map(&conn);
 
     if verbose {
@@ -157,7 +164,7 @@ fn build_list_query(
     let query = format!(
         "SELECT queue_id, idempotency_key, item_type, op, collection, status, \
          created_at, retry_count, worker_id, tenant_id, \
-         COALESCE(payload_json, '{{}}') \
+         COALESCE(payload_json, '{{}}'), error_message \
          FROM unified_queue {} ORDER BY {} {} \
          LIMIT ? OFFSET ?",
         where_clause, order_column, order_direction
@@ -231,6 +238,7 @@ type RowTuple = (
     Option<String>,
     String,
     String,
+    Option<String>,
 );
 
 fn print_verbose(
@@ -256,6 +264,7 @@ fn print_verbose(
                 worker_id,
                 tenant_id,
                 payload_json,
+                _error_message,
             )| {
                 QueueListItemVerbose {
                     queue_id: queue_id.clone(),
@@ -296,6 +305,26 @@ fn print_compact(
     script: bool,
     no_headers: bool,
 ) {
+    // Show the Error column when any item in the result set has a non-empty error_message
+    let has_errors = items
+        .iter()
+        .any(|(_, _, _, _, _, _, _, _, _, _, _, err)| err.is_some());
+
+    if has_errors {
+        print_compact_with_error(items, tenant_names, total, json, script, no_headers);
+    } else {
+        print_compact_plain(items, tenant_names, total, json, script, no_headers);
+    }
+}
+
+fn print_compact_plain(
+    items: &[RowTuple],
+    tenant_names: &HashMap<String, String>,
+    total: usize,
+    json: bool,
+    script: bool,
+    no_headers: bool,
+) {
     let display_items: Vec<QueueListItem> = items
         .iter()
         .map(
@@ -311,6 +340,7 @@ fn print_compact(
                 _worker_id,
                 tenant_id,
                 payload_json,
+                _error_message,
             )| {
                 QueueListItem {
                     queue_id: short_id(queue_id),
@@ -321,6 +351,63 @@ fn print_compact(
                     status: format_status(status),
                     age: format_relative_time(created_at),
                     retry_count: *retry_count,
+                }
+            },
+        )
+        .collect();
+
+    if json {
+        output::print_json(&display_items);
+    } else if script {
+        output::print_script(&display_items, !no_headers);
+    } else {
+        output::print_table_auto(&display_items);
+        output::summary(output::summary_line(
+            display_items.len(),
+            total,
+            "queue items",
+        ));
+    }
+}
+
+fn print_compact_with_error(
+    items: &[RowTuple],
+    tenant_names: &HashMap<String, String>,
+    total: usize,
+    json: bool,
+    script: bool,
+    no_headers: bool,
+) {
+    let display_items: Vec<QueueListItemWithError> = items
+        .iter()
+        .map(
+            |(
+                queue_id,
+                _idempotency_key,
+                item_type,
+                op,
+                _collection,
+                status,
+                created_at,
+                retry_count,
+                _worker_id,
+                tenant_id,
+                payload_json,
+                error_message,
+            )| {
+                QueueListItemWithError {
+                    queue_id: short_id(queue_id),
+                    project: resolve_project_name(tenant_id, tenant_names),
+                    subject: extract_subject(item_type, payload_json),
+                    item_type: item_type.clone(),
+                    op: op.clone(),
+                    status: format_status(status),
+                    age: format_relative_time(created_at),
+                    retry_count: *retry_count,
+                    error_message: error_message
+                        .as_deref()
+                        .map(|e| truncate_str(e, ERROR_TRUNCATE_LEN))
+                        .unwrap_or_default(),
                 }
             },
         )

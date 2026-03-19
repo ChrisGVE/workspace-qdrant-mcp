@@ -8,8 +8,8 @@ use crate::output::ColumnHints;
 /// Watch item for list display
 #[derive(Debug, Tabled, Serialize)]
 pub struct WatchListItem {
-    #[tabled(rename = "Watch ID")]
-    pub watch_id: String,
+    #[tabled(rename = "Project")]
+    pub project: String,
     #[tabled(rename = "Path")]
     pub path: String,
     #[tabled(rename = "Collection")]
@@ -36,8 +36,8 @@ impl ColumnHints for WatchListItem {
 /// Watch item for verbose list display
 #[derive(Debug, Tabled, Serialize)]
 pub struct WatchListItemVerbose {
-    #[tabled(rename = "Watch ID")]
-    pub watch_id: String,
+    #[tabled(rename = "Project")]
+    pub project: String,
     #[tabled(rename = "Path")]
     pub path: String,
     #[tabled(rename = "Collection")]

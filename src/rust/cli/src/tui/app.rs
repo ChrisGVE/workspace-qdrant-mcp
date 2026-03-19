@@ -11,6 +11,8 @@ use ratatui::Frame;
 
 use super::event::{Event, EventHandler};
 use super::terminal;
+use super::views::dashboard::Dashboard;
+use super::views::logs::LogViewer;
 
 /// Active view in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +72,10 @@ pub struct App {
     pub show_help: bool,
     /// Daemon gRPC address for data fetching.
     pub daemon_addr: String,
+    /// Dashboard view state (lazily initialized on first Dashboard view).
+    dashboard: Option<Dashboard>,
+    /// Log viewer state (lazily initialized on first Logs view).
+    log_viewer: Option<LogViewer>,
 }
 
 impl App {
@@ -80,7 +86,19 @@ impl App {
             current_view: View::Dashboard,
             show_help: false,
             daemon_addr,
+            dashboard: None,
+            log_viewer: None,
         }
+    }
+
+    /// Return a mutable reference to the dashboard, creating it if needed.
+    fn dashboard(&mut self) -> &mut Dashboard {
+        self.dashboard.get_or_insert_with(Dashboard::new)
+    }
+
+    /// Return a mutable reference to the log viewer, creating it if needed.
+    fn log_viewer(&mut self) -> &mut LogViewer {
+        self.log_viewer.get_or_insert_with(LogViewer::new)
     }
 
     /// Main run loop: setup terminal, handle events, render, cleanup.
@@ -94,13 +112,26 @@ impl App {
             match events.next() {
                 Ok(Event::Key(key)) => self.handle_key(key),
                 Ok(Event::Resize(_, _)) => {} // ratatui handles resize on next draw
-                Ok(Event::Tick) => {}         // placeholder for future live updates
+                Ok(Event::Tick) => self.on_tick(),
                 Err(_) => self.running = false,
             }
         }
 
         terminal::restore()?;
         Ok(())
+    }
+
+    /// Handle periodic tick events for live-updating views.
+    fn on_tick(&mut self) {
+        match self.current_view {
+            View::Dashboard => {
+                self.dashboard().on_tick();
+            }
+            View::Logs => {
+                self.log_viewer().on_tick();
+            }
+            _ => {}
+        }
     }
 
     /// Handle a key event with global bindings.
@@ -114,6 +145,35 @@ impl App {
                 _ => {}
             }
             return;
+        }
+
+        // Delegate scrolling keys to the log viewer when on Logs view
+        if self.current_view == View::Logs {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.log_viewer().scroll_down();
+                    return;
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.log_viewer().scroll_up();
+                    return;
+                }
+                KeyCode::Char('G') => {
+                    self.log_viewer().scroll_to_bottom();
+                    return;
+                }
+                KeyCode::PageUp => {
+                    // Use a reasonable default page size; actual height
+                    // is not available here, so use 20 as an approximation.
+                    self.log_viewer().page_up(20);
+                    return;
+                }
+                KeyCode::PageDown => {
+                    self.log_viewer().page_down(20);
+                    return;
+                }
+                _ => {}
+            }
         }
 
         match key.code {
@@ -169,7 +229,7 @@ impl App {
 
         let tabs = Tabs::new(titles)
             .select(self.current_view.index())
-            .divider(Span::raw("│"))
+            .divider(Span::raw("|"))
             .block(
                 Block::default()
                     .borders(Borders::BOTTOM)
@@ -178,27 +238,61 @@ impl App {
             );
         frame.render_widget(tabs, chunks[0]);
 
-        // Main content area — placeholder per view
-        let content = Paragraph::new(format!(
-            "{} view\n\nThis view will be implemented in a future update.",
-            self.current_view.label()
-        ))
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(content, chunks[1]);
+        // Main content area
+        match self.current_view {
+            View::Dashboard => {
+                if let Some(dash) = &self.dashboard {
+                    dash.draw(frame, chunks[1]);
+                } else {
+                    draw_loading(frame, chunks[1], "Dashboard");
+                }
+            }
+            View::Logs => {
+                if let Some(viewer) = &self.log_viewer {
+                    viewer.draw(frame, chunks[1]);
+                } else {
+                    draw_loading(frame, chunks[1], "Logs");
+                }
+            }
+            _ => {
+                let content = Paragraph::new(format!(
+                    "{} view\n\nThis view will be implemented in a future update.",
+                    self.current_view.label()
+                ))
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::DarkGray));
+                frame.render_widget(content, chunks[1]);
+            }
+        }
 
         // Status bar
-        let status = Paragraph::new(Line::from(vec![
-            Span::styled(" q", Style::default().fg(Color::Yellow)),
-            Span::raw(" quit  "),
-            Span::styled("Tab", Style::default().fg(Color::Yellow)),
-            Span::raw(" switch  "),
-            Span::styled("?", Style::default().fg(Color::Yellow)),
-            Span::raw(" help  "),
-            Span::styled("1-5", Style::default().fg(Color::Yellow)),
-            Span::raw(" jump"),
-        ]))
-        .style(Style::default().fg(Color::DarkGray));
+        let status_spans = if self.current_view == View::Logs {
+            vec![
+                Span::styled(" q", Style::default().fg(Color::Yellow)),
+                Span::raw(" quit  "),
+                Span::styled("j/k", Style::default().fg(Color::Yellow)),
+                Span::raw(" scroll  "),
+                Span::styled("G", Style::default().fg(Color::Yellow)),
+                Span::raw(" bottom  "),
+                Span::styled("Tab", Style::default().fg(Color::Yellow)),
+                Span::raw(" switch  "),
+                Span::styled("?", Style::default().fg(Color::Yellow)),
+                Span::raw(" help"),
+            ]
+        } else {
+            vec![
+                Span::styled(" q", Style::default().fg(Color::Yellow)),
+                Span::raw(" quit  "),
+                Span::styled("Tab", Style::default().fg(Color::Yellow)),
+                Span::raw(" switch  "),
+                Span::styled("?", Style::default().fg(Color::Yellow)),
+                Span::raw(" help  "),
+                Span::styled("1-5", Style::default().fg(Color::Yellow)),
+                Span::raw(" jump"),
+            ]
+        };
+        let status =
+            Paragraph::new(Line::from(status_spans)).style(Style::default().fg(Color::DarkGray));
         frame.render_widget(status, chunks[2]);
 
         // Help overlay
@@ -241,11 +335,11 @@ impl App {
             ]),
             Line::from(vec![
                 Span::styled("  j/k         ", Style::default().fg(Color::Yellow)),
-                Span::raw("Navigate list (future)"),
+                Span::raw("Scroll up/down (Logs)"),
             ]),
             Line::from(vec![
-                Span::styled("  Enter       ", Style::default().fg(Color::Yellow)),
-                Span::raw("Show detail (future)"),
+                Span::styled("  G           ", Style::default().fg(Color::Yellow)),
+                Span::raw("Jump to bottom (Logs)"),
             ]),
             Line::from(vec![
                 Span::styled("  /           ", Style::default().fg(Color::Yellow)),
@@ -269,6 +363,18 @@ impl App {
     }
 }
 
+/// Draw a "Loading..." placeholder for a view that has not been initialized yet.
+fn draw_loading(frame: &mut Frame, area: ratatui::layout::Rect, view_name: &str) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" {} ", view_name))
+        .title_style(Style::default().add_modifier(Modifier::BOLD));
+    let p = Paragraph::new(format!("Loading {}...", view_name.to_lowercase()))
+        .style(Style::default().fg(Color::DarkGray))
+        .block(block);
+    frame.render_widget(p, area);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +385,8 @@ mod tests {
         assert!(app.running);
         assert_eq!(app.current_view, View::Dashboard);
         assert!(!app.show_help);
+        assert!(app.log_viewer.is_none());
+        assert!(app.dashboard.is_none());
     }
 
     #[test]
@@ -340,5 +448,51 @@ mod tests {
         assert_eq!(View::Queue.index(), 1);
         assert_eq!(View::from_index(4), View::Logs);
         assert_eq!(View::from_index(99), View::Dashboard);
+    }
+
+    #[test]
+    fn log_viewer_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.log_viewer.is_none());
+        // Switching to Logs view and pressing j should initialize the viewer
+        app.current_view = View::Logs;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.log_viewer.is_some());
+    }
+
+    #[test]
+    fn log_scroll_keys_do_not_quit() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Logs;
+        // j/k should scroll, not trigger global bindings
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert!(app.running);
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.running);
+    }
+
+    #[test]
+    fn on_tick_initializes_log_viewer_on_logs_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Logs;
+        app.on_tick();
+        assert!(app.log_viewer.is_some());
+    }
+
+    #[test]
+    fn on_tick_initializes_dashboard_on_dashboard_view() {
+        let mut app = App::new("addr".into());
+        assert!(app.dashboard.is_none());
+        app.current_view = View::Dashboard;
+        app.on_tick();
+        assert!(app.dashboard.is_some());
+    }
+
+    #[test]
+    fn dashboard_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.dashboard.is_none());
+        let _ = app.dashboard();
+        assert!(app.dashboard.is_some());
     }
 }

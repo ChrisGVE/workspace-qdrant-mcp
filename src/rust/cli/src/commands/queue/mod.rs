@@ -5,7 +5,7 @@
 
 mod cancel;
 mod clean;
-mod db;
+pub mod db;
 mod drop;
 pub mod formatters;
 mod list;

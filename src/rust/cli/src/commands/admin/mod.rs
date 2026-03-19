@@ -120,6 +120,9 @@ enum AdminCommand {
     },
 
     /// Display pipeline performance statistics (per-phase timing breakdown)
+    #[command(
+        after_help = "See also:\n  wqm admin stats processing  operation-level breakdown with Q1/Q3 quartiles\n  wqm status --performance    system resource metrics (CPU, memory, disk)"
+    )]
     Perf {
         /// Time window in hours (default: 24)
         #[arg(short = 'w', long, default_value = "24")]

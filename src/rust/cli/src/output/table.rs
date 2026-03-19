@@ -239,6 +239,54 @@ pub fn print_table_auto<T: Tabled + ColumnHints>(data: &[T]) {
     }
 }
 
+/// Build a [`Table`] with borderless styling applied but no width adjustments.
+///
+/// Callers can apply additional modifications (e.g. `Disable::column`) before
+/// calling [`finish_table`] for final width layout and printing.
+pub fn build_table<T: Tabled>(data: &[T]) -> Table {
+    let mut table = Table::new(data);
+    apply_borderless(&mut table);
+    table
+}
+
+/// Apply terminal-width layout to a table and print it.
+///
+/// When `content_columns` is non-empty, uses content-aware peakers that
+/// give priority to those columns. Otherwise falls back to `PriorityMax`.
+pub fn finish_table<T: Tabled>(table: &mut Table, data: &[T], content_columns: &[usize]) {
+    let width = terminal_width();
+
+    if content_columns.is_empty() {
+        let output = table
+            .with(Width::wrap(width).priority::<PriorityMax>().keep_words())
+            .with(Width::increase(width).priority::<PriorityMax>())
+            .to_string();
+        println!("{}", output);
+    } else {
+        let col_mins = compute_column_min_widths(data, content_columns);
+        CONTENT_COLUMNS.with(|cc| {
+            *cc.borrow_mut() = content_columns.to_vec();
+        });
+        COLUMN_MIN_WIDTHS.with(|cmw| {
+            *cmw.borrow_mut() = col_mins;
+        });
+
+        let output = table
+            .with(
+                Width::wrap(width)
+                    .priority::<ShrinkCategoricalFirst>()
+                    .keep_words(),
+            )
+            .with(Width::increase(width).priority::<ExpandContentOnly>())
+            .to_string();
+
+        CONTENT_COLUMNS.with(|cc| cc.borrow_mut().clear());
+        COLUMN_MIN_WIDTHS.with(|cmw| cmw.borrow_mut().clear());
+
+        println!("{}", output);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tabled::Tabled;

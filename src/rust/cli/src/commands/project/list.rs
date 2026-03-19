@@ -63,8 +63,7 @@ fn print_project_list(
     qdrant_counts: &HashMap<String, usize>,
 ) {
     if list.projects.is_empty() && qdrant_counts.is_empty() {
-        output::info("No projects registered");
-        output::info("Register a project with: wqm project register [path]");
+        output::info("No projects registered. Use `wqm project register` to add one.");
         return;
     }
 
@@ -86,9 +85,8 @@ fn print_project_list(
         output::kv("  ID", &proj.project_id);
         output::kv("  Path", home_to_tilde(&proj.project_root));
         output::kv("  Priority", &proj.priority);
-        output::kv("  Active", if proj.is_active { "Yes" } else { "No" });
         if let Some(count) = qdrant_counts.get(&proj.project_id) {
-            output::kv("  Points", count.to_string());
+            output::kv("  Documents", count.to_string());
         }
     }
 
@@ -103,7 +101,7 @@ fn print_project_list(
         output::separator();
         output::warning(format!("Orphaned projects ({}):", orphan_ids.len()));
         for (id, count) in &orphan_ids {
-            output::kv(format!("  {} (ORPHAN)", id), format!("{} points", count));
+            output::kv(format!("  {} (ORPHAN)", id), format!("{} documents", count));
         }
         output::info("Run: wqm admin cleanup-orphans");
     }
@@ -123,7 +121,7 @@ fn print_orphans_without_daemon(qdrant_counts: &HashMap<String, usize>) {
         let mut sorted: Vec<_> = qdrant_counts.iter().collect();
         sorted.sort_by_key(|(id, _)| (*id).clone());
         for (id, count) in sorted {
-            output::kv(format!("  {}", id), format!("{} points", count));
+            output::kv(format!("  {}", id), format!("{} documents", count));
         }
     }
 }

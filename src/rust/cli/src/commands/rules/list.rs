@@ -64,7 +64,7 @@ pub async fn list_rules(
     let points = &scroll.result.points;
 
     if points.is_empty() {
-        output::info("No rules found.");
+        output::info("No rules found. Use `wqm rules add` to create one.");
         return Ok(());
     }
 

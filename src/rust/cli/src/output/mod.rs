@@ -33,6 +33,6 @@ pub use style::{
 
 // Table
 pub use table::{
-    print_data, print_json, print_plain, print_script, print_table, print_table_auto,
-    print_table_with_hints, terminal_width, ColumnHints,
+    build_table, finish_table, print_data, print_json, print_plain, print_script, print_table,
+    print_table_auto, print_table_with_hints, terminal_width, ColumnHints,
 };

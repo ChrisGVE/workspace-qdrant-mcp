@@ -35,6 +35,36 @@ impl ColumnHints for QueueListItem {
     }
 }
 
+/// Queue item for list display with error column (shown when failed items exist)
+#[derive(Debug, Tabled, Serialize)]
+pub struct QueueListItemWithError {
+    #[tabled(rename = "ID")]
+    pub queue_id: String,
+    #[tabled(rename = "Project")]
+    pub project: String,
+    #[tabled(rename = "Subject")]
+    pub subject: String,
+    #[tabled(rename = "Type")]
+    pub item_type: String,
+    #[tabled(rename = "Op")]
+    pub op: String,
+    #[tabled(rename = "Status")]
+    pub status: String,
+    #[tabled(rename = "Age")]
+    pub age: String,
+    #[tabled(rename = "Retry")]
+    pub retry_count: i32,
+    #[tabled(rename = "Error")]
+    pub error_message: String,
+}
+
+impl ColumnHints for QueueListItemWithError {
+    fn content_columns() -> &'static [usize] {
+        // Project (index 1), Subject (index 2), and Error (index 8) are content columns
+        &[1, 2, 8]
+    }
+}
+
 /// Queue item for verbose list display
 #[derive(Debug, Tabled, Serialize)]
 pub struct QueueListItemVerbose {
@@ -191,7 +221,7 @@ pub fn extract_subject(item_type: &str, payload_json: &str) -> String {
             }
         }
         "tenant" | "collection" => {
-            // Administrative operations — no meaningful file subject
+            // Administrative operations -- no meaningful file subject
             String::new()
         }
         _ => String::new(),
@@ -204,7 +234,7 @@ fn basename(path: &str) -> &str {
 }
 
 /// Truncate a string to `max_len` characters, appending "..." if truncated.
-fn truncate_str(s: &str, max_len: usize) -> String {
+pub fn truncate_str(s: &str, max_len: usize) -> String {
     if s.chars().count() <= max_len {
         s.to_string()
     } else {

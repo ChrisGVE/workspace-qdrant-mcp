@@ -30,30 +30,28 @@ Search & Content:
   scratch      Scratchpad entries
 
 Project & Library:
-  project      Project lifecycle (list, info, remove, watch)
-  library      Library management (list, add, ingest, watch, remove, config)
-  tags         Keyword/tag management and hierarchy
+  project      Project lifecycle (list, info, register, watch, branch)
+  library      Library management (list, add, ingest, watch, remove)
 
-Queue:
-  queue        Unified queue inspector (list, show, stats, cancel)
+Queue & Monitoring:
+  queue        Queue inspector (list, show, stats, cancel)
+  status       System status and monitoring
 
 Service & Admin:
-  service      Daemon service management (start, stop, restart, status)
-  status       System status monitoring (queue, watch, health)
-  admin        Administrative operations (collections, rebuild, backup, restore, stats, ...)
-  config       Configuration management (generate, default, xdg, show, path)
-  language     Language tools (LSP, Tree-sitter)
-  update       Update system from GitHub releases
+  service      Daemon management (start, stop, restart, status)
+  admin        Administration (collections, backup, restore, rebuild, stats, perf, metrics)
+  config       Configuration management
 
-Code Graph:
-  graph        Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
+Code Analysis:
+  graph        Code relationship graph
+  language     Language tools (LSP, Tree-sitter)
+  tags         Keyword/tag hierarchy
 
 Setup & Diagnostics:
-  init         Setup tools: completions, man pages, hooks
+  init         Setup tools (completions, man pages, hooks)
+  update       Update from GitHub releases
   debug        Diagnostic tools (logs, errors)
-
-Benchmarking:
-  benchmark    Benchmarking tools (sparse vectors, search engines)
+  benchmark    Benchmarking tools
 {after-help}";
 
 /// Workspace Qdrant MCP CLI
@@ -103,11 +101,11 @@ enum Commands {
     Scratch(commands::scratch::ScratchArgs),
 
     // --- Project & Library ---
-    /// Project lifecycle (list, info, remove, watch)
+    /// Project lifecycle (list, info, register, watch, branch)
     #[command(display_order = 20)]
     Project(commands::project::ProjectArgs),
 
-    /// Library management with tags (list, add, ingest, watch, unwatch, remove, config)
+    /// Library management (list, add, ingest, watch, remove)
     #[command(display_order = 21)]
     Library(commands::library::LibraryArgs),
 
@@ -115,52 +113,57 @@ enum Commands {
     #[command(display_order = 22, hide = true)]
     Watch(commands::watch::WatchArgs),
 
-    /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, search, baskets)
+    // --- Code Analysis ---
+    /// Keyword/tag hierarchy (list, keywords, tree, stats, search, baskets)
     #[command(display_order = 23)]
     Tags(commands::tags::TagsArgs),
 
-    /// Code graph queries and algorithms (query, impact, stats, pagerank, communities, betweenness, migrate)
+    /// Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
     #[command(display_order = 24)]
     Graph(commands::graph::GraphArgs),
 
-    // --- Queue ---
-    /// Unified queue inspector (list, show, stats)
+    /// Language tools (LSP, Tree-sitter)
+    #[command(display_order = 25)]
+    Language(commands::language::LanguageArgs),
+
+    // --- Queue & Monitoring ---
+    /// Queue inspector (list, show, stats, cancel)
     #[command(display_order = 30)]
     Queue(commands::queue::QueueArgs),
 
+    /// System status and monitoring
+    #[command(display_order = 31)]
+    Status(commands::status::StatusArgs),
+
     // --- Service & Admin ---
-    /// Daemon service management (start, stop, restart, status)
+    /// Daemon management (start, stop, restart, status)
     #[command(display_order = 40)]
     Service(commands::service::ServiceArgs),
 
-    /// Consolidated status monitoring (queue, watch, performance, health)
+    /// Administration (collections, backup, restore, rebuild, stats, perf, metrics)
     #[command(display_order = 41)]
-    Status(commands::status::StatusArgs),
-
-    /// Administrative operations (rename-tenant, idle-history, prune-logs, collections, rebuild, backup, restore, stats)
-    #[command(display_order = 42)]
     Admin(commands::admin::AdminArgs),
 
-    /// Configuration management (generate, show, path)
-    #[command(display_order = 43)]
+    /// Configuration management
+    #[command(display_order = 42)]
     Config(commands::config_cmd::ConfigCmdArgs),
 
-    /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
-    #[command(display_order = 45)]
-    Language(commands::language::LanguageArgs),
-
-    /// Update system from GitHub releases
-    #[command(display_order = 46)]
-    Update(commands::update::UpdateArgs),
-
     // --- Setup & Diagnostics ---
-    /// Setup tools: completions, man pages, hooks
+    /// Setup tools (completions, man pages, hooks)
     #[command(display_order = 60)]
     Init(commands::init::InitArgs),
 
+    /// Update from GitHub releases
+    #[command(display_order = 61)]
+    Update(commands::update::UpdateArgs),
+
     /// Diagnostic tools (logs, errors, queue-errors, language)
-    #[command(display_order = 63)]
+    #[command(display_order = 62)]
     Debug(commands::debug::DebugArgs),
+
+    /// Benchmarking tools (sparse vectors, search engines)
+    #[command(display_order = 63)]
+    Benchmark(commands::benchmark::BenchmarkArgs),
 
     // --- Hidden backward-compat aliases ---
     /// Man page generation and installation (alias for `init man`)
@@ -170,10 +173,6 @@ enum Commands {
     /// Claude Code hooks management (alias for `init hooks`)
     #[command(display_order = 901, hide = true)]
     Hooks(commands::hooks::HooksArgs),
-
-    /// Benchmarking tools (sparse vectors, search engines)
-    #[command(display_order = 70)]
-    Benchmark(commands::benchmark::BenchmarkArgs),
 
     /// Rebuild indexes and sync state (hidden alias for `admin rebuild`)
     #[command(display_order = 902, hide = true)]
@@ -253,29 +252,32 @@ async fn main() -> Result<()> {
         Commands::Library(args) => commands::library::execute(args).await,
         // Hidden alias: `wqm watch` delegates to the same handler as `wqm project watch`
         Commands::Watch(args) => commands::watch::execute(args).await,
+
+        // Code Analysis
         Commands::Tags(args) => commands::tags::execute(args).await,
         Commands::Graph(args) => commands::graph::execute(args).await,
+        Commands::Language(args) => commands::language::execute(args).await,
 
-        // Queue
+        // Queue & Monitoring
         Commands::Queue(args) => commands::queue::execute(args).await,
+        Commands::Status(args) => commands::status::execute(args).await,
 
         // Service & Admin
         Commands::Service(args) => {
             let mut cmd = Cli::command();
             commands::service::execute(args, Some(&mut cmd)).await
         }
-        Commands::Status(args) => commands::status::execute(args).await,
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Config(args) => commands::config_cmd::execute(args).await,
-        Commands::Language(args) => commands::language::execute(args).await,
-        Commands::Update(args) => commands::update::execute(args).await,
 
         // Setup & Diagnostics
         Commands::Init(args) => {
             let mut cmd = Cli::command();
             commands::init::execute(args, &mut cmd).await
         }
+        Commands::Update(args) => commands::update::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,
+        Commands::Benchmark(args) => commands::benchmark::execute(args).await,
 
         // Hidden backward-compat aliases (delegate to same handlers)
         Commands::Man(args) => {
@@ -283,11 +285,6 @@ async fn main() -> Result<()> {
             commands::man::execute(args, &mut cmd).await
         }
         Commands::Hooks(args) => commands::hooks::execute(args).await,
-
-        // Benchmarking
-        Commands::Benchmark(args) => commands::benchmark::execute(args).await,
-
-        // Hidden aliases for commands moved under admin
         Commands::Rebuild(args) => commands::rebuild::execute(args).await,
         Commands::Collections(args) => commands::collections::execute(args).await,
         Commands::Backup(args) => commands::backup::execute(args).await,

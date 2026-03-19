@@ -79,6 +79,9 @@ enum StatsCommand {
     },
 
     /// Show processing timing stats (per-phase breakdown, percentiles)
+    #[command(
+        after_help = "See also: wqm admin perf    pipeline perf with grouping, sorting, and percentiles"
+    )]
     Processing {
         /// Time period to analyze
         #[arg(short, long, value_enum, default_value_t = StatsPeriod::Week)]
