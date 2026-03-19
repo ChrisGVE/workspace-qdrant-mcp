@@ -2,23 +2,19 @@
 
 use anyhow::Result;
 
+use crate::grpc::ensure_daemon_available;
 use crate::output;
 
-use super::helpers::connect_readwrite;
-
 pub async fn pause() -> Result<()> {
-    let conn = connect_readwrite()?;
+    let mut client = ensure_daemon_available().await?;
 
-    let updated = conn.execute(
-        "UPDATE watch_folders SET is_paused = 1, \
-         pause_start_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE enabled = 1 AND is_paused = 0",
-        [],
-    )?;
+    let response = client.watch_write().pause_watchers(()).await?.into_inner();
 
-    if updated > 0 {
-        output::success(format!("Paused {} watch folder(s)", updated));
+    if response.affected_count > 0 {
+        output::success(format!(
+            "Paused {} watch folder(s)",
+            response.affected_count
+        ));
         output::info("File events will be buffered until watchers are resumed");
     } else {
         output::info(
@@ -31,18 +27,15 @@ pub async fn pause() -> Result<()> {
 }
 
 pub async fn resume() -> Result<()> {
-    let conn = connect_readwrite()?;
+    let mut client = ensure_daemon_available().await?;
 
-    let updated = conn.execute(
-        "UPDATE watch_folders SET is_paused = 0, \
-         pause_start_time = NULL, \
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE enabled = 1 AND is_paused = 1",
-        [],
-    )?;
+    let response = client.watch_write().resume_watchers(()).await?.into_inner();
 
-    if updated > 0 {
-        output::success(format!("Resumed {} watch folder(s)", updated));
+    if response.affected_count > 0 {
+        output::success(format!(
+            "Resumed {} watch folder(s)",
+            response.affected_count
+        ));
         output::info("Buffered file events will be processed");
     } else {
         output::info("No paused watchers to resume");
