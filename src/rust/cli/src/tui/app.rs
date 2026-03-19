@@ -12,7 +12,9 @@ use ratatui::Frame;
 use super::event::{Event, EventHandler};
 use super::terminal;
 use super::views::dashboard::Dashboard;
+use super::views::libraries::LibraryBrowser;
 use super::views::logs::LogViewer;
+use super::views::projects::ProjectBrowser;
 use super::views::queue::QueueBrowser;
 
 /// Active view in the TUI.
@@ -77,6 +79,10 @@ pub struct App {
     dashboard: Option<Dashboard>,
     /// Queue browser state (lazily initialized on first Queue view).
     queue_browser: Option<QueueBrowser>,
+    /// Project browser state (lazily initialized on first Projects view).
+    project_browser: Option<ProjectBrowser>,
+    /// Library browser state (lazily initialized on first Libraries view).
+    library_browser: Option<LibraryBrowser>,
     /// Log viewer state (lazily initialized on first Logs view).
     log_viewer: Option<LogViewer>,
 }
@@ -91,6 +97,8 @@ impl App {
             daemon_addr,
             dashboard: None,
             queue_browser: None,
+            project_browser: None,
+            library_browser: None,
             log_viewer: None,
         }
     }
@@ -103,6 +111,16 @@ impl App {
     /// Return a mutable reference to the queue browser, creating it if needed.
     fn queue_browser(&mut self) -> &mut QueueBrowser {
         self.queue_browser.get_or_insert_with(QueueBrowser::new)
+    }
+
+    /// Return a mutable reference to the project browser, creating it if needed.
+    fn project_browser(&mut self) -> &mut ProjectBrowser {
+        self.project_browser.get_or_insert_with(ProjectBrowser::new)
+    }
+
+    /// Return a mutable reference to the library browser, creating it if needed.
+    fn library_browser(&mut self) -> &mut LibraryBrowser {
+        self.library_browser.get_or_insert_with(LibraryBrowser::new)
     }
 
     /// Return a mutable reference to the log viewer, creating it if needed.
@@ -139,10 +157,15 @@ impl App {
             View::Queue => {
                 self.queue_browser().on_tick();
             }
+            View::Projects => {
+                self.project_browser().on_tick();
+            }
+            View::Libraries => {
+                self.library_browser().on_tick();
+            }
             View::Logs => {
                 self.log_viewer().on_tick();
             }
-            _ => {}
         }
     }
 
@@ -162,6 +185,20 @@ impl App {
         // Delegate keys to the queue browser when on Queue view
         if self.current_view == View::Queue {
             if self.handle_queue_key(key) {
+                return;
+            }
+        }
+
+        // Delegate keys to the project browser when on Projects view
+        if self.current_view == View::Projects {
+            if self.handle_project_key(key) {
+                return;
+            }
+        }
+
+        // Delegate keys to the library browser when on Libraries view
+        if self.current_view == View::Libraries {
+            if self.handle_library_key(key) {
                 return;
             }
         }
@@ -215,6 +252,88 @@ impl App {
             }
             KeyCode::Char('f') => {
                 browser.cycle_filter();
+                true
+            }
+            _ => false, // not consumed, fall through to global
+        }
+    }
+
+    /// Handle project-specific keys. Returns true if the key was consumed.
+    fn handle_project_key(&mut self, key: KeyEvent) -> bool {
+        let browser = self.project_browser();
+
+        // When detail popup is open, only Esc closes it
+        if browser.detail_open() {
+            if key.code == KeyCode::Esc {
+                browser.close_detail();
+            }
+            return true; // consume all keys while popup is open
+        }
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                browser.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                browser.select_prev();
+                true
+            }
+            KeyCode::PageUp => {
+                browser.page_up(20);
+                true
+            }
+            KeyCode::PageDown => {
+                browser.page_down(20);
+                true
+            }
+            KeyCode::Enter => {
+                browser.open_detail();
+                true
+            }
+            KeyCode::Esc => {
+                browser.close_detail();
+                true
+            }
+            _ => false, // not consumed, fall through to global
+        }
+    }
+
+    /// Handle library-specific keys. Returns true if the key was consumed.
+    fn handle_library_key(&mut self, key: KeyEvent) -> bool {
+        let browser = self.library_browser();
+
+        // When detail popup is open, only Esc closes it
+        if browser.detail_open() {
+            if key.code == KeyCode::Esc {
+                browser.close_detail();
+            }
+            return true; // consume all keys while popup is open
+        }
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                browser.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                browser.select_prev();
+                true
+            }
+            KeyCode::PageUp => {
+                browser.page_up(20);
+                true
+            }
+            KeyCode::PageDown => {
+                browser.page_down(20);
+                true
+            }
+            KeyCode::Enter => {
+                browser.open_detail();
+                true
+            }
+            KeyCode::Esc => {
+                browser.close_detail();
                 true
             }
             _ => false, // not consumed, fall through to global
@@ -339,6 +458,20 @@ impl App {
                     draw_loading(frame, area, "Queue");
                 }
             }
+            View::Projects => {
+                if let Some(browser) = &self.project_browser {
+                    browser.draw(frame, area);
+                } else {
+                    draw_loading(frame, area, "Projects");
+                }
+            }
+            View::Libraries => {
+                if let Some(browser) = &self.library_browser {
+                    browser.draw(frame, area);
+                } else {
+                    draw_loading(frame, area, "Libraries");
+                }
+            }
             View::Logs => {
                 if let Some(viewer) = &self.log_viewer {
                     viewer.draw(frame, area);
@@ -346,30 +479,21 @@ impl App {
                     draw_loading(frame, area, "Logs");
                 }
             }
-            _ => {
-                let content = Paragraph::new(format!(
-                    "{} view\n\nThis view will be implemented in a future update.",
-                    self.current_view.label()
-                ))
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::DarkGray));
-                frame.render_widget(content, area);
-            }
         }
     }
 
     /// Draw the status bar with context-sensitive hints.
     fn draw_status_bar(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let status_spans = match self.current_view {
-            View::Queue => vec![
+            View::Queue | View::Projects | View::Libraries => vec![
                 Span::styled(" q", Style::default().fg(Color::Yellow)),
                 Span::raw(" quit  "),
                 Span::styled("j/k", Style::default().fg(Color::Yellow)),
                 Span::raw(" navigate  "),
                 Span::styled("Enter", Style::default().fg(Color::Yellow)),
                 Span::raw(" detail  "),
-                Span::styled("f", Style::default().fg(Color::Yellow)),
-                Span::raw(" filter  "),
+                Span::styled("Esc", Style::default().fg(Color::Yellow)),
+                Span::raw(" close  "),
                 Span::styled("?", Style::default().fg(Color::Yellow)),
                 Span::raw(" help"),
             ],
@@ -404,8 +528,8 @@ impl App {
     /// Draw the help overlay centered on screen.
     fn draw_help_overlay(&self, frame: &mut Frame) {
         let area = frame.area();
-        let help_width = 50u16.min(area.width.saturating_sub(4));
-        let help_height = 16u16.min(area.height.saturating_sub(4));
+        let help_width = 55u16.min(area.width.saturating_sub(4));
+        let help_height = 18u16.min(area.height.saturating_sub(4));
 
         let x = (area.width.saturating_sub(help_width)) / 2;
         let y = (area.height.saturating_sub(help_height)) / 2;
@@ -435,11 +559,11 @@ impl App {
             ]),
             Line::from(vec![
                 Span::styled("  j/k         ", Style::default().fg(Color::Yellow)),
-                Span::raw("Navigate/scroll (Queue, Logs)"),
+                Span::raw("Navigate (Queue, Projects, Libraries, Logs)"),
             ]),
             Line::from(vec![
                 Span::styled("  Enter       ", Style::default().fg(Color::Yellow)),
-                Span::raw("Open detail popup (Queue)"),
+                Span::raw("Open detail (Queue, Projects, Libraries)"),
             ]),
             Line::from(vec![
                 Span::styled("  f           ", Style::default().fg(Color::Yellow)),
@@ -492,6 +616,8 @@ mod tests {
         assert!(app.log_viewer.is_none());
         assert!(app.dashboard.is_none());
         assert!(app.queue_browser.is_none());
+        assert!(app.project_browser.is_none());
+        assert!(app.library_browser.is_none());
     }
 
     #[test]
@@ -610,11 +736,86 @@ mod tests {
     }
 
     #[test]
+    fn project_browser_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.project_browser.is_none());
+        let _ = app.project_browser();
+        assert!(app.project_browser.is_some());
+    }
+
+    #[test]
+    fn library_browser_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.library_browser.is_none());
+        let _ = app.library_browser();
+        assert!(app.library_browser.is_some());
+    }
+
+    #[test]
     fn queue_keys_initialize_browser() {
         let mut app = App::new("addr".into());
         app.current_view = View::Queue;
         app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
         assert!(app.queue_browser.is_some());
+    }
+
+    #[test]
+    fn project_keys_initialize_browser() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Projects;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.project_browser.is_some());
+    }
+
+    #[test]
+    fn library_keys_initialize_browser() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Libraries;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.library_browser.is_some());
+    }
+
+    #[test]
+    fn project_keys_do_not_quit() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Projects;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.running);
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert!(app.running);
+    }
+
+    #[test]
+    fn library_keys_do_not_quit() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Libraries;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.running);
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert!(app.running);
+    }
+
+    #[test]
+    fn on_tick_initializes_projects_on_projects_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Projects;
+        app.on_tick();
+        assert!(app.project_browser.is_some());
+    }
+
+    #[test]
+    fn on_tick_initializes_libraries_on_libraries_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Libraries;
+        app.on_tick();
+        assert!(app.library_browser.is_some());
+    }
+
+    #[test]
+    fn switch_to_libraries_via_number_key() {
+        let mut app = App::new("addr".into());
+        app.handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
+        assert_eq!(app.current_view, View::Libraries);
     }
 
     #[test]
