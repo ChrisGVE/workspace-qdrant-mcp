@@ -798,6 +798,9 @@ service QueueWriteService {
 
     // Delete a single queue item by ID (exact, prefix, or idempotency key)
     rpc RemoveItem(RemoveItemRequest) returns (RemoveItemResponse);
+
+    // Delete pending/failed queue items by collection(s)
+    rpc CleanQueueByCollection(CleanQueueByCollectionRequest) returns (CleanQueueResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -966,6 +969,12 @@ message RemoveItemResponse {
     string op = 4;                                    // Operation of removed item
     string collection = 5;                            // Collection of removed item
     string status = 6;                                // Status before removal
+}
+
+// CleanQueueByCollection Request
+message CleanQueueByCollectionRequest {
+    repeated string collections = 1;                  // Collection names to clean
+    repeated string statuses = 2;                     // Statuses to clean (default: pending, failed)
 }
 
 // =============================================================================
