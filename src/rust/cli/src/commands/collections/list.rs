@@ -214,5 +214,6 @@ fn print_collection_results(
     }
 
     output::separator();
-    output::info(format!("Total: {} collections", collections.len()));
+    let count = collections.len();
+    output::summary(output::summary_line(count, count, "collections"));
 }

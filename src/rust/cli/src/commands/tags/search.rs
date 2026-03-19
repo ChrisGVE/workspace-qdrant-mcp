@@ -62,12 +62,9 @@ pub(super) fn search_tags(
     } else if script {
         output::print_script(&rows, !no_headers);
     } else {
-        output::info(format!(
-            "Tags matching '{}' ({} results)",
-            query,
-            rows.len()
-        ));
+        let count = rows.len();
         output::print_table(&rows);
+        output::summary(output::summary_line(count, count, "matching tags"));
     }
 
     Ok(())
@@ -133,18 +130,14 @@ pub(super) fn show_baskets(doc_id: &str, json: bool, script: bool, no_headers: b
             .collect();
         output::print_script(&rows, !no_headers);
     } else {
-        output::info(format!(
-            "Keyword baskets for document {} ({} baskets)",
-            doc_id,
-            baskets.len()
-        ));
-        println!();
         for basket in &baskets {
             println!("  {} ({} keywords)", basket.tag, basket.keywords.len());
             for kw in &basket.keywords {
                 println!("    - {}", kw);
             }
         }
+        let count = baskets.len();
+        output::summary(output::summary_line(count, count, "keyword baskets"));
     }
 
     Ok(())

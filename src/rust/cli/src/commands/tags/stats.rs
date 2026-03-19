@@ -55,7 +55,9 @@ pub(super) fn show_stats(tenant_id: Option<&str>, collection: &str) -> Result<()
         return Ok(());
     }
 
+    let count = rows.len();
     output::print_table(&rows);
+    output::summary(output::summary_line(count, count, "tenants"));
     Ok(())
 }
 

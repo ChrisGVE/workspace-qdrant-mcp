@@ -67,12 +67,9 @@ pub(super) fn list_tags(
     } else if script {
         output::print_script(&rows, !no_headers);
     } else {
-        output::info(format!(
-            "Tags for document {} ({} total)",
-            doc_id,
-            rows.len()
-        ));
+        let count = rows.len();
         output::print_table(&rows);
+        output::summary(output::summary_line(count, count, "tags"));
     }
 
     Ok(())
@@ -132,12 +129,9 @@ pub(super) fn list_keywords(
     } else if script {
         output::print_script(&rows, !no_headers);
     } else {
-        output::info(format!(
-            "Keywords for document {} ({} total)",
-            doc_id,
-            rows.len()
-        ));
+        let count = rows.len();
         output::print_table(&rows);
+        output::summary(output::summary_line(count, count, "keywords"));
     }
 
     Ok(())
