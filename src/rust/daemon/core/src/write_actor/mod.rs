@@ -18,3 +18,6 @@ mod exec_watch;
 
 pub use actor::{WriteActor, WriteActorHandle};
 pub use commands::*;
+
+#[cfg(test)]
+mod tests;
