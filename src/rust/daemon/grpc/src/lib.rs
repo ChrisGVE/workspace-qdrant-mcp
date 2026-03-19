@@ -32,8 +32,11 @@ pub use auth::{AuthConfig, AuthInterceptor, TlsConfig};
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
-    // Package: workspace_daemon - defines SystemService, CollectionService, DocumentService,
-    // EmbeddingService, ProjectService, TextSearchService, GraphService
+    // Package: workspace_daemon - defines 12 services:
+    // Core: SystemService, CollectionService, DocumentService
+    // Write: QueueWriteService, WatchWriteService, LibraryWriteService,
+    //        TrackingWriteService, AdminWriteService
+    // Supporting: EmbeddingService, ProjectService, TextSearchService, GraphService
     tonic::include_proto!("workspace_daemon");
 }
 
