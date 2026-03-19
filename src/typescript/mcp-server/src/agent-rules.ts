@@ -17,7 +17,7 @@ export type { Rule };
  */
 export async function fetchRules(
   projectId: string | null,
-  config: ReturnType<typeof loadConfig>,
+  config: ReturnType<typeof loadConfig>
 ): Promise<Rule[]> {
   const rules: Rule[] = [];
 
@@ -30,6 +30,7 @@ export async function fetchRules(
     const stateManager = new SqliteStateManager({
       dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
     });
+    stateManager.setDaemonClient(daemonClient);
     stateManager.initialize();
 
     const projectDetector = new ProjectDetector();
@@ -53,11 +54,16 @@ export async function fetchRules(
     // Fetch project-specific rules
     if (projectId) {
       const projectResponse = await rulesTool.execute({
-        action: 'list', scope: 'project', projectId, limit: 50,
+        action: 'list',
+        scope: 'project',
+        projectId,
+        limit: 50,
       });
       if (projectResponse.success && projectResponse.rules) {
         rules.push(...projectResponse.rules);
-        console.log(`[Agent] Fetched ${projectResponse.rules.length} project rule(s) for ${projectId}`);
+        console.log(
+          `[Agent] Fetched ${projectResponse.rules.length} project rule(s) for ${projectId}`
+        );
       }
     }
 
@@ -82,7 +88,12 @@ export async function fetchRules(
 export function formatRulesForPrompt(rules: Rule[]): string {
   if (rules.length === 0) return '';
 
-  const lines: string[] = ['# Behavioral Rules', '', 'The following behavioral rules have been configured and should be followed:', ''];
+  const lines: string[] = [
+    '# Behavioral Rules',
+    '',
+    'The following behavioral rules have been configured and should be followed:',
+    '',
+  ];
 
   const formatSection = (title: string, sectionRules: Rule[]) => {
     if (sectionRules.length === 0) return;
@@ -94,8 +105,14 @@ export function formatRulesForPrompt(rules: Rule[]): string {
     });
   };
 
-  formatSection('Global Rules', rules.filter(r => r.scope === 'global'));
-  formatSection('Project-Specific Rules', rules.filter(r => r.scope === 'project'));
+  formatSection(
+    'Global Rules',
+    rules.filter((r) => r.scope === 'global')
+  );
+  formatSection(
+    'Project-Specific Rules',
+    rules.filter((r) => r.scope === 'project')
+  );
 
   return lines.join('\n');
 }

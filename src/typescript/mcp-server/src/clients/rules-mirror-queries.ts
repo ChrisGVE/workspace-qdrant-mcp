@@ -1,11 +1,12 @@
 /**
  * Rules mirror read/write operations for SqliteStateManager.
  *
- * Provides write-through caching for rules (Task 16).
- * The mirror enables fallback when Qdrant is unavailable.
+ * Write operations (upsert, delete) go through daemon gRPC.
+ * Read operations (list) query SQLite directly for fallback support.
  */
 
 import type { Database as DatabaseType } from 'better-sqlite3';
+import type { DaemonClient } from './daemon-client.js';
 
 export interface RulesMirrorEntry {
   ruleId: string;
@@ -17,65 +18,59 @@ export interface RulesMirrorEntry {
 }
 
 /**
- * Upsert a rule into the rules_mirror table.
+ * Upsert a rule into the rules_mirror table via daemon gRPC.
  * Called after successful Qdrant writes to enable rebuild recovery.
+ * Fire-and-forget: errors are swallowed since the mirror is advisory.
  */
 export function upsertRulesMirror(
-  db: DatabaseType | null,
-  entry: RulesMirrorEntry,
+  daemonClient: DaemonClient | null,
+  entry: RulesMirrorEntry
 ): void {
-  if (!db) return;
+  if (!daemonClient) return;
 
-  try {
-    db.prepare(
-      `INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(rule_id) DO UPDATE SET
-           rule_text = excluded.rule_text,
-           scope = excluded.scope,
-           tenant_id = excluded.tenant_id,
-           updated_at = excluded.updated_at`
-    ).run(
-      entry.ruleId,
-      entry.ruleText,
-      entry.scope,
-      entry.tenantId,
-      entry.createdAt,
-      entry.updatedAt
-    );
-  } catch {
-    // rules_mirror table may not exist yet (daemon not initialized)
-  }
+  const request: {
+    rule_id: string;
+    rule_text: string;
+    created_at: string;
+    updated_at: string;
+    scope?: string;
+    tenant_id?: string;
+  } = {
+    rule_id: entry.ruleId,
+    rule_text: entry.ruleText,
+    created_at: entry.createdAt,
+    updated_at: entry.updatedAt,
+  };
+  if (entry.scope !== null) request.scope = entry.scope;
+  if (entry.tenantId !== null) request.tenant_id = entry.tenantId;
+
+  daemonClient.upsertRuleMirror(request).catch(() => {
+    // rules_mirror is advisory — errors must not break rule operations
+  });
 }
 
 /**
- * Delete a rule from the rules_mirror table.
+ * Delete a rule from the rules_mirror table via daemon gRPC.
  * Called after successful Qdrant deletes.
+ * Fire-and-forget: errors are swallowed.
  */
-export function deleteRulesMirror(
-  db: DatabaseType | null,
-  ruleId: string,
-): void {
-  if (!db) return;
+export function deleteRulesMirror(daemonClient: DaemonClient | null, ruleId: string): void {
+  if (!daemonClient) return;
 
-  try {
-    db.prepare(
-      'DELETE FROM rules_mirror WHERE rule_id = ?'
-    ).run(ruleId);
-  } catch {
-    // rules_mirror table may not exist yet
-  }
+  daemonClient.deleteRuleMirror({ rule_id: ruleId }).catch(() => {
+    // rules_mirror is advisory — errors must not break rule operations
+  });
 }
 
 /**
  * List rules from the rules_mirror table.
- * Used as fallback when Qdrant is unavailable.
+ * Read-only — queries SQLite directly. Used as fallback when Qdrant is unavailable.
  */
 export function listRulesMirror(
   db: DatabaseType | null,
   scope?: string,
   tenantId?: string,
-  limit = 50,
+  limit = 50
 ): RulesMirrorEntry[] {
   if (!db) return [];
 

@@ -39,12 +39,16 @@ function buildQdrantConfig(config: ServerConfig): { qdrantUrl: string; qdrantApi
 /** Create all MCP tool instances. */
 function createTools(
   qdrantConfig: { qdrantUrl: string; qdrantApiKey?: string },
-  daemonClient: DaemonClient, stateManager: SqliteStateManager,
-  projectDetector: ProjectDetector, config: ServerConfig,
+  daemonClient: DaemonClient,
+  stateManager: SqliteStateManager,
+  projectDetector: ProjectDetector,
+  config: ServerConfig
 ) {
   const searchTool = new SearchTool(qdrantConfig, daemonClient, stateManager, projectDetector);
   const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector);
-  const rulesConfig: { qdrantUrl: string; qdrantApiKey?: string; duplicationThreshold?: number } = { ...qdrantConfig };
+  const rulesConfig: { qdrantUrl: string; qdrantApiKey?: string; duplicationThreshold?: number } = {
+    ...qdrantConfig,
+  };
   if (config.rules?.duplicationThreshold !== undefined) {
     rulesConfig.duplicationThreshold = config.rules.duplicationThreshold;
   }
@@ -61,6 +65,7 @@ export function buildServerComponents(config: ServerConfig): ServerComponents {
   const stateManager = new SqliteStateManager({
     dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
   });
+  stateManager.setDaemonClient(daemonClient);
   const projectDetector = new ProjectDetector({ stateManager });
   const qdrantConfig = buildQdrantConfig(config);
   const healthMonitor = new HealthMonitor(qdrantConfig, daemonClient);

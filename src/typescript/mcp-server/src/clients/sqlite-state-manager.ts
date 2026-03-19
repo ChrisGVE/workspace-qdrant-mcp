@@ -5,7 +5,8 @@
  * unified_queue and watch_folders tables with graceful degradation.
  *
  * IMPORTANT: Per ADR-003, the Rust daemon owns the SQLite database and schema.
- * This client may read/write to tables but must NOT create tables or run migrations.
+ * This client reads from SQLite directly and sends all mutations via gRPC
+ * to the daemon. It must NOT create tables or run migrations.
  */
 
 import Database, { type Database as DatabaseType } from 'better-sqlite3';
@@ -25,6 +26,7 @@ import type {
   LibraryPayload,
 } from '../types/state.js';
 import { PRIORITY_LOW } from '../common/native-bridge.js';
+import type { DaemonClient } from './daemon-client.js';
 
 // Re-export types for consumers
 export type {
@@ -61,7 +63,12 @@ import * as trackedFilesQueries from './tracked-files-queries/index.js';
 // Re-export delegate types
 export type { SearchEventInput, SearchEventUpdate } from './search-event-queries.js';
 export type { RulesMirrorEntry } from './rules-mirror-queries.js';
-export type { TrackedFileEntry, SubmoduleEntry, ComponentEntry, ListTrackedFilesOptions } from './tracked-files-queries/index.js';
+export type {
+  TrackedFileEntry,
+  SubmoduleEntry,
+  ComponentEntry,
+  ListTrackedFilesOptions,
+} from './tracked-files-queries/index.js';
 
 // Default database path
 const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');
@@ -79,7 +86,12 @@ export interface EnqueueResult {
 export interface DegradedQueryResult<T> {
   data: T;
   status: 'ok' | 'degraded';
-  reason?: 'database_not_found' | 'table_not_found' | 'database_error';
+  reason?:
+    | 'database_not_found'
+    | 'table_not_found'
+    | 'database_error'
+    | 'daemon_unavailable'
+    | 'daemon_error';
   message?: string;
 }
 
@@ -93,9 +105,15 @@ export class SqliteStateManager {
   private db: DatabaseType | null = null;
   private readonly dbPath: string;
   private initialized = false;
+  private daemonClient: DaemonClient | null = null;
 
   constructor(config: SqliteStateManagerConfig = {}) {
     this.dbPath = config.dbPath ?? DEFAULT_DB_PATH;
+  }
+
+  /** Set the daemon client for gRPC write operations. */
+  setDaemonClient(client: DaemonClient | null): void {
+    this.daemonClient = client;
   }
 
   // ── Core lifecycle ────────────────────────────────────────────────────
@@ -113,8 +131,7 @@ export class SqliteStateManager {
     }
 
     try {
-      this.db = new Database(this.dbPath, { readonly: false, fileMustExist: true });
-      this.db.pragma('journal_mode = WAL');
+      this.db = new Database(this.dbPath, { readonly: true, fileMustExist: true });
       this.initialized = true;
       return { data: true, status: 'ok' };
     } catch (error) {
@@ -153,10 +170,18 @@ export class SqliteStateManager {
     payload: Record<string, unknown>,
     priority = PRIORITY_LOW,
     branch = 'main',
-    metadata?: Record<string, unknown>,
-  ): DegradedQueryResult<EnqueueResult | null> {
+    metadata?: Record<string, unknown>
+  ): Promise<DegradedQueryResult<EnqueueResult | null>> {
     return queueOps.enqueueUnified(
-      this.db, itemType, op, tenantId, collection, payload, priority, branch, metadata,
+      this.daemonClient,
+      itemType,
+      op,
+      tenantId,
+      collection,
+      payload,
+      priority,
+      branch,
+      metadata
     );
   }
 
@@ -181,11 +206,11 @@ export class SqliteStateManager {
   // ── Search event instrumentation (delegated) ──────────────────────────
 
   logSearchEvent(event: searchEventQueries.SearchEventInput): void {
-    searchEventQueries.logSearchEvent(this.db, event);
+    searchEventQueries.logSearchEvent(this.daemonClient, event);
   }
 
   updateSearchEvent(eventId: string, update: searchEventQueries.SearchEventUpdate): void {
-    searchEventQueries.updateSearchEvent(this.db, eventId, update);
+    searchEventQueries.updateSearchEvent(this.daemonClient, eventId, update);
   }
 
   // ── Tag/basket queries (delegated) ────────────────────────────────────
@@ -219,11 +244,11 @@ export class SqliteStateManager {
   // ── Rules mirror (delegated) ──────────────────────────────────────────
 
   upsertRulesMirror(entry: rulesMirrorQueries.RulesMirrorEntry): void {
-    rulesMirrorQueries.upsertRulesMirror(this.db, entry);
+    rulesMirrorQueries.upsertRulesMirror(this.daemonClient, entry);
   }
 
   deleteRulesMirror(ruleId: string): void {
-    rulesMirrorQueries.deleteRulesMirror(this.db, ruleId);
+    rulesMirrorQueries.deleteRulesMirror(this.daemonClient, ruleId);
   }
 
   listRulesMirror(scope?: string, tenantId?: string, limit = 50) {

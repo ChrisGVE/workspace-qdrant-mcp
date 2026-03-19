@@ -57,7 +57,7 @@ export async function storeUrl(
   if (title) payload['title'] = title;
 
   try {
-    const result = stateManager.enqueueUnified(
+    const result = await stateManager.enqueueUnified(
       'url',
       'add',
       tenantId,
@@ -121,7 +121,7 @@ export async function storeScratchpad(
   if (tags.length > 0) payload['tags'] = tags;
 
   try {
-    const result = stateManager.enqueueUnified(
+    const result = await stateManager.enqueueUnified(
       'text',
       'add',
       tenantId,
