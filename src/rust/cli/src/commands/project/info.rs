@@ -12,8 +12,6 @@ use super::resolver::resolve_project_id_or_cwd;
 pub(super) async fn project_info(project: Option<&str>) -> Result<()> {
     let project_id = resolve_project_id_or_cwd(project)?;
 
-    output::section(format!("Project Info: {}", project_id));
-
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
             let request = GetProjectStatusRequest {
@@ -25,6 +23,7 @@ pub(super) async fn project_info(project: Option<&str>) -> Result<()> {
                     let status = response.into_inner();
 
                     if status.found {
+                        output::section(format!("Project: {}", status.project_name));
                         output::kv("Project ID", &status.project_id);
                         output::kv("Name", &status.project_name);
                         output::kv("Path", home_to_tilde(&status.project_root));
@@ -38,16 +37,19 @@ pub(super) async fn project_info(project: Option<&str>) -> Result<()> {
                             output::kv("Main Working Tree", &main_path);
                         }
                     } else {
+                        output::section(format!("Project: {}", project_id));
                         output::warning("Project not found");
                         output::info("Use 'wqm project list' to see registered projects");
                     }
                 }
                 Err(e) => {
+                    output::section(format!("Project: {}", project_id));
                     output::error(format!("Failed to get project info: {}", e));
                 }
             }
         }
         Err(_) => {
+            output::section(format!("Project: {}", project_id));
             output::error("Daemon not running");
         }
     }
