@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use qdrant_client::qdrant::{
-    Condition, CountPointsBuilder, DeletePointsBuilder, Filter, PointStruct, UpsertPoints,
+    Condition, CountPointsBuilder, DeletePointsBuilder, Filter, GetPointsBuilder, PointStruct,
+    UpsertPoints,
 };
 use tokio::time::sleep;
 use tracing::{debug, error, info};
@@ -583,5 +584,63 @@ impl StorageClient {
             .await?;
 
         Ok(count.result.map(|r| r.count).unwrap_or(0))
+    }
+
+    /// Check which point UUIDs exist in a collection.
+    ///
+    /// Fetches points by ID with no payload or vectors (minimal overhead).
+    /// Returns the set of IDs that actually exist in Qdrant.
+    pub async fn check_points_exist(
+        &self,
+        collection_name: &str,
+        point_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, StorageError> {
+        use qdrant_client::qdrant::PointId;
+        use std::collections::HashSet;
+
+        if point_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let ids: Vec<PointId> = point_ids
+            .iter()
+            .map(|id| PointId::from(id.as_str()))
+            .collect();
+
+        let response = self
+            .retry_operation(|| async {
+                let builder = GetPointsBuilder::new(collection_name, ids.clone())
+                    .with_payload(false)
+                    .with_vectors(false);
+                self.client
+                    .get_points(builder)
+                    .await
+                    .map_err(|e| StorageError::Point(e.to_string()))
+            })
+            .await?;
+
+        let existing: HashSet<String> = response
+            .result
+            .into_iter()
+            .filter_map(|p| {
+                p.id.and_then(|pid| {
+                    use qdrant_client::qdrant::point_id::PointIdOptions;
+                    match pid.point_id_options {
+                        Some(PointIdOptions::Uuid(u)) => Some(u),
+                        Some(PointIdOptions::Num(n)) => Some(n.to_string()),
+                        None => None,
+                    }
+                })
+            })
+            .collect();
+
+        debug!(
+            "check_points_exist: {}/{} points exist in {}",
+            existing.len(),
+            point_ids.len(),
+            collection_name
+        );
+
+        Ok(existing)
     }
 }

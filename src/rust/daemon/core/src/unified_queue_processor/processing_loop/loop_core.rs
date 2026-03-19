@@ -97,10 +97,16 @@ impl UnifiedQueueProcessor {
             .checked_sub(Duration::from_secs(3600))
             .unwrap_or_else(std::time::Instant::now);
 
+        // Maintenance scheduler
+        let mut maintenance_scheduler = crate::idle::MaintenanceScheduler::new();
+        maintenance_scheduler
+            .register(Box::new(crate::idle::tasks::FilesystemReconcileTask::new()));
+        maintenance_scheduler.register(Box::new(crate::idle::tasks::OrphanCleanupTask::new()));
+
         info!(
-            "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s)",
+            "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s, maintenance_tasks={})",
             config.batch_size, config.worker_id, config.fairness_enabled,
-            config.warmup_window_secs
+            config.warmup_window_secs, maintenance_scheduler.task_count()
         );
 
         loop {
@@ -250,6 +256,29 @@ impl UnifiedQueueProcessor {
 
                         let idle_elapsed = idle_since.map_or(0, |t| t.elapsed().as_secs());
 
+                        // Maintenance scheduler — run one batch if eligible
+                        {
+                            let qdrant_available = storage_client.is_qdrant_available();
+                            let memory_pressure =
+                                Self::check_memory_pressure(config.max_memory_percent).await;
+                            let idle_state = crate::idle::IdleState::determine(
+                                0, // queue is empty (we're in the empty branch)
+                                qdrant_available,
+                                memory_pressure,
+                            );
+                            if idle_state.allows_maintenance() {
+                                let maint_ctx = crate::idle::MaintenanceContext {
+                                    pool: queue_manager.pool(),
+                                    storage_client: &storage_client,
+                                    search_db: search_db.as_ref(),
+                                    queue_manager: &queue_manager,
+                                };
+                                let _ = maintenance_scheduler
+                                    .tick(idle_state, idle_elapsed, &maint_ctx)
+                                    .await;
+                            }
+                        }
+
                         // Run grammar update check when idle long enough (Task 5)
                         if let Some(ref gm) = grammar_manager {
                             let gm_read = gm.read().await;
@@ -363,7 +392,8 @@ impl UnifiedQueueProcessor {
                         continue;
                     }
 
-                    // Queue has items — reset idle tracker
+                    // Queue has items — cancel maintenance and reset idle tracker
+                    maintenance_scheduler.cancel_active();
                     idle_since = None;
 
                     info!(
