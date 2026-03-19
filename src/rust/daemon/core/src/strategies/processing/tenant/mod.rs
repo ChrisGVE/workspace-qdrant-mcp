@@ -15,6 +15,7 @@ mod delete;
 mod grammar_warm;
 mod library;
 mod project;
+mod project_worktree;
 #[cfg(test)]
 mod tests;
 

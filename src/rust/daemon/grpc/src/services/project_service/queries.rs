@@ -31,9 +31,13 @@ impl ProjectServiceImpl {
         debug!("Getting project status: {}", req.project_id);
 
         let query = r#"
-            SELECT tenant_id, path, is_active, last_activity_at, created_at, git_remote_url
-            FROM watch_folders
-            WHERE tenant_id = ?1 AND collection = ?2
+            SELECT wf.tenant_id, wf.path, wf.is_active, wf.last_activity_at,
+                   wf.created_at, wf.git_remote_url, wf.is_worktree,
+                   wf.main_worktree_watch_id,
+                   mw.path AS main_worktree_path
+            FROM watch_folders wf
+            LEFT JOIN watch_folders mw ON wf.main_worktree_watch_id = mw.watch_id
+            WHERE wf.tenant_id = ?1 AND wf.collection = ?2
             LIMIT 1
         "#;
 
@@ -60,6 +64,8 @@ impl ProjectServiceImpl {
                 last_active: None,
                 registered_at: None,
                 git_remote: None,
+                is_worktree: false,
+                main_worktree_path: None,
             })
         }
     }
@@ -99,6 +105,9 @@ impl ProjectServiceImpl {
             .unwrap_or("")
             .to_string();
 
+        let is_worktree_int: i32 = row.try_get("is_worktree").unwrap_or(0);
+        let main_worktree_path: Option<String> = row.try_get("main_worktree_path").unwrap_or(None);
+
         Ok(GetProjectStatusResponse {
             found: true,
             project_id: row
@@ -113,6 +122,8 @@ impl ProjectServiceImpl {
             git_remote: row
                 .try_get("git_remote_url")
                 .map_err(|e| Status::internal(format!("Failed to get git_remote_url: {e}")))?,
+            is_worktree: is_worktree_int != 0,
+            main_worktree_path,
         })
     }
 
@@ -128,7 +139,7 @@ impl ProjectServiceImpl {
 
         let mut query = format!(
             r#"
-            SELECT tenant_id, path, is_active, last_activity_at
+            SELECT tenant_id, path, is_active, last_activity_at, is_worktree
             FROM watch_folders
             WHERE collection = '{COLLECTION_PROJECTS}'
             "#
@@ -196,6 +207,8 @@ impl ProjectServiceImpl {
             .unwrap_or("")
             .to_string();
 
+        let is_worktree_int: i32 = row.try_get("is_worktree").unwrap_or(0);
+
         Ok(ProjectInfo {
             project_id: row
                 .try_get("tenant_id")
@@ -205,6 +218,7 @@ impl ProjectServiceImpl {
             priority: priority.to_string(),
             is_active: is_active_int == 1,
             last_active,
+            is_worktree: is_worktree_int != 0,
         })
     }
 

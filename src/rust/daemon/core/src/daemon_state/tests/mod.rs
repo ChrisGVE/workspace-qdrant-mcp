@@ -10,6 +10,7 @@ mod operational_state_tests;
 mod registration_tests;
 mod submodule_tests;
 mod watch_folder_tests;
+mod worktree_tests;
 
 /// Build a `WatchFolderRecord` with sensible defaults.
 /// Override any field via the returned struct.
@@ -31,6 +32,8 @@ fn make_test_watch_folder(watch_id: &str, path: &str, tenant_id: &str) -> WatchF
         is_archived: false,
         last_commit_hash: None,
         is_git_tracked: false,
+        is_worktree: false,
+        main_worktree_watch_id: None,
         library_mode: None,
         follow_symlinks: false,
         enabled: true,

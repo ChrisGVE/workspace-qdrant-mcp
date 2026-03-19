@@ -13,6 +13,7 @@
 //! | DaemonStateManager      | `deactivate_project_group`      |
 //! | PriorityManager         | `register_session`              |
 //! | PriorityManager         | `unregister_session`            |
+//! | PriorityManager         | `unregister_session_by_path`    |
 //! | PriorityManager         | `set_priority`                  |
 //! | PriorityManager         | `cleanup_orphaned_sessions`     |
 //! | SystemService (gRPC)    | `set_server_state`              |
@@ -258,6 +259,60 @@ impl WatchFolderLifecycle {
             rows
         );
         Ok(rows)
+    }
+
+    /// Decrement `is_active` by 1 (clamped to 0) for a specific `(tenant_id, path)`.
+    ///
+    /// Used by `PriorityManager::unregister_session_by_path` when a `watch_path`
+    /// is specified, so that only the targeted watch folder (e.g. a single
+    /// worktree) is deactivated rather than every entry sharing the same
+    /// `tenant_id`.
+    pub async fn deactivate_by_tenant_and_path(
+        &self,
+        tenant_id: &str,
+        path: &str,
+    ) -> Result<u64, WatchFolderLifecycleError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET is_active = MAX(0, is_active - 1),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE tenant_id = ?1
+              AND path = ?2
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(path)
+        .execute(&self.pool)
+        .await?;
+
+        let rows = result.rows_affected();
+        info!(
+            "watch_folder lifecycle: tenant_id={} path={} \
+             -> is_active-1 ({} rows)",
+            tenant_id, path, rows
+        );
+        Ok(rows)
+    }
+
+    /// Query the current `is_active` value for a specific `(tenant_id, path)`.
+    ///
+    /// Returns `None` if no matching watch folder exists.
+    pub async fn get_is_active_by_tenant_and_path(
+        &self,
+        tenant_id: &str,
+        path: &str,
+    ) -> Result<Option<i32>, WatchFolderLifecycleError> {
+        let value = sqlx::query_scalar::<_, i32>(
+            "SELECT is_active FROM watch_folders \
+             WHERE tenant_id = ?1 AND path = ?2 LIMIT 1",
+        )
+        .bind(tenant_id)
+        .bind(path)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(value)
     }
 
     // ── watch-id-level operations ────────────────────────────────────

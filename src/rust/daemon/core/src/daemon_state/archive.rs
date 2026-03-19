@@ -16,6 +16,7 @@ impl DaemonStateManager {
                    wf.parent_watch_id, wf.submodule_path,
                    wf.git_remote_url, wf.remote_hash, wf.disambiguation_path, wf.is_active, wf.last_activity_at,
                    wf.is_paused, wf.pause_start_time, wf.is_archived, wf.last_commit_hash, wf.is_git_tracked,
+                   wf.is_worktree, wf.main_worktree_watch_id,
                    wf.library_mode,
                    wf.follow_symlinks, wf.enabled, wf.cleanup_on_disable,
                    wf.created_at, wf.updated_at, wf.last_scan

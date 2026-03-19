@@ -16,6 +16,9 @@ export interface SessionState {
   sessionId: string;
   projectId: string | null;
   projectPath: string | null;
+  /** Canonical watch path returned by daemon (may differ from projectPath due to symlink resolution) */
+  watchPath: string | null;
+  isWorktree: boolean;
   heartbeatInterval: ReturnType<typeof setInterval> | null;
   daemonConnected: boolean;
 }

@@ -3,6 +3,8 @@
 //! Handles the RegisterProject gRPC flow: validation, project ID generation,
 //! queue enqueue for new projects, session registration for existing projects,
 //! LSP server startup, and activity inheritance.
+//!
+//! Worktree auto-registration logic is in the sibling `worktree` module.
 
 use std::path::{Path, PathBuf};
 
@@ -18,6 +20,7 @@ use workspace_qdrant_core::{
 use wqm_common::constants::COLLECTION_PROJECTS;
 use wqm_common::project_id::detect_git_remote;
 
+use super::worktree::WorktreeResult;
 use super::ProjectServiceImpl;
 
 /// Result of determining what action to take for a registration request
@@ -30,6 +33,8 @@ enum RegistrationAction {
     NotFoundSkipped,
     /// New project enqueued for creation
     NewlyEnqueued { is_high_priority: bool },
+    /// Worktree auto-registered (main project exists, worktree path is new)
+    WorktreeAutoRegistered { result: WorktreeResult },
 }
 
 /// Resolve the git repository root from a given path by walking upward.
@@ -93,8 +98,13 @@ impl ProjectServiceImpl {
         );
 
         let action = self
-            .determine_registration_action(&project_id, &req, is_high_priority)
+            .determine_registration_action(&project_id, &req, is_high_priority, &effective_path)
             .await?;
+
+        // Look up worktree metadata for existing entries
+        let watch_meta = self
+            .lookup_watch_metadata(&project_id, &effective_path_str)
+            .await;
 
         match action {
             RegistrationAction::NotFoundSkipped => {
@@ -108,6 +118,8 @@ impl ProjectServiceImpl {
                     priority: "none".to_string(),
                     is_active: false,
                     newly_registered: false,
+                    is_worktree: false,
+                    watch_path: None,
                 })
             }
             RegistrationAction::ExistingActivated => {
@@ -120,6 +132,8 @@ impl ProjectServiceImpl {
                     priority: effective_priority.to_string(),
                     is_active: true,
                     newly_registered: false,
+                    is_worktree: watch_meta.is_worktree,
+                    watch_path: watch_meta.watch_path,
                 })
             }
             RegistrationAction::ExistingNoop => Ok(RegisterProjectResponse {
@@ -128,6 +142,8 @@ impl ProjectServiceImpl {
                 priority: effective_priority.to_string(),
                 is_active: false,
                 newly_registered: false,
+                is_worktree: watch_meta.is_worktree,
+                watch_path: watch_meta.watch_path,
             }),
             RegistrationAction::NewlyEnqueued {
                 is_high_priority: hp,
@@ -143,7 +159,36 @@ impl ProjectServiceImpl {
                     priority: effective_priority.to_string(),
                     is_active: hp,
                     newly_registered: true,
+                    is_worktree: false,
+                    watch_path: None,
                 })
+            }
+            RegistrationAction::WorktreeAutoRegistered { result } => {
+                if let WorktreeResult::Registered {
+                    canonical_path,
+                    is_high_priority: hp,
+                } = result
+                {
+                    if hp {
+                        self.activate_project(&project_id, &canonical_path).await;
+                    }
+                    self.signal_watch_refresh(&project_id);
+                    Ok(RegisterProjectResponse {
+                        created: true,
+                        project_id,
+                        priority: if hp {
+                            "high".to_string()
+                        } else {
+                            effective_priority.to_string()
+                        },
+                        is_active: hp,
+                        newly_registered: true,
+                        is_worktree: true,
+                        watch_path: Some(canonical_path),
+                    })
+                } else {
+                    unreachable!("WorktreeAutoRegistered always contains Registered variant")
+                }
             }
         }
     }
@@ -215,6 +260,7 @@ impl ProjectServiceImpl {
         project_id: &str,
         req: &RegisterProjectRequest,
         is_high_priority: bool,
+        effective_path: &Path,
     ) -> Result<RegistrationAction, Status> {
         if self.project_exists(project_id).await? {
             if is_high_priority {
@@ -233,7 +279,17 @@ impl ProjectServiceImpl {
                 Ok(RegistrationAction::ExistingNoop)
             }
         } else if !req.register_if_new {
-            Ok(RegistrationAction::NotFoundSkipped)
+            // Project not found and caller did not request auto-registration.
+            // Check if this path is a worktree whose main project is registered.
+            let wt_result = self
+                .try_worktree_auto_register(effective_path, is_high_priority)
+                .await?;
+            match wt_result {
+                WorktreeResult::Registered { .. } => {
+                    Ok(RegistrationAction::WorktreeAutoRegistered { result: wt_result })
+                }
+                WorktreeResult::NotApplicable => Ok(RegistrationAction::NotFoundSkipped),
+            }
         } else {
             self.enqueue_new_project(project_id, req, is_high_priority)
                 .await

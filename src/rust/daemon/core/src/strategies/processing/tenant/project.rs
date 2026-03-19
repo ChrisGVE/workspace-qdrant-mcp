@@ -15,6 +15,7 @@ use crate::unified_queue_schema::{ItemType, ProjectPayload, QueueOperation, Unif
 use wqm_common::constants::COLLECTION_PROJECTS;
 
 use super::grammar_warm;
+use super::project_worktree::resolve_worktree_info;
 
 /// Process project item -- create/manage project collections.
 pub(crate) async fn process_project_item(
@@ -120,12 +121,18 @@ async fn insert_watch_folder(
         0
     };
 
+    // Detect worktree status and resolve main worktree watch_id if applicable
+    let (is_worktree, main_worktree_watch_id) =
+        resolve_worktree_info(ctx, item, payload, git_status).await;
+
     let result = sqlx::query(
         r#"INSERT OR IGNORE INTO watch_folders (
             watch_id, path, collection, tenant_id, is_active,
             git_remote_url, last_activity_at, follow_symlinks, enabled,
-            cleanup_on_disable, is_git_tracked, last_commit_hash, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1, 0, ?8, ?9, ?7, ?7)"#,
+            cleanup_on_disable, is_git_tracked, last_commit_hash,
+            is_worktree, main_worktree_watch_id,
+            created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1, 0, ?8, ?9, ?10, ?11, ?7, ?7)"#,
     )
     .bind(&watch_id)
     .bind(&payload.project_root)
@@ -136,6 +143,8 @@ async fn insert_watch_folder(
     .bind(&now)
     .bind(git_status.is_git as i32)
     .bind(&git_status.commit_hash)
+    .bind(is_worktree as i32)
+    .bind(&main_worktree_watch_id)
     .execute(ctx.queue_manager.pool())
     .await
     .map_err(|e| {
@@ -144,9 +153,15 @@ async fn insert_watch_folder(
 
     if result.rows_affected() > 0 {
         info!(
-            "Created watch_folder for tenant={} path={} (active={}, git={}, branch={}, worktree={})",
-            item.tenant_id, payload.project_root, is_active,
-            git_status.is_git, git_status.branch, git_status.is_worktree,
+            "Created watch_folder for tenant={} path={} \
+             (active={}, git={}, branch={}, worktree={}, main_wt_id={:?})",
+            item.tenant_id,
+            payload.project_root,
+            is_active,
+            git_status.is_git,
+            git_status.branch,
+            is_worktree,
+            main_worktree_watch_id,
         );
     } else {
         info!(

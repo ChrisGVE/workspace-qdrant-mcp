@@ -7,11 +7,29 @@
 //! `.wqmignore` lets users add wqm-specific exclusions without touching the
 //! project's `.gitignore`.
 //!
-//! ## .wqmignore negation syntax
+//! ## .wqmignore negation (re-inclusion) syntax
 //!
-//! Lines starting with `- ` (dash space) in `.wqmignore` **re-include** paths
-//! that `.gitignore` excludes. This allows indexing git-ignored files (e.g.,
-//! generated docs, build artifacts) without modifying `.gitignore`.
+//! `.wqmignore` supports two equivalent syntaxes for re-including paths that
+//! `.gitignore` excludes:
+//!
+//! - **Canonical**: `!pattern` — standard gitignore negation syntax
+//! - **Legacy alias**: `- pattern` (dash space) — accepted for backward compatibility
+//!
+//! Both syntaxes are functionally identical: they cause the daemon to index a
+//! path even when `.gitignore` excludes it. Use `!pattern` in new `.wqmignore`
+//! files; `- pattern` continues to work for existing files.
+//!
+//! Note: re-inclusions are applied with a separate high-priority matcher, which
+//! means they can override directory-level exclusions — something standard
+//! gitignore `!` cannot do on its own.
+//!
+//! ## Priority rules
+//!
+//! `.wqmignore` always takes precedence over `.gitignore`:
+//! - Both ignore → ignored
+//! - Both re-include → not ignored
+//! - `.gitignore` ignores, `.wqmignore` re-includes → **not ignored**
+//! - `.gitignore` re-includes, `.wqmignore` ignores → **ignored**
 //!
 //! Resolution order:
 //! 1. If `.wqmignore` re-includes the path → **not ignored** (overrides gitignore)
@@ -21,6 +39,7 @@
 use std::path::Path;
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use tracing::warn;
 
 /// Per-directory matcher for `.gitignore` and `.wqmignore` (Gate 0).
 ///
@@ -51,7 +70,9 @@ impl ProjectIgnoreMatcher {
         // the directory that contains the ignore file (same as git behaviour).
         let mut exclusion_builder = GitignoreBuilder::new(dir);
         if gitignore_path.exists() {
-            let _ = exclusion_builder.add(&gitignore_path);
+            if let Some(e) = exclusion_builder.add(&gitignore_path) {
+                warn!("Error reading {}: {}", gitignore_path.display(), e);
+            }
         }
 
         // Parse .wqmignore: split into exclusions and re-inclusions
@@ -87,8 +108,10 @@ impl ProjectIgnoreMatcher {
 /// Parse `.wqmignore`, splitting lines into exclusions (added to `builder`)
 /// and re-inclusions (returned as a separate matcher).
 ///
-/// Re-inclusion lines start with `- ` (dash space). The pattern after the
-/// prefix is treated as a standard gitignore pattern.
+/// Re-inclusion lines use either the canonical `!pattern` syntax or the legacy
+/// `- pattern` (dash space) alias — both are functionally equivalent. The
+/// pattern is added to a dedicated re-inclusion matcher that takes priority
+/// over all exclusion rules.
 fn parse_wqmignore(
     dir: &Path,
     wqmignore_path: &Path,
@@ -104,14 +127,39 @@ fn parse_wqmignore(
             continue;
         }
 
-        if let Some(pattern) = trimmed.strip_prefix("- ") {
-            let pattern = pattern.trim();
+        // Canonical `!pattern` syntax or legacy `- pattern` alias — both
+        // indicate a re-inclusion that overrides .gitignore exclusions.
+        let reinclusion_pattern = if let Some(p) = trimmed.strip_prefix("- ") {
+            Some(p.trim())
+        } else if let Some(p) = trimmed.strip_prefix('!') {
+            Some(p.trim())
+        } else {
+            None
+        };
+
+        if let Some(pattern) = reinclusion_pattern {
             if !pattern.is_empty() {
-                let _ = reinc_builder.add_line(Some(wqmignore_path.to_path_buf()), pattern);
+                if let Err(e) = reinc_builder.add_line(Some(wqmignore_path.to_path_buf()), pattern)
+                {
+                    warn!(
+                        "Malformed re-inclusion pattern '{}' in {}: {}",
+                        pattern,
+                        wqmignore_path.display(),
+                        e
+                    );
+                }
                 has_reinclusions = true;
             }
         } else {
-            let _ = exclusion_builder.add_line(Some(wqmignore_path.to_path_buf()), trimmed);
+            if let Err(e) = exclusion_builder.add_line(Some(wqmignore_path.to_path_buf()), trimmed)
+            {
+                warn!(
+                    "Malformed exclusion pattern '{}' in {}: {}",
+                    trimmed,
+                    wqmignore_path.display(),
+                    e
+                );
+            }
         }
     }
 
@@ -277,6 +325,49 @@ mod tests {
         let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
         assert!(!m.is_ignored(&dir.path().join("dist"), true));
         assert!(m.is_ignored(&dir.path().join("tmp"), true));
+    }
+
+    // ── canonical !pattern syntax ──────────────────────────────────────────
+
+    #[test]
+    fn wqmignore_exclamation_reinclusion_overrides_gitignore() {
+        let dir = tmp();
+        fs::write(dir.path().join(".gitignore"), "dist/\n").unwrap();
+        fs::write(dir.path().join(".wqmignore"), "!dist/\n").unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        assert!(!m.is_ignored(&dir.path().join("dist"), true));
+    }
+
+    #[test]
+    fn wqmignore_exclamation_with_glob_pattern() {
+        let dir = tmp();
+        fs::write(dir.path().join(".gitignore"), "*.generated.js\n").unwrap();
+        fs::write(dir.path().join(".wqmignore"), "!*.generated.js\n").unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        assert!(!m.is_ignored(&dir.path().join("api.generated.js"), false));
+    }
+
+    #[test]
+    fn wqmignore_mixed_legacy_and_canonical_syntax() {
+        let dir = tmp();
+        fs::write(dir.path().join(".gitignore"), "build/\nvendor/\n").unwrap();
+        fs::write(dir.path().join(".wqmignore"), "- build/\n!vendor/\n").unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        // Both legacy `- build/` and canonical `!vendor/` re-include
+        assert!(!m.is_ignored(&dir.path().join("build"), true));
+        assert!(!m.is_ignored(&dir.path().join("vendor"), true));
+    }
+
+    #[test]
+    fn wqmignore_exclamation_does_not_affect_other_exclusions() {
+        let dir = tmp();
+        fs::write(dir.path().join(".gitignore"), "dist/\nnode_modules/\n").unwrap();
+        fs::write(dir.path().join(".wqmignore"), "!dist/\n").unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        // dist/ re-included via canonical syntax
+        assert!(!m.is_ignored(&dir.path().join("dist"), true));
+        // node_modules/ still excluded by .gitignore
+        assert!(m.is_ignored(&dir.path().join("node_modules"), true));
     }
 
     #[test]

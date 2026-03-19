@@ -32,6 +32,10 @@ pub(super) async fn project_info(project: Option<&str>) -> Result<()> {
                         if let Some(remote) = status.git_remote {
                             output::kv("Git Remote", &remote);
                         }
+                        output::kv("Worktree", if status.is_worktree { "Yes" } else { "No" });
+                        if let Some(main_path) = status.main_worktree_path {
+                            output::kv("Main Working Tree", &main_path);
+                        }
                     } else {
                         output::warning("Project not found");
                         output::info("Use 'wqm project list' to see registered projects");

@@ -56,6 +56,7 @@ pub(super) async fn deactivate_project(project: Option<&str>) -> Result<()> {
         Ok(mut client) => {
             let request = DeprioritizeProjectRequest {
                 project_id: project_id.clone(),
+                watch_path: None,
             };
 
             match client.project().deprioritize_project(request).await {

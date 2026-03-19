@@ -589,3 +589,118 @@ async fn test_migration_v21_submodule_junction_table() {
         .unwrap();
     assert_eq!(count_after, 0, "CASCADE delete should remove junction rows");
 }
+
+#[sqlx::test]
+async fn test_migration_v31_worktree_columns() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run migrations");
+
+    // Verify columns exist
+    let has_is_worktree: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') \
+         WHERE name = 'is_worktree'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(has_is_worktree, "is_worktree column should exist");
+
+    let has_main_worktree_watch_id: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') \
+         WHERE name = 'main_worktree_watch_id'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        has_main_worktree_watch_id,
+        "main_worktree_watch_id column should exist"
+    );
+
+    // Verify partial index exists
+    let has_index: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM sqlite_master \
+         WHERE type='index' AND name='idx_watch_main_worktree'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(has_index, "idx_watch_main_worktree index should exist");
+
+    // Insert a main working tree entry
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_worktree, created_at, updated_at)
+         VALUES ('w-main', '/tmp/repo', 'projects', 't1', 0, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Insert a worktree entry pointing to the main tree
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_worktree, main_worktree_watch_id, created_at, updated_at)
+         VALUES ('w-wt', '/tmp/repo-wt', 'projects', 't1', 1, 'w-main', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Verify default value for is_worktree
+    let is_worktree: i32 =
+        sqlx::query_scalar("SELECT is_worktree FROM watch_folders WHERE watch_id = 'w-main'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(is_worktree, 0, "is_worktree should be 0 for main tree");
+
+    let is_worktree_wt: i32 =
+        sqlx::query_scalar("SELECT is_worktree FROM watch_folders WHERE watch_id = 'w-wt'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(is_worktree_wt, 1, "is_worktree should be 1 for worktree");
+
+    // Verify main_worktree_watch_id FK value
+    let main_id: Option<String> = sqlx::query_scalar(
+        "SELECT main_worktree_watch_id FROM watch_folders WHERE watch_id = 'w-wt'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(main_id.as_deref(), Some("w-main"));
+
+    // Verify CHECK constraint rejects invalid is_worktree values
+    let invalid = sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_worktree, created_at, updated_at)
+         VALUES ('w-bad', '/tmp/bad', 'projects', 't1', 2, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await;
+    assert!(
+        invalid.is_err(),
+        "CHECK constraint should reject is_worktree = 2"
+    );
+}
+
+#[sqlx::test]
+async fn test_migration_v31_idempotent() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager.initialize().await.unwrap();
+
+    // Run all migrations up to v31
+    manager
+        .run_migrations()
+        .await
+        .expect("First migration run should succeed");
+
+    // Run v31 migration again directly (simulates idempotency)
+    manager
+        .run_migration(31)
+        .await
+        .expect("Running v31 again should not fail");
+}
