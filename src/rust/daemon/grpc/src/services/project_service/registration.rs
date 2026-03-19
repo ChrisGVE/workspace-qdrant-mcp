@@ -2,18 +2,22 @@
 //!
 //! Handles the RegisterProject gRPC flow: validation, project ID generation,
 //! queue enqueue for new projects, session registration for existing projects,
-//! LSP server startup, and activity inheritance.
+//! LSP server startup, activity inheritance, and worktree auto-registration.
 
 use std::path::{Path, PathBuf};
 
+use chrono::Utc;
 use tonic::Status;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use crate::proto::{RegisterProjectRequest, RegisterProjectResponse};
 
 use workspace_qdrant_core::{
-    project_disambiguation::ProjectIdCalculator, ItemType, ProjectPayload, QueueManager,
-    UnifiedQueueOp,
+    daemon_state::WatchFolderRecord,
+    git::{detect_git_status, find_main_worktree_path, resolve_git_dir},
+    project_disambiguation::ProjectIdCalculator,
+    ItemType, ProjectPayload, QueueManager, UnifiedQueueOp,
 };
 use wqm_common::constants::COLLECTION_PROJECTS;
 use wqm_common::project_id::detect_git_remote;
@@ -30,6 +34,11 @@ enum RegistrationAction {
     NotFoundSkipped,
     /// New project enqueued for creation
     NewlyEnqueued { is_high_priority: bool },
+    /// Worktree auto-registered (main project exists, worktree path is new)
+    WorktreeAutoRegistered {
+        canonical_path: String,
+        is_high_priority: bool,
+    },
 }
 
 /// Resolve the git repository root from a given path by walking upward.
@@ -93,8 +102,13 @@ impl ProjectServiceImpl {
         );
 
         let action = self
-            .determine_registration_action(&project_id, &req, is_high_priority)
+            .determine_registration_action(&project_id, &req, is_high_priority, &effective_path)
             .await?;
+
+        // Look up worktree metadata for existing entries
+        let watch_meta = self
+            .lookup_watch_metadata(&project_id, &effective_path_str)
+            .await;
 
         match action {
             RegistrationAction::NotFoundSkipped => {
@@ -122,8 +136,8 @@ impl ProjectServiceImpl {
                     priority: effective_priority.to_string(),
                     is_active: true,
                     newly_registered: false,
-                    is_worktree: false,
-                    watch_path: None,
+                    is_worktree: watch_meta.is_worktree,
+                    watch_path: watch_meta.watch_path,
                 })
             }
             RegistrationAction::ExistingNoop => Ok(RegisterProjectResponse {
@@ -132,8 +146,8 @@ impl ProjectServiceImpl {
                 priority: effective_priority.to_string(),
                 is_active: false,
                 newly_registered: false,
-                is_worktree: false,
-                watch_path: None,
+                is_worktree: watch_meta.is_worktree,
+                watch_path: watch_meta.watch_path,
             }),
             RegistrationAction::NewlyEnqueued {
                 is_high_priority: hp,
@@ -151,6 +165,28 @@ impl ProjectServiceImpl {
                     newly_registered: true,
                     is_worktree: false,
                     watch_path: None,
+                })
+            }
+            RegistrationAction::WorktreeAutoRegistered {
+                canonical_path,
+                is_high_priority: hp,
+            } => {
+                if hp {
+                    self.activate_project(&project_id, &canonical_path).await;
+                }
+                self.signal_watch_refresh(&project_id);
+                Ok(RegisterProjectResponse {
+                    created: true,
+                    project_id,
+                    priority: if hp {
+                        "high".to_string()
+                    } else {
+                        effective_priority.to_string()
+                    },
+                    is_active: hp,
+                    newly_registered: true,
+                    is_worktree: true,
+                    watch_path: Some(canonical_path),
                 })
             }
         }
@@ -223,6 +259,7 @@ impl ProjectServiceImpl {
         project_id: &str,
         req: &RegisterProjectRequest,
         is_high_priority: bool,
+        effective_path: &Path,
     ) -> Result<RegistrationAction, Status> {
         if self.project_exists(project_id).await? {
             if is_high_priority {
@@ -241,11 +278,138 @@ impl ProjectServiceImpl {
                 Ok(RegistrationAction::ExistingNoop)
             }
         } else if !req.register_if_new {
-            Ok(RegistrationAction::NotFoundSkipped)
+            // Project not found and caller did not request auto-registration.
+            // Check if this path is a worktree whose main project is registered.
+            self.try_worktree_auto_register(effective_path, is_high_priority)
+                .await
         } else {
             self.enqueue_new_project(project_id, req, is_high_priority)
                 .await
         }
+    }
+
+    /// Attempt worktree auto-registration when the project is not found.
+    ///
+    /// Checks if the path is a git worktree and whether the main working tree
+    /// is already registered. If so, creates a new watch folder entry for the
+    /// worktree that shares the same tenant_id as the main project.
+    async fn try_worktree_auto_register(
+        &self,
+        effective_path: &Path,
+        is_high_priority: bool,
+    ) -> Result<RegistrationAction, Status> {
+        let git_status = detect_git_status(effective_path);
+        if !git_status.is_worktree {
+            return Ok(RegistrationAction::NotFoundSkipped);
+        }
+
+        // Resolve the worktree's git directory and find the main worktree root
+        let git_dir = resolve_git_dir(effective_path).ok_or_else(|| {
+            debug!(
+                path = %effective_path.display(),
+                "Worktree detected but could not resolve git dir"
+            );
+            Status::not_found("Worktree git directory not found")
+        })?;
+
+        let main_root = match find_main_worktree_path(&git_dir) {
+            Some(p) => p,
+            None => {
+                debug!(
+                    path = %effective_path.display(),
+                    "Could not resolve main worktree path"
+                );
+                return Ok(RegistrationAction::NotFoundSkipped);
+            }
+        };
+
+        // Compute the tenant_id for the main worktree
+        let main_remote = detect_git_remote(&main_root);
+        let calculator = ProjectIdCalculator::new();
+        let main_tenant_id = calculator.calculate(&main_root, main_remote.as_deref(), None);
+
+        // Look up the main project's watch folder by tenant_id
+        let main_watch = self.find_watch_folder_by_tenant(&main_tenant_id).await?;
+
+        let main_record = match main_watch {
+            Some(r) => r,
+            None => {
+                info!(
+                    path = %effective_path.display(),
+                    main_tenant_id = %main_tenant_id,
+                    "Worktree detected but main project not registered"
+                );
+                return Ok(RegistrationAction::NotFoundSkipped);
+            }
+        };
+
+        // Canonicalize the worktree path
+        let canonical_path =
+            std::fs::canonicalize(effective_path).unwrap_or_else(|_| effective_path.to_path_buf());
+        let canonical_str = canonical_path.to_string_lossy().to_string();
+
+        // Create the worktree watch folder record
+        let now = Utc::now();
+        let worktree_record = WatchFolderRecord {
+            watch_id: Uuid::new_v4().to_string(),
+            path: canonical_str.clone(),
+            collection: COLLECTION_PROJECTS.to_string(),
+            tenant_id: main_tenant_id.clone(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: main_record.git_remote_url.clone(),
+            remote_hash: main_record.remote_hash.clone(),
+            disambiguation_path: main_record.disambiguation_path.clone(),
+            is_active: is_high_priority,
+            last_activity_at: if is_high_priority { Some(now) } else { None },
+            is_paused: false,
+            pause_start_time: None,
+            is_archived: false,
+            last_commit_hash: git_status.commit_hash,
+            is_git_tracked: true,
+            is_worktree: true,
+            main_worktree_watch_id: Some(main_record.watch_id.clone()),
+            library_mode: None,
+            follow_symlinks: main_record.follow_symlinks,
+            enabled: true,
+            cleanup_on_disable: main_record.cleanup_on_disable,
+            created_at: now,
+            updated_at: now,
+            last_scan: None,
+        };
+
+        // Insert the worktree record
+        self.state_manager
+            .store_watch_folder(&worktree_record)
+            .await
+            .map_err(|e| {
+                error!("Failed to store worktree watch folder: {e}");
+                Status::internal(format!("Failed to store worktree watch folder: {e}"))
+            })?;
+
+        info!(
+            "Auto-registering worktree: {} for project {}",
+            canonical_str, main_tenant_id
+        );
+
+        Ok(RegistrationAction::WorktreeAutoRegistered {
+            canonical_path: canonical_str,
+            is_high_priority,
+        })
+    }
+
+    /// Find a watch folder entry by tenant_id in the projects collection.
+    async fn find_watch_folder_by_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<WatchFolderRecord>, Status> {
+        self.state_manager
+            .get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS)
+            .await
+            .map_err(|e| {
+                error!("Database error looking up watch folder by tenant: {e}");
+                Status::internal(format!("Database error: {e}"))
+            })
     }
 
     /// Enqueue a new project registration via (Tenant, Add)
@@ -420,4 +584,42 @@ impl ProjectServiceImpl {
             Ok(false)
         }
     }
+
+    /// Look up worktree metadata (is_worktree, watch_path) for an existing project.
+    ///
+    /// Queries the watch_folders table for the given path or tenant_id to populate
+    /// the `is_worktree` and `watch_path` response fields.
+    async fn lookup_watch_metadata(&self, project_id: &str, path: &str) -> WatchMetadata {
+        // Try path-exact match first, then fallback to tenant_id
+        let row: Option<(i32, String)> = sqlx::query_as(
+            r#"SELECT is_worktree, path FROM watch_folders
+               WHERE collection = ?1
+                 AND (path = ?2 OR tenant_id = ?3)
+               ORDER BY CASE WHEN path = ?2 THEN 0 ELSE 1 END
+               LIMIT 1"#,
+        )
+        .bind(COLLECTION_PROJECTS)
+        .bind(path)
+        .bind(project_id)
+        .fetch_optional(&self.db_pool)
+        .await
+        .unwrap_or(None);
+
+        match row {
+            Some((is_wt, watch_path)) => WatchMetadata {
+                is_worktree: is_wt != 0,
+                watch_path: Some(watch_path),
+            },
+            None => WatchMetadata {
+                is_worktree: false,
+                watch_path: None,
+            },
+        }
+    }
+}
+
+/// Worktree metadata for populating response fields on existing entries.
+struct WatchMetadata {
+    is_worktree: bool,
+    watch_path: Option<String>,
 }

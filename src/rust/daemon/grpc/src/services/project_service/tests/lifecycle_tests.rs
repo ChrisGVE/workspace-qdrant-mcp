@@ -66,6 +66,7 @@ async fn test_deferred_shutdown_scheduled_when_delay_set() {
 
     let request = Request::new(DeprioritizeProjectRequest {
         project_id: "abcd12345678".to_string(),
+        watch_path: None,
     });
     service.deprioritize_project(request).await.unwrap();
 
@@ -93,6 +94,7 @@ async fn test_reactivation_cancels_deferred_shutdown() {
 
     let request = Request::new(DeprioritizeProjectRequest {
         project_id: "abcd12345678".to_string(),
+        watch_path: None,
     });
     service.deprioritize_project(request).await.unwrap();
 
