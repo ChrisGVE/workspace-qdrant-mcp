@@ -12,12 +12,14 @@ use crate::output::ColumnHints;
 pub struct QueueListItem {
     #[tabled(rename = "ID")]
     pub queue_id: String,
+    #[tabled(rename = "Project")]
+    pub project: String,
+    #[tabled(rename = "Subject")]
+    pub subject: String,
     #[tabled(rename = "Type")]
     pub item_type: String,
     #[tabled(rename = "Op")]
     pub op: String,
-    #[tabled(rename = "Collection")]
-    pub collection: String,
     #[tabled(rename = "Status")]
     pub status: String,
     #[tabled(rename = "Age")]
@@ -27,9 +29,9 @@ pub struct QueueListItem {
 }
 
 impl ColumnHints for QueueListItem {
-    // All categorical
     fn content_columns() -> &'static [usize] {
-        &[]
+        // Project (index 1) and Subject (index 2) are content columns
+        &[1, 2]
     }
 }
 
@@ -40,6 +42,10 @@ pub struct QueueListItemVerbose {
     pub queue_id: String,
     #[tabled(rename = "Idempotency Key")]
     pub idempotency_key: String,
+    #[tabled(rename = "Project")]
+    pub project: String,
+    #[tabled(rename = "Subject")]
+    pub subject: String,
     #[tabled(rename = "Type")]
     pub item_type: String,
     #[tabled(rename = "Op")]
@@ -57,9 +63,9 @@ pub struct QueueListItemVerbose {
 }
 
 impl ColumnHints for QueueListItemVerbose {
-    // All categorical
     fn content_columns() -> &'static [usize] {
-        &[]
+        // Project (index 2) and Subject (index 3) are content columns
+        &[2, 3]
     }
 }
 
@@ -138,5 +144,71 @@ pub fn format_status(status: &str) -> String {
         "done" => "done".green().to_string(),
         "failed" => "failed".red().to_string(),
         _ => status.to_string(),
+    }
+}
+
+/// Extract a human-readable subject from `payload_json` based on item type.
+///
+/// For file operations, returns the file basename (e.g. `main.rs`).
+/// For folder operations, returns the folder name with a trailing `/`.
+/// For URL operations, returns the URL.
+/// For text/content operations, returns a truncated content preview.
+/// Falls back to an empty string on parse failure.
+pub fn extract_subject(item_type: &str, payload_json: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload_json) else {
+        return String::new();
+    };
+
+    match item_type {
+        "file" => {
+            if let Some(path) = value.get("file_path").and_then(|v| v.as_str()) {
+                basename(path).to_string()
+            } else {
+                String::new()
+            }
+        }
+        "folder" => {
+            if let Some(path) = value.get("folder_path").and_then(|v| v.as_str()) {
+                let name = basename(path);
+                format!("{name}/")
+            } else {
+                String::new()
+            }
+        }
+        "url" | "website" => value
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "text" | "doc" => {
+            // Show title if available, otherwise truncated content
+            if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
+                truncate_str(title, 40).to_string()
+            } else if let Some(content) = value.get("content").and_then(|v| v.as_str()) {
+                truncate_str(content, 40).to_string()
+            } else {
+                String::new()
+            }
+        }
+        "tenant" | "collection" => {
+            // Administrative operations — no meaningful file subject
+            String::new()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Return the last path component (file or directory name).
+fn basename(path: &str) -> &str {
+    path.rsplit('/').find(|s| !s.is_empty()).unwrap_or(path)
+}
+
+/// Truncate a string to `max_len` characters, appending "..." if truncated.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{truncated}...")
     }
 }
