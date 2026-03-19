@@ -13,6 +13,9 @@ pub const DEFAULT_ID_LENGTH: usize = 8;
 /// Maximum display width for truncated file paths.
 pub const DEFAULT_PATH_MAX: usize = 40;
 
+/// Maximum display width for paths in verbose mode.
+pub const VERBOSE_PATH_MAX: usize = 80;
+
 /// Column gap for borderless table layouts.
 pub const COLUMN_SPACING: usize = 2;
 
@@ -71,21 +74,29 @@ pub fn short_id(id: &str) -> String {
     }
 }
 
-/// Shorten a filesystem path for display.
+/// Replace the user's home directory prefix with `~`.
 ///
-/// 1. Replaces the user's home directory prefix with `~`.
-/// 2. If the result exceeds `max_len`, truncates the middle with `…`,
-///    keeping the last path component visible.
-pub fn short_path(path: &str, max_len: usize) -> String {
+/// Unlike [`short_path`], this performs no truncation -- it only substitutes
+/// the home directory prefix for readability.
+pub fn home_to_tilde(path: &str) -> String {
     let home = dirs::home_dir()
         .map(|h| h.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let shortened = if !home.is_empty() && path.starts_with(&home) {
+    if !home.is_empty() && path.starts_with(&home) {
         format!("~{}", &path[home.len()..])
     } else {
         path.to_string()
-    };
+    }
+}
+
+/// Shorten a filesystem path for display.
+///
+/// 1. Replaces the user's home directory prefix with `~`.
+/// 2. If the result exceeds `max_len`, truncates the middle with `...`,
+///    keeping the last path component visible.
+pub fn short_path(path: &str, max_len: usize) -> String {
+    let shortened = home_to_tilde(path);
 
     if shortened.len() <= max_len || max_len < 4 {
         return shortened;
@@ -99,7 +110,7 @@ pub fn short_path(path: &str, max_len: usize) -> String {
 
     // If the last component alone (plus ellipsis) already exceeds max_len,
     // just truncate from the start.
-    let ellipsis = "\u{2026}"; // …
+    let ellipsis = "\u{2026}"; // ...
     let ellipsis_len = ellipsis.len();
 
     if last_component.len() + ellipsis_len >= max_len {
@@ -156,6 +167,23 @@ mod tests {
     fn short_id_shorter_than_limit() {
         assert_eq!(short_id("abc"), "abc");
         assert_eq!(short_id(""), "");
+    }
+
+    // ── home_to_tilde ────────────────────────────────────────────────────
+
+    #[test]
+    fn home_to_tilde_replaces_home() {
+        let home = dirs::home_dir().unwrap();
+        let path = format!("{}/projects/foo", home.display());
+        let result = home_to_tilde(&path);
+        assert!(result.starts_with("~/"), "expected ~ prefix, got: {result}");
+        assert_eq!(result, "~/projects/foo");
+    }
+
+    #[test]
+    fn home_to_tilde_no_home_prefix() {
+        let path = "/tmp/some/path";
+        assert_eq!(home_to_tilde(path), path);
     }
 
     // ── short_path ───────────────────────────────────────────────────────

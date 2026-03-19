@@ -17,7 +17,8 @@ mod table;
 
 // Messages
 pub use messages::{
-    confirm, error, info, kv, section, separator, status_line, success, warning, ServiceStatus,
+    confirm, error, info, kv, section, separator, status_line, success, summary, warning,
+    ServiceStatus,
 };
 
 // Formatters

@@ -8,6 +8,7 @@ use wqm_common::constants::COLLECTION_PROJECTS;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::ListProjectsRequest;
+use crate::output::style::home_to_tilde;
 use crate::output::{self, ServiceStatus};
 
 use super::super::qdrant_helpers;
@@ -83,7 +84,7 @@ fn print_project_list(
         };
         output::status_line(&name_display, status);
         output::kv("  ID", &proj.project_id);
-        output::kv("  Path", &proj.project_root);
+        output::kv("  Path", home_to_tilde(&proj.project_root));
         output::kv("  Priority", &proj.priority);
         output::kv("  Active", if proj.is_active { "Yes" } else { "No" });
         if let Some(count) = qdrant_counts.get(&proj.project_id) {
@@ -108,7 +109,8 @@ fn print_project_list(
     }
 
     output::separator();
-    output::info(format!("Total: {} projects", list.total_count));
+    let total = list.total_count as usize;
+    output::summary(output::summary_line(total, total, "projects"));
 }
 
 fn print_orphans_without_daemon(qdrant_counts: &HashMap<String, usize>) {

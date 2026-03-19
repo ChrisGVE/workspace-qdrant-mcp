@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::output;
-use crate::output::style::short_id;
+use crate::output::style::{short_id, short_path, DEFAULT_PATH_MAX, VERBOSE_PATH_MAX};
 
 use super::helpers::{
     connect_readonly, format_bool, format_bool_archived, format_bool_paused, format_relative_time,
@@ -146,7 +146,7 @@ fn print_verbose(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
             )| {
                 WatchListItemVerbose {
                     watch_id: watch_id.clone(),
-                    path: path.clone(),
+                    path: short_path(path, VERBOSE_PATH_MAX),
                     collection: collection.clone(),
                     tenant_id: tenant_id.clone(),
                     enabled: format_bool(*enabled),
@@ -169,11 +169,9 @@ fn print_verbose(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
     } else if script {
         output::print_script(&display_items, !no_headers);
     } else {
+        let count = display_items.len();
         output::print_table_auto(&display_items);
-        output::info(format!(
-            "Showing {} watch configurations",
-            display_items.len()
-        ));
+        output::summary(output::summary_line(count, count, "watch configurations"));
     }
 }
 
@@ -197,7 +195,7 @@ fn print_compact(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
             )| {
                 WatchListItem {
                     watch_id: short_id(watch_id),
-                    path: path.clone(),
+                    path: short_path(path, DEFAULT_PATH_MAX),
                     collection: collection.clone(),
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
@@ -217,10 +215,8 @@ fn print_compact(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
     } else if script {
         output::print_script(&display_items, !no_headers);
     } else {
+        let count = display_items.len();
         output::print_table_auto(&display_items);
-        output::info(format!(
-            "Showing {} watch configurations",
-            display_items.len()
-        ));
+        output::summary(output::summary_line(count, count, "watch configurations"));
     }
 }

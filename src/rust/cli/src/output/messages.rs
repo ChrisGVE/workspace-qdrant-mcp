@@ -2,8 +2,8 @@
 //!
 //! Provides simple coloured output helpers (`success`, `error`, `warning`,
 //! `info`), structural helpers (`separator`, `section`, `kv`),
-//! `ServiceStatus` with its coloured `status_line`, and the `confirm`
-//! interactive prompt.
+//! `ServiceStatus` with its coloured `status_line`, the `summary` footer,
+//! and the `confirm` interactive prompt.
 
 use std::fmt::Display;
 
@@ -43,6 +43,14 @@ pub fn separator() {
 /// Print a section header
 pub fn section(title: impl Display) {
     println!("\n{}", title.to_string().bold());
+}
+
+/// Print a dimmed summary footer line (e.g. "3 projects").
+///
+/// Used after list/table output to show item counts.
+/// Pair with [`super::style::summary_line`] to generate the text.
+pub fn summary(text: impl Display) {
+    println!("  {}", text.to_string().dimmed());
 }
 
 /// Print a status line with colored status indicator

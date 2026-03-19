@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use super::super::qdrant_helpers;
 use super::helpers::open_db;
 use crate::output;
+use crate::output::style::home_to_tilde;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
 /// List all libraries, including watched, format-routed, and orphaned
@@ -120,7 +121,7 @@ fn list_watch_folders(
         let mode_str = mode.as_deref().unwrap_or("incremental");
 
         output::kv("  Tag", tenant_id);
-        output::kv("  Path", path);
+        output::kv("  Path", home_to_tilde(path));
         output::kv("  Status", status);
         output::kv("  Mode", mode_str);
         if let Some(count) = qdrant_counts.get(tenant_id) {
@@ -183,7 +184,7 @@ fn list_format_routed(
     for (tenant_id, project_path, file_count) in &routed {
         known_tags.insert(tenant_id.clone());
         output::kv("  Project", tenant_id);
-        output::kv("  Path", project_path);
+        output::kv("  Path", home_to_tilde(project_path));
         output::kv("  Library Files", file_count.to_string());
         output::kv("  Source", "auto-routed (PDF, DOCX, etc.)");
         if let Some(count) = qdrant_counts.get(tenant_id) {
@@ -220,7 +221,7 @@ fn list_orphans(
         output::kv("  Points", count.to_string());
         output::kv(
             "  Status",
-            "no watch folder — run: wqm admin cleanup-orphans",
+            "no watch folder \u{2014} run: wqm admin cleanup-orphans",
         );
         output::separator();
     }
