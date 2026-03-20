@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     git_remote_url TEXT,                    -- Normalized remote URL
     remote_hash TEXT,                       -- sha256(remote_url)[:12] for grouping duplicates
     disambiguation_path TEXT,               -- Path suffix for clone disambiguation
-    is_active INTEGER DEFAULT 0             -- Activity flag (inherited by subprojects)
-        CHECK (is_active IN (0, 1)),
+    is_active INTEGER DEFAULT 0             -- Session counter (inherited by subprojects)
+        CHECK (is_active >= 0),
     last_activity_at TEXT,                  -- Synced across parent and all subprojects
 
     -- Library-specific (NULL for projects)
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS watch_folders (
 CREATE INDEX IF NOT EXISTS idx_watch_remote_hash ON watch_folders(remote_hash);
 
 -- Index for active project lookups (used in queue priority calculation)
-CREATE INDEX IF NOT EXISTS idx_watch_active ON watch_folders(is_active) WHERE is_active = 1;
+CREATE INDEX IF NOT EXISTS idx_watch_active ON watch_folders(is_active) WHERE is_active > 0;
 
 -- Index for daemon polling (find recently updated watches)
 CREATE INDEX IF NOT EXISTS idx_watch_updated ON watch_folders(updated_at);

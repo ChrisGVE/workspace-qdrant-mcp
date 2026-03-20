@@ -63,7 +63,7 @@ async fn create_test_database() -> SqlitePool {
             collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
             tenant_id TEXT NOT NULL,
             parent_watch_id TEXT,
-            is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
+            is_active INTEGER DEFAULT 0 CHECK (is_active >= 0),
             is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
             git_remote_url TEXT,
             remote_hash TEXT,

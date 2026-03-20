@@ -199,7 +199,7 @@ pub async fn setup_test_db() -> (sqlx::SqlitePool, TempDir) {
             collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
             tenant_id TEXT NOT NULL,
             parent_watch_id TEXT,
-            is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
+            is_active INTEGER DEFAULT 0 CHECK (is_active >= 0),
             patterns TEXT NOT NULL,
             ignore_patterns TEXT NOT NULL,
             auto_ingest BOOLEAN NOT NULL DEFAULT 1,
