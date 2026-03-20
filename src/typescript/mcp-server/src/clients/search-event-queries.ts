@@ -1,12 +1,11 @@
 /**
- * Search event instrumentation queries for SqliteStateManager.
+ * Search event instrumentation via daemon gRPC.
  *
- * Logs and updates search events in the search_events table (schema v12+).
+ * Logs and updates search events through the TrackingWriteService.
  * Errors are swallowed so instrumentation never blocks search execution.
  */
 
-import type { Database as DatabaseType } from 'better-sqlite3';
-import { utcNow } from '../utils/timestamps.js';
+import type { DaemonClient } from './daemon-client.js';
 
 export interface SearchEventInput {
   id: string;
@@ -33,80 +32,89 @@ export interface SearchEventUpdate {
 }
 
 /**
- * Log a search event to the search_events table.
+ * Log a search event via daemon gRPC.
  *
  * Called at the start of a search to create the initial record.
+ * Fire-and-forget: errors are swallowed so instrumentation never breaks search.
  */
-export function logSearchEvent(
-  db: DatabaseType | null,
-  event: SearchEventInput,
-): void {
-  if (!db) return;
+export function logSearchEvent(daemonClient: DaemonClient | null, event: SearchEventInput): void {
+  if (!daemonClient) return;
 
-  try {
-    const now = utcNow();
-    const stmt = db.prepare(`
-      INSERT INTO search_events (
-        id, ts, session_id, project_id, actor, tool, op,
-        query_text, filters, top_k, result_count, latency_ms,
-        top_result_refs, outcome, parent_event_id, created_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?, ?
-      )
-    `);
-    stmt.run(
-      event.id,
-      now,
-      event.sessionId ?? null,
-      event.projectId ?? null,
-      event.actor,
-      event.tool,
-      event.op,
-      event.queryText ?? null,
-      event.filters ?? null,
-      event.topK ?? null,
-      event.resultCount ?? null,
-      event.latencyMs ?? null,
-      event.topResultRefs ?? null,
-      event.outcome ?? null,
-      event.parentEventId ?? null,
-      now,
+  // Fire-and-forget — catch errors to avoid breaking search
+  const request: {
+    id: string;
+    actor: string;
+    tool: string;
+    op: string;
+    session_id?: string;
+    project_id?: string;
+    query_text?: string;
+    filters?: string;
+    top_k?: number;
+    result_count?: number;
+    latency_ms?: number;
+    top_result_refs?: string;
+    outcome?: string;
+    parent_event_id?: string;
+  } = {
+    id: event.id,
+    actor: event.actor,
+    tool: event.tool,
+    op: event.op,
+  };
+  if (event.sessionId !== undefined) request.session_id = event.sessionId;
+  if (event.projectId !== undefined) request.project_id = event.projectId;
+  if (event.queryText !== undefined) request.query_text = event.queryText;
+  if (event.filters !== undefined) request.filters = event.filters;
+  if (event.topK !== undefined) request.top_k = event.topK;
+  if (event.resultCount !== undefined) request.result_count = event.resultCount;
+  if (event.latencyMs !== undefined) request.latency_ms = event.latencyMs;
+  if (event.topResultRefs !== undefined) request.top_result_refs = event.topResultRefs;
+  if (event.outcome !== undefined) request.outcome = event.outcome;
+  if (event.parentEventId !== undefined) request.parent_event_id = event.parentEventId;
+
+  daemonClient.logSearchEvent(request).catch((err: unknown) => {
+    // Instrumentation must never break search, but log for diagnostics
+    console.warn(
+      'logSearchEvent instrumentation failed:',
+      err instanceof Error ? err.message : err
     );
-  } catch {
-    // Instrumentation must never break search. Table may not exist if
-    // daemon hasn't migrated to v12+ yet.
-  }
+  });
 }
 
 /**
- * Update a search event with post-search results.
+ * Update a search event with post-search results via daemon gRPC.
  *
  * Updates result_count, latency_ms, top_result_refs, and outcome
  * for a previously created search event.
+ * Fire-and-forget: errors are swallowed.
  */
 export function updateSearchEvent(
-  db: DatabaseType | null,
+  daemonClient: DaemonClient | null,
   eventId: string,
-  update: SearchEventUpdate,
+  update: SearchEventUpdate
 ): void {
-  if (!db) return;
+  if (!daemonClient) return;
 
-  try {
-    const stmt = db.prepare(`
-      UPDATE search_events
-      SET result_count = ?, latency_ms = ?, top_result_refs = ?, outcome = ?
-      WHERE id = ?
-    `);
-    stmt.run(
-      update.resultCount,
-      update.latencyMs,
-      update.topResultRefs ?? null,
-      update.outcome ?? null,
-      eventId,
+  const request: {
+    event_id: string;
+    result_count: number;
+    latency_ms: number;
+    top_result_refs?: string;
+    outcome?: string;
+  } = {
+    event_id: eventId,
+    result_count: update.resultCount,
+    latency_ms: update.latencyMs,
+  };
+  if (update.topResultRefs !== undefined) request.top_result_refs = update.topResultRefs;
+  if (update.outcome !== undefined) request.outcome = update.outcome;
+
+  daemonClient.updateSearchEvent(request).catch((err: unknown) => {
+    // Instrumentation must never break search, but log for diagnostics
+    console.warn(
+      'updateSearchEvent instrumentation failed:',
+      err instanceof Error ? err.message : err
     );
-  } catch {
-    // Instrumentation must never break search
-  }
+  });
 }

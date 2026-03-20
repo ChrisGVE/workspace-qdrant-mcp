@@ -9,7 +9,7 @@ import "google/protobuf/empty.proto";
 // =============================================================================
 // SERVICE DEFINITIONS
 // =============================================================================
-// This protocol defines 7 services for communication between the Rust daemon
+// This protocol defines 12 services for communication between the Rust daemon
 // and TypeScript components (MCP server, CLI).
 //
 // Core Services (spec-defined):
@@ -17,12 +17,21 @@ import "google/protobuf/empty.proto";
 // - CollectionService: Qdrant collection CRUD and alias management
 // - DocumentService: Direct text ingestion (not file-based)
 //
+// Write Services (daemon-exclusive SQLite writes):
+// - QueueWriteService: Queue item lifecycle mutations
+// - WatchWriteService: Watch folder state mutations
+// - LibraryWriteService: Library management mutations
+// - TrackingWriteService: Observability and mirror mutations
+// - AdminWriteService: Administrative mutations
+//
 // Supporting Services:
 // - EmbeddingService: Generate embeddings for MCP server hybrid search
 // - ProjectService: Multi-tenant project lifecycle and session management
+// - TextSearchService: FTS5-based code search
+// - GraphService: Code relationship graph queries
 //
 // Design principles:
-// - Single writer pattern: Only daemon writes to Qdrant
+// - Single writer pattern: Only daemon writes to SQLite state.db and Qdrant
 // - Queue-based async processing: File operations via SQLite queue
 // - Direct sync ingestion: Text content via gRPC IngestText
 // - Event-driven refresh: Lightweight signals for state changes
@@ -762,6 +771,386 @@ message GraphMigrateResponse {
     bool nodes_match = 6;
     bool edges_match = 7;
     repeated string warnings = 8;
+}
+
+// -----------------------------------------------------------------------------
+// 8. QueueWriteService (6 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Queue item lifecycle mutations. Daemon-exclusive writes to
+//          unified_queue table. CLI and MCP server use these RPCs instead
+//          of direct SQLite writes.
+
+service QueueWriteService {
+    // Enqueue a new item (store, rules, library ingest, etc.)
+    rpc EnqueueItem(EnqueueItemRequest) returns (EnqueueItemResponse);
+
+    // Reset all failed items to pending
+    rpc RetryAll(google.protobuf.Empty) returns (RetryAllResponse);
+
+    // Reset a single failed item to pending (exact or prefix match)
+    rpc RetryItem(RetryItemRequest) returns (RetryItemResponse);
+
+    // Delete old completed/failed items by age
+    rpc CleanQueue(CleanQueueRequest) returns (CleanQueueResponse);
+
+    // Delete pending/failed items for a tenant (bulk cancel)
+    rpc CancelItems(CancelItemsRequest) returns (CancelItemsResponse);
+
+    // Delete a single queue item by ID (exact, prefix, or idempotency key)
+    rpc RemoveItem(RemoveItemRequest) returns (RemoveItemResponse);
+
+    // Delete pending/failed queue items by collection(s)
+    rpc CleanQueueByCollection(CleanQueueByCollectionRequest) returns (CleanQueueResponse);
+}
+
+// -----------------------------------------------------------------------------
+// 9. WatchWriteService (6 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Watch folder state mutations. Daemon-exclusive writes to
+//          watch_folders table.
+
+service WatchWriteService {
+    // Pause all enabled watchers (set is_paused=1)
+    rpc PauseWatchers(google.protobuf.Empty) returns (WatchMutationResponse);
+
+    // Resume all paused watchers (set is_paused=0)
+    rpc ResumeWatchers(google.protobuf.Empty) returns (WatchMutationResponse);
+
+    // Enable a specific watch folder
+    rpc EnableWatch(WatchIdRequest) returns (WatchMutationResponse);
+
+    // Disable a specific watch folder
+    rpc DisableWatch(WatchIdRequest) returns (WatchMutationResponse);
+
+    // Archive a watch folder (with optional submodule cascade)
+    rpc ArchiveWatch(ArchiveWatchRequest) returns (ArchiveWatchResponse);
+
+    // Unarchive a watch folder
+    rpc UnarchiveWatch(WatchIdRequest) returns (WatchMutationResponse);
+}
+
+// -----------------------------------------------------------------------------
+// 10. LibraryWriteService (6 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Library management mutations. Daemon-exclusive writes to
+//          watch_folders, tracked_files, project_components, unified_queue.
+
+service LibraryWriteService {
+    // Add a new library (insert watch_folders entry, enabled=0)
+    rpc AddLibrary(AddLibraryRequest) returns (AddLibraryResponse);
+
+    // Remove a library (atomic delete: queue items, components, tracked files, watch folder)
+    rpc RemoveLibrary(RemoveLibraryRequest) returns (RemoveLibraryResponse);
+
+    // Enable watching on a library path (create or update watch entry)
+    rpc WatchLibrary(WatchLibraryRequest) returns (WatchLibraryResponse);
+
+    // Disable watching on a library
+    rpc UnwatchLibrary(UnwatchLibraryRequest) returns (WatchMutationResponse);
+
+    // Update library configuration (mode, enable/disable)
+    rpc ConfigureLibrary(ConfigureLibraryRequest) returns (WatchMutationResponse);
+
+    // Set or clear incremental flag on tracked files
+    rpc SetIncremental(SetIncrementalRequest) returns (SetIncrementalResponse);
+}
+
+// -----------------------------------------------------------------------------
+// 11. TrackingWriteService (4 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Observability and mirror mutations. Daemon-exclusive writes to
+//          search_events and rules_mirror tables.
+
+service TrackingWriteService {
+    // Log a search event (initial record at search start)
+    rpc LogSearchEvent(LogSearchEventRequest) returns (google.protobuf.Empty);
+
+    // Update a search event with post-search results
+    rpc UpdateSearchEvent(UpdateSearchEventRequest) returns (google.protobuf.Empty);
+
+    // Upsert a rule into the rules_mirror table
+    rpc UpsertRuleMirror(UpsertRuleMirrorRequest) returns (google.protobuf.Empty);
+
+    // Delete a rule from the rules_mirror table
+    rpc DeleteRuleMirror(DeleteRuleMirrorRequest) returns (google.protobuf.Empty);
+}
+
+// -----------------------------------------------------------------------------
+// 12. AdminWriteService (2 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Administrative mutations spanning multiple tables.
+//          Daemon-exclusive writes.
+
+service AdminWriteService {
+    // Rename tenant_id across watch_folders, unified_queue, tracked_files
+    rpc RenameTenantAdmin(RenameTenantAdminRequest) returns (RenameTenantAdminResponse);
+
+    // Update corpus_statistics after IDF rebalancing
+    rpc RebalanceIdf(RebalanceIdfRequest) returns (RebalanceIdfResponse);
+}
+
+// =============================================================================
+// MESSAGE TYPES - QueueWriteService
+// =============================================================================
+
+// EnqueueItem Request
+message EnqueueItemRequest {
+    string item_type = 1;                             // text, file, url, website, doc, folder, tenant, collection
+    string op = 2;                                    // add, update, delete, scan, rename, uplift, reset
+    string tenant_id = 3;                             // Multi-tenant identifier
+    string collection = 4;                            // projects, libraries, rules, scratchpad
+    string payload_json = 5;                          // JSON payload
+    string branch = 6;                                // Git branch (default: "main")
+    optional string metadata_json = 7;                // Optional metadata JSON
+}
+
+// EnqueueItem Response
+message EnqueueItemResponse {
+    string queue_id = 1;                              // Assigned or existing queue ID
+    string idempotency_key = 2;                       // Computed idempotency key
+    bool is_new = 3;                                  // True if newly inserted, false if duplicate
+}
+
+// RetryAll Response
+message RetryAllResponse {
+    uint32 reset_count = 1;                           // Number of failed items reset to pending
+}
+
+// RetryItem Request
+message RetryItemRequest {
+    string queue_id = 1;                              // Exact queue_id or prefix
+}
+
+// RetryItem Response
+message RetryItemResponse {
+    bool found = 1;                                   // Whether the item was found
+    string resolved_id = 2;                           // Full queue_id that was matched
+    string previous_status = 3;                       // Status before retry (should be "failed")
+    int32 previous_retry_count = 4;                   // Retry count before reset
+    bool reset = 5;                                   // True if item was actually reset
+}
+
+// CleanQueue Request
+message CleanQueueRequest {
+    int32 older_than_days = 1;                        // Delete items older than N days
+    repeated string statuses = 2;                     // Statuses to clean (default: done, failed)
+}
+
+// CleanQueue Response
+message CleanQueueResponse {
+    uint32 deleted_count = 1;                         // Number of items deleted
+}
+
+// CancelItems Request
+message CancelItemsRequest {
+    string tenant_id = 1;                             // Tenant to cancel items for
+    repeated string statuses = 2;                     // Statuses to cancel (in_progress always excluded)
+    bool dry_run = 3;                                 // If true, return count without deleting
+}
+
+// CancelItems Response
+message CancelItemsResponse {
+    uint32 count = 1;                                 // Items deleted (or would be deleted in dry_run)
+    string tenant_id = 2;                             // Resolved tenant_id
+    string project_path = 3;                          // Resolved project path (for display)
+    bool is_dry_run = 4;                              // Echoes dry_run flag
+}
+
+// RemoveItem Request
+message RemoveItemRequest {
+    string queue_id = 1;                              // Exact queue_id, prefix, or idempotency key prefix
+}
+
+// RemoveItem Response
+message RemoveItemResponse {
+    bool found = 1;                                   // Whether the item was found
+    string resolved_id = 2;                           // Full queue_id that was matched
+    string item_type = 3;                             // Item type of removed item
+    string op = 4;                                    // Operation of removed item
+    string collection = 5;                            // Collection of removed item
+    string status = 6;                                // Status before removal
+}
+
+// CleanQueueByCollection Request
+message CleanQueueByCollectionRequest {
+    repeated string collections = 1;                  // Collection names to clean
+    repeated string statuses = 2;                     // Statuses to clean (default: pending, failed)
+}
+
+// =============================================================================
+// MESSAGE TYPES - WatchWriteService
+// =============================================================================
+
+// Shared response for simple watch mutations
+message WatchMutationResponse {
+    uint32 affected_count = 1;                        // Number of watch folders affected
+}
+
+// Watch ID request (used by enable, disable, unarchive)
+message WatchIdRequest {
+    string watch_id = 1;                              // Watch ID or filesystem path
+}
+
+// ArchiveWatch Request
+message ArchiveWatchRequest {
+    string watch_id = 1;                              // Watch ID or filesystem path
+    bool cascade_submodules = 2;                      // Archive submodules with cross-reference safety
+}
+
+// ArchiveWatch Response
+message ArchiveWatchResponse {
+    uint32 affected_count = 1;                        // Parent watch folders affected (0 or 1)
+    uint32 submodules_archived = 2;                   // Submodules archived in cascade
+    uint32 submodules_skipped = 3;                    // Shared submodules kept active
+}
+
+// =============================================================================
+// MESSAGE TYPES - LibraryWriteService
+// =============================================================================
+
+// AddLibrary Request
+message AddLibraryRequest {
+    string tag = 1;                                   // Library tag (e.g., "rust-book")
+    string path = 2;                                  // Absolute path to library folder
+    string mode = 3;                                  // Library mode: "incremental", "full", "snapshot"
+}
+
+// AddLibrary Response
+message AddLibraryResponse {
+    bool success = 1;
+    string watch_id = 2;                              // Created watch_id (e.g., "lib-rust-book")
+    string message = 3;                               // Human-readable result
+}
+
+// RemoveLibrary Request
+message RemoveLibraryRequest {
+    string tag = 1;                                   // Library tag
+}
+
+// RemoveLibrary Response
+message RemoveLibraryResponse {
+    bool success = 1;
+    uint32 queue_items_cancelled = 2;                 // Pending queue items removed
+    uint32 tracked_files_deleted = 3;                 // Tracked files removed
+    uint32 components_deleted = 4;                    // Project components removed
+    string message = 5;                               // Human-readable result
+}
+
+// WatchLibrary Request
+message WatchLibraryRequest {
+    string tag = 1;                                   // Library tag
+    string path = 2;                                  // Absolute path to watch
+    string mode = 3;                                  // Library mode
+    repeated string patterns = 4;                     // File patterns to match (empty = defaults)
+}
+
+// WatchLibrary Response
+message WatchLibraryResponse {
+    bool success = 1;
+    bool is_new = 2;                                  // True if newly created, false if existing was enabled
+    string watch_id = 3;                              // Watch ID
+    string message = 4;                               // Human-readable result
+}
+
+// UnwatchLibrary Request
+message UnwatchLibraryRequest {
+    string tag = 1;                                   // Library tag
+}
+
+// ConfigureLibrary Request
+message ConfigureLibraryRequest {
+    string tag = 1;                                   // Library tag
+    optional string mode = 2;                         // New library mode (if changing)
+    optional bool enable = 3;                         // Set enabled=1 (if true)
+    optional bool disable = 4;                        // Set enabled=0 (if true)
+}
+
+// SetIncremental Request
+message SetIncrementalRequest {
+    repeated string file_paths = 1;                   // Absolute file paths
+    bool clear = 2;                                   // If true, clear flag instead of setting it
+}
+
+// SetIncremental Response
+message SetIncrementalResponse {
+    uint32 updated = 1;                               // Files successfully updated
+    uint32 not_found = 2;                             // Files not found in tracked_files
+}
+
+// =============================================================================
+// MESSAGE TYPES - TrackingWriteService
+// =============================================================================
+
+// LogSearchEvent Request
+message LogSearchEventRequest {
+    string id = 1;                                    // Event UUID
+    optional string session_id = 2;
+    optional string project_id = 3;
+    string actor = 4;                                 // "mcp", "cli", etc.
+    string tool = 5;                                  // "search", "grep", "list", etc.
+    string op = 6;                                    // "search", "retrieve", etc.
+    optional string query_text = 7;
+    optional string filters = 8;
+    optional int32 top_k = 9;
+    optional int32 result_count = 10;
+    optional int64 latency_ms = 11;
+    optional string top_result_refs = 12;
+    optional string outcome = 13;
+    optional string parent_event_id = 14;
+}
+
+// UpdateSearchEvent Request
+message UpdateSearchEventRequest {
+    string event_id = 1;                              // Event UUID to update
+    int32 result_count = 2;
+    int64 latency_ms = 3;
+    optional string top_result_refs = 4;
+    optional string outcome = 5;
+}
+
+// UpsertRuleMirror Request
+message UpsertRuleMirrorRequest {
+    string rule_id = 1;
+    string rule_text = 2;
+    optional string scope = 3;                        // "global" or "project"
+    optional string tenant_id = 4;                    // For project-scoped rules
+    string created_at = 5;                            // ISO 8601 timestamp
+    string updated_at = 6;                            // ISO 8601 timestamp
+}
+
+// DeleteRuleMirror Request
+message DeleteRuleMirrorRequest {
+    string rule_id = 1;
+}
+
+// =============================================================================
+// MESSAGE TYPES - AdminWriteService
+// =============================================================================
+
+// RenameTenantAdmin Request (distinct from ProjectService.RenameTenant which
+// also handles Qdrant payload updates)
+message RenameTenantAdminRequest {
+    string old_tenant_id = 1;
+    string new_tenant_id = 2;
+}
+
+// RenameTenantAdmin Response
+message RenameTenantAdminResponse {
+    bool success = 1;
+    uint32 total_rows_updated = 2;                    // Total rows updated across all tables
+    string message = 3;
+}
+
+// RebalanceIdf Request
+message RebalanceIdfRequest {
+    string collection = 1;                            // Collection to rebalance
+    int64 last_corrected_n = 2;                       // New last_corrected_n value
+}
+
+// RebalanceIdf Response
+message RebalanceIdfResponse {
+    bool success = 1;
+    string message = 2;
 }
 
 // =============================================================================

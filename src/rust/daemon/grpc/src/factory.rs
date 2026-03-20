@@ -11,8 +11,9 @@ use workspace_qdrant_core::storage::{StorageClient, StorageConfig};
 use workspace_qdrant_core::{LanguageServerManager, ProjectLspConfig};
 
 use crate::services::{
-    CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl, ProjectServiceImpl,
-    SystemServiceImpl, TextSearchServiceImpl,
+    AdminWriteServiceImpl, CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl,
+    LibraryWriteServiceImpl, ProjectServiceImpl, QueueWriteServiceImpl, SystemServiceImpl,
+    TextSearchServiceImpl, TrackingWriteServiceImpl, WatchWriteServiceImpl,
 };
 use crate::{GrpcError, GrpcServer, ServerConfig};
 
@@ -147,6 +148,24 @@ impl GrpcServer {
         }
     }
 
+    /// Get or spawn a WriteActorHandle.
+    ///
+    /// If an external handle was injected via `with_write_actor`, use it.
+    /// Otherwise, spawn a new WriteActor from the db_pool.
+    ///
+    /// **Note**: The fallback path spawns a new, untracked WriteActor each call.
+    /// This method must only be called once during `serve()`. The injected handle
+    /// path (`with_write_actor`) is preferred for production use.
+    fn resolve_write_actor(&self) -> Option<workspace_qdrant_core::write_actor::WriteActorHandle> {
+        if let Some(ref handle) = self.write_actor {
+            return Some(handle.clone());
+        }
+        // Fallback: spawn a WriteActor from the pool (single-call only)
+        let pool = self.db_pool.as_ref()?;
+        let handle = workspace_qdrant_core::write_actor::WriteActor::spawn(pool.clone());
+        Some(handle)
+    }
+
     fn log_startup_info(&self) {
         tracing::info!("Starting gRPC server on {}", self.config.bind_addr);
         tracing::info!(
@@ -232,6 +251,41 @@ impl GrpcServer {
             let graph_svc = proto::graph_service_server::GraphServiceServer::new(graph_svc_impl);
             tracing::info!("Registering GraphService gRPC endpoint");
             router = router.add_service(graph_svc);
+        }
+
+        // Register write services (daemon-exclusive SQLite mutations via WriteActor)
+        if let Some(write_handle) = self.resolve_write_actor() {
+            let queue_write_svc = proto::queue_write_service_server::QueueWriteServiceServer::new(
+                QueueWriteServiceImpl::new(write_handle.clone()),
+            );
+            let watch_write_svc = proto::watch_write_service_server::WatchWriteServiceServer::new(
+                WatchWriteServiceImpl::new(write_handle.clone()),
+            );
+            let library_write_svc =
+                proto::library_write_service_server::LibraryWriteServiceServer::new(
+                    LibraryWriteServiceImpl::new(write_handle.clone()),
+                );
+            let tracking_write_svc =
+                proto::tracking_write_service_server::TrackingWriteServiceServer::new(
+                    TrackingWriteServiceImpl::new(write_handle.clone()),
+                );
+            let admin_write_svc = proto::admin_write_service_server::AdminWriteServiceServer::new(
+                AdminWriteServiceImpl::new(write_handle),
+            );
+            router = router
+                .add_service(queue_write_svc)
+                .add_service(watch_write_svc)
+                .add_service(library_write_svc)
+                .add_service(tracking_write_svc)
+                .add_service(admin_write_svc);
+            tracing::info!(
+                "Registered 5 write services via WriteActor for serialized SQLite mutations"
+            );
+        } else {
+            tracing::warn!(
+                "Write services NOT registered: no db_pool or write_actor available. \
+                 Queue, watch, library, tracking, and admin mutations will be unavailable."
+            );
         }
 
         // Start server with graceful shutdown

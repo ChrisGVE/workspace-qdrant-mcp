@@ -1,144 +1,71 @@
 //! Queue retry subcommand
 
 use anyhow::Result;
-use rusqlite::params;
 
+use crate::grpc::ensure_daemon_available;
 use crate::output;
-
-use super::db::connect_readwrite;
 
 pub async fn execute(queue_id: Option<String>, all: bool, all_transient: bool) -> Result<()> {
     if !all && !all_transient && queue_id.is_none() {
         anyhow::bail!("Specify a queue_id, --all, or --all-transient to retry failed items");
     }
 
-    let conn = connect_readwrite()?;
+    let mut client = ensure_daemon_available().await?;
 
     if all {
-        retry_all(&conn)
+        retry_all(&mut client).await
     } else if all_transient {
-        retry_all_transient(&conn)
+        // TODO: add RetryAllTransient gRPC method to QueueWriteService
+        anyhow::bail!("--all-transient is not yet supported via the daemon write path")
     } else {
-        retry_one(&conn, &queue_id.unwrap())
+        retry_one(&mut client, &queue_id.unwrap()).await
     }
 }
 
-fn retry_all(conn: &rusqlite::Connection) -> Result<()> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM unified_queue WHERE status = 'failed'",
-        [],
-        |row| row.get(0),
-    )?;
+async fn retry_all(client: &mut crate::grpc::DaemonClient) -> Result<()> {
+    let response = client.queue_write().retry_all(()).await?.into_inner();
 
-    if count == 0 {
+    if response.reset_count == 0 {
         output::success("No failed items to retry");
-        return Ok(());
+    } else {
+        output::success(format!(
+            "Reset {} failed items to pending",
+            response.reset_count
+        ));
     }
 
-    let updated = conn.execute(
-        r#"
-        UPDATE unified_queue
-        SET status = 'pending',
-            retry_count = 0,
-            error_message = NULL,
-            last_error_at = NULL,
-            lease_until = NULL,
-            worker_id = NULL,
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE status = 'failed'
-        "#,
-        [],
-    )?;
-
-    output::success(format!("Reset {} failed items to pending", updated));
     Ok(())
 }
 
-fn retry_all_transient(conn: &rusqlite::Connection) -> Result<()> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM unified_queue WHERE status = 'failed' \
-         AND error_message LIKE '[transient_%'",
-        [],
-        |row| row.get(0),
-    )?;
+async fn retry_one(client: &mut crate::grpc::DaemonClient, id: &str) -> Result<()> {
+    use crate::grpc::proto::RetryItemRequest;
 
-    if count == 0 {
-        output::success("No transient failed items to retry");
+    let response = client
+        .queue_write()
+        .retry_item(RetryItemRequest {
+            queue_id: id.to_string(),
+        })
+        .await?
+        .into_inner();
+
+    if !response.found {
+        output::error(format!("Queue item not found: {}", id));
         return Ok(());
     }
 
-    // Reset status and also clear resurrection_count in metadata
-    let updated = conn.execute(
-        r#"
-        UPDATE unified_queue
-        SET status = 'pending',
-            retry_count = 0,
-            error_message = NULL,
-            last_error_at = NULL,
-            lease_until = NULL,
-            worker_id = NULL,
-            metadata = json_set(COALESCE(metadata, '{}'), '$.resurrection_count', 0),
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE status = 'failed'
-          AND error_message LIKE '[transient_%'
-        "#,
-        [],
-    )?;
+    if !response.reset {
+        output::warning(format!(
+            "Item {} has status '{}', not 'failed'. \
+             Use --status filter with list to find failed items.",
+            response.resolved_id, response.previous_status
+        ));
+        return Ok(());
+    }
 
     output::success(format!(
-        "Reset {} transient failed items to pending (resurrection count cleared)",
-        updated
+        "Reset item {} to pending (was retry {})",
+        response.resolved_id, response.previous_retry_count
     ));
-    Ok(())
-}
-
-fn retry_one(conn: &rusqlite::Connection, id: &str) -> Result<()> {
-    let prefix = format!("{}%", id);
-
-    let result: std::result::Result<(String, String, i32), _> = conn.query_row(
-        "SELECT queue_id, status, retry_count FROM unified_queue \
-         WHERE queue_id = ?1 OR queue_id LIKE ?2 LIMIT 1",
-        params![id, &prefix],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    );
-
-    match result {
-        Ok((found_id, status, retry_count)) => {
-            if status != "failed" {
-                output::warning(format!(
-                    "Item {} has status '{}', not 'failed'. \
-                     Use --status filter with list to find failed items.",
-                    found_id, status
-                ));
-                return Ok(());
-            }
-
-            conn.execute(
-                r#"
-                UPDATE unified_queue
-                SET status = 'pending',
-                    retry_count = 0,
-                    error_message = NULL,
-                    last_error_at = NULL,
-                    lease_until = NULL,
-                    worker_id = NULL,
-                    metadata = json_set(COALESCE(metadata, '{}'), '$.resurrection_count', 0),
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE queue_id = ?1
-                "#,
-                params![&found_id],
-            )?;
-
-            output::success(format!(
-                "Reset item {} to pending (was retry {})",
-                found_id, retry_count
-            ));
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            output::error(format!("Queue item not found: {}", id));
-        }
-        Err(e) => return Err(e.into()),
-    }
 
     Ok(())
 }

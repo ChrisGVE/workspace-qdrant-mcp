@@ -2,37 +2,18 @@
 
 use std::io::{self, Write};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use super::helpers::open_db;
-use crate::grpc::client::DaemonClient;
-use crate::grpc::proto::{QueueType, RefreshSignalRequest};
+use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::{
+    EnqueueItemRequest, QueueType, RefreshSignalRequest, RemoveLibraryRequest,
+};
 use crate::output;
-use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Remove a library (deletes watch config AND queues vector deletion)
 pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
     output::section(format!("Remove Library: {}", tag));
-
-    let watch_id = format!("lib-{}", tag);
-    let conn = open_db()?;
-
-    let exists: bool = conn
-        .query_row(
-            "SELECT 1 FROM watch_folders WHERE watch_id = ?",
-            [&watch_id],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    if !exists {
-        output::error(format!(
-            "Library '{}' not found (watch_id: {})",
-            tag, watch_id
-        ));
-        return Ok(());
-    }
 
     // Confirm deletion unless --yes flag
     if !skip_confirm {
@@ -53,151 +34,77 @@ pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
         }
     }
 
+    let mut client = ensure_daemon_available().await?;
+
+    // Remove watch config atomically via daemon
     output::separator();
-    delete_watch_config(&conn, tag, &watch_id)?;
-    enqueue_vector_deletion(tag);
-    signal_daemon(tag).await;
+    output::info("Removing watch configuration...");
+
+    let response = client
+        .library_write()
+        .remove_library(RemoveLibraryRequest {
+            tag: tag.to_string(),
+        })
+        .await?
+        .into_inner();
+
+    if response.queue_items_cancelled > 0 {
+        output::info(format!(
+            "Cancelled {} pending queue items",
+            response.queue_items_cancelled
+        ));
+    }
+    output::success(format!("Removed watch config for '{}'", tag));
+
+    // Queue Qdrant vector deletion via daemon
+    output::info("Queueing vector deletion...");
+    let payload_json = serde_json::json!({ "tenant_id_to_delete": tag }).to_string();
+
+    match client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "tenant".to_string(),
+            op: "delete".to_string(),
+            tenant_id: tag.to_string(),
+            collection: COLLECTION_LIBRARIES.to_string(),
+            payload_json,
+            branch: String::new(),
+            metadata_json: None,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.is_new {
+                output::success(format!(
+                    "Vector deletion queued (queue_id: {})",
+                    inner.queue_id
+                ));
+            } else {
+                output::info("Vector deletion already queued (duplicate)");
+            }
+        }
+        Err(e) => {
+            output::warning(format!("Could not queue vector deletion: {}", e));
+        }
+    }
+
+    // Signal daemon to refresh watch configuration
+    if let Ok(resp) = client
+        .system()
+        .send_refresh_signal(RefreshSignalRequest {
+            queue_type: QueueType::WatchedFolders as i32,
+            lsp_languages: vec![],
+            grammar_languages: vec![],
+        })
+        .await
+    {
+        let _ = resp;
+        output::success("Daemon notified - will process deletion shortly");
+    }
 
     output::separator();
     output::success(format!("Library '{}' removed", tag));
 
     Ok(())
-}
-
-/// Delete watch folder config from SQLite, cleaning up child records atomically
-fn delete_watch_config(conn: &rusqlite::Connection, tag: &str, watch_id: &str) -> Result<()> {
-    output::info("Removing watch configuration...");
-
-    // Run all deletes in a single transaction with FK checks off so child-record
-    // cleanup is atomic with the parent delete — prevents races with the daemon.
-    conn.execute_batch("PRAGMA foreign_keys = OFF;")
-        .context("Failed to disable FK enforcement")?;
-
-    let result = (|| -> Result<(usize, usize)> {
-        let tx = conn
-            .unchecked_transaction()
-            .context("Failed to begin transaction")?;
-
-        let cancelled = tx
-            .execute(
-                "DELETE FROM unified_queue WHERE tenant_id = ?1 AND collection = 'libraries'",
-                [tag],
-            )
-            .context("Failed to cancel queue items")?;
-
-        tx.execute(
-            "DELETE FROM project_components WHERE watch_folder_id = ?1",
-            [watch_id],
-        )
-        .context("Failed to delete project components")?;
-
-        tx.execute(
-            "DELETE FROM tracked_files WHERE watch_folder_id = ?1",
-            [watch_id],
-        )
-        .context("Failed to delete tracked files")?;
-
-        let deleted = tx
-            .execute("DELETE FROM watch_folders WHERE watch_id = ?1", [watch_id])
-            .context("Failed to delete watch folder config")?;
-
-        tx.commit()
-            .context("Failed to commit removal transaction")?;
-        Ok((cancelled, deleted))
-    })();
-
-    conn.execute_batch("PRAGMA foreign_keys = ON;")
-        .context("Failed to re-enable FK enforcement")?;
-
-    let (cancelled, deleted) = result?;
-
-    if cancelled > 0 {
-        output::info(format!("Cancelled {} pending queue items", cancelled));
-    }
-    if deleted > 0 {
-        output::success(format!("Removed watch config for '{}'", tag));
-    }
-
-    Ok(())
-}
-
-/// Enqueue deletion of vectors from Qdrant
-fn enqueue_vector_deletion(tag: &str) {
-    output::info("Queueing vector deletion...");
-
-    let collection = COLLECTION_LIBRARIES;
-    let payload_json = serde_json::json!({
-        "tenant_id_to_delete": tag
-    })
-    .to_string();
-
-    match UnifiedQueueClient::connect() {
-        Ok(client) => {
-            match client.enqueue(
-                ItemType::Tenant,
-                QueueOperation::Delete,
-                tag,
-                collection,
-                &payload_json,
-                "",
-                None,
-            ) {
-                Ok(result) => {
-                    if result.was_duplicate {
-                        output::info("Vector deletion already queued (duplicate)");
-                    } else {
-                        output::success(format!(
-                            "Vector deletion queued (queue_id: {})",
-                            result.queue_id
-                        ));
-                    }
-                }
-                Err(e) => {
-                    output::warning(format!("Could not queue vector deletion: {}", e));
-                    print_manual_delete_instructions(tag, collection);
-                }
-            }
-        }
-        Err(e) => {
-            output::warning(format!("Could not connect to queue: {}", e));
-            output::info("Vectors will need to be deleted manually or when daemon starts.");
-        }
-    }
-}
-
-/// Print manual curl instructions for deleting vectors
-fn print_manual_delete_instructions(tag: &str, collection: &str) {
-    output::info("You may need to manually delete vectors from Qdrant:");
-    output::info(format!(
-        "  curl -X POST 'http://localhost:6333/collections/{}/points/delete' \\",
-        collection
-    ));
-    output::info("    -H 'Content-Type: application/json' \\");
-    output::info(format!(
-        "    -d '{{\"filter\": {{\"must\": [{{\"key\": \"library_name\", \
-         \"match\": {{\"value\": \"{}\"}}}}]}}}}'",
-        tag
-    ));
-}
-
-/// Signal daemon if available
-async fn signal_daemon(tag: &str) {
-    if let Ok(mut client) = DaemonClient::connect_default().await {
-        output::separator();
-        output::info("Signaling daemon...");
-        let request = RefreshSignalRequest {
-            queue_type: QueueType::WatchedFolders as i32,
-            lsp_languages: vec![],
-            grammar_languages: vec![],
-        };
-        if client.system().send_refresh_signal(request).await.is_ok() {
-            output::success("Daemon notified - will process deletion shortly");
-        }
-    } else {
-        output::separator();
-        output::info(format!(
-            "Daemon not running. Vector deletion for '{}' will occur when daemon starts.",
-            tag
-        ));
-    }
 }

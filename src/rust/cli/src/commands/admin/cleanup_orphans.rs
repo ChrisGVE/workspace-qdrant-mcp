@@ -4,10 +4,9 @@ use anyhow::Result;
 
 use super::super::qdrant_helpers;
 use super::ALL_COLLECTIONS;
-use crate::grpc::client::DaemonClient;
-use crate::grpc::proto::{QueueType, RefreshSignalRequest};
+use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::{EnqueueItemRequest, QueueType, RefreshSignalRequest};
 use crate::output;
-use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Detect and optionally delete orphaned tenants across collections.
 pub async fn execute(delete: bool, collection_filter: Option<String>) -> Result<()> {
@@ -127,35 +126,34 @@ async fn scan_collections_for_orphans(
 
 /// Enqueue deletion operations for orphaned tenants and signal the daemon.
 async fn enqueue_orphan_deletions(orphans: &[(String, String)]) -> Result<()> {
-    let queue_client = match UnifiedQueueClient::connect() {
-        Ok(c) => c,
-        Err(e) => {
-            output::error(format!("Could not connect to queue: {}", e));
-            return Ok(());
-        }
-    };
+    let mut client = ensure_daemon_available().await?;
 
     let mut queued = 0;
     for (coll, tenant) in orphans {
         let payload_json = serde_json::json!({ "tenant_id_to_delete": tenant }).to_string();
 
-        match queue_client.enqueue(
-            ItemType::Tenant,
-            QueueOperation::Delete,
-            tenant,
-            coll,
-            &payload_json,
-            "",
-            None,
-        ) {
-            Ok(result) => {
-                if result.was_duplicate {
-                    output::info(format!("  {} / {} — already queued", coll, tenant));
-                } else {
+        match client
+            .queue_write()
+            .enqueue_item(EnqueueItemRequest {
+                item_type: "tenant".to_string(),
+                op: "delete".to_string(),
+                tenant_id: tenant.to_string(),
+                collection: coll.to_string(),
+                payload_json,
+                branch: String::new(),
+                metadata_json: None,
+            })
+            .await
+        {
+            Ok(resp) => {
+                let inner = resp.into_inner();
+                if inner.is_new {
                     output::success(format!(
                         "  {} / {} — deletion queued ({})",
-                        coll, tenant, result.queue_id
+                        coll, tenant, inner.queue_id
                     ));
+                } else {
+                    output::info(format!("  {} / {} — already queued", coll, tenant));
                 }
                 queued += 1;
             }
@@ -174,15 +172,13 @@ async fn enqueue_orphan_deletions(orphans: &[(String, String)]) -> Result<()> {
         queued
     ));
 
-    if let Ok(mut client) = DaemonClient::connect_default().await {
-        let request = RefreshSignalRequest {
-            queue_type: QueueType::IngestQueue as i32,
-            lsp_languages: vec![],
-            grammar_languages: vec![],
-        };
-        if client.system().send_refresh_signal(request).await.is_ok() {
-            output::success("Daemon notified to process deletions");
-        }
+    let request = RefreshSignalRequest {
+        queue_type: QueueType::IngestQueue as i32,
+        lsp_languages: vec![],
+        grammar_languages: vec![],
+    };
+    if client.system().send_refresh_signal(request).await.is_ok() {
+        output::success("Daemon notified to process deletions");
     }
 
     Ok(())

@@ -5,7 +5,8 @@ use rusqlite::Connection;
 
 use crate::config::get_database_path_checked;
 
-/// Connect to the state database (read-only for safety)
+/// Connect to the state database (read-only).
+/// All write operations now go through gRPC to the daemon.
 pub fn connect_readonly() -> Result<Connection> {
     let db_path = get_database_path_checked().map_err(|e| anyhow::anyhow!("{}", e))?;
 
@@ -17,21 +18,6 @@ pub fn connect_readonly() -> Result<Connection> {
 
     conn.execute_batch("PRAGMA busy_timeout=5000;")
         .context("Failed to set busy_timeout")?;
-
-    Ok(conn)
-}
-
-/// Connect to the state database (read-write for retry/clean/remove)
-pub fn connect_readwrite() -> Result<Connection> {
-    let db_path = get_database_path_checked().map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let conn = Connection::open(&db_path)
-        .context(format!("Failed to open state database at {:?}", db_path))?;
-
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
-    )
-    .context("Failed to set SQLite pragmas")?;
 
     Ok(conn)
 }

@@ -35,9 +35,9 @@ export type SourceType = 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
 
 export interface StoreOptions {
   content: string;
-  libraryName?: string;         // Required unless forProject is true
-  forProject?: boolean;         // When true, store to libraries scoped to current project
-  projectId?: string;           // Project tenant_id (required when forProject is true)
+  libraryName?: string; // Required unless forProject is true
+  forProject?: boolean; // When true, store to libraries scoped to current project
+  projectId?: string; // Project tenant_id (required when forProject is true)
   title?: string;
   url?: string;
   filePath?: string;
@@ -50,7 +50,7 @@ export interface StoreResponse {
   documentId?: string;
   collection: string;
   message: string;
-  fallback_mode: 'unified_queue';  // Always queue-based per ADR-002
+  fallback_mode: 'unified_queue'; // Always queue-based per ADR-002
   queue_id?: string;
 }
 
@@ -73,7 +73,7 @@ export class StoreTool {
 
   constructor(
     _config: StoreToolConfig,
-    stateManager: SqliteStateManager,
+    stateManager: SqliteStateManager
     // ProjectDetector no longer needed - we only write to libraries
   ) {
     // NOTE: DaemonClient intentionally NOT accepted per ADR-002
@@ -132,7 +132,8 @@ export class StoreTool {
         return {
           success: false,
           collection: LIBRARIES_COLLECTION,
-          message: 'libraryName is required - this tool stores to the libraries collection only. For project content, use file watching (daemon handles this automatically).',
+          message:
+            'libraryName is required - this tool stores to the libraries collection only. For project content, use file watching (daemon handles this automatically).',
           fallback_mode: 'unified_queue',
         };
       }
@@ -216,7 +217,7 @@ export class StoreTool {
     };
 
     // Use state manager to enqueue to libraries collection
-    const result = this.stateManager.enqueueUnified(
+    const result = await this.stateManager.enqueueUnified(
       'tenant',
       'add',
       params.tenantId,

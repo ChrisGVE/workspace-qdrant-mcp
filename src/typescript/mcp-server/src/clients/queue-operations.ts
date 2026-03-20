@@ -1,25 +1,23 @@
 /**
- * Unified queue enqueue and stats operations for SqliteStateManager.
+ * Unified queue enqueue (via gRPC) and stats operations (direct SQLite read).
  *
- * Handles queue item insertion with idempotency and statistics queries.
+ * Enqueue operations are sent to the daemon via gRPC. Read-only queue
+ * statistics remain as direct SQLite queries.
  */
 
 import type { Database as DatabaseType } from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
-import { utcNow } from '../utils/timestamps.js';
 
-import type {
-  QueueItemType,
-  QueueOperation,
-  QueueStatus,
-  QueueStats,
-} from '../types/state.js';
+import type { QueueItemType, QueueOperation, QueueStatus, QueueStats } from '../types/state.js';
 
-import { generateIdempotencyKey, VALID_ITEM_TYPES, VALID_OPERATIONS } from './queue-payload-builders.js';
+import type { DaemonClient } from './daemon-client.js';
+import { VALID_ITEM_TYPES, VALID_OPERATIONS } from './queue-payload-builders.js';
 import type { DegradedQueryResult, EnqueueResult } from './sqlite-state-manager.js';
 
 /** Return a degraded result for missing tables, or re-throw unknown errors. */
-function handleTableNotFoundOrThrow<T>(error: unknown, message: string): DegradedQueryResult<T | null> {
+function handleTableNotFoundOrThrow<T>(
+  error: unknown,
+  message: string
+): DegradedQueryResult<T | null> {
   const msg = error instanceof Error ? error.message : String(error);
   if (msg.includes('no such table')) {
     return { data: null, status: 'degraded', reason: 'table_not_found', message };
@@ -29,8 +27,11 @@ function handleTableNotFoundOrThrow<T>(error: unknown, message: string): Degrade
 
 /** Validate enqueue parameters. Throws on invalid input. */
 function validateEnqueueParams(
-  itemType: QueueItemType, op: QueueOperation,
-  tenantId: string, collection: string, priority: number,
+  itemType: QueueItemType,
+  op: QueueOperation,
+  tenantId: string,
+  collection: string,
+  priority: number
 ): void {
   if (!VALID_ITEM_TYPES.includes(itemType)) {
     throw new Error(`Invalid item type: ${itemType}`);
@@ -44,85 +45,94 @@ function validateEnqueueParams(
   if (priority < 0 || priority > 10) throw new Error('Priority must be between 0 and 10');
 }
 
-/** Insert-or-deduplicate inside a transaction. */
-function executeEnqueueTransaction(
-  db: DatabaseType,
-  itemType: QueueItemType, op: QueueOperation,
-  tenantId: string, collection: string, priority: number, branch: string,
-  payload: Record<string, unknown>, metadata?: Record<string, unknown>,
-): EnqueueResult {
-  const idempotencyKey = generateIdempotencyKey(itemType, op, tenantId, collection, payload);
-  const queueId = randomUUID();
-  const now = utcNow();
-  const payloadJson = JSON.stringify(payload, Object.keys(payload).sort());
-  const metadataJson = metadata ? JSON.stringify(metadata) : '{}';
-
-  return db.transaction(() => {
-    const existing = db.prepare(
-      'SELECT queue_id FROM unified_queue WHERE idempotency_key = ?'
-    ).get(idempotencyKey) as { queue_id: string } | undefined;
-
-    if (existing) {
-      return { queueId: existing.queue_id, isNew: false, idempotencyKey };
-    }
-
-    db.prepare(
-      `INSERT INTO unified_queue
-      (queue_id, item_type, op, tenant_id, collection, priority, status,
-       idempotency_key, payload_json, branch, metadata, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
-    ).run(queueId, itemType, op, tenantId, collection, priority,
-          idempotencyKey, payloadJson, branch, metadataJson, now, now);
-
-    return { queueId, isNew: true, idempotencyKey };
-  })();
-}
-
 /**
- * Enqueue an item to the unified queue with idempotency support.
+ * Enqueue an item to the unified queue via daemon gRPC.
+ *
+ * Returns a degraded result when the daemon is unavailable rather than
+ * throwing, so callers can surface a helpful message to the LLM.
  */
-export function enqueueUnified(
-  db: DatabaseType | null,
-  itemType: QueueItemType, op: QueueOperation,
-  tenantId: string, collection: string,
-  payload: Record<string, unknown>, priority: number, branch: string,
-  metadata?: Record<string, unknown>,
-): DegradedQueryResult<EnqueueResult | null> {
-  if (!db) {
-    return { data: null, status: 'degraded', reason: 'database_not_found',
-             message: 'Database not initialized. Start daemon first.' };
+export async function enqueueUnified(
+  daemonClient: DaemonClient | null,
+  itemType: QueueItemType,
+  op: QueueOperation,
+  tenantId: string,
+  collection: string,
+  payload: Record<string, unknown>,
+  priority: number,
+  branch: string,
+  metadata?: Record<string, unknown>
+): Promise<DegradedQueryResult<EnqueueResult | null>> {
+  if (!daemonClient) {
+    return {
+      data: null,
+      status: 'degraded',
+      reason: 'daemon_unavailable',
+      message: 'Daemon not available. Start memexd to process writes.',
+    };
   }
 
   validateEnqueueParams(itemType, op, tenantId, collection, priority);
 
   try {
-    const result = executeEnqueueTransaction(
-      db, itemType, op, tenantId, collection, priority, branch, payload, metadata,
-    );
-    return { data: result, status: 'ok' };
+    const request: {
+      item_type: string;
+      op: string;
+      tenant_id: string;
+      collection: string;
+      payload_json: string;
+      branch: string;
+      metadata_json?: string;
+    } = {
+      item_type: itemType,
+      op: op,
+      tenant_id: tenantId,
+      collection: collection,
+      payload_json: JSON.stringify(payload, Object.keys(payload).sort()),
+      branch: branch,
+    };
+    if (metadata) request.metadata_json = JSON.stringify(metadata);
+    const response = await daemonClient.enqueueItem(request);
+    return {
+      data: {
+        queueId: response.queue_id,
+        isNew: response.is_new,
+        idempotencyKey: response.idempotency_key,
+      },
+      status: 'ok',
+    };
   } catch (error) {
-    return handleTableNotFoundOrThrow(error,
-      'Table unified_queue not found. Daemon has not initialized database.');
+    return {
+      data: null,
+      status: 'degraded',
+      reason: 'daemon_error',
+      message: `Daemon write failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 
 /** Query all raw stats from the unified_queue table. */
 function queryRawQueueStats(db: DatabaseType): QueueStats {
-  const statusCounts = db.prepare(
-    'SELECT status, COUNT(*) as count FROM unified_queue GROUP BY status'
-  ).all() as Array<{ status: QueueStatus; count: number }>;
+  const statusCounts = db
+    .prepare('SELECT status, COUNT(*) as count FROM unified_queue GROUP BY status')
+    .all() as Array<{ status: QueueStatus; count: number }>;
 
-  const typeCounts = db.prepare(
-    "SELECT item_type, COUNT(*) as count FROM unified_queue WHERE status = 'pending' GROUP BY item_type"
-  ).all() as Array<{ item_type: QueueItemType; count: number }>;
+  const typeCounts = db
+    .prepare(
+      "SELECT item_type, COUNT(*) as count FROM unified_queue WHERE status = 'pending' GROUP BY item_type"
+    )
+    .all() as Array<{ item_type: QueueItemType; count: number }>;
 
-  const collectionCounts = db.prepare(
-    "SELECT collection, COUNT(*) as count FROM unified_queue WHERE status = 'pending' GROUP BY collection"
-  ).all() as Array<{ collection: string; count: number }>;
+  const collectionCounts = db
+    .prepare(
+      "SELECT collection, COUNT(*) as count FROM unified_queue WHERE status = 'pending' GROUP BY collection"
+    )
+    .all() as Array<{ collection: string; count: number }>;
 
-  const staleCount = db.prepare(
-    "SELECT COUNT(*) as count FROM unified_queue WHERE status = 'in_progress' AND lease_expires_at < datetime('now')"
-  ).get() as { count: number };
+  const staleCount = db
+    .prepare(
+      "SELECT COUNT(*) as count FROM unified_queue WHERE status = 'in_progress' AND lease_expires_at < datetime('now')"
+    )
+    .get() as { count: number };
 
   const statusMap = new Map(statusCounts.map((r) => [r.status, r.count]));
   const typeMap: Record<QueueItemType, number> = {} as Record<QueueItemType, number>;
@@ -141,12 +151,16 @@ function queryRawQueueStats(db: DatabaseType): QueueStats {
 
 /**
  * Get queue statistics grouped by status, item type, and collection.
+ * Read-only — queries SQLite directly.
  */
-export function getQueueStats(
-  db: DatabaseType | null,
-): DegradedQueryResult<QueueStats | null> {
+export function getQueueStats(db: DatabaseType | null): DegradedQueryResult<QueueStats | null> {
   if (!db) {
-    return { data: null, status: 'degraded', reason: 'database_not_found', message: 'Database not initialized' };
+    return {
+      data: null,
+      status: 'degraded',
+      reason: 'database_not_found',
+      message: 'Database not initialized',
+    };
   }
 
   try {

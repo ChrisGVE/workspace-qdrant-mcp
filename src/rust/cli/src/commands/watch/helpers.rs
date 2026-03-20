@@ -23,21 +23,6 @@ pub fn connect_readonly() -> Result<Connection> {
     Ok(conn)
 }
 
-/// Connect to the state database (read-write for enable/disable)
-pub fn connect_readwrite() -> Result<Connection> {
-    let db_path = get_database_path_checked().map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let conn = Connection::open(&db_path)
-        .context(format!("Failed to open state database at {:?}", db_path))?;
-
-    // Enable WAL mode for better concurrency
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
-    )
-    .context("Failed to set SQLite pragmas")?;
-    Ok(conn)
-}
-
 /// Format relative time from ISO timestamp
 pub fn format_relative_time(timestamp_str: &str) -> String {
     if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp_str) {

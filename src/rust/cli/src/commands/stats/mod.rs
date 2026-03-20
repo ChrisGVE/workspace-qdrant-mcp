@@ -12,7 +12,6 @@ use clap::{Args, Subcommand, ValueEnum};
 use rusqlite::Connection;
 
 use crate::config::get_database_path;
-use wqm_common::timestamps;
 
 /// Time period filter for stats queries
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -137,7 +136,8 @@ pub async fn execute(args: StatsArgs) -> Result<()> {
     }
 }
 
-/// Open state database with read-only pragmas
+/// Open state database read-only.
+/// All write operations now go through gRPC to the daemon.
 fn open_db() -> Result<Connection> {
     let db_path = get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
     if !db_path.exists() {
@@ -146,11 +146,13 @@ fn open_db() -> Result<Connection> {
             db_path.display()
         );
     }
-    let conn = Connection::open(&db_path).context("Failed to open state database")?;
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+    let conn = Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .context("Failed to set SQLite pragmas")?;
+    .context("Failed to open state database")?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .context("Failed to set SQLite pragmas")?;
     Ok(conn)
 }
 
@@ -165,21 +167,32 @@ fn table_exists(conn: &Connection, name: &str) -> bool {
 }
 
 async fn log_search(tool: &str, query: &str, actor: &str, session_id: Option<&str>) -> Result<()> {
-    let conn = open_db()?;
-
-    if !table_exists(&conn, "search_events") {
-        anyhow::bail!("search_events table not found. Run daemon to initialize schema.");
-    }
+    use crate::grpc::ensure_daemon_available;
+    use crate::grpc::proto::LogSearchEventRequest;
 
     let event_id = uuid::Uuid::new_v4().to_string();
-    let now = timestamps::now_utc();
+    let mut client = ensure_daemon_available().await?;
 
-    conn.execute(
-        "INSERT INTO search_events (id, session_id, actor, tool, op, query_text, ts, created_at) \
-         VALUES (?1, ?2, ?3, ?4, 'search', ?5, ?6, ?6)",
-        rusqlite::params![&event_id, session_id, actor, tool, query, &now],
-    )
-    .context("Failed to insert search event")?;
+    client
+        .tracking_write()
+        .log_search_event(LogSearchEventRequest {
+            id: event_id.clone(),
+            session_id: session_id.map(|s| s.to_string()),
+            project_id: None,
+            actor: actor.to_string(),
+            tool: tool.to_string(),
+            op: "search".to_string(),
+            query_text: Some(query.to_string()),
+            filters: None,
+            top_k: None,
+            result_count: None,
+            latency_ms: None,
+            top_result_refs: None,
+            outcome: None,
+            parent_event_id: None,
+        })
+        .await
+        .context("Failed to log search event")?;
 
     println!("{}", event_id);
     Ok(())

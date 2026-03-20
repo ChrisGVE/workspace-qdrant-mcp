@@ -39,12 +39,16 @@ function buildQdrantConfig(config: ServerConfig): { qdrantUrl: string; qdrantApi
 /** Create all MCP tool instances. */
 function createTools(
   qdrantConfig: { qdrantUrl: string; qdrantApiKey?: string },
-  daemonClient: DaemonClient, stateManager: SqliteStateManager,
-  projectDetector: ProjectDetector, config: ServerConfig,
+  daemonClient: DaemonClient,
+  stateManager: SqliteStateManager,
+  projectDetector: ProjectDetector,
+  config: ServerConfig
 ) {
   const searchTool = new SearchTool(qdrantConfig, daemonClient, stateManager, projectDetector);
   const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector);
-  const rulesConfig: { qdrantUrl: string; qdrantApiKey?: string; duplicationThreshold?: number } = { ...qdrantConfig };
+  const rulesConfig: { qdrantUrl: string; qdrantApiKey?: string; duplicationThreshold?: number } = {
+    ...qdrantConfig,
+  };
   if (config.rules?.duplicationThreshold !== undefined) {
     rulesConfig.duplicationThreshold = config.rules.duplicationThreshold;
   }
@@ -57,10 +61,13 @@ function createTools(
 
 /** Instantiate all server components from config. */
 export function buildServerComponents(config: ServerConfig): ServerComponents {
+  // DaemonClient is constructed eagerly but connection is lazy (on first RPC call).
+  // All consumers handle null/unavailable daemon gracefully via fire-and-forget patterns.
   const daemonClient = new DaemonClient({ port: config.daemon.grpcPort, timeoutMs: 5000 });
   const stateManager = new SqliteStateManager({
     dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
   });
+  stateManager.setDaemonClient(daemonClient);
   const projectDetector = new ProjectDetector({ stateManager });
   const qdrantConfig = buildQdrantConfig(config);
   const healthMonitor = new HealthMonitor(qdrantConfig, daemonClient);

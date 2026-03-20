@@ -1,12 +1,16 @@
 //! DaemonClient wrapper
 //!
-//! Connects to memexd daemon and provides access to all 4 gRPC services:
-//! - SystemService (7 RPCs): Health monitoring, status, lifecycle
-//! - CollectionService (5 RPCs): Collection CRUD, alias management
-//! - DocumentService (3 RPCs): Text ingestion
-//! - ProjectService (5 RPCs): Project registration, sessions
-//!
-//! Note: Some service client methods are infrastructure for future CLI commands.
+//! Connects to memexd daemon and provides access to all gRPC services:
+//! - SystemService: Health monitoring, status, lifecycle
+//! - CollectionService: Collection CRUD, alias management
+//! - DocumentService: Text ingestion
+//! - ProjectService: Project registration, sessions
+//! - GraphService: Code relationship graph queries
+//! - QueueWriteService: Queue item lifecycle mutations
+//! - WatchWriteService: Watch folder state mutations
+//! - LibraryWriteService: Library management mutations
+//! - TrackingWriteService: Observability and mirror mutations
+//! - AdminWriteService: Administrative mutations
 
 #![allow(dead_code)]
 
@@ -20,9 +24,15 @@ pub mod workspace_daemon {
 }
 
 use workspace_daemon::{
+    admin_write_service_client::AdminWriteServiceClient,
     collection_service_client::CollectionServiceClient,
     document_service_client::DocumentServiceClient, graph_service_client::GraphServiceClient,
-    project_service_client::ProjectServiceClient, system_service_client::SystemServiceClient,
+    library_write_service_client::LibraryWriteServiceClient,
+    project_service_client::ProjectServiceClient,
+    queue_write_service_client::QueueWriteServiceClient,
+    system_service_client::SystemServiceClient,
+    tracking_write_service_client::TrackingWriteServiceClient,
+    watch_write_service_client::WatchWriteServiceClient,
 };
 
 /// Default gRPC port for memexd daemon (canonical source: wqm_common::constants)
@@ -38,6 +48,11 @@ pub struct DaemonClient {
     document: DocumentServiceClient<Channel>,
     project: ProjectServiceClient<Channel>,
     graph: GraphServiceClient<Channel>,
+    queue_write: QueueWriteServiceClient<Channel>,
+    watch_write: WatchWriteServiceClient<Channel>,
+    library_write: LibraryWriteServiceClient<Channel>,
+    tracking_write: TrackingWriteServiceClient<Channel>,
+    admin_write: AdminWriteServiceClient<Channel>,
 }
 
 impl DaemonClient {
@@ -61,7 +76,12 @@ impl DaemonClient {
             collection: CollectionServiceClient::new(channel.clone()),
             document: DocumentServiceClient::new(channel.clone()),
             project: ProjectServiceClient::new(channel.clone()),
-            graph: GraphServiceClient::new(channel),
+            graph: GraphServiceClient::new(channel.clone()),
+            queue_write: QueueWriteServiceClient::new(channel.clone()),
+            watch_write: WatchWriteServiceClient::new(channel.clone()),
+            library_write: LibraryWriteServiceClient::new(channel.clone()),
+            tracking_write: TrackingWriteServiceClient::new(channel.clone()),
+            admin_write: AdminWriteServiceClient::new(channel),
         })
     }
 
@@ -119,18 +139,49 @@ impl DaemonClient {
     }
 
     /// Get mutable reference to GraphService client
-    ///
-    /// Provides access to:
-    /// - QueryRelated
-    /// - ImpactAnalysis
-    /// - GetGraphStats
-    /// - ComputePageRank
-    /// - DetectCommunities
-    /// - ComputeBetweenness
-    /// - MigrateGraph
     pub fn graph(&mut self) -> &mut GraphServiceClient<Channel> {
         &mut self.graph
     }
+
+    /// Get mutable reference to QueueWriteService client
+    pub fn queue_write(&mut self) -> &mut QueueWriteServiceClient<Channel> {
+        &mut self.queue_write
+    }
+
+    /// Get mutable reference to WatchWriteService client
+    pub fn watch_write(&mut self) -> &mut WatchWriteServiceClient<Channel> {
+        &mut self.watch_write
+    }
+
+    /// Get mutable reference to LibraryWriteService client
+    pub fn library_write(&mut self) -> &mut LibraryWriteServiceClient<Channel> {
+        &mut self.library_write
+    }
+
+    /// Get mutable reference to TrackingWriteService client
+    pub fn tracking_write(&mut self) -> &mut TrackingWriteServiceClient<Channel> {
+        &mut self.tracking_write
+    }
+
+    /// Get mutable reference to AdminWriteService client
+    pub fn admin_write(&mut self) -> &mut AdminWriteServiceClient<Channel> {
+        &mut self.admin_write
+    }
+}
+
+/// Check that the daemon is running and return a connected client.
+///
+/// Returns a clear error message if the daemon is not available.
+/// Use this before any write operation that requires the daemon.
+pub async fn ensure_daemon_available() -> Result<DaemonClient> {
+    DaemonClient::connect_default().await.map_err(|e| {
+        anyhow::anyhow!(
+            "Daemon not running. Start memexd to execute this command.\n\
+             Hint: wqm service start\n\
+             Cause: {}",
+            e
+        )
+    })
 }
 
 #[cfg(test)]

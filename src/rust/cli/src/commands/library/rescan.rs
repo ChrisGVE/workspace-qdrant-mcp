@@ -4,8 +4,9 @@ use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use super::helpers::{open_db, signal_daemon_ingest_queue, DEFAULT_LIBRARY_PATTERNS};
+use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::EnqueueItemRequest;
 use crate::output;
-use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Rescan and re-ingest a library
 pub async fn execute(tag: &str, force: bool) -> Result<()> {
@@ -37,42 +38,39 @@ pub async fn execute(tag: &str, force: bool) -> Result<()> {
     output::kv("Force", force.to_string());
     output::separator();
 
-    // Enqueue a folder scan for the library
-    match UnifiedQueueClient::connect() {
-        Ok(client) => {
-            let payload_json = serde_json::json!({
-                "folder_path": lib_path,
-                "recursive": true,
-                "patterns": DEFAULT_LIBRARY_PATTERNS,
-            })
-            .to_string();
+    // Enqueue a folder scan for the library via gRPC
+    let mut client = ensure_daemon_available().await?;
 
-            match client.enqueue(
-                ItemType::Folder,
-                QueueOperation::Scan,
-                tag,
-                COLLECTION_LIBRARIES,
-                &payload_json,
-                "",
-                None,
-            ) {
-                Ok(result) => {
-                    if result.was_duplicate {
-                        output::info("Library rescan already queued");
-                    } else {
-                        output::success("Library rescan queued for processing");
-                    }
-                }
-                Err(e) => {
-                    output::warning(format!("Could not queue rescan: {}", e));
-                }
+    let payload_json = serde_json::json!({
+        "folder_path": lib_path,
+        "recursive": true,
+        "patterns": DEFAULT_LIBRARY_PATTERNS,
+    })
+    .to_string();
+
+    match client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "folder".to_string(),
+            op: "scan".to_string(),
+            tenant_id: tag.to_string(),
+            collection: COLLECTION_LIBRARIES.to_string(),
+            payload_json,
+            branch: String::new(),
+            metadata_json: None,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.is_new {
+                output::success("Library rescan queued for processing");
+            } else {
+                output::info("Library rescan already queued");
             }
         }
         Err(e) => {
-            output::warning(format!(
-                "Could not connect to queue: {}. Start daemon first.",
-                e
-            ));
+            output::warning(format!("Could not queue rescan: {}", e));
         }
     }
 

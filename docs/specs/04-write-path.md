@@ -4,9 +4,10 @@
 
 ### Core Rules
 
-1. **Daemon-only Qdrant writes**: The Rust daemon (memexd) is the ONLY component that writes to Qdrant. No exceptions.
-2. **Queue-only content writes**: ALL content writes from MCP/CLI go through SQLite queue. No direct gRPC for content.
-3. **Direct reads**: MCP and CLI read from Qdrant directly (no daemon intermediary).
+1. **Daemon-only SQLite writes**: The Rust daemon (memexd) is the ONLY component that writes to `state.db`. CLI and MCP server use read-only SQLite connections.
+2. **Daemon-only Qdrant writes**: The daemon is the ONLY component that writes to Qdrant. No exceptions.
+3. **All mutations via gRPC**: CLI and MCP server send all state mutations to the daemon via gRPC write services.
+4. **Direct reads**: CLI and MCP server read from SQLite and Qdrant directly (no daemon intermediary for reads).
 
 ### Write Flow
 
@@ -18,44 +19,62 @@
 │  MCP Server                CLI                                       │
 │      │                      │                                        │
 │      └──────────┬───────────┘                                        │
-│                 │                                                    │
+│                 │  gRPC                                              │
 │                 ▼                                                    │
 │        ┌────────────────┐                                           │
-│        │  SQLite Queue  │  ← ALL content writes go here             │
-│        │  (unified_     │                                           │
-│        │   queue)       │                                           │
-│        └───────┬────────┘                                           │
-│                │                                                    │
-│                ▼                                                    │
-│        ┌────────────────┐                                           │
-│        │  Rust Daemon   │  ← Polls queue, processes items           │
+│        │  Rust Daemon   │  ← Sole writer to state.db and Qdrant     │
 │        │  (memexd)      │                                           │
 │        └───────┬────────┘                                           │
 │                │                                                    │
-│                ▼                                                    │
-│        ┌────────────────┐                                           │
-│        │    Qdrant      │                                           │
-│        └────────────────┘                                           │
+│           ┌────┴────┐                                               │
+│           ▼         ▼                                               │
+│     ┌──────────┐ ┌────────┐                                        │
+│     │ state.db │ │ Qdrant │                                        │
+│     └──────────┘ └────────┘                                        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Read Flow
 
 ```
-MCP Server ──→ Qdrant (direct, no daemon)
-CLI (wqm) ───→ Qdrant (direct, no daemon)
+MCP Server ──→ state.db (direct, read-only SQLite connection)
+MCP Server ──→ Qdrant   (direct, no daemon)
+CLI (wqm) ───→ state.db (direct, read-only SQLite connection)
+CLI (wqm) ───→ Qdrant   (direct, no daemon)
 ```
+
+### Connection Configuration
+
+| Process | state.db connection | Purpose |
+|---------|-------------------|---------|
+| Daemon (memexd) | read-write pool (10 connections, WAL) | All writes + reads |
+| CLI (wqm) | read-only (`SQLITE_OPEN_READ_ONLY`) | Display queries only |
+| MCP server | read-only (`readonly: true`) | Search, list, display queries |
+
+### gRPC Write Services
+
+Five domain-scoped gRPC services handle all external mutations:
+
+| Service | RPCs | Domain |
+|---------|------|--------|
+| `QueueWriteService` | EnqueueItem, RetryAll, RetryItem, CleanQueue, CancelItems, RemoveItem | Queue item lifecycle |
+| `WatchWriteService` | PauseWatchers, ResumeWatchers, EnableWatch, DisableWatch, ArchiveWatch, UnarchiveWatch | Watch folder state |
+| `LibraryWriteService` | AddLibrary, RemoveLibrary, WatchLibrary, UnwatchLibrary, ConfigureLibrary, SetIncremental | Library management |
+| `TrackingWriteService` | LogSearchEvent, UpdateSearchEvent, UpsertRuleMirror, DeleteRuleMirror | Observability, mirrors |
+| `AdminWriteService` | RenameTenantAdmin, RebalanceIdf | Cross-table admin ops |
+
+**Daemon availability required**: All write operations require the daemon to be running. CLI commands fail with a clear error when daemon is unavailable. MCP server returns degraded results to the LLM.
+
+**Exception**: `wqm admin recover-state` writes directly to SQLite (daemon is down during recovery).
 
 ### Session Management (Direct gRPC)
 
-Only session lifecycle messages go directly to daemon via gRPC:
+Session lifecycle messages go directly to daemon via existing core gRPC services:
 
 | Message                     | Direction    | Purpose                     |
 | --------------------------- | ------------ | --------------------------- |
 | `RegisterProject(path)`     | MCP → Daemon | Project is now active       |
 | `DeprioritizeProject(path)` | MCP → Daemon | Project is no longer active |
-
-**All other operations use the queue.**
 
 ### Collection Ownership
 
@@ -63,15 +82,11 @@ Only session lifecycle messages go directly to daemon via gRPC:
 - **No collection creation via MCP/CLI**: Only `projects`, `libraries`, `rules`, `scratchpad` exist
 - **No user-created collections**: The 4-collection model is fixed
 
-### gRPC Methods (Reserved)
-
-The daemon exposes gRPC methods for content ingestion (`IngestText`, etc.) but these are **reserved for administrative/diagnostic use only**. Production code paths (MCP, CLI) must NOT use them directly - all content goes through the queue.
-
 ### Unified Queue
 
-**ALL writes go through the SQLite queue.** The queue serves as the transaction log for daemon processing. This includes daemon file watcher events - the daemon queues its own events for centralized processing.
+**ALL content writes go through the SQLite queue** via `QueueWriteService.EnqueueItem`. The queue serves as the transaction log for daemon processing. Daemon file watcher events are also enqueued internally for centralized processing.
 
-**All database operations MUST be enclosed in transactions** to ensure integrity with concurrent read/write access from MCP server, CLI, and daemon.
+**All database operations MUST be enclosed in transactions** to ensure integrity. Since the daemon is the sole writer, there is no multi-process write contention on `state.db`.
 
 #### Priority System
 

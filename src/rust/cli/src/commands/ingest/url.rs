@@ -2,10 +2,9 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
-use crate::grpc::proto::{QueueType, RefreshSignalRequest};
+use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::{EnqueueItemRequest, QueueType, RefreshSignalRequest};
 use crate::output;
-use crate::queue::{UnifiedQueueClient, UrlPayload as QueueUrlPayload};
 
 use super::detect::{detect_branch, detect_tenant_id};
 
@@ -52,48 +51,53 @@ pub async fn ingest_url(
     let branch = detect_branch();
 
     // Build URL payload
-    let url_payload = QueueUrlPayload {
-        url: url.to_string(),
-        crawl: false,
-        max_depth: 0,
-        max_pages: 1,
-        content_type: None,
-        library_name: library,
-        title,
-    };
+    let payload_json = serde_json::json!({
+        "url": url,
+        "crawl": false,
+        "max_depth": 0,
+        "max_pages": 1,
+        "content_type": null,
+        "library_name": library,
+        "title": title,
+    })
+    .to_string();
 
-    // Try unified queue (works even without daemon running)
-    match UnifiedQueueClient::connect() {
-        Ok(queue_client) => {
-            match queue_client.enqueue_url(&tenant_id, &target_collection, &url_payload, &branch) {
-                Ok(result) => {
-                    if result.was_duplicate {
-                        output::warning("URL already queued (duplicate)");
-                        output::kv("Idempotency Key", &result.idempotency_key);
-                    } else {
-                        output::success("URL queued for ingestion");
-                        output::kv("Queue ID", &result.queue_id);
-                        output::kv("Status", "pending");
-                    }
+    let mut client = ensure_daemon_available().await?;
 
-                    // Signal daemon to process queue if running
-                    if let Ok(mut client) = DaemonClient::connect_default().await {
-                        let request = RefreshSignalRequest {
-                            queue_type: QueueType::IngestQueue as i32,
-                            lsp_languages: vec![],
-                            grammar_languages: vec![],
-                        };
-                        let _ = client.system().send_refresh_signal(request).await;
-                    }
-                }
-                Err(e) => {
-                    output::error(format!("Failed to enqueue URL: {}", e));
-                }
+    match client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "url".to_string(),
+            op: "add".to_string(),
+            tenant_id: tenant_id.to_string(),
+            collection: target_collection.to_string(),
+            payload_json,
+            branch: branch.to_string(),
+            metadata_json: None,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.is_new {
+                output::success("URL queued for ingestion");
+                output::kv("Queue ID", &inner.queue_id);
+                output::kv("Status", "pending");
+            } else {
+                output::warning("URL already queued (duplicate)");
+                output::kv("Idempotency Key", &inner.idempotency_key);
             }
+
+            // Signal daemon to process queue
+            let request = RefreshSignalRequest {
+                queue_type: QueueType::IngestQueue as i32,
+                lsp_languages: vec![],
+                grammar_languages: vec![],
+            };
+            let _ = client.system().send_refresh_signal(request).await;
         }
         Err(e) => {
-            output::error(format!("Failed to connect to queue database: {}", e));
-            output::info("Ensure the daemon has run at least once to create the database.");
+            output::error(format!("Failed to enqueue URL: {}", e));
         }
     }
 

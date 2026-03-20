@@ -9,8 +9,9 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 use wqm_common::payloads::{ChunkingConfigPayload, LibraryDocumentPayload};
 
 use super::helpers::{classify_document_extension, signal_daemon_ingest_queue};
+use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::EnqueueItemRequest;
 use crate::output;
-use crate::queue::{ItemType, QueueOperation, UnifiedQueueClient};
 
 /// Ingest a single document into a library
 pub async fn execute(
@@ -75,7 +76,7 @@ pub async fn execute(
     let payload_json =
         serde_json::to_string(&payload).context("Failed to serialize library document payload")?;
 
-    enqueue_document(library, &payload_json)?;
+    enqueue_document(library, &payload_json).await?;
     signal_daemon_ingest_queue().await;
 
     Ok(())
@@ -116,40 +117,38 @@ fn classify_extension(abs_path: &PathBuf) -> Result<(&'static str, &'static str)
     }
 }
 
-/// Enqueue the document for ingestion
-fn enqueue_document(library: &str, payload_json: &str) -> Result<()> {
-    match UnifiedQueueClient::connect() {
-        Ok(client) => {
-            match client.enqueue(
-                ItemType::File,
-                QueueOperation::Add,
-                library,
-                COLLECTION_LIBRARIES,
-                payload_json,
-                "",
-                None,
-            ) {
-                Ok(result) => {
-                    if result.was_duplicate {
-                        output::info("Document already queued for ingestion (same content)");
-                    } else {
-                        output::success(format!(
-                            "Document queued for ingestion (queue_id: {})",
-                            result.queue_id
-                        ));
-                    }
-                    Ok(())
-                }
-                Err(e) => {
-                    output::error(format!("Failed to enqueue document: {}", e));
-                    Ok(())
-                }
+/// Enqueue the document for ingestion via gRPC
+async fn enqueue_document(library: &str, payload_json: &str) -> Result<()> {
+    let mut client = ensure_daemon_available().await?;
+
+    match client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "file".to_string(),
+            op: "add".to_string(),
+            tenant_id: library.to_string(),
+            collection: COLLECTION_LIBRARIES.to_string(),
+            payload_json: payload_json.to_string(),
+            branch: String::new(),
+            metadata_json: None,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.is_new {
+                output::success(format!(
+                    "Document queued for ingestion (queue_id: {})",
+                    inner.queue_id
+                ));
+            } else {
+                output::info("Document already queued for ingestion (same content)");
             }
         }
         Err(e) => {
-            output::error(format!("Could not connect to queue database: {}", e));
-            output::info("Ensure daemon has been started at least once: wqm service start");
-            Ok(())
+            output::error(format!("Failed to enqueue document: {}", e));
         }
     }
+
+    Ok(())
 }
