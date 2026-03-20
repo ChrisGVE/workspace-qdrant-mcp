@@ -463,48 +463,43 @@ impl App {
     /// Render the current state.
     fn draw(&self, frame: &mut Frame) {
         let chunks = Layout::vertical([
-            Constraint::Length(3), // tab bar
+            Constraint::Length(1), // tab bar (single line)
             Constraint::Min(1),    // main content
-            Constraint::Length(1), // status bar
         ])
         .split(frame.area());
 
         self.draw_tab_bar(frame, chunks[0]);
         self.draw_main_content(frame, chunks[1]);
-        self.draw_status_bar(frame, chunks[2]);
 
         if self.show_help {
             self.draw_help_overlay(frame);
         }
     }
 
-    /// Draw the tab bar.
+    /// Draw the tab bar: "Workspace Qdrant MCP" bold, then tabs 1-5.
     fn draw_tab_bar(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
-        let titles: Vec<Line> = View::ALL
-            .iter()
-            .enumerate()
-            .map(|(i, v)| {
-                let style = if *v == self.current_view {
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                };
-                Line::from(Span::styled(format!(" {} {} ", i + 1, v.label()), style))
-            })
-            .collect();
+        let mut spans = vec![Span::styled(
+            " Workspace Qdrant MCP ",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )];
 
-        let tabs = Tabs::new(titles)
-            .select(self.current_view.index())
-            .divider(Span::raw("|"))
-            .block(
-                Block::default()
-                    .borders(Borders::BOTTOM)
-                    .title(" wqm ")
-                    .title_style(Style::default().add_modifier(Modifier::BOLD)),
-            );
-        frame.render_widget(tabs, area);
+        for (i, v) in View::ALL.iter().enumerate() {
+            let style = if *v == self.current_view {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            if i > 0 {
+                spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
+            }
+            spans.push(Span::styled(format!("{} {}", i + 1, v.label()), style));
+        }
+
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     /// Draw the main content area for the active view.
@@ -546,75 +541,6 @@ impl App {
                 }
             }
         }
-    }
-
-    /// Draw the status bar with context-sensitive hints.
-    fn draw_status_bar(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
-        let status_spans = match self.current_view {
-            View::Dashboard => {
-                let focused = self
-                    .dashboard
-                    .as_ref()
-                    .map(|d| d.focused != FocusedCell::None)
-                    .unwrap_or(false);
-                if focused {
-                    vec![
-                        Span::styled(" j/k", Style::default().fg(Color::Yellow)),
-                        Span::raw(" navigate  "),
-                        Span::styled("Enter", Style::default().fg(Color::Yellow)),
-                        Span::raw(" detail  "),
-                        Span::styled("Esc", Style::default().fg(Color::Yellow)),
-                        Span::raw(" unfocus  "),
-                        Span::styled("?", Style::default().fg(Color::Yellow)),
-                        Span::raw(" help"),
-                    ]
-                } else {
-                    vec![
-                        Span::styled(" P", Style::default().fg(Color::Yellow)),
-                        Span::raw("rojects  "),
-                        Span::styled("L", Style::default().fg(Color::Yellow)),
-                        Span::raw("ibraries  "),
-                        Span::styled("S", Style::default().fg(Color::Yellow)),
-                        Span::raw("cratchpad  "),
-                        Span::styled("R", Style::default().fg(Color::Yellow)),
-                        Span::raw("ules  "),
-                        Span::styled("A", Style::default().fg(Color::Yellow)),
-                        Span::raw("ctive  "),
-                        Span::styled("E", Style::default().fg(Color::Yellow)),
-                        Span::raw("rrors  "),
-                        Span::styled("?", Style::default().fg(Color::Yellow)),
-                        Span::raw(" help"),
-                    ]
-                }
-            }
-            View::Queue | View::Projects | View::Libraries => vec![
-                Span::styled(" q", Style::default().fg(Color::Yellow)),
-                Span::raw(" quit  "),
-                Span::styled("j/k", Style::default().fg(Color::Yellow)),
-                Span::raw(" navigate  "),
-                Span::styled("Enter", Style::default().fg(Color::Yellow)),
-                Span::raw(" detail  "),
-                Span::styled("Esc", Style::default().fg(Color::Yellow)),
-                Span::raw(" close  "),
-                Span::styled("?", Style::default().fg(Color::Yellow)),
-                Span::raw(" help"),
-            ],
-            View::Logs => vec![
-                Span::styled(" q", Style::default().fg(Color::Yellow)),
-                Span::raw(" quit  "),
-                Span::styled("j/k", Style::default().fg(Color::Yellow)),
-                Span::raw(" scroll  "),
-                Span::styled("G", Style::default().fg(Color::Yellow)),
-                Span::raw(" bottom  "),
-                Span::styled("Tab", Style::default().fg(Color::Yellow)),
-                Span::raw(" switch  "),
-                Span::styled("?", Style::default().fg(Color::Yellow)),
-                Span::raw(" help"),
-            ],
-        };
-        let status =
-            Paragraph::new(Line::from(status_spans)).style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(status, area);
     }
 
     /// Draw the help overlay centered on screen.

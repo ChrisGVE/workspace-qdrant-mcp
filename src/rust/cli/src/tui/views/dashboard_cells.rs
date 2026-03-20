@@ -1,7 +1,7 @@
 //! Reusable scrollable cell widget for the dashboard grid.
 //!
-//! Each cell displays a title with optional letter shortcut, column headers,
-//! and scrollable data rows with auto-sized columns.
+//! Each cell displays a title (first letter colored as shortcut), column
+//! headers, and scrollable data rows with auto-sized columns.
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -13,19 +13,16 @@ use ratatui::Frame;
 // Column definition
 // ---------------------------------------------------------------------------
 
-/// Alignment for a column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Align {
     Left,
     Right,
 }
 
-/// Column descriptor for auto-sizing.
 #[derive(Debug, Clone)]
 pub struct ColDef {
     pub header: &'static str,
     pub align: Align,
-    /// If true, this column gets any remaining space.
     pub flex: bool,
 }
 
@@ -33,7 +30,6 @@ pub struct ColDef {
 // Cell data
 // ---------------------------------------------------------------------------
 
-/// A single cell value — either plain text or colored spans.
 #[derive(Debug, Clone)]
 pub enum CellValue {
     Plain(String),
@@ -49,14 +45,12 @@ impl CellValue {
     }
 }
 
-/// A row of cell values matching the column definitions.
 pub type CellRow = Vec<CellValue>;
 
 // ---------------------------------------------------------------------------
 // Queue format helper
 // ---------------------------------------------------------------------------
 
-/// Format queue counts as colored `x/y/z` cell value.
 pub fn queue_cell(pending: i64, in_progress: i64, failed: i64) -> CellValue {
     if pending == 0 && in_progress == 0 && failed == 0 {
         return CellValue::Plain("0/0/0".into());
@@ -74,19 +68,25 @@ pub fn queue_cell(pending: i64, in_progress: i64, failed: i64) -> CellValue {
 // Scrollable cell state
 // ---------------------------------------------------------------------------
 
-/// State for a scrollable cell in the dashboard grid.
+use std::cell::Cell;
+
 #[derive(Debug)]
 pub struct ScrollableCell {
     pub selected: usize,
-    pub scroll_offset: usize,
+    /// Scroll offset — updated during draw via interior mutability.
+    scroll_offset: Cell<usize>,
 }
 
 impl ScrollableCell {
     pub fn new() -> Self {
         Self {
             selected: 0,
-            scroll_offset: 0,
+            scroll_offset: Cell::new(0),
         }
+    }
+
+    pub fn scroll_offset(&self) -> usize {
+        self.scroll_offset.get()
     }
 
     pub fn select_next(&mut self, row_count: usize) {
@@ -98,32 +98,14 @@ impl ScrollableCell {
     pub fn select_prev(&mut self) {
         self.selected = self.selected.saturating_sub(1);
     }
-
-    /// Clamp selection and adjust scroll offset for the visible height.
-    pub fn clamp(&mut self, row_count: usize, visible_rows: usize) {
-        if row_count == 0 {
-            self.selected = 0;
-            self.scroll_offset = 0;
-            return;
-        }
-        self.selected = self.selected.min(row_count - 1);
-        // Ensure selected row is visible
-        if self.selected < self.scroll_offset {
-            self.scroll_offset = self.selected;
-        }
-        if visible_rows > 0 && self.selected >= self.scroll_offset + visible_rows {
-            self.scroll_offset = self.selected - visible_rows + 1;
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// Draw a cell with title, column headers, and auto-sized rows.
-///
-/// Returns the number of visible data rows (for clamp calculations).
+/// Draw a cell with title (first letter = shortcut color), column headers,
+/// and auto-sized scrollable rows.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_cell(
     frame: &mut Frame,
@@ -135,50 +117,28 @@ pub fn draw_cell(
     rows: &[CellRow],
     cell_state: &ScrollableCell,
     focused: bool,
-) -> usize {
+) {
     if area.height < 2 || area.width < 4 {
-        return 0;
+        return;
     }
 
-    // --- Title line ---
-    let title_style = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD);
-    let mut title_spans = vec![Span::styled(format!(" {}", title), title_style)];
-
-    if let Some(c) = count {
-        title_spans.push(Span::styled(
-            format!(" ({})", c),
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-
-    if let Some(ch) = shortcut {
-        if !rows.is_empty() {
-            let letter_style = if focused {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
-            title_spans.push(Span::styled(format!(" [{}]", ch), letter_style));
-        }
-    }
-
-    let title_line = Line::from(title_spans);
+    // --- Title line: first letter colored, rest bold white ---
+    let title_spans = build_title_spans(title, count, shortcut, focused, !rows.is_empty());
     frame.render_widget(
-        Paragraph::new(title_line),
+        Paragraph::new(Line::from(title_spans)),
         Rect::new(area.x, area.y, area.width, 1),
     );
 
-    // Separator
-    let sep = "─".repeat(area.width as usize);
+    if area.height < 3 {
+        return;
+    }
+
+    // --- Column headers ---
+    let usable_width = area.width.saturating_sub(2) as usize;
+    let col_widths = compute_col_widths(cols, rows, usable_width);
+    let header_line = render_header(cols, &col_widths);
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            sep,
-            Style::default().fg(Color::DarkGray),
-        ))),
+        Paragraph::new(header_line),
         Rect::new(area.x, area.y + 1, area.width, 1),
     );
 
@@ -193,41 +153,119 @@ pub fn draw_cell(
             ))),
             Rect::new(area.x, data_y, area.width, 1),
         );
-        return 0;
+        return;
     }
 
-    // --- Compute column widths ---
-    let usable_width = area.width.saturating_sub(2) as usize; // 1 char padding each side
-    let col_widths = compute_col_widths(cols, rows, usable_width);
+    // --- Clamp scroll state so selection stays visible ---
+    clamp_scroll(cell_state, rows.len(), data_height);
 
     // --- Render visible rows ---
-    let visible_rows = data_height;
-    let offset = cell_state.scroll_offset;
-
-    for (i, row) in rows.iter().enumerate().skip(offset).take(visible_rows) {
+    let offset = cell_state.scroll_offset();
+    for (i, row) in rows.iter().enumerate().skip(offset).take(data_height) {
         let y = data_y + (i - offset) as u16;
         if y >= area.y + area.height {
             break;
         }
-
         let is_selected = focused && i == cell_state.selected;
         let row_line = render_row(cols, row, &col_widths, is_selected);
-
         frame.render_widget(
             Paragraph::new(row_line),
             Rect::new(area.x, y, area.width, 1),
         );
     }
-
-    visible_rows
 }
 
-/// Compute column widths based on content, honoring flex columns.
+/// Build title spans: first letter gets shortcut color, rest is bold white.
+fn build_title_spans(
+    title: &str,
+    count: Option<usize>,
+    shortcut: Option<char>,
+    focused: bool,
+    has_data: bool,
+) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let first_char = title.chars().next().unwrap_or(' ');
+    let rest: String = title.chars().skip(1).collect();
+
+    // Determine if we should color the first letter
+    let show_shortcut = shortcut.is_some() && has_data;
+
+    let first_style = if show_shortcut {
+        if focused {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        }
+    } else {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    };
+
+    let rest_style = Style::default()
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD);
+
+    spans.push(Span::styled(format!(" {}", first_char), first_style));
+    spans.push(Span::styled(rest, rest_style));
+
+    if let Some(c) = count {
+        spans.push(Span::styled(
+            format!(" ({})", c),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    spans
+}
+
+/// Render column headers as a dim line.
+fn render_header(cols: &[ColDef], widths: &[usize]) -> Line<'static> {
+    let style = Style::default().fg(Color::DarkGray);
+    let mut spans = vec![Span::styled(" ", style)];
+
+    for (j, col) in cols.iter().enumerate() {
+        let w = widths.get(j).copied().unwrap_or(0);
+        let formatted = align_str(col.header, w, col.align);
+        spans.push(Span::styled(formatted, style));
+        if j < cols.len() - 1 {
+            spans.push(Span::styled(" ", style));
+        }
+    }
+
+    Line::from(spans)
+}
+
+/// Clamp scroll offset so the selected row is always visible.
+/// Uses interior mutability (Cell) so it works with `&self` draw methods.
+fn clamp_scroll(cell: &ScrollableCell, row_count: usize, visible: usize) {
+    if row_count == 0 {
+        cell.scroll_offset.set(0);
+        return;
+    }
+    let selected = cell.selected.min(row_count - 1);
+    let mut offset = cell.scroll_offset();
+    if selected < offset {
+        offset = selected;
+    }
+    if visible > 0 && selected >= offset + visible {
+        offset = selected - visible + 1;
+    }
+    cell.scroll_offset.set(offset);
+}
+
+// ---------------------------------------------------------------------------
+// Column width computation
+// ---------------------------------------------------------------------------
+
 fn compute_col_widths(cols: &[ColDef], rows: &[CellRow], usable_width: usize) -> Vec<usize> {
     let n = cols.len();
     let mut widths: Vec<usize> = cols.iter().map(|c| c.header.len()).collect();
 
-    // Measure max data width per column
     for row in rows {
         for (j, cell) in row.iter().enumerate() {
             if j < n {
@@ -236,12 +274,10 @@ fn compute_col_widths(cols: &[ColDef], rows: &[CellRow], usable_width: usize) ->
         }
     }
 
-    // Add 1 char gap between columns
     let gaps = if n > 1 { n - 1 } else { 0 };
     let total_fixed: usize = widths.iter().sum::<usize>() + gaps;
 
     if total_fixed <= usable_width {
-        // Distribute remaining space to flex columns
         let remaining = usable_width - total_fixed;
         let flex_cols: Vec<usize> = cols
             .iter()
@@ -256,7 +292,6 @@ fn compute_col_widths(cols: &[ColDef], rows: &[CellRow], usable_width: usize) ->
             }
         }
     } else {
-        // Shrink: give flex column(s) minimum, then truncate
         shrink_columns(&mut widths, cols, usable_width, gaps);
     }
 
@@ -264,7 +299,6 @@ fn compute_col_widths(cols: &[ColDef], rows: &[CellRow], usable_width: usize) ->
 }
 
 fn shrink_columns(widths: &mut [usize], cols: &[ColDef], usable: usize, gaps: usize) {
-    // Reduce flex columns first
     let fixed_total: usize = cols
         .iter()
         .enumerate()
@@ -284,12 +318,15 @@ fn shrink_columns(widths: &mut [usize], cols: &[ColDef], usable: usize, gaps: us
     if !flex_indices.is_empty() {
         let per_flex = available_for_flex / flex_indices.len();
         for &i in &flex_indices {
-            widths[i] = per_flex.max(4); // minimum 4 chars
+            widths[i] = per_flex.max(4);
         }
     }
 }
 
-/// Render a single row as a Line with proper alignment and coloring.
+// ---------------------------------------------------------------------------
+// Row rendering
+// ---------------------------------------------------------------------------
+
 fn render_row(cols: &[ColDef], row: &CellRow, widths: &[usize], selected: bool) -> Line<'static> {
     let bg = if selected {
         Style::default()
@@ -299,7 +336,7 @@ fn render_row(cols: &[ColDef], row: &CellRow, widths: &[usize], selected: bool) 
         Style::default()
     };
 
-    let mut spans = vec![Span::styled(" ", bg)]; // left padding
+    let mut spans = vec![Span::styled(" ", bg)];
 
     for (j, col) in cols.iter().enumerate() {
         let w = widths.get(j).copied().unwrap_or(0);
@@ -312,7 +349,6 @@ fn render_row(cols: &[ColDef], row: &CellRow, widths: &[usize], selected: bool) 
                 vec![Span::styled(formatted, bg)]
             }
             Some(CellValue::Colored(parts)) => {
-                // For colored cells, render parts with their colors
                 let total_width: usize = parts.iter().map(|(s, _)| s.chars().count()).sum();
                 if col.align == Align::Right && total_width < w {
                     let padding = w - total_width;
@@ -332,8 +368,6 @@ fn render_row(cols: &[ColDef], row: &CellRow, widths: &[usize], selected: bool) 
         };
 
         spans.extend(cell_spans);
-
-        // Gap between columns
         if j < cols.len() - 1 {
             spans.push(Span::styled(" ", bg));
         }
@@ -357,7 +391,7 @@ fn truncate_to(s: &str, max: usize) -> String {
 fn align_str(s: &str, width: usize, align: Align) -> String {
     let len = s.chars().count();
     if len >= width {
-        return s.to_string();
+        return truncate_to(s, width);
     }
     match align {
         Align::Left => format!("{}{}", s, " ".repeat(width - len)),
@@ -379,7 +413,7 @@ mod tests {
     fn queue_cell_nonzero() {
         let c = queue_cell(3, 1, 2);
         assert!(matches!(c, CellValue::Colored(_)));
-        assert_eq!(c.display_width(), 5); // "3/1/2"
+        assert_eq!(c.display_width(), 5);
     }
 
     #[test]
@@ -409,29 +443,25 @@ mod tests {
         assert_eq!(cell.selected, 1);
         cell.select_prev();
         assert_eq!(cell.selected, 0);
-        cell.select_prev(); // should stay at 0
+        cell.select_prev();
         assert_eq!(cell.selected, 0);
     }
 
     #[test]
-    fn scrollable_cell_clamp() {
+    fn clamp_scroll_adjusts_offset() {
         let mut cell = ScrollableCell::new();
         cell.selected = 20;
-        cell.clamp(10, 5);
-        assert_eq!(cell.selected, 9);
-        assert!(cell.scroll_offset <= 5);
+        clamp_scroll(&cell, 10, 5);
+        // clamp_scroll sees selected=20, clamps to min(20,9)=9, offset = 9-5+1=5
+        assert_eq!(cell.scroll_offset(), 5);
     }
 
     #[test]
-    fn cell_value_display_width() {
-        let plain = CellValue::Plain("hello".into());
-        assert_eq!(plain.display_width(), 5);
-
-        let colored = CellValue::Colored(vec![
-            ("3".into(), Color::Yellow),
-            ("/".into(), Color::DarkGray),
-            ("1".into(), Color::Blue),
-        ]);
-        assert_eq!(colored.display_width(), 3);
+    fn clamp_scroll_scrolls_up() {
+        let cell = ScrollableCell::new();
+        // selected = 0, offset = 0 by default; set offset high
+        cell.scroll_offset.set(5);
+        clamp_scroll(&cell, 10, 5);
+        assert_eq!(cell.scroll_offset(), 0); // scrolled up to show selected=0
     }
 }

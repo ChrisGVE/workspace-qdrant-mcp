@@ -176,28 +176,36 @@ impl Dashboard {
     // ------------------------------------------------------------------
 
     pub fn draw(&self, frame: &mut Frame, area: Rect) {
-        // 4 rows: top fixed (3 lines), then 3 flexible rows
+        // 4 rows: top fixed (2 lines), separator, then 3 flexible rows with separators
         let rows = Layout::vertical([
-            Constraint::Length(3),
+            Constraint::Length(2), // row 1: services + queue
+            Constraint::Length(1), // separator
             Constraint::Ratio(1, 3),
+            Constraint::Length(1), // separator
             Constraint::Ratio(1, 3),
+            Constraint::Length(1), // separator
             Constraint::Ratio(1, 3),
         ])
         .split(area);
 
-        // Each row splits into 2 columns
+        // Each content row splits into 2 columns
         let top = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(rows[0]);
         let row2 = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[1]);
-        let row3 = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(rows[2]);
+        let row3 = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[4]);
         let row4 = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[3]);
+            .split(rows[6]);
 
         // Row 1: fixed status panels
         self.draw_services(frame, top[0]);
         self.draw_queue_status(frame, top[1]);
+
+        // Separators between rows
+        draw_separator(frame, rows[1]);
+        draw_separator(frame, rows[3]);
+        draw_separator(frame, rows[5]);
 
         // Row 2: Projects + Libraries
         self.draw_projects_cell(frame, row2[0]);
@@ -322,6 +330,18 @@ impl Dashboard {
     fn draw_errors_cell(&self, frame: &mut Frame, area: Rect) {
         dashboard_grid::draw_errors(frame, area, &self.data, &self.cell_errors, self.focused);
     }
+}
+
+/// Draw a horizontal separator line.
+fn draw_separator(frame: &mut Frame, area: Rect) {
+    let sep = "─".repeat(area.width as usize);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            sep,
+            Style::default().fg(Color::DarkGray),
+        ))),
+        area,
+    );
 }
 
 // ---------------------------------------------------------------------------
