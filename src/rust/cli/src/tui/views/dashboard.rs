@@ -13,13 +13,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use super::dashboard_cells::{
-    draw_cell, queue_cell, Align, CellRow, CellValue, ColDef, ScrollableCell,
-};
+use super::dashboard_cells::ScrollableCell;
 use super::dashboard_data::{
     fetch_dashboard_data, merge_async_data, spawn_async_fetcher, AsyncDashboardData, DashboardData,
     ServiceHealth,
 };
+use super::dashboard_grid;
 
 const REFRESH_INTERVAL_MS: u128 = 1000;
 
@@ -285,340 +284,45 @@ impl Dashboard {
     }
 
     // ------------------------------------------------------------------
-    // Row 2: Projects (1,2)
+    // Rows 2-4: delegate to dashboard_grid module
     // ------------------------------------------------------------------
 
     fn draw_projects_cell(&self, frame: &mut Frame, area: Rect) {
-        let cols = &PROJECTS_COLS;
-        let rows: Vec<CellRow> = self
-            .data
-            .projects
-            .iter()
-            .map(|p| {
-                vec![
-                    CellValue::Plain(p.name.clone()),
-                    CellValue::Plain(p.workspace_count.to_string()),
-                    CellValue::Plain(p.branch_count.to_string()),
-                    CellValue::Plain(p.qdrant_points.to_string()),
-                    CellValue::Plain(p.tracked_files.to_string()),
-                    queue_cell(p.queue_pending, p.queue_in_progress, p.queue_failed),
-                ]
-            })
-            .collect();
-
-        draw_cell(
-            frame,
-            area,
-            "Projects",
-            Some(self.data.projects.len()),
-            Some('P'),
-            cols,
-            &rows,
-            &self.cell_projects,
-            self.focused == FocusedCell::Projects,
-        );
+        dashboard_grid::draw_projects(frame, area, &self.data, &self.cell_projects, self.focused);
     }
-
-    // ------------------------------------------------------------------
-    // Row 2: Libraries (2,2)
-    // ------------------------------------------------------------------
 
     fn draw_libraries_cell(&self, frame: &mut Frame, area: Rect) {
-        let cols = &LIBRARIES_COLS;
-        let rows: Vec<CellRow> = self
-            .data
-            .libraries
-            .iter()
-            .map(|l| {
-                vec![
-                    CellValue::Plain(l.name.clone()),
-                    CellValue::Plain(l.qdrant_points.to_string()),
-                    CellValue::Plain(l.tracked_files.to_string()),
-                    queue_cell(l.queue_pending, l.queue_in_progress, l.queue_failed),
-                    CellValue::Plain(l.sync_mode.clone()),
-                ]
-            })
-            .collect();
-
-        draw_cell(
-            frame,
-            area,
-            "Libraries",
-            Some(self.data.libraries.len()),
-            Some('L'),
-            cols,
-            &rows,
-            &self.cell_libraries,
-            self.focused == FocusedCell::Libraries,
-        );
+        dashboard_grid::draw_libraries(frame, area, &self.data, &self.cell_libraries, self.focused);
     }
-
-    // ------------------------------------------------------------------
-    // Row 3: Scratchpad (1,3)
-    // ------------------------------------------------------------------
 
     fn draw_scratchpad_cell(&self, frame: &mut Frame, area: Rect) {
-        let cols = &SCRATCHPAD_COLS;
-        let rows: Vec<CellRow> = self
-            .data
-            .scratchpad
-            .iter()
-            .map(|s| {
-                vec![
-                    CellValue::Plain(s.name.clone()),
-                    CellValue::Plain(s.note_count.to_string()),
-                    queue_cell(s.queue_pending, s.queue_in_progress, s.queue_failed),
-                ]
-            })
-            .collect();
-
-        draw_cell(
+        dashboard_grid::draw_scratchpad(
             frame,
             area,
-            "Scratchpad",
-            Some(self.data.scratchpad.len()),
-            Some('S'),
-            cols,
-            &rows,
+            &self.data,
             &self.cell_scratchpad,
-            self.focused == FocusedCell::Scratchpad,
+            self.focused,
         );
     }
-
-    // ------------------------------------------------------------------
-    // Row 3: Rules (2,3)
-    // ------------------------------------------------------------------
 
     fn draw_rules_cell(&self, frame: &mut Frame, area: Rect) {
-        let cols = &RULES_COLS;
-        let rows: Vec<CellRow> = self
-            .data
-            .rules
-            .iter()
-            .map(|r| {
-                vec![
-                    CellValue::Plain(r.name.clone()),
-                    CellValue::Plain(r.rule_count.to_string()),
-                    queue_cell(r.queue_pending, r.queue_in_progress, r.queue_failed),
-                ]
-            })
-            .collect();
-
-        draw_cell(
-            frame,
-            area,
-            "Rules",
-            Some(self.data.rules.len()),
-            Some('R'),
-            cols,
-            &rows,
-            &self.cell_rules,
-            self.focused == FocusedCell::Rules,
-        );
+        dashboard_grid::draw_rules(frame, area, &self.data, &self.cell_rules, self.focused);
     }
-
-    // ------------------------------------------------------------------
-    // Row 4: Active Projects (1,4)
-    // ------------------------------------------------------------------
 
     fn draw_active_cell(&self, frame: &mut Frame, area: Rect) {
-        let cols = &ACTIVE_COLS;
-        let rows: Vec<CellRow> = self
-            .data
-            .active_projects
-            .iter()
-            .map(|a| {
-                vec![
-                    CellValue::Plain(a.name.clone()),
-                    CellValue::Plain(a.workspace.clone()),
-                    CellValue::Plain(a.tracked_files.to_string()),
-                    queue_cell(a.queue_pending, a.queue_in_progress, a.queue_failed),
-                ]
-            })
-            .collect();
-
-        draw_cell(
+        dashboard_grid::draw_active_projects(
             frame,
             area,
-            "Active Projects",
-            Some(self.data.active_projects.len()),
-            Some('A'),
-            cols,
-            &rows,
+            &self.data,
             &self.cell_active,
-            self.focused == FocusedCell::ActiveProjects,
+            self.focused,
         );
     }
-
-    // ------------------------------------------------------------------
-    // Row 4: Last Errors (2,4)
-    // ------------------------------------------------------------------
 
     fn draw_errors_cell(&self, frame: &mut Frame, area: Rect) {
-        let cols = &ERROR_COLS;
-        let rows: Vec<CellRow> = self
-            .data
-            .errors
-            .iter()
-            .map(|e| {
-                let tenant_label = format!("[{}] {}", e.collection_letter, e.tenant_name);
-                vec![
-                    CellValue::Plain(tenant_label),
-                    CellValue::Plain(e.error_message.clone()),
-                ]
-            })
-            .collect();
-
-        draw_cell(
-            frame,
-            area,
-            "Last Errors",
-            None, // no count per spec
-            Some('E'),
-            cols,
-            &rows,
-            &self.cell_errors,
-            self.focused == FocusedCell::Errors,
-        );
+        dashboard_grid::draw_errors(frame, area, &self.data, &self.cell_errors, self.focused);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Column definitions
-// ---------------------------------------------------------------------------
-
-const PROJECTS_COLS: [ColDef; 6] = [
-    ColDef {
-        header: "Name",
-        align: Align::Left,
-        flex: true,
-    },
-    ColDef {
-        header: "Wrk",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Bch",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Pts",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Files",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Queue",
-        align: Align::Right,
-        flex: false,
-    },
-];
-
-const LIBRARIES_COLS: [ColDef; 5] = [
-    ColDef {
-        header: "Name",
-        align: Align::Left,
-        flex: true,
-    },
-    ColDef {
-        header: "Pts",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Files",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Queue",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Sync",
-        align: Align::Left,
-        flex: false,
-    },
-];
-
-const SCRATCHPAD_COLS: [ColDef; 3] = [
-    ColDef {
-        header: "Scope",
-        align: Align::Left,
-        flex: true,
-    },
-    ColDef {
-        header: "Notes",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Queue",
-        align: Align::Right,
-        flex: false,
-    },
-];
-
-const RULES_COLS: [ColDef; 3] = [
-    ColDef {
-        header: "Scope",
-        align: Align::Left,
-        flex: true,
-    },
-    ColDef {
-        header: "Rules",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Queue",
-        align: Align::Right,
-        flex: false,
-    },
-];
-
-const ACTIVE_COLS: [ColDef; 4] = [
-    ColDef {
-        header: "Name",
-        align: Align::Left,
-        flex: false,
-    },
-    ColDef {
-        header: "Workspace",
-        align: Align::Left,
-        flex: true,
-    },
-    ColDef {
-        header: "Files",
-        align: Align::Right,
-        flex: false,
-    },
-    ColDef {
-        header: "Queue",
-        align: Align::Right,
-        flex: false,
-    },
-];
-
-const ERROR_COLS: [ColDef; 2] = [
-    ColDef {
-        header: "Collection",
-        align: Align::Left,
-        flex: false,
-    },
-    ColDef {
-        header: "Error",
-        align: Align::Left,
-        flex: true,
-    },
-];
 
 // ---------------------------------------------------------------------------
 // Health display helpers
