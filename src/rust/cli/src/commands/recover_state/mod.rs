@@ -5,6 +5,12 @@
 //! - tracked_files: one row per unique (tenant_id, file_path, branch)
 //! - qdrant_chunks: one row per Qdrant point (for file-type points)
 //! - rules_mirror: reconstructed from rules collection points
+//!
+//! **Design note:** This command intentionally writes directly to SQLite
+//! (not via gRPC). It is the sole exception to the daemon-exclusive write
+//! rule because the daemon is expected to be stopped during recovery. If
+//! the daemon is running, this command refuses to execute to prevent
+//! split-brain writes.
 
 mod reconstruction;
 mod schema;
@@ -89,6 +95,15 @@ async fn reconstruct_all_collections(
 pub async fn execute(confirm: bool) -> Result<()> {
     output::section("State Recovery from Qdrant");
 
+    // Safety: refuse to run if daemon is active — concurrent writes would corrupt state
+    if is_daemon_running().await {
+        output::error(
+            "Daemon is currently running. Stop it before recovering state.\n\
+             Hint: wqm service stop  (or: launchctl unload ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist)",
+        );
+        anyhow::bail!("Cannot recover state while daemon is running");
+    }
+
     if !confirm {
         output::info("This will rebuild state.db from Qdrant point payloads.");
         output::info("Existing state.db will be backed up to state.db.bak.");
@@ -138,4 +153,10 @@ pub async fn execute(confirm: bool) -> Result<()> {
     output::info("Verify with: wqm admin health");
 
     Ok(())
+}
+
+/// Check if the daemon is currently running by attempting a gRPC health check.
+async fn is_daemon_running() -> bool {
+    use crate::grpc::DaemonClient;
+    DaemonClient::connect_default().await.is_ok()
 }

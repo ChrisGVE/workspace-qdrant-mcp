@@ -3,6 +3,10 @@
 //! Creates the SQLite tables and indexes needed to reconstruct state.db
 //! from Qdrant collection data. The daemon handles any remaining migrations
 //! on its next startup.
+//!
+//! **Intentional direct write**: This module writes directly to SQLite
+//! (not via gRPC) because the daemon is expected to be stopped during
+//! recovery. The caller (`execute`) enforces this via `is_daemon_running()`.
 
 use std::path::Path;
 
