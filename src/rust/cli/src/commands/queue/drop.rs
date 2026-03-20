@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::grpc::ensure_daemon_available;
-use crate::grpc::proto::{CleanQueueRequest, RemoveItemRequest};
+use crate::grpc::proto::RemoveItemRequest;
 use crate::output;
 
 use super::db::connect_readonly;
@@ -28,16 +28,18 @@ pub async fn execute(
 }
 
 async fn drop_all_permanent(yes: bool) -> Result<()> {
-    // Read count via direct SQLite (read-only)
+    // Read permanent failure IDs via direct SQLite (read-only)
     let conn = connect_readonly()?;
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM unified_queue WHERE status = 'failed' \
+    let mut stmt = conn.prepare(
+        "SELECT queue_id FROM unified_queue WHERE status = 'failed' \
          AND (error_message LIKE '[permanent_%' OR error_message LIKE '[permanent_exhausted]%')",
-        [],
-        |row| row.get(0),
     )?;
+    let ids: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
 
-    if count == 0 {
+    if ids.is_empty() {
         output::success("No permanently failed items to drop");
         return Ok(());
     }
@@ -45,25 +47,28 @@ async fn drop_all_permanent(yes: bool) -> Result<()> {
     if !yes {
         output::warning(format!(
             "This will remove {} permanently failed item(s). Use -y to confirm.",
-            count
+            ids.len()
         ));
         return Ok(());
     }
 
-    // Use CleanQueue with 0 days (clean all failed items matching the pattern)
-    // Note: CleanQueue cleans by age, not by error pattern. For permanent failures,
-    // we use the general "clean failed with 0 days" approach.
+    // Delete each permanent item individually via gRPC
     let mut client = ensure_daemon_available().await?;
-    let response = client
-        .queue_write()
-        .clean_queue(CleanQueueRequest {
-            older_than_days: 0,
-            statuses: vec!["failed".to_string()],
-        })
-        .await?
-        .into_inner();
+    let mut deleted = 0u32;
+    for id in &ids {
+        let response = client
+            .queue_write()
+            .remove_item(RemoveItemRequest {
+                queue_id: id.clone(),
+            })
+            .await?
+            .into_inner();
+        if response.found {
+            deleted += 1;
+        }
+    }
 
-    output::success(format!("Dropped {} failed item(s)", response.deleted_count));
+    output::success(format!("Dropped {} permanently failed item(s)", deleted));
     Ok(())
 }
 
