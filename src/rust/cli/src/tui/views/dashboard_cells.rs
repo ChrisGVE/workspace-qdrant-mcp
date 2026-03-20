@@ -175,7 +175,8 @@ pub fn draw_cell(
     }
 }
 
-/// Build title spans: first letter gets shortcut color, rest is bold white.
+/// Build title spans with shortcut letter highlighted in yellow.
+/// When focused, the entire title turns yellow.
 fn build_title_spans(
     title: &str,
     count: Option<usize>,
@@ -184,39 +185,52 @@ fn build_title_spans(
     has_data: bool,
 ) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
-    let first_char = title.chars().next().unwrap_or(' ');
-    let rest: String = title.chars().skip(1).collect();
-
-    // Determine if we should color the first letter
     let show_shortcut = shortcut.is_some() && has_data;
 
-    let first_style = if show_shortcut {
-        if focused {
+    if focused {
+        // Focused: entire title in yellow bold
+        spans.push(Span::styled(
+            format!(" {}", title),
             Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    } else if show_shortcut {
+        // Unfocused with shortcut: highlight the shortcut char in yellow
+        let ch = shortcut.unwrap();
+        if let Some(pos) = title.find(ch) {
+            let before = &title[..pos];
+            let after = &title[pos + ch.len_utf8()..];
+            let normal = Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD);
+            let highlight = Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD);
+            spans.push(Span::styled(format!(" {}", before), normal));
+            spans.push(Span::styled(ch.to_string(), highlight));
+            spans.push(Span::styled(after.to_string(), normal));
         } else {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
+            spans.push(Span::styled(
+                format!(" {}", title),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ));
         }
     } else {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
-    };
-
-    let rest_style = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD);
-
-    spans.push(Span::styled(format!(" {}", first_char), first_style));
-    spans.push(Span::styled(rest, rest_style));
+        spans.push(Span::styled(
+            format!(" {}", title),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
 
     if let Some(c) = count {
         spans.push(Span::styled(
             format!(" ({})", c),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::Gray),
         ));
     }
 
@@ -225,7 +239,7 @@ fn build_title_spans(
 
 /// Render column headers as a dim line.
 fn render_header(cols: &[ColDef], widths: &[usize]) -> Line<'static> {
-    let style = Style::default().fg(Color::DarkGray);
+    let style = Style::default().fg(Color::Gray);
     let mut spans = vec![Span::styled(" ", style)];
 
     for (j, col) in cols.iter().enumerate() {

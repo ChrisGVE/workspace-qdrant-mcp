@@ -486,17 +486,29 @@ impl App {
         )];
 
         for (i, v) in View::ALL.iter().enumerate() {
-            let style = if *v == self.current_view {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
             if i > 0 {
-                spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(" | ", Style::default().fg(Color::Gray)));
             }
-            spans.push(Span::styled(format!("{} {}", i + 1, v.label()), style));
+            // Number always yellow
+            spans.push(Span::styled(
+                format!("{} ", i + 1),
+                Style::default().fg(Color::Yellow),
+            ));
+            // Label: inverted if active, gray if inactive
+            if *v == self.current_view {
+                spans.push(Span::styled(
+                    v.label().to_string(),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    v.label().to_string(),
+                    Style::default().fg(Color::Gray),
+                ));
+            }
         }
 
         frame.render_widget(Paragraph::new(Line::from(spans)), area);

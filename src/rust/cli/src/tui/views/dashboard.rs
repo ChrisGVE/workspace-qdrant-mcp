@@ -180,11 +180,11 @@ impl Dashboard {
         let rows = Layout::vertical([
             Constraint::Length(2), // row 1: services + queue
             Constraint::Length(1), // separator
-            Constraint::Ratio(1, 3),
+            Constraint::Fill(1),   // row 2
             Constraint::Length(1), // separator
-            Constraint::Ratio(1, 3),
+            Constraint::Fill(1),   // row 3
             Constraint::Length(1), // separator
-            Constraint::Ratio(1, 3),
+            Constraint::Fill(1),   // row 4
         ])
         .split(area);
 
