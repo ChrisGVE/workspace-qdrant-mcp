@@ -19,6 +19,7 @@ mod collections;
 pub mod config;
 pub(crate) mod convert;
 mod points;
+pub mod qdrant_circuit_breaker;
 mod scroll;
 mod search;
 pub mod types;
@@ -29,6 +30,8 @@ pub mod types;
 pub use client::StorageClient;
 
 pub use config::{Http2Config, MultiTenantConfig, StorageConfig, TransportMode};
+
+pub use qdrant_circuit_breaker::QdrantCircuitBreaker;
 
 pub use types::{
     BatchStats, CollectionInfoResult, DocumentPoint, HybridSearchMode, HybridSearchParams,

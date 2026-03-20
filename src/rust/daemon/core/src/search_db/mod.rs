@@ -70,6 +70,12 @@ impl SearchDbManager {
             .connect_with(connect_options)
             .await?;
 
+        // Set busy_timeout to match state.db (30 seconds) — prevents immediate
+        // SQLITE_BUSY errors when FTS5 batch writes hold the write lock.
+        sqlx::query("PRAGMA busy_timeout = 30000")
+            .execute(&pool)
+            .await?;
+
         // Verify WAL mode is active
         let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
             .fetch_one(&pool)
@@ -80,7 +86,7 @@ impl SearchDbManager {
                 journal_mode
             );
         } else {
-            debug!("WAL mode confirmed for search.db");
+            debug!("WAL mode confirmed for search.db (busy_timeout=30000ms)");
         }
 
         let manager = Self { pool, path };

@@ -5,15 +5,18 @@ use anyhow::Result;
 use crate::grpc::ensure_daemon_available;
 use crate::output;
 
-pub async fn execute(queue_id: Option<String>, all: bool) -> Result<()> {
-    if !all && queue_id.is_none() {
-        anyhow::bail!("Specify a queue_id or use --all to retry all failed items");
+pub async fn execute(queue_id: Option<String>, all: bool, all_transient: bool) -> Result<()> {
+    if !all && !all_transient && queue_id.is_none() {
+        anyhow::bail!("Specify a queue_id, --all, or --all-transient to retry failed items");
     }
 
     let mut client = ensure_daemon_available().await?;
 
     if all {
         retry_all(&mut client).await
+    } else if all_transient {
+        // TODO: add RetryAllTransient gRPC method to QueueWriteService
+        anyhow::bail!("--all-transient is not yet supported via the daemon write path")
     } else {
         retry_one(&mut client, &queue_id.unwrap()).await
     }
