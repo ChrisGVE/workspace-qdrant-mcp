@@ -1,83 +1,73 @@
-//! Dashboard view showing system status, queue summary, active projects,
-//! and recent errors.
+//! Dashboard view — 2x4 interactive grid with live data.
 //!
-//! Data is fetched from the local SQLite state database (read-only) and
-//! refreshes on each tick event (~250ms) with a minimum 1-second interval.
+//! Row 1 (fixed 3 lines): Services health + Queue status
+//! Rows 2-4 (scrollable): Projects, Libraries, Scratchpad, Rules,
+//!                         Active Projects, Last Errors
 
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::commands::queue::db::connect_readonly;
+use super::dashboard_cells::{
+    draw_cell, queue_cell, Align, CellRow, CellValue, ColDef, ScrollableCell,
+};
+use super::dashboard_data::{
+    fetch_dashboard_data, merge_async_data, spawn_async_fetcher, AsyncDashboardData, DashboardData,
+    ServiceHealth,
+};
 
-/// Minimum interval between data refreshes to avoid excessive SQLite reads.
 const REFRESH_INTERVAL_MS: u128 = 1000;
 
-/// Maximum number of recent errors to display.
-const MAX_RECENT_ERRORS: usize = 5;
-
-/// Maximum number of active projects to display in the panel.
-const MAX_DISPLAYED_PROJECTS: usize = 8;
-
-/// Snapshot of dashboard data fetched from SQLite.
-#[derive(Debug, Clone)]
-pub struct DashboardData {
-    /// Whether the SQLite database was reachable.
-    pub db_connected: bool,
-    /// Queue totals by status.
-    pub queue_pending: i64,
-    pub queue_in_progress: i64,
-    pub queue_done: i64,
-    pub queue_failed: i64,
-    /// Active projects: (tenant_id, path).
-    pub active_projects: Vec<(String, String)>,
-    /// Recent error messages from the unified queue.
-    pub recent_errors: Vec<String>,
-}
-
-impl Default for DashboardData {
-    fn default() -> Self {
-        Self {
-            db_connected: false,
-            queue_pending: 0,
-            queue_in_progress: 0,
-            queue_done: 0,
-            queue_failed: 0,
-            active_projects: Vec::new(),
-            recent_errors: Vec::new(),
-        }
-    }
-}
-
-impl DashboardData {
-    /// Total items across all queue statuses.
-    pub fn queue_total(&self) -> i64 {
-        self.queue_pending + self.queue_in_progress + self.queue_done + self.queue_failed
-    }
+/// Which cell is currently focused (rows 2-4 only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusedCell {
+    None,
+    Projects,
+    Libraries,
+    Scratchpad,
+    Rules,
+    ActiveProjects,
+    Errors,
 }
 
 /// Dashboard view state.
 pub struct Dashboard {
-    /// Current snapshot of data.
     data: DashboardData,
-    /// When the data was last refreshed.
+    async_shared: Arc<Mutex<AsyncDashboardData>>,
+    async_snapshot: AsyncDashboardData,
     last_refresh: Option<Instant>,
+    pub focused: FocusedCell,
+    // Scroll state per cell
+    pub cell_projects: ScrollableCell,
+    pub cell_libraries: ScrollableCell,
+    pub cell_scratchpad: ScrollableCell,
+    pub cell_rules: ScrollableCell,
+    pub cell_active: ScrollableCell,
+    pub cell_errors: ScrollableCell,
 }
 
 impl Dashboard {
-    /// Create a new, empty dashboard. Data is loaded on the first tick.
     pub fn new() -> Self {
         Self {
             data: DashboardData::default(),
+            async_shared: spawn_async_fetcher(),
+            async_snapshot: AsyncDashboardData::default(),
             last_refresh: None,
+            focused: FocusedCell::None,
+            cell_projects: ScrollableCell::new(),
+            cell_libraries: ScrollableCell::new(),
+            cell_scratchpad: ScrollableCell::new(),
+            cell_rules: ScrollableCell::new(),
+            cell_active: ScrollableCell::new(),
+            cell_errors: ScrollableCell::new(),
         }
     }
 
-    /// Refresh data from SQLite if enough time has elapsed.
     pub fn on_tick(&mut self) {
         let should_refresh = self
             .last_refresh
@@ -85,296 +75,582 @@ impl Dashboard {
 
         if should_refresh {
             self.data = fetch_dashboard_data();
+
+            // Read async data (non-blocking)
+            if let Ok(guard) = self.async_shared.try_lock() {
+                self.async_snapshot = guard.clone();
+            }
+            merge_async_data(&mut self.data, &self.async_snapshot);
+
             self.last_refresh = Some(Instant::now());
         }
     }
 
-    /// Render the dashboard into the given area.
-    pub fn draw(&self, frame: &mut Frame, area: Rect) {
-        let rows = Layout::vertical([Constraint::Length(7), Constraint::Min(5)]).split(area);
-
-        let top_cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[0]);
-
-        let bottom_cols =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(rows[1]);
-
-        self.draw_status_panel(frame, top_cols[0]);
-        self.draw_queue_panel(frame, top_cols[1]);
-        self.draw_projects_panel(frame, bottom_cols[0]);
-        self.draw_errors_panel(frame, bottom_cols[1]);
+    /// Navigate down in the focused cell.
+    pub fn select_next(&mut self) {
+        let count = self.focused_row_count();
+        match self.focused {
+            FocusedCell::Projects => self.cell_projects.select_next(count),
+            FocusedCell::Libraries => self.cell_libraries.select_next(count),
+            FocusedCell::Scratchpad => self.cell_scratchpad.select_next(count),
+            FocusedCell::Rules => self.cell_rules.select_next(count),
+            FocusedCell::ActiveProjects => self.cell_active.select_next(count),
+            FocusedCell::Errors => self.cell_errors.select_next(count),
+            FocusedCell::None => {}
+        }
     }
 
-    fn draw_status_panel(&self, frame: &mut Frame, area: Rect) {
-        let (status_text, status_color) = if self.data.db_connected {
-            ("connected", Color::Green)
-        } else {
-            ("unavailable", Color::Red)
-        };
+    /// Navigate up in the focused cell.
+    pub fn select_prev(&mut self) {
+        match self.focused {
+            FocusedCell::Projects => self.cell_projects.select_prev(),
+            FocusedCell::Libraries => self.cell_libraries.select_prev(),
+            FocusedCell::Scratchpad => self.cell_scratchpad.select_prev(),
+            FocusedCell::Rules => self.cell_rules.select_prev(),
+            FocusedCell::ActiveProjects => self.cell_active.select_prev(),
+            FocusedCell::Errors => self.cell_errors.select_prev(),
+            FocusedCell::None => {}
+        }
+    }
 
-        let active_count = self.data.active_projects.len();
-        let total_queue = self.data.queue_total();
+    /// Row count for the currently focused cell.
+    fn focused_row_count(&self) -> usize {
+        match self.focused {
+            FocusedCell::Projects => self.data.projects.len(),
+            FocusedCell::Libraries => self.data.libraries.len(),
+            FocusedCell::Scratchpad => self.data.scratchpad.len(),
+            FocusedCell::Rules => self.data.rules.len(),
+            FocusedCell::ActiveProjects => self.data.active_projects.len(),
+            FocusedCell::Errors => self.data.errors.len(),
+            FocusedCell::None => 0,
+        }
+    }
+
+    /// Whether a popup is currently open.
+    pub fn popup_open(&self) -> bool {
+        false // TODO: Phase 3
+    }
+
+    pub fn close_popup(&mut self) {
+        // TODO: Phase 3
+    }
+
+    /// Get the selected row's tenant_id for popup opening.
+    pub fn selected_tenant(&self) -> Option<String> {
+        match self.focused {
+            FocusedCell::Projects => self
+                .data
+                .projects
+                .get(self.cell_projects.selected)
+                .map(|r| r.tenant_id.clone()),
+            FocusedCell::Libraries => self
+                .data
+                .libraries
+                .get(self.cell_libraries.selected)
+                .map(|r| r.tenant_id.clone()),
+            FocusedCell::Scratchpad => self
+                .data
+                .scratchpad
+                .get(self.cell_scratchpad.selected)
+                .map(|r| r.tenant_id.clone()),
+            FocusedCell::Rules => self
+                .data
+                .rules
+                .get(self.cell_rules.selected)
+                .map(|r| r.tenant_id.clone()),
+            FocusedCell::ActiveProjects => self
+                .data
+                .active_projects
+                .get(self.cell_active.selected)
+                .map(|r| r.tenant_id.clone()),
+            FocusedCell::Errors => self
+                .data
+                .errors
+                .get(self.cell_errors.selected)
+                .map(|r| r.queue_id.clone()),
+            FocusedCell::None => None,
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Drawing
+    // ------------------------------------------------------------------
+
+    pub fn draw(&self, frame: &mut Frame, area: Rect) {
+        // 4 rows: top fixed (3 lines), then 3 flexible rows
+        let rows = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+        ])
+        .split(area);
+
+        // Each row splits into 2 columns
+        let top = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[0]);
+        let row2 = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
+        let row3 = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[2]);
+        let row4 = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[3]);
+
+        // Row 1: fixed status panels
+        self.draw_services(frame, top[0]);
+        self.draw_queue_status(frame, top[1]);
+
+        // Row 2: Projects + Libraries
+        self.draw_projects_cell(frame, row2[0]);
+        self.draw_libraries_cell(frame, row2[1]);
+
+        // Row 3: Scratchpad + Rules
+        self.draw_scratchpad_cell(frame, row3[0]);
+        self.draw_rules_cell(frame, row3[1]);
+
+        // Row 4: Active Projects + Last Errors
+        self.draw_active_cell(frame, row4[0]);
+        self.draw_errors_cell(frame, row4[1]);
+    }
+
+    // ------------------------------------------------------------------
+    // Row 1: Services (1,1)
+    // ------------------------------------------------------------------
+
+    fn draw_services(&self, frame: &mut Frame, area: Rect) {
+        let health = &self.async_snapshot.health;
+        let (circle, circle_color) = services_indicator(health);
 
         let lines = vec![
             Line::from(vec![
-                Span::styled("  Database:   ", Style::default().fg(Color::Gray)),
-                Span::styled(status_text, Style::default().fg(status_color)),
+                Span::styled(format!(" {} ", circle), Style::default().fg(circle_color)),
+                Span::styled(
+                    "Services",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(vec![
-                Span::styled("  Projects:   ", Style::default().fg(Color::Gray)),
-                Span::raw(active_count.to_string()),
-            ]),
-            Line::from(vec![
-                Span::styled("  Queue:      ", Style::default().fg(Color::Gray)),
-                Span::raw(format!("{} items", total_queue)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Failed:     ", Style::default().fg(Color::Gray)),
-                failed_span(self.data.queue_failed),
+                Span::raw("   "),
+                health_span("qdrant", health.qdrant_healthy),
+                Span::raw("  "),
+                health_span("memexd", health.daemon_healthy),
             ]),
         ];
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Status ")
-            .title_style(Style::default().add_modifier(Modifier::BOLD));
-
-        frame.render_widget(Paragraph::new(lines).block(block), area);
+        frame.render_widget(Paragraph::new(lines), area);
     }
 
-    fn draw_queue_panel(&self, frame: &mut Frame, area: Rect) {
+    // ------------------------------------------------------------------
+    // Row 1: Queue Status (2,1)
+    // ------------------------------------------------------------------
+
+    fn draw_queue_status(&self, frame: &mut Frame, area: Rect) {
         let d = &self.data;
+        let total = d.queue_pending + d.queue_in_progress + d.queue_failed;
 
         let lines = vec![
             Line::from(vec![
-                Span::styled("  Total:       ", Style::default().fg(Color::Gray)),
-                Span::raw(d.queue_total().to_string()),
+                Span::styled(
+                    " Queue Status ",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("({})", total),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(vec![
-                Span::styled("  Pending:     ", Style::default().fg(Color::Gray)),
+                Span::raw("   Pending: "),
                 Span::styled(
                     d.queue_pending.to_string(),
                     Style::default().fg(Color::Yellow),
                 ),
-            ]),
-            Line::from(vec![
-                Span::styled("  In Progress: ", Style::default().fg(Color::Gray)),
+                Span::raw("  In Progress: "),
                 Span::styled(
                     d.queue_in_progress.to_string(),
                     Style::default().fg(Color::Blue),
                 ),
-            ]),
-            Line::from(vec![
-                Span::styled("  Done:        ", Style::default().fg(Color::Gray)),
-                Span::styled(d.queue_done.to_string(), Style::default().fg(Color::Green)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Failed:      ", Style::default().fg(Color::Gray)),
-                failed_span(d.queue_failed),
+                Span::raw("  Failed: "),
+                Span::styled(d.queue_failed.to_string(), Style::default().fg(Color::Red)),
             ]),
         ];
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Queue ")
-            .title_style(Style::default().add_modifier(Modifier::BOLD));
-
-        frame.render_widget(Paragraph::new(lines).block(block), area);
+        frame.render_widget(Paragraph::new(lines), area);
     }
 
-    fn draw_projects_panel(&self, frame: &mut Frame, area: Rect) {
-        let projects = &self.data.active_projects;
+    // ------------------------------------------------------------------
+    // Row 2: Projects (1,2)
+    // ------------------------------------------------------------------
 
-        let mut lines: Vec<Line> = if projects.is_empty() {
-            vec![Line::from(Span::styled(
-                "  No active projects",
-                Style::default().fg(Color::DarkGray),
-            ))]
-        } else {
-            projects
-                .iter()
-                .take(MAX_DISPLAYED_PROJECTS)
-                .map(|(tenant_id, path)| {
-                    let short_id = truncate_id(tenant_id);
-                    let display_path = abbreviate_home(path);
-                    Line::from(vec![
-                        Span::styled(format!("  {} ", short_id), Style::default().fg(Color::Cyan)),
-                        Span::raw(display_path),
-                    ])
-                })
-                .collect()
-        };
+    fn draw_projects_cell(&self, frame: &mut Frame, area: Rect) {
+        let cols = &PROJECTS_COLS;
+        let rows: Vec<CellRow> = self
+            .data
+            .projects
+            .iter()
+            .map(|p| {
+                vec![
+                    CellValue::Plain(p.name.clone()),
+                    CellValue::Plain(p.workspace_count.to_string()),
+                    CellValue::Plain(p.branch_count.to_string()),
+                    CellValue::Plain(p.qdrant_points.to_string()),
+                    CellValue::Plain(p.tracked_files.to_string()),
+                    queue_cell(p.queue_pending, p.queue_in_progress, p.queue_failed),
+                ]
+            })
+            .collect();
 
-        if projects.len() > MAX_DISPLAYED_PROJECTS {
-            lines.push(Line::from(Span::styled(
-                format!("  ... and {} more", projects.len() - MAX_DISPLAYED_PROJECTS),
-                Style::default().fg(Color::DarkGray),
-            )));
+        draw_cell(
+            frame,
+            area,
+            "Projects",
+            Some(self.data.projects.len()),
+            Some('P'),
+            cols,
+            &rows,
+            &self.cell_projects,
+            self.focused == FocusedCell::Projects,
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Row 2: Libraries (2,2)
+    // ------------------------------------------------------------------
+
+    fn draw_libraries_cell(&self, frame: &mut Frame, area: Rect) {
+        let cols = &LIBRARIES_COLS;
+        let rows: Vec<CellRow> = self
+            .data
+            .libraries
+            .iter()
+            .map(|l| {
+                vec![
+                    CellValue::Plain(l.name.clone()),
+                    CellValue::Plain(l.qdrant_points.to_string()),
+                    CellValue::Plain(l.tracked_files.to_string()),
+                    queue_cell(l.queue_pending, l.queue_in_progress, l.queue_failed),
+                    CellValue::Plain(l.sync_mode.clone()),
+                ]
+            })
+            .collect();
+
+        draw_cell(
+            frame,
+            area,
+            "Libraries",
+            Some(self.data.libraries.len()),
+            Some('L'),
+            cols,
+            &rows,
+            &self.cell_libraries,
+            self.focused == FocusedCell::Libraries,
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Row 3: Scratchpad (1,3)
+    // ------------------------------------------------------------------
+
+    fn draw_scratchpad_cell(&self, frame: &mut Frame, area: Rect) {
+        let cols = &SCRATCHPAD_COLS;
+        let rows: Vec<CellRow> = self
+            .data
+            .scratchpad
+            .iter()
+            .map(|s| {
+                vec![
+                    CellValue::Plain(s.name.clone()),
+                    CellValue::Plain(s.note_count.to_string()),
+                    queue_cell(s.queue_pending, s.queue_in_progress, s.queue_failed),
+                ]
+            })
+            .collect();
+
+        draw_cell(
+            frame,
+            area,
+            "Scratchpad",
+            Some(self.data.scratchpad.len()),
+            Some('S'),
+            cols,
+            &rows,
+            &self.cell_scratchpad,
+            self.focused == FocusedCell::Scratchpad,
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Row 3: Rules (2,3)
+    // ------------------------------------------------------------------
+
+    fn draw_rules_cell(&self, frame: &mut Frame, area: Rect) {
+        let cols = &RULES_COLS;
+        let rows: Vec<CellRow> = self
+            .data
+            .rules
+            .iter()
+            .map(|r| {
+                vec![
+                    CellValue::Plain(r.name.clone()),
+                    CellValue::Plain(r.rule_count.to_string()),
+                    queue_cell(r.queue_pending, r.queue_in_progress, r.queue_failed),
+                ]
+            })
+            .collect();
+
+        draw_cell(
+            frame,
+            area,
+            "Rules",
+            Some(self.data.rules.len()),
+            Some('R'),
+            cols,
+            &rows,
+            &self.cell_rules,
+            self.focused == FocusedCell::Rules,
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Row 4: Active Projects (1,4)
+    // ------------------------------------------------------------------
+
+    fn draw_active_cell(&self, frame: &mut Frame, area: Rect) {
+        let cols = &ACTIVE_COLS;
+        let rows: Vec<CellRow> = self
+            .data
+            .active_projects
+            .iter()
+            .map(|a| {
+                vec![
+                    CellValue::Plain(a.name.clone()),
+                    CellValue::Plain(a.workspace.clone()),
+                    CellValue::Plain(a.tracked_files.to_string()),
+                    queue_cell(a.queue_pending, a.queue_in_progress, a.queue_failed),
+                ]
+            })
+            .collect();
+
+        draw_cell(
+            frame,
+            area,
+            "Active Projects",
+            Some(self.data.active_projects.len()),
+            Some('A'),
+            cols,
+            &rows,
+            &self.cell_active,
+            self.focused == FocusedCell::ActiveProjects,
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Row 4: Last Errors (2,4)
+    // ------------------------------------------------------------------
+
+    fn draw_errors_cell(&self, frame: &mut Frame, area: Rect) {
+        let cols = &ERROR_COLS;
+        let rows: Vec<CellRow> = self
+            .data
+            .errors
+            .iter()
+            .map(|e| {
+                let tenant_label = format!("[{}] {}", e.collection_letter, e.tenant_name);
+                vec![
+                    CellValue::Plain(tenant_label),
+                    CellValue::Plain(e.error_message.clone()),
+                ]
+            })
+            .collect();
+
+        draw_cell(
+            frame,
+            area,
+            "Last Errors",
+            None, // no count per spec
+            Some('E'),
+            cols,
+            &rows,
+            &self.cell_errors,
+            self.focused == FocusedCell::Errors,
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Column definitions
+// ---------------------------------------------------------------------------
+
+const PROJECTS_COLS: [ColDef; 6] = [
+    ColDef {
+        header: "Name",
+        align: Align::Left,
+        flex: true,
+    },
+    ColDef {
+        header: "Wrk",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Bch",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Pts",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Files",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Queue",
+        align: Align::Right,
+        flex: false,
+    },
+];
+
+const LIBRARIES_COLS: [ColDef; 5] = [
+    ColDef {
+        header: "Name",
+        align: Align::Left,
+        flex: true,
+    },
+    ColDef {
+        header: "Pts",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Files",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Queue",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Sync",
+        align: Align::Left,
+        flex: false,
+    },
+];
+
+const SCRATCHPAD_COLS: [ColDef; 3] = [
+    ColDef {
+        header: "Scope",
+        align: Align::Left,
+        flex: true,
+    },
+    ColDef {
+        header: "Notes",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Queue",
+        align: Align::Right,
+        flex: false,
+    },
+];
+
+const RULES_COLS: [ColDef; 3] = [
+    ColDef {
+        header: "Scope",
+        align: Align::Left,
+        flex: true,
+    },
+    ColDef {
+        header: "Rules",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Queue",
+        align: Align::Right,
+        flex: false,
+    },
+];
+
+const ACTIVE_COLS: [ColDef; 4] = [
+    ColDef {
+        header: "Name",
+        align: Align::Left,
+        flex: false,
+    },
+    ColDef {
+        header: "Workspace",
+        align: Align::Left,
+        flex: true,
+    },
+    ColDef {
+        header: "Files",
+        align: Align::Right,
+        flex: false,
+    },
+    ColDef {
+        header: "Queue",
+        align: Align::Right,
+        flex: false,
+    },
+];
+
+const ERROR_COLS: [ColDef; 2] = [
+    ColDef {
+        header: "Collection",
+        align: Align::Left,
+        flex: false,
+    },
+    ColDef {
+        header: "Error",
+        align: Align::Left,
+        flex: true,
+    },
+];
+
+// ---------------------------------------------------------------------------
+// Health display helpers
+// ---------------------------------------------------------------------------
+
+fn services_indicator(health: &ServiceHealth) -> (&'static str, Color) {
+    match (health.qdrant_healthy, health.daemon_healthy) {
+        (Some(true), Some(true)) => ("●", Color::Green),
+        (Some(false), Some(false)) | (None, None) => ("●", Color::Red),
+        _ => {
+            // At least one unhealthy or unknown
+            let any_down =
+                health.qdrant_healthy == Some(false) || health.daemon_healthy == Some(false);
+            if any_down {
+                ("●", Color::Yellow)
+            } else {
+                ("●", Color::DarkGray) // still checking
+            }
         }
-
-        let title = format!(" Active Projects ({}) ", projects.len());
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .title_style(Style::default().add_modifier(Modifier::BOLD));
-
-        frame.render_widget(Paragraph::new(lines).block(block), area);
-    }
-
-    fn draw_errors_panel(&self, frame: &mut Frame, area: Rect) {
-        let errors = &self.data.recent_errors;
-
-        let lines: Vec<Line> = if errors.is_empty() {
-            vec![Line::from(Span::styled(
-                "  No recent errors",
-                Style::default().fg(Color::DarkGray),
-            ))]
-        } else {
-            errors
-                .iter()
-                .map(|msg| {
-                    let truncated = truncate_str(msg, 60);
-                    Line::from(Span::styled(
-                        format!("  {truncated}"),
-                        Style::default().fg(Color::Red),
-                    ))
-                })
-                .collect()
-        };
-
-        let title = if errors.is_empty() {
-            " Recent Errors ".to_string()
-        } else {
-            format!(" Recent Errors ({}) ", errors.len())
-        };
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .title_style(Style::default().add_modifier(Modifier::BOLD));
-
-        frame.render_widget(Paragraph::new(lines).block(block), area);
     }
 }
 
-/// Fetch all dashboard data from the SQLite state database.
-fn fetch_dashboard_data() -> DashboardData {
-    let conn = match connect_readonly() {
-        Ok(c) => c,
-        Err(_) => return DashboardData::default(),
+fn health_span<'a>(name: &'a str, healthy: Option<bool>) -> Span<'a> {
+    let (indicator, color) = match healthy {
+        Some(true) => ("●", Color::Green),
+        Some(false) => ("●", Color::Red),
+        None => ("○", Color::DarkGray),
     };
-
-    let mut data = DashboardData {
-        db_connected: true,
-        ..DashboardData::default()
-    };
-
-    fetch_queue_stats(&conn, &mut data);
-    fetch_active_projects(&conn, &mut data);
-    fetch_recent_errors(&conn, &mut data);
-
-    data
-}
-
-/// Populate queue status counts from `unified_queue`.
-fn fetch_queue_stats(conn: &rusqlite::Connection, data: &mut DashboardData) {
-    let Ok(mut stmt) = conn.prepare("SELECT status, COUNT(*) FROM unified_queue GROUP BY status")
-    else {
-        return;
-    };
-
-    let Ok(rows) = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    }) else {
-        return;
-    };
-
-    for row in rows.flatten() {
-        let (status, count) = row;
-        match status.as_str() {
-            "pending" => data.queue_pending = count,
-            "in_progress" => data.queue_in_progress = count,
-            "done" => data.queue_done = count,
-            "failed" => data.queue_failed = count,
-            _ => {}
-        }
-    }
-}
-
-/// Populate active projects from `watch_folders`.
-fn fetch_active_projects(conn: &rusqlite::Connection, data: &mut DashboardData) {
-    let Ok(mut stmt) = conn.prepare(
-        "SELECT tenant_id, path FROM watch_folders \
-         WHERE is_active > 0 AND collection = 'projects' \
-         ORDER BY last_activity_at DESC",
-    ) else {
-        return;
-    };
-
-    let Ok(rows) = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    }) else {
-        return;
-    };
-
-    data.active_projects = rows.flatten().collect();
-}
-
-/// Populate recent error messages from failed queue items.
-fn fetch_recent_errors(conn: &rusqlite::Connection, data: &mut DashboardData) {
-    let Ok(mut stmt) = conn.prepare(
-        "SELECT error_message FROM unified_queue \
-         WHERE status = 'failed' AND error_message IS NOT NULL \
-         ORDER BY updated_at DESC LIMIT ?1",
-    ) else {
-        return;
-    };
-
-    let Ok(rows) = stmt.query_map([MAX_RECENT_ERRORS as i64], |row| row.get::<_, String>(0)) else {
-        return;
-    };
-
-    data.recent_errors = rows.flatten().collect();
-}
-
-/// Return a styled span for the failed count: red if non-zero, green otherwise.
-fn failed_span(count: i64) -> Span<'static> {
-    if count > 0 {
-        Span::styled(count.to_string(), Style::default().fg(Color::Red))
-    } else {
-        Span::styled(count.to_string(), Style::default().fg(Color::Green))
-    }
-}
-
-/// Truncate a tenant ID to the first 8 characters followed by ellipsis.
-fn truncate_id(id: &str) -> String {
-    if id.len() <= 12 {
-        id.to_string()
-    } else {
-        format!("{}...", &id[..8])
-    }
-}
-
-/// Truncate a string to `max_len` characters, appending "..." if truncated.
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.chars().count() <= max_len {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
-        format!("{truncated}...")
-    }
-}
-
-/// Replace the home directory prefix with `~` for compact display.
-fn abbreviate_home(path: &str) -> String {
-    if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy();
-        if let Some(rest) = path.strip_prefix(home_str.as_ref()) {
-            return format!("~{rest}");
-        }
-    }
-    path.to_string()
+    Span::styled(
+        format!("{} {}", indicator, name),
+        Style::default().fg(color),
+    )
 }
 
 #[cfg(test)]
@@ -382,85 +658,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dashboard_data_default_is_disconnected() {
-        let data = DashboardData::default();
-        assert!(!data.db_connected);
-        assert_eq!(data.queue_total(), 0);
-        assert!(data.active_projects.is_empty());
-        assert!(data.recent_errors.is_empty());
-    }
-
-    #[test]
-    fn dashboard_data_queue_total() {
-        let data = DashboardData {
-            db_connected: true,
-            queue_pending: 10,
-            queue_in_progress: 3,
-            queue_done: 100,
-            queue_failed: 2,
-            active_projects: Vec::new(),
-            recent_errors: Vec::new(),
-        };
-        assert_eq!(data.queue_total(), 115);
-    }
-
-    #[test]
-    fn truncate_id_short() {
-        assert_eq!(truncate_id("abc123"), "abc123");
-    }
-
-    #[test]
-    fn truncate_id_long() {
-        let long_id = "abcdef0123456789abcdef";
-        let result = truncate_id(long_id);
-        assert_eq!(result, "abcdef01...");
-    }
-
-    #[test]
-    fn truncate_str_no_truncation() {
-        assert_eq!(truncate_str("short", 10), "short");
-    }
-
-    #[test]
-    fn truncate_str_with_truncation() {
-        let long = "a".repeat(40);
-        let result = truncate_str(&long, 10);
-        assert!(result.ends_with("..."));
-        assert!(result.chars().count() <= 10);
-    }
-
-    #[test]
-    fn abbreviate_home_replaces_prefix() {
-        if let Some(home) = dirs::home_dir() {
-            let path = format!("{}/projects/test", home.display());
-            let result = abbreviate_home(&path);
-            assert!(result.starts_with("~/"));
-            assert!(result.contains("projects/test"));
-        }
-    }
-
-    #[test]
-    fn abbreviate_home_no_match() {
-        let path = "/opt/something";
-        assert_eq!(abbreviate_home(path), path);
-    }
-
-    #[test]
-    fn failed_span_zero_is_green() {
-        let span = failed_span(0);
-        assert_eq!(span.style.fg, Some(Color::Green));
-    }
-
-    #[test]
-    fn failed_span_nonzero_is_red() {
-        let span = failed_span(5);
-        assert_eq!(span.style.fg, Some(Color::Red));
-    }
-
-    #[test]
-    fn dashboard_new_starts_without_data() {
+    fn focused_cell_default_is_none() {
         let dash = Dashboard::new();
-        assert!(!dash.data.db_connected);
-        assert!(dash.last_refresh.is_none());
+        assert_eq!(dash.focused, FocusedCell::None);
+    }
+
+    #[test]
+    fn services_indicator_both_healthy() {
+        let h = ServiceHealth {
+            qdrant_healthy: Some(true),
+            daemon_healthy: Some(true),
+        };
+        let (_, color) = services_indicator(&h);
+        assert_eq!(color, Color::Green);
+    }
+
+    #[test]
+    fn services_indicator_both_down() {
+        let h = ServiceHealth {
+            qdrant_healthy: Some(false),
+            daemon_healthy: Some(false),
+        };
+        let (_, color) = services_indicator(&h);
+        assert_eq!(color, Color::Red);
+    }
+
+    #[test]
+    fn services_indicator_one_down() {
+        let h = ServiceHealth {
+            qdrant_healthy: Some(true),
+            daemon_healthy: Some(false),
+        };
+        let (_, color) = services_indicator(&h);
+        assert_eq!(color, Color::Yellow);
+    }
+
+    #[test]
+    fn services_indicator_unknown() {
+        let h = ServiceHealth {
+            qdrant_healthy: None,
+            daemon_healthy: None,
+        };
+        let (_, color) = services_indicator(&h);
+        assert_eq!(color, Color::Red);
+    }
+
+    #[test]
+    fn select_next_increments() {
+        let mut dash = Dashboard::new();
+        dash.focused = FocusedCell::Errors;
+        // No data, should not panic
+        dash.select_next();
+        assert_eq!(dash.cell_errors.selected, 0);
+    }
+
+    #[test]
+    fn select_prev_decrements() {
+        let mut dash = Dashboard::new();
+        dash.focused = FocusedCell::Projects;
+        dash.cell_projects.selected = 2;
+        dash.select_prev();
+        assert_eq!(dash.cell_projects.selected, 1);
     }
 }

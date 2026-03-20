@@ -11,7 +11,7 @@ use ratatui::Frame;
 
 use super::event::{Event, EventHandler};
 use super::terminal;
-use super::views::dashboard::Dashboard;
+use super::views::dashboard::{Dashboard, FocusedCell};
 use super::views::libraries::LibraryBrowser;
 use super::views::logs::LogViewer;
 use super::views::projects::ProjectBrowser;
@@ -182,6 +182,13 @@ impl App {
             return;
         }
 
+        // Delegate keys to the dashboard when on Dashboard view
+        if self.current_view == View::Dashboard {
+            if self.handle_dashboard_key(key) {
+                return;
+            }
+        }
+
         // Delegate keys to the queue browser when on Queue view
         if self.current_view == View::Queue {
             if self.handle_queue_key(key) {
@@ -211,6 +218,65 @@ impl App {
         }
 
         self.handle_global_key(key);
+    }
+
+    /// Handle dashboard-specific keys. Returns true if the key was consumed.
+    fn handle_dashboard_key(&mut self, key: KeyEvent) -> bool {
+        let dash = self.dashboard();
+
+        // When popup is open, only Esc closes it
+        if dash.popup_open() {
+            if key.code == KeyCode::Esc {
+                dash.close_popup();
+            }
+            return true;
+        }
+
+        // Cell focus shortcuts
+        match key.code {
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                dash.focused = FocusedCell::Projects;
+                true
+            }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                dash.focused = FocusedCell::Libraries;
+                true
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                dash.focused = FocusedCell::Scratchpad;
+                true
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                dash.focused = FocusedCell::Rules;
+                true
+            }
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                dash.focused = FocusedCell::ActiveProjects;
+                true
+            }
+            KeyCode::Char('e') | KeyCode::Char('E') => {
+                dash.focused = FocusedCell::Errors;
+                true
+            }
+            // Navigation within focused cell
+            KeyCode::Char('j') | KeyCode::Down if dash.focused != FocusedCell::None => {
+                dash.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up if dash.focused != FocusedCell::None => {
+                dash.select_prev();
+                true
+            }
+            KeyCode::Enter if dash.focused != FocusedCell::None => {
+                // TODO: open popup (Phase 3)
+                true
+            }
+            KeyCode::Esc => {
+                dash.focused = FocusedCell::None;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Handle queue-specific keys. Returns true if the key was consumed.
@@ -485,6 +551,42 @@ impl App {
     /// Draw the status bar with context-sensitive hints.
     fn draw_status_bar(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let status_spans = match self.current_view {
+            View::Dashboard => {
+                let focused = self
+                    .dashboard
+                    .as_ref()
+                    .map(|d| d.focused != FocusedCell::None)
+                    .unwrap_or(false);
+                if focused {
+                    vec![
+                        Span::styled(" j/k", Style::default().fg(Color::Yellow)),
+                        Span::raw(" navigate  "),
+                        Span::styled("Enter", Style::default().fg(Color::Yellow)),
+                        Span::raw(" detail  "),
+                        Span::styled("Esc", Style::default().fg(Color::Yellow)),
+                        Span::raw(" unfocus  "),
+                        Span::styled("?", Style::default().fg(Color::Yellow)),
+                        Span::raw(" help"),
+                    ]
+                } else {
+                    vec![
+                        Span::styled(" P", Style::default().fg(Color::Yellow)),
+                        Span::raw("rojects  "),
+                        Span::styled("L", Style::default().fg(Color::Yellow)),
+                        Span::raw("ibraries  "),
+                        Span::styled("S", Style::default().fg(Color::Yellow)),
+                        Span::raw("cratchpad  "),
+                        Span::styled("R", Style::default().fg(Color::Yellow)),
+                        Span::raw("ules  "),
+                        Span::styled("A", Style::default().fg(Color::Yellow)),
+                        Span::raw("ctive  "),
+                        Span::styled("E", Style::default().fg(Color::Yellow)),
+                        Span::raw("rrors  "),
+                        Span::styled("?", Style::default().fg(Color::Yellow)),
+                        Span::raw(" help"),
+                    ]
+                }
+            }
             View::Queue | View::Projects | View::Libraries => vec![
                 Span::styled(" q", Style::default().fg(Color::Yellow)),
                 Span::raw(" quit  "),
@@ -508,16 +610,6 @@ impl App {
                 Span::raw(" switch  "),
                 Span::styled("?", Style::default().fg(Color::Yellow)),
                 Span::raw(" help"),
-            ],
-            _ => vec![
-                Span::styled(" q", Style::default().fg(Color::Yellow)),
-                Span::raw(" quit  "),
-                Span::styled("Tab", Style::default().fg(Color::Yellow)),
-                Span::raw(" switch  "),
-                Span::styled("?", Style::default().fg(Color::Yellow)),
-                Span::raw(" help  "),
-                Span::styled("1-5", Style::default().fg(Color::Yellow)),
-                Span::raw(" jump"),
             ],
         };
         let status =

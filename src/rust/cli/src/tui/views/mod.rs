@@ -1,6 +1,8 @@
 //! View widgets for the TUI.
 
 pub mod dashboard;
+pub mod dashboard_cells;
+pub mod dashboard_data;
 pub mod libraries;
 pub mod libraries_data;
 pub mod logs;
