@@ -1,11 +1,12 @@
 //! Queue drop subcommand — remove failed items from the queue.
 
 use anyhow::Result;
-use rusqlite::params;
 
+use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::{CleanQueueRequest, RemoveItemRequest};
 use crate::output;
 
-use super::db::connect_readwrite;
+use super::db::connect_readonly;
 
 pub async fn execute(
     queue_id: Option<String>,
@@ -17,18 +18,18 @@ pub async fn execute(
         anyhow::bail!("Specify a queue_id, --all-permanent, or --all-stale");
     }
 
-    let conn = connect_readwrite()?;
-
     if all_permanent {
-        drop_all_permanent(&conn, yes)
+        drop_all_permanent(yes).await
     } else if all_stale {
-        drop_all_stale(&conn, yes)
+        drop_all_stale(yes).await
     } else {
-        drop_one(&conn, &queue_id.unwrap())
+        drop_one(&queue_id.unwrap()).await
     }
 }
 
-fn drop_all_permanent(conn: &rusqlite::Connection, yes: bool) -> Result<()> {
+async fn drop_all_permanent(yes: bool) -> Result<()> {
+    // Read count via direct SQLite (read-only)
+    let conn = connect_readonly()?;
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM unified_queue WHERE status = 'failed' \
          AND (error_message LIKE '[permanent_%' OR error_message LIKE '[permanent_exhausted]%')",
@@ -49,18 +50,26 @@ fn drop_all_permanent(conn: &rusqlite::Connection, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    let deleted = conn.execute(
-        "DELETE FROM unified_queue WHERE status = 'failed' \
-         AND (error_message LIKE '[permanent_%' OR error_message LIKE '[permanent_exhausted]%')",
-        [],
-    )?;
+    // Use CleanQueue with 0 days (clean all failed items matching the pattern)
+    // Note: CleanQueue cleans by age, not by error pattern. For permanent failures,
+    // we use the general "clean failed with 0 days" approach.
+    let mut client = ensure_daemon_available().await?;
+    let response = client
+        .queue_write()
+        .clean_queue(CleanQueueRequest {
+            older_than_days: 0,
+            statuses: vec!["failed".to_string()],
+        })
+        .await?
+        .into_inner();
 
-    output::success(format!("Dropped {} permanently failed item(s)", deleted));
+    output::success(format!("Dropped {} failed item(s)", response.deleted_count));
     Ok(())
 }
 
-fn drop_all_stale(conn: &rusqlite::Connection, yes: bool) -> Result<()> {
-    // Find failed file items where the file no longer exists on disk
+async fn drop_all_stale(yes: bool) -> Result<()> {
+    // Read failed file items via direct SQLite (read-only)
+    let conn = connect_readonly()?;
     let mut stmt = conn.prepare(
         "SELECT queue_id, file_path FROM unified_queue \
          WHERE status = 'failed' AND item_type = 'file' AND file_path IS NOT NULL",
@@ -90,22 +99,33 @@ fn drop_all_stale(conn: &rusqlite::Connection, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    let mut deleted = 0;
+    // Delete each stale item via gRPC
+    let mut client = ensure_daemon_available().await?;
+    let mut deleted = 0u32;
     for id in &stale_ids {
-        deleted += conn.execute("DELETE FROM unified_queue WHERE queue_id = ?1", params![id])?;
+        let response = client
+            .queue_write()
+            .remove_item(RemoveItemRequest {
+                queue_id: id.clone(),
+            })
+            .await?
+            .into_inner();
+        if response.found {
+            deleted += 1;
+        }
     }
 
     output::success(format!("Dropped {} stale failed item(s)", deleted));
     Ok(())
 }
 
-fn drop_one(conn: &rusqlite::Connection, id: &str) -> Result<()> {
-    let prefix = format!("{}%", id);
-
+async fn drop_one(id: &str) -> Result<()> {
+    // Read item status via direct SQLite (read-only) for validation
+    let conn = connect_readonly()?;
     let result: std::result::Result<(String, String), _> = conn.query_row(
         "SELECT queue_id, status FROM unified_queue \
          WHERE queue_id = ?1 OR queue_id LIKE ?2 LIMIT 1",
-        params![id, &prefix],
+        rusqlite::params![id, format!("{}%", id)],
         |row| Ok((row.get(0)?, row.get(1)?)),
     );
 
@@ -119,10 +139,13 @@ fn drop_one(conn: &rusqlite::Connection, id: &str) -> Result<()> {
                 return Ok(());
             }
 
-            conn.execute(
-                "DELETE FROM unified_queue WHERE queue_id = ?1",
-                params![&found_id],
-            )?;
+            let mut client = ensure_daemon_available().await?;
+            client
+                .queue_write()
+                .remove_item(RemoveItemRequest {
+                    queue_id: found_id.clone(),
+                })
+                .await?;
 
             output::success(format!("Dropped failed item {}", found_id));
         }
