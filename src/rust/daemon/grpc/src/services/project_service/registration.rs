@@ -123,7 +123,8 @@ impl ProjectServiceImpl {
                 })
             }
             RegistrationAction::ExistingActivated => {
-                self.activate_project(&project_id, &effective_path_str)
+                // register_session already incremented is_active; only run side effects
+                self.activate_project_side_effects(&project_id, &effective_path_str)
                     .await;
                 self.signal_watch_refresh(&project_id);
                 Ok(RegisterProjectResponse {
@@ -149,7 +150,7 @@ impl ProjectServiceImpl {
                 is_high_priority: hp,
             } => {
                 if hp {
-                    self.activate_project(&project_id, &effective_path_str)
+                    self.activate_new_project(&project_id, &effective_path_str)
                         .await;
                 }
                 self.signal_watch_refresh(&project_id);
@@ -170,7 +171,8 @@ impl ProjectServiceImpl {
                 } = result
                 {
                     if hp {
-                        self.activate_project(&project_id, &canonical_path).await;
+                        self.activate_new_project(&project_id, &canonical_path)
+                            .await;
                     }
                     self.signal_watch_refresh(&project_id);
                     Ok(RegisterProjectResponse {
@@ -352,8 +354,12 @@ impl ProjectServiceImpl {
         }
     }
 
-    /// Activate project: cancel deferred shutdown, start LSP, set watch folders active
-    async fn activate_project(&self, project_id: &str, path: &str) {
+    /// Perform activation side effects: cancel deferred shutdown and start LSP.
+    ///
+    /// Does NOT increment `is_active` — the caller is responsible for ensuring
+    /// the session counter was already incremented (via `register_session` for
+    /// existing projects, or `activate_project_by_tenant_id` for newly enqueued).
+    async fn activate_project_side_effects(&self, project_id: &str, path: &str) {
         if super::lsp_lifecycle::cancel_deferred_shutdown(&self.pending_shutdowns, project_id).await
         {
             debug!(
@@ -377,7 +383,13 @@ impl ProjectServiceImpl {
                 "Failed to start LSP servers (non-critical)"
             );
         }
+    }
 
+    /// Increment `is_active` for a newly registered project and trigger side effects.
+    ///
+    /// Used only for `NewlyEnqueued` and `WorktreeAutoRegistered` paths where
+    /// `register_session` was NOT called (so the counter has not been incremented yet).
+    async fn activate_new_project(&self, project_id: &str, path: &str) {
         match self
             .state_manager
             .activate_project_by_tenant_id(project_id)
@@ -389,83 +401,19 @@ impl ProjectServiceImpl {
                         project_id = %project_id,
                         watch_id = ?watch_id,
                         affected_folders = affected,
-                        "Activated project watch folders (activity inheritance)"
+                        "Activated new project watch folders"
                     );
-                } else {
-                    warn!(
-                        project_id = %project_id,
-                        "No watch folders matched tenant_id, trying path-based fallback"
-                    );
-                    match self.activate_project_by_path(path).await {
-                        Ok(true) => info!(
-                            project_id = %project_id,
-                            path = %path,
-                            "Activated project via path fallback"
-                        ),
-                        Ok(false) => warn!(
-                            project_id = %project_id,
-                            path = %path,
-                            "Could not activate project by path either"
-                        ),
-                        Err(e) => warn!(
-                            project_id = %project_id,
-                            path = %path,
-                            error = %e,
-                            "Path-based activation fallback failed"
-                        ),
-                    }
                 }
             }
             Err(e) => {
                 warn!(
                     project_id = %project_id,
                     error = %e,
-                    "Failed to activate project watch folders (non-critical)"
+                    "Failed to activate new project watch folders (non-critical)"
                 );
             }
         }
-    }
 
-    /// Fallback: activate project by looking up watch_folders by path.
-    ///
-    /// When `activate_project_by_tenant_id` finds no matching rows (e.g. because
-    /// the tenant_id in the database differs from the one computed at registration
-    /// time), this method searches for a watch folder whose `path` matches or is
-    /// a parent of the given `path`, then activates the entire project group.
-    async fn activate_project_by_path(&self, path: &str) -> Result<bool, Status> {
-        let watch_folder: Option<(String, String)> = sqlx::query_as(
-            r#"SELECT watch_id, tenant_id FROM watch_folders
-               WHERE collection = ?1
-                 AND (?2 = path OR ?2 LIKE path || '/' || '%')
-               ORDER BY length(path) DESC
-               LIMIT 1"#,
-        )
-        .bind(COLLECTION_PROJECTS)
-        .bind(path)
-        .fetch_optional(&self.db_pool)
-        .await
-        .map_err(|e| {
-            error!("Database error in path-based activation: {e}");
-            Status::internal(format!("Database error: {e}"))
-        })?;
-
-        if let Some((watch_id, existing_tenant)) = watch_folder {
-            info!(
-                "Found watch folder by path fallback: watch_id={}, tenant_id={}",
-                watch_id, existing_tenant
-            );
-            match self.state_manager.activate_project_group(&watch_id).await {
-                Ok(affected) => {
-                    info!("Activated {} watch folders via path fallback", affected);
-                    Ok(affected > 0)
-                }
-                Err(e) => {
-                    warn!("Failed to activate via path fallback: {}", e);
-                    Ok(false)
-                }
-            }
-        } else {
-            Ok(false)
-        }
+        self.activate_project_side_effects(project_id, path).await;
     }
 }

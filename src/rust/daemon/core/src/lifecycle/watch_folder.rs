@@ -90,6 +90,9 @@ impl WatchFolderLifecycle {
     }
 
     /// Deactivate a project **and** all descendant submodules.
+    ///
+    /// Decrements `is_active` by 1 (clamped to 0), symmetrical with
+    /// `activate_project_group` which increments by 1.
     pub async fn deactivate_project_group(
         &self,
         watch_id: &str,
@@ -103,7 +106,7 @@ impl WatchFolderLifecycle {
                 JOIN descendants d ON j.parent_watch_id = d.watch_id
             )
             UPDATE watch_folders
-            SET is_active = 0,
+            SET is_active = MAX(0, is_active - 1),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE watch_id IN (SELECT watch_id FROM descendants)
             "#,
@@ -115,7 +118,7 @@ impl WatchFolderLifecycle {
         let rows = result.rows_affected();
         info!(
             "watch_folder lifecycle: deactivate_project_group watch_id={} \
-             -> is_active=0 ({} rows)",
+             -> is_active-1 ({} rows)",
             watch_id, rows
         );
         Ok(rows)

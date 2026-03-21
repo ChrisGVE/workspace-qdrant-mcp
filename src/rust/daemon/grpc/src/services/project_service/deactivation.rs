@@ -51,8 +51,9 @@ impl ProjectServiceImpl {
                 let is_active = active_flag > 0;
                 let new_priority = if is_active { "high" } else { "normal" };
 
+                // unregister_session already decremented is_active;
+                // only handle side effects when all sessions are gone
                 if !is_active {
-                    self.deactivate_project(project_id).await;
                     self.handle_lsp_shutdown(project_id).await;
 
                     if let Some(ref signal) = self.watch_refresh_signal {
@@ -133,33 +134,6 @@ impl ProjectServiceImpl {
             Err(e) => {
                 error!("Failed to deprioritize project by path: {e}");
                 Err(Status::internal(format!("Failed to deprioritize: {e}")))
-            }
-        }
-    }
-
-    /// Set watch_folders is_active=false for project and all submodules
-    async fn deactivate_project(&self, project_id: &str) {
-        match self
-            .state_manager
-            .deactivate_project_by_tenant_id(project_id)
-            .await
-        {
-            Ok((affected, watch_id)) => {
-                if affected > 0 {
-                    info!(
-                        project_id = %project_id,
-                        watch_id = ?watch_id,
-                        affected_folders = affected,
-                        "Deactivated project watch folders (activity inheritance)"
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(
-                    project_id = %project_id,
-                    error = %e,
-                    "Failed to deactivate project watch folders (non-critical)"
-                );
             }
         }
     }

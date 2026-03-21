@@ -32,9 +32,9 @@ impl PriorityManager {
     // Session Tracking Methods (using watch_folders.is_active)
     // =========================================================================
 
-    /// Activate a project (mark as having active sessions)
+    /// Increment is_active for a project session.
     ///
-    /// Sets is_active=1 and updates last_activity_at timestamp.
+    /// Increments the session counter and updates last_activity_at.
     /// Queue ordering is computed at dequeue time based on is_active,
     /// so no queue updates are needed here.
     pub async fn register_session(&self, tenant_id: &str, _branch: &str) -> PriorityResult<i32> {
@@ -64,10 +64,11 @@ impl PriorityManager {
         Ok(1)
     }
 
-    /// Deactivate a project (mark as no active sessions)
+    /// Decrement is_active for a project session.
     ///
-    /// Sets is_active=0. Queue ordering is computed at dequeue time based on
-    /// is_active, so no queue updates are needed here.
+    /// Returns the is_active value after decrement. The caller uses this
+    /// to decide whether side effects (LSP shutdown, watch refresh) should
+    /// fire — they only fire when the count reaches 0.
     pub async fn unregister_session(&self, tenant_id: &str, _branch: &str) -> PriorityResult<i32> {
         if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
@@ -92,15 +93,25 @@ impl PriorityManager {
             .deactivate_by_tenant(tenant_id, COLLECTION_PROJECTS)
             .await?;
 
+        // Read back the updated value to inform the caller
+        let remaining: i32 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(is_active), 0) FROM watch_folders \
+             WHERE tenant_id = ?1 AND collection = ?2",
+        )
+        .bind(tenant_id)
+        .bind(COLLECTION_PROJECTS)
+        .fetch_one(&self.db_pool)
+        .await?;
+
         // Record session end metrics
         METRICS.session_ended(tenant_id, "normal", 0.0);
 
         info!(
-            "Session unregistered for project {}: marked as inactive",
-            tenant_id
+            "Session unregistered for project {}: is_active={}",
+            tenant_id, remaining
         );
 
-        Ok(0)
+        Ok(remaining)
     }
 
     /// Deactivate a single watch folder by `(tenant_id, path)`.
