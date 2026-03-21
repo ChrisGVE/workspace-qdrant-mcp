@@ -19,6 +19,10 @@ use super::dashboard_data::{
     ServiceHealth,
 };
 use super::dashboard_grid;
+use super::dashboard_popups::{
+    draw_popup, fetch_error_popup, fetch_library_popup, fetch_project_popup, fetch_rules_popup,
+    fetch_scratchpad_popup, PopupState,
+};
 
 const REFRESH_INTERVAL_MS: u128 = 1000;
 
@@ -48,6 +52,8 @@ pub struct Dashboard {
     pub cell_rules: ScrollableCell,
     pub cell_active: ScrollableCell,
     pub cell_errors: ScrollableCell,
+    /// Active popup overlay, if any.
+    popup: Option<PopupState>,
 }
 
 impl Dashboard {
@@ -64,6 +70,7 @@ impl Dashboard {
             cell_rules: ScrollableCell::new(),
             cell_active: ScrollableCell::new(),
             cell_errors: ScrollableCell::new(),
+            popup: None,
         }
     }
 
@@ -127,47 +134,61 @@ impl Dashboard {
 
     /// Whether a popup is currently open.
     pub fn popup_open(&self) -> bool {
-        false // TODO: Phase 3
+        self.popup.is_some()
     }
 
     pub fn close_popup(&mut self) {
-        // TODO: Phase 3
+        self.popup = None;
     }
 
-    /// Get the selected row's tenant_id for popup opening.
-    pub fn selected_tenant(&self) -> Option<String> {
-        match self.focused {
+    /// Open a popup for the currently selected row in the focused cell.
+    pub fn open_popup(&mut self) {
+        self.popup = match self.focused {
             FocusedCell::Projects => self
                 .data
                 .projects
                 .get(self.cell_projects.selected)
-                .map(|r| r.tenant_id.clone()),
+                .and_then(|r| fetch_project_popup(&r.tenant_id)),
             FocusedCell::Libraries => self
                 .data
                 .libraries
                 .get(self.cell_libraries.selected)
-                .map(|r| r.tenant_id.clone()),
+                .and_then(|r| fetch_library_popup(&r.tenant_id)),
             FocusedCell::Scratchpad => self
                 .data
                 .scratchpad
                 .get(self.cell_scratchpad.selected)
-                .map(|r| r.tenant_id.clone()),
+                .and_then(|r| fetch_scratchpad_popup(&r.tenant_id)),
             FocusedCell::Rules => self
                 .data
                 .rules
                 .get(self.cell_rules.selected)
-                .map(|r| r.tenant_id.clone()),
+                .and_then(|r| fetch_rules_popup(&r.tenant_id)),
             FocusedCell::ActiveProjects => self
                 .data
                 .active_projects
                 .get(self.cell_active.selected)
-                .map(|r| r.tenant_id.clone()),
+                .and_then(|r| fetch_project_popup(&r.tenant_id)),
             FocusedCell::Errors => self
                 .data
                 .errors
                 .get(self.cell_errors.selected)
-                .map(|r| r.queue_id.clone()),
+                .and_then(|r| fetch_error_popup(&r.queue_id)),
             FocusedCell::None => None,
+        };
+    }
+
+    /// Scroll down within the active popup.
+    pub fn popup_scroll_down(&mut self) {
+        if let Some(ref mut p) = self.popup {
+            p.scroll_down();
+        }
+    }
+
+    /// Scroll up within the active popup.
+    pub fn popup_scroll_up(&mut self) {
+        if let Some(ref mut p) = self.popup {
+            p.scroll_up();
         }
     }
 
@@ -218,6 +239,11 @@ impl Dashboard {
         // Row 4: Active Projects + Last Errors
         self.draw_active_cell(frame, row4[0]);
         self.draw_errors_cell(frame, row4[1]);
+
+        // Popup overlay (if any)
+        if let Some(ref popup) = self.popup {
+            draw_popup(frame, frame.area(), popup);
+        }
     }
 
     // ------------------------------------------------------------------

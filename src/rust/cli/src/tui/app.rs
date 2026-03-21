@@ -224,10 +224,13 @@ impl App {
     fn handle_dashboard_key(&mut self, key: KeyEvent) -> bool {
         let dash = self.dashboard();
 
-        // When popup is open, only Esc closes it
+        // When popup is open, handle popup keys
         if dash.popup_open() {
-            if key.code == KeyCode::Esc {
-                dash.close_popup();
+            match key.code {
+                KeyCode::Esc => dash.close_popup(),
+                KeyCode::Char('j') | KeyCode::Down => dash.popup_scroll_down(),
+                KeyCode::Char('k') | KeyCode::Up => dash.popup_scroll_up(),
+                _ => {}
             }
             return true;
         }
@@ -268,7 +271,7 @@ impl App {
                 true
             }
             KeyCode::Enter if dash.focused != FocusedCell::None => {
-                // TODO: open popup (Phase 3)
+                dash.open_popup();
                 true
             }
             KeyCode::Esc => {

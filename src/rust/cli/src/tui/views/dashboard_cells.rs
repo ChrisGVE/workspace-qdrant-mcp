@@ -136,7 +136,7 @@ pub fn draw_cell(
     // --- Column headers ---
     let usable_width = area.width.saturating_sub(2) as usize;
     let col_widths = compute_col_widths(cols, rows, usable_width);
-    let header_line = render_header(cols, &col_widths);
+    let header_line = render_header(cols, &col_widths, focused);
     frame.render_widget(
         Paragraph::new(header_line),
         Rect::new(area.x, area.y + 1, area.width, 1),
@@ -237,9 +237,13 @@ fn build_title_spans(
     spans
 }
 
-/// Render column headers as a dim line.
-fn render_header(cols: &[ColDef], widths: &[usize]) -> Line<'static> {
-    let style = Style::default().fg(Color::Gray);
+/// Render column headers — yellow when focused, gray otherwise.
+fn render_header(cols: &[ColDef], widths: &[usize], focused: bool) -> Line<'static> {
+    let style = if focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::Gray)
+    };
     let mut spans = vec![Span::styled(" ", style)];
 
     for (j, col) in cols.iter().enumerate() {
