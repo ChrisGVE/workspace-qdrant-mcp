@@ -42,6 +42,9 @@ pub enum DocumentProcessorError {
     #[error("OCR extraction error: {0}")]
     OcrError(String),
 
+    #[error("Empty file: {0}")]
+    EmptyFile(String),
+
     #[error("Unsupported file format: {0}")]
     UnsupportedFormat(String),
 

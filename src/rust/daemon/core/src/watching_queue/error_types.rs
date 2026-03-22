@@ -85,6 +85,7 @@ impl ErrorCategory {
             || error_lower.contains("invalid format")
             || error_lower.contains("unsupported")
             || error_lower.contains("corrupt")
+            || error_lower.contains("empty file")
         {
             return ErrorCategory::Permanent;
         }

@@ -406,6 +406,13 @@ fn process_file_sync_inner(
         ));
     }
 
+    // Skip empty files — nothing to extract, embed, or index
+    if file_path.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+        return Err(DocumentProcessorError::EmptyFile(
+            file_path.display().to_string(),
+        ));
+    }
+
     let document_type = detect_document_type(file_path);
     debug!(
         "Processing file {:?} as {:?} for collection {}",
