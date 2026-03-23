@@ -449,7 +449,7 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
 
 fn resolve_tenant_id(project: Option<&str>) -> Result<String> {
     match project {
-        None => Ok("_global_".to_string()),
+        None => Ok("global".to_string()),
         Some(p) => {
             let path = std::path::Path::new(p);
             if path.exists() {
@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_resolve_tenant_id_default() {
-        assert_eq!(resolve_tenant_id(None).unwrap(), "_global_");
+        assert_eq!(resolve_tenant_id(None).unwrap(), "global");
     }
 
     #[test]

@@ -9,6 +9,18 @@ use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::{EnqueueItemRequest, IngestTextRequest, QueueType, RefreshSignalRequest};
 use crate::output;
 
+/// Derive tenant_id from scope string.
+///
+/// Rules use `"global"` as tenant for global scope, or the project ID
+/// extracted from `"project:<id>"` for project-scoped rules.
+fn tenant_id_from_scope(scope: &str) -> String {
+    if let Some(project_id) = scope.strip_prefix("project:") {
+        project_id.to_string()
+    } else {
+        "global".to_string()
+    }
+}
+
 /// Add a rule via daemon gRPC.
 pub async fn add_rule(
     label: &str,
@@ -20,6 +32,7 @@ pub async fn add_rule(
     output::section("Add Rule");
 
     let scope_str = scope.as_deref().unwrap_or("global");
+    let tenant_id = tenant_id_from_scope(scope_str);
 
     output::kv("Label", label);
     output::kv("Content", content);
@@ -41,7 +54,7 @@ pub async fn add_rule(
     let request = IngestTextRequest {
         content: content.to_string(),
         collection_basename: "rules".to_string(),
-        tenant_id: String::new(),
+        tenant_id: tenant_id.clone(),
         document_id: Some(label.to_string()),
         metadata,
         chunk_text: false,
@@ -57,15 +70,31 @@ pub async fn add_rule(
             } else {
                 output::error(format!("Failed to add rule: {}", result.error_message));
                 // Fall back to enqueue
-                enqueue_rule_via_grpc(&mut client, label, content, rule_type, scope_str, priority)
-                    .await?;
+                enqueue_rule_via_grpc(
+                    &mut client,
+                    label,
+                    content,
+                    rule_type,
+                    scope_str,
+                    &tenant_id,
+                    priority,
+                )
+                .await?;
             }
         }
         Err(e) => {
             output::error(format!("Failed to add rule via daemon: {}", e));
             // Fall back to enqueue
-            enqueue_rule_via_grpc(&mut client, label, content, rule_type, scope_str, priority)
-                .await?;
+            enqueue_rule_via_grpc(
+                &mut client,
+                label,
+                content,
+                rule_type,
+                scope_str,
+                &tenant_id,
+                priority,
+            )
+            .await?;
         }
     }
 
@@ -73,26 +102,27 @@ pub async fn add_rule(
 }
 
 /// Enqueue a rule via gRPC QueueWriteService.
+///
+/// Payload uses structured fields so the queue processor can map them
+/// directly to Qdrant payload fields (label, scope, priority, etc.).
 async fn enqueue_rule_via_grpc(
     client: &mut crate::grpc::DaemonClient,
     label: &str,
     content: &str,
     rule_type: &str,
     scope: &str,
+    tenant_id: &str,
     priority: u32,
 ) -> Result<()> {
     output::info("Enqueueing rule for later processing...");
 
-    let full_content = format!(
-        "RULE\nlabel:{}\ntype:{}\nscope:{}\npriority:{}\n---\n{}",
-        label, rule_type, scope, priority, content
-    );
-
     let payload_json = serde_json::json!({
-        "content": full_content,
-        "source_type": "cli_rules",
-        "main_tag": format!("rules_{}", rule_type),
-        "full_tag": format!("rules_{}_{}", rule_type, scope),
+        "content": content,
+        "source_type": "rule",
+        "label": label,
+        "scope": scope,
+        "rule_type": rule_type,
+        "priority": priority,
     })
     .to_string();
 
@@ -101,7 +131,7 @@ async fn enqueue_rule_via_grpc(
         .enqueue_item(EnqueueItemRequest {
             item_type: "text".to_string(),
             op: "add".to_string(),
-            tenant_id: "_global".to_string(),
+            tenant_id: tenant_id.to_string(),
             collection: "rules".to_string(),
             payload_json,
             branch: "main".to_string(),
@@ -138,4 +168,24 @@ async fn enqueue_rule_via_grpc(
     let _ = client.system().send_refresh_signal(request).await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tenant_id_from_global_scope() {
+        assert_eq!(tenant_id_from_scope("global"), "global");
+    }
+
+    #[test]
+    fn test_tenant_id_from_project_scope() {
+        assert_eq!(tenant_id_from_scope("project:4ed81466dec7"), "4ed81466dec7");
+    }
+
+    #[test]
+    fn test_tenant_id_from_empty_scope() {
+        assert_eq!(tenant_id_from_scope(""), "global");
+    }
 }

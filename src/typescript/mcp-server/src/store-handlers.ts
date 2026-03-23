@@ -45,7 +45,7 @@ export async function storeUrl(
   const libraryName = args?.['libraryName'] as string | undefined;
   const title = args?.['title'] as string | undefined;
   const collection = libraryName ? 'libraries' : COLLECTION_SCRATCHPAD;
-  const tenantId = libraryName?.trim() || sessionState.projectId || '_global_';
+  const tenantId = libraryName?.trim() || sessionState.projectId || 'global';
 
   const payload: Record<string, unknown> = {
     url: url.trim(),
@@ -111,7 +111,7 @@ export async function storeScratchpad(
 
   const title = args?.['title'] as string | undefined;
   const tags = (args?.['tags'] as string[] | undefined) ?? [];
-  const tenantId = sessionState.projectId || '_global_';
+  const tenantId = sessionState.projectId || 'global';
 
   const payload: Record<string, unknown> = {
     content: content.trim(),

@@ -15,7 +15,7 @@ pub const COLLECTION_LIBRARIES: &str = "libraries";
 pub const COLLECTION_RULES: &str = "rules";
 
 /// Scratchpad collection - persistent LLM scratch space
-/// Filtered by tenant_id payload field (_global_ or project_id)
+/// Filtered by tenant_id payload field ("global" or project_id)
 pub const COLLECTION_SCRATCHPAD: &str = "scratchpad";
 
 /// Images collection - stores CLIP-embedded images from documents
