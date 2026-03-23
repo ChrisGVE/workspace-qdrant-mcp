@@ -55,6 +55,9 @@ enum RebuildCommand {
     /// Diagnose and reconcile rules between Qdrant and SQLite
     Rules,
 
+    /// Reconcile scratchpad entries between SQLite mirror and Qdrant
+    Scratchpad,
+
     /// Rescan all project watch folders
     Projects {
         /// Tenant ID (optional, all tenants if omitted)
@@ -106,6 +109,7 @@ pub async fn execute(args: RebuildArgs) -> Result<()> {
             ("keywords".to_string(), tenant, Some(collection), false)
         }
         RebuildCommand::Rules => ("rules".to_string(), None, None, false),
+        RebuildCommand::Scratchpad => ("scratchpad".to_string(), None, None, false),
         RebuildCommand::Projects { tenant } => ("projects".to_string(), tenant, None, false),
         RebuildCommand::Libraries { tenant } => ("libraries".to_string(), tenant, None, false),
         RebuildCommand::Components { tenant, force } => {

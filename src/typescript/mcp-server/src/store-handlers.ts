@@ -2,9 +2,12 @@
  * Store handler helpers for URL and scratchpad store types
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { SessionState } from './server-types.js';
 import { COLLECTION_SCRATCHPAD, PRIORITY_HIGH } from './common/native-bridge.js';
+import { utcNow } from './utils/timestamps.js';
 
 type StoreResult = {
   success: boolean;
@@ -19,6 +22,10 @@ type StoreResult = {
  * Queues the URL as item_type 'url' in the unified queue.
  * The daemon will fetch the page, extract text, generate embeddings,
  * and store in Qdrant.
+ *
+ * Note: URL-sourced scratchpad entries cannot be mirrored to
+ * scratchpad_mirror because the content is fetched by the daemon
+ * later — this is an accepted limitation.
  */
 export async function storeUrl(
   args: Record<string, unknown> | undefined,
@@ -93,7 +100,10 @@ export async function storeUrl(
 }
 
 /**
- * Store content to scratchpad collection
+ * Store content to scratchpad collection.
+ *
+ * After successful enqueue, also writes to scratchpad_mirror for rebuild
+ * recovery. The mirror write is fire-and-forget (advisory).
  */
 export async function storeScratchpad(
   args: Record<string, unknown> | undefined,
@@ -139,6 +149,18 @@ export async function storeScratchpad(
         collection: COLLECTION_SCRATCHPAD,
       };
     }
+
+    // Mirror to scratchpad_mirror for rebuild recovery (fire-and-forget)
+    const now = utcNow();
+    stateManager.upsertScratchpadMirror({
+      scratchpadId: randomUUID(),
+      title: title?.trim() ?? null,
+      content: content.trim(),
+      tags: JSON.stringify(tags),
+      tenantId,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     return {
       success: true,

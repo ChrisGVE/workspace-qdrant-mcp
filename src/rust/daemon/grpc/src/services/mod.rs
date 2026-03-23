@@ -10,6 +10,7 @@ pub mod embedding_service;
 pub mod graph_service;
 pub mod project_service;
 mod rules_rebuild;
+mod scratchpad_rebuild;
 pub mod system_service;
 pub mod text_search_service;
 

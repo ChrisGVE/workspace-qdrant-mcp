@@ -249,6 +249,24 @@ pub struct DeleteRuleMirrorData {
     pub rule_id: String,
 }
 
+/// Data for UpsertScratchpadMirror
+#[derive(Debug)]
+pub struct UpsertScratchpadMirrorData {
+    pub scratchpad_id: String,
+    pub content: String,
+    pub title: String,
+    pub tags: String,
+    pub tenant_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Data for DeleteScratchpadMirror
+#[derive(Debug)]
+pub struct DeleteScratchpadMirrorData {
+    pub scratchpad_id: String,
+}
+
 // ── AdminWriteService commands ─────────────────────────────────────────
 
 /// Data for RenameTenantAdmin
@@ -386,6 +404,14 @@ pub enum WriteCommand {
     },
     DeleteRuleMirror {
         data: DeleteRuleMirrorData,
+        tx: oneshot::Sender<WriteResult<()>>,
+    },
+    UpsertScratchpadMirror {
+        data: UpsertScratchpadMirrorData,
+        tx: oneshot::Sender<WriteResult<()>>,
+    },
+    DeleteScratchpadMirror {
+        data: DeleteScratchpadMirrorData,
         tx: oneshot::Sender<WriteResult<()>>,
     },
 

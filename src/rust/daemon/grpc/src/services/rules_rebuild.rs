@@ -281,8 +281,8 @@ async fn enqueue_rule_ingestion(
     let _ = sqlx::query(
         "INSERT OR IGNORE INTO unified_queue \
          (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
-          priority, status, payload_json, created_at, updated_at) \
-         VALUES (?1, ?2, 'text', 'add', ?3, 'rules', 8, 'pending', ?4, ?5, ?6)",
+          status, payload_json, created_at, updated_at) \
+         VALUES (?1, ?2, 'text', 'add', ?3, 'rules', 'pending', ?4, ?5, ?6)",
     )
     .bind(uuid::Uuid::new_v4().to_string())
     .bind(&idem_key[..32])

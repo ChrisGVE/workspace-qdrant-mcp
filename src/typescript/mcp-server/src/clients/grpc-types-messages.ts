@@ -324,6 +324,20 @@ export interface DeleteRuleMirrorRequest {
   rule_id: string;
 }
 
+export interface UpsertScratchpadMirrorRequest {
+  scratchpad_id: string;
+  content: string;
+  title?: string;
+  tags?: string;
+  tenant_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeleteScratchpadMirrorRequest {
+  scratchpad_id: string;
+}
+
 // ── TextSearchService + GraphService ──
 // Re-exported from grpc-types-search-graph.ts
 export type {

@@ -5,13 +5,14 @@
 
 use tonic::{Request, Response, Status};
 use workspace_qdrant_core::write_actor::{
-    DeleteRuleMirrorData, LogSearchEventData, UpdateSearchEventData, UpsertRuleMirrorData,
-    WriteActorHandle,
+    DeleteRuleMirrorData, DeleteScratchpadMirrorData, LogSearchEventData, UpdateSearchEventData,
+    UpsertRuleMirrorData, UpsertScratchpadMirrorData, WriteActorHandle,
 };
 
 use crate::proto::{
     tracking_write_service_server::TrackingWriteService, DeleteRuleMirrorRequest,
-    LogSearchEventRequest, UpdateSearchEventRequest, UpsertRuleMirrorRequest,
+    DeleteScratchpadMirrorRequest, LogSearchEventRequest, UpdateSearchEventRequest,
+    UpsertRuleMirrorRequest, UpsertScratchpadMirrorRequest,
 };
 
 pub struct TrackingWriteServiceImpl {
@@ -113,6 +114,46 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
             .await
         {
             tracing::warn!("delete_rule_mirror failed (fire-and-forget): {}", e);
+        }
+        Ok(Response::new(()))
+    }
+
+    async fn upsert_scratchpad_mirror(
+        &self,
+        request: Request<UpsertScratchpadMirrorRequest>,
+    ) -> Result<Response<()>, Status> {
+        let req = request.into_inner();
+        if let Err(e) = self
+            .write_actor
+            .upsert_scratchpad_mirror(UpsertScratchpadMirrorData {
+                scratchpad_id: req.scratchpad_id,
+                content: req.content,
+                title: req.title.unwrap_or_default(),
+                tags: req.tags.unwrap_or_else(|| "[]".to_string()),
+                tenant_id: req.tenant_id,
+                created_at: req.created_at,
+                updated_at: req.updated_at,
+            })
+            .await
+        {
+            tracing::warn!("upsert_scratchpad_mirror failed (fire-and-forget): {}", e);
+        }
+        Ok(Response::new(()))
+    }
+
+    async fn delete_scratchpad_mirror(
+        &self,
+        request: Request<DeleteScratchpadMirrorRequest>,
+    ) -> Result<Response<()>, Status> {
+        let req = request.into_inner();
+        if let Err(e) = self
+            .write_actor
+            .delete_scratchpad_mirror(DeleteScratchpadMirrorData {
+                scratchpad_id: req.scratchpad_id,
+            })
+            .await
+        {
+            tracing::warn!("delete_scratchpad_mirror failed (fire-and-forget): {}", e);
         }
         Ok(Response::new(()))
     }

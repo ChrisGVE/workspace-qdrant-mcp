@@ -96,4 +96,46 @@ impl WriteActor {
 
         Ok(())
     }
+
+    pub(super) async fn exec_upsert_scratchpad_mirror(
+        &self,
+        data: UpsertScratchpadMirrorData,
+    ) -> WriteResult<()> {
+        sqlx::query(
+            "INSERT INTO scratchpad_mirror \
+             (scratchpad_id, title, content, tags, tenant_id, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT(scratchpad_id) DO UPDATE SET \
+                 title = excluded.title, \
+                 content = excluded.content, \
+                 tags = excluded.tags, \
+                 tenant_id = excluded.tenant_id, \
+                 updated_at = excluded.updated_at",
+        )
+        .bind(&data.scratchpad_id)
+        .bind(&data.title)
+        .bind(&data.content)
+        .bind(&data.tags)
+        .bind(&data.tenant_id)
+        .bind(&data.created_at)
+        .bind(&data.updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("failed to upsert scratchpad mirror: {}", e))?;
+
+        Ok(())
+    }
+
+    pub(super) async fn exec_delete_scratchpad_mirror(
+        &self,
+        data: DeleteScratchpadMirrorData,
+    ) -> WriteResult<()> {
+        sqlx::query("DELETE FROM scratchpad_mirror WHERE scratchpad_id = ?1")
+            .bind(&data.scratchpad_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("failed to delete scratchpad mirror: {}", e))?;
+
+        Ok(())
+    }
 }

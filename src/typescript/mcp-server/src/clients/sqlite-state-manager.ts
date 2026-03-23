@@ -58,6 +58,7 @@ import * as searchEventQueries from './search-event-queries.js';
 import * as tagQueries from './tag-queries.js';
 import * as instanceQueries from './instance-queries.js';
 import * as rulesMirrorQueries from './rules-mirror-queries.js';
+import * as scratchpadMirrorQueries from './scratchpad-mirror-queries.js';
 import * as trackedFilesQueries from './tracked-files-queries/index.js';
 
 // Re-export delegate types
@@ -253,6 +254,20 @@ export class SqliteStateManager {
 
   listRulesMirror(scope?: string, tenantId?: string, limit = 50) {
     return rulesMirrorQueries.listRulesMirror(this.db, scope, tenantId, limit);
+  }
+
+  // ── Scratchpad mirror (delegated) ──────────────────────────────────────
+
+  upsertScratchpadMirror(entry: scratchpadMirrorQueries.ScratchpadMirrorEntry): void {
+    scratchpadMirrorQueries.upsertScratchpadMirror(this.daemonClient, entry);
+  }
+
+  deleteScratchpadMirror(scratchpadId: string): void {
+    scratchpadMirrorQueries.deleteScratchpadMirror(this.daemonClient, scratchpadId);
+  }
+
+  listScratchpadMirror(tenantId?: string, limit = 100) {
+    return scratchpadMirrorQueries.listScratchpadMirror(this.db, tenantId, limit);
   }
 
   // ── Tracked files (delegated) ──────────────────────────────────────────

@@ -873,6 +873,12 @@ service TrackingWriteService {
 
     // Delete a rule from the rules_mirror table
     rpc DeleteRuleMirror(DeleteRuleMirrorRequest) returns (google.protobuf.Empty);
+
+    // Upsert a scratchpad entry into the scratchpad_mirror table
+    rpc UpsertScratchpadMirror(UpsertScratchpadMirrorRequest) returns (google.protobuf.Empty);
+
+    // Delete a scratchpad entry from the scratchpad_mirror table
+    rpc DeleteScratchpadMirror(DeleteScratchpadMirrorRequest) returns (google.protobuf.Empty);
 }
 
 // -----------------------------------------------------------------------------
@@ -1121,6 +1127,22 @@ message UpsertRuleMirrorRequest {
 // DeleteRuleMirror Request
 message DeleteRuleMirrorRequest {
     string rule_id = 1;
+}
+
+// UpsertScratchpadMirror Request
+message UpsertScratchpadMirrorRequest {
+    string scratchpad_id = 1;
+    string content = 2;
+    optional string title = 3;
+    optional string tags = 4;                         // JSON array as string
+    string tenant_id = 5;
+    string created_at = 6;                            // ISO 8601 timestamp
+    string updated_at = 7;                            // ISO 8601 timestamp
+}
+
+// DeleteScratchpadMirror Request
+message DeleteScratchpadMirrorRequest {
+    string scratchpad_id = 1;
 }
 
 // =============================================================================

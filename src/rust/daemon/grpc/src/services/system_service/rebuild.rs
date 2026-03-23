@@ -25,6 +25,7 @@ pub(super) async fn dispatch(
         "vocabulary" => rebuild_vocabulary(lexicon_manager, db_pool, collection).await,
         "keywords" => rebuild_keywords(db_pool, tenant_id, collection).await,
         "rules" => rebuild_rules(storage_client, db_pool).await,
+        "scratchpad" => rebuild_scratchpad(storage_client, db_pool).await,
         "projects" => rebuild_watch_folders(db_pool, "projects", tenant_id).await,
         "libraries" => rebuild_watch_folders(db_pool, "libraries", tenant_id).await,
         "components" => rebuild_components(db_pool, tenant_id, force).await,
@@ -35,7 +36,8 @@ pub(super) async fn dispatch(
             rebuild_components(db_pool, tenant_id, force).await;
             rebuild_tags(hierarchy_builder, tenant_id).await;
             rebuild_keywords(db_pool, tenant_id, collection).await;
-            rebuild_rules(storage_client, db_pool).await;
+            rebuild_rules(storage_client.clone(), db_pool).await;
+            rebuild_scratchpad(storage_client, db_pool).await;
             rebuild_watch_folders(db_pool, "projects", tenant_id).await;
             rebuild_watch_folders(db_pool, "libraries", tenant_id).await;
             info!("Full rebuild complete (all targets)");
@@ -399,6 +401,58 @@ async fn rebuild_rules(
         deleted_count,
         inserted,
         updated,
+        enqueued
+    );
+}
+
+/// Reconcile scratchpad entries between SQLite mirror and Qdrant.
+async fn rebuild_scratchpad(
+    storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
+    db_pool: Option<&sqlx::SqlitePool>,
+) {
+    use crate::services::scratchpad_rebuild;
+
+    let start = std::time::Instant::now();
+    let Some(pool) = db_pool else {
+        error!("[rebuild:scratchpad] Database pool not configured");
+        return;
+    };
+    let Some(storage) = storage_client else {
+        error!("[rebuild:scratchpad] Storage client not configured");
+        return;
+    };
+
+    let qdrant_entries = match scratchpad_rebuild::scroll_qdrant_scratchpad(&storage).await {
+        Ok(entries) => entries,
+        Err(e) => {
+            if e != "no_collection" {
+                error!("[rebuild:scratchpad] {}", e);
+            }
+            // Even without Qdrant collection, enqueue all mirror entries
+            std::collections::HashMap::new()
+        }
+    };
+
+    let mirror_entries = match scratchpad_rebuild::read_sqlite_scratchpad(pool).await {
+        Ok(entries) => entries,
+        Err(e) => {
+            error!("[rebuild:scratchpad] {}", e);
+            return;
+        }
+    };
+
+    info!(
+        "[rebuild:scratchpad] Qdrant={}, mirror={}",
+        qdrant_entries.len(),
+        mirror_entries.len()
+    );
+
+    let enqueued =
+        scratchpad_rebuild::reconcile_scratchpad(pool, &qdrant_entries, &mirror_entries).await;
+
+    info!(
+        "[rebuild:scratchpad] Reconciliation complete in {}ms: enqueued={}",
+        start.elapsed().as_millis(),
         enqueued
     );
 }

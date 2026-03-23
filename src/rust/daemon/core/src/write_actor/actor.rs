@@ -193,6 +193,18 @@ impl WriteActor {
                     warn!("DeleteRuleMirror response dropped: client disconnected");
                 }
             }
+            WriteCommand::UpsertScratchpadMirror { data, tx } => {
+                let result = self.exec_upsert_scratchpad_mirror(data).await;
+                if tx.send(result).is_err() {
+                    warn!("UpsertScratchpadMirror response dropped: client disconnected");
+                }
+            }
+            WriteCommand::DeleteScratchpadMirror { data, tx } => {
+                let result = self.exec_delete_scratchpad_mirror(data).await;
+                if tx.send(result).is_err() {
+                    warn!("DeleteScratchpadMirror response dropped: client disconnected");
+                }
+            }
 
             // ── AdminWriteService ──────────────────────────────────
             WriteCommand::RenameTenantAdmin { data, tx } => {
@@ -347,6 +359,22 @@ impl WriteActorHandle {
 
     pub async fn delete_rule_mirror(&self, data: DeleteRuleMirrorData) -> WriteResult<()> {
         self.send(|tx| WriteCommand::DeleteRuleMirror { data, tx })
+            .await
+    }
+
+    pub async fn upsert_scratchpad_mirror(
+        &self,
+        data: UpsertScratchpadMirrorData,
+    ) -> WriteResult<()> {
+        self.send(|tx| WriteCommand::UpsertScratchpadMirror { data, tx })
+            .await
+    }
+
+    pub async fn delete_scratchpad_mirror(
+        &self,
+        data: DeleteScratchpadMirrorData,
+    ) -> WriteResult<()> {
+        self.send(|tx| WriteCommand::DeleteScratchpadMirror { data, tx })
             .await
     }
 

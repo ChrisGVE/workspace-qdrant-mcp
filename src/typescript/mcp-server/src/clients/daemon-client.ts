@@ -47,6 +47,8 @@ import type {
   UpdateSearchEventRequest,
   UpsertRuleMirrorRequest,
   DeleteRuleMirrorRequest,
+  UpsertScratchpadMirrorRequest,
+  DeleteScratchpadMirrorRequest,
 } from './grpc-types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -346,6 +348,18 @@ export class DaemonClient {
     );
   }
 
+  async upsertScratchpadMirror(request: UpsertScratchpadMirrorRequest): Promise<void> {
+    return this.callWithRetry(() =>
+      grpcUnary(this.trackingWriteClient, 'upsertScratchpadMirror', request)
+    );
+  }
+
+  async deleteScratchpadMirror(request: DeleteScratchpadMirrorRequest): Promise<void> {
+    return this.callWithRetry(() =>
+      grpcUnary(this.trackingWriteClient, 'deleteScratchpadMirror', request)
+    );
+  }
+
   // ── Retry logic ──
 
   private async callWithRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -418,4 +432,6 @@ export type {
   UpdateSearchEventRequest,
   UpsertRuleMirrorRequest,
   DeleteRuleMirrorRequest,
+  UpsertScratchpadMirrorRequest,
+  DeleteScratchpadMirrorRequest,
 } from './grpc-types.js';

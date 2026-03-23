@@ -71,6 +71,8 @@ export {
   type UpdateSearchEventRequest,
   type UpsertRuleMirrorRequest,
   type DeleteRuleMirrorRequest,
+  type UpsertScratchpadMirrorRequest,
+  type DeleteScratchpadMirrorRequest,
 } from './grpc-types-messages.js';
 
 export type {
