@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Phase 3 cutover automation script (`scripts/phase3_cutover.sh`) for unified queue migration
-- Queue drift detection (`wqm admin drift-report`) to compare unified and legacy queues
-- Dual-write metrics for migration monitoring
-
 ### Deprecated
 - **Legacy Queue Tables** - `ingestion_queue` and `content_ingestion_queue` tables are deprecated
   - Use `unified_queue` table instead
@@ -24,6 +19,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dual-write mode** - `queue_processor.enable_dual_write` defaults to `false`
   - Only enable for migration compatibility
   - Will be removed in v0.5.0
+
+## [0.4.1] - 2026-03-25
+
+### Fixed
+
+#### Critical: Processing Pipeline Memory Leak
+- **Dynamic grammar memory leak** — Using cached `.dylib` grammars for languages with
+  static support (Python, Rust, TypeScript, etc.) caused ~270MB/s memory growth in the
+  tree-sitter parser due to ABI mismatches. The daemon now prefers statically compiled
+  grammars and only falls back to dynamic grammars for languages without built-in support.
+  Before: RSS 85MB to 2.4GB in 10 seconds, 0 items completed.
+  After: RSS stable at ~620MB, 100+ items processed per minute.
+- **macOS memory pressure detection** — Replaced `sysinfo` `used_memory()` (which
+  reports compressor pages as used on macOS, showing ~84% usage on idle 64GB systems)
+  with `kern.memorystatus_level` sysctl for accurate available-memory reporting.
+- **Process RSS safety valve** — Added per-process RSS check (2GB default) using
+  `mach task_info` on macOS / `/proc/self/statm` on Linux. Fires at loop top and
+  between batch items to prevent runaway memory growth.
+- **Qdrant readiness wait** — Added exponential-backoff gRPC readiness wait at startup
+  (up to ~90s) to prevent circuit breaker from tripping when memexd starts before
+  Qdrant on system boot.
+- **sysinfo allocation leak** — Replaced per-poll `System::new()` allocation with
+  `thread_local!` reuse in the sysinfo fallback path.
+
+### Added
+
+#### CLI UX Overhaul
+- **Interactive TUI dashboard** — New `wqm tui` command with a 2x4 interactive grid
+  showing service status, queue stats, projects, libraries, graph, config, languages,
+  and recent activity. Each cell supports popup detail views.
+- **TUI browsers** — Project browser, library browser, and queue browser with
+  filtering, scrolling, and detail popups.
+- **Output design system** — Standardized CLI output with borderless tables, consistent
+  key-value formatting, path shortening (`~/` for home), 8-char hash/UUID truncation,
+  section headers, and summary count footers.
+- **Contextual empty states** — Commands that return no results now display helpful
+  messages with suggested next actions.
+- **Queue list improvements** — Added project name, subject, and error columns; `--all`
+  flag to override default pagination; rich detail view for `queue show`.
+
+### Changed
+- **CLI renamed to Companion** — `wqm-cli` description updated, help styling improved,
+  `init completions` and `init man` commands flattened under `init` namespace.
+- **Command hierarchy reorganized** — `watch` moved under `project`, `collections` under
+  `admin`, `backup`/`restore` under `admin`, `man`/`hooks` under `init`.
+- **Consistent output formatting** — All commands converted from bordered tables to the
+  new clean borderless style with dots for path indicators and dynamic separator widths.
 
 ## [0.4.0] - 2025-01-19
 
@@ -405,7 +447,8 @@ pip install workspace-qdrant-mcp
 
 ---
 
-[Unreleased]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.1.2...v0.3.0
 [0.1.0]: https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/tag/v0.1.0
