@@ -11,6 +11,7 @@ use crate::commands::service::platform::{
     parse_binary_from_plist, parse_metrics_port_from_plist, ServiceManager,
 };
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 const DEFAULT_METRICS_PORT: u16 = 9090;
 
@@ -104,7 +105,7 @@ async fn enable_launchctl(port: u16) -> Result<()> {
         anyhow::bail!(
             "Daemon plist not found at {}.\n\
              Install the daemon first with: wqm service install",
-            plist_path.display()
+            home_to_tilde(&plist_path.display().to_string())
         );
     }
 
@@ -148,7 +149,10 @@ async fn disable_launchctl() -> Result<()> {
     let plist_path = launchd_plist_path()?;
 
     if !plist_path.exists() {
-        anyhow::bail!("Daemon plist not found at {}", plist_path.display());
+        anyhow::bail!(
+            "Daemon plist not found at {}",
+            home_to_tilde(&plist_path.display().to_string())
+        );
     }
 
     if parse_metrics_port_from_plist().is_none() {
@@ -184,7 +188,10 @@ fn restart_launchctl(plist_path: &std::path::Path) -> Result<()> {
 
     if !status.success() {
         output::warning("Daemon may need manual restart");
-        output::info(format!("launchctl load -w {}", plist_path.display()));
+        output::info(format!(
+            "launchctl load -w {}",
+            home_to_tilde(&plist_path.display().to_string())
+        ));
     }
 
     Ok(())

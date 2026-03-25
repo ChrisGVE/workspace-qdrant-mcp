@@ -405,11 +405,12 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
 
 fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: bool) {
     output::section("Scratchpad Entries");
-    output::kv("Total", points.len().to_string());
     if let Some(p) = project {
         output::kv("Filter", p);
     }
     output::separator();
+
+    let count = points.len();
 
     if verbose {
         let rows: Vec<ScratchRowVerbose> = points
@@ -443,6 +444,8 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
             .collect();
         output::print_table_auto(&rows);
     }
+
+    output::summary(output::summary_line(count, count, "scratchpad entries"));
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

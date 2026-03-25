@@ -26,24 +26,24 @@ pub async fn graph_stats(tenant_id: Option<String>) -> Result<()> {
         .context("GetGraphStats RPC failed")?
         .into_inner();
 
-    println!("Total nodes: {}", resp.total_nodes);
-    println!("Total edges: {}", resp.total_edges);
+    output::kv("Total nodes", resp.total_nodes.to_string());
+    output::kv("Total edges", resp.total_edges.to_string());
 
     if !resp.nodes_by_type.is_empty() {
-        println!("\nNodes by type:");
+        output::section("Nodes by type");
         let mut sorted: Vec<_> = resp.nodes_by_type.iter().collect();
         sorted.sort_by(|a, b| b.1.cmp(a.1));
         for (t, count) in sorted {
-            println!("  {:15} {:>8}", t, count);
+            output::kv(format!("  {t}"), count.to_string());
         }
     }
 
     if !resp.edges_by_type.is_empty() {
-        println!("\nEdges by type:");
+        output::section("Edges by type");
         let mut sorted: Vec<_> = resp.edges_by_type.iter().collect();
         sorted.sort_by(|a, b| b.1.cmp(a.1));
         for (t, count) in sorted {
-            println!("  {:15} {:>8}", t, count);
+            output::kv(format!("  {t}"), count.to_string());
         }
     }
 

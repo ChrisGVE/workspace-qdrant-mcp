@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use super::super::qdrant_helpers;
 use super::helpers::open_db;
 use crate::output;
+use crate::output::style::home_to_tilde;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
 /// List all libraries, including watched, format-routed, and orphaned
@@ -16,15 +17,14 @@ pub async fn execute(verbose: bool) -> Result<()> {
     let conn = match open_db() {
         Ok(c) => c,
         Err(_) => {
-            output::info("No libraries configured yet.");
-            output::info("Add a library with: wqm library add <tag> <path>");
+            output::info("No libraries configured. Use `wqm library add` to add one.");
             return Ok(());
         }
     };
 
     // Collect known library tags from SQLite
     let mut known_tags = HashSet::new();
-    let mut found_any = false;
+    let mut total_count: usize = 0;
 
     // Try to get Qdrant point counts (non-fatal if Qdrant is down)
     let qdrant_counts = match qdrant_helpers::build_qdrant_http_client() {
@@ -42,33 +42,32 @@ pub async fn execute(verbose: bool) -> Result<()> {
         Err(_) => std::collections::HashMap::new(),
     };
 
-    list_watch_folders(
-        &conn,
-        verbose,
-        &qdrant_counts,
-        &mut known_tags,
-        &mut found_any,
-    )?;
-    list_format_routed(&conn, &qdrant_counts, &mut known_tags, &mut found_any)?;
-    list_orphans(&qdrant_counts, &known_tags, &mut found_any);
+    total_count += list_watch_folders(&conn, verbose, &qdrant_counts, &mut known_tags)?;
+    total_count += list_format_routed(&conn, &qdrant_counts, &mut known_tags)?;
+    total_count += list_orphans(&qdrant_counts, &known_tags);
 
-    if !found_any {
-        output::info("No libraries configured and no format-routed library files found.");
-        output::info("Add a library with: wqm library add <tag> <path>");
-        output::info("Or add PDFs/documents to a watched project folder.");
+    if total_count == 0 {
+        output::info(
+            "No libraries found. Use `wqm library add` to add one, \
+             or add documents to a watched project folder.",
+        );
+    } else {
+        output::separator();
+        output::summary(output::summary_line(total_count, total_count, "libraries"));
     }
 
     Ok(())
 }
 
-/// Display explicit library watch folders from SQLite
+/// Display explicit library watch folders from SQLite.
+///
+/// Returns the number of watch folders found.
 fn list_watch_folders(
     conn: &rusqlite::Connection,
     verbose: bool,
     qdrant_counts: &std::collections::HashMap<String, usize>,
     known_tags: &mut HashSet<String>,
-    found_any: &mut bool,
-) -> Result<()> {
+) -> Result<usize> {
     let mut stmt = conn
         .prepare(&format!(
             "SELECT watch_id, tenant_id, path, library_mode, enabled, is_active, \
@@ -105,26 +104,26 @@ fn list_watch_folders(
         .context("Failed to parse library rows")?;
 
     if libraries.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
-    *found_any = true;
-    output::info(format!("Library watch folders ({}):", libraries.len()));
+    let count = libraries.len();
+    output::info(format!("Library watch folders ({count}):"));
     output::separator();
 
-    for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in
-        &libraries
+    for (i, (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity)) in
+        libraries.iter().enumerate()
     {
         known_tags.insert(tenant_id.clone());
         let status = if *enabled { "watching" } else { "paused" };
         let mode_str = mode.as_deref().unwrap_or("incremental");
 
         output::kv("  Tag", tenant_id);
-        output::kv("  Path", path);
+        output::kv("  Path", home_to_tilde(path));
         output::kv("  Status", status);
         output::kv("  Mode", mode_str);
-        if let Some(count) = qdrant_counts.get(tenant_id) {
-            output::kv("  Points", count.to_string());
+        if let Some(doc_count) = qdrant_counts.get(tenant_id) {
+            output::kv("  Documents", doc_count.to_string());
         }
         if verbose {
             output::kv("  Watch ID", watch_id);
@@ -133,19 +132,22 @@ fn list_watch_folders(
                 output::kv("  Last Activity", activity);
             }
         }
-        output::separator();
+        if i + 1 < count {
+            println!();
+        }
     }
 
-    Ok(())
+    Ok(count)
 }
 
-/// Display format-routed files (PDFs etc. auto-routed from project folders)
+/// Display format-routed files (PDFs etc. auto-routed from project folders).
+///
+/// Returns the number of routed project sources found.
 fn list_format_routed(
     conn: &rusqlite::Connection,
     qdrant_counts: &std::collections::HashMap<String, usize>,
     known_tags: &mut HashSet<String>,
-    found_any: &mut bool,
-) -> Result<()> {
+) -> Result<usize> {
     let mut routed_stmt = conn
         .prepare(
             "SELECT wf.tenant_id, wf.path, COUNT(tf.file_id) as file_count
@@ -170,37 +172,37 @@ fn list_format_routed(
         .context("Failed to parse format-routed rows")?;
 
     if routed.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
-    *found_any = true;
-    output::info(format!(
-        "Format-routed from projects ({} project(s)):",
-        routed.len()
-    ));
+    let count = routed.len();
+    output::info(format!("Format-routed from projects ({count} project(s)):"));
     output::separator();
 
-    for (tenant_id, project_path, file_count) in &routed {
+    for (i, (tenant_id, project_path, file_count)) in routed.iter().enumerate() {
         known_tags.insert(tenant_id.clone());
         output::kv("  Project", tenant_id);
-        output::kv("  Path", project_path);
+        output::kv("  Path", home_to_tilde(project_path));
         output::kv("  Library Files", file_count.to_string());
         output::kv("  Source", "auto-routed (PDF, DOCX, etc.)");
-        if let Some(count) = qdrant_counts.get(tenant_id) {
-            output::kv("  Points", count.to_string());
+        if let Some(doc_count) = qdrant_counts.get(tenant_id) {
+            output::kv("  Documents", doc_count.to_string());
         }
-        output::separator();
+        if i + 1 < count {
+            println!();
+        }
     }
 
-    Ok(())
+    Ok(count)
 }
 
-/// Display orphaned libraries that exist in Qdrant but not in SQLite
+/// Display orphaned libraries that exist in Qdrant but not in SQLite.
+///
+/// Returns the number of orphaned libraries found.
 fn list_orphans(
     qdrant_counts: &std::collections::HashMap<String, usize>,
     known_tags: &HashSet<String>,
-    found_any: &mut bool,
-) {
+) -> usize {
     let mut orphan_tags: Vec<(&String, &usize)> = qdrant_counts
         .iter()
         .filter(|(tag, _)| !known_tags.contains(*tag))
@@ -208,20 +210,24 @@ fn list_orphans(
     orphan_tags.sort_by_key(|(tag, _)| (*tag).clone());
 
     if orphan_tags.is_empty() {
-        return;
+        return 0;
     }
 
-    *found_any = true;
-    output::warning(format!("Orphaned libraries ({}):", orphan_tags.len()));
+    let count = orphan_tags.len();
+    output::warning(format!("Orphaned libraries ({count}):"));
     output::separator();
 
-    for (tag, count) in &orphan_tags {
+    for (i, (tag, doc_count)) in orphan_tags.iter().enumerate() {
         output::kv("  Tag", format!("{} (ORPHAN)", tag));
-        output::kv("  Points", count.to_string());
+        output::kv("  Documents", doc_count.to_string());
         output::kv(
             "  Status",
-            "no watch folder — run: wqm admin cleanup-orphans",
+            "no watch folder \u{2014} run: wqm admin cleanup-orphans",
         );
-        output::separator();
+        if i + 1 < count {
+            println!();
+        }
     }
+
+    count
 }

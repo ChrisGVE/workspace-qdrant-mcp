@@ -6,9 +6,11 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use colored::Colorize;
 
 use super::migration::migrate_config;
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 /// Output the embedded default YAML configuration to stdout.
 pub(super) fn generate() -> Result<()> {
@@ -59,8 +61,14 @@ pub(super) async fn move_to_xdg() -> Result<()> {
     let target_config = xdg_config_home.join("workspace-qdrant").join("config.yaml");
     let target_data_dir = xdg_data_home.join("workspace-qdrant");
 
-    output::kv("XDG_CONFIG_HOME", xdg_config_home.display().to_string());
-    output::kv("XDG_DATA_HOME", xdg_data_home.display().to_string());
+    output::kv(
+        "XDG_CONFIG_HOME",
+        home_to_tilde(&xdg_config_home.display().to_string()),
+    );
+    output::kv(
+        "XDG_DATA_HOME",
+        home_to_tilde(&xdg_data_home.display().to_string()),
+    );
     output::kv(
         "XDG cache dir",
         std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| "~/.cache (default)".into()),
@@ -75,7 +83,7 @@ pub(super) fn show() -> Result<()> {
 
     match &active_path {
         Some(path) => {
-            output::kv("Config file", path.display().to_string());
+            output::kv("Config file", home_to_tilde(&path.display().to_string()));
             output::separator();
             let content = std::fs::read_to_string(path).context("Failed to read config file")?;
             print!("{}", content);
@@ -98,15 +106,13 @@ pub(super) fn show_path() -> Result<()> {
     let active = wqm_common::paths::find_config_file();
 
     for path in &search_paths {
-        let exists = path.exists();
+        let display = home_to_tilde(&path.display().to_string());
         let is_active = active.as_ref() == Some(path);
 
         if is_active {
-            output::success(format!("{} (active)", path.display()));
-        } else if exists {
-            output::kv("Found", path.display().to_string());
+            println!("{} {} (active)", "●".green(), display);
         } else {
-            output::kv("  -", path.display().to_string());
+            println!("{} {}", "○".dimmed(), display.dimmed());
         }
     }
 
@@ -120,14 +126,16 @@ pub(super) fn show_path() -> Result<()> {
     output::kv(
         "Database",
         wqm_common::paths::get_database_path()
-            .map(|p| p.display().to_string())
+            .map(|p| home_to_tilde(&p.display().to_string()))
             .unwrap_or_else(|_| "(not found)".into()),
     );
     output::kv(
         "Logs",
-        wqm_common::paths::get_canonical_log_dir()
-            .display()
-            .to_string(),
+        home_to_tilde(
+            &wqm_common::paths::get_canonical_log_dir()
+                .display()
+                .to_string(),
+        ),
     );
 
     Ok(())

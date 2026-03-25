@@ -1,6 +1,6 @@
-//! WQM - Workspace Qdrant MCP CLI
+//! WQM - Workspace Qdrant MCP Companion
 //!
-//! A high-performance CLI for managing workspace-qdrant-mcp daemon.
+//! A high-performance companion for the workspace-qdrant-mcp daemon.
 //! Designed for <100ms startup time using minimal tokio runtime.
 
 use anyhow::Result;
@@ -12,64 +12,53 @@ mod error;
 mod grpc;
 mod output;
 pub(crate) mod path_arg;
+#[cfg(feature = "tui")]
+mod tui;
 
 /// Custom help template with grouped subcommands
 const HELP_TEMPLATE: &str = "\
 {before-help}{name} {version}
 {about-with-newline}
-{usage-heading} {usage}
+USAGE: {usage}
 
-Options:
+OPTIONS:
 {options}
-Search & Content:
+SEARCH & CONTENT:
   search       Search collections (project, library, rules, global)
   ingest       Ingest documents (file, folder, web)
   rules        Behavioral rules management
   scratch      Scratchpad entries
 
-Project & Library:
-  project      Project lifecycle (list, info, remove)
-  library      Library management (list, add, ingest, watch, remove, config)
-  watch        Watch folder management (list, enable, disable, show)
-  tags         Keyword/tag management and hierarchy
+PROJECT & LIBRARY:
+  project      Project lifecycle (list, info, register, watch, branch)
+  library      Library management (list, add, ingest, watch, remove)
 
-Queue & Analytics:
-  queue        Unified queue inspector (list, show, stats, cancel)
-  stats        Search instrumentation analytics
+QUEUE & MONITORING:
+  queue        Queue inspector (list, show, stats, cancel)
+  status       System status and monitoring
+  tui          Interactive terminal UI
 
-Service & Admin:
-  service      Daemon service management (start, stop, restart, status)
-  status       System status monitoring (queue, watch, health)
-  admin        Administrative operations
-  config       Configuration management (generate, default, xdg, show, path)
-  collections  Collection management (list, reset)
+SERVICE & ADMIN:
+  service      Daemon management (start, stop, restart, status)
+  admin        Administration (collections, backup, restore, rebuild, stats, perf, metrics)
+  config       Configuration management
+
+CODE ANALYSIS:
+  graph        Code relationship graph
   language     Language tools (LSP, Tree-sitter)
-  update       Update system from GitHub releases
+  tags         Keyword/tag hierarchy
 
-Maintenance & Recovery:
-  rebuild      Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
-
-Data Management:
-  backup       Backup Qdrant collections (create snapshots)
-  restore      Restore Qdrant collections from snapshots
-
-Code Graph:
-  graph        Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
-
-Setup & Diagnostics:
-  init         Shell completion setup (bash, zsh, fish)
-  man          Man page generation and installation
-  hooks        Claude Code hooks management
+SETUP & DIAGNOSTICS:
+  init         Setup (shell completions, hooks)
+  update       Update from GitHub releases
   debug        Diagnostic tools (logs, errors)
-
-Benchmarking:
-  benchmark    Benchmarking tools (sparse vectors, search engines)
+  benchmark    Benchmarking tools
 {after-help}";
 
-/// Workspace Qdrant MCP CLI
+/// Workspace Qdrant MCP Companion
 #[derive(Parser)]
 #[command(name = "wqm")]
-#[command(author, version, about = "Workspace Qdrant MCP CLI", long_about = None)]
+#[command(author, version, about = "Workspace Qdrant MCP Companion", long_about = None)]
 #[command(long_version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_NUMBER"), ")"))]
 #[command(propagate_version = true)]
 #[command(arg_required_else_help = true)]
@@ -113,98 +102,103 @@ enum Commands {
     Scratch(commands::scratch::ScratchArgs),
 
     // --- Project & Library ---
-    /// Project lifecycle (list, info, remove)
+    /// Project lifecycle (list, info, register, watch, branch)
     #[command(display_order = 20)]
     Project(commands::project::ProjectArgs),
 
-    /// Library management with tags (list, add, ingest, watch, unwatch, remove, config)
+    /// Library management (list, add, ingest, watch, remove)
     #[command(display_order = 21)]
     Library(commands::library::LibraryArgs),
 
-    /// Watch folder management (list, enable, disable, show)
-    #[command(display_order = 22)]
+    /// Watch folder management (hidden alias for `project watch`)
+    #[command(display_order = 22, hide = true)]
     Watch(commands::watch::WatchArgs),
 
-    /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, search, baskets)
+    // --- Code Analysis ---
+    /// Keyword/tag hierarchy (list, keywords, tree, stats, search, baskets)
     #[command(display_order = 23)]
     Tags(commands::tags::TagsArgs),
 
-    /// Code graph queries and algorithms (query, impact, stats, pagerank, communities, betweenness, migrate)
+    /// Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
     #[command(display_order = 24)]
     Graph(commands::graph::GraphArgs),
 
-    // --- Queue & Analytics ---
-    /// Unified queue inspector (list, show, stats)
+    /// Language tools (LSP, Tree-sitter)
+    #[command(display_order = 25)]
+    Language(commands::language::LanguageArgs),
+
+    // --- Queue & Monitoring ---
+    /// Queue inspector (list, show, stats, cancel)
     #[command(display_order = 30)]
     Queue(commands::queue::QueueArgs),
 
-    /// Search instrumentation analytics (overview, log-search)
+    /// System status and monitoring
     #[command(display_order = 31)]
-    Stats(commands::stats::StatsArgs),
+    Status(commands::status::StatusArgs),
 
-    // --- Maintenance ---
-    /// Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
-    #[command(display_order = 35)]
-    Rebuild(commands::rebuild::RebuildArgs),
+    /// Interactive terminal UI for browsing and monitoring
+    #[command(display_order = 32)]
+    #[cfg(feature = "tui")]
+    Tui,
 
     // --- Service & Admin ---
-    /// Daemon service management (start, stop, restart, status)
+    /// Daemon management (start, stop, restart, status)
     #[command(display_order = 40)]
     Service(commands::service::ServiceArgs),
 
-    /// Consolidated status monitoring (queue, watch, performance, health)
+    /// Administration (collections, backup, restore, rebuild, stats, perf, metrics)
     #[command(display_order = 41)]
-    Status(commands::status::StatusArgs),
-
-    /// Administrative operations (rename-tenant, idle-history, prune-logs)
-    #[command(display_order = 42)]
     Admin(commands::admin::AdminArgs),
 
-    /// Configuration management (generate, show, path)
-    #[command(display_order = 43)]
+    /// Configuration management
+    #[command(display_order = 42)]
     Config(commands::config_cmd::ConfigCmdArgs),
 
-    /// Collection management (list, reset)
-    #[command(display_order = 44)]
-    Collections(commands::collections::CollectionsArgs),
-
-    /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
-    #[command(display_order = 45)]
-    Language(commands::language::LanguageArgs),
-
-    /// Update system from GitHub releases
-    #[command(display_order = 46)]
-    Update(commands::update::UpdateArgs),
-
-    // --- Data Management ---
-    /// Backup Qdrant collections (create snapshots)
-    #[command(display_order = 50)]
-    Backup(commands::backup::BackupArgs),
-
-    /// Restore Qdrant collections from snapshots
-    #[command(display_order = 51)]
-    Restore(commands::restore::RestoreArgs),
-
     // --- Setup & Diagnostics ---
-    /// Shell completion setup (bash, zsh, fish)
+    /// Setup (shell completions, hooks)
     #[command(display_order = 60)]
     Init(commands::init::InitArgs),
 
-    /// Man page generation and installation
+    /// Update from GitHub releases
     #[command(display_order = 61)]
-    Man(commands::man::ManArgs),
-
-    /// Claude Code hooks management (install, uninstall, status)
-    #[command(display_order = 62)]
-    Hooks(commands::hooks::HooksArgs),
+    Update(commands::update::UpdateArgs),
 
     /// Diagnostic tools (logs, errors, queue-errors, language)
-    #[command(display_order = 63)]
+    #[command(display_order = 62)]
     Debug(commands::debug::DebugArgs),
 
     /// Benchmarking tools (sparse vectors, search engines)
-    #[command(display_order = 70)]
+    #[command(display_order = 63)]
     Benchmark(commands::benchmark::BenchmarkArgs),
+
+    // --- Hidden backward-compat aliases ---
+    /// Man page generation and installation (alias for `init man`)
+    #[command(display_order = 900, hide = true)]
+    Man(commands::man::ManArgs),
+
+    /// Claude Code hooks management (alias for `init hooks`)
+    #[command(display_order = 901, hide = true)]
+    Hooks(commands::hooks::HooksArgs),
+
+    /// Rebuild indexes and sync state (hidden alias for `admin rebuild`)
+    #[command(display_order = 902, hide = true)]
+    Rebuild(commands::rebuild::RebuildArgs),
+
+    /// Collection management (hidden alias for `admin collections`)
+    #[command(display_order = 903, hide = true)]
+    Collections(commands::collections::CollectionsArgs),
+
+    /// Backup Qdrant collections (hidden alias for `admin backup`)
+    #[command(display_order = 904, hide = true)]
+    Backup(commands::backup::BackupArgs),
+
+    /// Restore Qdrant collections from snapshots (hidden alias for `admin restore`)
+    #[command(display_order = 905, hide = true)]
+    Restore(commands::restore::RestoreArgs),
+
+    /// Search instrumentation analytics (hidden alias for `admin stats`)
+    #[command(display_order = 906, hide = true)]
+    Stats(commands::stats::StatsArgs),
 }
 
 /// Apply CLI argument overrides to configuration and validate it.
@@ -262,47 +256,48 @@ async fn main() -> Result<()> {
         // Project & Library
         Commands::Project(args) => commands::project::execute(args).await,
         Commands::Library(args) => commands::library::execute(args).await,
+        // Hidden alias: `wqm watch` delegates to the same handler as `wqm project watch`
         Commands::Watch(args) => commands::watch::execute(args).await,
+
+        // Code Analysis
         Commands::Tags(args) => commands::tags::execute(args).await,
         Commands::Graph(args) => commands::graph::execute(args).await,
+        Commands::Language(args) => commands::language::execute(args).await,
 
-        // Queue & Analytics
+        // Queue & Monitoring
         Commands::Queue(args) => commands::queue::execute(args).await,
-        Commands::Stats(args) => commands::stats::execute(args).await,
-
-        // Maintenance
-        Commands::Rebuild(args) => commands::rebuild::execute(args).await,
+        Commands::Status(args) => commands::status::execute(args).await,
+        #[cfg(feature = "tui")]
+        Commands::Tui => tui::run_tui(cfg.daemon_address.clone()),
 
         // Service & Admin
         Commands::Service(args) => {
             let mut cmd = Cli::command();
             commands::service::execute(args, Some(&mut cmd)).await
         }
-        Commands::Status(args) => commands::status::execute(args).await,
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Config(args) => commands::config_cmd::execute(args).await,
-        Commands::Collections(args) => commands::collections::execute(args).await,
-        Commands::Language(args) => commands::language::execute(args).await,
-        Commands::Update(args) => commands::update::execute(args).await,
-
-        // Data Management
-        Commands::Backup(args) => commands::backup::execute(args).await,
-        Commands::Restore(args) => commands::restore::execute(args).await,
 
         // Setup & Diagnostics
         Commands::Init(args) => {
             let mut cmd = Cli::command();
             commands::init::execute(args, &mut cmd).await
         }
+        Commands::Update(args) => commands::update::execute(args).await,
+        Commands::Debug(args) => commands::debug::execute(args).await,
+        Commands::Benchmark(args) => commands::benchmark::execute(args).await,
+
+        // Hidden backward-compat aliases (delegate to same handlers)
         Commands::Man(args) => {
             let mut cmd = Cli::command();
             commands::man::execute(args, &mut cmd).await
         }
         Commands::Hooks(args) => commands::hooks::execute(args).await,
-        Commands::Debug(args) => commands::debug::execute(args).await,
-
-        // Benchmarking
-        Commands::Benchmark(args) => commands::benchmark::execute(args).await,
+        Commands::Rebuild(args) => commands::rebuild::execute(args).await,
+        Commands::Collections(args) => commands::collections::execute(args).await,
+        Commands::Backup(args) => commands::backup::execute(args).await,
+        Commands::Restore(args) => commands::restore::execute(args).await,
+        Commands::Stats(args) => commands::stats::execute(args).await,
     };
 
     // Handle result

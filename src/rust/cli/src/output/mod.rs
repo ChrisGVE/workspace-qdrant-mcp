@@ -10,20 +10,31 @@
 mod formatters;
 mod messages;
 mod peakers;
+pub mod style;
 mod table;
+#[cfg(test)]
+mod tests;
 
 // ─── Re-exports ───────────────────────────────────────────────────────────
 
 // Messages
 pub use messages::{
-    confirm, error, info, kv, section, separator, status_line, success, warning, ServiceStatus,
+    confirm, error, info, kv, section, separator, status_line, success, summary, warning,
+    ServiceStatus,
 };
 
 // Formatters
 pub use formatters::{format_bytes, format_date, format_duration, strip_ansi, truncate};
 
+// Style (design system)
+pub use style::{
+    bold_style, dim_style, error_style, info_style, short_id, short_path, success_style,
+    summary_line, warning_style, COLUMN_SPACING, DEFAULT_ID_LENGTH, DEFAULT_PAGE_SIZE,
+    DEFAULT_PATH_MAX, INDENT_WIDTH,
+};
+
 // Table
 pub use table::{
-    print_data, print_json, print_plain, print_script, print_table, print_table_auto,
-    print_table_with_hints, terminal_width, ColumnHints,
+    build_table, finish_table, print_data, print_json, print_plain, print_script, print_table,
+    print_table_auto, print_table_with_hints, terminal_width, ColumnHints,
 };

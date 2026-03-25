@@ -8,6 +8,7 @@ use wqm_common::constants::COLLECTION_PROJECTS;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::ListProjectsRequest;
+use crate::output::style::home_to_tilde;
 use crate::output::{self, ServiceStatus};
 
 use super::super::qdrant_helpers;
@@ -62,20 +63,22 @@ fn print_project_list(
     qdrant_counts: &HashMap<String, usize>,
 ) {
     if list.projects.is_empty() && qdrant_counts.is_empty() {
-        output::info("No projects registered");
-        output::info("Register a project with: wqm project register [path]");
+        output::info("No projects registered. Use `wqm project register` to add one.");
         return;
     }
 
     let mut known_ids = HashSet::new();
 
-    for proj in &list.projects {
+    for (i, proj) in list.projects.iter().enumerate() {
         known_ids.insert(proj.project_id.clone());
         let status = if proj.is_active {
             ServiceStatus::Active
         } else {
             ServiceStatus::Inactive
         };
+        if i > 0 {
+            println!();
+        }
         let name_display = if proj.is_worktree {
             format!("{} [worktree]", proj.project_name)
         } else {
@@ -83,11 +86,10 @@ fn print_project_list(
         };
         output::status_line(&name_display, status);
         output::kv("  ID", &proj.project_id);
-        output::kv("  Path", &proj.project_root);
+        output::kv("  Path", home_to_tilde(&proj.project_root));
         output::kv("  Priority", &proj.priority);
-        output::kv("  Active", if proj.is_active { "Yes" } else { "No" });
         if let Some(count) = qdrant_counts.get(&proj.project_id) {
-            output::kv("  Points", count.to_string());
+            output::kv("  Documents", count.to_string());
         }
     }
 
@@ -102,13 +104,14 @@ fn print_project_list(
         output::separator();
         output::warning(format!("Orphaned projects ({}):", orphan_ids.len()));
         for (id, count) in &orphan_ids {
-            output::kv(format!("  {} (ORPHAN)", id), format!("{} points", count));
+            output::kv(format!("  {} (ORPHAN)", id), format!("{} documents", count));
         }
         output::info("Run: wqm admin cleanup-orphans");
     }
 
     output::separator();
-    output::info(format!("Total: {} projects", list.total_count));
+    let total = list.total_count as usize;
+    output::summary(output::summary_line(total, total, "projects"));
 }
 
 fn print_orphans_without_daemon(qdrant_counts: &HashMap<String, usize>) {
@@ -121,7 +124,7 @@ fn print_orphans_without_daemon(qdrant_counts: &HashMap<String, usize>) {
         let mut sorted: Vec<_> = qdrant_counts.iter().collect();
         sorted.sort_by_key(|(id, _)| (*id).clone());
         for (id, count) in sorted {
-            output::kv(format!("  {}", id), format!("{} points", count));
+            output::kv(format!("  {}", id), format!("{} documents", count));
         }
     }
 }

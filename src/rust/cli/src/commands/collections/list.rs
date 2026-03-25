@@ -1,6 +1,7 @@
 //! Collections list subcommand handler
 
 use anyhow::{Context as _, Result};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
@@ -29,7 +30,8 @@ struct QdrantResponse<T> {
     result: T,
 }
 
-#[derive(Tabled)]
+/// Internal row data for a collection (used for JSON/script output).
+#[derive(Tabled, Serialize)]
 struct CollectionRow {
     #[tabled(rename = "Name")]
     name: String,
@@ -65,13 +67,18 @@ pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Res
 
             if body.result.collections.is_empty() {
                 if !script {
-                    output::info("No collections found");
+                    output::info("No collections found. Register a project to get started.");
                 }
                 return Ok(());
             }
 
             let rows = build_collection_rows(&body.result.collections).await?;
-            print_collection_results(&rows, &body.result.collections, script, no_headers);
+
+            if script {
+                output::print_script(&rows, !no_headers);
+            } else {
+                print_record_list(&rows);
+            }
         }
         Ok(resp) => {
             output::error(format!(
@@ -180,39 +187,85 @@ async fn build_canonical_row(
     })
 }
 
-fn print_collection_results(
-    rows: &[CollectionRow],
-    collections: &[CollectionDescription],
-    script: bool,
-    no_headers: bool,
-) {
-    if script {
-        output::print_script(rows, !no_headers);
-        return;
-    }
+/// Print collections in the record-list pattern with status indicators.
+///
+/// Active collections (with points) get a green filled circle, empty ones
+/// get a dim open circle. Details are shown as indented key-value pairs.
+fn print_record_list(rows: &[CollectionRow]) {
+    println!();
 
     for row in rows {
-        let orphan_str = row
-            .orphans
-            .parse::<usize>()
-            .ok()
-            .filter(|&n| n > 0)
-            .map(|n| format!(", {} orphan(s)", n))
-            .unwrap_or_default();
+        let has_points = row.points.parse::<u64>().ok().map_or(false, |n| n > 0);
 
-        if row.tenants == "-" {
-            output::kv(&row.name, format!("{} | {} points", row.ctype, row.points));
+        // Status indicator and collection header
+        let indicator = if has_points {
+            "●".green()
         } else {
-            output::kv(
-                &row.name,
-                format!(
-                    "{} | {} points | {} tenant(s){}",
-                    row.ctype, row.points, row.tenants, orphan_str
-                ),
-            );
+            "○".dimmed()
+        };
+        println!("{} {}: {}", indicator, row.name.bold(), row.ctype);
+
+        // Points
+        let points_display = format_number_with_commas(&row.points);
+        println!("  {}: {}", "Points".dimmed(), points_display);
+
+        // Tenants (only for canonical collections)
+        if row.tenants != "-" {
+            println!("  {}: {}", "Tenants".dimmed(), row.tenants);
+
+            // Orphans (only show when > 0)
+            if let Ok(n) = row.orphans.parse::<usize>() {
+                if n > 0 {
+                    println!("  {}: {}", "Orphans".dimmed(), n.to_string().yellow());
+                }
+            }
         }
     }
 
-    output::separator();
-    output::info(format!("Total: {} collections", collections.len()));
+    // Footer summary
+    println!();
+    output::summary(output::summary_line(rows.len(), rows.len(), "collections"));
+}
+
+/// Format a numeric string with thousands separators (commas).
+fn format_number_with_commas(s: &str) -> String {
+    match s.parse::<u64>() {
+        Ok(n) => {
+            let formatted = n.to_string();
+            let mut result = String::new();
+            for (i, c) in formatted.chars().rev().enumerate() {
+                if i > 0 && i % 3 == 0 {
+                    result.push(',');
+                }
+                result.push(c);
+            }
+            result.chars().rev().collect()
+        }
+        Err(_) => s.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_number_small() {
+        assert_eq!(format_number_with_commas("0"), "0");
+        assert_eq!(format_number_with_commas("42"), "42");
+        assert_eq!(format_number_with_commas("999"), "999");
+    }
+
+    #[test]
+    fn format_number_thousands() {
+        assert_eq!(format_number_with_commas("1000"), "1,000");
+        assert_eq!(format_number_with_commas("104100"), "104,100");
+        assert_eq!(format_number_with_commas("1234567"), "1,234,567");
+    }
+
+    #[test]
+    fn format_number_non_numeric() {
+        assert_eq!(format_number_with_commas("?"), "?");
+        assert_eq!(format_number_with_commas("-"), "-");
+    }
 }

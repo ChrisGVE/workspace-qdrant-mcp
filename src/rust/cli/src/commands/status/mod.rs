@@ -34,7 +34,7 @@ pub struct StatusArgs {
     #[arg(long)]
     watch: bool,
 
-    /// Show performance metrics
+    /// Show system resource metrics (CPU, memory, disk)
     #[arg(long)]
     performance: bool,
 
@@ -63,7 +63,8 @@ enum StatusCommand {
     /// Show file watcher status
     Watch,
 
-    /// Show performance metrics
+    /// Show system resource metrics (for pipeline timing, use: wqm admin perf)
+    #[command(hide = true)]
     Performance,
 
     /// Live updating dashboard

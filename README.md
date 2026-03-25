@@ -89,7 +89,7 @@ claude mcp add workspace-qdrant-mcp -- node /path/to/workspace-qdrant-mcp/src/ty
 
 ```bash
 wqm --version
-wqm admin health
+wqm status health
 ```
 
 ### CLAUDE.md Integration
@@ -170,7 +170,7 @@ See [MCP Tools Reference](docs/reference/mcp-tools.md) for parameters and exampl
 # Service management
 wqm service start              # Start background daemon
 wqm service status             # Check daemon status
-wqm admin health               # System health check
+wqm status health              # System health check
 
 # Search and content
 wqm search "query"             # Search collections
@@ -179,14 +179,26 @@ wqm rules list                 # List behavioral rules
 
 # Project and library
 wqm project list               # List registered projects
+wqm project watch pause        # Pause file watchers
 wqm library list               # List libraries
 wqm tags list                  # List tags with counts
+
+# Administration
+wqm admin collections list     # List collections
+wqm admin rebuild all          # Rebuild all indexes
+wqm admin backup create        # Backup snapshots
+wqm admin stats overview       # Search analytics
 
 # Code graph
 wqm graph stats --tenant <t>   # Node/edge counts
 wqm graph query --node-id <id> --tenant <t> --hops 2   # Related nodes
 wqm graph impact --symbol <name> --tenant <t>           # Impact analysis
 wqm graph pagerank --tenant <t> --top-k 20              # PageRank centrality
+
+# Setup
+wqm init completions zsh       # Shell completions
+wqm init man install           # Install man pages
+wqm init hooks install         # Install Claude Code hooks
 
 # Queue and monitoring
 wqm queue stats                # Queue statistics

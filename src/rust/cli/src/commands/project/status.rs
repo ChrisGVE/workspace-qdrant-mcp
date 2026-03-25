@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::GetProjectStatusRequest;
+use crate::output::style::home_to_tilde;
 use crate::output::{self, ServiceStatus};
 
 use super::resolver::calculate_project_id;
@@ -16,12 +17,13 @@ pub(super) async fn project_status(path: Option<PathBuf>) -> Result<()> {
         .canonicalize()
         .context("Could not resolve path")?;
 
-    output::section(format!("Project Status: {}", abs_path.display()));
+    let display_path = home_to_tilde(&abs_path.display().to_string());
+    output::section(format!("Project Status: {}", display_path));
 
     // Generate project ID using the same algorithm as the daemon
     let project_id = calculate_project_id(&abs_path);
 
-    output::kv("Path", abs_path.display().to_string());
+    output::kv("Path", &display_path);
     output::kv("Project ID", &project_id);
     output::separator();
 

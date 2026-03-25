@@ -258,6 +258,7 @@ Manage project registration and lifecycle within the daemon.
 | `activate [project]` | Activate a project |
 | `deactivate [project]` | Deactivate a project |
 | `check [project]` | Check ingestion status vs filesystem |
+| `watch <action>` | Watch folder management |
 | `branch <action>` | Branch management |
 
 All `[project]` arguments accept a project ID or path. When omitted, the current working directory is used.
@@ -297,6 +298,38 @@ All `[project]` arguments accept a project ID or path. When omitted, the current
 | `-v, --verbose` | Show per-file status |
 | `--json` | Output as JSON |
 
+**`wqm project watch`**
+
+Watch folder management for project file watchers.
+
+| Action | Description |
+|--------|-------------|
+| `list` | List all watch configurations |
+| `enable <watch-id>` | Enable a watch configuration |
+| `disable <watch-id>` | Disable a watch configuration |
+| `show <watch-id>` | Show details for a specific watch |
+| `archive <watch-id>` | Archive a watch (data remains searchable; watching stops) |
+| `unarchive <watch-id>` | Unarchive a watch (resumes watching) |
+| `pause` | Pause all enabled watchers |
+| `resume` | Resume all paused watchers |
+
+`wqm project watch list` flags:
+
+| Flag | Description |
+|------|-------------|
+| `--enabled` | Show only enabled watches |
+| `--disabled` | Show only disabled watches |
+| `-c, --collection <NAME>` | Filter by collection name |
+| `--json` | Output as JSON |
+| `-v, --verbose` | Show more columns |
+| `--show-archived` | Include archived watch folders |
+
+`wqm project watch show` flags:
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON |
+
 **`wqm project branch`**
 
 | Action | Description |
@@ -325,6 +358,18 @@ wqm project priority high
 
 # Switch to a feature branch
 wqm project branch switch feature/new-api
+
+# Pause all file watchers during a large refactor
+wqm project watch pause
+
+# Resume watching after refactor is complete
+wqm project watch resume
+
+# List all active watches
+wqm project watch list --enabled
+
+# Archive a watch folder to keep data but stop watching
+wqm project watch archive abc123
 ```
 
 ---
@@ -432,58 +477,6 @@ wqm library remove rust-docs --yes
 
 ---
 
-### `wqm watch`
-
-Inspect and manage watch folder configurations directly. Watch folders drive the daemon's file event processing.
-
-**Subcommands**
-
-| Subcommand | Description |
-|------------|-------------|
-| `list` | List all watch configurations |
-| `enable <watch-id>` | Enable a watch configuration |
-| `disable <watch-id>` | Disable a watch configuration |
-| `show <watch-id>` | Show details for a specific watch |
-| `archive <watch-id>` | Archive a watch (data remains searchable; watching stops) |
-| `unarchive <watch-id>` | Unarchive a watch (resumes watching) |
-| `pause` | Pause all enabled watchers |
-| `resume` | Resume all paused watchers |
-
-**`wqm watch list`**
-
-| Flag | Description |
-|------|-------------|
-| `--enabled` | Show only enabled watches |
-| `--disabled` | Show only disabled watches |
-| `-c, --collection <NAME>` | Filter by collection name |
-| `--json` | Output as JSON |
-| `-v, --verbose` | Show more columns |
-| `--show-archived` | Include archived watch folders |
-
-**`wqm watch show`**
-
-| Flag | Description |
-|------|-------------|
-| `--json` | Output as JSON |
-
-**Examples**
-
-```sh
-# List all active watches
-wqm watch list --enabled
-
-# Pause all watchers during a large refactor
-wqm watch pause
-
-# Resume watching after refactor is complete
-wqm watch resume
-
-# Archive a watch folder to keep data but stop watching
-wqm watch archive abc123
-```
-
----
-
 ### `wqm tags`
 
 Inspect keyword and tag extraction results stored in SQLite.
@@ -544,7 +537,7 @@ Inspect keyword and tag extraction results stored in SQLite.
 
 ---
 
-## Queue & Analytics
+## Queue & Monitoring
 
 ### `wqm queue`
 
@@ -627,40 +620,74 @@ wqm queue show abc123
 
 ---
 
-### `wqm stats`
+### `wqm status`
 
-Search instrumentation analytics derived from `search_events` and related tables.
+Consolidated system status monitoring.
 
 **Subcommands**
 
 | Subcommand | Description |
 |------------|-------------|
-| `overview` | Search instrumentation overview |
-| `processing` | Processing timing stats with per-phase breakdown |
-| `log-search` | Log a search event (used by wrapper scripts) |
+| *(none)* | Show default system status overview |
+| `queue` | Queue status summary |
+| `watch` | Watch folder status |
+| `history` | Show historical metrics |
+| `live` | Live updating dashboard |
+| `messages` | Message management (list, clear) |
+| `errors` | Show recent errors |
+| `health` | System health check |
 
-**`wqm stats overview` and `wqm stats processing`**
+**Flags (default view)**
 
 | Flag | Description |
 |------|-------------|
-| `-p, --period <PERIOD>` | Time period: `day`, `week` (default), `month`, `all` |
-
-**`wqm stats processing`** (additional flags)
-
-| Flag | Description |
-|------|-------------|
-| `--op <OP>` | Filter by operation: `add`, `update`, `delete`, `scan` |
-| `--item-type <TYPE>` | Filter by item type: `file`, `text`, `folder`, `tenant` |
+| `--queue` | Include queue status in overview |
+| `--watch` | Include watch status in overview |
+| `--performance` | Include system resource metrics |
 | `--json` | Output as JSON |
 
-**`wqm stats log-search`**
+**`wqm status history`**
 
 | Flag | Description |
 |------|-------------|
-| `--tool <NAME>` | Tool name (e.g., `rg`, `grep`) (required) |
-| `--query <TEXT>` | Search query text (required) |
-| `--actor <ACTOR>` | Actor: `claude` (default) or `user` |
-| `--session-id <ID>` | Session ID (optional) |
+| `-r, --range <RANGE>` | Time range: `1h`, `24h`, `7d` (default: `1h`) |
+
+**`wqm status live`**
+
+| Flag | Description |
+|------|-------------|
+| `-i, --interval <SECS>` | Refresh interval in seconds (default: `2`) |
+
+**`wqm status errors`**
+
+| Flag | Description |
+|------|-------------|
+| `-n, --limit <N>` | Number of errors to show (default: `10`) |
+
+**`wqm status health`**
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON |
+
+**Examples**
+
+```sh
+# Default overview
+wqm status
+
+# Full overview with queue and performance
+wqm status --queue --performance
+
+# System health check
+wqm status health
+
+# Live dashboard
+wqm status live --interval 5
+
+# Show recent errors
+wqm status errors -n 20
+```
 
 ---
 
@@ -730,34 +757,121 @@ wqm service restart
 
 ---
 
-### `wqm status`
-
-Consolidated system status monitoring.
-
-**Subcommands**
-
-| Subcommand | Description |
-|------------|-------------|
-| `queue` | Queue status summary |
-| `watch` | Watch folder status |
-| `performance` | Performance metrics |
-| `health` | System health check |
-
----
-
 ### `wqm admin`
 
-Administrative operations that affect persistent state.
+Administrative operations that affect persistent state. This command group consolidates collection management, index rebuilding, backup/restore, analytics, and other maintenance operations.
 
 **Subcommands**
 
 | Subcommand | Description |
 |------------|-------------|
-| `rename-tenant <old-id> <new-id>` | Rename a tenant ID across all SQLite tables |
+| `collections` | Collection management (list, reset) |
+| `rebuild` | Rebuild indexes and sync state |
+| `backup` | Backup Qdrant collections (create snapshots) |
+| `restore` | Restore Qdrant collections from snapshots |
+| `stats` | Search instrumentation analytics |
+| `perf` | Pipeline performance statistics (per-phase timing) |
+| `metrics` | Prometheus metrics management |
+| `rename-tenant <old> <new>` | Rename a tenant ID across all SQLite tables |
 | `idle-history` | Show idle/active state transition history |
 | `prune-logs` | Remove old log files |
 | `cleanup-orphans` | Detect and optionally delete orphaned tenants |
 | `recover-state` | Rebuild `state.db` from Qdrant collections |
+| `rebalance-idf` | Correct IDF drift in stored sparse vectors |
+
+**`wqm admin collections`**
+
+| Action | Description |
+|--------|-------------|
+| `list` | List all collections |
+| `reset` | Reset a collection (deletes all vectors) |
+
+**`wqm admin rebuild`**
+
+Trigger index rebuilds via the daemon. Requires the daemon to be running.
+
+| Action | Description |
+|--------|-------------|
+| `tags` | Rebuild canonical tag hierarchy |
+| `search` | Rebuild FTS5 code search index |
+| `vocabulary` | Rebuild BM25 sparse vocabulary |
+| `keywords` | Re-extract keywords/tags for all documents |
+| `rules` | Diagnose and reconcile rules between Qdrant and SQLite |
+| `projects` | Rescan all project watch folders |
+| `libraries` | Rescan all library watch folders |
+| `all` | Rebuild all computed indexes in sequence |
+
+Common flags (where applicable):
+
+| Flag | Description |
+|------|-------------|
+| `--tenant <ID>` | Limit to a specific tenant (all tenants if omitted) |
+| `--collection <NAME>` | Target collection (default: `projects`) |
+
+**`wqm admin backup`**
+
+| Action | Description |
+|--------|-------------|
+| `create` | Create snapshots of all collections |
+
+**`wqm admin restore`**
+
+| Action | Description |
+|--------|-------------|
+| `list` | List available snapshots |
+| `from <path>` | Restore from a snapshot file |
+
+**`wqm admin stats`**
+
+Search instrumentation analytics derived from `search_events` and related tables.
+
+| Action | Description |
+|--------|-------------|
+| `overview` | Search instrumentation overview |
+| `processing` | Processing timing stats with per-phase breakdown |
+| `log-search` | Log a search event (used by wrapper scripts) |
+
+`wqm admin stats overview` and `wqm admin stats processing`:
+
+| Flag | Description |
+|------|-------------|
+| `-p, --period <PERIOD>` | Time period: `day`, `week` (default), `month`, `all` |
+
+`wqm admin stats processing` (additional flags):
+
+| Flag | Description |
+|------|-------------|
+| `--op <OP>` | Filter by operation: `add`, `update`, `delete`, `scan` |
+| `--item-type <TYPE>` | Filter by item type: `file`, `text`, `folder`, `tenant` |
+| `--json` | Output as JSON |
+
+`wqm admin stats log-search`:
+
+| Flag | Description |
+|------|-------------|
+| `--tool <NAME>` | Tool name (e.g., `rg`, `grep`) (required) |
+| `--query <TEXT>` | Search query text (required) |
+| `--actor <ACTOR>` | Actor: `claude` (default) or `user` |
+| `--session-id <ID>` | Session ID (optional) |
+
+**`wqm admin perf`**
+
+| Flag | Description |
+|------|-------------|
+| `-w, --window <HOURS>` | Time window in hours (default: `24`) |
+| `--json` | Output in JSON format |
+| `-g, --group-by <DIMS>` | Group by 1-2 dimensions: `project`, `phase`, `language`, `op` (comma-separated) |
+| `-s, --sort <COL:DIR>` | Sort by column:direction (e.g., `avg_ms:desc`, `count:asc`) |
+| `-c, --collection <NAME>` | Filter by collection |
+
+**`wqm admin metrics`**
+
+| Action | Description |
+|--------|-------------|
+| `show` | Fetch live Prometheus metrics from the daemon |
+| `enable` | Enable the metrics endpoint |
+| `disable` | Disable the metrics endpoint |
+| `status` | Check if metrics endpoint is configured and responding |
 
 **`wqm admin rename-tenant`**
 
@@ -795,6 +909,47 @@ Scrolls all Qdrant collections and reconstructs `watch_folders`, `tracked_files`
 |------|-------------|
 | `--confirm` | Actually perform recovery (default is dry-run) |
 
+**`wqm admin rebalance-idf`**
+
+Corrects IDF drift in stored sparse vectors as the corpus grows.
+
+| Flag | Description |
+|------|-------------|
+| `--collection <NAME>` | Target collection (default: all collections with corpus statistics) |
+| `--dry-run` | Report drift without updating any vectors |
+| `--min-growth-pct <PCT>` | Minimum corpus growth (%) before correction runs (default: `10.0`) |
+
+**Examples**
+
+```sh
+# Full rebuild after schema migration
+wqm admin rebuild all
+
+# Rebuild only the FTS5 search index
+wqm admin rebuild search
+
+# Rebuild tag hierarchy for one tenant
+wqm admin rebuild tags --tenant abc123def456
+
+# Collection management
+wqm admin collections list
+
+# Create backups
+wqm admin backup create
+
+# Pipeline performance stats
+wqm admin perf --window 48 --group-by phase
+
+# Search analytics overview
+wqm admin stats overview --period month
+
+# Detect orphaned tenants
+wqm admin cleanup-orphans
+
+# Prune old log files (dry run)
+wqm admin prune-logs --dry-run
+```
+
 ---
 
 ### `wqm config`
@@ -813,111 +968,7 @@ Configuration management for the daemon and CLI.
 
 ---
 
-### `wqm collections`
-
-Manage Qdrant collections.
-
-**Subcommands**
-
-| Subcommand | Description |
-|------------|-------------|
-| `list` | List all collections |
-| `reset` | Reset a collection (deletes all vectors) |
-
----
-
-### `wqm language`
-
-Language support tools for LSP servers and Tree-sitter grammars.
-
-**Subcommands**
-
-| Subcommand | Description |
-|------------|-------------|
-| `list` | List supported languages |
-| `ts-install <lang>` | Install a Tree-sitter grammar |
-| `ts-remove <lang>` | Remove a Tree-sitter grammar |
-| `lsp-install <lang>` | Install an LSP server |
-| `lsp-remove <lang>` | Remove an LSP server |
-| `status` | Show language support status |
-
----
-
-### `wqm update`
-
-Update `wqm` and `memexd` binaries from GitHub releases.
-
----
-
-## Maintenance
-
-### `wqm rebuild`
-
-Trigger index rebuilds via the daemon. Requires the daemon to be running.
-
-**Subcommands**
-
-| Subcommand | Description |
-|------------|-------------|
-| `tags` | Rebuild canonical tag hierarchy |
-| `search` | Rebuild FTS5 code search index |
-| `vocabulary` | Rebuild BM25 sparse vocabulary |
-| `keywords` | Re-extract keywords/tags for all documents |
-| `rules` | Diagnose and reconcile rules between Qdrant and SQLite |
-| `projects` | Rescan all project watch folders |
-| `libraries` | Rescan all library watch folders |
-| `all` | Rebuild all computed indexes in sequence |
-
-**Common flags** (where applicable)
-
-| Flag | Description |
-|------|-------------|
-| `--tenant <ID>` | Limit to a specific tenant (all tenants if omitted) |
-| `--collection <NAME>` | Target collection (default: `projects`) |
-
-**Examples**
-
-```sh
-# Full rebuild after schema migration
-wqm rebuild all
-
-# Rebuild only the FTS5 search index
-wqm rebuild search
-
-# Rebuild tag hierarchy for one tenant
-wqm rebuild tags --tenant abc123def456
-```
-
----
-
-## Data Management
-
-### `wqm backup`
-
-Create Qdrant collection snapshots.
-
-**Subcommands**
-
-| Subcommand | Description |
-|------------|-------------|
-| `create` | Create snapshots of all collections |
-
----
-
-### `wqm restore`
-
-Restore Qdrant collections from snapshots.
-
-**Subcommands**
-
-| Subcommand | Description |
-|------------|-------------|
-| `list` | List available snapshots |
-| `from <path>` | Restore from a snapshot file |
-
----
-
-## Code Graph
+## Code Analysis
 
 ### `wqm graph`
 
@@ -941,7 +992,7 @@ Query the code relationship graph built from Tree-sitter analysis. All subcomman
 |------|-------------|
 | `--node-id <ID>` | Node ID to query from (required) |
 | `--tenant <ID>` | Project tenant ID (required) |
-| `--hops <N>` | Maximum traversal depth 1–5 (default: `2`) |
+| `--hops <N>` | Maximum traversal depth 1-5 (default: `2`) |
 | `--edge-types <TYPES>` | Edge type filter, comma-separated: `CALLS`, `IMPORTS`, `CONTAINS`, `USES_TYPE`, `EXTENDS`, `IMPLEMENTS` |
 
 **`wqm graph impact`**
@@ -1020,39 +1071,64 @@ wqm graph betweenness --tenant abc123 --top-k 10
 
 ---
 
-## Setup & Diagnostics
+### `wqm language`
 
-### `wqm init`
-
-Install shell completions.
-
-**Usage**
-
-```sh
-wqm init bash   # Bash completions
-wqm init zsh    # Zsh completions
-wqm init fish   # Fish completions
-```
-
----
-
-### `wqm man`
-
-Generate and install man pages.
-
----
-
-### `wqm hooks`
-
-Manage Claude Code hooks for real-time ingestion during active coding sessions.
+Language support tools for LSP servers and Tree-sitter grammars.
 
 **Subcommands**
 
 | Subcommand | Description |
 |------------|-------------|
-| `install` | Install Claude Code hooks |
-| `uninstall` | Remove Claude Code hooks |
-| `status` | Show hook installation status |
+| `list` | List supported languages |
+| `ts-install <lang>` | Install a Tree-sitter grammar |
+| `ts-remove <lang>` | Remove a Tree-sitter grammar |
+| `lsp-install <lang>` | Install an LSP server |
+| `lsp-remove <lang>` | Remove an LSP server |
+| `status` | Show language support status |
+
+---
+
+## Setup & Diagnostics
+
+### `wqm init`
+
+Setup tools for shell completions, man pages, and Claude Code hooks.
+
+**Subcommands**
+
+| Subcommand | Description |
+|------------|-------------|
+| `completions <shell>` | Generate shell completion scripts (`bash`, `zsh`, `fish`, `powershell`) |
+| `man generate` | Generate man pages to a directory (or stdout) |
+| `man install` | Install man pages to `~/.local/share/man/man1/` |
+| `hooks install` | Install Claude Code hooks |
+| `hooks uninstall` | Remove Claude Code hooks |
+| `hooks status` | Show hook installation status |
+
+**Examples**
+
+```sh
+# Install zsh completions
+wqm init completions zsh
+
+# Install man pages
+wqm init man install
+
+# Generate man pages to a custom directory
+wqm init man generate --output-dir /tmp/man-pages
+
+# Install Claude Code hooks
+wqm init hooks install
+
+# Check hook status
+wqm init hooks status
+```
+
+---
+
+### `wqm update`
+
+Update `wqm` and `memexd` binaries from GitHub releases.
 
 ---
 
@@ -1071,8 +1147,6 @@ Diagnostic tools for troubleshooting.
 
 ---
 
-## Benchmarking
-
 ### `wqm benchmark`
 
 Internal benchmarking tools for performance testing.
@@ -1083,6 +1157,23 @@ Internal benchmarking tools for performance testing.
 |------------|-------------|
 | `sparse-vectors` | Benchmark sparse vector generation |
 | `search-engines` | Benchmark search engine performance |
+
+---
+
+## Backward-Compatibility Aliases
+
+The following top-level commands are hidden aliases that delegate to their canonical locations. They continue to work but are not shown in `wqm --help`.
+
+| Alias | Canonical command |
+|-------|-------------------|
+| `wqm watch` | `wqm project watch` |
+| `wqm man` | `wqm init man` |
+| `wqm hooks` | `wqm init hooks` |
+| `wqm collections` | `wqm admin collections` |
+| `wqm rebuild` | `wqm admin rebuild` |
+| `wqm backup` | `wqm admin backup` |
+| `wqm restore` | `wqm admin restore` |
+| `wqm stats` | `wqm admin stats` |
 
 ---
 

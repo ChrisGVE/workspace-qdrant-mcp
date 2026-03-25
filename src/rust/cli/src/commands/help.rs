@@ -1,6 +1,5 @@
 //! Help command - extended help system
 //!
-//! Phase 3 LOW priority command for extended help.
 //! Provides topic-based help, examples, and quick reference.
 
 use anyhow::Result;
@@ -57,21 +56,44 @@ async fn show_overview() -> Result<()> {
     output::separator();
 
     output::info("Command Groups:");
-    output::kv("  service", "Daemon management (start, stop, status, logs)");
-    output::kv("  admin", "System administration (status, collections, health)");
-    output::kv("  status", "Monitoring (queue, watch, performance, live)");
-    output::kv("  library", "Library management with tags");
-    output::kv("  search", "Semantic search operations");
-    output::kv("  ingest", "Document ingestion");
-    output::kv("  backup", "Qdrant snapshot management");
-    output::kv("  memory", "LLM rules management");
-    output::kv("  language", "LSP and grammar tools");
-    output::kv("  project", "Project and branch management");
+    output::kv(
+        "  search",
+        "Search collections (project, library, rules, global)",
+    );
+    output::kv("  ingest", "Ingest documents (file, folder, web)");
+    output::kv("  rules", "Behavioral rules management");
+    output::kv("  scratch", "Scratchpad entries");
+    output::kv(
+        "  project",
+        "Project lifecycle (list, info, register, watch, branch)",
+    );
+    output::kv(
+        "  library",
+        "Library management (list, add, ingest, watch, remove)",
+    );
+    output::kv("  queue", "Queue inspector (list, show, stats, cancel)");
+    output::kv("  status", "System status and monitoring");
+    output::kv(
+        "  service",
+        "Daemon management (start, stop, restart, status)",
+    );
+    output::kv(
+        "  admin",
+        "Administration (collections, backup, restore, rebuild, stats, perf, metrics)",
+    );
+    output::kv("  config", "Configuration management");
+    output::kv("  graph", "Code relationship graph");
+    output::kv("  language", "Language tools (LSP, Tree-sitter)");
+    output::kv("  tags", "Keyword/tag hierarchy");
+    output::kv("  init", "Setup tools (completions, man pages, hooks)");
+    output::kv("  update", "Update from GitHub releases");
+    output::kv("  debug", "Diagnostic tools (logs, errors)");
+    output::kv("  benchmark", "Benchmarking tools");
 
     output::separator();
     output::info("Quick Start:");
-    output::info("  wqm service start      # Start the daemon");
-    output::info("  wqm status             # Check system status");
+    output::info("  wqm service start           # Start the daemon");
+    output::info("  wqm status                  # Check system status");
     output::info("  wqm search project \"query\"  # Search project");
 
     output::separator();
@@ -90,19 +112,19 @@ async fn show_quick_reference() -> Result<()> {
     output::info("  wqm service start      Start daemon");
     output::info("  wqm service stop       Stop daemon");
     output::info("  wqm service status     Check daemon status");
-    output::info("  wqm service logs -f    Follow daemon logs");
 
     output::separator();
     output::info("=== System Status ===");
     output::info("  wqm status             Overall status");
     output::info("  wqm status live        Live dashboard");
     output::info("  wqm admin health       Health check");
+    output::info("  wqm admin perf         Pipeline performance stats");
 
     output::separator();
     output::info("=== Search ===");
     output::info("  wqm search project \"query\"   Search current project");
     output::info("  wqm search global \"query\"    Search all projects");
-    output::info("  wqm search memory \"query\"    Search memory rules");
+    output::info("  wqm search rules \"query\"     Search behavioral rules");
 
     output::separator();
     output::info("=== Content Ingestion ===");
@@ -114,7 +136,16 @@ async fn show_quick_reference() -> Result<()> {
     output::info("=== Project Management ===");
     output::info("  wqm project list             List registered projects");
     output::info("  wqm project register         Register current project");
+    output::info("  wqm project watch list       List watch folders");
     output::info("  wqm project branch info      Current branch info");
+
+    output::separator();
+    output::info("=== Administration ===");
+    output::info("  wqm admin collections        Manage collections");
+    output::info("  wqm admin backup             Backup Qdrant snapshots");
+    output::info("  wqm admin restore            Restore from snapshots");
+    output::info("  wqm admin rebuild            Rebuild indexes");
+    output::info("  wqm admin stats              Search analytics");
 
     Ok(())
 }
@@ -154,24 +185,21 @@ async fn show_examples() -> Result<()> {
     output::info("");
     output::info("# List libraries");
     output::info("wqm library list -v");
-    output::info("");
-    output::info("# Rescan a library");
-    output::info("wqm library rescan rust-docs --force");
 
     output::separator();
-    output::info("=== Memory Rules ===");
+    output::info("=== Behavioral Rules ===");
     output::info("");
     output::info("# Add a coding preference");
-    output::info("wqm memory add \"Always use async/await instead of promises\" -t preference");
+    output::info("wqm rules add \"Always use async/await\" -t preference");
     output::info("");
     output::info("# Search rules");
-    output::info("wqm memory search \"async\"");
+    output::info("wqm rules search \"async\"");
 
     Ok(())
 }
 
 async fn show_topic_help(topic: &str) -> Result<()> {
-    output::section(format!("Help: {}", topic));
+    output::section(format!("Help: {topic}"));
 
     match topic.to_lowercase().as_str() {
         "daemon" | "service" => {
@@ -183,7 +211,6 @@ async fn show_topic_help(topic: &str) -> Result<()> {
             output::separator();
             output::info("Start: wqm service start");
             output::info("Stop:  wqm service stop");
-            output::info("Logs:  wqm service logs -f");
         }
         "search" => {
             output::info("Search uses hybrid retrieval (semantic + keyword):");
@@ -192,7 +219,7 @@ async fn show_topic_help(topic: &str) -> Result<()> {
             output::info("  project    - Current project only");
             output::info("  global     - All registered projects");
             output::info("  collection - Specific collection");
-            output::info("  memory     - LLM memory rules");
+            output::info("  rules      - Behavioral rules");
             output::separator();
             output::info("Note: Search requires the MCP server for embedding generation.");
         }
@@ -201,12 +228,13 @@ async fn show_topic_help(topic: &str) -> Result<()> {
             output::separator();
             output::info("  {project_id}       - Project content (auto-created)");
             output::info("  _{library_name}    - Library content (underscore prefix)");
-            output::info("  _memory            - LLM memory rules");
+            output::info("  _rules             - Behavioral rules");
+            output::info("  _scratchpad        - Scratchpad entries");
             output::separator();
-            output::info("List collections: wqm admin collections");
+            output::info("Manage collections: wqm admin collections");
         }
         "rules" => {
-            output::info("Memory rules guide LLM behavior:");
+            output::info("Behavioral rules guide LLM behavior:");
             output::separator();
             output::info("Types:");
             output::info("  preference  - Coding style preferences");
@@ -219,9 +247,22 @@ async fn show_topic_help(topic: &str) -> Result<()> {
             output::info("  project     - Specific project");
             output::info("  language    - Specific programming language");
         }
+        "admin" => {
+            output::info("Administrative commands under `wqm admin`:");
+            output::separator();
+            output::info("  collections    - Collection management (list, reset)");
+            output::info("  backup         - Backup Qdrant snapshots");
+            output::info("  restore        - Restore from snapshots");
+            output::info("  rebuild        - Rebuild indexes and sync state");
+            output::info("  stats          - Search instrumentation analytics");
+            output::info("  perf           - Pipeline performance statistics");
+            output::info("  metrics        - Prometheus metrics management");
+            output::info("  rename-tenant  - Rename a tenant across tables");
+            output::info("  cleanup-orphans - Detect/delete orphaned tenants");
+        }
         _ => {
-            output::warning(format!("Unknown topic: {}", topic));
-            output::info("Available topics: daemon, search, collections, memory");
+            output::warning(format!("Unknown topic: {topic}"));
+            output::info("Available topics: daemon, search, collections, rules, admin");
         }
     }
 

@@ -1,4 +1,7 @@
 //! Performance metrics subcommand.
+//!
+//! Shows system resource metrics (CPU, memory, disk) from the daemon.
+//! For pipeline timing statistics, use `wqm admin perf`.
 
 use anyhow::Result;
 
@@ -7,9 +10,12 @@ use crate::output;
 
 use super::types::format_bytes;
 
-/// Show performance metrics from the daemon.
+/// Show system resource metrics from the daemon.
+///
+/// Prints a hint directing users to `wqm admin perf` for pipeline
+/// timing statistics (per-phase breakdown, percentiles, throughput).
 pub async fn performance() -> Result<()> {
-    output::section("Performance Metrics");
+    output::section("System Resource Metrics");
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => match client.system().get_status(()).await {
@@ -30,13 +36,16 @@ pub async fn performance() -> Result<()> {
                 }
             }
             Err(e) => {
-                output::error(format!("Failed to get performance metrics: {}", e));
+                output::error(format!("Failed to get resource metrics: {}", e));
             }
         },
         Err(_) => {
             output::error("Cannot connect to daemon");
         }
     }
+
+    println!();
+    output::info("For pipeline timing stats, use: wqm admin perf");
 
     Ok(())
 }

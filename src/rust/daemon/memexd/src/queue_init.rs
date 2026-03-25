@@ -105,6 +105,44 @@ fn create_embedding_generator(
     Ok(Arc::new(generator))
 }
 
+/// Wait for Qdrant to become available on gRPC, then initialize collections.
+///
+/// On system boot, memexd may start before Qdrant is ready. Without this
+/// wait, the circuit breaker trips immediately and the queue processor spins
+/// without completing items, leaking memory. We retry with exponential
+/// backoff up to ~90 seconds before giving up (the circuit breaker recovery
+/// loop will continue trying in the background).
+async fn wait_for_qdrant_and_init(storage_client: &StorageClient) {
+    const MAX_ATTEMPTS: u32 = 10;
+    const INITIAL_DELAY_MS: u64 = 1000;
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match storage_client.test_connection().await {
+            Ok(true) => {
+                info!("Qdrant is ready (attempt {}/{})", attempt, MAX_ATTEMPTS);
+                init_qdrant_collections(storage_client).await;
+                return;
+            }
+            _ => {
+                let delay_ms = INITIAL_DELAY_MS * 2u64.pow(attempt.min(6) - 1); // cap at ~32s
+                if attempt < MAX_ATTEMPTS {
+                    warn!(
+                        "Qdrant not ready (attempt {}/{}), retrying in {}ms",
+                        attempt, MAX_ATTEMPTS, delay_ms
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                } else {
+                    warn!(
+                        "Qdrant not ready after {} attempts — starting without it \
+                         (circuit breaker recovery will retry in background)",
+                        MAX_ATTEMPTS
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Initialize multi-tenant Qdrant collections (idempotent).
 async fn init_qdrant_collections(storage_client: &StorageClient) {
     info!("Initializing Qdrant collections...");
@@ -228,7 +266,7 @@ pub async fn initialize(
 
     let embedding_generator = create_embedding_generator(daemon_config, config)?;
     let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
-    init_qdrant_collections(&storage_client).await;
+    wait_for_qdrant_and_init(&storage_client).await;
 
     let allowed_extensions = Arc::new(AllowedExtensions::default());
     info!("File type allowlist initialized (90+ project extensions, library extensions active)");

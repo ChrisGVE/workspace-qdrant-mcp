@@ -4,10 +4,10 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use colored::Colorize;
 use rusqlite::Connection;
 
 use crate::output;
+use crate::output::style::short_id;
 
 use super::db::connect_readonly;
 use super::formatters::{format_status, QueueStatsSummary, StatusBreakdown};
@@ -139,19 +139,23 @@ fn print_text(
     output::kv("Total Items", summary.total_items.to_string());
     output::separator();
 
-    println!("{}", "By Status:".bold());
-    println!(
-        "  {} {}",
-        format_status("pending"),
-        summary.by_status.pending
+    output::section("By Status");
+    output::kv(
+        format!("  {}", format_status("pending")),
+        summary.by_status.pending.to_string(),
     );
-    println!(
-        "  {} {}",
-        format_status("in_progress"),
-        summary.by_status.in_progress
+    output::kv(
+        format!("  {}", format_status("in_progress")),
+        summary.by_status.in_progress.to_string(),
     );
-    println!("  {} {}", format_status("done"), summary.by_status.done);
-    println!("  {} {}", format_status("failed"), summary.by_status.failed);
+    output::kv(
+        format!("  {}", format_status("done")),
+        summary.by_status.done.to_string(),
+    );
+    output::kv(
+        format!("  {}", format_status("failed")),
+        summary.by_status.failed.to_string(),
+    );
 
     output::separator();
     output::kv("Active Collections", summary.active_collections.to_string());
@@ -164,7 +168,7 @@ fn print_text(
             wqm_common::duration_fmt::format_duration(age, 0),
         );
         if let Some(ref id) = summary.oldest_pending_id {
-            output::kv("Oldest Pending ID", id);
+            output::kv("Oldest Pending ID", short_id(id));
         }
     }
 
@@ -219,13 +223,22 @@ fn get_breakdown(conn: &Connection, column: &str) -> Result<HashMap<String, Stat
 fn print_breakdown(conn: &Connection, column: &str, title: &str) -> Result<()> {
     let breakdown = get_breakdown(conn, column)?;
 
-    println!("{}", title.bold());
+    output::section(title);
     for (key, stats) in &breakdown {
         let total = stats.pending + stats.in_progress + stats.done + stats.failed;
-        println!(
-            "  {}: {} (pending={}, in_progress={}, done={}, failed={})",
-            key, total, stats.pending, stats.in_progress, stats.done, stats.failed
+        let detail = format!(
+            "{} ({}={}, {}={}, {}={}, {}={})",
+            total,
+            format_status("pending"),
+            stats.pending,
+            format_status("in_progress"),
+            stats.in_progress,
+            format_status("done"),
+            stats.done,
+            format_status("failed"),
+            stats.failed,
         );
+        output::kv(format!("  {key}"), detail);
     }
 
     Ok(())

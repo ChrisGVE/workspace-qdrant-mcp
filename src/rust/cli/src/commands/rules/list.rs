@@ -64,7 +64,7 @@ pub async fn list_rules(
     let points = &scroll.result.points;
 
     if points.is_empty() {
-        output::info("No rules found.");
+        output::info("No rules found. Use `wqm rules add` to create one.");
         return Ok(());
     }
 
@@ -173,13 +173,13 @@ fn print_table_output(
     verbose: bool,
 ) {
     output::section("Rules");
-    output::kv("Total", points.len().to_string());
     if let Some(s) = scope {
         output::kv("Filter", s);
     }
     output::separator();
 
     let project_names = load_project_names();
+    let count = points.len();
 
     if verbose {
         let rows: Vec<RuleRowVerbose> = points
@@ -220,4 +220,6 @@ fn print_table_output(
             .collect();
         output::print_table_auto(&rows);
     }
+
+    output::summary(output::summary_line(count, count, "rules"));
 }

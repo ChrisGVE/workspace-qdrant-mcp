@@ -1,11 +1,18 @@
 //! Watch list subcommand
 
+use std::collections::HashMap;
+
 use anyhow::Result;
+use tabled::settings::location::ByColumnName;
+use tabled::settings::Disable;
 
 use crate::output;
+use crate::output::style::{short_path, DEFAULT_PATH_MAX, VERBOSE_PATH_MAX};
+use crate::output::ColumnHints;
 
 use super::helpers::{
-    connect_readonly, format_bool, format_bool_archived, format_bool_paused, format_relative_time,
+    build_tenant_name_map, connect_readonly, format_bool, format_bool_archived, format_bool_paused,
+    format_relative_time, resolve_project_name,
 };
 use super::types::{WatchListItem, WatchListItemVerbose};
 
@@ -95,16 +102,18 @@ pub async fn list(
         if json {
             println!("[]");
         } else {
-            output::info("No watch configurations found");
-            output::info("Add watches via project registration or wqm project add");
+            output::info("No watch folders configured. Use `wqm project register` to add one.");
         }
         return Ok(());
     }
 
+    // Build tenant_id -> project_name mapping for human-readable output
+    let tenant_names = build_tenant_name_map(&conn);
+
     if verbose {
-        print_verbose(&items, json, script, no_headers);
+        print_verbose(&items, &tenant_names, json, script, no_headers);
     } else {
-        print_compact(&items, json, script, no_headers);
+        print_compact(&items, &tenant_names, json, script, no_headers);
     }
 
     Ok(())
@@ -125,12 +134,33 @@ type WatchRow = (
     Option<String>, // library_mode
 );
 
-fn print_verbose(items: &[WatchRow], json: bool, script: bool, no_headers: bool) {
+/// Collect column names that should be hidden because every row has `false`.
+fn hidden_bool_columns(items: &[WatchRow]) -> Vec<&'static str> {
+    let any_paused = items.iter().any(|r| r.8);
+    let any_archived = items.iter().any(|r| r.9);
+
+    let mut hidden = Vec::new();
+    if !any_paused {
+        hidden.push("Paused");
+    }
+    if !any_archived {
+        hidden.push("Archived");
+    }
+    hidden
+}
+
+fn print_verbose(
+    items: &[WatchRow],
+    tenant_names: &HashMap<String, String>,
+    json: bool,
+    script: bool,
+    no_headers: bool,
+) {
     let display_items: Vec<WatchListItemVerbose> = items
         .iter()
         .map(
             |(
-                watch_id,
+                _watch_id,
                 path,
                 collection,
                 tenant_id,
@@ -144,8 +174,8 @@ fn print_verbose(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
                 library_mode,
             )| {
                 WatchListItemVerbose {
-                    watch_id: watch_id.clone(),
-                    path: path.clone(),
+                    project: resolve_project_name(tenant_id, tenant_names),
+                    path: short_path(path, VERBOSE_PATH_MAX),
                     collection: collection.clone(),
                     tenant_id: tenant_id.clone(),
                     enabled: format_bool(*enabled),
@@ -168,23 +198,33 @@ fn print_verbose(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
     } else if script {
         output::print_script(&display_items, !no_headers);
     } else {
-        output::print_table_auto(&display_items);
-        output::info(format!(
-            "Showing {} watch configurations",
-            display_items.len()
-        ));
+        let count = display_items.len();
+        let hidden = hidden_bool_columns(items);
+        let mut table = output::build_table(&display_items);
+        for col_name in &hidden {
+            table.with(Disable::column(ByColumnName::new(*col_name)));
+        }
+        let hints = WatchListItemVerbose::content_columns();
+        output::finish_table(&mut table, &display_items, hints);
+        output::summary(output::summary_line(count, count, "watch configurations"));
     }
 }
 
-fn print_compact(items: &[WatchRow], json: bool, script: bool, no_headers: bool) {
+fn print_compact(
+    items: &[WatchRow],
+    tenant_names: &HashMap<String, String>,
+    json: bool,
+    script: bool,
+    no_headers: bool,
+) {
     let display_items: Vec<WatchListItem> = items
         .iter()
         .map(
             |(
-                watch_id,
+                _watch_id,
                 path,
                 collection,
-                _tenant_id,
+                tenant_id,
                 enabled,
                 is_active,
                 last_scan,
@@ -195,8 +235,8 @@ fn print_compact(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
                 _library_mode,
             )| {
                 WatchListItem {
-                    watch_id: watch_id.clone(),
-                    path: path.clone(),
+                    project: resolve_project_name(tenant_id, tenant_names),
+                    path: short_path(path, DEFAULT_PATH_MAX),
                     collection: collection.clone(),
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
@@ -216,10 +256,14 @@ fn print_compact(items: &[WatchRow], json: bool, script: bool, no_headers: bool)
     } else if script {
         output::print_script(&display_items, !no_headers);
     } else {
-        output::print_table_auto(&display_items);
-        output::info(format!(
-            "Showing {} watch configurations",
-            display_items.len()
-        ));
+        let count = display_items.len();
+        let hidden = hidden_bool_columns(items);
+        let mut table = output::build_table(&display_items);
+        for col_name in &hidden {
+            table.with(Disable::column(ByColumnName::new(*col_name)));
+        }
+        let hints = WatchListItem::content_columns();
+        output::finish_table(&mut table, &display_items, hints);
+        output::summary(output::summary_line(count, count, "watch configurations"));
     }
 }

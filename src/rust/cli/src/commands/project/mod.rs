@@ -1,6 +1,6 @@
 //! Project command - project and branch management
 //!
-//! Subcommands: list, status, register, info, delete, activate, deactivate, check, branch
+//! Subcommands: list, status, register, info, delete, activate, deactivate, check, branch, watch
 
 use std::path::PathBuf;
 
@@ -106,6 +106,9 @@ enum ProjectCommand {
         json: bool,
     },
 
+    /// Watch folder management (list, enable, disable, show, archive, unarchive, pause, resume)
+    Watch(super::watch::WatchArgs),
+
     /// Branch management
     Branch {
         #[command(subcommand)]
@@ -154,6 +157,7 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
             verbose,
             json,
         } => check::check_project(project.as_deref(), verbose, json).await,
+        ProjectCommand::Watch(args) => super::watch::execute(args).await,
         ProjectCommand::Branch { action } => match action {
             BranchAction::List => branch::branch_list().await,
             BranchAction::Info => branch::branch_info().await,

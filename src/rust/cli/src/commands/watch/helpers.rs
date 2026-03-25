@@ -1,11 +1,14 @@
 //! Shared helpers for watch subcommands
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use rusqlite::Connection;
 
 use crate::config::get_database_path_checked;
+use crate::output::short_id;
 
 /// Connect to the state database (read-only for list/show)
 pub fn connect_readonly() -> Result<Connection> {
@@ -21,6 +24,56 @@ pub fn connect_readonly() -> Result<Connection> {
         .context("Failed to set busy_timeout")?;
 
     Ok(conn)
+}
+
+/// Build a `tenant_id` to project name mapping from `watch_folders`.
+///
+/// When multiple projects share the same directory name, the tenant_id is
+/// appended in parentheses to disambiguate.  Falls back gracefully if the
+/// `watch_folders` table does not exist.
+pub fn build_tenant_name_map(conn: &Connection) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let mut name_count: HashMap<String, usize> = HashMap::new();
+
+    let mut entries: Vec<(String, String)> = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT tenant_id, path FROM watch_folders \
+         WHERE parent_watch_id IS NULL AND collection = 'projects'",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for r in rows.flatten() {
+                let name =
+                    r.1.rsplit('/')
+                        .find(|s| !s.is_empty())
+                        .unwrap_or(&r.0)
+                        .to_string();
+                *name_count.entry(name.clone()).or_default() += 1;
+                entries.push((r.0, name));
+            }
+        }
+    }
+
+    for (tenant_id, name) in entries {
+        let display = if name_count.get(&name).copied().unwrap_or(0) > 1 {
+            format!("{} ({})", name, short_id(&tenant_id))
+        } else {
+            name
+        };
+        map.insert(tenant_id, display);
+    }
+
+    map
+}
+
+/// Resolve a tenant_id to a human-readable project name, falling back to
+/// a shortened tenant_id when no mapping exists.
+pub fn resolve_project_name(tenant_id: &str, tenant_names: &HashMap<String, String>) -> String {
+    tenant_names
+        .get(tenant_id)
+        .cloned()
+        .unwrap_or_else(|| short_id(tenant_id))
 }
 
 /// Format relative time from ISO timestamp

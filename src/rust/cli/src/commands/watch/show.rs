@@ -4,6 +4,7 @@ use anyhow::Result;
 use rusqlite::params;
 
 use crate::output;
+use crate::output::style::home_to_tilde;
 
 use super::helpers::{
     connect_readonly, format_bool, format_bool_archived, format_bool_paused, format_relative_time,
@@ -76,7 +77,7 @@ pub async fn show(watch_id: &str, json: bool) -> Result<()> {
 fn print_detail(item: &WatchDetailItem) {
     output::section("Watch Configuration Details");
     output::kv("Watch ID", &item.watch_id);
-    output::kv("Path", &item.path);
+    output::kv("Path", home_to_tilde(&item.path));
     output::separator();
     output::kv("Collection", &item.collection);
     output::kv("Tenant ID", &item.tenant_id);

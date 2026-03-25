@@ -6,6 +6,7 @@ use std::io::BufRead;
 use tabled::Tabled;
 
 use crate::output;
+use crate::output::style::home_to_tilde;
 use crate::output::ColumnHints;
 
 #[derive(Deserialize)]
@@ -33,7 +34,9 @@ struct IdleHistoryRow {
 
 impl ColumnHints for IdleHistoryRow {
     fn content_columns() -> &'static [usize] {
-        &[]
+        // Columns 1-4 (From, To, Idle, Duration) absorb extra width so that
+        // the fixed-width Timestamp column (index 0) does not expand.
+        &[1, 2, 3, 4]
     }
 }
 
@@ -44,7 +47,10 @@ pub fn execute(hours: f64, script: bool, no_headers: bool) -> Result<()> {
 
     if !history_path.exists() {
         output::info("No idle history file found. The daemon records transitions automatically.");
-        output::kv("Expected path", history_path.display().to_string());
+        output::kv(
+            "Expected path",
+            home_to_tilde(&history_path.display().to_string()),
+        );
         return Ok(());
     }
 
@@ -62,7 +68,7 @@ pub fn execute(hours: f64, script: bool, no_headers: bool) -> Result<()> {
         .collect();
 
     output::section(format!("Idle History (last {:.0}h)", hours));
-    output::kv("File", history_path.display().to_string());
+    output::kv("File", home_to_tilde(&history_path.display().to_string()));
     output::kv("Transitions", entries.len().to_string());
 
     if entries.is_empty() {

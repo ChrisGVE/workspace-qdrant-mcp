@@ -231,7 +231,7 @@ pub struct YamlResourceLimitsConfig {
     pub inter_item_delay_ms: u64,
     /// Max concurrent embedding operations (0 = auto-detect)
     pub max_concurrent_embeddings: usize,
-    /// Pause processing when memory exceeds this %
+    /// Pause processing when available memory falls below (100 - this)%
     pub max_memory_percent: u8,
     /// ONNX intra-op threads per embedding session (0 = auto-detect)
     pub onnx_intra_threads: usize,

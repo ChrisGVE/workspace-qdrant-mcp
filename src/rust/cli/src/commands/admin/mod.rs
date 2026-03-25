@@ -1,7 +1,8 @@
 //! Admin command - system administration operations
 //!
 //! Provides administrative operations that affect the daemon's persistent state.
-//! Subcommands: rename-tenant, idle-history, prune-logs, cleanup-orphans, recover-state
+//! Subcommands: rename-tenant, idle-history, prune-logs, cleanup-orphans, recover-state,
+//! collections, rebuild, backup, restore, stats
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -119,6 +120,9 @@ enum AdminCommand {
     },
 
     /// Display pipeline performance statistics (per-phase timing breakdown)
+    #[command(
+        after_help = "See also:\n  wqm admin stats processing  operation-level breakdown with Q1/Q3 quartiles\n  wqm status --performance    system resource metrics (CPU, memory, disk)"
+    )]
     Perf {
         /// Time window in hours (default: 24)
         #[arg(short = 'w', long, default_value = "24")]
@@ -145,6 +149,21 @@ enum AdminCommand {
         #[command(subcommand)]
         command: MetricsCommand,
     },
+
+    /// Collection management (list, reset)
+    Collections(super::collections::CollectionsArgs),
+
+    /// Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
+    Rebuild(super::rebuild::RebuildArgs),
+
+    /// Backup Qdrant collections (create, list, delete snapshots)
+    Backup(super::backup::BackupArgs),
+
+    /// Restore Qdrant collections from snapshots (snapshot, from-backup, list, verify)
+    Restore(super::restore::RestoreArgs),
+
+    /// Search instrumentation analytics (overview, processing, log-search)
+    Stats(super::stats::StatsArgs),
 }
 
 /// Metrics subcommands
@@ -215,5 +234,10 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             MetricsCommand::Disable => metrics_setup::disable().await,
             MetricsCommand::Status { port } => metrics_setup::status(port).await,
         },
+        AdminCommand::Collections(args) => super::collections::execute(args).await,
+        AdminCommand::Rebuild(args) => super::rebuild::execute(args).await,
+        AdminCommand::Backup(args) => super::backup::execute(args).await,
+        AdminCommand::Restore(args) => super::restore::execute(args).await,
+        AdminCommand::Stats(args) => super::stats::execute(args).await,
     }
 }
