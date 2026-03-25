@@ -465,6 +465,12 @@ async fn update_search_index(
 /// task and returns `None` so the file gets text-chunked as a fallback. When the
 /// download completes, affected files are re-queued for semantic re-processing
 /// via the capability upgrade mechanism (File→Uplift).
+///
+/// **Static-first**: Languages with statically compiled grammars (Python, Rust,
+/// TypeScript, etc.) return `None` so the chunker uses the built-in grammar.
+/// Dynamic providers are only used for languages that lack static support.
+/// This avoids a memory leak in tree-sitter when mixing dynamic grammar `.dylib`
+/// loading with the parser's internal allocator.
 async fn ensure_grammar_available(
     ctx: &ProcessingContext,
     file_path: &Path,
@@ -473,6 +479,13 @@ async fn ensure_grammar_available(
 ) -> Option<Arc<dyn LanguageProvider>> {
     let grammar_mgr = ctx.grammar_manager.as_ref()?;
     let language = detect_language_with_overrides(file_path, relative_path, overrides)?;
+
+    // If the language has a statically compiled grammar, don't use the dynamic
+    // provider. The static path is faster and avoids memory corruption from
+    // ABI mismatches between cached .dylib grammars and the linked tree-sitter.
+    if crate::tree_sitter::is_language_supported(language) {
+        return None;
+    }
 
     // Fast path: read lock to check if grammar is already loaded
     {
