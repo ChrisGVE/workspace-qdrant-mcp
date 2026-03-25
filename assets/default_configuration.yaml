@@ -1318,7 +1318,9 @@ resource_limits:
   # Format: Integer 0..8
   max_concurrent_embeddings: 0
 
-  # max_memory_percent: Pause processing when system memory exceeds this %
+  # max_memory_percent: Pause processing when available memory falls below (100 - this)%
+  # e.g. 70 means pause when less than 30% of system memory is available.
+  # Uses available_memory() which correctly accounts for OS caches and compressor.
   # Default: 70
   # Format: Integer 20..95
   max_memory_percent: 70

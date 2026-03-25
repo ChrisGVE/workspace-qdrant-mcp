@@ -28,8 +28,66 @@ use crate::unified_queue_processor::error::UnifiedProcessorResult;
 use crate::unified_queue_processor::UnifiedQueueProcessor;
 
 impl UnifiedQueueProcessor {
-    /// Check if system memory usage exceeds the configured threshold (Task 504)
+    /// Check if system memory pressure exceeds the configured threshold (Task 504)
+    ///
+    /// `max_memory_percent` represents the maximum acceptable memory usage (e.g. 70
+    /// means "pause when less than 30% is available").
+    ///
+    /// On macOS, we read `kern.memorystatus_level` — the kernel's own percentage of
+    /// available memory that accounts for the unified buffer cache, memory compressor,
+    /// and purgeable pages. `sysinfo`'s `used_memory()` and `available_memory()` are
+    /// unreliable on macOS (the former includes compressor pages as "used", the latter
+    /// returns 0 in sysinfo 0.30.x).
+    ///
+    /// On other platforms we use `sysinfo::available_memory()` which maps to
+    /// `MemAvailable` on Linux (accurate) and equivalent metrics elsewhere.
     pub(crate) async fn check_memory_pressure(max_memory_percent: u8) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            Self::check_memory_pressure_macos(max_memory_percent)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Self::check_memory_pressure_generic(max_memory_percent)
+        }
+    }
+
+    /// macOS-specific memory pressure check using `kern.memorystatus_level`.
+    ///
+    /// This sysctl returns the kernel's own "percent available" metric (0-100),
+    /// matching the value reported by the `memory_pressure` CLI tool. It accounts
+    /// for the compressor, purgeable pages, and unified buffer cache.
+    #[cfg(target_os = "macos")]
+    fn check_memory_pressure_macos(max_memory_percent: u8) -> bool {
+        let mut level: i32 = 0;
+        let mut len = std::mem::size_of::<i32>();
+        let name = b"kern.memorystatus_level\0";
+        let ret = unsafe {
+            libc::sysctlbyname(
+                name.as_ptr() as *const libc::c_char,
+                &mut level as *mut i32 as *mut libc::c_void,
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if ret != 0 || level < 0 {
+            // Fallback to generic if sysctl fails
+            return Self::check_memory_pressure_sysinfo(max_memory_percent);
+        }
+        let available_percent = level as u8;
+        let min_available = 100u8.saturating_sub(max_memory_percent);
+        available_percent < min_available
+    }
+
+    /// Generic memory pressure check for non-macOS platforms using sysinfo.
+    #[cfg(not(target_os = "macos"))]
+    fn check_memory_pressure_generic(max_memory_percent: u8) -> bool {
+        Self::check_memory_pressure_sysinfo(max_memory_percent)
+    }
+
+    /// Sysinfo-based memory pressure check (cross-platform fallback).
+    fn check_memory_pressure_sysinfo(max_memory_percent: u8) -> bool {
         use sysinfo::System;
         let mut sys = System::new();
         sys.refresh_memory();
@@ -37,9 +95,10 @@ impl UnifiedQueueProcessor {
         if total == 0 {
             return false;
         }
-        let used = sys.used_memory();
-        let usage_percent = (used as f64 / total as f64 * 100.0) as u8;
-        usage_percent > max_memory_percent
+        let available = sys.available_memory();
+        let available_percent = (available as f64 / total as f64 * 100.0) as u8;
+        let min_available = 100u8.saturating_sub(max_memory_percent);
+        available_percent < min_available
     }
 
     /// Main processing loop (runs in background task)
@@ -175,8 +234,8 @@ impl UnifiedQueueProcessor {
             // Check memory pressure before dequeuing (Task 504)
             if Self::check_memory_pressure(config.max_memory_percent).await {
                 info!(
-                    "Memory pressure detected (>{}%), pausing processing for 5s",
-                    config.max_memory_percent
+                    "Memory pressure detected (<{}% available), pausing processing for 5s",
+                    100u8.saturating_sub(config.max_memory_percent)
                 );
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;

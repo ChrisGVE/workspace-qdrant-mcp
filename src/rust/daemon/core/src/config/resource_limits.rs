@@ -81,7 +81,8 @@ pub struct ResourceLimitsConfig {
     #[serde(default = "default_max_concurrent_embeddings")]
     pub max_concurrent_embeddings: usize,
 
-    /// Pause processing when system memory usage exceeds this percentage
+    /// Pause processing when available memory falls below (100 - this)%.
+    /// e.g. 70 means pause when less than 30% of system memory is available.
     /// Default: 70
     #[serde(default = "default_max_memory_percent")]
     pub max_memory_percent: u8,

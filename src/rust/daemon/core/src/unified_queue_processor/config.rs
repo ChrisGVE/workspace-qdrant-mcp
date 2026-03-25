@@ -82,7 +82,8 @@ pub struct UnifiedProcessorConfig {
     pub inter_item_delay_ms: u64,
     /// Maximum concurrent embedding operations
     pub max_concurrent_embeddings: usize,
-    /// Pause processing when memory usage exceeds this percentage
+    /// Pause processing when available memory falls below (100 - this)%.
+    /// e.g. 70 means pause when less than 30% of system memory is available.
     pub max_memory_percent: u8,
 
     // Warmup throttling (Task 577)
