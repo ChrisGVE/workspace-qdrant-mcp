@@ -26,11 +26,13 @@ pub mod workspace_daemon {
 use workspace_daemon::{
     admin_write_service_client::AdminWriteServiceClient,
     collection_service_client::CollectionServiceClient,
-    document_service_client::DocumentServiceClient, graph_service_client::GraphServiceClient,
+    document_service_client::DocumentServiceClient,
+    embedding_service_client::EmbeddingServiceClient, graph_service_client::GraphServiceClient,
     library_write_service_client::LibraryWriteServiceClient,
     project_service_client::ProjectServiceClient,
     queue_write_service_client::QueueWriteServiceClient,
     system_service_client::SystemServiceClient,
+    text_search_service_client::TextSearchServiceClient,
     tracking_write_service_client::TrackingWriteServiceClient,
     watch_write_service_client::WatchWriteServiceClient,
 };
@@ -53,6 +55,8 @@ pub struct DaemonClient {
     library_write: LibraryWriteServiceClient<Channel>,
     tracking_write: TrackingWriteServiceClient<Channel>,
     admin_write: AdminWriteServiceClient<Channel>,
+    embedding: EmbeddingServiceClient<Channel>,
+    text_search: TextSearchServiceClient<Channel>,
 }
 
 impl DaemonClient {
@@ -81,7 +85,9 @@ impl DaemonClient {
             watch_write: WatchWriteServiceClient::new(channel.clone()),
             library_write: LibraryWriteServiceClient::new(channel.clone()),
             tracking_write: TrackingWriteServiceClient::new(channel.clone()),
-            admin_write: AdminWriteServiceClient::new(channel),
+            admin_write: AdminWriteServiceClient::new(channel.clone()),
+            embedding: EmbeddingServiceClient::new(channel.clone()),
+            text_search: TextSearchServiceClient::new(channel),
         })
     }
 
@@ -166,6 +172,24 @@ impl DaemonClient {
     /// Get mutable reference to AdminWriteService client
     pub fn admin_write(&mut self) -> &mut AdminWriteServiceClient<Channel> {
         &mut self.admin_write
+    }
+
+    /// Get mutable reference to EmbeddingService client
+    ///
+    /// Provides access to:
+    /// - EmbedText
+    /// - GenerateSparseVector
+    pub fn embedding(&mut self) -> &mut EmbeddingServiceClient<Channel> {
+        &mut self.embedding
+    }
+
+    /// Get mutable reference to TextSearchService client
+    ///
+    /// Provides access to:
+    /// - Search
+    /// - CountMatches
+    pub fn text_search(&mut self) -> &mut TextSearchServiceClient<Channel> {
+        &mut self.text_search
     }
 }
 
