@@ -57,19 +57,19 @@ enum RulesCommand {
     /// Add a new rule
     Add {
         /// Rule label (identifier for the rule)
-        #[arg(long)]
+        #[arg(short = 'l', long)]
         label: String,
 
         /// Rule content
-        #[arg(long)]
+        #[arg(short = 'c', long)]
         content: String,
 
         /// Apply to all projects (global rule)
-        #[arg(long, conflicts_with = "project")]
+        #[arg(short = 'g', long, conflicts_with = "project")]
         global: bool,
 
         /// Apply to specific project (path or ID)
-        #[arg(long, conflicts_with = "global")]
+        #[arg(short = 'p', long, conflicts_with = "global")]
         project: Option<String>,
 
         /// Rule type (preference, behavior, constraint, pattern)
