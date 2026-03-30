@@ -8,7 +8,6 @@ pub mod helpers;
 mod inject;
 mod list;
 mod remove;
-mod scope;
 mod search;
 
 use anyhow::Result;
@@ -114,21 +113,6 @@ enum RulesCommand {
     /// Inject rules into Claude Code context (SessionStart hook)
     #[command(hide = true)]
     Inject,
-
-    /// Manage rule scopes (list available scopes, show scope hierarchy)
-    Scope {
-        /// List all available scopes
-        #[arg(long)]
-        list: bool,
-
-        /// Show rules for a specific scope
-        #[arg(long)]
-        show: Option<String>,
-
-        /// Show verbose scope information
-        #[arg(short, long)]
-        verbose: bool,
-    },
 }
 
 /// Execute rules command
@@ -174,11 +158,6 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             search::search_rules(&query, scope, limit).await
         }
         RulesCommand::Inject => inject::inject_rules().await,
-        RulesCommand::Scope {
-            list,
-            show,
-            verbose,
-        } => scope::manage_scopes(list, show, verbose).await,
     }
 }
 
