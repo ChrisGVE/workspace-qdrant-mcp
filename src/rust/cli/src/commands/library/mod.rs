@@ -15,6 +15,7 @@ mod ingest;
 mod list;
 mod remove;
 mod rescan;
+mod search;
 mod set_incremental;
 mod status;
 mod unwatch;
@@ -78,6 +79,20 @@ enum LibraryCommand {
         /// Sync mode: 'sync' (delete vectors for removed files) or 'incremental' (append-only, default)
         #[arg(short, long, value_enum, default_value_t = LibraryMode::Incremental)]
         mode: LibraryMode,
+    },
+
+    /// Search library content (semantic)
+    Search {
+        /// Search query
+        query: String,
+
+        /// Filter to a specific library tag
+        #[arg(short = 'l', long)]
+        library: Option<String>,
+
+        /// Maximum results
+        #[arg(short = 'n', long, default_value = "10")]
+        limit: usize,
     },
 
     /// Stop watching a library
@@ -190,6 +205,11 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
             patterns,
             mode,
         } => watch_cmd::execute(&tag, &path, &patterns, mode).await,
+        LibraryCommand::Search {
+            query,
+            library,
+            limit,
+        } => search::search_library(&query, library, limit).await,
         LibraryCommand::Unwatch { tag } => unwatch::execute(&tag).await,
         LibraryCommand::Remove { tag, yes } => remove::execute(&tag, yes).await,
         LibraryCommand::Rescan { tag, force } => rescan::execute(&tag, force).await,
