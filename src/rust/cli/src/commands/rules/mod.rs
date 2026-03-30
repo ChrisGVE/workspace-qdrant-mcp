@@ -5,6 +5,7 @@
 
 mod add;
 pub mod helpers;
+mod info;
 mod inject;
 mod list;
 mod remove;
@@ -102,6 +103,16 @@ enum RulesCommand {
         project: Option<String>,
     },
 
+    /// Show detailed information about a specific rule
+    Info {
+        /// Rule label to look up
+        label: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Search rules
     Search {
         /// Search query
@@ -158,6 +169,7 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             remove::remove_rule(&label, &scope).await
         }
+        RulesCommand::Info { label, json } => info::rule_info(&label, json).await,
         RulesCommand::Search {
             query,
             global,
