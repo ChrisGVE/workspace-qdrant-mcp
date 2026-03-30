@@ -64,12 +64,22 @@ enum RulesCommand {
         #[arg(short = 'c', long)]
         content: String,
 
-        /// Apply to all projects (global rule)
-        #[arg(short = 'g', long, conflicts_with = "project")]
+        /// Apply to all projects (global rule) — must specify either --global or --project
+        #[arg(
+            short = 'g',
+            long,
+            conflicts_with = "project",
+            required_unless_present = "project"
+        )]
         global: bool,
 
-        /// Apply to specific project (path or ID)
-        #[arg(short = 'p', long, conflicts_with = "global")]
+        /// Apply to specific project (path or ID) — must specify either --global or --project
+        #[arg(
+            short = 'p',
+            long,
+            conflicts_with = "global",
+            required_unless_present = "global"
+        )]
         project: Option<String>,
 
         /// Rule type (preference, behavior, constraint, pattern)
