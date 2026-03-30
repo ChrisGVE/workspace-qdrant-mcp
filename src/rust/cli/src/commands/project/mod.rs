@@ -76,13 +76,15 @@ enum ProjectCommand {
         keep_data: bool,
     },
 
-    /// Activate a project (auto-detects from CWD if project omitted)
+    /// Activate a project (internal — projects activate automatically)
+    #[command(hide = true)]
     Activate {
         /// Project ID or path (auto-detected from current directory if omitted)
         project: Option<String>,
     },
 
-    /// Deactivate a project (auto-detects from CWD if project omitted)
+    /// Deactivate a project (internal — handled by daemon)
+    #[command(hide = true)]
     Deactivate {
         /// Project ID or path (auto-detected from current directory if omitted)
         project: Option<String>,
@@ -115,13 +117,15 @@ enum ProjectCommand {
 /// Branch subcommands
 #[derive(Subcommand)]
 enum BranchAction {
-    /// List branches for current project
+    /// List indexed branches with document counts
     List,
 
-    /// Show current branch info
+    /// Show current branch info (use git branch instead)
+    #[command(hide = true)]
     Info,
 
-    /// Switch active branch for indexing
+    /// Switch active branch for indexing (use git checkout instead)
+    #[command(hide = true)]
     Switch {
         /// Branch name
         branch: String,
