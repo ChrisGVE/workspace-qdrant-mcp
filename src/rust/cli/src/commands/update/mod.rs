@@ -25,6 +25,7 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Update command arguments
 #[derive(Args)]
+#[command(disable_version_flag = true)]
 pub struct UpdateArgs {
     #[command(subcommand)]
     command: Option<UpdateCommand>,
