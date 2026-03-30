@@ -15,6 +15,7 @@ mod info;
 mod list;
 mod register;
 pub(crate) mod resolver;
+mod search;
 mod status;
 #[cfg(test)]
 mod tests;
@@ -104,7 +105,33 @@ enum ProjectCommand {
         json: bool,
     },
 
-    /// Watch folder management (list, enable, disable, show, archive, unarchive, pause, resume)
+    /// Search project content (text or regex)
+    Search {
+        /// Search query (text string or regex pattern with --regex)
+        query: String,
+
+        /// Treat query as a regex pattern
+        #[arg(long)]
+        regex: bool,
+
+        /// Case-sensitive search
+        #[arg(long)]
+        case_sensitive: bool,
+
+        /// Filter by file path glob (e.g., "**/*.rs")
+        #[arg(long)]
+        path_glob: Option<String>,
+
+        /// Maximum results
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: usize,
+
+        /// Lines of context around matches
+        #[arg(short = 'C', long, default_value = "0")]
+        context_lines: u32,
+    },
+
+    /// Watch folder management (list, show)
     Watch(super::watch::WatchArgs),
 
     /// Branch management
@@ -157,6 +184,24 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
             verbose,
             json,
         } => check::check_project(project.as_deref(), verbose, json).await,
+        ProjectCommand::Search {
+            query,
+            regex,
+            case_sensitive,
+            path_glob,
+            limit,
+            context_lines,
+        } => {
+            search::search_project(
+                &query,
+                regex,
+                case_sensitive,
+                path_glob,
+                limit,
+                context_lines,
+            )
+            .await
+        }
         ProjectCommand::Watch(args) => super::watch::execute(args).await,
         ProjectCommand::Branch { action } => match action {
             BranchAction::List => branch::branch_list().await,
