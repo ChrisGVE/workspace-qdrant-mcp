@@ -31,6 +31,14 @@ pub struct ProjectArgs {
 #[derive(Subcommand)]
 enum ProjectCommand {
     /// List all registered projects
+    #[command(
+        long_about = "Show all projects registered with the daemon. Displays project name, path, \
+            tenant ID, active status, and document count. Use --active to filter to only \
+            projects currently being watched.",
+        after_help = "Examples:\n  \
+            wqm project list                            List all projects\n  \
+            wqm project list --active                   List only active projects"
+    )]
     List {
         /// Show only active projects
         #[arg(short, long)]
@@ -38,12 +46,31 @@ enum ProjectCommand {
     },
 
     /// Show project status
+    #[command(
+        long_about = "Display the indexing status of a project, including document counts, \
+            last sync time, and active branch. Defaults to the current working directory \
+            if no path is specified.",
+        after_help = "Examples:\n  \
+            wqm project status                          Status for current directory\n  \
+            wqm project status /path/to/project         Status for a specific project"
+    )]
     Status {
         /// Project path (current directory if omitted)
         path: Option<PathBuf>,
     },
 
     /// Register a project for tracking
+    #[command(
+        long_about = "Register a directory as a project for file watching and indexing. The daemon \
+            will begin tracking file changes and building the search index. The project must \
+            be a Git repository. Use --name to set a human-readable label.",
+        after_help = "Examples:\n  \
+            wqm project register                        Register current directory\n  \
+            wqm project register .                      Register current directory (explicit)\n  \
+            wqm project register /path/to/repo          Register a specific path\n  \
+            wqm project register . --name my-project    Register with a custom name\n  \
+            wqm project register . -y                   Skip confirmation prompt"
+    )]
     Register {
         /// Project path (current directory if omitted)
         path: Option<PathBuf>,
@@ -58,12 +85,30 @@ enum ProjectCommand {
     },
 
     /// Show detailed project info (auto-detects from CWD if project omitted)
+    #[command(
+        long_about = "Display detailed information about a project, including its tenant ID, \
+            root path, registered branches, collection sizes, and configuration. \
+            Auto-detects the project from the current directory if no argument is given.",
+        after_help = "Examples:\n  \
+            wqm project info                            Info for current project\n  \
+            wqm project info proj_abc123                Info by project ID"
+    )]
     Info {
         /// Project ID or path (auto-detected from current directory if omitted)
         project: Option<String>,
     },
 
     /// Delete a project and its data (auto-detects from CWD if project omitted)
+    #[command(
+        long_about = "Remove a project from tracking and optionally delete all associated vector \
+            data from Qdrant. By default, both SQLite metadata and Qdrant vectors are removed. \
+            Use --keep-data to preserve the Qdrant vectors.",
+        after_help = "Examples:\n  \
+            wqm project delete                          Delete current project (with prompt)\n  \
+            wqm project delete -y                       Delete without confirmation\n  \
+            wqm project delete --keep-data              Remove tracking, keep vectors\n  \
+            wqm project delete proj_abc123              Delete by project ID"
+    )]
     Delete {
         /// Project ID or path (auto-detected from current directory if omitted)
         project: Option<String>,
@@ -92,6 +137,16 @@ enum ProjectCommand {
     },
 
     /// Check ingestion status: compare tracked files against filesystem
+    #[command(
+        long_about = "Compare the daemon's tracked file index against the actual filesystem to \
+            find missing, stale, or extra files. Useful for diagnosing indexing gaps after \
+            bulk file operations or repository changes.",
+        after_help = "Examples:\n  \
+            wqm project check                           Check current project\n  \
+            wqm project check --verbose                 Show per-file status\n  \
+            wqm project check --json                    Output as JSON\n  \
+            wqm project check proj_abc123               Check by project ID"
+    )]
     Check {
         /// Project ID or path (auto-detected from current directory if omitted)
         project: Option<String>,
@@ -106,6 +161,17 @@ enum ProjectCommand {
     },
 
     /// Search project content (text or regex)
+    #[command(
+        long_about = "Full-text search across all indexed files in the current project. Supports \
+            plain text and regex patterns. Results show matching lines with optional context. \
+            Filter by file path globs to narrow results.",
+        after_help = "Examples:\n  \
+            wqm project search 'TODO'                   Search for text\n  \
+            wqm project search 'fn\\s+main' --regex     Regex search\n  \
+            wqm project search 'error' --path-glob '**/*.rs'  Filter by file type\n  \
+            wqm project search 'fixme' -C 3             Show 3 lines of context\n  \
+            wqm project search 'Bug' --case-sensitive   Case-sensitive search"
+    )]
     Search {
         /// Search query (text string or regex pattern with --regex)
         query: String,
@@ -132,9 +198,23 @@ enum ProjectCommand {
     },
 
     /// Watch folder management (list, show)
+    #[command(
+        long_about = "Manage file watch folders for the current project. List active watch \
+            directories and their configuration.",
+        after_help = "Examples:\n  \
+            wqm project watch list                      List watch folders\n  \
+            wqm project watch pause                     Pause file watching\n  \
+            wqm project watch resume                    Resume file watching"
+    )]
     Watch(super::watch::WatchArgs),
 
     /// Branch management
+    #[command(
+        long_about = "View and manage indexed branches for the current project. Lists branches \
+            with their document counts and indexing status.",
+        after_help = "Examples:\n  \
+            wqm project branch list                     List indexed branches"
+    )]
     Branch {
         #[command(subcommand)]
         action: BranchAction,

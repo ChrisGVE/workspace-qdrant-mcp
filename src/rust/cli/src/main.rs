@@ -92,20 +92,68 @@ enum Commands {
     Ingest(commands::ingest::IngestArgs),
 
     /// Behavioral rules management (list, add, remove, search, scope)
-    #[command(display_order = 12)]
+    #[command(
+        display_order = 12,
+        long_about = "Manage behavioral rules that guide AI assistant behavior. Rules are stored \
+            in the rules collection and can be scoped globally or per-project. Use rules to \
+            encode preferences, constraints, and patterns that persist across sessions.",
+        after_help = "Examples:\n  \
+            wqm rules list                              List all rules\n  \
+            wqm rules list --global                     List global rules only\n  \
+            wqm rules add -l no-emoji -c 'Never use emojis' --global   Add a global rule\n  \
+            wqm rules remove --label no-emoji --global  Remove a global rule\n  \
+            wqm rules search 'testing'                  Search rules by content"
+    )]
     Rules(commands::rules::RulesArgs),
 
-    /// Scratchpad entries (list)
-    #[command(display_order = 13, alias = "scratch")]
+    /// Scratchpad entries (list, search)
+    #[command(
+        display_order = 13,
+        alias = "scratch",
+        long_about = "Browse and search scratchpad entries. The scratchpad is a persistent \
+            knowledge store for analytical findings, design rationale, and research notes. \
+            Entries are stored per-project or globally and support semantic search.",
+        after_help = "Examples:\n  \
+            wqm scratchpad list                         List all entries\n  \
+            wqm scratchpad list --project .             List entries for current project\n  \
+            wqm scratchpad search 'architecture'        Semantic search across entries"
+    )]
     Scratchpad(commands::scratchpad::ScratchArgs),
 
     // --- Project & Library ---
     /// Project lifecycle (list, info, register, watch, branch)
-    #[command(display_order = 20)]
+    #[command(
+        display_order = 20,
+        long_about = "Manage projects tracked by the workspace-qdrant daemon. Projects are \
+            automatically detected via Git repositories and indexed for semantic search. \
+            Use subcommands to register, inspect, search content, manage watch folders, \
+            and view branch information.",
+        after_help = "Examples:\n  \
+            wqm project list                            List all registered projects\n  \
+            wqm project register .                      Register current directory\n  \
+            wqm project info                            Show info for current project\n  \
+            wqm project search 'TODO'                   Full-text search in project\n  \
+            wqm project check                           Compare tracked vs filesystem\n  \
+            wqm project watch list                      List watch folders\n  \
+            wqm project branch list                     List indexed branches"
+    )]
     Project(commands::project::ProjectArgs),
 
     /// Library management (list, add, ingest, watch, remove)
-    #[command(display_order = 21)]
+    #[command(
+        display_order = 21,
+        long_about = "Manage reference libraries for documentation, specs, and external content. \
+            Libraries are indexed into the libraries collection for semantic search. \
+            Supports file watching for automatic re-ingestion on changes.",
+        after_help = "Examples:\n  \
+            wqm library list                            List all libraries\n  \
+            wqm library add docs ./docs                 Add a library (no watching)\n  \
+            wqm library watch api-spec ./spec -p '*.yaml'  Watch with file patterns\n  \
+            wqm library ingest ./README.md -l docs      Ingest a single document\n  \
+            wqm library search 'authentication'         Semantic search across libraries\n  \
+            wqm library info docs                       Show library details\n  \
+            wqm library remove docs                     Remove a library and its data"
+    )]
     Library(commands::library::LibraryArgs),
 
     /// Watch folder management (hidden alias for `project watch`)
@@ -114,59 +162,184 @@ enum Commands {
 
     // --- Code Analysis ---
     /// Keyword/tag hierarchy (list, keywords, tree, stats, search, baskets)
-    #[command(display_order = 23)]
+    #[command(
+        display_order = 23,
+        long_about = "Browse and search the keyword/tag hierarchy extracted from indexed code. \
+            Tags represent semantic concepts (functions, classes, modules) organized in a \
+            tree structure. Use to explore code organization and find related symbols.",
+        after_help = "Examples:\n  \
+            wqm tags list                               List top-level tags\n  \
+            wqm tags tree                               Show full tag hierarchy\n  \
+            wqm tags search 'parse'                     Search tags by name\n  \
+            wqm tags stats                              Show tag statistics\n  \
+            wqm tags keywords                           List extracted keywords"
+    )]
     Tags(commands::tags::TagsArgs),
 
     /// Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
-    #[command(display_order = 24)]
+    #[command(
+        display_order = 24,
+        long_about = "Analyze code relationships using the dependency graph built from indexed \
+            projects. Supports PageRank for importance ranking, community detection for \
+            module clustering, betweenness centrality for bridge identification, and \
+            impact analysis for change propagation.",
+        after_help = "Examples:\n  \
+            wqm graph stats                             Show graph statistics\n  \
+            wqm graph query 'src/main.rs'               Query relationships for a file\n  \
+            wqm graph impact 'src/lib.rs'               Analyze change impact\n  \
+            wqm graph pagerank                          Rank files by importance\n  \
+            wqm graph communities                       Detect module clusters\n  \
+            wqm graph betweenness                       Find bridge files"
+    )]
     Graph(commands::graph::GraphArgs),
 
     /// Language tools (LSP, Tree-sitter)
-    #[command(display_order = 25)]
+    #[command(
+        display_order = 25,
+        long_about = "Inspect and manage language support tooling. Shows available LSP servers, \
+            Tree-sitter grammars, and their installation status. Useful for diagnosing \
+            language-specific indexing issues.",
+        after_help = "Examples:\n  \
+            wqm language list                           List supported languages\n  \
+            wqm language lsp status                     Show LSP server status\n  \
+            wqm language treesitter status              Show grammar status"
+    )]
     Language(commands::language::LanguageArgs),
 
     // --- Queue & Monitoring ---
     /// Queue inspector (list, show, stats, cancel)
-    #[command(display_order = 30)]
+    #[command(
+        display_order = 30,
+        long_about = "Inspect the daemon's unified processing queue. View pending, in-progress, \
+            and completed items. Use to monitor ingestion progress, diagnose stuck items, \
+            or cancel queued operations.",
+        after_help = "Examples:\n  \
+            wqm queue list                              List queued items\n  \
+            wqm queue stats                             Show queue statistics\n  \
+            wqm queue show <id>                         Show details for a queue item\n  \
+            wqm queue cancel <id>                       Cancel a pending item"
+    )]
     Queue(commands::queue::QueueArgs),
 
     /// System status and monitoring
-    #[command(display_order = 31)]
+    #[command(
+        display_order = 31,
+        long_about = "Show system health and status information. Displays daemon connectivity, \
+            Qdrant availability, collection sizes, active projects, and resource usage. \
+            Use for quick health checks and troubleshooting.",
+        after_help = "Examples:\n  \
+            wqm status                                  Show overall system status\n  \
+            wqm status health                           Detailed health diagnostics"
+    )]
     Status(commands::status::StatusArgs),
 
     /// Interactive terminal UI for browsing and monitoring
-    #[command(display_order = 32)]
+    #[command(
+        display_order = 32,
+        long_about = "Launch an interactive terminal UI for browsing projects, libraries, \
+            queue status, and system health. Provides a real-time dashboard view of the \
+            workspace-qdrant system.",
+        after_help = "Examples:\n  \
+            wqm tui                                     Launch the interactive UI"
+    )]
     #[cfg(feature = "tui")]
     Tui,
 
     // --- Service & Admin ---
     /// Daemon management (start, stop, restart, status)
-    #[command(display_order = 40)]
+    #[command(
+        display_order = 40,
+        long_about = "Control the memexd daemon lifecycle. Start, stop, or restart the daemon \
+            process. The daemon handles file watching, indexing, embedding generation, \
+            and serves the gRPC API that the CLI and MCP server connect to.",
+        after_help = "Examples:\n  \
+            wqm service status                          Check if daemon is running\n  \
+            wqm service start                           Start the daemon\n  \
+            wqm service stop                            Stop the daemon\n  \
+            wqm service restart                         Restart the daemon\n  \
+            wqm service install                         Install as system service\n  \
+            wqm service logs                            View daemon logs"
+    )]
     Service(commands::service::ServiceArgs),
 
     /// Administration (collections, backup, restore, rebuild, stats, perf, metrics)
-    #[command(display_order = 41)]
+    #[command(
+        display_order = 41,
+        long_about = "Administrative operations for managing Qdrant collections, rebuilding \
+            indexes, viewing performance metrics, and running backups. Most operations \
+            require a running daemon.",
+        after_help = "Examples:\n  \
+            wqm admin collections list                  List Qdrant collections\n  \
+            wqm admin rebuild all                       Rebuild all indexes\n  \
+            wqm admin perf                              Pipeline performance stats\n  \
+            wqm admin backup                            Backup collections\n  \
+            wqm admin restore                           Restore from backup"
+    )]
     Admin(commands::admin::AdminArgs),
 
     /// Configuration management
-    #[command(display_order = 42)]
+    #[command(
+        display_order = 42,
+        long_about = "View and modify wqm configuration. Settings include daemon address, \
+            output format, and environment-specific overrides. Configuration is read from \
+            environment variables and can be overridden per-invocation via CLI flags.",
+        after_help = "Examples:\n  \
+            wqm config show                             Show current configuration\n  \
+            wqm config path                             Show config file path"
+    )]
     Config(commands::config_cmd::ConfigCmdArgs),
 
     // --- Setup & Diagnostics ---
     /// Setup (shell completions, hooks)
-    #[command(display_order = 60)]
+    #[command(
+        display_order = 60,
+        long_about = "Initial setup utilities: generate shell completions for zsh/bash/fish, \
+            install man pages, and configure Claude Code hooks for automatic rule injection \
+            at session start.",
+        after_help = "Examples:\n  \
+            wqm init completions zsh                    Generate zsh completions\n  \
+            wqm init completions bash                   Generate bash completions\n  \
+            wqm init man install                        Install man pages\n  \
+            wqm init hooks install                      Install Claude Code hooks"
+    )]
     Init(commands::init::InitArgs),
 
     /// Update from GitHub releases
-    #[command(display_order = 61)]
+    #[command(
+        display_order = 61,
+        long_about = "Check for and install updates from GitHub releases. Downloads the latest \
+            release binaries for both the daemon (memexd) and CLI (wqm), replacing the \
+            currently installed versions.",
+        after_help = "Examples:\n  \
+            wqm update                                  Check and install updates\n  \
+            wqm update --check                          Check for updates only"
+    )]
     Update(commands::update::UpdateArgs),
 
     /// Diagnostic tools (logs, errors, queue-errors, language)
-    #[command(display_order = 62)]
+    #[command(
+        display_order = 62,
+        long_about = "Diagnostic tools for troubleshooting. View daemon logs, recent errors, \
+            queue processing failures, and language-specific indexing issues. Useful when \
+            files are not being indexed or search results are unexpected.",
+        after_help = "Examples:\n  \
+            wqm debug logs                              View recent daemon logs\n  \
+            wqm debug errors                            Show recent errors\n  \
+            wqm debug queue-errors                      Show queue processing failures\n  \
+            wqm debug language                          Diagnose language support issues"
+    )]
     Debug(commands::debug::DebugArgs),
 
     /// Benchmarking tools (sparse vectors, search engines)
-    #[command(display_order = 63)]
+    #[command(
+        display_order = 63,
+        long_about = "Run performance benchmarks for sparse vector generation and search \
+            engine components. Results help tune chunking parameters and identify \
+            performance bottlenecks.",
+        after_help = "Examples:\n  \
+            wqm benchmark sparse                        Benchmark sparse vector generation\n  \
+            wqm benchmark search                        Benchmark search performance"
+    )]
     Benchmark(commands::benchmark::BenchmarkArgs),
 
     // --- Hidden backward-compat aliases ---
