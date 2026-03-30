@@ -3,15 +3,35 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
+use tabled::Tabled;
 
 use wqm_common::constants::COLLECTION_PROJECTS;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::ListProjectsRequest;
 use crate::output::style::home_to_tilde;
-use crate::output::{self, ServiceStatus};
+use crate::output::{self, ColumnHints};
 
 use super::super::qdrant_helpers;
+
+/// Project table row
+#[derive(Tabled)]
+struct ProjectRow {
+    #[tabled(rename = "Name")]
+    name: String,
+    #[tabled(rename = "Path")]
+    path: String,
+    #[tabled(rename = "Status")]
+    status: String,
+    #[tabled(rename = "Documents")]
+    documents: String,
+}
+
+impl ColumnHints for ProjectRow {
+    fn content_columns() -> &'static [usize] {
+        &[1] // Path is the content column
+    }
+}
 
 pub(super) async fn list_projects(active_only: bool, priority: Option<String>) -> Result<()> {
     output::section("Registered Projects");
@@ -69,27 +89,36 @@ fn print_project_list(
 
     let mut known_ids = HashSet::new();
 
-    for (i, proj) in list.projects.iter().enumerate() {
-        known_ids.insert(proj.project_id.clone());
-        let status = if proj.is_active {
-            ServiceStatus::Active
-        } else {
-            ServiceStatus::Inactive
-        };
-        if i > 0 {
-            println!();
-        }
-        let name_display = if proj.is_worktree {
-            format!("{} [worktree]", proj.project_name)
-        } else {
-            proj.project_name.clone()
-        };
-        output::status_line(&name_display, status);
-        output::kv("  ID", &proj.project_id);
-        output::kv("  Path", home_to_tilde(&proj.project_root));
-        if let Some(count) = qdrant_counts.get(&proj.project_id) {
-            output::kv("  Documents", count.to_string());
-        }
+    let rows: Vec<ProjectRow> = list
+        .projects
+        .iter()
+        .map(|proj| {
+            known_ids.insert(proj.project_id.clone());
+            let name = if proj.is_worktree {
+                format!("{} [worktree]", proj.project_name)
+            } else {
+                proj.project_name.clone()
+            };
+            let status = if proj.is_active {
+                "Active".to_string()
+            } else {
+                "Inactive".to_string()
+            };
+            let documents = qdrant_counts
+                .get(&proj.project_id)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            ProjectRow {
+                name,
+                path: home_to_tilde(&proj.project_root),
+                status,
+                documents,
+            }
+        })
+        .collect();
+
+    if !rows.is_empty() {
+        output::print_table_auto(&rows);
     }
 
     // Show orphaned projects (in Qdrant but not in daemon)
