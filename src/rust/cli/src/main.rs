@@ -23,20 +23,18 @@ USAGE: {usage}
 
 OPTIONS:
 {options}
-SEARCH & CONTENT:
-  search       Search collections (project, library, rules, global)
-  ingest       Ingest documents (file, folder, web)
-  rules        Behavioral rules management
-  scratchpad   Scratchpad entries
+INTERACTIVE:
+  tui          Interactive terminal UI
 
-PROJECT & LIBRARY:
-  project      Project lifecycle (list, info, register, watch, branch)
-  library      Library management (list, add, ingest, watch, remove)
+CONTENT:
+  project      Project management (list, info, register, delete, search, check)
+  library      Library management (list, info, register, remove, search)
+  rules        Behavioral rules (list, add, remove, search)
+  scratchpad   Scratchpad entries (list, search)
 
 QUEUE & MONITORING:
   queue        Queue inspector (list, show, stats, cancel)
   status       System status and monitoring
-  tui          Interactive terminal UI
 
 SERVICE & ADMIN:
   service      Daemon management (start, stop, restart, status)
@@ -85,12 +83,12 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     // --- Search & Content ---
-    /// Search collections (project, library, rules, global)
-    #[command(display_order = 10)]
+    /// [Deprecated] Use: project search, rules search, library search, scratchpad search
+    #[command(display_order = 10, hide = true)]
     Search(commands::search::SearchArgs),
 
-    /// Ingest documents (file, folder, web)
-    #[command(display_order = 11)]
+    /// [Deprecated] Use: library register, library ingest
+    #[command(display_order = 11, hide = true)]
     Ingest(commands::ingest::IngestArgs),
 
     /// Behavioral rules management (list, add, remove, search, scope)
