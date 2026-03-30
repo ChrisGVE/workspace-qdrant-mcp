@@ -76,10 +76,6 @@ enum RulesCommand {
         /// Rule type (preference, behavior, constraint, pattern)
         #[arg(short = 't', long, default_value = "preference")]
         rule_type: String,
-
-        /// Priority (1-10, higher = more important)
-        #[arg(short, long, default_value = "5")]
-        priority: u32,
     },
 
     /// Remove a rule
@@ -156,10 +152,9 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             global,
             project,
             rule_type,
-            priority,
         } => {
             let scope = resolve_scope(global, project);
-            add::add_rule(&label, &content, &rule_type, &scope, priority).await
+            add::add_rule(&label, &content, &rule_type, &scope).await
         }
         RulesCommand::Remove {
             label,

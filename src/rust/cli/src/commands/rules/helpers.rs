@@ -70,8 +70,6 @@ pub struct RuleRow {
     pub title: String,
     #[tabled(rename = "Scope")]
     pub scope: String,
-    #[tabled(rename = "Priority")]
-    pub priority: String,
     #[tabled(rename = "Created")]
     pub created_at: String,
 }
@@ -92,8 +90,6 @@ pub struct RuleRowVerbose {
     pub title: String,
     #[tabled(rename = "Scope")]
     pub scope: String,
-    #[tabled(rename = "Priority")]
-    pub priority: String,
     #[tabled(rename = "Tags")]
     pub tags: String,
     #[tabled(rename = "Content")]
@@ -103,9 +99,9 @@ pub struct RuleRowVerbose {
 }
 
 impl ColumnHints for RuleRowVerbose {
-    // Title(1), Content(5) are content
+    // Title(1), Content(4) are content
     fn content_columns() -> &'static [usize] {
-        &[1, 5]
+        &[1, 4]
     }
 }
 
