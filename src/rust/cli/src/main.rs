@@ -27,7 +27,7 @@ SEARCH & CONTENT:
   search       Search collections (project, library, rules, global)
   ingest       Ingest documents (file, folder, web)
   rules        Behavioral rules management
-  scratch      Scratchpad entries
+  scratchpad   Scratchpad entries
 
 PROJECT & LIBRARY:
   project      Project lifecycle (list, info, register, watch, branch)
@@ -97,9 +97,9 @@ enum Commands {
     #[command(display_order = 12)]
     Rules(commands::rules::RulesArgs),
 
-    /// Scratchpad entries (add, list)
-    #[command(display_order = 13)]
-    Scratch(commands::scratch::ScratchArgs),
+    /// Scratchpad entries (list)
+    #[command(display_order = 13, alias = "scratch")]
+    Scratchpad(commands::scratchpad::ScratchArgs),
 
     // --- Project & Library ---
     /// Project lifecycle (list, info, register, watch, branch)
@@ -251,7 +251,7 @@ async fn main() -> Result<()> {
         Commands::Search(args) => commands::search::execute(args).await,
         Commands::Ingest(args) => commands::ingest::execute(args).await,
         Commands::Rules(args) => commands::rules::execute(args).await,
-        Commands::Scratch(args) => commands::scratch::execute(args).await,
+        Commands::Scratchpad(args) => commands::scratchpad::execute(args).await,
 
         // Project & Library
         Commands::Project(args) => commands::project::execute(args).await,

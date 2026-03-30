@@ -13,7 +13,7 @@ pub mod debug;
 pub mod library;
 pub mod project;
 pub mod rules;
-pub mod scratch;
+pub mod scratchpad;
 
 // Search & Queue
 pub mod graph;
