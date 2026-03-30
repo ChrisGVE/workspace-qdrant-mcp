@@ -186,6 +186,7 @@ async fn add_entry(
 async fn search_entries(query: &str, project: Option<String>, limit: usize) -> Result<()> {
     use crate::grpc::proto::EmbedTextRequest;
 
+    let project_names = crate::commands::tenant::load_project_names();
     let mut daemon = crate::grpc::ensure_daemon_available().await?;
 
     let embed_response = daemon
@@ -266,7 +267,10 @@ async fn search_entries(query: &str, project: Option<String>, limit: usize) -> R
         .filter_map(|p| p.get("payload"))
         .map(|payload| ScratchRow {
             title: payload_str(payload, "title"),
-            tenant_id: payload_str(payload, "tenant_id"),
+            tenant_id: crate::commands::tenant::resolve_tenant_name(
+                &payload_str(payload, "tenant_id"),
+                &project_names,
+            ),
             tags: payload_tags(payload).join(", "),
             created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
                 payload,
@@ -474,13 +478,17 @@ async fn fetch_scroll_points(
 }
 
 fn print_json_entries(points: &[QdrantPoint]) {
+    let project_names = crate::commands::tenant::load_project_names();
     let entries: Vec<ScratchJson> = points
         .iter()
         .filter_map(|p| p.payload.as_ref())
         .map(|payload| ScratchJson {
             title: payload_str(payload, "title"),
             content: payload_str(payload, "content"),
-            tenant_id: payload_str(payload, "tenant_id"),
+            tenant_id: crate::commands::tenant::resolve_tenant_name(
+                &payload_str(payload, "tenant_id"),
+                &project_names,
+            ),
             tags: payload_tags(payload),
             source_type: payload_str(payload, "source_type"),
             created_at: payload_str(payload, "created_at"),
@@ -490,13 +498,17 @@ fn print_json_entries(points: &[QdrantPoint]) {
 }
 
 fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool) {
+    let project_names = crate::commands::tenant::load_project_names();
     if verbose {
         let rows: Vec<ScratchRowVerbose> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRowVerbose {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(","),
                 content: payload_str(payload, "content"),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
@@ -512,7 +524,10 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRow {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(","),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
                     payload,
@@ -525,6 +540,7 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
 }
 
 fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: bool) {
+    let project_names = crate::commands::tenant::load_project_names();
     output::section("Scratchpad Entries");
     if let Some(p) = project {
         output::kv("Filter", p);
@@ -539,7 +555,10 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRowVerbose {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(", "),
                 content: payload_str(payload, "content"),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
@@ -555,7 +574,10 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRow {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(", "),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
                     payload,

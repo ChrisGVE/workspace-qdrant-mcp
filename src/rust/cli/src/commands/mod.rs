@@ -41,6 +41,7 @@ pub mod recover_state;
 
 // Shared utilities
 pub mod qdrant_helpers;
+pub mod tenant;
 
 // Diagnostics & Setup
 pub mod hooks;
