@@ -22,7 +22,8 @@ pub struct ScratchArgs {
 /// Scratchpad subcommands
 #[derive(Subcommand)]
 enum ScratchCommand {
-    /// Add a scratchpad entry
+    /// Add a scratchpad entry (use MCP for programmatic access)
+    #[command(hide = true)]
     Add {
         /// Content text
         content: String,
