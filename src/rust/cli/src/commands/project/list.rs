@@ -87,7 +87,6 @@ fn print_project_list(
         output::status_line(&name_display, status);
         output::kv("  ID", &proj.project_id);
         output::kv("  Path", home_to_tilde(&proj.project_root));
-        output::kv("  Priority", &proj.priority);
         if let Some(count) = qdrant_counts.get(&proj.project_id) {
             output::kv("  Documents", count.to_string());
         }

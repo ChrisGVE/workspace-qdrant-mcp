@@ -68,7 +68,6 @@ pub(super) async fn register_project(
                     } else {
                         output::info("Project already registered");
                     }
-                    output::kv("Priority", &result.priority);
                     output::kv("Active", if result.is_active { "Yes" } else { "No" });
                     if result.is_worktree {
                         output::info(format!(

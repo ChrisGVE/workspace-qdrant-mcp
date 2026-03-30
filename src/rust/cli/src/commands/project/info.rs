@@ -27,7 +27,6 @@ pub(super) async fn project_info(project: Option<&str>) -> Result<()> {
                         output::kv("Project ID", &status.project_id);
                         output::kv("Name", &status.project_name);
                         output::kv("Path", home_to_tilde(&status.project_root));
-                        output::kv("Priority", &status.priority);
                         output::kv("Active", if status.is_active { "Yes" } else { "No" });
                         if let Some(remote) = status.git_remote {
                             output::kv("Git Remote", &remote);

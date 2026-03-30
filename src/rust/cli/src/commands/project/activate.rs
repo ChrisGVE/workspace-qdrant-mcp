@@ -30,10 +30,7 @@ pub(super) async fn activate_project(project: Option<&str>) -> Result<()> {
                         output::error(format!("Project not found: {}", project_id));
                         output::info("Register first with: wqm project register");
                     } else {
-                        output::success(format!(
-                            "Project {} activated (priority: {})",
-                            project_id, result.priority
-                        ));
+                        output::success(format!("Project {} activated", project_id));
                     }
                 }
                 Err(e) => {
@@ -61,11 +58,8 @@ pub(super) async fn deactivate_project(project: Option<&str>) -> Result<()> {
 
             match client.project().deprioritize_project(request).await {
                 Ok(response) => {
-                    let result = response.into_inner();
-                    output::success(format!(
-                        "Project {} deactivated (priority: {})",
-                        project_id, result.new_priority
-                    ));
+                    let _result = response.into_inner();
+                    output::success(format!("Project {} deactivated", project_id));
                 }
                 Err(e) => {
                     let msg = e.message();

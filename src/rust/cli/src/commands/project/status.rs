@@ -18,7 +18,7 @@ pub(super) async fn project_status(path: Option<PathBuf>) -> Result<()> {
         .context("Could not resolve path")?;
 
     let display_path = home_to_tilde(&abs_path.display().to_string());
-    output::section(format!("Project Status: {}", display_path));
+    output::section("Project Status");
 
     // Generate project ID using the same algorithm as the daemon
     let project_id = calculate_project_id(&abs_path);
@@ -40,7 +40,6 @@ pub(super) async fn project_status(path: Option<PathBuf>) -> Result<()> {
                     if status.found {
                         output::status_line("Registered", ServiceStatus::Healthy);
                         output::kv("Name", &status.project_name);
-                        output::kv("Priority", &status.priority);
                         output::kv("Active", if status.is_active { "Yes" } else { "No" });
                         if let Some(remote) = status.git_remote {
                             output::kv("Git Remote", &remote);

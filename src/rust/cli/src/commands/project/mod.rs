@@ -34,10 +34,6 @@ enum ProjectCommand {
         /// Show only active projects
         #[arg(short, long)]
         active: bool,
-
-        /// Filter by priority (high, normal, low)
-        #[arg(short, long)]
-        priority: Option<String>,
     },
 
     /// Show project status
@@ -135,7 +131,7 @@ enum BranchAction {
 /// Execute project command
 pub async fn execute(args: ProjectArgs) -> Result<()> {
     match args.command {
-        ProjectCommand::List { active, priority } => list::list_projects(active, priority).await,
+        ProjectCommand::List { active } => list::list_projects(active, None).await,
         ProjectCommand::Status { path } => status::project_status(path).await,
         ProjectCommand::Register { path, name, yes } => {
             register::register_project(path, name, yes).await
