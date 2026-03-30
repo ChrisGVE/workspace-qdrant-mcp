@@ -23,6 +23,15 @@ pub struct ScratchArgs {
 #[derive(Subcommand)]
 enum ScratchCommand {
     /// Search scratchpad entries (semantic)
+    #[command(
+        long_about = "Perform semantic search across scratchpad entries using vector embeddings. \
+            Returns entries ranked by relevance to the query. Optionally filter to a \
+            specific project.",
+        after_help = "Examples:\n  \
+            wqm scratchpad search 'architecture decisions'   Semantic search\n  \
+            wqm scratchpad search 'auth flow' --project .    Filter to current project\n  \
+            wqm scratchpad search 'design' -n 5              Limit to 5 results"
+    )]
     Search {
         /// Search query
         query: String,
@@ -37,6 +46,13 @@ enum ScratchCommand {
     },
 
     /// Show detailed information about a scratchpad entry
+    #[command(
+        long_about = "Display full details for a scratchpad entry, including title, content, \
+            tags, tenant, and creation time. Searches by title substring.",
+        after_help = "Examples:\n  \
+            wqm scratchpad info 'auth design'           Look up by title\n  \
+            wqm scratchpad info 'auth design' --json    Output as JSON"
+    )]
     Info {
         /// Entry title or substring to search for
         identifier: String,
@@ -66,6 +82,16 @@ enum ScratchCommand {
     },
 
     /// List scratchpad entries
+    #[command(
+        long_about = "Display all scratchpad entries, optionally filtered by project. Shows \
+            title, tenant, tags, and creation time. Use --verbose for full content.",
+        after_help = "Examples:\n  \
+            wqm scratchpad list                         List all entries\n  \
+            wqm scratchpad list --project .             Filter to current project\n  \
+            wqm scratchpad list --verbose               Show full content\n  \
+            wqm scratchpad list --format json           Output as JSON\n  \
+            wqm scratchpad list --script --no-headers   Machine-readable output"
+    )]
     List {
         /// Project ID or path (defaults to showing all)
         #[arg(short, long)]
