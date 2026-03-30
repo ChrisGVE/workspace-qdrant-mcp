@@ -21,9 +21,6 @@ use crate::config::OutputFormat;
 /// Cell padding used by tabled's default layout (1 space each side).
 const CELL_PADDING: usize = 2;
 
-/// Dim ANSI color for the header separator line.
-const DIM_COLOR: Color = Color::FG_BRIGHT_BLACK;
-
 /// Compute content-aware minimum widths for each column.
 ///
 /// For categorical columns: minimum = max(header width, widest word/segment)
@@ -73,8 +70,7 @@ fn apply_borderless(table: &mut Table) {
     let style = Style::blank().horizontals([(1, HorizontalLine::new('─').intersection('─'))]);
     table
         .with(style)
-        .with(Modify::new(Rows::first()).with(Color::BOLD))
-        .with(Modify::new(Rows::new(1..2)).with(DIM_COLOR));
+        .with(Modify::new(Rows::first()).with(Color::BOLD));
 }
 
 /// Get the current terminal width, falling back to 120 columns
