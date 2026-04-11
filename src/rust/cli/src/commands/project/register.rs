@@ -33,6 +33,25 @@ pub(super) async fn register_project(
     // Detect git remote (same function used by project ID calculation)
     let git_remote = wqm_common::project_id::detect_git_remote(&abs_path);
 
+    // Check if the path is already part of a registered project
+    if let Ok(db_path) = crate::config::get_database_path_checked() {
+        if let Some((existing_id, existing_path)) =
+            wqm_common::project_id::resolve_path_to_project(&db_path, &abs_path)
+        {
+            output::section("Register Project");
+            output::info(format!(
+                "This directory is already part of project '{}'",
+                existing_id
+            ));
+            output::kv("Existing Project ID", &existing_id);
+            output::kv(
+                "Project Path",
+                crate::output::style::home_to_tilde(&existing_path),
+            );
+            return Ok(());
+        }
+    }
+
     // Display summary
     output::section("Register Project");
     output::kv("Path", abs_path.display().to_string());
