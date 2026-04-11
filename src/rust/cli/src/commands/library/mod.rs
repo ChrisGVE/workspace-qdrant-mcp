@@ -47,7 +47,7 @@ enum LibraryCommand {
         long_about = "Show all registered libraries with their tags, paths, watch status, \
             and document counts. Use --verbose for additional details including file \
             patterns and sync mode.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm library list                            List all libraries\n  \
             wqm library list --verbose                  Show detailed information"
     )]
@@ -62,7 +62,7 @@ enum LibraryCommand {
         long_about = "Register a directory as a library without enabling file watching. The \
             library is tracked by its tag (a short identifier). Files must be ingested \
             manually with 'library ingest' or watching enabled later with 'library watch'.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm library add docs ./docs                 Add with default incremental mode\n  \
             wqm library add api-spec ./spec -m sync     Add with sync mode (deletes on remove)"
     )]
@@ -84,7 +84,7 @@ enum LibraryCommand {
         long_about = "Register a directory as a watched library. The daemon will automatically \
             detect file changes and re-ingest updated content. Use --patterns to filter \
             which files are indexed.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm library watch docs ./docs               Watch all files in ./docs\n  \
             wqm library watch api ./spec -p '*.yaml' -p '*.json'  Watch specific patterns\n  \
             wqm library watch notes ./notes -m sync     Watch with sync mode"
@@ -111,7 +111,7 @@ enum LibraryCommand {
         long_about = "Perform semantic search across library content using vector embeddings. \
             Returns the most relevant passages ranked by similarity. Optionally filter to \
             a specific library by tag.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm library search 'authentication flow'    Search all libraries\n  \
             wqm library search 'error codes' -l api     Search a specific library\n  \
             wqm library search 'setup guide' -n 5       Limit to 5 results"
@@ -139,7 +139,7 @@ enum LibraryCommand {
     #[command(
         long_about = "Permanently remove a library, deleting both its watch configuration in \
             SQLite and all associated vector data from Qdrant. This action cannot be undone.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm library remove docs                     Remove with confirmation prompt\n  \
             wqm library remove docs --yes               Remove without confirmation"
     )]
@@ -167,7 +167,7 @@ enum LibraryCommand {
         long_about = "Display detailed information about a library, including its path, watch \
             status, file patterns, sync mode, document count, and last scan time. Shows \
             all libraries if no tag is specified.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm library info docs                       Show info for 'docs' library\n  \
             wqm library info                            Show info for all libraries"
     )]
@@ -184,7 +184,7 @@ enum LibraryCommand {
         long_about = "Manually ingest a single file into a library. The file is chunked, \
             embedded, and stored in Qdrant. Use --chunk-tokens and --overlap-tokens to \
             control chunking granularity.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm library ingest ./README.md -l docs      Ingest with default chunking\n  \
             wqm library ingest ./spec.pdf -l api --chunk-tokens 200  Larger chunks"
     )]

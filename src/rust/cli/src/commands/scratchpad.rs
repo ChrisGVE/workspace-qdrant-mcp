@@ -27,7 +27,7 @@ enum ScratchCommand {
         long_about = "Perform semantic search across scratchpad entries using vector embeddings. \
             Returns entries ranked by relevance to the query. Optionally filter to a \
             specific project.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm scratchpad search 'architecture decisions'   Semantic search\n  \
             wqm scratchpad search 'auth flow' --project .    Filter to current project\n  \
             wqm scratchpad search 'design' -n 5              Limit to 5 results"
@@ -49,7 +49,7 @@ enum ScratchCommand {
     #[command(
         long_about = "Display full details for a scratchpad entry, including title, content, \
             tags, tenant, and creation time. Searches by title substring.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm scratchpad info 'auth design'           Look up by title\n  \
             wqm scratchpad info 'auth design' --json    Output as JSON"
     )]
@@ -85,7 +85,7 @@ enum ScratchCommand {
     #[command(
         long_about = "Display all scratchpad entries, optionally filtered by project. Shows \
             title, tenant, tags, and creation time. Use --verbose for full content.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm scratchpad list                         List all entries\n  \
             wqm scratchpad list --project .             Filter to current project\n  \
             wqm scratchpad list --verbose               Show full content\n  \

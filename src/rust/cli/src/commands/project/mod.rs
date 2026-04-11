@@ -35,7 +35,7 @@ enum ProjectCommand {
         long_about = "Show all projects registered with the daemon. Displays project name, path, \
             tenant ID, active status, and document count. Use --active to filter to only \
             projects currently being watched.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project list                            List all projects\n  \
             wqm project list --active                   List only active projects"
     )]
@@ -50,7 +50,7 @@ enum ProjectCommand {
         long_about = "Display the indexing status of a project, including document counts, \
             last sync time, and active branch. Defaults to the current working directory \
             if no path is specified.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project status                          Status for current directory\n  \
             wqm project status /path/to/project         Status for a specific project"
     )]
@@ -64,7 +64,7 @@ enum ProjectCommand {
         long_about = "Register a directory as a project for file watching and indexing. The daemon \
             will begin tracking file changes and building the search index. The project must \
             be a Git repository. Use --name to set a human-readable label.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project register                        Register current directory\n  \
             wqm project register .                      Register current directory (explicit)\n  \
             wqm project register /path/to/repo          Register a specific path\n  \
@@ -89,7 +89,7 @@ enum ProjectCommand {
         long_about = "Display detailed information about a project, including its tenant ID, \
             root path, registered branches, collection sizes, and configuration. \
             Auto-detects the project from the current directory if no argument is given.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project info                            Info for current project\n  \
             wqm project info proj_abc123                Info by project ID"
     )]
@@ -103,7 +103,7 @@ enum ProjectCommand {
         long_about = "Remove a project from tracking and optionally delete all associated vector \
             data from Qdrant. By default, both SQLite metadata and Qdrant vectors are removed. \
             Use --keep-data to preserve the Qdrant vectors.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project delete                          Delete current project (with prompt)\n  \
             wqm project delete -y                       Delete without confirmation\n  \
             wqm project delete --keep-data              Remove tracking, keep vectors\n  \
@@ -141,7 +141,7 @@ enum ProjectCommand {
         long_about = "Compare the daemon's tracked file index against the actual filesystem to \
             find missing, stale, or extra files. Useful for diagnosing indexing gaps after \
             bulk file operations or repository changes.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project check                           Check current project\n  \
             wqm project check --verbose                 Show per-file status\n  \
             wqm project check --json                    Output as JSON\n  \
@@ -165,7 +165,7 @@ enum ProjectCommand {
         long_about = "Full-text search across all indexed files in the current project. Supports \
             plain text and regex patterns. Results show matching lines with optional context. \
             Filter by file path globs to narrow results.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project search 'TODO'                   Search for text\n  \
             wqm project search 'fn\\s+main' --regex     Regex search\n  \
             wqm project search 'error' --path-glob '**/*.rs'  Filter by file type\n  \
@@ -201,7 +201,7 @@ enum ProjectCommand {
     #[command(
         long_about = "Manage file watch folders for the current project. List active watch \
             directories and their configuration.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project watch list                      List watch folders\n  \
             wqm project watch pause                     Pause file watching\n  \
             wqm project watch resume                    Resume file watching"
@@ -212,7 +212,7 @@ enum ProjectCommand {
     #[command(
         long_about = "View and manage indexed branches for the current project. Lists branches \
             with their document counts and indexing status.",
-        after_help = "Examples:\n  \
+        after_long_help = "Examples:\n  \
             wqm project branch list                     List indexed branches"
     )]
     Branch {
