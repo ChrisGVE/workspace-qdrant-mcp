@@ -65,5 +65,6 @@ pub use style::{
 // Table
 pub use table::{
     build_table, finish_table, print_data, print_json, print_plain, print_script, print_table,
-    print_table_auto, print_table_with_hints, terminal_width, ColumnHints,
+    print_table_auto, print_table_closing_separator, print_table_separator, print_table_summary,
+    print_table_with_hints, render_table, terminal_width, ColumnHints, GutterRow,
 };
