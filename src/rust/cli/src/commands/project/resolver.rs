@@ -84,15 +84,35 @@ pub(crate) fn resolve_project_id_or_cwd_quiet(project: Option<&str>) -> Result<(
     let db_path = crate::config::get_database_path_checked()
         .map_err(|e| anyhow::anyhow!("Database not found: {}", e))?;
 
-    match wqm_common::project_id::resolve_path_to_project(&db_path, &cwd) {
-        Some((tenant_id, _path)) => Ok((tenant_id, true)),
-        None => {
-            anyhow::bail!(
-                "Could not detect project from current directory.\n\
-                 Run from within a registered project directory, or pass a project ID explicitly."
-            );
+    // Try direct path match first (works for main checkout and subdirectories)
+    if let Some((tenant_id, _path)) =
+        wqm_common::project_id::resolve_path_to_project(&db_path, &cwd)
+    {
+        return Ok((tenant_id, true));
+    }
+
+    // Fallback: compute project_id from git remote (works for worktrees)
+    let project_id = calculate_project_id(&cwd);
+    if let Ok(conn) =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    {
+        let _ = conn.execute_batch("PRAGMA busy_timeout=5000;");
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 LIMIT 1",
+                rusqlite::params![&project_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if exists {
+            return Ok((project_id, true));
         }
     }
+
+    anyhow::bail!(
+        "Could not detect project from current directory.\n\
+         Run from within a registered project directory, or pass a project ID explicitly."
+    );
 }
 
 /// Resolve a project hint (name, path, or tenant_id) to a `(tenant_id, path)` pair

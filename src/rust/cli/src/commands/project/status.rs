@@ -1,31 +1,18 @@
 //! Show project status
 
-use std::path::PathBuf;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::GetProjectStatusRequest;
 use crate::output::style::home_to_tilde;
 use crate::output::{self, ServiceStatus};
 
-use super::resolver::calculate_project_id;
+use super::resolver::resolve_project_id_or_cwd;
 
-pub(super) async fn project_status(path: Option<PathBuf>) -> Result<()> {
-    let project_path = path.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let abs_path = project_path
-        .canonicalize()
-        .context("Could not resolve path")?;
+pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
+    let project_id = resolve_project_id_or_cwd(project)?;
 
-    let display_path = home_to_tilde(&abs_path.display().to_string());
     output::section("Project Status");
-
-    // Generate project ID using the same algorithm as the daemon
-    let project_id = calculate_project_id(&abs_path);
-
-    output::kv("Path", &display_path);
-    output::kv("Project ID", &project_id);
-    output::separator();
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
@@ -38,13 +25,24 @@ pub(super) async fn project_status(path: Option<PathBuf>) -> Result<()> {
                     let status = response.into_inner();
 
                     if status.found {
-                        output::status_line("Registered", ServiceStatus::Healthy);
                         output::kv("Name", &status.project_name);
+                        output::kv("Project ID", &status.project_id);
+                        output::kv("Path", home_to_tilde(&status.project_root));
                         output::kv("Active", if status.is_active { "Yes" } else { "No" });
                         if let Some(remote) = status.git_remote {
                             output::kv("Git Remote", &remote);
                         }
+                        if status.is_worktree {
+                            output::kv("Worktree", "Yes");
+                            if let Some(main_path) = status.main_worktree_path {
+                                output::kv("Main Working Tree", home_to_tilde(&main_path));
+                            }
+                        }
+                        output::separator();
+                        output::status_line("Registered", ServiceStatus::Healthy);
                     } else {
+                        output::kv("Project ID", &project_id);
+                        output::separator();
                         output::status_line("Registered", ServiceStatus::Unknown);
                         output::info("Project not registered with daemon");
                         output::info("Register with: wqm project register");
@@ -56,6 +54,8 @@ pub(super) async fn project_status(path: Option<PathBuf>) -> Result<()> {
             }
         }
         Err(_) => {
+            output::kv("Project ID", &project_id);
+            output::separator();
             output::error("Daemon not running");
         }
     }

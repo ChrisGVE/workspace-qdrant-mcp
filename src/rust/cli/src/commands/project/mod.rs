@@ -49,14 +49,16 @@ enum ProjectCommand {
     #[command(
         long_about = "Display the indexing status of a project, including document counts, \
             last sync time, and active branch. Defaults to the current working directory \
-            if no path is specified.",
+            if no project is specified. Accepts a project name, ID, or path.",
         after_long_help = "Examples:\n  \
             wqm project status                          Status for current directory\n  \
-            wqm project status /path/to/project         Status for a specific project"
+            wqm project status /path/to/project         Status for a specific path\n  \
+            wqm project status my-project               Status by project name\n  \
+            wqm project status 4ed81466dec7             Status by project ID"
     )]
     Status {
-        /// Project path (current directory if omitted)
-        path: Option<PathBuf>,
+        /// Project name, ID, or path (auto-detected from CWD if omitted)
+        project: Option<String>,
     },
 
     /// Register a project for tracking
@@ -243,7 +245,7 @@ enum BranchAction {
 pub async fn execute(args: ProjectArgs) -> Result<()> {
     match args.command {
         ProjectCommand::List { active } => list::list_projects(active, None).await,
-        ProjectCommand::Status { path } => status::project_status(path).await,
+        ProjectCommand::Status { project } => status::project_status(project.as_deref()).await,
         ProjectCommand::Register { path, name, yes } => {
             register::register_project(path, name, yes).await
         }
