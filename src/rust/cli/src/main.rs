@@ -15,42 +15,50 @@ pub(crate) mod path_arg;
 #[cfg(feature = "tui")]
 mod tui;
 
-/// Custom help template with grouped subcommands
+/// Custom help template with grouped subcommands.
+///
+/// Per PRD: title first, then version; blank line between options and commands;
+/// "Commands by domain:" label; bold command names via ANSI codes.
 const HELP_TEMPLATE: &str = "\
-{before-help}{name} {version}
-{about-with-newline}
+{before-help}{about}
+version {version}
+
 USAGE: {usage}
 
 OPTIONS:
 {options}
-INTERACTIVE:
-  tui          Interactive terminal UI
+Commands by domain:
 
-CONTENT:
-  project      Project management (list, info, register, delete, search, check)
-  library      Library management (list, info, register, remove, search)
-  rules        Behavioral rules (list, add, remove, search)
-  scratchpad   Scratchpad entries (list, search)
+  INTERACTIVE:
+    \x1b[1mtui\x1b[0m          Interactive terminal UI
 
-QUEUE & MONITORING:
-  queue        Queue inspector (list, show, stats, cancel)
-  status       System status and monitoring
+  CONTENT:
+    \x1b[1mproject\x1b[0m      Project management (list, status, register, delete, search)
+    \x1b[1mlibrary\x1b[0m      Library management (list, info, register, remove, search)
+    \x1b[1mrules\x1b[0m        Behavioral rules (list, add, remove, search)
+    \x1b[1mscratchpad\x1b[0m   Scratchpad entries (list, search)
 
-SERVICE & ADMIN:
-  service      Daemon management (start, stop, restart, status)
-  admin        Administration (collections, backup, restore, rebuild, stats, perf, metrics)
-  config       Configuration management
+  QUEUE & MONITORING:
+    \x1b[1mqueue\x1b[0m        Queue inspector (list, show, stats, cancel)
+    \x1b[1mstatus\x1b[0m       System status and monitoring
 
-CODE ANALYSIS:
-  graph        Code relationship graph
-  language     Language tools (LSP, Tree-sitter)
-  tags         Keyword/tag hierarchy
+  SERVICE & ADMIN:
+    \x1b[1mservice\x1b[0m      Daemon management (start, stop, restart, status)
+    \x1b[1madmin\x1b[0m        Administration (collections, backup, restore, rebuild)
+    \x1b[1mconfig\x1b[0m       Configuration management
 
-SETUP & DIAGNOSTICS:
-  init         Setup (shell completions, hooks)
-  update       Update from GitHub releases
-  debug        Diagnostic tools (logs, errors)
-  benchmark    Benchmarking tools
+  CODE ANALYSIS:
+    \x1b[1mgraph\x1b[0m        Code relationship graph
+    \x1b[1mlanguage\x1b[0m     Language tools (LSP, Tree-sitter)
+    \x1b[1mtags\x1b[0m         Keyword/tag hierarchy
+
+  SETUP & DIAGNOSTICS:
+    \x1b[1minit\x1b[0m         Setup (shell completions, hooks)
+    \x1b[1mupdate\x1b[0m       Update from GitHub releases
+    \x1b[1mdebug\x1b[0m        Diagnostic tools (logs, errors)
+    \x1b[1mbenchmark\x1b[0m    Benchmarking tools
+
+Use --help for detailed information on any command.
 {after-help}";
 
 /// Workspace Qdrant MCP Companion
