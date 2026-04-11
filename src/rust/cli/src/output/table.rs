@@ -76,11 +76,21 @@ fn apply_borderless(table: &mut Table) {
         .with(Modify::new(Rows::first()).with(Color::BOLD));
 }
 
-/// Get the current terminal width, falling back to 120 columns
+/// Minimum terminal width to produce readable output.
+const MIN_TERMINAL_WIDTH: usize = 40;
+
+/// Default width when stdout is not a terminal (piped output).
+const DEFAULT_PIPE_WIDTH: usize = 120;
+
+/// Get the current terminal width.
+///
+/// Returns the actual terminal width when stdout is a TTY, clamped to
+/// at least `MIN_TERMINAL_WIDTH`. Falls back to `DEFAULT_PIPE_WIDTH`
+/// when stdout is piped or not a terminal.
 pub fn terminal_width() -> usize {
     terminal_size::terminal_size()
-        .map(|(w, _)| w.0 as usize)
-        .unwrap_or(120)
+        .map(|(w, _)| (w.0 as usize).max(MIN_TERMINAL_WIDTH))
+        .unwrap_or(DEFAULT_PIPE_WIDTH)
 }
 
 /// Format and print data based on output format
