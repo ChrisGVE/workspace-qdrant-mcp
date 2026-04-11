@@ -58,7 +58,6 @@ SETUP & DIAGNOSTICS:
 #[command(name = "wqm")]
 #[command(author, version, about = "Workspace Qdrant MCP Companion", long_about = None)]
 #[command(long_version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_NUMBER"), ")"))]
-#[command(propagate_version = true)]
 #[command(arg_required_else_help = true)]
 #[command(help_template = HELP_TEMPLATE)]
 #[command(disable_help_subcommand = true)]
