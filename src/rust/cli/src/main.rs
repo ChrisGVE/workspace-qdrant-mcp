@@ -34,7 +34,7 @@ Commands by domain:
 
   CONTENT:
     \x1b[1mproject\x1b[0m      Project management (list, status, register, delete, search)
-    \x1b[1mlibrary\x1b[0m      Library management (list, info, register, remove, search)
+    \x1b[1mlibrary\x1b[0m      Library management (list, register, delete, add, search)
     \x1b[1mrules\x1b[0m        Behavioral rules (list, add, remove, search)
     \x1b[1mscratchpad\x1b[0m   Scratchpad entries (list, search)
 

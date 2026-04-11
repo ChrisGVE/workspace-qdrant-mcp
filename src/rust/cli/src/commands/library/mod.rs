@@ -1,11 +1,6 @@
 //! Library command - tag-based library management
 //!
-//! Subcommands: list, add, watch, unwatch, remove, rescan, info, status,
-//!              ingest, config, set-incremental
-//!
-//! Note: Library management uses SQLite for watch configuration.
-//! The daemon reads from SQLite and manages the actual watching.
-//! Orphan cleanup has moved to: `wqm admin cleanup-orphans`
+//! Subcommands: list, register, delete, add, search, info, status, config, rescan
 
 mod add;
 mod config;
@@ -45,11 +40,9 @@ enum LibraryCommand {
     /// List all libraries
     #[command(
         long_about = "Show all registered libraries with their tags, paths, watch status, \
-            and document counts. Use --verbose for additional details including file \
-            patterns and sync mode.",
+            and document counts.",
         after_long_help = "Examples:\n  \
-            wqm library list                            List all libraries\n  \
-            wqm library list --verbose                  Show detailed information"
+            wqm library list                            List all libraries"
     )]
     List {
         /// Show detailed information
@@ -57,39 +50,19 @@ enum LibraryCommand {
         verbose: bool,
     },
 
-    /// Add a library (unwatched - metadata only)
+    /// Register a new library
     #[command(
-        long_about = "Register a directory as a library without enabling file watching. The \
-            library is tracked by its tag (a short identifier). Files must be ingested \
-            manually with 'library ingest' or watching enabled later with 'library watch'.",
+        long_about = "Register a directory as a library for indexing. By default, file watching \
+            is enabled so the daemon automatically detects changes. Use --no-watch to register \
+            without watching (files must be added manually with 'library add').\n\n\
+            The library is identified by its tag (a short identifier like 'docs' or 'api').",
         after_long_help = "Examples:\n  \
-            wqm library add docs ./docs                 Add with default incremental mode\n  \
-            wqm library add api-spec ./spec -m sync     Add with sync mode (deletes on remove)"
+            wqm library register docs ./docs            Register with watching\n  \
+            wqm library register api ./spec -p '*.yaml' Watch specific patterns\n  \
+            wqm library register ref ./ref --no-watch   Register without watching\n  \
+            wqm library register notes ./notes -m sync  Use sync mode (deletes on remove)"
     )]
-    Add {
-        /// Library tag (identifier)
-        tag: String,
-
-        /// Path to library content
-        #[arg(value_parser = crate::path_arg::parse_path)]
-        path: PathBuf,
-
-        /// Sync mode: 'sync' (delete vectors for removed files) or 'incremental' (append-only, default)
-        #[arg(short, long, value_enum, default_value_t = LibraryMode::Incremental)]
-        mode: LibraryMode,
-    },
-
-    /// Watch a library path for changes
-    #[command(
-        long_about = "Register a directory as a watched library. The daemon will automatically \
-            detect file changes and re-ingest updated content. Use --patterns to filter \
-            which files are indexed.",
-        after_long_help = "Examples:\n  \
-            wqm library watch docs ./docs               Watch all files in ./docs\n  \
-            wqm library watch api ./spec -p '*.yaml' -p '*.json'  Watch specific patterns\n  \
-            wqm library watch notes ./notes -m sync     Watch with sync mode"
-    )]
-    Watch {
+    Register {
         /// Library tag (identifier)
         tag: String,
 
@@ -104,13 +77,59 @@ enum LibraryCommand {
         /// Sync mode: 'sync' (delete vectors for removed files) or 'incremental' (append-only, default)
         #[arg(short, long, value_enum, default_value_t = LibraryMode::Incremental)]
         mode: LibraryMode,
+
+        /// Register without enabling file watching
+        #[arg(long)]
+        no_watch: bool,
+    },
+
+    /// Delete a library and all its data
+    #[command(
+        long_about = "Permanently remove a library, deleting both its watch configuration and \
+            all associated vector data from Qdrant. This action cannot be undone.",
+        after_long_help = "Examples:\n  \
+            wqm library delete docs                     Delete with confirmation prompt\n  \
+            wqm library delete docs --yes               Delete without confirmation"
+    )]
+    Delete {
+        /// Library tag to delete
+        tag: String,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+
+    /// Add a single file to a library
+    #[command(
+        long_about = "Manually add a single file to a library. The file is chunked, \
+            embedded, and stored in Qdrant.",
+        after_long_help = "Examples:\n  \
+            wqm library add ./README.md -l docs         Add file to 'docs' library\n  \
+            wqm library add ./spec.pdf -l api           Add PDF to 'api' library"
+    )]
+    Add {
+        /// Path to the document file
+        #[arg(value_parser = crate::path_arg::parse_path)]
+        file: PathBuf,
+
+        /// Library tag to add the file to
+        #[arg(short, long)]
+        library: String,
+
+        /// Target tokens per chunk (default: 105)
+        #[arg(long, default_value_t = 105)]
+        chunk_tokens: usize,
+
+        /// Overlap tokens between chunks (default: 12)
+        #[arg(long, default_value_t = 12)]
+        overlap_tokens: usize,
     },
 
     /// Search library content (semantic)
     #[command(
         long_about = "Perform semantic search across library content using vector embeddings. \
-            Returns the most relevant passages ranked by similarity. Optionally filter to \
-            a specific library by tag.",
+            Returns the most relevant passages ranked by similarity.",
         after_long_help = "Examples:\n  \
             wqm library search 'authentication flow'    Search all libraries\n  \
             wqm library search 'error codes' -l api     Search a specific library\n  \
@@ -129,28 +148,21 @@ enum LibraryCommand {
         limit: usize,
     },
 
-    /// Stop watching a library
-    Unwatch {
-        /// Library tag to unwatch
-        tag: String,
-    },
-
-    /// Remove a library (deletes watch config AND all vectors from Qdrant)
+    /// Show library information
     #[command(
-        long_about = "Permanently remove a library, deleting both its watch configuration in \
-            SQLite and all associated vector data from Qdrant. This action cannot be undone.",
+        long_about = "Display detailed information about a library including path, watch \
+            status, file patterns, sync mode, document count, and last scan time.",
         after_long_help = "Examples:\n  \
-            wqm library remove docs                     Remove with confirmation prompt\n  \
-            wqm library remove docs --yes               Remove without confirmation"
+            wqm library info docs                       Show info for 'docs' library\n  \
+            wqm library info                            Show info for all libraries"
     )]
-    Remove {
-        /// Library tag to remove
-        tag: String,
-
-        /// Skip confirmation prompt
-        #[arg(short, long)]
-        yes: bool,
+    Info {
+        /// Library tag (shows all if omitted)
+        tag: Option<String>,
     },
+
+    /// Show watch status for all libraries
+    Status,
 
     /// Rescan and re-ingest a library
     Rescan {
@@ -160,50 +172,6 @@ enum LibraryCommand {
         /// Force re-ingestion of all files
         #[arg(short, long)]
         force: bool,
-    },
-
-    /// Show library information
-    #[command(
-        long_about = "Display detailed information about a library, including its path, watch \
-            status, file patterns, sync mode, document count, and last scan time. Shows \
-            all libraries if no tag is specified.",
-        after_long_help = "Examples:\n  \
-            wqm library info docs                       Show info for 'docs' library\n  \
-            wqm library info                            Show info for all libraries"
-    )]
-    Info {
-        /// Library tag (optional - shows all if omitted)
-        tag: Option<String>,
-    },
-
-    /// Show watch status for all libraries
-    Status,
-
-    /// Ingest a single document into a library
-    #[command(
-        long_about = "Manually ingest a single file into a library. The file is chunked, \
-            embedded, and stored in Qdrant. Use --chunk-tokens and --overlap-tokens to \
-            control chunking granularity.",
-        after_long_help = "Examples:\n  \
-            wqm library ingest ./README.md -l docs      Ingest with default chunking\n  \
-            wqm library ingest ./spec.pdf -l api --chunk-tokens 200  Larger chunks"
-    )]
-    Ingest {
-        /// Path to the document file
-        #[arg(value_parser = crate::path_arg::parse_path)]
-        file: PathBuf,
-
-        /// Library tag to ingest into
-        #[arg(short, long)]
-        library: String,
-
-        /// Target tokens per chunk (default: 105)
-        #[arg(long, default_value_t = 105)]
-        chunk_tokens: usize,
-
-        /// Overlap tokens between chunks (default: 12)
-        #[arg(long, default_value_t = 12)]
-        overlap_tokens: usize,
     },
 
     /// Configure library settings
@@ -232,18 +200,54 @@ enum LibraryCommand {
         show: bool,
     },
 
-    /// Set or clear the incremental (do-not-delete) flag on tracked files
+    // ── Hidden commands (deprecated, kept for backward compatibility) ────
+    /// Set or clear the incremental flag on tracked files
+    #[command(hide = true)]
     SetIncremental {
-        /// File path(s) to set the flag on (absolute paths)
         #[arg(required = true, value_parser = crate::path_arg::parse_path)]
         files: Vec<PathBuf>,
-
-        /// Clear the incremental flag (allow deletions)
         #[arg(long)]
         clear: bool,
     },
 
-    /// [Deprecated] Use `wqm admin cleanup-orphans` instead (works across all collections)
+    /// [Deprecated] Use 'register' instead
+    #[command(hide = true, name = "watch")]
+    DeprecatedWatch {
+        tag: String,
+        #[arg(value_parser = crate::path_arg::parse_path)]
+        path: PathBuf,
+        #[arg(short, long)]
+        patterns: Vec<String>,
+        #[arg(short, long, value_enum, default_value_t = LibraryMode::Incremental)]
+        mode: LibraryMode,
+    },
+
+    /// [Deprecated] Use 'delete' instead
+    #[command(hide = true, name = "remove")]
+    DeprecatedRemove {
+        tag: String,
+        #[arg(short, long)]
+        yes: bool,
+    },
+
+    /// [Deprecated] Use 'register --no-watch' instead
+    #[command(hide = true, name = "unwatch")]
+    DeprecatedUnwatch { tag: String },
+
+    /// [Deprecated] Use 'add' instead
+    #[command(hide = true, name = "ingest")]
+    DeprecatedIngest {
+        #[arg(value_parser = crate::path_arg::parse_path)]
+        file: PathBuf,
+        #[arg(short, long)]
+        library: String,
+        #[arg(long, default_value_t = 105)]
+        chunk_tokens: usize,
+        #[arg(long, default_value_t = 12)]
+        overlap_tokens: usize,
+    },
+
+    /// [Deprecated] Use 'wqm admin cleanup-orphans' instead
     #[command(hide = true)]
     CleanupOrphans {
         #[arg(long)]
@@ -255,29 +259,34 @@ enum LibraryCommand {
 pub async fn execute(args: LibraryArgs) -> Result<()> {
     match args.command {
         LibraryCommand::List { verbose } => list::execute(verbose).await,
-        LibraryCommand::Add { tag, path, mode } => add::execute(&tag, &path, mode).await,
-        LibraryCommand::Watch {
+        LibraryCommand::Register {
             tag,
             path,
             patterns,
             mode,
-        } => watch_cmd::execute(&tag, &path, &patterns, mode).await,
-        LibraryCommand::Search {
-            query,
-            library,
-            limit,
-        } => search::search_library(&query, library, limit).await,
-        LibraryCommand::Unwatch { tag } => unwatch::execute(&tag).await,
-        LibraryCommand::Remove { tag, yes } => remove::execute(&tag, yes).await,
-        LibraryCommand::Rescan { tag, force } => rescan::execute(&tag, force).await,
-        LibraryCommand::Info { tag } => info::execute(tag.as_deref()).await,
-        LibraryCommand::Status => status::execute().await,
-        LibraryCommand::Ingest {
+            no_watch,
+        } => {
+            if no_watch {
+                add::execute(&tag, &path, mode).await
+            } else {
+                watch_cmd::execute(&tag, &path, &patterns, mode).await
+            }
+        }
+        LibraryCommand::Delete { tag, yes } => remove::execute(&tag, yes).await,
+        LibraryCommand::Add {
             file,
             library,
             chunk_tokens,
             overlap_tokens,
         } => ingest::execute(&file, &library, chunk_tokens, overlap_tokens).await,
+        LibraryCommand::Search {
+            query,
+            library,
+            limit,
+        } => search::search_library(&query, library, limit).await,
+        LibraryCommand::Info { tag } => info::execute(tag.as_deref()).await,
+        LibraryCommand::Status => status::execute().await,
+        LibraryCommand::Rescan { tag, force } => rescan::execute(&tag, force).await,
         LibraryCommand::Config {
             tag,
             mode,
@@ -289,12 +298,42 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
         LibraryCommand::SetIncremental { files, clear } => {
             set_incremental::execute(&files, clear).await
         }
-        LibraryCommand::CleanupOrphans { delete: _ } => {
-            output::warning("This command has moved. Use: wqm admin cleanup-orphans");
-            output::info(
-                "The new command works across all 4 collections \
-                 (projects, libraries, memory, scratchpad).",
+        // Deprecated commands — redirect with warning
+        LibraryCommand::DeprecatedWatch {
+            tag,
+            path,
+            patterns,
+            mode,
+        } => {
+            output::warning("'library watch' is deprecated. Use 'library register' instead.");
+            watch_cmd::execute(&tag, &path, &patterns, mode).await
+        }
+        LibraryCommand::DeprecatedRemove { tag, yes } => {
+            output::warning("'library remove' is deprecated. Use 'library delete' instead.");
+            remove::execute(&tag, yes).await
+        }
+        LibraryCommand::DeprecatedUnwatch { tag } => {
+            output::warning(
+                "'library unwatch' is deprecated. Use 'library config --disable' instead.",
             );
+            unwatch::execute(&tag).await
+        }
+        LibraryCommand::DeprecatedIngest {
+            file,
+            library,
+            chunk_tokens,
+            overlap_tokens,
+        } => {
+            output::warning("'library ingest' is deprecated. Use 'library add' instead.");
+            ingest::execute(&file, &library, chunk_tokens, overlap_tokens).await
+        }
+        LibraryCommand::CleanupOrphans { delete } => {
+            output::warning("Use 'wqm admin cleanup-orphans' instead.");
+            if delete {
+                output::info("Run: wqm admin cleanup-orphans --delete");
+            } else {
+                output::info("Run: wqm admin cleanup-orphans");
+            }
             Ok(())
         }
     }

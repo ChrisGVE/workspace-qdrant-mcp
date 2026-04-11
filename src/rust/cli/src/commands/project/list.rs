@@ -43,10 +43,13 @@ fn get_document_counts_from_db() -> HashMap<String, usize> {
 
     let mut counts = HashMap::new();
 
-    // Count tracked files per tenant
+    // Count tracked files per tenant (join through watch_folders for tenant_id)
     let mut stmt = match conn.prepare(
-        "SELECT tenant_id, COUNT(*) FROM tracked_files \
-         WHERE collection = 'projects' GROUP BY tenant_id",
+        "SELECT wf.tenant_id, COUNT(tf.file_id) \
+         FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE tf.collection = 'projects' \
+         GROUP BY wf.tenant_id",
     ) {
         Ok(s) => s,
         Err(_) => return counts,
