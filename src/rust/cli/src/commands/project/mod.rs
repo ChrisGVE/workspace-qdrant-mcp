@@ -1,11 +1,13 @@
-//! Project command - project and branch management
+//! Project command - project management
 //!
-//! Subcommands: list, status, register, info, delete, activate, deactivate, check, branch, watch
+//! Subcommands: list, status, register, delete, search
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+
+use crate::output;
 
 mod activate;
 mod branch;
@@ -33,8 +35,9 @@ enum ProjectCommand {
     /// List all registered projects
     #[command(
         long_about = "Show all projects registered with the daemon. Displays project name, path, \
-            tenant ID, active status, and document count. Use --active to filter to only \
-            projects currently being watched.",
+            status, and document count.\n\n\
+            Projects are sorted by activity (active first) then by name. Orphaned projects \
+            (present in Qdrant but not tracked by the daemon) are included with a warning indicator.",
         after_long_help = "Examples:\n  \
             wqm project list                            List all projects\n  \
             wqm project list --active                   List only active projects"
@@ -47,9 +50,10 @@ enum ProjectCommand {
 
     /// Show project status
     #[command(
-        long_about = "Display the indexing status of a project, including document counts, \
-            last sync time, and active branch. Defaults to the current working directory \
-            if no project is specified. Accepts a project name, ID, or path.",
+        long_about = "Display comprehensive status for a project: identity, git info, content \
+            statistics, and database sync state. Defaults to the current working directory \
+            if no project is specified. Accepts a project name, ID, or path.\n\n\
+            Works from worktrees — detects the parent project automatically.",
         after_long_help = "Examples:\n  \
             wqm project status                          Status for current directory\n  \
             wqm project status /path/to/project         Status for a specific path\n  \
@@ -65,7 +69,9 @@ enum ProjectCommand {
     #[command(
         long_about = "Register a directory as a project for file watching and indexing. The daemon \
             will begin tracking file changes and building the search index. The project must \
-            be a Git repository. Use --name to set a human-readable label.",
+            be a Git repository. Use --name to set a human-readable label.\n\n\
+            If the directory is already part of a registered project, the command will inform \
+            you and stop without prompting.",
         after_long_help = "Examples:\n  \
             wqm project register                        Register current directory\n  \
             wqm project register .                      Register current directory (explicit)\n  \
@@ -86,25 +92,12 @@ enum ProjectCommand {
         yes: bool,
     },
 
-    /// Show detailed project info (auto-detects from CWD if project omitted)
-    #[command(
-        long_about = "Display detailed information about a project, including its tenant ID, \
-            root path, registered branches, collection sizes, and configuration. \
-            Auto-detects the project from the current directory if no argument is given.",
-        after_long_help = "Examples:\n  \
-            wqm project info                            Info for current project\n  \
-            wqm project info proj_abc123                Info by project ID"
-    )]
-    Info {
-        /// Project ID or path (auto-detected from current directory if omitted)
-        project: Option<String>,
-    },
-
-    /// Delete a project and its data (auto-detects from CWD if project omitted)
+    /// Delete a project and its data
     #[command(
         long_about = "Remove a project from tracking and optionally delete all associated vector \
             data from Qdrant. By default, both SQLite metadata and Qdrant vectors are removed. \
-            Use --keep-data to preserve the Qdrant vectors.",
+            Use --keep-data to preserve the Qdrant vectors.\n\n\
+            Works from worktrees — detects the parent project automatically.",
         after_long_help = "Examples:\n  \
             wqm project delete                          Delete current project (with prompt)\n  \
             wqm project delete -y                       Delete without confirmation\n  \
@@ -112,7 +105,7 @@ enum ProjectCommand {
             wqm project delete proj_abc123              Delete by project ID"
     )]
     Delete {
-        /// Project ID or path (auto-detected from current directory if omitted)
+        /// Project name, ID, or path (auto-detected from CWD if omitted)
         project: Option<String>,
 
         /// Skip confirmation prompt
@@ -122,44 +115,6 @@ enum ProjectCommand {
         /// Keep Qdrant vector data (only remove from SQLite)
         #[arg(long)]
         keep_data: bool,
-    },
-
-    /// Activate a project (internal — projects activate automatically)
-    #[command(hide = true)]
-    Activate {
-        /// Project ID or path (auto-detected from current directory if omitted)
-        project: Option<String>,
-    },
-
-    /// Deactivate a project (internal — handled by daemon)
-    #[command(hide = true)]
-    Deactivate {
-        /// Project ID or path (auto-detected from current directory if omitted)
-        project: Option<String>,
-    },
-
-    /// Check ingestion status: compare tracked files against filesystem
-    #[command(
-        long_about = "Compare the daemon's tracked file index against the actual filesystem to \
-            find missing, stale, or extra files. Useful for diagnosing indexing gaps after \
-            bulk file operations or repository changes.",
-        after_long_help = "Examples:\n  \
-            wqm project check                           Check current project\n  \
-            wqm project check --verbose                 Show per-file status\n  \
-            wqm project check --json                    Output as JSON\n  \
-            wqm project check proj_abc123               Check by project ID"
-    )]
-    Check {
-        /// Project ID or path (auto-detected from current directory if omitted)
-        project: Option<String>,
-
-        /// Show per-file status
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
     },
 
     /// Search project content (text or regex)
@@ -199,46 +154,50 @@ enum ProjectCommand {
         context_lines: u32,
     },
 
-    /// Watch folder management (list, show)
-    #[command(
-        long_about = "Manage file watch folders for the current project. List active watch \
-            directories and their configuration.",
-        after_long_help = "Examples:\n  \
-            wqm project watch list                      List watch folders\n  \
-            wqm project watch pause                     Pause file watching\n  \
-            wqm project watch resume                    Resume file watching"
-    )]
+    // ── Hidden commands (deprecated, kept for backward compatibility) ────
+    /// Activate a project (internal)
+    #[command(hide = true)]
+    Activate { project: Option<String> },
+
+    /// Deactivate a project (internal)
+    #[command(hide = true)]
+    Deactivate { project: Option<String> },
+
+    /// Show project info (deprecated: use 'status' instead)
+    #[command(hide = true)]
+    Info { project: Option<String> },
+
+    /// Check ingestion status (deprecated: use 'status' instead)
+    #[command(hide = true)]
+    Check {
+        project: Option<String>,
+        #[arg(short, long)]
+        verbose: bool,
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Watch folder management (deprecated: merged into project list/status)
+    #[command(hide = true)]
     Watch(super::watch::WatchArgs),
 
-    /// Branch management
-    #[command(
-        long_about = "View and manage indexed branches for the current project. Lists branches \
-            with their document counts and indexing status.",
-        after_long_help = "Examples:\n  \
-            wqm project branch list                     List indexed branches"
-    )]
+    /// Branch management (deprecated: merged into project status)
+    #[command(hide = true)]
     Branch {
         #[command(subcommand)]
         action: BranchAction,
     },
 }
 
-/// Branch subcommands
+/// Branch subcommands (hidden/deprecated)
 #[derive(Subcommand)]
 enum BranchAction {
-    /// List indexed branches with document counts
+    #[command(hide = true)]
     List,
-
-    /// Show current branch info (use git branch instead)
     #[command(hide = true)]
     Info,
-
-    /// Switch active branch for indexing (use git checkout instead)
     #[command(hide = true)]
-    Switch {
-        /// Branch name
-        branch: String,
-    },
+    Switch { branch: String },
 }
 
 /// Execute project command
@@ -249,23 +208,11 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
         ProjectCommand::Register { path, name, yes } => {
             register::register_project(path, name, yes).await
         }
-        ProjectCommand::Info { project } => info::project_info(project.as_deref()).await,
         ProjectCommand::Delete {
             project,
             yes,
             keep_data,
         } => delete::delete_project(project.as_deref(), yes, !keep_data).await,
-        ProjectCommand::Activate { project } => {
-            activate::activate_project(project.as_deref()).await
-        }
-        ProjectCommand::Deactivate { project } => {
-            activate::deactivate_project(project.as_deref()).await
-        }
-        ProjectCommand::Check {
-            project,
-            verbose,
-            json,
-        } => check::check_project(project.as_deref(), verbose, json).await,
         ProjectCommand::Search {
             query,
             regex,
@@ -283,6 +230,30 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
                 context_lines,
             )
             .await
+        }
+        ProjectCommand::Activate { project } => {
+            activate::activate_project(project.as_deref()).await
+        }
+        ProjectCommand::Deactivate { project } => {
+            activate::deactivate_project(project.as_deref()).await
+        }
+        // Deprecated commands — redirect to status
+        ProjectCommand::Info { project } => {
+            output::warning("'project info' is deprecated. Use 'project status' instead.");
+            status::project_status(project.as_deref()).await
+        }
+        ProjectCommand::Check {
+            project,
+            verbose,
+            json,
+        } => {
+            if json {
+                // Keep JSON check for script compatibility
+                check::check_project(project.as_deref(), verbose, json).await
+            } else {
+                output::warning("'project check' is deprecated. Use 'project status' instead.");
+                status::project_status(project.as_deref()).await
+            }
         }
         ProjectCommand::Watch(args) => super::watch::execute(args).await,
         ProjectCommand::Branch { action } => match action {
