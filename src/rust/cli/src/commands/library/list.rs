@@ -4,11 +4,31 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 
-use super::super::qdrant_helpers;
 use super::helpers::open_db;
 use crate::output;
 use crate::output::style::home_to_tilde;
 use wqm_common::constants::COLLECTION_LIBRARIES;
+
+/// Get document counts per library from SQLite tracked_files table.
+fn get_library_doc_counts(conn: &rusqlite::Connection) -> std::collections::HashMap<String, usize> {
+    let mut counts = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT wf.tenant_id, COUNT(tf.file_id) \
+         FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE tf.collection = 'libraries' \
+         GROUP BY wf.tenant_id",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+        }) {
+            for row in rows.flatten() {
+                counts.insert(row.0, row.1);
+            }
+        }
+    }
+    counts
+}
 
 /// List all libraries, including watched, format-routed, and orphaned
 pub async fn execute(verbose: bool) -> Result<()> {
@@ -26,21 +46,8 @@ pub async fn execute(verbose: bool) -> Result<()> {
     let mut known_tags = HashSet::new();
     let mut total_count: usize = 0;
 
-    // Try to get Qdrant point counts (non-fatal if Qdrant is down)
-    let qdrant_counts = match qdrant_helpers::build_qdrant_http_client() {
-        Ok(client) => {
-            let base_url = qdrant_helpers::qdrant_base_url();
-            qdrant_helpers::scroll_tenant_point_counts(
-                &client,
-                &base_url,
-                COLLECTION_LIBRARIES,
-                "library_name",
-            )
-            .await
-            .unwrap_or_default()
-        }
-        Err(_) => std::collections::HashMap::new(),
-    };
+    // Get document counts from SQLite (instant) instead of scrolling Qdrant (slow)
+    let qdrant_counts = get_library_doc_counts(&conn);
 
     total_count += list_watch_folders(&conn, verbose, &qdrant_counts, &mut known_tags)?;
     total_count += list_format_routed(&conn, &qdrant_counts, &mut known_tags)?;
