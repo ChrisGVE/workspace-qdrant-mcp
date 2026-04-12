@@ -7,13 +7,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::output;
-
 mod activate;
-mod branch;
-mod check;
 mod delete;
-mod info;
 mod list;
 mod register;
 pub(crate) mod resolver;
@@ -154,7 +149,7 @@ enum ProjectCommand {
         context_lines: u32,
     },
 
-    // ── Hidden commands (deprecated, kept for backward compatibility) ────
+    // ── Hidden commands (internal) ──────────────────────────────────────
     /// Activate a project (internal)
     #[command(hide = true)]
     Activate { project: Option<String> },
@@ -162,42 +157,6 @@ enum ProjectCommand {
     /// Deactivate a project (internal)
     #[command(hide = true)]
     Deactivate { project: Option<String> },
-
-    /// Show project info (deprecated: use 'status' instead)
-    #[command(hide = true)]
-    Info { project: Option<String> },
-
-    /// Check ingestion status (deprecated: use 'status' instead)
-    #[command(hide = true)]
-    Check {
-        project: Option<String>,
-        #[arg(short, long)]
-        verbose: bool,
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Watch folder management (deprecated: merged into project list/status)
-    #[command(hide = true)]
-    Watch(super::watch::WatchArgs),
-
-    /// Branch management (deprecated: merged into project status)
-    #[command(hide = true)]
-    Branch {
-        #[command(subcommand)]
-        action: BranchAction,
-    },
-}
-
-/// Branch subcommands (hidden/deprecated)
-#[derive(Subcommand)]
-enum BranchAction {
-    #[command(hide = true)]
-    List,
-    #[command(hide = true)]
-    Info,
-    #[command(hide = true)]
-    Switch { branch: String },
 }
 
 /// Execute project command
@@ -237,29 +196,5 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
         ProjectCommand::Deactivate { project } => {
             activate::deactivate_project(project.as_deref()).await
         }
-        // Deprecated commands — redirect to status
-        ProjectCommand::Info { project } => {
-            output::warning("'project info' is deprecated. Use 'project status' instead.");
-            status::project_status(project.as_deref()).await
-        }
-        ProjectCommand::Check {
-            project,
-            verbose,
-            json,
-        } => {
-            if json {
-                // Keep JSON check for script compatibility
-                check::check_project(project.as_deref(), verbose, json).await
-            } else {
-                output::warning("'project check' is deprecated. Use 'project status' instead.");
-                status::project_status(project.as_deref()).await
-            }
-        }
-        ProjectCommand::Watch(args) => super::watch::execute(args).await,
-        ProjectCommand::Branch { action } => match action {
-            BranchAction::List => branch::branch_list().await,
-            BranchAction::Info => branch::branch_info().await,
-            BranchAction::Switch { branch } => branch::branch_switch(&branch).await,
-        },
     }
 }

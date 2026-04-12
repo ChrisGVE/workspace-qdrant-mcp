@@ -1,6 +1,5 @@
 //! Unit tests for project command module
 
-use super::check::{CheckSummary, FileCheckEntry};
 use super::resolver::{resolve_project_id, resolve_project_id_or_cwd_quiet};
 
 // --- resolve_project_id tests ---
@@ -71,89 +70,4 @@ fn test_resolve_project_id_or_cwd_quiet_with_explicit_path() {
     // Path triggers calculate_project_id
     assert!(!id.is_empty());
     assert!(!auto);
-}
-
-// --- CheckSummary serialization tests ---
-
-#[test]
-fn test_check_summary_json_serialization() {
-    let summary = CheckSummary {
-        project_id: "test-project".to_string(),
-        project_root: "/home/user/project".to_string(),
-        up_to_date: 50,
-        to_add: 3,
-        to_update: 2,
-        to_delete: 1,
-        total_tracked: 53,
-        total_on_disk: 55,
-        files: vec![
-            FileCheckEntry {
-                path: "src/new.rs".to_string(),
-                status: "add",
-            },
-            FileCheckEntry {
-                path: "src/changed.rs".to_string(),
-                status: "update",
-            },
-            FileCheckEntry {
-                path: "src/deleted.rs".to_string(),
-                status: "delete",
-            },
-        ],
-    };
-    let serialized = serde_json::to_string(&summary).unwrap();
-    assert!(serialized.contains("\"project_id\":\"test-project\""));
-    assert!(serialized.contains("\"up_to_date\":50"));
-    assert!(serialized.contains("\"to_add\":3"));
-    assert!(serialized.contains("\"to_update\":2"));
-    assert!(serialized.contains("\"to_delete\":1"));
-    assert!(serialized.contains("\"total_tracked\":53"));
-    assert!(serialized.contains("\"total_on_disk\":55"));
-
-    // Verify file entries
-    let value: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-    let files = value["files"].as_array().unwrap();
-    assert_eq!(files.len(), 3);
-    assert_eq!(files[0]["status"], "add");
-    assert_eq!(files[1]["status"], "update");
-    assert_eq!(files[2]["status"], "delete");
-}
-
-#[test]
-fn test_check_summary_empty_files_omitted() {
-    let summary = CheckSummary {
-        project_id: "test".to_string(),
-        project_root: "/tmp".to_string(),
-        up_to_date: 10,
-        to_add: 0,
-        to_update: 0,
-        to_delete: 0,
-        total_tracked: 10,
-        total_on_disk: 10,
-        files: Vec::new(),
-    };
-    let serialized = serde_json::to_string(&summary).unwrap();
-    // files field is skipped when empty due to skip_serializing_if
-    assert!(!serialized.contains("\"files\""));
-}
-
-#[test]
-fn test_check_summary_roundtrip() {
-    let summary = CheckSummary {
-        project_id: "proj-123".to_string(),
-        project_root: "/path/to/project".to_string(),
-        up_to_date: 100,
-        to_add: 5,
-        to_update: 3,
-        to_delete: 1,
-        total_tracked: 104,
-        total_on_disk: 108,
-        files: Vec::new(),
-    };
-    let json_str = serde_json::to_string(&summary).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-    assert_eq!(value["up_to_date"], 100);
-    assert_eq!(value["to_add"], 5);
-    assert_eq!(value["total_tracked"], 104);
-    assert_eq!(value["total_on_disk"], 108);
 }

@@ -13,7 +13,6 @@ mod rescan;
 mod search;
 mod set_incremental;
 mod status;
-mod unwatch;
 mod watch_cmd;
 
 #[cfg(test)]
@@ -24,7 +23,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::output;
 pub use helpers::LibraryMode;
 
 /// Library command arguments
@@ -200,7 +198,7 @@ enum LibraryCommand {
         show: bool,
     },
 
-    // ── Hidden commands (deprecated, kept for backward compatibility) ────
+    // ── Hidden commands (internal) ────────────────────────────────────────
     /// Set or clear the incremental flag on tracked files
     #[command(hide = true)]
     SetIncremental {
@@ -208,50 +206,6 @@ enum LibraryCommand {
         files: Vec<PathBuf>,
         #[arg(long)]
         clear: bool,
-    },
-
-    /// [Deprecated] Use 'register' instead
-    #[command(hide = true, name = "watch")]
-    DeprecatedWatch {
-        tag: String,
-        #[arg(value_parser = crate::path_arg::parse_path)]
-        path: PathBuf,
-        #[arg(short, long)]
-        patterns: Vec<String>,
-        #[arg(short, long, value_enum, default_value_t = LibraryMode::Incremental)]
-        mode: LibraryMode,
-    },
-
-    /// [Deprecated] Use 'delete' instead
-    #[command(hide = true, name = "remove")]
-    DeprecatedRemove {
-        tag: String,
-        #[arg(short, long)]
-        yes: bool,
-    },
-
-    /// [Deprecated] Use 'register --no-watch' instead
-    #[command(hide = true, name = "unwatch")]
-    DeprecatedUnwatch { tag: String },
-
-    /// [Deprecated] Use 'add' instead
-    #[command(hide = true, name = "ingest")]
-    DeprecatedIngest {
-        #[arg(value_parser = crate::path_arg::parse_path)]
-        file: PathBuf,
-        #[arg(short, long)]
-        library: String,
-        #[arg(long, default_value_t = 105)]
-        chunk_tokens: usize,
-        #[arg(long, default_value_t = 12)]
-        overlap_tokens: usize,
-    },
-
-    /// [Deprecated] Use 'wqm admin cleanup-orphans' instead
-    #[command(hide = true)]
-    CleanupOrphans {
-        #[arg(long)]
-        delete: bool,
     },
 }
 
@@ -297,44 +251,6 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
         } => config::execute(&tag, mode, patterns, enable, disable, show).await,
         LibraryCommand::SetIncremental { files, clear } => {
             set_incremental::execute(&files, clear).await
-        }
-        // Deprecated commands — redirect with warning
-        LibraryCommand::DeprecatedWatch {
-            tag,
-            path,
-            patterns,
-            mode,
-        } => {
-            output::warning("'library watch' is deprecated. Use 'library register' instead.");
-            watch_cmd::execute(&tag, &path, &patterns, mode).await
-        }
-        LibraryCommand::DeprecatedRemove { tag, yes } => {
-            output::warning("'library remove' is deprecated. Use 'library delete' instead.");
-            remove::execute(&tag, yes).await
-        }
-        LibraryCommand::DeprecatedUnwatch { tag } => {
-            output::warning(
-                "'library unwatch' is deprecated. Use 'library config --disable' instead.",
-            );
-            unwatch::execute(&tag).await
-        }
-        LibraryCommand::DeprecatedIngest {
-            file,
-            library,
-            chunk_tokens,
-            overlap_tokens,
-        } => {
-            output::warning("'library ingest' is deprecated. Use 'library add' instead.");
-            ingest::execute(&file, &library, chunk_tokens, overlap_tokens).await
-        }
-        LibraryCommand::CleanupOrphans { delete } => {
-            output::warning("Use 'wqm admin cleanup-orphans' instead.");
-            if delete {
-                output::info("Run: wqm admin cleanup-orphans --delete");
-            } else {
-                output::info("Run: wqm admin cleanup-orphans");
-            }
-            Ok(())
         }
     }
 }
