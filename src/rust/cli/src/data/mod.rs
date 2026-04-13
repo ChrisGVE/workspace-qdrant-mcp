@@ -5,4 +5,5 @@
 
 pub mod db;
 pub mod health;
+pub mod orphans;
 pub mod queries;
