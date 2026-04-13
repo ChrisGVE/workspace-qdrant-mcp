@@ -4,3 +4,4 @@
 //! to eliminate duplicate connection code across command modules.
 
 pub mod db;
+pub mod queries;
