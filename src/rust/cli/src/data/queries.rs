@@ -133,6 +133,46 @@ pub fn get_document_counts(
     }
 }
 
+/// Get document counts for all tenants in a collection (single GROUP BY query).
+pub fn get_all_document_counts(
+    conn: &Connection,
+    collection: &str,
+) -> Result<std::collections::HashMap<String, DocumentCounts>> {
+    use std::collections::HashMap;
+    let mut stmt = conn
+        .prepare(
+            "SELECT wf.tenant_id, COUNT(tf.file_id), COALESCE(SUM(tf.chunk_count), 0) \
+             FROM tracked_files tf \
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.collection = ?1 \
+             GROUP BY wf.tenant_id",
+        )
+        .context("Failed to query document counts")?;
+
+    let rows = stmt
+        .query_map(params![collection], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, usize>(1)?,
+                row.get::<_, usize>(2)?,
+            ))
+        })
+        .context("Failed to read document counts")?;
+
+    let mut map = HashMap::new();
+    for row in rows {
+        let (tenant_id, files, chunks) = row.context("Failed to parse doc count row")?;
+        map.insert(
+            tenant_id,
+            DocumentCounts {
+                tracked_files: files,
+                chunk_count: chunks,
+            },
+        );
+    }
+    Ok(map)
+}
+
 /// Get total document count across all tenants in a collection.
 pub fn get_total_document_count(conn: &Connection, collection: &str) -> Result<usize> {
     Ok(conn

@@ -1,8 +1,7 @@
 //! Default status overview subcommand.
 //!
-//! Uses SQLite canonical queries for aggregate metrics (collections,
-//! documents, projects, queue). Only uses gRPC for daemon health and
-//! resource mode info.
+//! Uses SQLite canonical queries for aggregate metrics. gRPC only for
+//! daemon health and resource mode. Columnar template per cli-feedback.md.
 
 use anyhow::Result;
 
@@ -10,6 +9,10 @@ use crate::data::db::connect_readonly;
 use crate::data::health;
 use crate::data::queries;
 use crate::grpc::client::{workspace_daemon::SystemStatusResponse, DaemonClient};
+use crate::output::canvas;
+use crate::output::columnar::ColumnarBuilder;
+use crate::output::gutter::Gutter;
+use crate::output::number::{format_usize, NumberLocale};
 use crate::output::{self, ServiceStatus};
 
 use super::types::{status_label, SystemStatusJson};
@@ -21,16 +24,9 @@ pub async fn default_status(
     show_performance: bool,
     json: bool,
 ) -> Result<()> {
-    if !json {
-        output::section("System Status");
-    }
-
     // Check daemon connectivity (gRPC) — only for health + resource mode
     let (daemon_up, daemon_status) = match DaemonClient::connect_default().await {
         Ok(mut client) => {
-            if !json {
-                output::status_line("Daemon", ServiceStatus::Healthy);
-            }
             let status = client
                 .system()
                 .get_status(())
@@ -39,25 +35,11 @@ pub async fn default_status(
                 .map(|r| r.into_inner());
             (true, status)
         }
-        Err(_) => {
-            if !json {
-                output::status_line("Daemon", ServiceStatus::Unhealthy);
-                output::warning("Daemon not running. Start with: wqm service start");
-            }
-            (false, None)
-        }
+        Err(_) => (false, None),
     };
 
     // Check Qdrant connectivity
     let qdrant_health = health::check_qdrant().await;
-    if !json && !qdrant_health.reachable {
-        output::status_line("Qdrant", ServiceStatus::Unhealthy);
-        if let Some(ref err) = qdrant_health.error {
-            output::warning(err);
-        }
-    } else if !json {
-        output::status_line("Qdrant", ServiceStatus::Healthy);
-    }
 
     // Get metrics from SQLite (canonical source of truth)
     let (collection_count, document_count, active_project_count, project_names, queue_stats) =
@@ -81,21 +63,16 @@ pub async fn default_status(
                 let q = queries::get_queue_stats(&conn).unwrap_or_default();
                 (collections, documents, active, names, q)
             }
-            Err(_) => {
-                if !json {
-                    output::warning("Database not available — metrics unavailable");
-                }
-                (0, 0, 0, Vec::new(), queries::QueueStats::default())
-            }
+            Err(_) => (0, 0, 0, Vec::new(), queries::QueueStats::default()),
         };
 
-    // Also add Qdrant collection count if available and higher
     let total_collections = if qdrant_health.reachable {
         qdrant_health.collection_count.max(collection_count)
     } else {
         collection_count
     };
 
+    // JSON mode: emit and return
     if json {
         let json_out = SystemStatusJson {
             connected: daemon_up,
@@ -124,53 +101,125 @@ pub async fn default_status(
         return Ok(());
     }
 
-    // Display metrics from SQLite
-    output::separator();
-    output::kv("Collections", total_collections.to_string());
-    output::kv("Documents", document_count.to_string());
-    output::kv("Active Projects", active_project_count.to_string());
-    output::kv("Pending Operations", queue_stats.pending.to_string());
+    // Canvas title
+    canvas::print_title("System Status");
+    canvas::print_blank();
+
+    let locale = NumberLocale::default();
+
+    // Build columnar display
+    let daemon_status_str = if daemon_up { "healthy" } else { "not running" };
+    let qdrant_status_str = if qdrant_health.reachable {
+        "healthy"
+    } else {
+        "unreachable"
+    };
+
+    let daemon_gutter = if daemon_up {
+        Gutter::Sync
+    } else {
+        Gutter::Remove
+    };
+    let qdrant_gutter = if qdrant_health.reachable {
+        Gutter::Sync
+    } else {
+        Gutter::Remove
+    };
+
+    let mut builder = ColumnarBuilder::new()
+        .kv_gutter("Daemon", daemon_status_str, daemon_gutter)
+        .kv_gutter("Qdrant", qdrant_status_str, qdrant_gutter)
+        .section(Some("Metrics"))
+        .kv("Collections", format_usize(total_collections, &locale))
+        .kv("Documents", format_usize(document_count, &locale))
+        .kv(
+            "Active Projects",
+            format_usize(active_project_count, &locale),
+        )
+        .section(Some("Queue"));
+
+    if queue_stats.pending > 0 {
+        builder = builder.kv_gutter(
+            "Pending",
+            format_usize(queue_stats.pending, &locale),
+            Gutter::Add,
+        );
+    } else {
+        builder = builder.kv("Pending", "0");
+    }
+
+    if queue_stats.in_progress > 0 {
+        builder = builder.kv_gutter(
+            "In Progress",
+            format_usize(queue_stats.in_progress, &locale),
+            Gutter::Update,
+        );
+    }
 
     if queue_stats.failed > 0 {
-        output::kv("Failed Operations", queue_stats.failed.to_string());
+        builder = builder.kv_gutter(
+            "Failed",
+            format_usize(queue_stats.failed, &locale),
+            Gutter::Remove,
+        );
     }
 
-    // Resource mode from daemon (only available via gRPC)
+    // Resource mode from daemon (only via gRPC)
     if let Some(ref status) = daemon_status {
-        render_resource_mode(status);
+        if status.resource_mode.is_some() {
+            builder = add_resource_mode(builder, status);
+        }
     }
 
+    builder.render();
+
+    // Warnings after columnar block
+    if !daemon_up {
+        output::warning("Daemon not running. Start with: wqm service start");
+    }
+    if !qdrant_health.reachable {
+        if let Some(ref err) = qdrant_health.error {
+            output::warning(err);
+        }
+    }
+
+    // Optional additional sections
     if show_queue {
-        output::separator();
+        println!();
         super::queue::queue(false).await?;
     }
     if show_watch {
-        output::separator();
+        println!();
         super::watch::watch().await?;
     }
     if show_performance {
-        output::separator();
+        println!();
         super::performance::performance().await?;
     }
 
     Ok(())
 }
 
-fn render_resource_mode(status: &SystemStatusResponse) {
+fn add_resource_mode(
+    mut builder: ColumnarBuilder,
+    status: &SystemStatusResponse,
+) -> ColumnarBuilder {
+    builder = builder.section(Some("Resource Mode"));
+
     if let Some(ref mode) = status.resource_mode {
-        output::separator();
-        output::kv("Resource Mode", mode);
-        if let Some(idle) = status.idle_seconds {
-            output::kv(
-                "Idle Time",
-                wqm_common::duration_fmt::format_duration(idle, 0),
-            );
-        }
-        if let Some(max_emb) = status.current_max_embeddings {
-            output::kv("Max Embeddings", max_emb.to_string());
-        }
-        if let Some(delay) = status.current_inter_item_delay_ms {
-            output::kv("Inter-item Delay", format!("{}ms", delay));
-        }
+        builder = builder.kv("Mode", mode);
     }
+    if let Some(idle) = status.idle_seconds {
+        builder = builder.kv(
+            "Idle Time",
+            wqm_common::duration_fmt::format_duration(idle, 0),
+        );
+    }
+    if let Some(max_emb) = status.current_max_embeddings {
+        builder = builder.kv("Max Embeddings", max_emb.to_string());
+    }
+    if let Some(delay) = status.current_inter_item_delay_ms {
+        builder = builder.kv("Inter-Item Delay", format!("{}ms", delay));
+    }
+    builder
 }

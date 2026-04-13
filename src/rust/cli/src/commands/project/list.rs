@@ -1,14 +1,14 @@
 //! List all registered projects
 //!
-//! Uses SQLite canonical queries for project data and shared orphan
-//! detection. No gRPC dependency — works even when daemon is down.
+//! Uses SQLite canonical queries only. No Qdrant scroll, no gRPC.
+//! Instant response regardless of dataset size.
 
 use anyhow::Result;
 use tabled::Tabled;
 use wqm_common::constants::COLLECTION_PROJECTS;
 
 use crate::data::db::connect_readonly;
-use crate::data::{orphans, queries};
+use crate::data::queries;
 use crate::output::style::home_to_tilde;
 use crate::output::{self, ColumnHints};
 
@@ -29,7 +29,7 @@ struct ProjectRow {
 
 impl ColumnHints for ProjectRow {
     fn content_columns() -> &'static [usize] {
-        &[2] // Path is the content column (index shifted by gutter)
+        &[2] // Path is the content column
     }
 }
 
@@ -44,18 +44,16 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
         }
     };
 
-    // Get projects from SQLite (canonical source)
     let projects = queries::get_projects(&conn).unwrap_or_default();
 
-    // Detect orphans via shared module
-    let orphan_list = orphans::detect_orphans(&conn, COLLECTION_PROJECTS)
-        .await
-        .unwrap_or_default();
-
-    if projects.is_empty() && orphan_list.is_empty() {
+    if projects.is_empty() {
         output::info("No projects registered. Use `wqm project register` to add one.");
         return Ok(());
     }
+
+    // Batch query: all doc counts in one GROUP BY (not N queries)
+    let doc_counts =
+        queries::get_all_document_counts(&conn, COLLECTION_PROJECTS).unwrap_or_default();
 
     let mut rows: Vec<ProjectRow> = Vec::new();
 
@@ -63,9 +61,6 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
         if active_only && !proj.is_active {
             continue;
         }
-
-        let doc_counts = queries::get_document_counts(&conn, &proj.tenant_id, COLLECTION_PROJECTS)
-            .unwrap_or_default();
 
         let name = proj
             .path
@@ -80,31 +75,18 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
             "Inactive".to_string()
         };
 
+        let docs = doc_counts
+            .get(&proj.tenant_id)
+            .map(|c| c.tracked_files.to_string())
+            .unwrap_or_else(|| "0".to_string());
+
         rows.push(ProjectRow {
             gutter: " ".to_string(),
             name,
             path: home_to_tilde(&proj.path),
             status,
-            documents: doc_counts.tracked_files.to_string(),
+            documents: docs,
         });
-    }
-
-    // Always include orphans (with warning gutter) unless active-only filter
-    if !active_only {
-        for orphan in &orphan_list {
-            let short_id = if orphan.tenant_id.len() > 12 {
-                &orphan.tenant_id[..12]
-            } else {
-                &orphan.tenant_id
-            };
-            rows.push(ProjectRow {
-                gutter: "⚠".to_string(),
-                name: short_id.to_string(),
-                path: "-".to_string(),
-                status: "Orphan".to_string(),
-                documents: orphan.document_count.to_string(),
-            });
-        }
     }
 
     if !rows.is_empty() {
