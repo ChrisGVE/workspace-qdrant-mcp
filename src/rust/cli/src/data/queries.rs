@@ -148,27 +148,46 @@ pub fn get_total_document_count(conn: &Connection, collection: &str) -> Result<u
 
 // ── Language List ────────────────────────────────────────────────
 
-/// Get distinct languages for a tenant's tracked files.
+/// Get languages for a tenant's tracked files, filtered to exclude
+/// test fixtures and vendored code.
+///
+/// Languages must have at least 1% of total tracked files (minimum 3)
+/// to be included. This filters out test fixture languages (e.g.,
+/// `tests/language-support/` files) that inflate the language list.
 pub fn get_languages(conn: &Connection, tenant_id: &str, collection: &str) -> Result<Vec<String>> {
     let mut stmt = conn
         .prepare(
-            "SELECT DISTINCT tf.language \
+            "SELECT tf.language, COUNT(*) as cnt \
              FROM tracked_files tf \
              JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
              WHERE wf.tenant_id = ?1 AND wf.collection = ?2 \
              AND tf.language IS NOT NULL AND tf.language != '' \
-             ORDER BY tf.language",
+             GROUP BY tf.language \
+             ORDER BY cnt DESC",
         )
         .context("Failed to query languages")?;
 
     let rows = stmt
         .query_map(params![tenant_id, collection], |row| {
-            row.get::<_, String>(0)
+            Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
         })
         .context("Failed to read languages")?;
 
-    rows.collect::<Result<Vec<_>, _>>()
-        .context("Failed to parse language rows")
+    let lang_counts: Vec<(String, usize)> = rows
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse language rows")?;
+
+    let total: usize = lang_counts.iter().map(|(_, c)| c).sum();
+    let threshold = (total / 100).max(3); // 1% of total, minimum 3 files
+
+    let mut languages: Vec<String> = lang_counts
+        .into_iter()
+        .filter(|(_, count)| *count >= threshold)
+        .map(|(lang, _)| lang)
+        .collect();
+
+    languages.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    Ok(languages)
 }
 
 // ── Reconciliation Stats ─────────────────────────────────────────
@@ -411,22 +430,35 @@ mod tests {
     }
 
     #[test]
-    fn languages_for_tenant() {
+    fn languages_filters_low_count() {
         let conn = setup_test_db();
         conn.execute_batch(
             "INSERT INTO watch_folders (watch_id, tenant_id, path, collection)
-             VALUES ('w1', 't1', '/proj1', 'projects');
-             INSERT INTO tracked_files (file_id, watch_folder_id, language)
-             VALUES (1, 'w1', 'Rust');
-             INSERT INTO tracked_files (file_id, watch_folder_id, language)
-             VALUES (2, 'w1', 'Python');
-             INSERT INTO tracked_files (file_id, watch_folder_id, language)
-             VALUES (3, 'w1', 'Rust');
-             INSERT INTO tracked_files (file_id, watch_folder_id, language)
-             VALUES (4, 'w1', NULL);",
+             VALUES ('w1', 't1', '/proj1', 'projects');",
         )
         .unwrap();
+        // Insert 100 Rust files, 50 Python files, and 2 Clojure files (test fixture)
+        for i in 1..=100 {
+            conn.execute(
+                "INSERT INTO tracked_files (file_id, watch_folder_id, language) VALUES (?1, 'w1', 'Rust')",
+                params![i],
+            ).unwrap();
+        }
+        for i in 101..=150 {
+            conn.execute(
+                "INSERT INTO tracked_files (file_id, watch_folder_id, language) VALUES (?1, 'w1', 'Python')",
+                params![i],
+            ).unwrap();
+        }
+        // 2 Clojure files — below 1% threshold (152 total, threshold = max(1, 3) = 3)
+        for i in 151..=152 {
+            conn.execute(
+                "INSERT INTO tracked_files (file_id, watch_folder_id, language) VALUES (?1, 'w1', 'Clojure')",
+                params![i],
+            ).unwrap();
+        }
         let langs = get_languages(&conn, "t1", "projects").unwrap();
+        // Clojure (2 files) should be filtered out; Rust and Python pass threshold
         assert_eq!(langs, vec!["Python", "Rust"]);
     }
 
