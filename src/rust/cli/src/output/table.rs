@@ -233,6 +233,12 @@ pub trait ColumnHints {
     /// Returns 0-based indices of content columns (variable-length text).
     /// Empty slice means all columns are categorical (no special treatment).
     fn content_columns() -> &'static [usize];
+
+    /// Returns 0-based indices of numeric columns (right-aligned).
+    /// Default: empty (all left-aligned).
+    fn numeric_columns() -> &'static [usize] {
+        &[]
+    }
 }
 
 /// Print a table with layout hints derived from the `ColumnHints` trait.
@@ -321,6 +327,14 @@ pub fn render_table<T: Tabled + ColumnHints>(rows: &[GutterRow<T>], summary: Opt
     table
         .with(style)
         .with(Modify::new(Rows::first()).with(Color::BOLD));
+
+    // Right-align numeric columns
+    let numeric_cols = T::numeric_columns();
+    for &col_idx in numeric_cols {
+        use tabled::settings::object::Columns;
+        use tabled::settings::Alignment;
+        table.with(Modify::new(Columns::single(col_idx)).with(Alignment::right()));
+    }
 
     // Apply width management
     if let Some(col_mins) = col_mins {
