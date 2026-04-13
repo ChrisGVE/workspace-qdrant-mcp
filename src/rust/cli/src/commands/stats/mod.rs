@@ -9,9 +9,6 @@ mod processing;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use rusqlite::Connection;
-
-use crate::config::get_database_path;
 
 /// Time period filter for stats queries
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -139,35 +136,7 @@ pub async fn execute(args: StatsArgs) -> Result<()> {
     }
 }
 
-/// Open state database read-only.
-/// All write operations now go through gRPC to the daemon.
-fn open_db() -> Result<Connection> {
-    let db_path = get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
-    if !db_path.exists() {
-        anyhow::bail!(
-            "Database not found at {}. Run daemon first: wqm service start",
-            db_path.display()
-        );
-    }
-    let conn = Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .context("Failed to open state database")?;
-    conn.execute_batch("PRAGMA busy_timeout=5000;")
-        .context("Failed to set SQLite pragmas")?;
-    Ok(conn)
-}
-
-/// Check if a table exists in the database
-fn table_exists(conn: &Connection, name: &str) -> bool {
-    conn.query_row(
-        "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?",
-        [name],
-        |_| Ok(true),
-    )
-    .unwrap_or(false)
-}
+use crate::data::db::{connect_readonly as open_db, table_exists};
 
 async fn log_search(tool: &str, query: &str, actor: &str, session_id: Option<&str>) -> Result<()> {
     use crate::grpc::ensure_daemon_available;

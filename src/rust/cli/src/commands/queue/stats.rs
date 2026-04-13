@@ -9,8 +9,8 @@ use rusqlite::Connection;
 use crate::output;
 use crate::output::style::short_id;
 
-use super::db::connect_readonly;
 use super::formatters::{format_status, QueueStatsSummary, StatusBreakdown};
+use crate::data::db::connect_readonly;
 
 pub async fn execute(json: bool, by_type: bool, by_op: bool, by_collection: bool) -> Result<()> {
     let conn = connect_readonly()?;

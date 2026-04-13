@@ -3,12 +3,12 @@
 use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use super::helpers::open_db;
+use crate::data::db::connect_readonly;
 use crate::output;
 
 /// Show library information for a specific tag or all libraries
 pub async fn execute(tag: Option<&str>) -> Result<()> {
-    let conn = match open_db() {
+    let conn = match connect_readonly() {
         Ok(c) => c,
         Err(e) => {
             output::error(format!("Cannot read database: {}", e));

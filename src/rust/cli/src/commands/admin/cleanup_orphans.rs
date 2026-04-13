@@ -26,7 +26,7 @@ pub async fn execute(delete: bool, collection_filter: Option<String>) -> Result<
         ALL_COLLECTIONS.to_vec()
     };
 
-    let conn = match qdrant_helpers::open_state_db() {
+    let conn = match crate::data::db::connect_readonly() {
         Ok(c) => Some(c),
         Err(_) => {
             output::warning(

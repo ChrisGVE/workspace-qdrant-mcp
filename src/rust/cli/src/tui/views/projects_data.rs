@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::commands::queue::db::connect_readonly;
+use crate::data::db::connect_readonly;
 use crate::output::style::{home_to_tilde, short_id};
 
 /// Maximum watch folders to fetch per query.

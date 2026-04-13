@@ -1,12 +1,8 @@
 //! Shared helpers for library subcommands
 
-use std::path::PathBuf;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::ValueEnum;
-use rusqlite::Connection;
 
-use crate::config::get_database_path;
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
@@ -36,31 +32,6 @@ pub const DEFAULT_LIBRARY_PATTERNS: &[&str] = &[
     "*.pdf", "*.epub", "*.docx", "*.pptx", "*.ppt", "*.pages", "*.key", "*.odt", "*.odp", "*.ods",
     "*.rtf", "*.doc", "*.md", "*.txt", "*.html", "*.htm",
 ];
-
-/// Get SQLite database path (canonical: ~/.workspace-qdrant/state.db)
-pub fn get_db_path() -> Result<PathBuf> {
-    get_database_path().map_err(|e| anyhow::anyhow!("{}", e))
-}
-
-/// Open a read-only connection to the state database.
-/// All write operations now go through gRPC to the daemon.
-pub fn open_db() -> Result<Connection> {
-    let db_path = get_db_path()?;
-    if !db_path.exists() {
-        anyhow::bail!(
-            "Database not found at {}. Run daemon first: wqm service start",
-            db_path.display()
-        );
-    }
-    let conn = Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .context("Failed to open state database")?;
-    conn.execute_batch("PRAGMA busy_timeout=5000;")
-        .context("Failed to set SQLite pragmas")?;
-    Ok(conn)
-}
 
 /// Returns a human-readable description of the library mode
 pub fn mode_description(mode: LibraryMode) -> &'static str {

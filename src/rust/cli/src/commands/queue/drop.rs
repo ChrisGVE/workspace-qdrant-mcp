@@ -6,7 +6,7 @@ use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::RemoveItemRequest;
 use crate::output;
 
-use super::db::connect_readonly;
+use crate::data::db::connect_readonly;
 
 pub async fn execute(
     queue_id: Option<String>,

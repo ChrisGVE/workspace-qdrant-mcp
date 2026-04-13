@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 
-use super::helpers::open_db;
+use crate::data::db::connect_readonly;
 use crate::output;
 use crate::output::style::home_to_tilde;
 use wqm_common::constants::COLLECTION_LIBRARIES;
@@ -34,7 +34,7 @@ fn get_library_doc_counts(conn: &rusqlite::Connection) -> std::collections::Hash
 pub async fn execute(verbose: bool) -> Result<()> {
     output::section("Libraries");
 
-    let conn = match open_db() {
+    let conn = match connect_readonly() {
         Ok(c) => c,
         Err(_) => {
             output::info("No libraries configured. Use `wqm library add` to add one.");

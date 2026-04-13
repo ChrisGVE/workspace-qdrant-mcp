@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 
-use super::helpers::{open_db, LibraryMode};
+use super::helpers::LibraryMode;
+use crate::data::db::connect_readonly;
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::ConfigureLibraryRequest;
 use crate::output;
@@ -20,7 +21,7 @@ pub async fn execute(
 
     // Show current configuration (reads directly — still allowed)
     if show || (mode.is_none() && !enable && !disable) {
-        if let Ok(conn) = open_db() {
+        if let Ok(conn) = connect_readonly() {
             show_current_config(&conn, tag, &format!("lib-{}", tag))?;
             if mode.is_some() || enable || disable {
                 output::separator();

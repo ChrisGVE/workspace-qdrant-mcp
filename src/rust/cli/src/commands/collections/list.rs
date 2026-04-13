@@ -104,7 +104,7 @@ pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Res
 async fn build_collection_rows(
     collections: &[CollectionDescription],
 ) -> Result<Vec<CollectionRow>> {
-    let db_conn = qdrant_helpers::open_state_db().ok();
+    let db_conn = crate::data::db::connect_readonly().ok();
     let qdrant_client = qdrant_helpers::build_qdrant_http_client()?;
     let base_url = qdrant_helpers::qdrant_base_url();
 

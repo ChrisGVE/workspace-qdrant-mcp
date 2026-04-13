@@ -8,6 +8,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 
 mod commands;
 mod config;
+pub(crate) mod data;
 mod error;
 mod grpc;
 mod output;

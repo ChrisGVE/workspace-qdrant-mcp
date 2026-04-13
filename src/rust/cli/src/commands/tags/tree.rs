@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use super::db::{open_db, table_exists};
+use crate::data::db::{connect_readonly, table_exists};
 use crate::output;
 
 struct TreeNode {
@@ -13,7 +13,7 @@ struct TreeNode {
 }
 
 pub(super) fn show_tree(tenant_id: &str, collection: &str) -> Result<()> {
-    let conn = open_db()?;
+    let conn = connect_readonly()?;
     if !table_exists(&conn, "canonical_tags") {
         anyhow::bail!("Canonical tags table not found. Ensure daemon schema v16+ is applied.");
     }

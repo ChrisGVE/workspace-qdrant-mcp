@@ -3,7 +3,6 @@
 //! Queries the keywords, tags, canonical_tags, and tag_hierarchy_edges tables
 //! to display extraction results and the canonical tag hierarchy.
 
-mod db;
 mod list;
 mod search;
 mod stats;

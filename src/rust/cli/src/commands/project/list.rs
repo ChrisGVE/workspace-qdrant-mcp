@@ -36,7 +36,7 @@ impl ColumnHints for ProjectRow {
 /// This is O(n_tenants) via a GROUP BY query instead of scrolling all Qdrant
 /// points (which was O(total_points) and took 20+ seconds).
 fn get_document_counts_from_db() -> HashMap<String, usize> {
-    let conn = match qdrant_helpers::open_state_db() {
+    let conn = match crate::data::db::connect_readonly() {
         Ok(c) => c,
         Err(_) => return HashMap::new(),
     };
@@ -77,7 +77,7 @@ pub(super) async fn list_projects(active_only: bool, priority: Option<String>) -
         Ok(client) => {
             let base_url = qdrant_helpers::qdrant_base_url();
             // Use the state DB to get known tenants instead of scrolling Qdrant
-            match qdrant_helpers::open_state_db() {
+            match crate::data::db::connect_readonly() {
                 Ok(conn) => qdrant_helpers::get_known_tenants_for_collection(
                     &conn,
                     wqm_common::constants::COLLECTION_PROJECTS,

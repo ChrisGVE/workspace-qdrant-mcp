@@ -11,10 +11,11 @@ use crate::output::style::{short_path, DEFAULT_PATH_MAX, VERBOSE_PATH_MAX};
 use crate::output::ColumnHints;
 
 use super::helpers::{
-    build_tenant_name_map, connect_readonly, format_bool, format_bool_archived, format_bool_paused,
+    build_tenant_name_map, format_bool, format_bool_archived, format_bool_paused,
     format_relative_time, resolve_project_name,
 };
 use super::types::{WatchListItem, WatchListItemVerbose};
+use crate::data::db::connect_readonly;
 
 /// Build a WHERE clause and parameter list for the watch_folders query.
 fn build_where_clause(
