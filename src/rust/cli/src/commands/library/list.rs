@@ -1,13 +1,90 @@
 //! Library list subcommand
+//!
+//! Uses SQLite canonical queries. Table template per cli-feedback.md.
 
 use std::collections::HashSet;
 
 use anyhow::{Context, Result};
+use tabled::builder::Builder;
+use tabled::settings::object::{Columns, Rows};
+use tabled::settings::peaker::PriorityMax;
+use tabled::settings::style::{HorizontalLine, Style};
+use tabled::settings::{Alignment, Color, Modify, Width};
 
 use crate::data::db::connect_readonly;
-use crate::output;
+use crate::output::canvas;
+use crate::output::gutter::Gutter;
+use crate::output::number::{format_usize, NumberLocale};
+use crate::output::peakers::ExpandEven;
 use crate::output::style::home_to_tilde;
+use crate::output::table::{print_table_summary, terminal_width};
 use wqm_common::constants::COLLECTION_LIBRARIES;
+
+/// Internal row data for the library table.
+struct LibraryRowData {
+    gutter: Gutter,
+    name: String,
+    path: String,
+    mode: String,
+    status: String,
+    documents: String,
+}
+
+/// List all libraries using table template.
+pub async fn execute(verbose: bool) -> Result<()> {
+    canvas::print_title("Registered Libraries");
+    canvas::print_blank();
+
+    let conn = match connect_readonly() {
+        Ok(c) => c,
+        Err(_) => {
+            crate::output::info("No libraries configured. Use `wqm library add` to add one.");
+            return Ok(());
+        }
+    };
+
+    let locale = NumberLocale::default();
+    let mut rows: Vec<LibraryRowData> = Vec::new();
+    let mut known_tags = HashSet::new();
+
+    // Get document counts from SQLite (instant)
+    let doc_counts = get_library_doc_counts(&conn);
+
+    // Watch folders
+    collect_watch_folders(&conn, &doc_counts, &mut known_tags, &mut rows, &locale)?;
+
+    // Format-routed libraries from projects
+    collect_format_routed(&conn, &doc_counts, &mut known_tags, &mut rows, &locale)?;
+
+    // Orphans (in doc_counts but not in known_tags)
+    collect_orphans(&doc_counts, &known_tags, &mut rows, &locale);
+
+    if rows.is_empty() {
+        crate::output::info(
+            "No libraries found. Use `wqm library add` to add one, \
+             or add documents to a watched project folder.",
+        );
+        return Ok(());
+    }
+
+    // Sort: watching first, then by name (case-insensitive)
+    rows.sort_by(|a, b| {
+        let a_active = a.status == "Watching";
+        let b_active = b.status == "Watching";
+        b_active
+            .cmp(&a_active)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    let total = rows.len();
+    let width = terminal_width();
+
+    render_library_table(&rows, width, verbose);
+
+    print_table_summary(&format!("{} libraries", total));
+
+    Ok(())
+}
 
 /// Get document counts per library from SQLite tracked_files table.
 fn get_library_doc_counts(conn: &rusqlite::Connection) -> std::collections::HashMap<String, usize> {
@@ -30,211 +107,206 @@ fn get_library_doc_counts(conn: &rusqlite::Connection) -> std::collections::Hash
     counts
 }
 
-/// List all libraries, including watched, format-routed, and orphaned
-pub async fn execute(verbose: bool) -> Result<()> {
-    output::section("Libraries");
-
-    let conn = match connect_readonly() {
-        Ok(c) => c,
-        Err(_) => {
-            output::info("No libraries configured. Use `wqm library add` to add one.");
-            return Ok(());
-        }
-    };
-
-    // Collect known library tags from SQLite
-    let mut known_tags = HashSet::new();
-    let mut total_count: usize = 0;
-
-    // Get document counts from SQLite (instant) instead of scrolling Qdrant (slow)
-    let qdrant_counts = get_library_doc_counts(&conn);
-
-    total_count += list_watch_folders(&conn, verbose, &qdrant_counts, &mut known_tags)?;
-    total_count += list_format_routed(&conn, &qdrant_counts, &mut known_tags)?;
-    total_count += list_orphans(&qdrant_counts, &known_tags);
-
-    if total_count == 0 {
-        output::info(
-            "No libraries found. Use `wqm library add` to add one, \
-             or add documents to a watched project folder.",
-        );
-    } else {
-        output::separator();
-        output::summary(output::summary_line(total_count, total_count, "libraries"));
-    }
-
-    Ok(())
-}
-
-/// Display explicit library watch folders from SQLite.
-///
-/// Returns the number of watch folders found.
-fn list_watch_folders(
+fn collect_watch_folders(
     conn: &rusqlite::Connection,
-    verbose: bool,
-    qdrant_counts: &std::collections::HashMap<String, usize>,
+    doc_counts: &std::collections::HashMap<String, usize>,
     known_tags: &mut HashSet<String>,
+    rows: &mut Vec<LibraryRowData>,
+    locale: &NumberLocale,
 ) -> Result<usize> {
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT watch_id, tenant_id, path, library_mode, enabled, is_active, \
-             created_at, last_activity_at \
+            "SELECT tenant_id, path, library_mode, enabled \
              FROM watch_folders WHERE collection = '{}' ORDER BY tenant_id",
             COLLECTION_LIBRARIES
         ))
         .context("Failed to query watch_folders")?;
 
-    let libraries: Vec<(
-        String,
-        String,
-        String,
-        Option<String>,
-        bool,
-        bool,
-        String,
-        Option<String>,
-    )> = stmt
+    let libraries: Vec<(String, String, Option<String>, bool)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, i32>(4)? != 0,
-                row.get::<_, i32>(5)? != 0,
-                row.get::<_, String>(6)?,
-                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i32>(3)? != 0,
             ))
         })
         .context("Failed to read library rows")?
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse library rows")?;
 
-    if libraries.is_empty() {
-        return Ok(0);
-    }
-
     let count = libraries.len();
-    output::info(format!("Library watch folders ({count}):"));
-    output::separator();
-
-    for (i, (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity)) in
-        libraries.iter().enumerate()
-    {
+    for (tenant_id, path, mode, enabled) in &libraries {
         known_tags.insert(tenant_id.clone());
-        let status = if *enabled { "watching" } else { "paused" };
-        let mode_str = mode.as_deref().unwrap_or("incremental");
+        let docs = doc_counts
+            .get(tenant_id)
+            .map(|c| format_usize(*c, locale))
+            .unwrap_or_else(|| "0".to_string());
 
-        output::kv("  Tag", tenant_id);
-        output::kv("  Path", home_to_tilde(path));
-        output::kv("  Status", status);
-        output::kv("  Mode", mode_str);
-        if let Some(doc_count) = qdrant_counts.get(tenant_id) {
-            output::kv("  Documents", doc_count.to_string());
-        }
-        if verbose {
-            output::kv("  Watch ID", watch_id);
-            output::kv("  Created", created_at);
-            if let Some(activity) = last_activity {
-                output::kv("  Last Activity", activity);
-            }
-        }
-        if i + 1 < count {
-            println!();
-        }
+        let gutter = if *enabled { Gutter::Sync } else { Gutter::Add };
+
+        rows.push(LibraryRowData {
+            gutter,
+            name: tenant_id.clone(),
+            path: home_to_tilde(path),
+            mode: mode.as_deref().unwrap_or("incremental").to_string(),
+            status: if *enabled {
+                "Watching".to_string()
+            } else {
+                "Paused".to_string()
+            },
+            documents: docs,
+        });
     }
 
     Ok(count)
 }
 
-/// Display format-routed files (PDFs etc. auto-routed from project folders).
-///
-/// Returns the number of routed project sources found.
-fn list_format_routed(
+fn collect_format_routed(
     conn: &rusqlite::Connection,
-    qdrant_counts: &std::collections::HashMap<String, usize>,
+    doc_counts: &std::collections::HashMap<String, usize>,
     known_tags: &mut HashSet<String>,
+    rows: &mut Vec<LibraryRowData>,
+    locale: &NumberLocale,
 ) -> Result<usize> {
-    let mut routed_stmt = conn
+    let mut stmt = conn
         .prepare(
             "SELECT wf.tenant_id, wf.path, COUNT(tf.file_id) as file_count
-         FROM tracked_files tf
-         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
-         WHERE tf.collection = 'libraries' AND wf.collection = 'projects'
-         GROUP BY wf.tenant_id
-         ORDER BY wf.tenant_id",
+             FROM tracked_files tf
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+             WHERE tf.collection = 'libraries' AND wf.collection = 'projects'
+             GROUP BY wf.tenant_id
+             ORDER BY wf.tenant_id",
         )
         .context("Failed to query format-routed library files")?;
 
-    let routed: Vec<(String, String, i64)> = routed_stmt
+    let routed: Vec<(String, String, usize)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
+                row.get::<_, usize>(2)?,
             ))
         })
         .context("Failed to read format-routed rows")?
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse format-routed rows")?;
 
-    if routed.is_empty() {
-        return Ok(0);
-    }
-
     let count = routed.len();
-    output::info(format!("Format-routed from projects ({count} project(s)):"));
-    output::separator();
-
-    for (i, (tenant_id, project_path, file_count)) in routed.iter().enumerate() {
+    for (tenant_id, path, _file_count) in &routed {
         known_tags.insert(tenant_id.clone());
-        output::kv("  Project", tenant_id);
-        output::kv("  Path", home_to_tilde(project_path));
-        output::kv("  Library Files", file_count.to_string());
-        output::kv("  Source", "auto-routed (PDF, DOCX, etc.)");
-        if let Some(doc_count) = qdrant_counts.get(tenant_id) {
-            output::kv("  Documents", doc_count.to_string());
-        }
-        if i + 1 < count {
-            println!();
-        }
+        let docs = doc_counts
+            .get(tenant_id)
+            .map(|c| format_usize(*c, locale))
+            .unwrap_or_else(|| "0".to_string());
+
+        rows.push(LibraryRowData {
+            gutter: Gutter::Info,
+            name: tenant_id.clone(),
+            path: home_to_tilde(path),
+            mode: "auto-routed".to_string(),
+            status: "Active".to_string(),
+            documents: docs,
+        });
     }
 
     Ok(count)
 }
 
-/// Display orphaned libraries that exist in Qdrant but not in SQLite.
-///
-/// Returns the number of orphaned libraries found.
-fn list_orphans(
-    qdrant_counts: &std::collections::HashMap<String, usize>,
+fn collect_orphans(
+    doc_counts: &std::collections::HashMap<String, usize>,
     known_tags: &HashSet<String>,
-) -> usize {
-    let mut orphan_tags: Vec<(&String, &usize)> = qdrant_counts
+    rows: &mut Vec<LibraryRowData>,
+    locale: &NumberLocale,
+) {
+    let mut orphans: Vec<(&String, &usize)> = doc_counts
         .iter()
         .filter(|(tag, _)| !known_tags.contains(*tag))
         .collect();
-    orphan_tags.sort_by_key(|(tag, _)| (*tag).clone());
+    orphans.sort_by_key(|(tag, _)| (*tag).clone());
 
-    if orphan_tags.is_empty() {
-        return 0;
+    for (tag, count) in orphans {
+        rows.push(LibraryRowData {
+            gutter: Gutter::Warning,
+            name: tag.clone(),
+            path: "—".to_string(),
+            mode: "—".to_string(),
+            status: "Orphan".to_string(),
+            documents: format_usize(*count, locale),
+        });
+    }
+}
+
+fn render_library_table(rows: &[LibraryRowData], width: usize, verbose: bool) {
+    if rows.is_empty() {
+        return;
     }
 
-    let count = orphan_tags.len();
-    output::warning(format!("Orphaned libraries ({count}):"));
-    output::separator();
+    let table_width = width.saturating_sub(Gutter::SYMBOL_WIDTH);
 
-    for (i, (tag, doc_count)) in orphan_tags.iter().enumerate() {
-        output::kv("  Tag", format!("{} (ORPHAN)", tag));
-        output::kv("  Documents", doc_count.to_string());
-        output::kv(
-            "  Status",
-            "no watch folder \u{2014} run: wqm admin cleanup-orphans",
-        );
-        if i + 1 < count {
-            println!();
+    let mut builder = Builder::default();
+
+    // Headers
+    let mut headers: Vec<String> = vec![
+        "Name".into(),
+        "Path".into(),
+        "Mode".into(),
+        "Status".into(),
+        "Documents".into(),
+    ];
+    if verbose {
+        // Verbose could add more columns in the future
+    }
+    let _ = verbose; // suppress unused warning
+    builder.push_record(headers);
+
+    // Data rows
+    for row in rows {
+        let mut record: Vec<String> = vec![
+            row.name.clone(),
+            row.path.clone(),
+            row.mode.clone(),
+            row.status.clone(),
+            row.documents.clone(),
+        ];
+        builder.push_record(record);
+    }
+
+    let mut table = builder.build();
+
+    let style = Style::blank().horizontals([(1, HorizontalLine::new('─').intersection('─'))]);
+    table
+        .with(style)
+        .with(Modify::new(Rows::first()).with(Color::BOLD));
+
+    // Right-align Documents column (index 4)
+    table.with(Modify::new(Columns::single(4)).with(Alignment::right()));
+
+    table.with(
+        Width::wrap(table_width)
+            .priority::<PriorityMax>()
+            .keep_words(),
+    );
+    table.with(Width::increase(table_width).priority::<ExpandEven>());
+
+    let output = table.to_string();
+    let lines: Vec<&str> = output.lines().collect();
+
+    let mut data_row_idx = 0;
+    for (i, line) in lines.iter().enumerate() {
+        if i == 0 {
+            println!("{}{line}", Gutter::None.colored());
+        } else if line.chars().all(|c| c == '─' || c == ' ') {
+            println!("{}", "─".repeat(width));
+        } else {
+            let g = rows
+                .get(data_row_idx)
+                .map(|r| r.gutter)
+                .unwrap_or(Gutter::None);
+            println!("{}{line}", g.colored());
+            data_row_idx += 1;
         }
     }
 
-    count
+    println!("{}", "─".repeat(width));
 }
