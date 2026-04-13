@@ -4,6 +4,8 @@
 
 use anyhow::Result;
 
+use crate::data::db::connect_readonly;
+use crate::data::queries;
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::GetProjectStatusRequest;
 use crate::output::columnar::ColumnarBuilder;
@@ -72,22 +74,26 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
                         // Section 2: Content and Database Status
                         builder = builder.section(Some("Project Content and Database Status"));
 
-                        // Get file stats from SQLite
-                        let stats = get_file_stats(&project_id);
+                        // Get file stats from canonical queries
+                        let (stats, languages) = match connect_readonly() {
+                            Ok(conn) => {
+                                let s = queries::get_project_file_stats(&conn, &project_id)
+                                    .unwrap_or_default();
+                                let l = queries::get_languages(&conn, &project_id, "projects")
+                                    .unwrap_or_default();
+                                (s, l)
+                            }
+                            Err(_) => (queries::ReconcileStats::default(), Vec::new()),
+                        };
 
-                        if !stats.languages.is_empty() {
-                            builder = builder.kv("Languages", stats.languages.join(", "));
+                        if !languages.is_empty() {
+                            builder = builder.kv("Languages", languages.join(", "));
                         }
 
                         builder = builder
                             .kv_gutter(
                                 "Chunks in Database",
                                 format_usize(stats.chunk_count, &locale),
-                                Gutter::None,
-                            )
-                            .kv_gutter(
-                                "Files on Disk",
-                                format_usize(stats.files_on_disk, &locale),
                                 Gutter::None,
                             )
                             .kv_gutter(
@@ -149,109 +155,4 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// File statistics for a project.
-struct FileStats {
-    languages: Vec<String>,
-    chunk_count: usize,
-    files_on_disk: usize,
-    tracked_files: usize,
-    in_sync: usize,
-    to_add: usize,
-    to_update: usize,
-    to_remove: usize,
-}
-
-/// Get file statistics from SQLite for a project.
-fn get_file_stats(project_id: &str) -> FileStats {
-    let mut stats = FileStats {
-        languages: Vec::new(),
-        chunk_count: 0,
-        files_on_disk: 0,
-        tracked_files: 0,
-        in_sync: 0,
-        to_add: 0,
-        to_update: 0,
-        to_remove: 0,
-    };
-
-    let db_path = match crate::config::get_database_path_checked() {
-        Ok(p) => p,
-        Err(_) => return stats,
-    };
-
-    let conn = match rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) {
-        Ok(c) => c,
-        Err(_) => return stats,
-    };
-    let _ = conn.execute_batch("PRAGMA busy_timeout=5000;");
-
-    // Get tracked file count and chunk count
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT COUNT(*), COALESCE(SUM(chunk_count), 0) \
-         FROM tracked_files tf \
-         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-         WHERE wf.tenant_id = ?1 AND wf.collection = 'projects'",
-    ) {
-        if let Ok(row) = stmt.query_row(rusqlite::params![project_id], |row| {
-            Ok((row.get::<_, usize>(0)?, row.get::<_, usize>(1)?))
-        }) {
-            stats.tracked_files = row.0;
-            stats.chunk_count = row.1;
-        }
-    }
-
-    // Get languages
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT DISTINCT tf.language \
-         FROM tracked_files tf \
-         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-         WHERE wf.tenant_id = ?1 AND wf.collection = 'projects' \
-         AND tf.language IS NOT NULL AND tf.language != '' \
-         ORDER BY tf.language",
-    ) {
-        if let Ok(rows) =
-            stmt.query_map(rusqlite::params![project_id], |row| row.get::<_, String>(0))
-        {
-            stats.languages = rows.flatten().collect();
-        }
-    }
-
-    // Get reconciliation stats (to_add, to_update, to_remove)
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT tf.reconcile_reason, COUNT(*) \
-         FROM tracked_files tf \
-         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-         WHERE wf.tenant_id = ?1 AND wf.collection = 'projects' \
-         AND tf.needs_reconcile = 1 \
-         GROUP BY tf.reconcile_reason",
-    ) {
-        if let Ok(rows) = stmt.query_map(rusqlite::params![project_id], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, usize>(1)?))
-        }) {
-            for row in rows.flatten() {
-                match row.0.as_deref() {
-                    Some("new") | Some("added") => stats.to_add += row.1,
-                    Some("modified") | Some("updated") | Some("content_changed") => {
-                        stats.to_update += row.1
-                    }
-                    Some("deleted") | Some("removed") => stats.to_remove += row.1,
-                    _ => stats.to_update += row.1,
-                }
-            }
-        }
-    }
-
-    // Files in sync = tracked - needs_reconcile
-    let needs_reconcile = stats.to_add + stats.to_update + stats.to_remove;
-    stats.in_sync = stats.tracked_files.saturating_sub(needs_reconcile);
-
-    // Files on disk: use tracked count as approximation (actual disk walk would be slow)
-    stats.files_on_disk = stats.tracked_files;
-
-    stats
 }
