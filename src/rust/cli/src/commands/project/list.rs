@@ -99,6 +99,14 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
         });
     }
 
+    // Sort: Active first, then by name (case-insensitive)
+    rows.sort_by(|a, b| {
+        a.data
+            .status
+            .cmp(&b.data.status)
+            .then_with(|| a.data.name.to_lowercase().cmp(&b.data.name.to_lowercase()))
+    });
+
     let total = rows.len();
     let summary = format!("{} projects", total);
     render_table(&rows, Some(&summary));

@@ -16,11 +16,77 @@ pub struct QueueStats {
     pub in_progress: usize,
     pub done: usize,
     pub failed: usize,
+    /// ISO timestamp of the oldest pending item, if any.
+    pub oldest_pending: Option<String>,
 }
 
 impl QueueStats {
     pub fn total(&self) -> usize {
         self.pending + self.in_progress + self.done + self.failed
+    }
+
+    /// Assess queue health: healthy / degraded / unhealthy.
+    ///
+    /// - **Healthy**: no failed items, oldest pending < 1 hour
+    /// - **Degraded**: failed items exist OR oldest pending > 1 hour
+    /// - **Unhealthy**: oldest pending > 24 hours OR failed > 10% of total
+    pub fn health(&self) -> HealthLevel {
+        let age_hours = self.oldest_pending_age_hours();
+        let active = self.pending + self.in_progress + self.failed;
+
+        if active == 0 {
+            return HealthLevel::Healthy;
+        }
+
+        let fail_ratio = if active > 0 {
+            self.failed as f64 / active as f64
+        } else {
+            0.0
+        };
+
+        if age_hours > 24.0 || fail_ratio > 0.1 {
+            HealthLevel::Unhealthy
+        } else if self.failed > 0 || age_hours > 1.0 {
+            HealthLevel::Degraded
+        } else {
+            HealthLevel::Healthy
+        }
+    }
+
+    /// Hours since oldest pending item was created. 0.0 if none.
+    fn oldest_pending_age_hours(&self) -> f64 {
+        let Some(ref ts) = self.oldest_pending else {
+            return 0.0;
+        };
+        chrono::DateTime::parse_from_rfc3339(ts)
+            .map(|dt| {
+                let age = chrono::Utc::now().signed_duration_since(dt.with_timezone(&chrono::Utc));
+                age.num_seconds() as f64 / 3600.0
+            })
+            .unwrap_or(0.0)
+    }
+}
+
+/// Three-level health assessment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HealthLevel {
+    Healthy,
+    Degraded,
+    Unhealthy,
+}
+
+impl HealthLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            HealthLevel::Healthy => "healthy",
+            HealthLevel::Degraded => "degraded",
+            HealthLevel::Unhealthy => "unhealthy",
+        }
+    }
+
+    /// Worst of two health levels.
+    pub fn worst(self, other: Self) -> Self {
+        self.max(other)
     }
 }
 
@@ -48,6 +114,15 @@ pub fn get_queue_stats(conn: &Connection) -> Result<QueueStats> {
             _ => {} // unknown status, ignore
         }
     }
+
+    // Oldest pending item
+    stats.oldest_pending = conn
+        .query_row(
+            "SELECT created_at FROM unified_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
 
     Ok(stats)
 }

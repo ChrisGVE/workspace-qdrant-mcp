@@ -1,13 +1,14 @@
 //! Default status overview subcommand.
 //!
-//! Uses SQLite canonical queries for aggregate metrics. gRPC only for
-//! daemon health and resource mode. Columnar template per cli-feedback.md.
+//! Columnar template per cli-feedback.md. Uses SQLite for metrics,
+//! gRPC only for daemon health and resource mode.
 
 use anyhow::Result;
+use colored::Colorize;
 
 use crate::data::db::connect_readonly;
 use crate::data::health;
-use crate::data::queries;
+use crate::data::queries::{self, HealthLevel};
 use crate::grpc::client::{workspace_daemon::SystemStatusResponse, DaemonClient};
 use crate::output::canvas;
 use crate::output::columnar::ColumnarBuilder;
@@ -24,7 +25,7 @@ pub async fn default_status(
     show_performance: bool,
     json: bool,
 ) -> Result<()> {
-    // Check daemon connectivity (gRPC) — only for health + resource mode
+    // Check daemon connectivity (gRPC)
     let (daemon_up, daemon_status) = match DaemonClient::connect_default().await {
         Ok(mut client) => {
             let status = client
@@ -41,7 +42,7 @@ pub async fn default_status(
     // Check Qdrant connectivity
     let qdrant_health = health::check_qdrant().await;
 
-    // Get metrics from SQLite (canonical source of truth)
+    // Get metrics from SQLite
     let (collection_count, document_count, active_project_count, project_names, queue_stats) =
         match connect_readonly() {
             Ok(conn) => {
@@ -72,7 +73,21 @@ pub async fn default_status(
         collection_count
     };
 
-    // JSON mode: emit and return
+    // Compute health levels
+    let worker_health = if daemon_up {
+        HealthLevel::Healthy
+    } else {
+        HealthLevel::Unhealthy
+    };
+    let qdrant_level = if qdrant_health.reachable {
+        HealthLevel::Healthy
+    } else {
+        HealthLevel::Unhealthy
+    };
+    let queue_health = queue_stats.health();
+    let overall = worker_health.worst(qdrant_level).worst(queue_health);
+
+    // JSON mode
     if json {
         let json_out = SystemStatusJson {
             connected: daemon_up,
@@ -101,34 +116,18 @@ pub async fn default_status(
         return Ok(());
     }
 
-    // Canvas title
     canvas::print_title("System Status");
     canvas::print_blank();
 
     let locale = NumberLocale::default();
 
     // Build columnar display
-    let daemon_status_str = if daemon_up { "healthy" } else { "not running" };
-    let qdrant_status_str = if qdrant_health.reachable {
-        "healthy"
-    } else {
-        "unreachable"
-    };
-
-    let daemon_gutter = if daemon_up {
-        Gutter::Sync
-    } else {
-        Gutter::Remove
-    };
-    let qdrant_gutter = if qdrant_health.reachable {
-        Gutter::Sync
-    } else {
-        Gutter::Remove
-    };
-
     let mut builder = ColumnarBuilder::new()
-        .kv_gutter("Daemon", daemon_status_str, daemon_gutter)
-        .kv_gutter("Qdrant", qdrant_status_str, qdrant_gutter)
+        .kv("Overall", format_health(overall))
+        .section(Some("Services"))
+        .kv("Workspace-Qdrant Worker", format_health(worker_health))
+        .kv("Workspace-Qdrant Queue", format_health(queue_health))
+        .kv("Qdrant Server", format_health(qdrant_level))
         .section(Some("Metrics"))
         .kv("Collections", format_usize(total_collections, &locale))
         .kv("Documents", format_usize(document_count, &locale))
@@ -175,7 +174,7 @@ pub async fn default_status(
 
     // Warnings after columnar block
     if !daemon_up {
-        output::warning("Daemon not running. Start with: wqm service start");
+        output::warning("Worker not running. Start with: wqm service start");
     }
     if !qdrant_health.reachable {
         if let Some(ref err) = qdrant_health.error {
@@ -198,6 +197,15 @@ pub async fn default_status(
     }
 
     Ok(())
+}
+
+/// Format a health level with color (no gutter — inline colored text).
+fn format_health(level: HealthLevel) -> String {
+    match level {
+        HealthLevel::Healthy => "healthy".green().to_string(),
+        HealthLevel::Degraded => "degraded".yellow().to_string(),
+        HealthLevel::Unhealthy => "unhealthy".red().to_string(),
+    }
 }
 
 fn add_resource_mode(

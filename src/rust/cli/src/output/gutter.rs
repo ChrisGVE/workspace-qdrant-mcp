@@ -6,25 +6,31 @@
 use colored::{ColoredString, Colorize};
 
 /// A gutter symbol with its colored representation and a plain-text fallback.
+///
+/// Symbols use standard UTF-8 characters (no Nerd Font dependency):
+/// - `✓` check mark — good / in sync
+/// - `+` plus — to be added / pending
+/// - `↻` clockwise arrow — ongoing / in progress
+/// - `✗` ballot x — bad / failed / to remove
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gutter {
     /// No gutter indicator (empty space).
     None,
-    /// Green `=` — file/item in sync.
+    /// Green `✓` — file/item in sync / healthy.
     Sync,
-    /// Yellow `+` — file/item to be added.
+    /// Yellow `+` — file/item to be added / pending.
     Add,
-    /// Blue `~` — file/item to be updated.
+    /// Blue `↻` — file/item to be updated / in progress.
     Update,
-    /// Red `-` — file/item to be removed.
+    /// Red `✗` — file/item to be removed / failed.
     Remove,
-    /// Red `!` — error condition.
+    /// Red `✗` — error condition.
     Error,
-    /// Yellow `!` — warning condition.
+    /// Yellow `△` — warning condition.
     Warning,
-    /// Blue `i` — informational.
+    /// Blue `·` — informational.
     Info,
-    /// Yellow `?` — orphan / unknown state.
+    /// Yellow `△` — orphan / unknown state.
     Orphan,
 }
 
@@ -33,14 +39,14 @@ impl Gutter {
     pub fn colored(self) -> ColoredString {
         match self {
             Gutter::None => " ".normal(),
-            Gutter::Sync => "=".green(),
+            Gutter::Sync => "✓".green(),
             Gutter::Add => "+".yellow(),
-            Gutter::Update => "~".blue(),
-            Gutter::Remove => "-".red(),
-            Gutter::Error => "!".red(),
-            Gutter::Warning => "!".yellow(),
-            Gutter::Info => "i".blue(),
-            Gutter::Orphan => "?".yellow(),
+            Gutter::Update => "↻".blue(),
+            Gutter::Remove => "✗".red(),
+            Gutter::Error => "✗".red(),
+            Gutter::Warning => "△".yellow(),
+            Gutter::Info => "·".blue(),
+            Gutter::Orphan => "△".yellow(),
         }
     }
 
@@ -48,14 +54,14 @@ impl Gutter {
     pub fn plain(self) -> &'static str {
         match self {
             Gutter::None => " ",
-            Gutter::Sync => "=",
+            Gutter::Sync => "v",
             Gutter::Add => "+",
             Gutter::Update => "~",
-            Gutter::Remove => "-",
-            Gutter::Error => "!",
+            Gutter::Remove => "x",
+            Gutter::Error => "x",
             Gutter::Warning => "!",
-            Gutter::Info => "i",
-            Gutter::Orphan => "?",
+            Gutter::Info => ".",
+            Gutter::Orphan => "!",
         }
     }
 
@@ -81,7 +87,12 @@ mod tests {
             Gutter::Orphan,
         ];
         for g in variants {
-            assert_eq!(g.plain().len(), 1, "{:?} plain should be 1 char", g);
+            assert_eq!(
+                g.plain().chars().count(),
+                1,
+                "{:?} plain should be 1 char",
+                g
+            );
         }
     }
 

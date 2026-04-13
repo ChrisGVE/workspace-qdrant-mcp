@@ -17,7 +17,7 @@ use super::formatters::strip_ansi;
 use super::gutter::Gutter;
 use super::messages::info;
 use super::peakers::{
-    ExpandContentOnly, ShrinkCategoricalFirst, COLUMN_MIN_WIDTHS, CONTENT_COLUMNS,
+    ExpandContentOnly, ExpandEven, ShrinkCategoricalFirst, COLUMN_MIN_WIDTHS, CONTENT_COLUMNS,
 };
 use crate::config::OutputFormat;
 
@@ -336,7 +336,8 @@ pub fn render_table<T: Tabled + ColumnHints>(rows: &[GutterRow<T>], summary: Opt
         table.with(Modify::new(Columns::single(col_idx)).with(Alignment::right()));
     }
 
-    // Apply width management
+    // Apply width management: shrink content columns first when too wide,
+    // but distribute extra width evenly across ALL columns (rule 14: even spread).
     if let Some(col_mins) = col_mins {
         CONTENT_COLUMNS.with(|cc| {
             *cc.borrow_mut() = hints.to_vec();
@@ -345,43 +346,41 @@ pub fn render_table<T: Tabled + ColumnHints>(rows: &[GutterRow<T>], summary: Opt
             *cmw.borrow_mut() = col_mins;
         });
 
-        table
-            .with(
-                Width::wrap(table_width)
-                    .priority::<ShrinkCategoricalFirst>()
-                    .keep_words(),
-            )
-            .with(Width::increase(table_width).priority::<ExpandContentOnly>());
+        table.with(
+            Width::wrap(table_width)
+                .priority::<ShrinkCategoricalFirst>()
+                .keep_words(),
+        );
 
         CONTENT_COLUMNS.with(|cc| cc.borrow_mut().clear());
         COLUMN_MIN_WIDTHS.with(|cmw| cmw.borrow_mut().clear());
     } else {
-        table
-            .with(
-                Width::wrap(table_width)
-                    .priority::<PriorityMax>()
-                    .keep_words(),
-            )
-            .with(Width::increase(table_width).priority::<PriorityMax>());
+        table.with(
+            Width::wrap(table_width)
+                .priority::<PriorityMax>()
+                .keep_words(),
+        );
     }
+    // Even spread: distribute extra width across all columns (rule 14)
+    table.with(Width::increase(table_width).priority::<ExpandEven>());
 
     let output = table.to_string();
     let lines: Vec<&str> = output.lines().collect();
 
-    // Render with gutter: header gets empty gutter, separator gets space,
-    // data rows get their gutter symbols
+    // Render with gutter: symbol (1 char) immediately before tabled's
+    // left padding. Total = 1 gutter + 1 tabled padding = 2 chars before content.
     let mut data_row_idx = 0;
     for (i, line) in lines.iter().enumerate() {
         if i == 0 {
             // Header row — empty gutter
-            println!("{} {line}", Gutter::None.colored());
+            println!("{}{line}", Gutter::None.colored());
         } else if line.chars().all(|c| c == '─' || c == ' ') {
             // Separator line — extend to full width
             println!("{}", "─".repeat(width));
         } else {
             // Data row — use corresponding gutter
             let g = gutters.get(data_row_idx).copied().unwrap_or(Gutter::None);
-            println!("{} {line}", g.colored());
+            println!("{}{line}", g.colored());
             data_row_idx += 1;
         }
     }

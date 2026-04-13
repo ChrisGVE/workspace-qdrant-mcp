@@ -63,6 +63,24 @@ impl Peaker for ShrinkCategoricalFirst {
     }
 }
 
+/// Peaker for `Width::increase`: expands the narrowest column for even spread.
+///
+/// Per cli-feedback.md rule 14: columns should be spread evenly across
+/// the available screen width. This picks the narrowest column each time,
+/// distributing extra space as evenly as possible.
+#[derive(Debug, Default, Clone)]
+pub(super) struct ExpandEven;
+
+impl Peaker for ExpandEven {
+    fn create() -> Self {
+        Self
+    }
+
+    fn peak(&mut self, _min_widths: &[usize], widths: &[usize]) -> Option<usize> {
+        (0..widths.len()).min_by_key(|&i| widths[i])
+    }
+}
+
 /// Peaker for `Width::increase`: expands only content columns.
 ///
 /// When the table is narrower than the terminal, this distributes extra
