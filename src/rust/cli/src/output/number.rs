@@ -112,6 +112,24 @@ pub fn format_percentage(value: f64, max_decimals: usize) -> String {
     format!("{} %", format_float(value, decimals, &locale))
 }
 
+/// Format an ISO datetime string as dd-mmm-yyyy (e.g., "13-Apr-2026").
+///
+/// Tries RFC 3339, then `YYYY-MM-DD HH:MM:SS`, then `YYYY-MM-DD`.
+/// Falls back to the first 10 characters if unparseable.
+pub fn format_date_short(iso: &str) -> String {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso) {
+        return dt.format("%d-%b-%Y").to_string();
+    }
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%d %H:%M:%S") {
+        return dt.format("%d-%b-%Y").to_string();
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(iso, "%Y-%m-%d") {
+        return d.format("%d-%b-%Y").to_string();
+    }
+    // Fallback: first 10 chars or original
+    iso.get(..10).unwrap_or(iso).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +228,30 @@ mod tests {
         let l = default_locale();
         assert_eq!(format_usize(52_583, &l), "52'583");
         assert_eq!(format_usize(0, &l), "0");
+    }
+
+    // ── Date formatting ────────────────────────────────────────────────
+
+    #[test]
+    fn format_date_rfc3339() {
+        assert_eq!(
+            format_date_short("2026-04-13T10:30:00+00:00"),
+            "13-Apr-2026"
+        );
+    }
+
+    #[test]
+    fn format_date_naive_datetime() {
+        assert_eq!(format_date_short("2025-12-25 14:00:00"), "25-Dec-2025");
+    }
+
+    #[test]
+    fn format_date_naive_date() {
+        assert_eq!(format_date_short("2024-01-01"), "01-Jan-2024");
+    }
+
+    #[test]
+    fn format_date_fallback() {
+        assert_eq!(format_date_short("not-a-date"), "not-a-date");
     }
 }

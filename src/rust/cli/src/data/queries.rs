@@ -136,13 +136,17 @@ pub struct ProjectInfo {
     pub path: String,
     pub is_active: bool,
     pub watch_id: String,
+    pub created_at: Option<String>,
+    pub last_scan: Option<String>,
+    pub last_activity_at: Option<String>,
 }
 
 /// Get all registered projects (parent watch folders in 'projects' collection).
 pub fn get_projects(conn: &Connection) -> Result<Vec<ProjectInfo>> {
     let mut stmt = conn
         .prepare(
-            "SELECT watch_id, tenant_id, path, COALESCE(is_active, 0) \
+            "SELECT watch_id, tenant_id, path, COALESCE(is_active, 0), \
+                    created_at, last_scan, last_activity_at \
              FROM watch_folders \
              WHERE parent_watch_id IS NULL AND collection = 'projects' \
              ORDER BY is_active DESC, path ASC",
@@ -156,6 +160,9 @@ pub fn get_projects(conn: &Connection) -> Result<Vec<ProjectInfo>> {
                 tenant_id: row.get(1)?,
                 path: row.get(2)?,
                 is_active: row.get::<_, i64>(3)? > 0,
+                created_at: row.get(4)?,
+                last_scan: row.get(5)?,
+                last_activity_at: row.get(6)?,
             })
         })
         .context("Failed to read projects")?;

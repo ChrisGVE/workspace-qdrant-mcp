@@ -8,29 +8,30 @@ use colored::{ColoredString, Colorize};
 /// A gutter symbol with its colored representation and a plain-text fallback.
 ///
 /// Symbols use standard UTF-8 characters (no Nerd Font dependency):
-/// - `✓` check mark — good / in sync
-/// - `+` plus — to be added / pending
-/// - `↻` clockwise arrow — ongoing / in progress
-/// - `✗` ballot x — bad / failed / to remove
+/// - `●` filled circle — good / in sync (green)
+/// - `○` empty circle — pending / to be added (yellow)
+/// - `◆` diamond — in progress / updating (blue)
+/// - `✗` ballot x — failed / to remove (red)
+/// - `▲` triangle — warning / attention (yellow)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gutter {
     /// No gutter indicator (empty space).
     None,
-    /// Green `✓` — file/item in sync / healthy.
+    /// Green `●` — file/item in sync / healthy / good.
     Sync,
-    /// Yellow `+` — file/item to be added / pending.
+    /// Yellow `○` — file/item to be added / pending.
     Add,
-    /// Blue `↻` — file/item to be updated / in progress.
+    /// Blue `◆` — file/item to be updated / in progress.
     Update,
     /// Red `✗` — file/item to be removed / failed.
     Remove,
     /// Red `✗` — error condition.
     Error,
-    /// Yellow `△` — warning condition.
+    /// Yellow `▲` — warning condition.
     Warning,
     /// Blue `·` — informational.
     Info,
-    /// Yellow `△` — orphan / unknown state.
+    /// Yellow `▲` — orphan / unknown state.
     Orphan,
 }
 
@@ -39,14 +40,14 @@ impl Gutter {
     pub fn colored(self) -> ColoredString {
         match self {
             Gutter::None => " ".normal(),
-            Gutter::Sync => "✓".green(),
-            Gutter::Add => "+".yellow(),
-            Gutter::Update => "↻".blue(),
+            Gutter::Sync => "●".green(),
+            Gutter::Add => "○".yellow(),
+            Gutter::Update => "◆".blue(),
             Gutter::Remove => "✗".red(),
             Gutter::Error => "✗".red(),
-            Gutter::Warning => "△".yellow(),
+            Gutter::Warning => "▲".yellow(),
             Gutter::Info => "·".blue(),
-            Gutter::Orphan => "△".yellow(),
+            Gutter::Orphan => "▲".yellow(),
         }
     }
 
@@ -54,9 +55,9 @@ impl Gutter {
     pub fn plain(self) -> &'static str {
         match self {
             Gutter::None => " ",
-            Gutter::Sync => "v",
-            Gutter::Add => "+",
-            Gutter::Update => "~",
+            Gutter::Sync => "*",
+            Gutter::Add => "o",
+            Gutter::Update => ">",
             Gutter::Remove => "x",
             Gutter::Error => "x",
             Gutter::Warning => "!",
@@ -65,8 +66,11 @@ impl Gutter {
         }
     }
 
-    /// Width consumed by the gutter column (symbol + separator space).
+    /// Width consumed by the gutter column in columnar displays (symbol + separator space).
     pub const WIDTH: usize = 2;
+
+    /// Width of just the gutter symbol (for table displays where tabled provides its own padding).
+    pub const SYMBOL_WIDTH: usize = 1;
 }
 
 #[cfg(test)]

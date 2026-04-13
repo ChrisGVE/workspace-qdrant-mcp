@@ -313,7 +313,7 @@ pub fn render_table<T: Tabled + ColumnHints>(rows: &[GutterRow<T>], summary: Opt
     let gutters: Vec<Gutter> = rows.iter().map(|r| r.gutter).collect();
 
     let hints = T::content_columns();
-    let table_width = width.saturating_sub(Gutter::WIDTH);
+    let table_width = width.saturating_sub(Gutter::SYMBOL_WIDTH);
 
     // Compute min widths before Table::new consumes the data vec
     let col_mins = if !hints.is_empty() {

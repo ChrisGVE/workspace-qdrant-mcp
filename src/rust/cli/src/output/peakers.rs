@@ -12,9 +12,9 @@ use tabled::settings::peaker::Peaker;
 
 thread_local! {
     /// Content column indices for custom peakers.
-    pub(super) static CONTENT_COLUMNS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    pub(crate) static CONTENT_COLUMNS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     /// Content-aware minimum widths per column (computed from data).
-    pub(super) static COLUMN_MIN_WIDTHS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    pub(crate) static COLUMN_MIN_WIDTHS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Peaker for `Width::wrap`: shrinks categorical columns first.
@@ -23,7 +23,7 @@ thread_local! {
 /// non-content (categorical) column first. Only falls back to shrinking
 /// content columns when all categorical columns are at minimum width.
 #[derive(Debug, Default, Clone)]
-pub(super) struct ShrinkCategoricalFirst;
+pub(crate) struct ShrinkCategoricalFirst;
 
 impl Peaker for ShrinkCategoricalFirst {
     fn create() -> Self {
@@ -69,7 +69,7 @@ impl Peaker for ShrinkCategoricalFirst {
 /// the available screen width. This picks the narrowest column each time,
 /// distributing extra space as evenly as possible.
 #[derive(Debug, Default, Clone)]
-pub(super) struct ExpandEven;
+pub(crate) struct ExpandEven;
 
 impl Peaker for ExpandEven {
     fn create() -> Self {
@@ -88,7 +88,7 @@ impl Peaker for ExpandEven {
 /// time for even distribution. Falls back to `PriorityMax` if no content
 /// columns are configured.
 #[derive(Debug, Default, Clone)]
-pub(super) struct ExpandContentOnly;
+pub(crate) struct ExpandContentOnly;
 
 impl Peaker for ExpandContentOnly {
     fn create() -> Self {

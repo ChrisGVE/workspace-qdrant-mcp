@@ -122,6 +122,8 @@ pub async fn default_status(
     let locale = NumberLocale::default();
 
     // Build columnar display
+    let total_queue = queue_stats.pending + queue_stats.in_progress + queue_stats.failed;
+
     let mut builder = ColumnarBuilder::new()
         .kv("Overall", format_health(overall))
         .section(Some("Services"))
@@ -135,32 +137,30 @@ pub async fn default_status(
             "Active Projects",
             format_usize(active_project_count, &locale),
         )
-        .section(Some("Queue"));
+        .section(Some("Queue"))
+        .kv("Total", format_usize(total_queue, &locale));
 
-    if queue_stats.pending > 0 {
-        builder = builder.kv_gutter(
+    // Queue decomposition — right-aligned values as nested group
+    {
+        let mut decomp: Vec<(&str, String, Gutter)> = Vec::new();
+        decomp.push((
             "Pending",
             format_usize(queue_stats.pending, &locale),
             Gutter::Add,
-        );
-    } else {
-        builder = builder.kv("Pending", "0");
-    }
-
-    if queue_stats.in_progress > 0 {
-        builder = builder.kv_gutter(
+        ));
+        decomp.push((
             "In Progress",
             format_usize(queue_stats.in_progress, &locale),
             Gutter::Update,
-        );
-    }
-
-    if queue_stats.failed > 0 {
-        builder = builder.kv_gutter(
+        ));
+        decomp.push((
             "Failed",
             format_usize(queue_stats.failed, &locale),
             Gutter::Remove,
-        );
+        ));
+
+        let inner = ColumnarBuilder::new().aligned_group(decomp);
+        builder = builder.nested("", inner);
     }
 
     // Resource mode from daemon (only via gRPC)

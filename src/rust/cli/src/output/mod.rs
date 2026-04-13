@@ -20,9 +20,9 @@ pub mod gutter;
 mod messages;
 pub mod number;
 pub mod path;
-mod peakers;
+pub(crate) mod peakers;
 pub mod style;
-mod table;
+pub(crate) mod table;
 #[cfg(test)]
 mod tests;
 
@@ -50,7 +50,9 @@ pub use messages::{
 pub use formatters::{format_bytes, format_date, format_duration, strip_ansi, truncate};
 
 // Number
-pub use number::{format_float, format_integer, format_percentage, format_usize, NumberLocale};
+pub use number::{
+    format_date_short, format_float, format_integer, format_percentage, format_usize, NumberLocale,
+};
 
 // Path
 pub use path::format_path;
