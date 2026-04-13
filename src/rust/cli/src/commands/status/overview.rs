@@ -23,6 +23,7 @@ pub async fn default_status(
     show_queue: bool,
     show_watch: bool,
     show_performance: bool,
+    verbose: bool,
     json: bool,
 ) -> Result<()> {
     // Check daemon connectivity (gRPC)
@@ -136,31 +137,66 @@ pub async fn default_status(
         .kv(
             "Active Projects",
             format_usize(active_project_count, &locale),
-        )
+        );
+
+    // Verbose: list active project names
+    if verbose && !project_names.is_empty() {
+        builder = builder.section(Some("Active Projects"));
+        for name in &project_names {
+            builder = builder.raw(name, Gutter::Sync);
+        }
+    }
+
+    // Queue section with decomposition
+    builder = builder
         .section(Some("Queue"))
         .kv("Total", format_usize(total_queue, &locale));
 
-    // Queue decomposition — right-aligned values as nested group
     {
-        let mut decomp: Vec<(&str, String, Gutter)> = Vec::new();
-        decomp.push((
-            "Pending",
-            format_usize(queue_stats.pending, &locale),
-            Gutter::Add,
-        ));
-        decomp.push((
-            "In Progress",
-            format_usize(queue_stats.in_progress, &locale),
-            Gutter::Update,
-        ));
-        decomp.push((
-            "Failed",
-            format_usize(queue_stats.failed, &locale),
-            Gutter::Remove,
-        ));
-
+        let decomp: Vec<(&str, String, Gutter)> = vec![
+            (
+                "Pending",
+                format_usize(queue_stats.pending, &locale),
+                Gutter::Add,
+            ),
+            (
+                "In Progress",
+                format_usize(queue_stats.in_progress, &locale),
+                Gutter::Update,
+            ),
+            (
+                "Failed",
+                format_usize(queue_stats.failed, &locale),
+                Gutter::Remove,
+            ),
+        ];
         let inner = ColumnarBuilder::new().aligned_group(decomp);
         builder = builder.nested("", inner);
+    }
+
+    // Verbose: per-project queue breakdown
+    if verbose {
+        if let Ok(conn) = connect_readonly() {
+            let per_project = get_per_project_queue(&conn);
+            if !per_project.is_empty() {
+                builder = builder.section(Some("Queue by Project"));
+                for (name, pending, in_progress, failed) in &per_project {
+                    let total = pending + in_progress + failed;
+                    builder = builder.kv(name, format_usize(total, &locale));
+                    let decomp: Vec<(&str, String, Gutter)> = vec![
+                        ("Pending", format_usize(*pending, &locale), Gutter::Add),
+                        (
+                            "In Progress",
+                            format_usize(*in_progress, &locale),
+                            Gutter::Update,
+                        ),
+                        ("Failed", format_usize(*failed, &locale), Gutter::Remove),
+                    ];
+                    let inner = ColumnarBuilder::new().aligned_group(decomp);
+                    builder = builder.nested("", inner);
+                }
+            }
+        }
     }
 
     // Resource mode from daemon (only via gRPC)
@@ -206,6 +242,56 @@ fn format_health(level: HealthLevel) -> String {
         HealthLevel::Degraded => "degraded".yellow().to_string(),
         HealthLevel::Unhealthy => "unhealthy".red().to_string(),
     }
+}
+
+/// Get per-project queue breakdown: (project_name, pending, in_progress, failed).
+fn get_per_project_queue(conn: &rusqlite::Connection) -> Vec<(String, usize, usize, usize)> {
+    let mut result: std::collections::HashMap<String, (usize, usize, usize)> =
+        std::collections::HashMap::new();
+
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT tenant_id, status, COUNT(*) FROM unified_queue \
+         WHERE status IN ('pending', 'in_progress', 'failed') \
+         GROUP BY tenant_id, status",
+    ) else {
+        return Vec::new();
+    };
+
+    let Ok(rows) = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, usize>(2)?,
+        ))
+    }) else {
+        return Vec::new();
+    };
+
+    for row in rows.flatten() {
+        let (tenant_id, status, count) = row;
+        let entry = result.entry(tenant_id).or_insert((0, 0, 0));
+        match status.as_str() {
+            "pending" => entry.0 += count,
+            "in_progress" => entry.1 += count,
+            "failed" => entry.2 += count,
+            _ => {}
+        }
+    }
+
+    let mut sorted: Vec<(String, usize, usize, usize)> = result
+        .into_iter()
+        .map(|(name, (p, i, f))| {
+            // Use last path component as display name
+            let display = name
+                .rsplit('/')
+                .find(|s| !s.is_empty())
+                .unwrap_or(&name)
+                .to_string();
+            (display, p, i, f)
+        })
+        .collect();
+    sorted.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    sorted
 }
 
 fn add_resource_mode(

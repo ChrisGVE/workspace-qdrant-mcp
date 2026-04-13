@@ -26,6 +26,10 @@ pub struct StatusArgs {
     #[command(subcommand)]
     command: Option<StatusCommand>,
 
+    /// Show detailed info: active project names, per-project queue breakdown
+    #[arg(short, long)]
+    verbose: bool,
+
     /// Show queue status
     #[arg(long)]
     queue: bool,
@@ -98,15 +102,17 @@ enum StatusCommand {
 /// Execute status command
 pub async fn execute(args: StatusArgs) -> Result<()> {
     let json = args.json;
+    let verbose = args.verbose;
 
     // Handle flags for default status
     if args.queue || args.watch || args.performance {
-        return overview::default_status(args.queue, args.watch, args.performance, json).await;
+        return overview::default_status(args.queue, args.watch, args.performance, verbose, json)
+            .await;
     }
 
     // Handle subcommands
     match args.command {
-        None => overview::default_status(false, false, false, json).await,
+        None => overview::default_status(false, false, false, verbose, json).await,
         Some(StatusCommand::History { range }) => history::history(&range).await,
         Some(StatusCommand::Queue { verbose }) => queue::queue(verbose).await,
         Some(StatusCommand::Watch) => watch::watch().await,

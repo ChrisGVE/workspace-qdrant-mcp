@@ -41,6 +41,10 @@ enum ProjectCommand {
         /// Show only active projects
         #[arg(short, long)]
         active: bool,
+
+        /// Show additional columns: ID, Languages, Chunks
+        #[arg(short, long)]
+        verbose: bool,
     },
 
     /// Show project status
@@ -162,7 +166,9 @@ enum ProjectCommand {
 /// Execute project command
 pub async fn execute(args: ProjectArgs) -> Result<()> {
     match args.command {
-        ProjectCommand::List { active } => list::list_projects(active, None).await,
+        ProjectCommand::List { active, verbose } => {
+            list::list_projects(active, verbose, None).await
+        }
         ProjectCommand::Status { project } => status::project_status(project.as_deref()).await,
         ProjectCommand::Register { path, name, yes } => {
             register::register_project(path, name, yes).await

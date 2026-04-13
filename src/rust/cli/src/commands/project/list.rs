@@ -35,15 +35,22 @@ const WIDTH_LAST_ACTIVITY: usize = 170;
 struct ProjectRowData {
     gutter: Gutter,
     name: String,
+    tenant_id: String,
     path: String,
     status: String,
     documents: String,
+    languages: String,
+    chunks: String,
     created: String,
     last_scan: String,
     last_activity: String,
 }
 
-pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) -> Result<()> {
+pub(super) async fn list_projects(
+    active_only: bool,
+    verbose: bool,
+    _priority: Option<String>,
+) -> Result<()> {
     canvas::print_title("Registered Projects");
     canvas::print_blank();
 
@@ -86,10 +93,21 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
             "Inactive".to_string()
         };
 
-        let docs = doc_counts
-            .get(&proj.tenant_id)
+        let counts = doc_counts.get(&proj.tenant_id);
+        let docs = counts
             .map(|c| format_usize(c.tracked_files, &locale))
             .unwrap_or_else(|| "0".to_string());
+        let chunks = counts
+            .map(|c| format_usize(c.chunk_count, &locale))
+            .unwrap_or_else(|| "0".to_string());
+
+        let languages = if verbose {
+            queries::get_languages(&conn, &proj.tenant_id, COLLECTION_PROJECTS)
+                .unwrap_or_default()
+                .join(", ")
+        } else {
+            String::new()
+        };
 
         let created = proj
             .created_at
@@ -112,9 +130,12 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
         rows.push(ProjectRowData {
             gutter: Gutter::None,
             name,
+            tenant_id: proj.tenant_id.clone(),
             path: home_to_tilde(&proj.path),
             status,
             documents: docs,
+            languages,
+            chunks,
             created,
             last_scan,
             last_activity,
@@ -139,6 +160,7 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
     render_project_table(
         &rows,
         width,
+        verbose,
         show_created,
         show_last_scan,
         show_last_activity,
@@ -154,6 +176,7 @@ pub(super) async fn list_projects(active_only: bool, _priority: Option<String>) 
 fn render_project_table(
     rows: &[ProjectRowData],
     width: usize,
+    verbose: bool,
     show_created: bool,
     show_last_scan: bool,
     show_last_activity: bool,
@@ -167,32 +190,65 @@ fn render_project_table(
     // Build table with dynamic columns
     let mut builder = Builder::default();
 
+    // Track which column indices are numeric for right-alignment
+    let mut numeric_cols: Vec<usize> = Vec::new();
+    let mut col_idx = 0usize;
+
     // Header row
-    let mut headers: Vec<String> = vec![
-        "Name".into(),
-        "Path".into(),
-        "Status".into(),
-        "Documents".into(),
-    ];
+    let mut headers: Vec<String> = Vec::new();
+    headers.push("Name".into());
+    col_idx += 1; // 0
+    if verbose {
+        headers.push("Id".into());
+        col_idx += 1; // 1
+    }
+    headers.push("Path".into());
+    col_idx += 1;
+    headers.push("Status".into());
+    col_idx += 1;
+    if verbose {
+        headers.push("Languages".into());
+        col_idx += 1;
+    }
+    headers.push("Documents".into());
+    numeric_cols.push(col_idx);
+    col_idx += 1;
+    if verbose {
+        headers.push("Chunks".into());
+        numeric_cols.push(col_idx);
+        col_idx += 1;
+    }
     if show_created {
         headers.push("Created".into());
+        col_idx += 1;
     }
     if show_last_scan {
         headers.push("Last Scan".into());
+        col_idx += 1;
     }
     if show_last_activity {
         headers.push("Last Activity".into());
+        col_idx += 1;
     }
+    let _ = col_idx;
     builder.push_record(headers);
 
     // Data rows
     for row in rows {
-        let mut record: Vec<String> = vec![
-            row.name.clone(),
-            row.path.clone(),
-            row.status.clone(),
-            row.documents.clone(),
-        ];
+        let mut record: Vec<String> = Vec::new();
+        record.push(row.name.clone());
+        if verbose {
+            record.push(row.tenant_id.clone());
+        }
+        record.push(row.path.clone());
+        record.push(row.status.clone());
+        if verbose {
+            record.push(row.languages.clone());
+        }
+        record.push(row.documents.clone());
+        if verbose {
+            record.push(row.chunks.clone());
+        }
         if show_created {
             record.push(row.created.clone());
         }
@@ -213,8 +269,10 @@ fn render_project_table(
         .with(style)
         .with(Modify::new(Rows::first()).with(Color::BOLD));
 
-    // Right-align Documents column (index 3) and date columns
-    table.with(Modify::new(Columns::single(3)).with(Alignment::right()));
+    // Right-align numeric columns
+    for &col in &numeric_cols {
+        table.with(Modify::new(Columns::single(col)).with(Alignment::right()));
+    }
 
     // Width management: wrap then even spread
     table.with(
