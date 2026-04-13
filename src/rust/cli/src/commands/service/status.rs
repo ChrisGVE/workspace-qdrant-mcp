@@ -1,9 +1,15 @@
 //! Service status subcommand
+//!
+//! Columnar template per cli-feedback.md.
 
 use anyhow::Result;
+use colored::Colorize;
 use serde::Serialize;
 
 use crate::grpc::client::DaemonClient;
+use crate::output::canvas;
+use crate::output::columnar::ColumnarBuilder;
+use crate::output::gutter::Gutter;
 use crate::output::{self, ServiceStatus};
 
 /// JSON-serializable service status
@@ -34,12 +40,28 @@ fn status_name(s: ServiceStatus) -> &'static str {
     }
 }
 
+fn format_status(status: ServiceStatus) -> String {
+    match status {
+        ServiceStatus::Healthy | ServiceStatus::Active => status_name(status).green().to_string(),
+        ServiceStatus::Degraded => status_name(status).yellow().to_string(),
+        ServiceStatus::Unhealthy => status_name(status).red().to_string(),
+        ServiceStatus::Inactive | ServiceStatus::Unknown => {
+            status_name(status).dimmed().to_string()
+        }
+    }
+}
+
+fn status_gutter(status: ServiceStatus) -> Gutter {
+    match status {
+        ServiceStatus::Healthy | ServiceStatus::Active => Gutter::Sync,
+        ServiceStatus::Degraded => Gutter::Warning,
+        ServiceStatus::Unhealthy => Gutter::Error,
+        _ => Gutter::None,
+    }
+}
+
 /// Display or serialize the health response when connected to the daemon.
 async fn handle_connected(mut client: crate::grpc::client::DaemonClient, json: bool) -> Result<()> {
-    if !json {
-        output::status_line("Connection", ServiceStatus::Healthy);
-    }
-
     match client.system().health(()).await {
         Ok(response) => {
             let health = response.into_inner();
@@ -65,17 +87,33 @@ async fn handle_connected(mut client: crate::grpc::client::DaemonClient, json: b
                     components,
                 });
             } else {
-                output::status_line("Health", overall);
+                let overall_gutter = status_gutter(overall);
+                let mut builder = ColumnarBuilder::new()
+                    .kv_gutter(
+                        "Connection",
+                        format_status(ServiceStatus::Healthy),
+                        Gutter::Sync,
+                    )
+                    .kv_gutter("Health", format_status(overall), overall_gutter);
+
                 if !health.components.is_empty() {
-                    output::separator();
-                    for comp in health.components {
+                    builder = builder.section(Some("Components"));
+                    for comp in &health.components {
                         let comp_status = ServiceStatus::from_proto(comp.status);
-                        output::status_line(&comp.component_name, comp_status);
+                        let gutter = status_gutter(comp_status);
+                        builder = builder.kv_gutter(
+                            &comp.component_name,
+                            format_status(comp_status),
+                            gutter,
+                        );
                         if !comp.message.is_empty() {
-                            output::kv("  Message", &comp.message);
+                            builder =
+                                builder.raw(&format!("  {}", comp.message.dimmed()), Gutter::None);
                         }
                     }
                 }
+
+                builder.render();
             }
         }
         Err(e) => {
@@ -86,7 +124,14 @@ async fn handle_connected(mut client: crate::grpc::client::DaemonClient, json: b
                     components: Vec::new(),
                 });
             } else {
-                output::status_line("Health", ServiceStatus::Unknown);
+                ColumnarBuilder::new()
+                    .kv_gutter(
+                        "Connection",
+                        format_status(ServiceStatus::Healthy),
+                        Gutter::Sync,
+                    )
+                    .kv("Health", format_status(ServiceStatus::Unknown))
+                    .render();
                 output::warning(format!("Could not get health: {}", e));
             }
         }
@@ -97,7 +142,8 @@ async fn handle_connected(mut client: crate::grpc::client::DaemonClient, json: b
 /// Show daemon status, optionally as JSON
 pub async fn execute(json: bool) -> Result<()> {
     if !json {
-        output::section("Daemon Status");
+        canvas::print_title("Daemon Status");
+        canvas::print_blank();
     }
 
     match DaemonClient::connect_default().await {
@@ -112,7 +158,13 @@ pub async fn execute(json: bool) -> Result<()> {
                     components: Vec::new(),
                 });
             } else {
-                output::status_line("Connection", ServiceStatus::Unhealthy);
+                ColumnarBuilder::new()
+                    .kv_gutter(
+                        "Connection",
+                        format_status(ServiceStatus::Unhealthy),
+                        Gutter::Error,
+                    )
+                    .render();
                 output::error("Daemon not running or not reachable");
                 output::info("Start with: wqm service start");
             }
