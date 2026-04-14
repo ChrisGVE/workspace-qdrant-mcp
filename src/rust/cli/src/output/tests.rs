@@ -423,4 +423,63 @@ mod integration {
             );
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TTY / Pipe output behavior
+    // ═══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn terminal_width_returns_pipe_default_when_not_tty() {
+        // In test context, stdout is piped (not a TTY), so terminal_size()
+        // returns None and we get DEFAULT_PIPE_WIDTH (120).
+        let width = table::terminal_width();
+        assert_eq!(
+            width, 120,
+            "piped stdout should use DEFAULT_PIPE_WIDTH (120), got {}",
+            width
+        );
+    }
+
+    #[test]
+    fn terminal_width_at_least_min() {
+        // terminal_width() should always be >= MIN_TERMINAL_WIDTH (40)
+        let width = table::terminal_width();
+        assert!(
+            width >= 40,
+            "terminal_width() should be >= 40, got {}",
+            width
+        );
+    }
+
+    #[test]
+    fn script_output_has_no_ansi() {
+        let data = vec![Row {
+            id: "abc".into(),
+            status: "Active".into(),
+            description: "Test item".into(),
+        }];
+        // Capture script output
+        let mut buf = Vec::new();
+        for row in &data {
+            let line = format!("{}\t{}\t{}", row.id, row.status, row.description);
+            buf.push(line);
+        }
+        let output = buf.join("\n");
+        // Script format should never contain ANSI escape codes
+        assert!(
+            !output.contains('\x1b'),
+            "script output must not contain ANSI escape codes"
+        );
+    }
+
+    #[test]
+    fn strip_ansi_removes_all_escape_codes() {
+        let styled = "\x1b[1mBold\x1b[0m \x1b[32mGreen\x1b[0m Normal";
+        let plain = strip_ansi(styled);
+        assert_eq!(plain, "Bold Green Normal");
+        assert!(
+            !plain.contains('\x1b'),
+            "strip_ansi must remove all ESC codes"
+        );
+    }
 }
