@@ -16,6 +16,8 @@ mod idle_history;
 mod metrics;
 mod metrics_setup;
 mod perf;
+mod perf_data;
+mod perf_queries;
 mod prune_logs;
 mod rebalance_idf;
 mod rename_tenant;
