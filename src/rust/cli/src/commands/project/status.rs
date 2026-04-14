@@ -16,6 +16,24 @@ use crate::output::{self, canvas, ServiceStatus};
 
 use super::resolver::resolve_project_id_or_cwd_quiet;
 
+/// Get the current git branch for a path, if available.
+fn current_git_branch(path: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["-C", path, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() || branch == "HEAD" {
+            None
+        } else {
+            Some(branch)
+        }
+    } else {
+        None
+    }
+}
+
 pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
     let (project_id, auto_detected) = resolve_project_id_or_cwd_quiet(project)?;
     let locale = NumberLocale::default();
@@ -63,6 +81,10 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
 
                         if let Some(remote) = &status.git_remote {
                             builder = builder.kv("Git Remote", remote);
+                        }
+
+                        if let Some(branch) = current_git_branch(&status.project_root) {
+                            builder = builder.kv("Active Branch", branch);
                         }
 
                         if status.is_worktree {
