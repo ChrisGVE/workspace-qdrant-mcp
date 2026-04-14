@@ -627,4 +627,126 @@ mod tests {
         assert_eq!(libs[0].document_count, 2);
         assert_eq!(libs[0].mode, "sync");
     }
+
+    #[test]
+    fn total_document_count() {
+        let conn = setup_test_db();
+        conn.execute_batch(
+            "INSERT INTO watch_folders (watch_id, tenant_id, path, collection)
+             VALUES ('w1', 't1', '/proj1', 'projects');
+             INSERT INTO tracked_files (file_id, watch_folder_id, chunk_count)
+             VALUES (1, 'w1', 10);
+             INSERT INTO tracked_files (file_id, watch_folder_id, chunk_count)
+             VALUES (2, 'w1', 20);",
+        )
+        .unwrap();
+        // get_total_document_count counts tracked files, not chunks
+        assert_eq!(get_total_document_count(&conn, "projects").unwrap(), 2);
+    }
+
+    #[test]
+    fn total_document_count_empty() {
+        let conn = setup_test_db();
+        assert_eq!(get_total_document_count(&conn, "projects").unwrap(), 0);
+    }
+
+    #[test]
+    fn all_document_counts() {
+        let conn = setup_test_db();
+        conn.execute_batch(
+            "INSERT INTO watch_folders (watch_id, tenant_id, path, collection)
+             VALUES ('w1', 't1', '/proj1', 'projects');
+             INSERT INTO watch_folders (watch_id, tenant_id, path, collection)
+             VALUES ('w2', 't2', '/proj2', 'projects');
+             INSERT INTO tracked_files (file_id, watch_folder_id, chunk_count)
+             VALUES (1, 'w1', 5);
+             INSERT INTO tracked_files (file_id, watch_folder_id, chunk_count)
+             VALUES (2, 'w1', 3);
+             INSERT INTO tracked_files (file_id, watch_folder_id, chunk_count)
+             VALUES (3, 'w2', 7);",
+        )
+        .unwrap();
+        let counts = get_all_document_counts(&conn, "projects").unwrap();
+        assert_eq!(counts.len(), 2);
+        let t1 = counts.get("t1").unwrap();
+        assert_eq!(t1.chunk_count, 8);
+        assert_eq!(t1.tracked_files, 2);
+        let t2 = counts.get("t2").unwrap();
+        assert_eq!(t2.chunk_count, 7);
+        assert_eq!(t2.tracked_files, 1);
+    }
+
+    #[test]
+    fn active_collection_count() {
+        let conn = setup_test_db();
+        conn.execute_batch(
+            "INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active)
+             VALUES ('w1', 't1', '/proj1', 'projects', 1);
+             INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active)
+             VALUES ('w2', 't2', '/proj2', 'projects', 1);
+             INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active)
+             VALUES ('lib1', 'lib-docs', '/docs', 'libraries', 1);
+             INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active)
+             VALUES ('lib2', 'lib-api', '/api', 'libraries', 0);",
+        )
+        .unwrap();
+        // COUNT(DISTINCT collection): 'projects' and 'libraries' = 2
+        assert_eq!(get_active_collection_count(&conn).unwrap(), 2);
+    }
+
+    #[test]
+    fn projects_with_null_fields() {
+        let conn = setup_test_db();
+        conn.execute_batch(
+            "INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active, last_activity_at, created_at)
+             VALUES ('w1', 't1', '/proj1', 'projects', 1, NULL, NULL);",
+        )
+        .unwrap();
+        let projects = get_projects(&conn).unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].tenant_id, "t1");
+        assert!(projects[0].created_at.is_none());
+        assert!(projects[0].last_activity_at.is_none());
+    }
+
+    #[test]
+    fn queue_stats_all_tracked_statuses() {
+        let conn = setup_test_db();
+        conn.execute_batch(
+            "INSERT INTO unified_queue (queue_id, status) VALUES ('q1', 'pending');
+             INSERT INTO unified_queue (queue_id, status) VALUES ('q2', 'in_progress');
+             INSERT INTO unified_queue (queue_id, status) VALUES ('q3', 'done');
+             INSERT INTO unified_queue (queue_id, status) VALUES ('q4', 'failed');",
+        )
+        .unwrap();
+        let stats = get_queue_stats(&conn).unwrap();
+        assert_eq!(stats.pending, 1);
+        assert_eq!(stats.in_progress, 1);
+        assert_eq!(stats.done, 1);
+        assert_eq!(stats.failed, 1);
+        assert_eq!(stats.total(), 4);
+    }
+
+    #[test]
+    fn queue_health_levels() {
+        // Empty queue → healthy
+        let empty = QueueStats::default();
+        assert_eq!(empty.health(), HealthLevel::Healthy);
+
+        // Failed items with low ratio → degraded (1/100 = 1% < 10%)
+        let degraded = QueueStats {
+            pending: 99,
+            failed: 1,
+            ..Default::default()
+        };
+        assert_eq!(degraded.health(), HealthLevel::Degraded);
+
+        // High fail ratio (>10%) → unhealthy
+        let unhealthy = QueueStats {
+            pending: 1,
+            failed: 5,
+            ..Default::default()
+        };
+        assert_eq!(unhealthy.health(), HealthLevel::Unhealthy);
+    }
 }
