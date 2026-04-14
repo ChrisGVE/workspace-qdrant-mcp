@@ -160,9 +160,11 @@ enum LibraryCommand {
     },
 
     /// Show watch status for all libraries
+    #[command(hide = true)]
     Status,
 
     /// Rescan and re-ingest a library
+    #[command(hide = true)]
     Rescan {
         /// Library tag to rescan
         tag: String,
@@ -173,6 +175,7 @@ enum LibraryCommand {
     },
 
     /// Configure library settings
+    #[command(hide = true)]
     Config {
         /// Library tag to configure
         tag: String,
