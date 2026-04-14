@@ -8,6 +8,12 @@ use crate::output;
 
 use super::resolver::resolve_project_id_or_cwd;
 
+/// Check if a directory is a git worktree (`.git` is a file, not a directory).
+fn is_git_worktree(path: &std::path::Path) -> bool {
+    let git_path = path.join(".git");
+    git_path.is_file()
+}
+
 pub(super) async fn delete_project(
     project: Option<&str>,
     yes: bool,
@@ -16,6 +22,20 @@ pub(super) async fn delete_project(
     let project_id = resolve_project_id_or_cwd(project)?;
 
     output::section("Delete Project");
+
+    // Warn if running from a worktree when no explicit project was given
+    if project.is_none() {
+        if let Ok(cwd) = std::env::current_dir() {
+            if is_git_worktree(&cwd) {
+                output::warning(format!(
+                    "You are in a worktree at {}",
+                    crate::output::style::home_to_tilde(&cwd.display().to_string()),
+                ));
+                output::warning("This will delete the main project and all associated data.");
+            }
+        }
+    }
+
     output::kv("Project ID", &project_id);
     output::kv(
         "Delete Qdrant data",
