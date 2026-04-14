@@ -1,10 +1,13 @@
 //! Messages and errors subcommands.
+//!
+//! Columnar template per cli-feedback.md.
 
 use anyhow::Result;
 use clap::Subcommand;
 
 use crate::grpc::client::DaemonClient;
-use crate::output;
+use crate::output::canvas;
+use crate::output::columnar::ColumnarBuilder;
 
 /// Message subcommands
 #[derive(Subcommand)]
@@ -19,15 +22,25 @@ pub enum MessageAction {
 pub async fn messages(action: Option<MessageAction>) -> Result<()> {
     match action {
         None | Some(MessageAction::List) => {
-            output::section("System Messages");
-            output::info("System messages available in daemon logs:");
-            output::info("  macOS: /tmp/memexd.out.log, /tmp/memexd.err.log");
-            output::info("  Linux: journalctl --user -u memexd");
-            output::separator();
-            output::info("Use 'wqm service logs' to view recent messages");
+            canvas::print_title("System Messages");
+            canvas::print_blank();
+
+            ColumnarBuilder::new()
+                .kv(
+                    "Log Location (macOS)",
+                    "/tmp/memexd.out.log, /tmp/memexd.err.log",
+                )
+                .kv("Log Location (Linux)", "journalctl --user -u memexd")
+                .kv("View Recent", "wqm service logs")
+                .render();
         }
         Some(MessageAction::Clear) => {
-            output::info("Message clearing not supported - logs are managed by the system");
+            canvas::print_title("Clear Messages");
+            canvas::print_blank();
+
+            ColumnarBuilder::new()
+                .kv("Status", "not supported — logs are managed by the system")
+                .render();
         }
     }
     Ok(())
@@ -35,28 +48,48 @@ pub async fn messages(action: Option<MessageAction>) -> Result<()> {
 
 /// Show recent error metrics from the daemon.
 pub async fn errors(limit: usize) -> Result<()> {
-    output::section(format!("Recent Errors (last {})", limit));
+    let error_metrics = fetch_error_metrics().await;
 
-    output::info("Error tracking available via daemon logs:");
-    output::info(format!("  Use: wqm service logs -n {}", limit));
-    output::info("  Or: grep -i error /tmp/memexd.err.log | tail -n {}");
+    canvas::print_title(&format!("Recent Errors (Last {})", limit));
+    canvas::print_blank();
 
-    match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            if let Ok(response) = client.system().get_metrics(()).await {
-                let metrics_resp = response.into_inner();
+    let mut builder = ColumnarBuilder::new()
+        .kv("View Errors", format!("wqm service logs -n {}", limit))
+        .kv(
+            "Grep Errors",
+            format!("grep -i error /tmp/memexd.err.log | tail -n {}", limit),
+        );
 
-                for metric in &metrics_resp.metrics {
-                    if metric.name.contains("error") || metric.name.contains("failed") {
-                        output::kv(&metric.name, format!("{:.0}", metric.value));
-                    }
-                }
+    if let Some(metrics) = error_metrics {
+        if !metrics.is_empty() {
+            builder = builder.section(Some("Error Metrics"));
+            for (name, value) in &metrics {
+                builder = builder.kv(name, format!("{:.0}", value));
             }
-        }
-        Err(_) => {
-            output::warning("Cannot connect to daemon for error metrics");
         }
     }
 
+    builder.render();
+
     Ok(())
+}
+
+/// Fetch error-related metrics from daemon, returning None if unreachable.
+async fn fetch_error_metrics() -> Option<Vec<(String, f64)>> {
+    let mut client = DaemonClient::connect_default().await.ok()?;
+    let response = client.system().get_metrics(()).await.ok()?;
+    let metrics_resp = response.into_inner();
+
+    let error_metrics: Vec<(String, f64)> = metrics_resp
+        .metrics
+        .iter()
+        .filter(|m| m.name.contains("error") || m.name.contains("failed"))
+        .map(|m| (m.name.clone(), m.value))
+        .collect();
+
+    if error_metrics.is_empty() {
+        None
+    } else {
+        Some(error_metrics)
+    }
 }

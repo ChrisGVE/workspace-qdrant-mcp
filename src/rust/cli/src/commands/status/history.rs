@@ -1,16 +1,18 @@
 //! Metrics history subcommand.
+//!
+//! Columnar template per cli-feedback.md.
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use wqm_common::timestamps;
 
 use crate::config::get_database_path_checked;
-use crate::output;
+use crate::output::canvas;
+use crate::output::columnar::ColumnarBuilder;
+use crate::output::number::{format_float, NumberLocale};
 
 /// Show historical metrics for the given time range.
 pub async fn history(range: &str) -> Result<()> {
-    output::section(format!("Metrics History ({})", range));
-
     let seconds = parse_range_to_seconds(range);
     let conn = connect_history_readonly()?;
 
@@ -23,47 +25,92 @@ pub async fn history(range: &str) -> Result<()> {
         .unwrap_or(false);
 
     if !table_exists {
-        output::warning("Metrics history table not found. Daemon needs to run with schema v5+.");
-        output::info("Start the daemon to enable metrics collection.");
+        canvas::print_title(&format!("Metrics History ({})", range));
+        canvas::print_blank();
+
+        ColumnarBuilder::new()
+            .kv("Status", "metrics history table not found")
+            .kv("Required", "daemon with schema v5+")
+            .render();
         return Ok(());
     }
 
     let cutoff = chrono::Utc::now() - chrono::Duration::seconds(seconds);
     let cutoff_str = timestamps::format_utc(&cutoff);
 
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT metric_name FROM metrics_history \
-         WHERE timestamp >= ?1 AND aggregation_period = 'raw' \
-         ORDER BY metric_name",
-    )?;
+    let metric_summaries = query_metric_summaries(&conn, &cutoff_str)?;
 
-    let metric_names: Vec<String> = stmt
-        .query_map([&cutoff_str], |row| row.get(0))?
-        .filter_map(|r| r.ok())
-        .collect();
+    canvas::print_title(&format!("Metrics History ({})", range));
+    canvas::print_blank();
 
-    if metric_names.is_empty() {
-        output::info("No historical metrics found in the requested time range.");
-        output::info("The daemon collects metrics every 60 seconds.");
+    if metric_summaries.is_empty() {
+        ColumnarBuilder::new()
+            .kv("Status", "no metrics in requested time range")
+            .kv("Note", "daemon collects metrics every 60 seconds")
+            .render();
         return Ok(());
     }
 
-    for name in &metric_names {
-        print_metric_summary(&conn, name, &cutoff_str);
+    let locale = NumberLocale::default();
+    let mut builder = ColumnarBuilder::new();
+
+    for summary in &metric_summaries {
+        builder = builder
+            .section(Some(&summary.name))
+            .kv("Latest", format_float(summary.latest, 1, &locale))
+            .kv("Average", format_float(summary.avg, 1, &locale))
+            .kv("Min", format_float(summary.min, 1, &locale))
+            .kv("Max", format_float(summary.max, 1, &locale))
+            .kv("Samples", summary.count.to_string());
     }
 
-    output::separator();
-    output::info(format!(
+    builder.render();
+
+    canvas::print_footnote(&format!(
         "{} metrics tracked over {}",
-        metric_names.len(),
+        metric_summaries.len(),
         range
     ));
 
     Ok(())
 }
 
-fn print_metric_summary(conn: &Connection, name: &str, cutoff_str: &str) {
-    let stats: Result<(f64, f64, f64, i64, f64), _> = conn.query_row(
+struct MetricSummary {
+    name: String,
+    avg: f64,
+    min: f64,
+    max: f64,
+    count: i64,
+    latest: f64,
+}
+
+fn query_metric_summaries(conn: &Connection, cutoff_str: &str) -> Result<Vec<MetricSummary>> {
+    let mut name_stmt = conn.prepare(
+        "SELECT DISTINCT metric_name FROM metrics_history \
+         WHERE timestamp >= ?1 AND aggregation_period = 'raw' \
+         ORDER BY metric_name",
+    )?;
+
+    let metric_names: Vec<String> = name_stmt
+        .query_map([cutoff_str], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut summaries = Vec::new();
+    for name in &metric_names {
+        if let Ok(s) = query_single_metric(conn, name, cutoff_str) {
+            summaries.push(s);
+        }
+    }
+    Ok(summaries)
+}
+
+fn query_single_metric(
+    conn: &Connection,
+    name: &str,
+    cutoff_str: &str,
+) -> Result<MetricSummary, rusqlite::Error> {
+    conn.query_row(
         "SELECT AVG(metric_value), MIN(metric_value), MAX(metric_value), \
          COUNT(*), \
          (SELECT metric_value FROM metrics_history \
@@ -73,30 +120,16 @@ fn print_metric_summary(conn: &Connection, name: &str, cutoff_str: &str) {
          WHERE metric_name = ?1 AND timestamp >= ?2 AND aggregation_period = 'raw'",
         rusqlite::params![name, cutoff_str],
         |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-            ))
+            Ok(MetricSummary {
+                name: name.to_string(),
+                avg: row.get(0)?,
+                min: row.get(1)?,
+                max: row.get(2)?,
+                count: row.get(3)?,
+                latest: row.get(4)?,
+            })
         },
-    );
-
-    match stats {
-        Ok((avg, min, max, count, latest)) => {
-            output::kv(
-                name,
-                format!(
-                    "latest={:.1}  avg={:.1}  min={:.1}  max={:.1}  ({} samples)",
-                    latest, avg, min, max, count
-                ),
-            );
-        }
-        Err(_) => {
-            output::kv(name, "no data");
-        }
-    }
+    )
 }
 
 /// Parse range string (1h, 24h, 7d, 30d) to seconds.
@@ -170,7 +203,6 @@ mod tests {
 
     #[test]
     fn test_parse_range_invalid_number_with_valid_suffix() {
-        // "abch" -> strip_suffix('h') = "abc", parse fails -> unwrap_or(1) = 1 * 3600
         assert_eq!(parse_range_to_seconds("abch"), 3600);
     }
 }
