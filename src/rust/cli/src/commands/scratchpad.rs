@@ -22,7 +22,48 @@ pub struct ScratchArgs {
 /// Scratchpad subcommands
 #[derive(Subcommand)]
 enum ScratchCommand {
-    /// Add a scratchpad entry
+    /// Search scratchpad entries (semantic)
+    #[command(
+        long_about = "Perform semantic search across scratchpad entries using vector embeddings. \
+            Returns entries ranked by relevance to the query. Optionally filter to a \
+            specific project.",
+        after_long_help = "Examples:\n  \
+            wqm scratchpad search 'architecture decisions'   Semantic search\n  \
+            wqm scratchpad search 'auth flow' --project .    Filter to current project\n  \
+            wqm scratchpad search 'design' -n 5              Limit to 5 results"
+    )]
+    Search {
+        /// Search query
+        query: String,
+
+        /// Filter to a specific project
+        #[arg(short, long)]
+        project: Option<String>,
+
+        /// Maximum results
+        #[arg(short = 'n', long, default_value = "10")]
+        limit: usize,
+    },
+
+    /// Show detailed information about a scratchpad entry
+    #[command(
+        long_about = "Display full details for a scratchpad entry, including title, content, \
+            tags, tenant, and creation time. Searches by title substring.",
+        after_long_help = "Examples:\n  \
+            wqm scratchpad info 'auth design'           Look up by title\n  \
+            wqm scratchpad info 'auth design' --json    Output as JSON"
+    )]
+    Info {
+        /// Entry title or substring to search for
+        identifier: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Add a scratchpad entry (use MCP for programmatic access)
+    #[command(hide = true)]
     Add {
         /// Content text
         content: String,
@@ -41,6 +82,16 @@ enum ScratchCommand {
     },
 
     /// List scratchpad entries
+    #[command(
+        long_about = "Display all scratchpad entries, optionally filtered by project. Shows \
+            title, tenant, tags, and creation time. Use --verbose for full content.",
+        after_long_help = "Examples:\n  \
+            wqm scratchpad list                         List all entries\n  \
+            wqm scratchpad list --project .             Filter to current project\n  \
+            wqm scratchpad list --verbose               Show full content\n  \
+            wqm scratchpad list --format json           Output as JSON\n  \
+            wqm scratchpad list --script --no-headers   Machine-readable output"
+    )]
     List {
         /// Project ID or path (defaults to showing all)
         #[arg(short, long)]
@@ -71,6 +122,12 @@ enum ScratchCommand {
 /// Execute scratchpad command
 pub async fn execute(args: ScratchArgs) -> Result<()> {
     match args.command {
+        ScratchCommand::Search {
+            query,
+            project,
+            limit,
+        } => search_entries(&query, project, limit).await,
+        ScratchCommand::Info { identifier, json } => scratchpad_info(&identifier, json).await,
         ScratchCommand::Add {
             content,
             title,
@@ -157,6 +214,217 @@ async fn add_entry(
     if !response.is_new {
         output::warning("Duplicate entry (already queued)");
     }
+
+    Ok(())
+}
+
+// ─── Info implementation ──────────────────────────────────────────────────
+
+async fn scratchpad_info(identifier: &str, json: bool) -> Result<()> {
+    let client = build_qdrant_client()?;
+    let collection = wqm_common::constants::COLLECTION_SCRATCHPAD;
+    let url = format!("{}/collections/{}/points/scroll", qdrant_url(), collection);
+
+    // Search by title substring
+    let body = serde_json::json!({
+        "limit": 1,
+        "with_payload": true,
+        "filter": {
+            "must": [{
+                "key": "title",
+                "match": { "text": identifier }
+            }]
+        }
+    });
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .context("Failed to connect to Qdrant")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 404 {
+            output::info("Scratchpad collection does not exist yet.");
+            return Ok(());
+        }
+        anyhow::bail!("Qdrant request failed ({}): {}", status, text);
+    }
+
+    let scroll: ScrollResponse = response
+        .json()
+        .await
+        .context("Failed to parse Qdrant response")?;
+
+    if scroll.result.points.is_empty() {
+        output::warning(format!(
+            "No scratchpad entry found matching '{}'",
+            identifier
+        ));
+        return Ok(());
+    }
+
+    let payload = match &scroll.result.points[0].payload {
+        Some(p) => p,
+        None => {
+            output::error("Entry has no payload data");
+            return Ok(());
+        }
+    };
+
+    if json {
+        let entry = ScratchJson {
+            title: payload_str(payload, "title"),
+            content: payload_str(payload, "content"),
+            tenant_id: payload_str(payload, "tenant_id"),
+            tags: payload_tags(payload),
+            source_type: payload_str(payload, "source_type"),
+            created_at: payload_str(payload, "created_at"),
+        };
+        output::print_json(&entry);
+        return Ok(());
+    }
+
+    let project_names = crate::commands::tenant::load_project_names();
+    let title = payload_str(payload, "title");
+
+    output::section(format!(
+        "Scratchpad: {}",
+        if title.is_empty() {
+            "(untitled)"
+        } else {
+            &title
+        }
+    ));
+    output::kv("Title", if title.is_empty() { "-" } else { &title });
+    output::kv(
+        "Tenant",
+        crate::commands::tenant::resolve_tenant_name(
+            &payload_str(payload, "tenant_id"),
+            &project_names,
+        ),
+    );
+
+    let tags = payload_tags(payload);
+    if !tags.is_empty() {
+        output::kv("Tags", tags.join(", "));
+    }
+
+    output::kv(
+        "Created",
+        wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
+    );
+    output::separator();
+    output::section("Content");
+    println!("{}", payload_str(payload, "content"));
+
+    Ok(())
+}
+
+// ─── Search implementation ────────────────────────────────────────────────
+
+async fn search_entries(query: &str, project: Option<String>, limit: usize) -> Result<()> {
+    use crate::grpc::proto::EmbedTextRequest;
+
+    let project_names = crate::commands::tenant::load_project_names();
+    let mut daemon = crate::grpc::ensure_daemon_available().await?;
+
+    let embed_response = daemon
+        .embedding()
+        .embed_text(EmbedTextRequest {
+            text: query.to_string(),
+            model: None,
+        })
+        .await
+        .context("Failed to generate query embedding")?
+        .into_inner();
+
+    if !embed_response.success {
+        anyhow::bail!(
+            "Embedding generation failed: {}",
+            embed_response.error_message
+        );
+    }
+
+    let client = build_qdrant_client()?;
+    let collection = wqm_common::constants::COLLECTION_SCRATCHPAD;
+    let url = format!("{}/collections/{}/points/search", qdrant_url(), collection);
+
+    let mut body = serde_json::json!({
+        "vector": embed_response.embedding,
+        "limit": limit,
+        "with_payload": true,
+    });
+
+    if let Some(ref proj) = project {
+        let tenant_id = resolve_tenant_id(Some(proj))?;
+        body["filter"] = serde_json::json!({
+            "must": [{ "key": "tenant_id", "match": { "value": tenant_id } }]
+        });
+    }
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .context("Failed to search Qdrant")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 404 {
+            output::info("Scratchpad collection does not exist yet.");
+            return Ok(());
+        }
+        anyhow::bail!("Qdrant search failed ({}): {}", status, text);
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .context("Failed to parse search response")?;
+
+    let points = json["result"]
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or(&[]);
+
+    if points.is_empty() {
+        output::info("No matching scratchpad entries found.");
+        return Ok(());
+    }
+
+    output::section("Scratchpad Search Results");
+    output::kv("Query", query);
+    if let Some(p) = &project {
+        output::kv("Project", p);
+    }
+    output::separator();
+
+    let rows: Vec<ScratchRow> = points
+        .iter()
+        .filter_map(|p| p.get("payload"))
+        .map(|payload| ScratchRow {
+            title: payload_str(payload, "title"),
+            tenant_id: crate::commands::tenant::resolve_tenant_name(
+                &payload_str(payload, "tenant_id"),
+                &project_names,
+            ),
+            tags: payload_tags(payload).join(", "),
+            created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
+                payload,
+                "created_at",
+            )),
+        })
+        .collect();
+
+    let count = rows.len();
+    output::print_table_auto(&rows);
+    output::summary(output::summary_line(count, count, "results"));
 
     Ok(())
 }
@@ -353,13 +621,17 @@ async fn fetch_scroll_points(
 }
 
 fn print_json_entries(points: &[QdrantPoint]) {
+    let project_names = crate::commands::tenant::load_project_names();
     let entries: Vec<ScratchJson> = points
         .iter()
         .filter_map(|p| p.payload.as_ref())
         .map(|payload| ScratchJson {
             title: payload_str(payload, "title"),
             content: payload_str(payload, "content"),
-            tenant_id: payload_str(payload, "tenant_id"),
+            tenant_id: crate::commands::tenant::resolve_tenant_name(
+                &payload_str(payload, "tenant_id"),
+                &project_names,
+            ),
             tags: payload_tags(payload),
             source_type: payload_str(payload, "source_type"),
             created_at: payload_str(payload, "created_at"),
@@ -369,13 +641,17 @@ fn print_json_entries(points: &[QdrantPoint]) {
 }
 
 fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool) {
+    let project_names = crate::commands::tenant::load_project_names();
     if verbose {
         let rows: Vec<ScratchRowVerbose> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRowVerbose {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(","),
                 content: payload_str(payload, "content"),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
@@ -391,7 +667,10 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRow {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(","),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
                     payload,
@@ -404,6 +683,7 @@ fn print_script_entries(points: &[QdrantPoint], verbose: bool, no_headers: bool)
 }
 
 fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: bool) {
+    let project_names = crate::commands::tenant::load_project_names();
     output::section("Scratchpad Entries");
     if let Some(p) = project {
         output::kv("Filter", p);
@@ -418,7 +698,10 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRowVerbose {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(", "),
                 content: payload_str(payload, "content"),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
@@ -434,7 +717,10 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| ScratchRow {
                 title: payload_str(payload, "title"),
-                tenant_id: payload_str(payload, "tenant_id"),
+                tenant_id: crate::commands::tenant::resolve_tenant_name(
+                    &payload_str(payload, "tenant_id"),
+                    &project_names,
+                ),
                 tags: payload_tags(payload).join(", "),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
                     payload,

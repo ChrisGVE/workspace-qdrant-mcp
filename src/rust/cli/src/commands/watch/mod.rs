@@ -62,13 +62,15 @@ enum WatchCommand {
         show_archived: bool,
     },
 
-    /// Enable a watch configuration
+    /// Enable a watch configuration (internal)
+    #[command(hide = true)]
     Enable {
         /// Watch ID to enable
         watch_id: String,
     },
 
-    /// Disable a watch configuration
+    /// Disable a watch configuration (internal)
+    #[command(hide = true)]
     Disable {
         /// Watch ID to disable
         watch_id: String,
@@ -84,23 +86,26 @@ enum WatchCommand {
         json: bool,
     },
 
-    /// Archive a watch folder (stops watching/ingesting, data remains
-    /// searchable)
+    /// Archive a watch folder (internal)
+    #[command(hide = true)]
     Archive {
         /// Watch ID or path to the watch folder to archive
         watch_id: String,
     },
 
-    /// Unarchive a watch folder (resumes watching/ingesting)
+    /// Unarchive a watch folder (internal)
+    #[command(hide = true)]
     Unarchive {
         /// Watch ID or path to the watch folder to unarchive
         watch_id: String,
     },
 
-    /// Pause all enabled watchers (stops file event processing)
+    /// Pause all enabled watchers (internal)
+    #[command(hide = true)]
     Pause,
 
-    /// Resume all paused watchers (restarts file event processing)
+    /// Resume all paused watchers (internal)
+    #[command(hide = true)]
     Resume,
 }
 

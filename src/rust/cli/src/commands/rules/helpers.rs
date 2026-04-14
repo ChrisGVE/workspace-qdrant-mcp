@@ -4,16 +4,13 @@
 //! display row types, and payload extraction utilities.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
 use wqm_common::schema::qdrant::rules as rules_schema;
-use wqm_common::schema::sqlite::watch_folders as wf_schema;
 
-use crate::config::get_database_path_checked;
 use crate::output::ColumnHints;
 
 // ---- Qdrant REST helpers ----
@@ -70,8 +67,6 @@ pub struct RuleRow {
     pub title: String,
     #[tabled(rename = "Scope")]
     pub scope: String,
-    #[tabled(rename = "Priority")]
-    pub priority: String,
     #[tabled(rename = "Created")]
     pub created_at: String,
 }
@@ -92,8 +87,6 @@ pub struct RuleRowVerbose {
     pub title: String,
     #[tabled(rename = "Scope")]
     pub scope: String,
-    #[tabled(rename = "Priority")]
-    pub priority: String,
     #[tabled(rename = "Tags")]
     pub tags: String,
     #[tabled(rename = "Content")]
@@ -103,9 +96,9 @@ pub struct RuleRowVerbose {
 }
 
 impl ColumnHints for RuleRowVerbose {
-    // Title(1), Content(5) are content
+    // Title(1), Content(4) are content
     fn content_columns() -> &'static [usize] {
-        &[1, 5]
+        &[1, 4]
     }
 }
 
@@ -171,47 +164,9 @@ pub fn format_title_with_project(
 
 /// Build a tenant_id -> project name mapping from watch_folders.
 ///
-/// Extracts the last path component as the project name. Returns an
-/// empty map if the database is unavailable.
+/// Delegates to the shared `tenant` module.
 pub fn load_project_names() -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    let db_path = match get_database_path_checked() {
-        Ok(p) => p,
-        Err(_) => return map,
-    };
-    let conn = match rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) {
-        Ok(c) => c,
-        Err(_) => return map,
-    };
-    let _ = conn.execute_batch("PRAGMA busy_timeout=5000;");
-    let sql = format!(
-        "SELECT {}, {} FROM {} WHERE {} = 'projects'",
-        wf_schema::TENANT_ID.name,
-        wf_schema::PATH.name,
-        wf_schema::TABLE.name,
-        wf_schema::COLLECTION.name,
-    );
-    let mut stmt = match conn.prepare(&sql) {
-        Ok(s) => s,
-        Err(_) => return map,
-    };
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    });
-    if let Ok(rows) = rows {
-        for row in rows.flatten() {
-            let (tenant_id, path) = row;
-            let name = Path::new(&path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.clone());
-            map.insert(tenant_id, name);
-        }
-    }
-    map
+    crate::commands::tenant::load_project_names()
 }
 
 /// Normalize comma-separated values for table display.

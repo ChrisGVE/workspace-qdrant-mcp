@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::commands::queue::db::connect_readonly;
+use crate::data::db::connect_readonly;
 
 // Re-export draw function from the UI module.
 pub use super::dashboard_popup_ui::draw_popup;

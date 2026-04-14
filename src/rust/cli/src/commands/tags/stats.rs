@@ -4,7 +4,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 use tabled::Tabled;
 
-use super::db::{open_db, table_exists};
+use crate::data::db::{connect_readonly, table_exists};
 use crate::output;
 
 #[derive(Tabled, serde::Serialize)]
@@ -22,7 +22,7 @@ pub(super) struct StatsRow {
 }
 
 pub(super) fn show_stats(tenant_id: Option<&str>, collection: &str) -> Result<()> {
-    let conn = open_db()?;
+    let conn = connect_readonly()?;
     if !table_exists(&conn, "tags") {
         anyhow::bail!("Tags table not found. Ensure daemon schema v16+ is applied.");
     }

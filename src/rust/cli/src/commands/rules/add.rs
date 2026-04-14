@@ -27,7 +27,6 @@ pub async fn add_rule(
     content: &str,
     rule_type: &str,
     scope: &Option<String>,
-    priority: u32,
 ) -> Result<()> {
     output::section("Add Rule");
 
@@ -38,7 +37,6 @@ pub async fn add_rule(
     output::kv("Content", content);
     output::kv("Type", rule_type);
     output::kv("Scope", scope_str);
-    output::kv("Priority", priority.to_string());
     output::separator();
 
     let mut client = ensure_daemon_available().await?;
@@ -48,7 +46,7 @@ pub async fn add_rule(
     metadata.insert("label".to_string(), label.to_string());
     metadata.insert("rule_type".to_string(), rule_type.to_string());
     metadata.insert("scope".to_string(), scope_str.to_string());
-    metadata.insert("priority".to_string(), priority.to_string());
+    metadata.insert("priority".to_string(), "5".to_string());
     metadata.insert("enabled".to_string(), "true".to_string());
 
     let request = IngestTextRequest {
@@ -77,7 +75,6 @@ pub async fn add_rule(
                     rule_type,
                     scope_str,
                     &tenant_id,
-                    priority,
                 )
                 .await?;
             }
@@ -92,7 +89,6 @@ pub async fn add_rule(
                 rule_type,
                 scope_str,
                 &tenant_id,
-                priority,
             )
             .await?;
         }
@@ -112,7 +108,6 @@ async fn enqueue_rule_via_grpc(
     rule_type: &str,
     scope: &str,
     tenant_id: &str,
-    priority: u32,
 ) -> Result<()> {
     output::info("Enqueueing rule for later processing...");
 
@@ -122,7 +117,7 @@ async fn enqueue_rule_via_grpc(
         "label": label,
         "scope": scope,
         "rule_type": rule_type,
-        "priority": priority,
+        "priority": 5,
     })
     .to_string();
 

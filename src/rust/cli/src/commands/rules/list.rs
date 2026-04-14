@@ -130,9 +130,6 @@ fn print_script_output(
                 label: payload_str(payload, rules_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, true),
                 scope: payload_str(payload, rules_schema::SCOPE.name),
-                priority: payload_u32(payload, rules_schema::PRIORITY.name)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
                 tags: normalize_commas(&payload_str(payload, rules_schema::TAGS.name)),
                 content: payload_str(payload, rules_schema::CONTENT.name),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
@@ -150,9 +147,6 @@ fn print_script_output(
                 label: payload_str(payload, rules_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, false),
                 scope: payload_str(payload, rules_schema::SCOPE.name),
-                priority: payload_u32(payload, rules_schema::PRIORITY.name)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
                     payload,
                     rules_schema::CREATED_AT.name,
@@ -189,9 +183,6 @@ fn print_table_output(
                 label: payload_str(payload, rules_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, true),
                 scope: payload_str(payload, rules_schema::SCOPE.name),
-                priority: payload_u32(payload, rules_schema::PRIORITY.name)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
                 tags: normalize_commas(&payload_str(payload, rules_schema::TAGS.name)),
                 content: payload_str(payload, rules_schema::CONTENT.name),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
@@ -209,9 +200,6 @@ fn print_table_output(
                 label: payload_str(payload, rules_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, false),
                 scope: payload_str(payload, rules_schema::SCOPE.name),
-                priority: payload_u32(payload, rules_schema::PRIORITY.name)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
                 created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
                     payload,
                     rules_schema::CREATED_AT.name,

@@ -30,26 +30,6 @@ pub fn build_qdrant_http_client() -> Result<reqwest::Client> {
     builder.build().context("Failed to build HTTP client")
 }
 
-/// Open the state database in read-only mode.
-pub fn open_state_db() -> Result<rusqlite::Connection> {
-    let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    if !db_path.exists() {
-        anyhow::bail!("Database not found at {}", db_path.display());
-    }
-
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .context("Failed to open state database")?;
-
-    conn.execute_batch("PRAGMA busy_timeout=5000;")
-        .context("Failed to set busy_timeout")?;
-
-    Ok(conn)
-}
-
 /// Get the Qdrant payload field name used as tenant key for a collection.
 pub fn tenant_field_for_collection(collection: &str) -> &'static str {
     if collection == COLLECTION_LIBRARIES {

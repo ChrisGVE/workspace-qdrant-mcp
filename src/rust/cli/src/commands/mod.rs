@@ -13,7 +13,7 @@ pub mod debug;
 pub mod library;
 pub mod project;
 pub mod rules;
-pub mod scratch;
+pub mod scratchpad;
 
 // Search & Queue
 pub mod graph;
@@ -41,6 +41,7 @@ pub mod recover_state;
 
 // Shared utilities
 pub mod qdrant_helpers;
+pub mod tenant;
 
 // Diagnostics & Setup
 pub mod hooks;

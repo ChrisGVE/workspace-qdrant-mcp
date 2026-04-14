@@ -249,6 +249,9 @@ impl UnifiedQueueProcessor {
         maintenance_scheduler
             .register(Box::new(crate::idle::tasks::FilesystemReconcileTask::new()));
         maintenance_scheduler.register(Box::new(crate::idle::tasks::OrphanCleanupTask::new()));
+        maintenance_scheduler.register(Box::new(
+            crate::idle::tasks::StaleProjectDeactivationTask::new(),
+        ));
 
         info!(
             "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s, maintenance_tasks={})",

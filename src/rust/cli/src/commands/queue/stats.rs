@@ -1,4 +1,7 @@
 //! Queue stats subcommand
+//!
+//! Columnar template per cli-feedback.md. Shows queue summary,
+//! status decomposition, active resources, and oldest pending item.
 
 use std::collections::HashMap;
 
@@ -6,11 +9,15 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
+use crate::data::db::connect_readonly;
 use crate::output;
+use crate::output::canvas;
+use crate::output::columnar::ColumnarBuilder;
+use crate::output::gutter::Gutter;
+use crate::output::number::{format_usize, NumberLocale};
 use crate::output::style::short_id;
 
-use super::db::connect_readonly;
-use super::formatters::{format_status, QueueStatsSummary, StatusBreakdown};
+use super::formatters::{QueueStatsSummary, StatusBreakdown};
 
 pub async fn execute(json: bool, by_type: bool, by_op: bool, by_collection: bool) -> Result<()> {
     let conn = connect_readonly()?;
@@ -134,55 +141,62 @@ fn print_text(
     by_op: bool,
     by_collection: bool,
 ) -> Result<()> {
-    output::section("Queue Statistics");
+    let locale = NumberLocale::default();
 
-    output::kv("Total Items", summary.total_items.to_string());
-    output::separator();
+    canvas::print_title("Queue Statistics");
+    canvas::print_blank();
 
-    output::section("By Status");
-    output::kv(
-        format!("  {}", format_status("pending")),
-        summary.by_status.pending.to_string(),
-    );
-    output::kv(
-        format!("  {}", format_status("in_progress")),
-        summary.by_status.in_progress.to_string(),
-    );
-    output::kv(
-        format!("  {}", format_status("done")),
-        summary.by_status.done.to_string(),
-    );
-    output::kv(
-        format!("  {}", format_status("failed")),
-        summary.by_status.failed.to_string(),
-    );
+    let fmt_i64 = |v: i64| format_usize(v as usize, &locale);
 
-    output::separator();
-    output::kv("Active Collections", summary.active_collections.to_string());
-    output::kv("Active Projects", summary.active_projects.to_string());
+    // Build columnar display
+    let mut builder = ColumnarBuilder::new()
+        .kv("Total Items", fmt_i64(summary.total_items))
+        .section(Some("By Status"));
+
+    // Status decomposition — right-aligned values
+    {
+        let decomp: Vec<(&str, String, Gutter)> = vec![
+            ("Pending", fmt_i64(summary.by_status.pending), Gutter::Add),
+            (
+                "In Progress",
+                fmt_i64(summary.by_status.in_progress),
+                Gutter::Update,
+            ),
+            ("Done", fmt_i64(summary.by_status.done), Gutter::Sync),
+            ("Failed", fmt_i64(summary.by_status.failed), Gutter::Remove),
+        ];
+        let inner = ColumnarBuilder::new().aligned_group(decomp);
+        builder = builder.nested("", inner);
+    }
+
+    builder = builder
+        .section(Some("Active Resources"))
+        .kv("Collections", fmt_i64(summary.active_collections))
+        .kv("Projects", fmt_i64(summary.active_projects));
 
     if let Some(age) = summary.oldest_pending_age_seconds {
-        output::separator();
-        output::kv(
-            "Oldest Pending Age",
-            wqm_common::duration_fmt::format_duration(age, 0),
-        );
+        builder = builder
+            .section(Some("Oldest Pending"))
+            .kv("Age", wqm_common::duration_fmt::format_duration(age, 0));
         if let Some(ref id) = summary.oldest_pending_id {
-            output::kv("Oldest Pending ID", short_id(id));
+            builder = builder.kv("Id", short_id(id));
         }
     }
 
+    builder.render();
+
+    // Optional breakdowns
     if by_type {
-        output::separator();
-        print_breakdown(conn, "item_type", "By Item Type")?;
+        println!();
+        print_breakdown(conn, "item_type", "By Item Type", &locale)?;
     }
     if by_op {
-        output::separator();
-        print_breakdown(conn, "op", "By Operation")?;
+        println!();
+        print_breakdown(conn, "op", "By Operation", &locale)?;
     }
     if by_collection {
-        output::separator();
-        print_breakdown(conn, "collection", "By Collection")?;
+        println!();
+        print_breakdown(conn, "collection", "By Collection", &locale)?;
     }
 
     Ok(())
@@ -220,26 +234,39 @@ fn get_breakdown(conn: &Connection, column: &str) -> Result<HashMap<String, Stat
     Ok(result)
 }
 
-fn print_breakdown(conn: &Connection, column: &str, title: &str) -> Result<()> {
+fn print_breakdown(
+    conn: &Connection,
+    column: &str,
+    title: &str,
+    locale: &NumberLocale,
+) -> Result<()> {
     let breakdown = get_breakdown(conn, column)?;
 
-    output::section(title);
-    for (key, stats) in &breakdown {
+    let fmt_i64 = |v: i64| format_usize(v as usize, locale);
+
+    let mut builder = ColumnarBuilder::new();
+
+    let mut sorted_keys: Vec<&String> = breakdown.keys().collect();
+    sorted_keys.sort();
+
+    for key in sorted_keys {
+        let stats = &breakdown[key];
         let total = stats.pending + stats.in_progress + stats.done + stats.failed;
-        let detail = format!(
-            "{} ({}={}, {}={}, {}={}, {}={})",
-            total,
-            format_status("pending"),
-            stats.pending,
-            format_status("in_progress"),
-            stats.in_progress,
-            format_status("done"),
-            stats.done,
-            format_status("failed"),
-            stats.failed,
-        );
-        output::kv(format!("  {key}"), detail);
+        builder = builder.kv(key, fmt_i64(total));
+
+        let decomp: Vec<(&str, String, Gutter)> = vec![
+            ("Pending", fmt_i64(stats.pending), Gutter::Add),
+            ("In Progress", fmt_i64(stats.in_progress), Gutter::Update),
+            ("Done", fmt_i64(stats.done), Gutter::Sync),
+            ("Failed", fmt_i64(stats.failed), Gutter::Remove),
+        ];
+        let inner = ColumnarBuilder::new().aligned_group(decomp);
+        builder = builder.nested("", inner);
     }
+
+    canvas::print_title(title);
+    canvas::print_blank();
+    builder.render();
 
     Ok(())
 }

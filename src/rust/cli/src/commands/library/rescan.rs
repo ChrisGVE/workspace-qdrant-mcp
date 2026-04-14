@@ -3,7 +3,8 @@
 use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use super::helpers::{open_db, signal_daemon_ingest_queue, DEFAULT_LIBRARY_PATTERNS};
+use super::helpers::{signal_daemon_ingest_queue, DEFAULT_LIBRARY_PATTERNS};
+use crate::data::db::connect_readonly;
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::EnqueueItemRequest;
 use crate::output;
@@ -12,7 +13,7 @@ use crate::output;
 pub async fn execute(tag: &str, force: bool) -> Result<()> {
     output::section(format!("Rescan Library: {}", tag));
 
-    let conn = open_db()?;
+    let conn = connect_readonly()?;
     let watch_id = format!("lib-{}", tag);
 
     // Look up library path from watch_folders

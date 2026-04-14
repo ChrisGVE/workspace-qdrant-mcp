@@ -3,7 +3,7 @@
 //! Separated from the view module to keep both files under the 500-line limit
 //! and to allow unit-testing data logic independently from rendering.
 
-use crate::commands::queue::db::connect_readonly;
+use crate::data::db::connect_readonly;
 
 /// A single library row ready for display in the TUI list.
 #[derive(Debug, Clone)]

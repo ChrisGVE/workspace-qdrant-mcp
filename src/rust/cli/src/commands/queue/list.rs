@@ -7,12 +7,12 @@ use anyhow::Result;
 use crate::output;
 use crate::output::style::short_id;
 
-use super::db::connect_readonly;
 use super::formatters::{
     extract_object, format_relative_time, format_status, truncate_str, QueueListItem,
     QueueListItemCompact, QueueListItemCompactWithError, QueueListItemVerbose,
     QueueListItemWithError,
 };
+use crate::data::db::connect_readonly;
 
 /// Maximum character width for error messages in the table view.
 const ERROR_TRUNCATE_LEN: usize = 60;

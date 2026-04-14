@@ -6,10 +6,9 @@ use rusqlite::params;
 use crate::output;
 use crate::output::style::home_to_tilde;
 
-use super::helpers::{
-    connect_readonly, format_bool, format_bool_archived, format_bool_paused, format_relative_time,
-};
+use super::helpers::{format_bool, format_bool_archived, format_bool_paused, format_relative_time};
 use super::types::WatchDetailItem;
+use crate::data::db::connect_readonly;
 
 pub async fn show(watch_id: &str, json: bool) -> Result<()> {
     let conn = connect_readonly()?;

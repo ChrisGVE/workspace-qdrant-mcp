@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 
-use super::helpers::open_db;
+use crate::data::db::connect_readonly;
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
@@ -51,7 +51,7 @@ async fn check_daemon_health() {
 
 /// Show library watch status from SQLite
 fn show_library_status() -> Result<()> {
-    let conn = match open_db() {
+    let conn = match connect_readonly() {
         Ok(c) => c,
         Err(_) => {
             output::info("No database found. Run daemon first to initialize.");

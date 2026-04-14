@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
-use crate::commands::queue::db::connect_readonly;
+use crate::data::db::connect_readonly;
 
 use super::dashboard_data::{
     ActiveProjectRow, DashboardData, ErrorRow, LibrarySummaryRow, ProjectSummaryRow,

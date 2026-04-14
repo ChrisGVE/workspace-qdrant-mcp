@@ -19,10 +19,7 @@ use super::peakers::{
 use crate::config::OutputFormat;
 
 /// Cell padding used by tabled's default layout (1 space each side).
-const CELL_PADDING: usize = 2;
-
-/// Dim ANSI color for the header separator line.
-const DIM_COLOR: Color = Color::FG_BRIGHT_BLACK;
+pub(crate) const CELL_PADDING: usize = 2;
 
 /// Compute content-aware minimum widths for each column.
 ///
@@ -73,15 +70,24 @@ fn apply_borderless(table: &mut Table) {
     let style = Style::blank().horizontals([(1, HorizontalLine::new('─').intersection('─'))]);
     table
         .with(style)
-        .with(Modify::new(Rows::first()).with(Color::BOLD))
-        .with(Modify::new(Rows::new(1..2)).with(DIM_COLOR));
+        .with(Modify::new(Rows::first()).with(Color::BOLD));
 }
 
-/// Get the current terminal width, falling back to 120 columns
+/// Minimum terminal width to produce readable output.
+const MIN_TERMINAL_WIDTH: usize = 40;
+
+/// Default width when stdout is not a terminal (piped output).
+const DEFAULT_PIPE_WIDTH: usize = 120;
+
+/// Get the current terminal width.
+///
+/// Returns the actual terminal width when stdout is a TTY, clamped to
+/// at least `MIN_TERMINAL_WIDTH`. Falls back to `DEFAULT_PIPE_WIDTH`
+/// when stdout is piped or not a terminal.
 pub fn terminal_width() -> usize {
     terminal_size::terminal_size()
-        .map(|(w, _)| w.0 as usize)
-        .unwrap_or(120)
+        .map(|(w, _)| (w.0 as usize).max(MIN_TERMINAL_WIDTH))
+        .unwrap_or(DEFAULT_PIPE_WIDTH)
 }
 
 /// Format and print data based on output format
@@ -224,6 +230,12 @@ pub trait ColumnHints {
     /// Returns 0-based indices of content columns (variable-length text).
     /// Empty slice means all columns are categorical (no special treatment).
     fn content_columns() -> &'static [usize];
+
+    /// Returns 0-based indices of numeric columns (right-aligned).
+    /// Default: empty (all left-aligned).
+    fn numeric_columns() -> &'static [usize] {
+        &[]
+    }
 }
 
 /// Print a table with layout hints derived from the `ColumnHints` trait.

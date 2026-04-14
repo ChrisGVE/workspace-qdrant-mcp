@@ -7,8 +7,8 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
-use crate::commands::queue::db::connect_readonly;
 use crate::commands::queue::formatters::extract_object;
+use crate::data::db::connect_readonly;
 use crate::output::style::short_id;
 
 /// Maximum items to fetch per query.

@@ -1,45 +1,42 @@
 //! Watch status subcommand.
+//!
+//! Columnar template per cli-feedback.md.
 
 use anyhow::Result;
 
 use crate::grpc::client::DaemonClient;
-use crate::output;
+use crate::output::canvas;
+use crate::output::columnar::ColumnarBuilder;
 
 /// Show file watcher status.
 pub async fn watch() -> Result<()> {
-    output::section("Watch Status");
+    let active_projects = fetch_active_projects().await;
 
-    match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            match client.system().get_status(()).await {
-                Ok(response) => {
-                    let status = response.into_inner();
+    canvas::print_title("Watch Status");
+    canvas::print_blank();
 
-                    if status.active_projects.is_empty() {
-                        output::info("No active projects being watched");
-                    } else {
-                        output::info("Active Projects:");
-                        for project in &status.active_projects {
-                            println!("  \u{2022} {}", project);
-                        }
-                    }
-                }
-                Err(e) => {
-                    output::error(format!("Failed to get watch status: {}", e));
-                }
+    let builder = match active_projects {
+        Some(ref projects) if !projects.is_empty() => {
+            let mut b = ColumnarBuilder::new().kv("Active Projects", projects.len().to_string());
+            let mut nested = ColumnarBuilder::new();
+            for project in projects {
+                nested = nested.kv("", project);
             }
+            b = b.nested("", nested);
+            b
+        }
+        Some(_) => ColumnarBuilder::new().kv("Active Projects", "none"),
+        None => ColumnarBuilder::new().kv("Daemon", "not reachable"),
+    };
 
-            output::separator();
-            output::info("Watch folders configured in SQLite:");
-            output::info(
-                "  Use: sqlite3 ~/.local/share/workspace-qdrant/state.db \
-                 'SELECT watch_id, path, enabled FROM watch_folders'",
-            );
-        }
-        Err(_) => {
-            output::error("Cannot connect to daemon");
-        }
-    }
+    builder.render();
 
     Ok(())
+}
+
+/// Fetch active project names from daemon, returning None if unreachable.
+async fn fetch_active_projects() -> Option<Vec<String>> {
+    let mut client = DaemonClient::connect_default().await.ok()?;
+    let response = client.system().get_status(()).await.ok()?;
+    Some(response.into_inner().active_projects)
 }

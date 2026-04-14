@@ -5,10 +5,10 @@
 
 mod add;
 pub mod helpers;
+mod info;
 mod inject;
 mod list;
 mod remove;
-mod scope;
 mod search;
 
 use anyhow::Result;
@@ -25,6 +25,19 @@ pub struct RulesArgs {
 #[derive(Subcommand)]
 enum RulesCommand {
     /// List behavioral rules
+    #[command(
+        long_about = "Display all behavioral rules, optionally filtered by scope (global or \
+            per-project) and rule type. Rules guide AI assistant behavior and persist \
+            across sessions.",
+        after_long_help = "Examples:\n  \
+            wqm rules list                              List all rules\n  \
+            wqm rules list --global                     List global rules only\n  \
+            wqm rules list --project .                  List rules for current project\n  \
+            wqm rules list -t constraint                Filter by rule type\n  \
+            wqm rules list --verbose                    Show full rule content\n  \
+            wqm rules list --format json                Output as JSON\n  \
+            wqm rules list --script --no-headers        Machine-readable output"
+    )]
     List {
         /// Show only global rules
         #[arg(long, conflicts_with = "project")]
@@ -56,33 +69,56 @@ enum RulesCommand {
     },
 
     /// Add a new rule
+    #[command(
+        long_about = "Create a new behavioral rule with a label, content, scope, and type. \
+            Rules must be scoped to either global (all projects) or a specific project. \
+            The label serves as a unique identifier within its scope.",
+        after_long_help = "Examples:\n  \
+            wqm rules add -l no-emoji -c 'Never use emojis in code' --global\n  \
+            wqm rules add -l test-first -c 'Write tests before implementation' -p .\n  \
+            wqm rules add -l max-lines -c 'Functions must be under 80 lines' -g -t constraint"
+    )]
     Add {
         /// Rule label (identifier for the rule)
-        #[arg(long)]
+        #[arg(short = 'l', long)]
         label: String,
 
         /// Rule content
-        #[arg(long)]
+        #[arg(short = 'c', long)]
         content: String,
 
-        /// Apply to all projects (global rule)
-        #[arg(long, conflicts_with = "project")]
+        /// Apply to all projects (global rule) — must specify either --global or --project
+        #[arg(
+            short = 'g',
+            long,
+            conflicts_with = "project",
+            required_unless_present = "project"
+        )]
         global: bool,
 
-        /// Apply to specific project (path or ID)
-        #[arg(long, conflicts_with = "global")]
+        /// Apply to specific project (path or ID) — must specify either --global or --project
+        #[arg(
+            short = 'p',
+            long,
+            conflicts_with = "global",
+            required_unless_present = "global"
+        )]
         project: Option<String>,
 
         /// Rule type (preference, behavior, constraint, pattern)
         #[arg(short = 't', long, default_value = "preference")]
         rule_type: String,
-
-        /// Priority (1-10, higher = more important)
-        #[arg(short, long, default_value = "5")]
-        priority: u32,
     },
 
     /// Remove a rule
+    #[command(
+        long_about = "Delete a behavioral rule by its label. Specify the scope (global or project) \
+            to identify which rule to remove. If neither --global nor --project is given, \
+            searches all scopes.",
+        after_long_help = "Examples:\n  \
+            wqm rules remove --label no-emoji --global       Remove a global rule\n  \
+            wqm rules remove --label test-first --project .  Remove a project rule"
+    )]
     Remove {
         /// Rule label to remove
         #[arg(long)]
@@ -97,7 +133,32 @@ enum RulesCommand {
         project: Option<String>,
     },
 
+    /// Show detailed information about a specific rule
+    #[command(
+        long_about = "Display full details for a specific rule identified by its label, \
+            including content, scope, type, and creation timestamp.",
+        after_long_help = "Examples:\n  \
+            wqm rules info no-emoji                     Show rule details\n  \
+            wqm rules info no-emoji --json              Output as JSON"
+    )]
+    Info {
+        /// Rule label to look up
+        label: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Search rules
+    #[command(
+        long_about = "Semantic search across rule content. Returns rules whose content matches \
+            the query, ranked by relevance. Optionally filter to global or project scope.",
+        after_long_help = "Examples:\n  \
+            wqm rules search 'testing'                  Search all rules\n  \
+            wqm rules search 'style' --global           Search global rules only\n  \
+            wqm rules search 'error handling' -n 5      Limit to 5 results"
+    )]
     Search {
         /// Search query
         query: String,
@@ -118,21 +179,6 @@ enum RulesCommand {
     /// Inject rules into Claude Code context (SessionStart hook)
     #[command(hide = true)]
     Inject,
-
-    /// Manage rule scopes (list available scopes, show scope hierarchy)
-    Scope {
-        /// List all available scopes
-        #[arg(long)]
-        list: bool,
-
-        /// Show rules for a specific scope
-        #[arg(long)]
-        show: Option<String>,
-
-        /// Show verbose scope information
-        #[arg(short, long)]
-        verbose: bool,
-    },
 }
 
 /// Execute rules command
@@ -156,10 +202,9 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             global,
             project,
             rule_type,
-            priority,
         } => {
             let scope = resolve_scope(global, project);
-            add::add_rule(&label, &content, &rule_type, &scope, priority).await
+            add::add_rule(&label, &content, &rule_type, &scope).await
         }
         RulesCommand::Remove {
             label,
@@ -169,6 +214,7 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             remove::remove_rule(&label, &scope).await
         }
+        RulesCommand::Info { label, json } => info::rule_info(&label, json).await,
         RulesCommand::Search {
             query,
             global,
@@ -179,11 +225,6 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             search::search_rules(&query, scope, limit).await
         }
         RulesCommand::Inject => inject::inject_rules().await,
-        RulesCommand::Scope {
-            list,
-            show,
-            verbose,
-        } => scope::manage_scopes(list, show, verbose).await,
     }
 }
 
