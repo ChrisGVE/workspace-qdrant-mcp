@@ -23,8 +23,9 @@ use crate::output::canvas;
 use crate::output::gutter::Gutter;
 use crate::output::number::{format_date_short, format_usize, NumberLocale};
 use crate::output::peakers::ExpandEven;
+use crate::output::render::print_table_summary;
 use crate::output::style::home_to_tilde;
-use crate::output::table::{print_table_summary, terminal_width};
+use crate::output::table::terminal_width;
 
 /// Minimum terminal width to show each optional date column.
 const WIDTH_CREATED: usize = 130;
