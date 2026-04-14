@@ -1,12 +1,18 @@
-//! Collections list subcommand handler
+//! Collections list subcommand handler.
+//!
+//! Table template per cli-feedback.md.
 
 use anyhow::{Context as _, Result};
-use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
 use crate::commands::qdrant_helpers;
-use crate::output;
+use crate::output::canvas;
+use crate::output::gutter::Gutter;
+use crate::output::number::{format_usize, NumberLocale};
+use crate::output::render::{render_table, GutterRow};
+use crate::output::table::ColumnHints;
+use crate::output::{self};
 
 use super::{build_client, qdrant_url, VALID_COLLECTIONS};
 
@@ -30,8 +36,8 @@ struct QdrantResponse<T> {
     result: T,
 }
 
-/// Internal row data for a collection (used for JSON/script output).
-#[derive(Tabled, Serialize)]
+/// Table row for collection display.
+#[derive(Clone, Tabled, Serialize)]
 struct CollectionRow {
     #[tabled(rename = "Name")]
     name: String,
@@ -45,11 +51,17 @@ struct CollectionRow {
     orphans: String,
 }
 
-pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Result<()> {
-    if !json && !script {
-        output::section("Qdrant Collections");
+impl ColumnHints for CollectionRow {
+    fn content_columns() -> &'static [usize] {
+        &[0] // Name is content column
     }
 
+    fn numeric_columns() -> &'static [usize] {
+        &[2, 3, 4] // Points, Tenants, Orphans
+    }
+}
+
+pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Result<()> {
     let client = build_client()?;
     let url = format!("{}/collections", qdrant_url());
 
@@ -67,6 +79,8 @@ pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Res
 
             if body.result.collections.is_empty() {
                 if !script {
+                    canvas::print_title("Qdrant Collections");
+                    canvas::print_blank();
                     output::info("No collections found. Register a project to get started.");
                 }
                 return Ok(());
@@ -77,7 +91,9 @@ pub async fn list_collections(json: bool, script: bool, no_headers: bool) -> Res
             if script {
                 output::print_script(&rows, !no_headers);
             } else {
-                print_record_list(&rows);
+                canvas::print_title("Qdrant Collections");
+                canvas::print_blank();
+                print_collection_table(&rows);
             }
         }
         Ok(resp) => {
@@ -107,12 +123,14 @@ async fn build_collection_rows(
     let db_conn = crate::data::db::connect_readonly().ok();
     let qdrant_client = qdrant_helpers::build_qdrant_http_client()?;
     let base_url = qdrant_helpers::qdrant_base_url();
+    let locale = NumberLocale::default();
 
     let mut rows: Vec<CollectionRow> = Vec::new();
 
     for col in collections {
         let row =
-            build_single_collection_row(col, &qdrant_client, &base_url, db_conn.as_ref()).await?;
+            build_single_collection_row(col, &qdrant_client, &base_url, db_conn.as_ref(), &locale)
+                .await?;
         rows.push(row);
     }
 
@@ -124,6 +142,7 @@ async fn build_single_collection_row(
     qdrant_client: &reqwest::Client,
     base_url: &str,
     db_conn: Option<&rusqlite::Connection>,
+    locale: &NumberLocale,
 ) -> Result<CollectionRow> {
     let is_canonical = VALID_COLLECTIONS.contains(&col.name.as_str());
     let label = if is_canonical { "canonical" } else { "custom" };
@@ -134,11 +153,20 @@ async fn build_single_collection_row(
             .unwrap_or(None);
 
     let points_str = point_count
-        .map(|c| c.to_string())
+        .map(|c| format_usize(c as usize, locale))
         .unwrap_or_else(|| "?".to_string());
 
     if is_canonical {
-        build_canonical_row(col, qdrant_client, base_url, db_conn, label, points_str).await
+        build_canonical_row(
+            col,
+            qdrant_client,
+            base_url,
+            db_conn,
+            label,
+            points_str,
+            locale,
+        )
+        .await
     } else {
         Ok(CollectionRow {
             name: col.name.clone(),
@@ -157,6 +185,7 @@ async fn build_canonical_row(
     db_conn: Option<&rusqlite::Connection>,
     label: &str,
     points_str: String,
+    locale: &NumberLocale,
 ) -> Result<CollectionRow> {
     let tenant_field = qdrant_helpers::tenant_field_for_collection(&col.name);
     let qdrant_tenants = qdrant_helpers::scroll_unique_field_values(
@@ -182,90 +211,60 @@ async fn build_canonical_row(
         name: col.name.clone(),
         ctype: label.to_string(),
         points: points_str,
-        tenants: qdrant_tenants.len().to_string(),
-        orphans: orphan_count.to_string(),
+        tenants: format_usize(qdrant_tenants.len(), locale),
+        orphans: if orphan_count > 0 {
+            format_usize(orphan_count, locale)
+        } else {
+            "0".to_string()
+        },
     })
 }
 
-/// Print collections in the record-list pattern with status indicators.
-///
-/// Active collections (with points) get a green filled circle, empty ones
-/// get a dim open circle. Details are shown as indented key-value pairs.
-fn print_record_list(rows: &[CollectionRow]) {
-    println!();
-
-    for row in rows {
-        let has_points = row.points.parse::<u64>().ok().map_or(false, |n| n > 0);
-
-        // Status indicator and collection header
-        let indicator = if has_points {
-            "●".green()
-        } else {
-            "○".dimmed()
-        };
-        println!("{} {}: {}", indicator, row.name.bold(), row.ctype);
-
-        // Points
-        let points_display = format_number_with_commas(&row.points);
-        println!("  {}: {}", "Points".dimmed(), points_display);
-
-        // Tenants (only for canonical collections)
-        if row.tenants != "-" {
-            println!("  {}: {}", "Tenants".dimmed(), row.tenants);
-
-            // Orphans (only show when > 0)
-            if let Ok(n) = row.orphans.parse::<usize>() {
-                if n > 0 {
-                    println!("  {}: {}", "Orphans".dimmed(), n.to_string().yellow());
-                }
+/// Render collections as a table with gutter indicators.
+fn print_collection_table(rows: &[CollectionRow]) {
+    let gutter_rows: Vec<GutterRow<CollectionRow>> = rows
+        .iter()
+        .map(|r| {
+            let has_points = r
+                .points
+                .replace('\'', "")
+                .parse::<u64>()
+                .ok()
+                .is_some_and(|n| n > 0);
+            GutterRow {
+                gutter: if has_points {
+                    Gutter::Sync
+                } else {
+                    Gutter::None
+                },
+                data: r.clone(),
             }
-        }
-    }
+        })
+        .collect();
 
-    // Footer summary
-    println!();
-    output::summary(output::summary_line(rows.len(), rows.len(), "collections"));
-}
-
-/// Format a numeric string with thousands separators (commas).
-fn format_number_with_commas(s: &str) -> String {
-    match s.parse::<u64>() {
-        Ok(n) => {
-            let formatted = n.to_string();
-            let mut result = String::new();
-            for (i, c) in formatted.chars().rev().enumerate() {
-                if i > 0 && i % 3 == 0 {
-                    result.push(',');
-                }
-                result.push(c);
-            }
-            result.chars().rev().collect()
-        }
-        Err(_) => s.to_string(),
-    }
+    let summary = format!("{} collections", rows.len());
+    render_table(&gutter_rows, Some(&summary));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::output::number::NumberLocale;
+
+    use super::format_usize;
 
     #[test]
-    fn format_number_small() {
-        assert_eq!(format_number_with_commas("0"), "0");
-        assert_eq!(format_number_with_commas("42"), "42");
-        assert_eq!(format_number_with_commas("999"), "999");
+    fn format_usize_small() {
+        let locale = NumberLocale::default();
+        assert_eq!(format_usize(0, &locale), "0");
+        assert_eq!(format_usize(42, &locale), "42");
+        assert_eq!(format_usize(999, &locale), "999");
     }
 
     #[test]
-    fn format_number_thousands() {
-        assert_eq!(format_number_with_commas("1000"), "1,000");
-        assert_eq!(format_number_with_commas("104100"), "104,100");
-        assert_eq!(format_number_with_commas("1234567"), "1,234,567");
-    }
-
-    #[test]
-    fn format_number_non_numeric() {
-        assert_eq!(format_number_with_commas("?"), "?");
-        assert_eq!(format_number_with_commas("-"), "-");
+    fn format_usize_thousands() {
+        let locale = NumberLocale::default();
+        assert_eq!(format_usize(1000, &locale), "1'000");
+        assert_eq!(format_usize(104100, &locale), "104'100");
+        assert_eq!(format_usize(1234567, &locale), "1'234'567");
     }
 }
