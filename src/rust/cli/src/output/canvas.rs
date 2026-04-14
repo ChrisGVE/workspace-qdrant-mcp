@@ -9,17 +9,25 @@ use colored::Colorize;
 use super::terminal_width;
 
 /// Capitalize the first letter of each word in a string.
+///
+/// Treats both whitespace and underscores as word boundaries so that
+/// `"grpc_server"` becomes `"Grpc Server"` rather than `"Grpc_server"`.
 pub fn title_case(s: &str) -> String {
     s.split_whitespace()
         .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => {
-                    let upper: String = first.to_uppercase().collect();
-                    format!("{upper}{}", chars.as_str())
-                }
-            }
+            word.split('_')
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => {
+                            let upper: String = first.to_uppercase().collect();
+                            format!("{upper}{}", chars.as_str())
+                        }
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -166,9 +174,10 @@ mod tests {
     }
 
     #[test]
-    fn title_case_preserves_inner_case() {
-        // e.g. "tenant_id" should become "Tenant_id" not "Tenant_Id"
-        assert_eq!(title_case("tenant_id column"), "Tenant_id Column");
+    fn title_case_handles_underscores() {
+        assert_eq!(title_case("grpc_server"), "Grpc Server");
+        assert_eq!(title_case("tenant_id column"), "Tenant Id Column");
+        assert_eq!(title_case("a_b_c"), "A B C");
     }
 
     #[test]
