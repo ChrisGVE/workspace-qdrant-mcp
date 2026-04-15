@@ -15,6 +15,7 @@ use crate::output::canvas;
 use crate::output::columnar::ColumnarBuilder;
 use crate::output::gutter::Gutter;
 use crate::output::number::{format_usize, NumberLocale};
+use crate::output::table::terminal_width;
 use crate::output::{self, ServiceStatus};
 
 use super::types::{status_label, SystemStatusJson};
@@ -175,75 +176,37 @@ pub async fn default_status(
         builder = builder.nested("", inner);
     }
 
-    // Verbose: per-entity queue breakdown (projects, libraries, rules, scratchpad)
-    if verbose {
-        if let Ok(conn) = connect_readonly() {
-            let tenant_names = build_full_tenant_name_map(&conn);
-            let per_entity = get_per_entity_queue(&conn, &tenant_names);
-            if !per_entity.is_empty() {
-                // Pre-compute the widest formatted number across ALL entries
-                // so decomposition numbers align globally.
-                let global_max_width = per_entity
-                    .iter()
-                    .flat_map(|(_, p, i, f)| {
-                        [
-                            format_usize(*p, &locale),
-                            format_usize(*i, &locale),
-                            format_usize(*f, &locale),
-                        ]
-                    })
-                    .map(|s| s.chars().count())
-                    .max()
-                    .unwrap_or(0);
-
-                // Also compute the widest total for right-aligning totals
-                let total_max_width = per_entity
-                    .iter()
-                    .map(|(_, p, i, f)| format_usize(p + i + f, &locale).chars().count())
-                    .max()
-                    .unwrap_or(0);
-
-                builder = builder.section(Some("Queue by Entity"));
-                for (idx, (name, pending, in_progress, failed)) in per_entity.iter().enumerate() {
-                    // Blank line between entity groups (not before first)
-                    if idx > 0 {
-                        builder = builder.raw("", Gutter::None);
-                    }
-                    let total = pending + in_progress + failed;
-                    let total_str = pad_number(&format_usize(total, &locale), total_max_width);
-                    builder = builder.kv_literal_underline(name, total_str);
-                    let decomp: Vec<(&str, String, Gutter)> = vec![
-                        (
-                            "Pending",
-                            pad_number(&format_usize(*pending, &locale), global_max_width),
-                            Gutter::Add,
-                        ),
-                        (
-                            "In Progress",
-                            pad_number(&format_usize(*in_progress, &locale), global_max_width),
-                            Gutter::Update,
-                        ),
-                        (
-                            "Failed",
-                            pad_number(&format_usize(*failed, &locale), global_max_width),
-                            Gutter::Remove,
-                        ),
-                    ];
-                    let inner = ColumnarBuilder::new().aligned_group(decomp);
-                    builder = builder.nested("", inner);
-                }
-            }
-        }
-    }
-
-    // Resource mode from daemon (only via gRPC)
+    // Resource mode from daemon (only via gRPC) — still part of main columnar
     if let Some(ref status) = daemon_status {
-        if status.resource_mode.is_some() {
+        if !verbose && status.resource_mode.is_some() {
             builder = add_resource_mode(builder, status);
         }
     }
 
     builder.render();
+
+    // Verbose: per-entity queue breakdown as two-column layout
+    // Rendered AFTER the main columnar block per hybrid template rules:
+    // the single-columnar section uses its own separator width, then the
+    // two-column section uses full terminal width.
+    let verbose_entity_data = if verbose {
+        connect_readonly().ok().and_then(|conn| {
+            let tenant_names = build_full_tenant_name_map(&conn);
+            let per_entity = get_per_entity_queue(&conn, &tenant_names);
+            if per_entity.is_empty() {
+                None
+            } else {
+                Some(per_entity)
+            }
+        })
+    } else {
+        None
+    };
+
+    if let Some(per_entity) = verbose_entity_data {
+        println!();
+        render_entity_two_column(&per_entity, &locale, &daemon_status);
+    }
 
     // Warnings after columnar block
     if !daemon_up {
@@ -350,6 +313,210 @@ fn pad_number(formatted: &str, target_width: usize) -> String {
     let width = formatted.chars().count();
     let padding = target_width.saturating_sub(width);
     format!("{}{}", " ".repeat(padding), formatted)
+}
+
+/// Pad a string (which may contain ANSI codes) to a target visible width.
+fn pad_to(s: &str, target: usize) -> String {
+    let visible = output::strip_ansi(s).chars().count();
+    let padding = target.saturating_sub(visible);
+    format!("{s}{}", " ".repeat(padding))
+}
+
+/// Render the per-entity queue breakdown in a two-column layout.
+///
+/// Per the hybrid template spec (cli-feedback.md): homogeneous list split
+/// across columns is allowed, separators span full terminal width, and
+/// the section uses the entire terminal width.
+fn render_entity_two_column(
+    entities: &[(String, usize, usize, usize)],
+    locale: &NumberLocale,
+    daemon_status: &Option<SystemStatusResponse>,
+) {
+    let term_w = terminal_width();
+
+    // Compute metrics for consistent alignment across both columns.
+    // "In Progress" is the widest decomposition key at 11 chars + ":"
+    let decomp_key_w = 12; // "In Progress:" = 12 chars
+
+    let num_w = entities
+        .iter()
+        .flat_map(|(_, p, i, f)| [*p, *i, *f, p + i + f])
+        .map(|n| format_usize(n, locale).chars().count())
+        .max()
+        .unwrap_or(1);
+
+    let name_w = entities
+        .iter()
+        .map(|(name, ..)| name.chars().count() + 1) // +1 for colon
+        .max()
+        .unwrap_or(1);
+
+    // Each column needs: gutter(2) + key_w + 1(space) + num_w
+    // For the header line: gutter(2) + name_w + 1(space) + num_w
+    // Take the wider of decomp and header key widths.
+    let key_col_w = name_w.max(decomp_key_w);
+    let col_inner = key_col_w + 1 + num_w; // key + space + number
+
+    // Each column occupies half the terminal. Content is left-aligned
+    // within its half-column, producing an even spread per the spec:
+    // "Columns should be spread evenly across the available screen."
+    let half_w = term_w / 2;
+
+    // Title and separator (full terminal width per hybrid template)
+    println!("{}", "─".repeat(term_w).dimmed());
+    println!("  {}", "Queue By Entity".bold());
+
+    // Render entities in pairs, each occupying one half of the terminal.
+    for pair in entities.chunks(2) {
+        let left = &pair[0];
+        let right = pair.get(1);
+
+        // Blank line between pairs
+        println!();
+
+        // Header line: entity name + total, padded to half_w
+        let left_hdr =
+            format_entity_header(&left.0, left.1 + left.2 + left.3, key_col_w, num_w, locale);
+        let left_hdr_padded = pad_to(&format!("  {left_hdr}"), half_w);
+        if let Some(r) = right {
+            let right_hdr = format_entity_header(&r.0, r.1 + r.2 + r.3, key_col_w, num_w, locale);
+            println!("{left_hdr_padded}  {right_hdr}");
+        } else {
+            println!("{left_hdr_padded}");
+        }
+
+        // Underline under each header, padded to half_w
+        let ul = "─".repeat(col_inner);
+        let left_ul = pad_to(&format!("  {}", ul), half_w);
+        if right.is_some() {
+            // Dim both underlines — print left padded plain, then apply dim
+            // to the whole composed line isn't possible per-segment, so
+            // print the raw dashes and dim each segment.
+            println!(
+                "{}{}",
+                format!("{left_ul}").dimmed(),
+                format!("  {ul}").dimmed(),
+            );
+        } else {
+            println!("{}", format!("  {ul}").dimmed());
+        }
+
+        // Decomposition rows: Pending, In Progress, Failed
+        let decomp_labels = [
+            ("Pending", Gutter::Add),
+            ("In Progress", Gutter::Update),
+            ("Failed", Gutter::Remove),
+        ];
+        let left_nums = [left.1, left.2, left.3];
+
+        for (i, (label, gutter)) in decomp_labels.iter().enumerate() {
+            let left_line =
+                format_decomp_line(*gutter, label, left_nums[i], key_col_w, num_w, locale);
+            if let Some(r) = right {
+                let right_nums = [r.1, r.2, r.3];
+                let right_line =
+                    format_decomp_line(*gutter, label, right_nums[i], key_col_w, num_w, locale);
+                let left_padded = pad_to(&left_line, half_w);
+                println!("{left_padded}{right_line}");
+            } else {
+                println!("{left_line}");
+            }
+        }
+    }
+
+    // Resource mode section (if available) — rendered within the same
+    // full-width block per hybrid template rules.
+    if let Some(ref status) = daemon_status {
+        if status.resource_mode.is_some() {
+            println!();
+            println!("{}", "─".repeat(term_w).dimmed());
+            // "Inter-Item Delay:" = 17 chars — widest key with colon
+            const RM_KEY_W: usize = 17;
+            println!("  {}", "Resource Mode".bold());
+            if let Some(ref mode) = status.resource_mode {
+                let k = "Mode:";
+                println!(
+                    "      {}{} {mode}",
+                    k.bold(),
+                    " ".repeat(RM_KEY_W - k.len())
+                );
+            }
+            if let Some(idle) = status.idle_seconds {
+                let k = "Idle Time:";
+                println!(
+                    "      {}{} {}",
+                    k.bold(),
+                    " ".repeat(RM_KEY_W - k.len()),
+                    wqm_common::duration_fmt::format_duration(idle, 0)
+                );
+            }
+            if let Some(max_emb) = status.current_max_embeddings {
+                let k = "Max Embeddings:";
+                println!(
+                    "      {}{} {max_emb}",
+                    k.bold(),
+                    " ".repeat(RM_KEY_W - k.len())
+                );
+            }
+            if let Some(delay) = status.current_inter_item_delay_ms {
+                let k = "Inter-Item Delay:";
+                println!(
+                    "      {}{} {delay}ms",
+                    k.bold(),
+                    " ".repeat(RM_KEY_W - k.len())
+                );
+            }
+        }
+    }
+
+    // Closing separator (full terminal width)
+    println!("{}", "─".repeat(term_w));
+}
+
+/// Format an entity header line: "name:" right-padded, then right-aligned total.
+fn format_entity_header(
+    name: &str,
+    total: usize,
+    key_w: usize,
+    num_w: usize,
+    locale: &NumberLocale,
+) -> String {
+    let label = format!("{name}:");
+    let label_w = label.chars().count();
+    let key_pad = key_w.saturating_sub(label_w);
+    let total_str = format_usize(total, locale);
+    let num_pad = num_w.saturating_sub(total_str.chars().count());
+    format!(
+        "{}{}{}{}{}",
+        label.bold(),
+        " ".repeat(key_pad),
+        " ", // separator between key and value
+        " ".repeat(num_pad),
+        total_str,
+    )
+}
+
+/// Format a decomposition line with gutter, label, and right-aligned number.
+fn format_decomp_line(
+    gutter: Gutter,
+    label: &str,
+    value: usize,
+    key_w: usize,
+    num_w: usize,
+    locale: &NumberLocale,
+) -> String {
+    let key_str = format!("{label}:");
+    let key_pad = key_w.saturating_sub(key_str.chars().count());
+    let val_str = format_usize(value, locale);
+    let num_pad = num_w.saturating_sub(val_str.chars().count());
+    format!(
+        "{} {}{} {}{}",
+        gutter.colored(),
+        key_str,
+        " ".repeat(key_pad),
+        " ".repeat(num_pad),
+        val_str,
+    )
 }
 
 fn add_resource_mode(
