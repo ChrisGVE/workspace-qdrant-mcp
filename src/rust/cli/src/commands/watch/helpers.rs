@@ -49,6 +49,68 @@ pub fn build_tenant_name_map(conn: &Connection) -> HashMap<String, String> {
     map
 }
 
+/// Build a combined tenant_id → display name mapping that covers all
+/// collection types: projects (from `watch_folders`), libraries (from
+/// `watch_folders`), and uses the tenant_id itself for rules/scratchpad.
+///
+/// The mapping does NOT include collection prefixes — call
+/// [`prefixed_display_name`] to add them when mixing collection types.
+pub fn build_full_tenant_name_map(conn: &Connection) -> HashMap<String, String> {
+    let mut map = build_tenant_name_map(conn);
+
+    // Add library entries
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT tenant_id, path FROM watch_folders \
+         WHERE parent_watch_id IS NULL AND collection = 'libraries'",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for r in rows.flatten() {
+                let (tenant_id, path) = r;
+                if !map.contains_key(&tenant_id) {
+                    let name = path
+                        .rsplit('/')
+                        .find(|s| !s.is_empty())
+                        .unwrap_or(&tenant_id)
+                        .to_string();
+                    map.insert(tenant_id, name);
+                }
+            }
+        }
+    }
+
+    map
+}
+
+/// Return the collection prefix for display: `prj:`, `lib:`, `rls:`, `scp:`.
+pub fn collection_prefix(collection: &str) -> &'static str {
+    match collection {
+        "projects" => "prj:",
+        "libraries" => "lib:",
+        "rules" => "rls:",
+        "scratchpad" => "scp:",
+        _ => "",
+    }
+}
+
+/// Build a prefixed display name from collection + tenant_id.
+///
+/// Uses `tenant_names` for project/library name lookup, falls back to
+/// the tenant_id (or shortened version) for unknown entries.
+pub fn prefixed_display_name(
+    collection: &str,
+    tenant_id: &str,
+    tenant_names: &HashMap<String, String>,
+) -> String {
+    let prefix = collection_prefix(collection);
+    let base = tenant_names
+        .get(tenant_id)
+        .cloned()
+        .unwrap_or_else(|| tenant_id.to_string());
+    format!("{prefix}{base}")
+}
+
 /// Resolve a tenant_id to a human-readable project name, falling back to
 /// a shortened tenant_id when no mapping exists.
 pub fn resolve_project_name(tenant_id: &str, tenant_names: &HashMap<String, String>) -> String {
@@ -130,5 +192,41 @@ mod tests {
         // Just verify it doesn't panic
         let _ = format_bool(true);
         let _ = format_bool(false);
+    }
+
+    #[test]
+    fn test_collection_prefix() {
+        assert_eq!(collection_prefix("projects"), "prj:");
+        assert_eq!(collection_prefix("libraries"), "lib:");
+        assert_eq!(collection_prefix("rules"), "rls:");
+        assert_eq!(collection_prefix("scratchpad"), "scp:");
+        assert_eq!(collection_prefix("unknown"), "");
+    }
+
+    #[test]
+    fn test_prefixed_display_name_with_known_tenant() {
+        let mut names = HashMap::new();
+        names.insert("abc123".to_string(), "my-project".to_string());
+        assert_eq!(
+            prefixed_display_name("projects", "abc123", &names),
+            "prj:my-project"
+        );
+        assert_eq!(
+            prefixed_display_name("libraries", "abc123", &names),
+            "lib:my-project"
+        );
+    }
+
+    #[test]
+    fn test_prefixed_display_name_with_unknown_tenant() {
+        let names = HashMap::new();
+        assert_eq!(
+            prefixed_display_name("projects", "deadbeef", &names),
+            "prj:deadbeef"
+        );
+        assert_eq!(
+            prefixed_display_name("scratchpad", "global", &names),
+            "scp:global"
+        );
     }
 }

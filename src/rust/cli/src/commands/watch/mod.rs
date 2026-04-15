@@ -8,7 +8,7 @@
 
 mod archive;
 mod enable_disable;
-mod helpers;
+pub(crate) mod helpers;
 mod list;
 mod pause_resume;
 mod show;

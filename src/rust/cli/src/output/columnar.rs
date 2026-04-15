@@ -7,6 +7,7 @@ use colored::Colorize;
 use unicode_width::UnicodeWidthStr;
 
 use super::canvas::{print_sized_dim_separator, print_sized_separator, title_case};
+use super::formatters::strip_ansi;
 use super::gutter::Gutter;
 
 /// A single entry in a columnar display.
@@ -16,6 +17,11 @@ pub enum ColumnarEntry {
         key: String,
         value: String,
         gutter: Gutter,
+        /// When true, render an underline from the key through the last
+        /// digit of the value (acts as a visual "total" indicator).
+        underline: bool,
+        /// When true, display the key as-is (no title-casing).
+        literal_key: bool,
     },
     /// A section separator with optional header.
     Section { header: Option<String> },
@@ -60,6 +66,8 @@ impl ColumnarBuilder {
             key: key.to_string(),
             value: value.to_string(),
             gutter: Gutter::None,
+            underline: false,
+            literal_key: false,
         });
         self
     }
@@ -70,6 +78,34 @@ impl ColumnarBuilder {
             key: key.to_string(),
             value: value.to_string(),
             gutter,
+            underline: false,
+            literal_key: false,
+        });
+        self
+    }
+
+    /// Add a key-value pair with an underline spanning from the key through
+    /// the last digit of the value. Used for "Total" lines in decompositions.
+    pub fn kv_underline(mut self, key: &str, value: impl std::fmt::Display) -> Self {
+        self.entries.push(ColumnarEntry::KeyValue {
+            key: key.to_string(),
+            value: value.to_string(),
+            gutter: Gutter::None,
+            underline: true,
+            literal_key: false,
+        });
+        self
+    }
+
+    /// Add a key-value pair with a literal (non-title-cased) key and underline.
+    /// Used for entity names with collection prefixes like `prj:my-project`.
+    pub fn kv_literal_underline(mut self, key: &str, value: impl std::fmt::Display) -> Self {
+        self.entries.push(ColumnarEntry::KeyValue {
+            key: key.to_string(),
+            value: value.to_string(),
+            gutter: Gutter::None,
+            underline: true,
+            literal_key: true,
         });
         self
     }
@@ -119,6 +155,8 @@ impl ColumnarBuilder {
                 key: key.to_string(),
                 value: padded,
                 gutter,
+                underline: false,
+                literal_key: false,
             });
         }
         self
@@ -216,12 +254,22 @@ impl ColumnarBuilder {
 
         for entry in entries {
             match entry {
-                ColumnarEntry::KeyValue { key, value, gutter } => {
+                ColumnarEntry::KeyValue {
+                    key,
+                    value,
+                    gutter,
+                    underline,
+                    literal_key,
+                } => {
                     let base_indent = effective_depth * self.indent;
                     let gutter_str = gutter.colored();
                     let indent_str = " ".repeat(base_indent);
-                    let titled_key = title_case(key);
-                    let key_with_colon = format!("{titled_key}:");
+                    let display_key = if *literal_key {
+                        key.clone()
+                    } else {
+                        title_case(key)
+                    };
+                    let key_with_colon = format!("{display_key}:");
                     let key_display_width = Gutter::WIDTH
                         + base_indent
                         + UnicodeWidthStr::width(key_with_colon.as_str());
@@ -235,6 +283,20 @@ impl ColumnarBuilder {
                         key_with_colon.bold(),
                         " ".repeat(padding),
                     );
+                    if *underline {
+                        // Underline from the key start through the last
+                        // character of the value.
+                        let line_width = Gutter::WIDTH
+                            + 1 // space after gutter
+                            + base_indent
+                            + UnicodeWidthStr::width(key_with_colon.as_str())
+                            + padding
+                            + 1 // space before value
+                            + UnicodeWidthStr::width(
+                                strip_ansi(value).as_str(),
+                            );
+                        println!("{}", "─".repeat(line_width).dimmed());
+                    }
                 }
                 ColumnarEntry::Section { header } => {
                     print_sized_dim_separator(content_width);
