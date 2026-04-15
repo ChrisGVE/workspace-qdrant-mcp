@@ -196,10 +196,22 @@ pub async fn default_status(
                     .max()
                     .unwrap_or(0);
 
+                // Also compute the widest total for right-aligning totals
+                let total_max_width = per_entity
+                    .iter()
+                    .map(|(_, p, i, f)| format_usize(p + i + f, &locale).chars().count())
+                    .max()
+                    .unwrap_or(0);
+
                 builder = builder.section(Some("Queue by Entity"));
-                for (name, pending, in_progress, failed) in &per_entity {
+                for (idx, (name, pending, in_progress, failed)) in per_entity.iter().enumerate() {
+                    // Blank line between entity groups (not before first)
+                    if idx > 0 {
+                        builder = builder.raw("", Gutter::None);
+                    }
                     let total = pending + in_progress + failed;
-                    builder = builder.kv_literal_underline(name, format_usize(total, &locale));
+                    let total_str = pad_number(&format_usize(total, &locale), total_max_width);
+                    builder = builder.kv_literal_underline(name, total_str);
                     let decomp: Vec<(&str, String, Gutter)> = vec![
                         (
                             "Pending",

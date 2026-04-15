@@ -284,18 +284,16 @@ impl ColumnarBuilder {
                         " ".repeat(padding),
                     );
                     if *underline {
-                        // Underline from the key start through the last
-                        // character of the value.
-                        let line_width = Gutter::WIDTH
-                            + 1 // space after gutter
-                            + base_indent
-                            + UnicodeWidthStr::width(key_with_colon.as_str())
-                            + padding
-                            + 1 // space before value
-                            + UnicodeWidthStr::width(
-                                strip_ansi(value).as_str(),
-                            );
-                        println!("{}", "─".repeat(line_width).dimmed());
+                        // Underline from under the key through the last
+                        // digit of the value, indented to match the key.
+                        let lead = Gutter::WIDTH + 1 + base_indent;
+                        let dash_width = UnicodeWidthStr::width(key_with_colon.as_str())
+                                + padding
+                                + 1 // space before value
+                                + UnicodeWidthStr::width(
+                                    strip_ansi(value).as_str(),
+                                );
+                        println!("{}{}", " ".repeat(lead), "─".repeat(dash_width).dimmed());
                     }
                 }
                 ColumnarEntry::Section { header } => {
