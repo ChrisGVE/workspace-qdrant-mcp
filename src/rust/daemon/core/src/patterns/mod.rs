@@ -11,6 +11,7 @@ use thiserror::Error;
 pub mod comprehensive;
 mod conversion;
 pub mod detection;
+pub mod eligibility_trie;
 pub mod exclusion;
 pub mod gitattributes;
 pub mod gitignore;
