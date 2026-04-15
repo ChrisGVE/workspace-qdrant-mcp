@@ -402,7 +402,7 @@ System-level operations for monitoring, metrics, and lifecycle management.
 | `NotifyServerStatus`  | MCP      | Server lifecycle notifications  | Production |
 | `PauseAllWatchers`    | CLI      | Pause all file watchers         | Production |
 | `ResumeAllWatchers`   | CLI      | Resume all paused watchers      | Production |
-| `RebuildIndex`        | CLI      | Rebuild FTS5 search index       | Production |
+| `RebuildIndex`        | CLI      | Rebuild rules/scratchpad/all    | Production |
 
 #### CollectionService (7 RPCs)
 
