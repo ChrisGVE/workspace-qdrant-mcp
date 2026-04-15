@@ -12,7 +12,6 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::queue_operations::QueueManager;
-use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp};
 
 use super::file_watcher::FileWatcherQueue;
 use super::types::WatchConfig;
@@ -91,41 +90,37 @@ impl FileWatcherQueue {
             warn!("[ignore_watch] mtime update failed: {e}");
         }
 
-        // Enqueue reconciliation as a folder scan of the project root
+        // Run reconciliation directly: diff tracked files vs eligible files,
+        // enqueue stale deletions and missing additions
         info!(
-            "[ignore_watch] {} changed in {} — enqueuing reconciliation",
+            "[ignore_watch] {} changed in {} — running reconciliation",
             file_name, tenant_id
         );
 
-        let payload = serde_json::json!({
-            "folder_path": project_root_str,
-            "source": "ignore_file_change",
-            "trigger_file": file_name,
-        });
-
-        match queue_manager
-            .enqueue_unified(
-                ItemType::Folder,
-                UnifiedOp::Scan,
-                &tenant_id,
-                &collection,
-                &payload.to_string(),
-                None,
-                None,
-            )
-            .await
+        match crate::startup::reconciliation::ignore_sync::reconcile_ignore_rules(
+            &project_root,
+            &tenant_id,
+            &collection,
+            queue_manager.pool(),
+            queue_manager,
+        )
+        .await
         {
-            Ok(_) => {
+            Ok(stats) => {
                 let mut count = events_processed.lock().await;
                 *count += 1;
-                info!(
-                    "[ignore_watch] Reconciliation scan enqueued for {}",
-                    tenant_id
-                );
+                if stats.stale_deleted > 0 || stats.missing_added > 0 {
+                    info!(
+                        "[ignore_watch] Reconciled {}: {} stale deleted, {} missing added",
+                        tenant_id, stats.stale_deleted, stats.missing_added
+                    );
+                } else {
+                    debug!("[ignore_watch] Reconciled {}: no changes needed", tenant_id);
+                }
             }
             Err(e) => {
                 warn!(
-                    "[ignore_watch] Failed to enqueue reconciliation for {}: {}",
+                    "[ignore_watch] Reconciliation failed for {}: {}",
                     tenant_id, e
                 );
             }
