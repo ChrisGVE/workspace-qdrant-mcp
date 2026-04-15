@@ -104,6 +104,25 @@ impl FileWatcherQueue {
             *count += 1;
         }
 
+        // Intercept .gitignore / .wqmignore changes → trigger reconciliation
+        if let Some(name) = event.path.file_name().and_then(|n| n.to_str()) {
+            if name == ".gitignore" || name == ".wqmignore" {
+                if matches!(
+                    event.event_kind,
+                    EventKind::Create(_) | EventKind::Modify(_)
+                ) {
+                    Self::handle_ignore_file_change(
+                        &event.path,
+                        config,
+                        queue_manager,
+                        events_processed,
+                    )
+                    .await;
+                }
+                return; // Don't process ignore files as regular files
+            }
+        }
+
         // Check exclusion patterns FIRST (Task 518)
         if !matches!(event.event_kind, EventKind::Remove(_)) {
             let file_path_str = event.path.to_string_lossy();
