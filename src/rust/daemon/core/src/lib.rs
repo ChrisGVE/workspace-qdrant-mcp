@@ -27,6 +27,7 @@ pub mod graph;
 pub mod grouping;
 pub mod idle;
 pub mod idle_history;
+pub mod ignore_mtime;
 pub mod image_extraction;
 pub mod image_ingestion;
 pub mod image_search;
