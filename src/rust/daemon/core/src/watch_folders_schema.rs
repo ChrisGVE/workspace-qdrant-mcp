@@ -170,6 +170,10 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     last_commit_hash TEXT,
     is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
 
+    -- Worktree support (v31)
+    is_worktree INTEGER DEFAULT 0 CHECK (is_worktree IN (0, 1)),
+    main_worktree_watch_id TEXT,
+
     -- Library-specific (NULL for projects)
     library_mode TEXT CHECK (library_mode IS NULL OR library_mode IN ('sync', 'incremental')),
 
@@ -183,8 +187,9 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     updated_at TEXT NOT NULL,
     last_scan TEXT,
 
-    -- Foreign key for submodule hierarchy
-    FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+    -- Foreign keys
+    FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE,
+    FOREIGN KEY (main_worktree_watch_id) REFERENCES watch_folders(watch_id) ON DELETE SET NULL
 )
 "#;
 

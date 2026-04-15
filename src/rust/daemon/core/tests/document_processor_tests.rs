@@ -319,11 +319,16 @@ async fn test_empty_file_handling() {
     let temp_file = create_temp_file(content, "txt").await;
 
     let result = processor.process_file(temp_file.path(), "empty_test").await;
-    assert!(result.is_ok());
-
-    let doc_result = result.unwrap();
-    assert_eq!(doc_result.collection, "empty_test");
-    assert_eq!(doc_result.chunks_created.unwrap_or(0), 0); // Empty file should create no chunks
+    // Empty files are intentionally rejected — nothing to extract, embed, or index
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            workspace_qdrant_core::DocumentProcessorError::EmptyFile(_)
+        ),
+        "expected EmptyFile error, got: {err:?}"
+    );
 }
 
 #[tokio::test]

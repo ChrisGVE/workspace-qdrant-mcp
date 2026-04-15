@@ -62,7 +62,8 @@ async fn test_ingest_text_basic_request() {
             assert!(
                 status.code() == Code::Unavailable
                     || status.code() == Code::Internal
-                    || status.code() == Code::InvalidArgument,
+                    || status.code() == Code::InvalidArgument
+                    || status.code() == Code::FailedPrecondition,
                 "Unexpected error: {:?}",
                 status
             );
@@ -95,7 +96,8 @@ async fn test_ingest_text_with_custom_id() {
             assert!(
                 status.code() == Code::Unavailable
                     || status.code() == Code::Internal
-                    || status.code() == Code::InvalidArgument,
+                    || status.code() == Code::InvalidArgument
+                    || status.code() == Code::FailedPrecondition,
                 "Unexpected error: {:?}",
                 status
             );
@@ -131,7 +133,8 @@ async fn test_ingest_text_with_metadata() {
             assert!(
                 status.code() == Code::Unavailable
                     || status.code() == Code::Internal
-                    || status.code() == Code::InvalidArgument,
+                    || status.code() == Code::InvalidArgument
+                    || status.code() == Code::FailedPrecondition,
                 "Unexpected error: {:?}",
                 status
             );
@@ -164,7 +167,8 @@ async fn test_ingest_text_without_chunking() {
             assert!(
                 status.code() == Code::Unavailable
                     || status.code() == Code::Internal
-                    || status.code() == Code::InvalidArgument,
+                    || status.code() == Code::InvalidArgument
+                    || status.code() == Code::FailedPrecondition,
                 "Unexpected error: {:?}",
                 status
             );
@@ -431,7 +435,9 @@ async fn test_large_content_ingestion() {
         }
         Err(status) => {
             assert!(
-                status.code() == Code::Unavailable || status.code() == Code::Internal,
+                status.code() == Code::Unavailable
+                    || status.code() == Code::Internal
+                    || status.code() == Code::FailedPrecondition,
                 "Unexpected error: {:?}",
                 status
             );

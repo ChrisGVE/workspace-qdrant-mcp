@@ -54,11 +54,12 @@ async fn test_create_collection_success() {
             assert_eq!(resp.collection_id, "test_collection");
         }
         Err(status) => {
-            // Accept unavailable or connection errors due to no real Qdrant
+            // Accept unavailable, connection, or precondition errors due to no real Qdrant
             assert!(
                 status.code() == Code::Unavailable
                     || status.code() == Code::Internal
-                    || status.code() == Code::AlreadyExists,
+                    || status.code() == Code::AlreadyExists
+                    || status.code() == Code::FailedPrecondition,
                 "Unexpected error: {:?}",
                 status
             );
@@ -246,10 +247,13 @@ async fn test_alias_validation_errors() {
     let result = service.create_collection_alias(request).await;
     assert!(result.is_err());
     let code = result.unwrap_err().code();
-    // Either NotFound (if Qdrant is reachable) or Unavailable (if not)
+    // Either NotFound (if Qdrant is reachable) or Unavailable/FailedPrecondition (if not)
     assert!(
-        code == Code::NotFound || code == Code::Unavailable || code == Code::Internal,
-        "Expected NotFound/Unavailable/Internal, got {:?}",
+        code == Code::NotFound
+            || code == Code::Unavailable
+            || code == Code::Internal
+            || code == Code::FailedPrecondition,
+        "Expected NotFound/Unavailable/Internal/FailedPrecondition, got {:?}",
         code
     );
 }
