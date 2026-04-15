@@ -162,6 +162,21 @@ pub async fn run_reconciliation(queue_pool: &SqlitePool) {
         Err(e) => warn!("Watch folder validation failed (non-fatal): {}", e),
     }
 
+    // Reconcile ignore rules: enqueue stale/missing files after ignore file changes
+    let qm = Arc::new(workspace_qdrant_core::queue_operations::QueueManager::new(
+        queue_pool.clone(),
+    ));
+    match workspace_qdrant_core::startup::reconcile_all_ignore_rules(queue_pool, &qm).await {
+        Ok(stats) if stats.stale_deleted > 0 || stats.missing_added > 0 => {
+            info!(
+                "Ignore reconciliation: {} stale deleted, {} missing added",
+                stats.stale_deleted, stats.missing_added
+            );
+        }
+        Ok(_) => info!("Ignore reconciliation: index consistent"),
+        Err(e) => warn!("Ignore reconciliation failed (non-fatal): {}", e),
+    }
+
     info!("Startup reconciliation complete");
 }
 

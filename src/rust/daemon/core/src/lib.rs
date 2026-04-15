@@ -251,8 +251,9 @@ pub use crate::project_disambiguation::{
     ProjectIdCalculator, ProjectRecord, RegisteredProject,
 };
 pub use crate::startup::{
-    backfill_rules_mirror, clean_stale_state, run_startup_recovery, validate_watch_folders,
-    FullRecoveryStats, RecoveryStats, RulesBackfillStats, StaleCleanupStats, WatchValidationStats,
+    backfill_rules_mirror, clean_stale_state, reconcile_all_ignore_rules, run_startup_recovery,
+    validate_watch_folders, FullRecoveryStats, RecoveryStats, RulesBackfillStats,
+    StaleCleanupStats, WatchValidationStats,
 };
 pub use crate::storage::{
     BatchStats, DocumentPoint, HybridSearchMode, MultiTenantConfig, MultiTenantInitResult,

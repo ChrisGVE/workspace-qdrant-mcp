@@ -290,7 +290,64 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
     Ok(stats)
 }
 
-#[cfg(test)]
 pub mod ignore_sync;
 
+/// Reconcile ignore rules for all active projects at startup.
+///
+/// Iterates watch_folders with `collection = 'projects'` and `enabled = 1`,
+/// runs `ignore_sync::reconcile_ignore_rules` for each, and returns totals.
+pub async fn reconcile_all_ignore_rules(
+    pool: &SqlitePool,
+    queue_manager: &std::sync::Arc<crate::queue_operations::QueueManager>,
+) -> Result<ignore_sync::ReconcileStats, String> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT tenant_id, path FROM watch_folders \
+         WHERE collection = 'projects' AND enabled = 1",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("query active projects: {e}"))?;
+
+    if rows.is_empty() {
+        debug!("No active projects for ignore reconciliation");
+        return Ok(ignore_sync::ReconcileStats::default());
+    }
+
+    info!(
+        "[ignore_sync] Running startup reconciliation for {} projects",
+        rows.len()
+    );
+
+    let mut totals = ignore_sync::ReconcileStats::default();
+    for (tenant_id, project_root) in &rows {
+        let root = std::path::Path::new(project_root);
+        if !root.is_dir() {
+            debug!("[ignore_sync] Skipping {tenant_id} — path not a directory");
+            continue;
+        }
+
+        match ignore_sync::reconcile_ignore_rules(root, tenant_id, "projects", pool, queue_manager)
+            .await
+        {
+            Ok(stats) => {
+                totals.stale_deleted += stats.stale_deleted;
+                totals.missing_added += stats.missing_added;
+            }
+            Err(e) => {
+                warn!("[ignore_sync] reconciliation failed for {tenant_id}: {e}");
+            }
+        }
+    }
+
+    if totals.stale_deleted > 0 || totals.missing_added > 0 {
+        info!(
+            "[ignore_sync] Startup totals: {} stale deleted, {} missing added",
+            totals.stale_deleted, totals.missing_added
+        );
+    }
+
+    Ok(totals)
+}
+
+#[cfg(test)]
 mod tests;
