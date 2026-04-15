@@ -46,7 +46,7 @@ pub(crate) async fn scan_directory_single_level(
 
     // Gate 0: build per-directory ignore matcher from .gitignore + .wqmignore.
     // Returns None when neither file exists (fast path).
-    let ignore_matcher = ProjectIgnoreMatcher::for_dir(dir_path);
+    let ignore_matcher = ProjectIgnoreMatcher::for_dir(dir_path, None);
 
     let entries = std::fs::read_dir(dir_path).map_err(|e| {
         UnifiedProcessorError::ProcessingFailed(format!(

@@ -54,35 +54,62 @@ pub struct ProjectIgnoreMatcher {
 }
 
 impl ProjectIgnoreMatcher {
-    /// Build a matcher from the `.gitignore` and `.wqmignore` files present in `dir`.
+    /// Build a matcher from `.gitignore` and `.wqmignore` files.
     ///
-    /// Returns `None` when neither file exists in `dir` so callers can skip
-    /// the gate entirely with zero overhead.
-    pub fn for_dir(dir: &Path) -> Option<Self> {
-        let gitignore_path = dir.join(".gitignore");
-        let wqmignore_path = dir.join(".wqmignore");
+    /// When `project_root` is `Some`, walks from `project_root` down to `dir`,
+    /// accumulating ignore rules from each ancestor directory. This ensures a
+    /// subdirectory scan respects patterns defined in parent directories (fixes
+    /// issue #49).
+    ///
+    /// When `project_root` is `None`, only checks `dir` itself (legacy behaviour).
+    ///
+    /// Returns `None` when no ignore files exist in the search path.
+    pub fn for_dir(dir: &Path, project_root: Option<&Path>) -> Option<Self> {
+        let root = project_root.unwrap_or(dir);
 
-        if !gitignore_path.exists() && !wqmignore_path.exists() {
-            return None;
-        }
+        // Collect ancestor dirs from root down to dir (inclusive).
+        let ancestors = collect_ancestor_chain(root, dir);
 
-        // Root for the builder is `dir`; patterns are interpreted relative to
-        // the directory that contains the ignore file (same as git behaviour).
-        let mut exclusion_builder = GitignoreBuilder::new(dir);
-        if gitignore_path.exists() {
-            if let Some(e) = exclusion_builder.add(&gitignore_path) {
-                warn!("Error reading {}: {}", gitignore_path.display(), e);
+        let mut exclusion_builder = GitignoreBuilder::new(root);
+        let mut reinc_builder = GitignoreBuilder::new(root);
+        let mut found_any = false;
+        let mut has_reinclusions = false;
+
+        for ancestor in &ancestors {
+            let gitignore_path = ancestor.join(".gitignore");
+            let wqmignore_path = ancestor.join(".wqmignore");
+
+            if gitignore_path.exists() {
+                if let Some(e) = exclusion_builder.add(&gitignore_path) {
+                    warn!("Error reading {}: {}", gitignore_path.display(), e);
+                }
+                found_any = true;
+            }
+
+            if wqmignore_path.exists() {
+                if let Some(reinc) = parse_wqmignore_into(
+                    ancestor,
+                    &wqmignore_path,
+                    &mut exclusion_builder,
+                    &mut reinc_builder,
+                ) {
+                    has_reinclusions = has_reinclusions || reinc;
+                }
+                found_any = true;
             }
         }
 
-        // Parse .wqmignore: split into exclusions and re-inclusions
-        let reinclusions = if wqmignore_path.exists() {
-            parse_wqmignore(dir, &wqmignore_path, &mut exclusion_builder)
+        if !found_any {
+            return None;
+        }
+
+        let exclusions = exclusion_builder.build().ok()?;
+        let reinclusions = if has_reinclusions {
+            reinc_builder.build().ok()
         } else {
             None
         };
 
-        let exclusions = exclusion_builder.build().ok()?;
         Some(Self {
             exclusions,
             reinclusions,
@@ -105,20 +132,38 @@ impl ProjectIgnoreMatcher {
     }
 }
 
-/// Parse `.wqmignore`, splitting lines into exclusions (added to `builder`)
-/// and re-inclusions (returned as a separate matcher).
+/// Collect directory chain from `root` down to `dir` (inclusive).
 ///
-/// Re-inclusion lines use either the canonical `!pattern` syntax or the legacy
-/// `- pattern` (dash space) alias — both are functionally equivalent. The
-/// pattern is added to a dedicated re-inclusion matcher that takes priority
-/// over all exclusion rules.
-fn parse_wqmignore(
-    dir: &Path,
+/// If `dir` is not a descendant of `root`, returns just `[dir]`.
+fn collect_ancestor_chain(root: &Path, dir: &Path) -> Vec<std::path::PathBuf> {
+    // Canonicalize to handle symlinks / relative segments
+    let root_canon = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let dir_canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+
+    if let Ok(suffix) = dir_canon.strip_prefix(&root_canon) {
+        let mut chain = vec![root_canon.clone()];
+        let mut current = root_canon;
+        for component in suffix.components() {
+            current = current.join(component);
+            chain.push(current.clone());
+        }
+        chain
+    } else {
+        // dir is not under root — fall back to dir only
+        vec![dir.to_path_buf()]
+    }
+}
+
+/// Parse `.wqmignore`, adding exclusions to `exclusion_builder` and
+/// re-inclusions to `reinc_builder`. Returns `Some(true)` if re-inclusions
+/// were found, `Some(false)` if only exclusions, or `None` on read error.
+fn parse_wqmignore_into(
+    _dir: &Path,
     wqmignore_path: &Path,
     exclusion_builder: &mut GitignoreBuilder,
-) -> Option<Gitignore> {
+    reinc_builder: &mut GitignoreBuilder,
+) -> Option<bool> {
     let content = std::fs::read_to_string(wqmignore_path).ok()?;
-    let mut reinc_builder = GitignoreBuilder::new(dir);
     let mut has_reinclusions = false;
 
     for line in content.lines() {
@@ -150,24 +195,19 @@ fn parse_wqmignore(
                 }
                 has_reinclusions = true;
             }
-        } else {
-            if let Err(e) = exclusion_builder.add_line(Some(wqmignore_path.to_path_buf()), trimmed)
-            {
-                warn!(
-                    "Malformed exclusion pattern '{}' in {}: {}",
-                    trimmed,
-                    wqmignore_path.display(),
-                    e
-                );
-            }
+        } else if let Err(e) =
+            exclusion_builder.add_line(Some(wqmignore_path.to_path_buf()), trimmed)
+        {
+            warn!(
+                "Malformed exclusion pattern '{}' in {}: {}",
+                trimmed,
+                wqmignore_path.display(),
+                e
+            );
         }
     }
 
-    if has_reinclusions {
-        reinc_builder.build().ok()
-    } else {
-        None
-    }
+    Some(has_reinclusions)
 }
 
 #[cfg(test)]
@@ -187,7 +227,7 @@ mod tests {
     #[test]
     fn no_ignore_files_returns_none() {
         let dir = tmp();
-        assert!(ProjectIgnoreMatcher::for_dir(dir.path()).is_none());
+        assert!(ProjectIgnoreMatcher::for_dir(dir.path(), None).is_none());
     }
 
     // ── .gitignore only ────────────────────────────────────────────────────────
@@ -196,7 +236,7 @@ mod tests {
     fn gitignore_excludes_matching_directory() {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "datasets/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(m.is_ignored(&dir.path().join("datasets"), true));
     }
 
@@ -204,7 +244,7 @@ mod tests {
     fn gitignore_does_not_exclude_non_matching_directory() {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "datasets/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(!m.is_ignored(&dir.path().join("src"), true));
     }
 
@@ -212,7 +252,7 @@ mod tests {
     fn gitignore_excludes_file_by_extension() {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "*.log\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(m.is_ignored(&dir.path().join("debug.log"), false));
         assert!(!m.is_ignored(&dir.path().join("main.rs"), false));
     }
@@ -223,7 +263,7 @@ mod tests {
     fn wqmignore_only_excludes_matching_directory() {
         let dir = tmp();
         fs::write(dir.path().join(".wqmignore"), "large_data/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(m.is_ignored(&dir.path().join("large_data"), true));
         assert!(!m.is_ignored(&dir.path().join("src"), true));
     }
@@ -235,7 +275,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "git_only/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "wqm_only/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(m.is_ignored(&dir.path().join("git_only"), true));
         assert!(m.is_ignored(&dir.path().join("wqm_only"), true));
         assert!(!m.is_ignored(&dir.path().join("src"), true));
@@ -246,7 +286,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "build/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "datasets/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         // .gitignore hit
         assert!(m.is_ignored(&dir.path().join("build"), true));
         // .wqmignore hit
@@ -261,7 +301,7 @@ mod tests {
     fn non_ignored_file_is_not_excluded() {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "*.bin\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(!m.is_ignored(&dir.path().join("README.md"), false));
         assert!(!m.is_ignored(&dir.path().join("main.rs"), false));
     }
@@ -273,7 +313,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "dist/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "- dist/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         // dist/ is in .gitignore but re-included by .wqmignore
         assert!(!m.is_ignored(&dir.path().join("dist"), true));
     }
@@ -283,7 +323,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "dist/\nnode_modules/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "- dist/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         // dist/ re-included
         assert!(!m.is_ignored(&dir.path().join("dist"), true));
         // node_modules/ still excluded by .gitignore
@@ -295,7 +335,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "build/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "tmp/\n- build/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         // build/ is in .gitignore but re-included by .wqmignore
         assert!(!m.is_ignored(&dir.path().join("build"), true));
         // tmp/ is excluded by .wqmignore
@@ -309,7 +349,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "*.generated.js\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "- *.generated.js\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(!m.is_ignored(&dir.path().join("api.generated.js"), false));
     }
 
@@ -322,7 +362,7 @@ mod tests {
             "# Re-include dist for indexing\n\n- dist/\n\n# Extra exclusion\ntmp/\n",
         )
         .unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(!m.is_ignored(&dir.path().join("dist"), true));
         assert!(m.is_ignored(&dir.path().join("tmp"), true));
     }
@@ -334,7 +374,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "dist/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "!dist/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(!m.is_ignored(&dir.path().join("dist"), true));
     }
 
@@ -343,7 +383,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "*.generated.js\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "!*.generated.js\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(!m.is_ignored(&dir.path().join("api.generated.js"), false));
     }
 
@@ -352,7 +392,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "build/\nvendor/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "- build/\n!vendor/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         // Both legacy `- build/` and canonical `!vendor/` re-include
         assert!(!m.is_ignored(&dir.path().join("build"), true));
         assert!(!m.is_ignored(&dir.path().join("vendor"), true));
@@ -363,7 +403,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "dist/\nnode_modules/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "!dist/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         // dist/ re-included via canonical syntax
         assert!(!m.is_ignored(&dir.path().join("dist"), true));
         // node_modules/ still excluded by .gitignore
@@ -374,7 +414,7 @@ mod tests {
     fn wqmignore_no_reinclusions_has_no_reinclusion_matcher() {
         let dir = tmp();
         fs::write(dir.path().join(".wqmignore"), "data/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(m.reinclusions.is_none());
         assert!(m.is_ignored(&dir.path().join("data"), true));
     }
@@ -384,7 +424,81 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".gitignore"), "vendor/\n").unwrap();
         fs::write(dir.path().join(".wqmignore"), "- vendor/\n").unwrap();
-        let m = ProjectIgnoreMatcher::for_dir(dir.path()).unwrap();
+        let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
         assert!(!m.is_ignored(&dir.path().join("vendor"), true));
+    }
+
+    // ── parent cascade (project_root) ─────────────────────────────────────
+
+    #[test]
+    fn parent_cascade_gitignore_inherited_by_subdir() {
+        let root = tmp();
+        // project root has .gitignore excluding dist/
+        fs::write(root.path().join(".gitignore"), "dist/\n").unwrap();
+        // Create subdir/deep/ with no ignore files
+        let deep = root.path().join("subdir").join("deep");
+        fs::create_dir_all(&deep).unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(&deep, Some(root.path())).unwrap();
+        // dist/ pattern from root .gitignore should apply in deep subdir
+        assert!(m.is_ignored(&deep.join("dist"), true));
+        // unmatched paths still pass
+        assert!(!m.is_ignored(&deep.join("src"), true));
+    }
+
+    #[test]
+    fn parent_cascade_wqmignore_inherited_by_subdir() {
+        let root = tmp();
+        fs::write(root.path().join(".wqmignore"), "tmp/\n").unwrap();
+        let subdir = root.path().join("subdir");
+        fs::create_dir_all(&subdir).unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(&subdir, Some(root.path())).unwrap();
+        assert!(m.is_ignored(&subdir.join("tmp"), true));
+    }
+
+    #[test]
+    fn parent_cascade_reinclusion_overrides_ancestor_gitignore() {
+        let root = tmp();
+        // Root .gitignore excludes build/
+        fs::write(root.path().join(".gitignore"), "build/\n").unwrap();
+        // Root .wqmignore re-includes build/
+        fs::write(root.path().join(".wqmignore"), "!build/\n").unwrap();
+        let subdir = root.path().join("subdir");
+        fs::create_dir_all(&subdir).unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(&subdir, Some(root.path())).unwrap();
+        // build/ excluded by .gitignore but re-included by .wqmignore
+        assert!(!m.is_ignored(&subdir.join("build"), true));
+    }
+
+    #[test]
+    fn parent_cascade_mid_level_gitignore_adds_patterns() {
+        let root = tmp();
+        fs::write(root.path().join(".gitignore"), "*.log\n").unwrap();
+        let mid = root.path().join("mid");
+        fs::create_dir_all(&mid).unwrap();
+        fs::write(mid.join(".gitignore"), "*.tmp\n").unwrap();
+        let deep = mid.join("deep");
+        fs::create_dir_all(&deep).unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(&deep, Some(root.path())).unwrap();
+        // Root pattern
+        assert!(m.is_ignored(&deep.join("debug.log"), false));
+        // Mid-level pattern
+        assert!(m.is_ignored(&deep.join("scratch.tmp"), false));
+        // Neither
+        assert!(!m.is_ignored(&deep.join("main.rs"), false));
+    }
+
+    #[test]
+    fn parent_cascade_none_root_falls_back_to_dir_only() {
+        let root = tmp();
+        fs::write(root.path().join(".gitignore"), "dist/\n").unwrap();
+        let subdir = root.path().join("subdir");
+        fs::create_dir_all(&subdir).unwrap();
+
+        // Without project_root, subdir has no ignore files → None
+        assert!(ProjectIgnoreMatcher::for_dir(&subdir, None).is_none());
     }
 }
