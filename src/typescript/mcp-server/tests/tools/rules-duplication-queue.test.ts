@@ -19,7 +19,9 @@ vi.mock('@qdrant/js-client-rest', () => ({
 function createMockDaemonClient(): DaemonClient {
   return {
     isConnected: vi.fn().mockReturnValue(true),
-    ingestText: vi.fn().mockResolvedValue({ success: true, document_id: 'new-rule-id', chunks_created: 1 }),
+    ingestText: vi
+      .fn()
+      .mockResolvedValue({ success: true, document_id: 'new-rule-id', chunks_created: 1 }),
     embedText: vi.fn(),
     generateSparseVector: vi.fn(),
     connect: vi.fn(),
@@ -39,7 +41,7 @@ function createMockStateManager(): SqliteStateManager {
   return {
     initialize: vi.fn().mockReturnValue({ status: 'ok' }),
     close: vi.fn(),
-    enqueueUnified: vi.fn().mockReturnValue({
+    enqueueUnified: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { queueId: 'queued-rule-id', isNew: true, idempotencyKey: 'test-key' },
     }),
@@ -258,7 +260,7 @@ describe('RulesTool queue integration', () => {
 
     // Make daemon fail to trigger queue fallback
     vi.mocked(mockDaemonClient.ingestText).mockRejectedValue(
-      new Error('Daemon unavailable')
+      Object.assign(new Error('connect ECONNREFUSED'), { code: 'UNAVAILABLE' })
     );
 
     const rulesTool = new RulesTool(

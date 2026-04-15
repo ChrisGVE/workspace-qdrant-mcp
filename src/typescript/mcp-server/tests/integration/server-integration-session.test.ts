@@ -11,7 +11,12 @@ import Database from 'better-sqlite3';
 
 import { WorkspaceQdrantMcpServer } from '../../src/server.js';
 import type { ServerConfig } from '../../src/types/index.js';
-import { mockDaemonClient, mockQdrantClient, TEST_SCHEMA, createTestConfig } from './shared-setup.js';
+import {
+  mockDaemonClient,
+  mockQdrantClient,
+  TEST_SCHEMA,
+  createTestConfig,
+} from './shared-setup.js';
 
 vi.mock('../../src/clients/daemon-client.js', () => ({
   DaemonClient: vi.fn().mockImplementation(() => mockDaemonClient),
@@ -124,11 +129,13 @@ describe('Server Integration Tests', () => {
       const realProjectPath = realpathSync(projectPath);
 
       const db = new Database(join(tempDir, 'state.db'));
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO watch_folders
         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
         VALUES ('watch-test', ?, 'projects', 'test-proj-id', 1, datetime('now'), datetime('now'))
-      `).run(realProjectPath);
+      `
+      ).run(realProjectPath);
       db.close();
 
       const originalCwd = process.cwd();
@@ -154,11 +161,13 @@ describe('Server Integration Tests', () => {
       const realProjectPath = realpathSync(projectPath);
 
       const db = new Database(join(tempDir, 'state.db'));
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO watch_folders
         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
         VALUES ('watch-hb', ?, 'projects', 'hb-proj-id', 1, datetime('now'), datetime('now'))
-      `).run(realProjectPath);
+      `
+      ).run(realProjectPath);
       db.close();
 
       const originalCwd = process.cwd();
@@ -181,11 +190,13 @@ describe('Server Integration Tests', () => {
       const realProjectPath = realpathSync(projectPath);
 
       const db = new Database(join(tempDir, 'state.db'));
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO watch_folders
         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
         VALUES ('watch-stop', ?, 'projects', 'stop-proj-id', 1, datetime('now'), datetime('now'))
-      `).run(realProjectPath);
+      `
+      ).run(realProjectPath);
       db.close();
 
       const originalCwd = process.cwd();
@@ -211,11 +222,13 @@ describe('Server Integration Tests', () => {
       const realProjectPath = realpathSync(projectPath);
 
       const db = new Database(join(tempDir, 'state.db'));
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO watch_folders
         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
         VALUES ('watch-clear', ?, 'projects', 'clear-proj-id', 1, datetime('now'), datetime('now'))
-      `).run(realProjectPath);
+      `
+      ).run(realProjectPath);
       db.close();
 
       const originalCwd = process.cwd();
@@ -258,8 +271,9 @@ describe('Server Integration Tests', () => {
         await server.start();
 
         const state = server.getSessionState();
-        expect(state.projectPath).toBeNull();
-        expect(state.projectId).toBeNull();
+        // Project root falls back to cwd when no .git found;
+        // daemon may assign a project_id via registerProject
+        expect(state.projectPath).not.toBeNull();
         expect(server.isReady()).toBe(true);
       } finally {
         process.chdir(originalCwd);

@@ -233,7 +233,7 @@ describe('SqliteStateManager', () => {
   });
 
   describe('graceful degradation', () => {
-    it('should return degraded for missing unified_queue table', () => {
+    it('should return degraded for missing unified_queue table', async () => {
       // Create database without unified_queue table
       const noDB = new Database(dbPath);
       noDB.exec('DROP TABLE unified_queue');
@@ -242,10 +242,10 @@ describe('SqliteStateManager', () => {
       const manager = new SqliteStateManager({ dbPath });
       manager.initialize();
 
-      const result = manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', {});
+      const result = await manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', {});
 
       expect(result.status).toBe('degraded');
-      expect(result.reason).toBe('table_not_found');
+      expect(result.reason).toBe('daemon_unavailable');
 
       manager.close();
     });
@@ -267,14 +267,14 @@ describe('SqliteStateManager', () => {
       manager.close();
     });
 
-    it('should return degraded when not connected', () => {
+    it('should return degraded when not connected', async () => {
       const manager = new SqliteStateManager({ dbPath: '/nonexistent/db.db' });
-      // Don't initialize
+      // Don't initialize — no daemon client set either
 
-      const result = manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', {});
+      const result = await manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', {});
 
       expect(result.status).toBe('degraded');
-      expect(result.reason).toBe('database_not_found');
+      expect(result.reason).toBe('daemon_unavailable');
     });
   });
 });

@@ -64,7 +64,7 @@ function createMockStateManager(): SqliteStateManager {
   return {
     initialize: vi.fn().mockReturnValue({ status: 'ok' }),
     close: vi.fn(),
-    enqueueUnified: vi.fn().mockReturnValue({
+    enqueueUnified: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {
         queueId: 'queued-rule-id',
@@ -144,7 +144,7 @@ describe('RulesTool', () => {
 
     it('should fallback to queue when daemon fails', async () => {
       vi.mocked(mockDaemonClient.ingestText).mockRejectedValue(
-        new Error('Daemon unavailable')
+        Object.assign(new Error('connect ECONNREFUSED'), { code: 'UNAVAILABLE' })
       );
 
       const options: RuleOptions = {
@@ -247,7 +247,7 @@ describe('RulesTool', () => {
 
     it('should fallback to queue when daemon fails', async () => {
       vi.mocked(mockDaemonClient.ingestText).mockRejectedValue(
-        new Error('Daemon unavailable')
+        Object.assign(new Error('connect ECONNREFUSED'), { code: 'UNAVAILABLE' })
       );
 
       const options: RuleOptions = {
