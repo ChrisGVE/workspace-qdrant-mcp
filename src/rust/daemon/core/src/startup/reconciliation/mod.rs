@@ -291,4 +291,6 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
 }
 
 #[cfg(test)]
+pub mod ignore_sync;
+
 mod tests;
