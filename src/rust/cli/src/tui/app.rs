@@ -271,6 +271,13 @@ impl App {
             }
         }
 
+        // Delegate keys to the service view
+        if self.current_view == View::Service {
+            if self.handle_service_key(key) {
+                return;
+            }
+        }
+
         // Delegate scrolling keys to the log viewer when on Logs view
         if self.current_view == View::Logs {
             if self.handle_log_key(key) {
@@ -613,6 +620,23 @@ impl App {
         }
     }
 
+    /// Handle service-specific keys. Returns true if the key was consumed.
+    fn handle_service_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                let result = super::commands::pause_watchers();
+                self.service_view().last_message = Some(result.message);
+                true
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                let result = super::commands::resume_watchers();
+                self.service_view().last_message = Some(result.message);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Handle log-specific keys. Returns true if the key was consumed.
     fn handle_log_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
@@ -723,7 +747,7 @@ impl App {
             View::Projects | View::Libraries => "j/k Navigate  Enter Detail  ? Help  q Quit",
             View::Rules => "j/k Navigate  Enter Detail  ? Help  q Quit",
             View::Scratchpad => "j/k Navigate  Enter Detail (j/k scroll)  ? Help  q Quit",
-            View::Service => "? Help  q Quit",
+            View::Service => "p Pause  r Resume  ? Help  q Quit",
             View::Logs => "j/k Scroll  G Bottom  ? Help  q Quit",
         };
 

@@ -122,6 +122,8 @@ fn fetch_service_status() -> ServiceStatus {
 pub struct ServiceView {
     status: ServiceStatus,
     last_refresh: Option<Instant>,
+    /// Last command result message (shown briefly).
+    pub last_message: Option<String>,
 }
 
 impl ServiceView {
@@ -129,6 +131,7 @@ impl ServiceView {
         Self {
             status: ServiceStatus::default(),
             last_refresh: None,
+            last_message: None,
         }
     }
 
@@ -294,20 +297,23 @@ impl ServiceView {
         );
         frame.render_widget(queue, chunks[2]);
 
-        // Hints
-        let hints = Paragraph::new(Line::from(vec![
-            Span::styled(
-                "  Service controls via CLI: ",
-                Style::default().fg(theme::COLOR_DIM),
-            ),
-            Span::styled(
-                "wqm service start",
-                Style::default().fg(theme::COLOR_ACCENT),
-            ),
-            Span::styled(" / ", Style::default().fg(theme::COLOR_DIM)),
-            Span::styled("wqm service stop", Style::default().fg(theme::COLOR_ACCENT)),
-        ]))
-        .block(Block::default().borders(Borders::ALL));
+        // Hints + last command message
+        let mut hint_spans: Vec<Span> = vec![
+            Span::styled("  p ", Style::default().fg(theme::COLOR_ACCENT)),
+            Span::styled("Pause watchers  ", Style::default().fg(theme::COLOR_DIM)),
+            Span::styled("r ", Style::default().fg(theme::COLOR_ACCENT)),
+            Span::styled("Resume watchers", Style::default().fg(theme::COLOR_DIM)),
+        ];
+
+        if let Some(ref msg) = self.last_message {
+            hint_spans.push(Span::styled(
+                format!("  | {msg}"),
+                Style::default().fg(theme::COLOR_WARNING),
+            ));
+        }
+
+        let hints =
+            Paragraph::new(Line::from(hint_spans)).block(Block::default().borders(Borders::ALL));
         frame.render_widget(hints, chunks[3]);
     }
 }
