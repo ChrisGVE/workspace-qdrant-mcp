@@ -5,6 +5,7 @@
 //! result feedback via status messages.
 
 use crate::grpc::ensure_daemon_available;
+use crate::grpc::proto::RebuildIndexRequest;
 
 /// Result of a TUI command execution.
 #[derive(Debug, Clone)]
@@ -53,6 +54,55 @@ pub fn resume_watchers() -> CommandResult {
         Err(e) => CommandResult {
             success: false,
             message: format!("Resume failed: {}", e),
+        },
+    }
+}
+
+/// Rebuild all indexes for a specific collection via gRPC.
+pub fn rebuild_collection(collection: &str) -> CommandResult {
+    let coll = collection.to_string();
+    match tokio::runtime::Handle::current().block_on(async {
+        let mut client = ensure_daemon_available().await?;
+        let request = RebuildIndexRequest {
+            target: "all".to_string(),
+            collection: Some(coll.clone()),
+            tenant_id: None,
+            force: Some(false),
+        };
+        client.system().rebuild_index(request).await?;
+        Ok::<_, anyhow::Error>(())
+    }) {
+        Ok(()) => CommandResult {
+            success: true,
+            message: format!("Rebuild enqueued for {collection}"),
+        },
+        Err(e) => CommandResult {
+            success: false,
+            message: format!("Rebuild failed: {}", e),
+        },
+    }
+}
+
+/// Delete a project by its project_id (tenant_id) via gRPC.
+pub fn delete_project(project_id: &str, delete_qdrant_data: bool) -> CommandResult {
+    let pid = project_id.to_string();
+    match tokio::runtime::Handle::current().block_on(async {
+        let mut client = ensure_daemon_available().await?;
+        use crate::grpc::proto::DeleteProjectRequest;
+        let request = DeleteProjectRequest {
+            project_id: pid,
+            delete_qdrant_data,
+        };
+        client.project().delete_project(request).await?;
+        Ok::<_, anyhow::Error>(())
+    }) {
+        Ok(()) => CommandResult {
+            success: true,
+            message: "Project deleted".to_string(),
+        },
+        Err(e) => CommandResult {
+            success: false,
+            message: format!("Delete failed: {}", e),
         },
     }
 }
