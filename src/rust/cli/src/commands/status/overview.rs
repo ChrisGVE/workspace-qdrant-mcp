@@ -138,20 +138,27 @@ pub async fn default_status(
         builder = builder.full_width();
     }
 
-    // Service lines with response times
-    let worker_label = format!("{} ({}ms)", format_health(worker_health), grpc_ms,);
-    let queue_label = match queue_stats.health_reason() {
-        Some(reason) => format!("{} ({})", format_health(queue_health), reason.dimmed(),),
-        None => format_health(queue_health),
-    };
-    let qdrant_label = format!("{} ({}ms)", format_health(qdrant_level), qdrant_ms,);
+    // Service lines with response times as right-aligned annotations
+    let queue_reason = queue_stats.health_reason();
 
     builder = builder
         .kv("Overall", format_health(overall))
         .section(Some("Services"))
-        .kv("Workspace-Qdrant Worker", worker_label)
-        .kv("Workspace-Qdrant Queue", queue_label)
-        .kv("Qdrant Server", qdrant_label)
+        .kv_annotated(
+            "Workspace-Qdrant Worker",
+            format_health(worker_health),
+            format!("{grpc_ms}ms"),
+        )
+        .kv_annotated(
+            "Workspace-Qdrant Queue",
+            format_health(queue_health),
+            queue_reason.as_deref().unwrap_or(""),
+        )
+        .kv_annotated(
+            "Qdrant Server",
+            format_health(qdrant_level),
+            format!("{qdrant_ms}ms"),
+        )
         .section(Some("Metrics"))
         .kv("Collections", format_usize(total_collections, &locale))
         .kv("Documents", format_usize(document_count, &locale))
@@ -168,55 +175,52 @@ pub async fn default_status(
         }
     }
 
-    // Queue section with decomposition + avg processing time + ETA
+    // Queue section with decomposition + avg processing time + ETA as annotations
     let avg_ms = connect_readonly()
         .ok()
         .and_then(|conn| queries::get_avg_processing_ms(&conn));
 
     builder = builder.section(Some("Queue"));
 
-    // Total line, with avg processing time if available
+    // Total line, with avg processing time as annotation
     if let Some(avg) = avg_ms {
-        let avg_str = format!(
-            "{}  {}",
+        builder = builder.kv_underline_annotated(
+            "Total",
             format_usize(total_queue, &locale),
-            format!("(avg {}/item)", format_duration_short(avg as u64)).dimmed(),
+            format!("avg {}/item", format_duration_short(avg as u64)),
         );
-        builder = builder.kv_underline("Total", avg_str);
     } else {
         builder = builder.kv_underline("Total", format_usize(total_queue, &locale));
     }
 
     {
-        // Build decomposition — add ETA to Pending line if avg available
-        let pending_str = if let Some(avg) = avg_ms {
-            // ETA = pending * avg_ms. Rough: assumes serial, but gives
-            // order-of-magnitude. Daemon processes ~3 items at a time.
+        // ETA as annotation on Pending line
+        let eta_annotation = avg_ms.map(|avg| {
             let eta_ms = queue_stats.pending as f64 * avg;
-            let eta_label = format!(
-                "{}  {}",
-                format_usize(queue_stats.pending, &locale),
-                format!("(est. {})", format_duration_short(eta_ms as u64)).dimmed(),
-            );
-            eta_label
-        } else {
-            format_usize(queue_stats.pending, &locale)
-        };
+            format!("est. {}", format_duration_short(eta_ms as u64))
+        });
 
-        let decomp: Vec<(&str, String, Gutter)> = vec![
-            ("Pending", pending_str, Gutter::Add),
+        let decomp: Vec<(&str, String, Gutter, Option<String>)> = vec![
+            (
+                "Pending",
+                format_usize(queue_stats.pending, &locale),
+                Gutter::Add,
+                eta_annotation,
+            ),
             (
                 "In Progress",
                 format_usize(queue_stats.in_progress, &locale),
                 Gutter::Update,
+                None,
             ),
             (
                 "Failed",
                 format_usize(queue_stats.failed, &locale),
                 Gutter::Remove,
+                None,
             ),
         ];
-        let inner = ColumnarBuilder::new().aligned_group(decomp);
+        let inner = ColumnarBuilder::new().aligned_group_annotated(decomp);
         builder = builder.nested("", inner);
     }
 
@@ -431,6 +435,10 @@ fn render_entity_two_column(
     let key_col_w = name_w.max(decomp_key_w);
     let col_inner = key_col_w + 1 + num_w; // key + space + number
 
+    // Minimum width for two columns: both column contents + 4 char gap
+    let min_two_col = 2 * (Gutter::WIDTH + col_inner) + 4;
+    let use_two_col = term_w >= min_two_col;
+
     // Each column occupies half the terminal. Content is left-aligned
     // within its half-column, producing an even spread per the spec:
     // "Columns should be spread evenly across the available screen."
@@ -440,32 +448,31 @@ fn render_entity_two_column(
     // columnar block's closing separator serves as the section break.
     println!("  {}", "Queue By Entity".bold());
 
-    // Render entities in pairs, each occupying one half of the terminal.
-    for pair in entities.chunks(2) {
-        let left = &pair[0];
-        let right = pair.get(1);
+    // Chunk size: 2 for two-column, 1 for narrow fallback
+    let chunk_size = if use_two_col { 2 } else { 1 };
 
-        // Blank line between pairs
+    for pair in entities.chunks(chunk_size) {
+        let left = &pair[0];
+        let right = if use_two_col { pair.get(1) } else { None };
+
+        // Blank line between groups
         println!();
 
-        // Header line: entity name + total, padded to half_w
+        // Header line: entity name + total
         let left_hdr =
             format_entity_header(&left.0, left.1 + left.2 + left.3, key_col_w, num_w, locale);
-        let left_hdr_padded = pad_to(&format!("  {left_hdr}"), half_w);
         if let Some(r) = right {
+            let left_hdr_padded = pad_to(&format!("  {left_hdr}"), half_w);
             let right_hdr = format_entity_header(&r.0, r.1 + r.2 + r.3, key_col_w, num_w, locale);
             println!("{left_hdr_padded}  {right_hdr}");
         } else {
-            println!("{left_hdr_padded}");
+            println!("  {left_hdr}");
         }
 
-        // Underline under each header, padded to half_w
+        // Underline under each header
         let ul = "─".repeat(col_inner);
-        let left_ul = pad_to(&format!("  {}", ul), half_w);
-        if right.is_some() {
-            // Dim both underlines — print left padded plain, then apply dim
-            // to the whole composed line isn't possible per-segment, so
-            // print the raw dashes and dim each segment.
+        if let Some(_) = right {
+            let left_ul = pad_to(&format!("  {ul}"), half_w);
             println!(
                 "{}{}",
                 format!("{left_ul}").dimmed(),

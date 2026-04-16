@@ -72,16 +72,16 @@ impl QueueStats {
             let days = (age_hours / 24.0).floor() as u64;
             let hours = (age_hours % 24.0).floor() as u64;
             if days > 0 {
-                reasons.push(format!("oldest pending: {days}d {hours}h"));
+                reasons.push(format!("oldest pending: {days}d {hours}h (>24h)"));
             } else {
-                reasons.push(format!("oldest pending: {hours}h"));
+                reasons.push(format!("oldest pending: {hours}h (>24h)"));
             }
         } else if age_hours > 1.0 {
             let hours = age_hours.floor() as u64;
-            reasons.push(format!("oldest pending: {hours}h"));
+            reasons.push(format!("oldest pending: {hours}h (>1h)"));
         }
         if fail_ratio > 0.1 {
-            reasons.push(format!("failed: {:.0}%", fail_ratio * 100.0));
+            reasons.push(format!("failed: {:.0}% (>10%)", fail_ratio * 100.0));
         } else if self.failed > 0 {
             reasons.push(format!("{} failed", self.failed));
         }

@@ -22,6 +22,8 @@ pub enum ColumnarEntry {
         underline: bool,
         /// When true, display the key as-is (no title-casing).
         literal_key: bool,
+        /// Optional dimmed annotation right-aligned to separator width.
+        annotation: Option<String>,
     },
     /// A section separator with optional header.
     Section { header: Option<String> },
@@ -78,6 +80,25 @@ impl ColumnarBuilder {
             gutter: Gutter::None,
             underline: false,
             literal_key: false,
+            annotation: None,
+        });
+        self
+    }
+
+    /// Add a key-value pair with a dimmed right-aligned annotation.
+    pub fn kv_annotated(
+        mut self,
+        key: &str,
+        value: impl std::fmt::Display,
+        annotation: impl std::fmt::Display,
+    ) -> Self {
+        self.entries.push(ColumnarEntry::KeyValue {
+            key: key.to_string(),
+            value: value.to_string(),
+            gutter: Gutter::None,
+            underline: false,
+            literal_key: false,
+            annotation: Some(annotation.to_string()),
         });
         self
     }
@@ -90,6 +111,7 @@ impl ColumnarBuilder {
             gutter,
             underline: false,
             literal_key: false,
+            annotation: None,
         });
         self
     }
@@ -103,6 +125,25 @@ impl ColumnarBuilder {
             gutter: Gutter::None,
             underline: true,
             literal_key: false,
+            annotation: None,
+        });
+        self
+    }
+
+    /// Add an underlined key-value pair with a dimmed right-aligned annotation.
+    pub fn kv_underline_annotated(
+        mut self,
+        key: &str,
+        value: impl std::fmt::Display,
+        annotation: impl std::fmt::Display,
+    ) -> Self {
+        self.entries.push(ColumnarEntry::KeyValue {
+            key: key.to_string(),
+            value: value.to_string(),
+            gutter: Gutter::None,
+            underline: true,
+            literal_key: false,
+            annotation: Some(annotation.to_string()),
         });
         self
     }
@@ -116,6 +157,7 @@ impl ColumnarBuilder {
             gutter: Gutter::None,
             underline: true,
             literal_key: true,
+            annotation: None,
         });
         self
     }
@@ -167,6 +209,33 @@ impl ColumnarBuilder {
                 gutter,
                 underline: false,
                 literal_key: false,
+                annotation: None,
+            });
+        }
+        self
+    }
+
+    /// Same as `aligned_group` but with optional annotations per entry.
+    pub fn aligned_group_annotated(
+        mut self,
+        entries: Vec<(&str, String, Gutter, Option<String>)>,
+    ) -> Self {
+        let max_width = entries
+            .iter()
+            .map(|(_, v, _, _)| v.chars().count())
+            .max()
+            .unwrap_or(0);
+        for (key, value, gutter, ann) in entries {
+            let val_width = value.chars().count();
+            let padding = max_width.saturating_sub(val_width);
+            let padded = format!("{}{}", " ".repeat(padding), value);
+            self.entries.push(ColumnarEntry::KeyValue {
+                key: key.to_string(),
+                value: padded,
+                gutter,
+                underline: false,
+                literal_key: false,
+                annotation: ann,
             });
         }
         self
@@ -239,8 +308,14 @@ impl ColumnarBuilder {
                 ColumnarEntry::Section { .. } => {
                     effective_depth = depth + 1;
                 }
-                ColumnarEntry::KeyValue { value, .. } => {
-                    let w = max_key_width + 1 + UnicodeWidthStr::width(value.as_str()); // +1 for space after colon
+                ColumnarEntry::KeyValue {
+                    value, annotation, ..
+                } => {
+                    let mut w = max_key_width + 1 + UnicodeWidthStr::width(value.as_str());
+                    if let Some(ann) = annotation {
+                        // annotation + at least 2 spaces gap
+                        w += 2 + ann.chars().count();
+                    }
                     max_w = max_w.max(w);
                 }
                 ColumnarEntry::Nested { entries, .. } => {
@@ -276,6 +351,7 @@ impl ColumnarBuilder {
                     gutter,
                     underline,
                     literal_key,
+                    annotation,
                 } => {
                     let base_indent = effective_depth * self.indent;
                     let gutter_str = gutter.colored();
@@ -294,21 +370,35 @@ impl ColumnarBuilder {
                     } else {
                         0
                     };
-                    println!(
-                        "{gutter_str} {indent_str}{}{} {value}",
-                        key_with_colon.bold(),
-                        " ".repeat(padding),
-                    );
+
+                    // Core KV line width (visible chars)
+                    let core_width =
+                        key_display_width + padding + 1 + strip_ansi(value).chars().count();
+
+                    if let Some(ann) = annotation {
+                        // Right-align annotation to content_width
+                        let ann_width = ann.chars().count();
+                        let gap = content_width.saturating_sub(core_width + ann_width);
+                        println!(
+                            "{gutter_str} {indent_str}{}{} {value}{}{}",
+                            key_with_colon.bold(),
+                            " ".repeat(padding),
+                            " ".repeat(gap),
+                            ann.dimmed(),
+                        );
+                    } else {
+                        println!(
+                            "{gutter_str} {indent_str}{}{} {value}",
+                            key_with_colon.bold(),
+                            " ".repeat(padding),
+                        );
+                    }
+
                     if *underline {
                         // Underline from under the key through the last
                         // digit of the value, indented to match the key.
                         let lead = Gutter::WIDTH + base_indent;
-                        let dash_width = UnicodeWidthStr::width(key_with_colon.as_str())
-                                + padding
-                                + 1 // space before value
-                                + UnicodeWidthStr::width(
-                                    strip_ansi(value).as_str(),
-                                );
+                        let dash_width = content_width.saturating_sub(lead);
                         println!("{}{}", " ".repeat(lead), "─".repeat(dash_width).dimmed());
                     }
                 }
