@@ -347,15 +347,23 @@ impl App {
     fn handle_queue_key(&mut self, key: KeyEvent) -> bool {
         let browser = self.queue_browser();
 
-        // When detail popup is open, only Esc closes it
+        if browser.search_active() {
+            browser.search_mut().handle_key(key.code);
+            return true;
+        }
+
         if browser.detail_open() {
             if key.code == KeyCode::Esc {
                 browser.close_detail();
             }
-            return true; // consume all keys while popup is open
+            return true;
         }
 
         match key.code {
+            KeyCode::Char('/') => {
+                browser.search_mut().activate();
+                true
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 browser.select_next();
                 true
@@ -384,7 +392,7 @@ impl App {
                 browser.cycle_filter();
                 true
             }
-            _ => false, // not consumed, fall through to global
+            _ => false,
         }
     }
 
@@ -392,15 +400,25 @@ impl App {
     fn handle_project_key(&mut self, key: KeyEvent) -> bool {
         let browser = self.project_browser();
 
+        // When search is active, delegate all keys to search
+        if browser.search_active() {
+            browser.search_mut().handle_key(key.code);
+            return true;
+        }
+
         // When detail popup is open, only Esc closes it
         if browser.detail_open() {
             if key.code == KeyCode::Esc {
                 browser.close_detail();
             }
-            return true; // consume all keys while popup is open
+            return true;
         }
 
         match key.code {
+            KeyCode::Char('/') => {
+                browser.search_mut().activate();
+                true
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 browser.select_next();
                 true
@@ -425,7 +443,7 @@ impl App {
                 browser.close_detail();
                 true
             }
-            _ => false, // not consumed, fall through to global
+            _ => false,
         }
     }
 
@@ -433,46 +451,10 @@ impl App {
     fn handle_library_key(&mut self, key: KeyEvent) -> bool {
         let browser = self.library_browser();
 
-        // When detail popup is open, only Esc closes it
-        if browser.detail_open() {
-            if key.code == KeyCode::Esc {
-                browser.close_detail();
-            }
-            return true; // consume all keys while popup is open
+        if browser.search_active() {
+            browser.search_mut().handle_key(key.code);
+            return true;
         }
-
-        match key.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                browser.select_next();
-                true
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                browser.select_prev();
-                true
-            }
-            KeyCode::PageUp => {
-                browser.page_up(20);
-                true
-            }
-            KeyCode::PageDown => {
-                browser.page_down(20);
-                true
-            }
-            KeyCode::Enter => {
-                browser.open_detail();
-                true
-            }
-            KeyCode::Esc => {
-                browser.close_detail();
-                true
-            }
-            _ => false, // not consumed, fall through to global
-        }
-    }
-
-    /// Handle rule-specific keys. Returns true if the key was consumed.
-    fn handle_rule_key(&mut self, key: KeyEvent) -> bool {
-        let browser = self.rule_browser();
 
         if browser.detail_open() {
             if key.code == KeyCode::Esc {
@@ -482,6 +464,59 @@ impl App {
         }
 
         match key.code {
+            KeyCode::Char('/') => {
+                browser.search_mut().activate();
+                true
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                browser.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                browser.select_prev();
+                true
+            }
+            KeyCode::PageUp => {
+                browser.page_up(20);
+                true
+            }
+            KeyCode::PageDown => {
+                browser.page_down(20);
+                true
+            }
+            KeyCode::Enter => {
+                browser.open_detail();
+                true
+            }
+            KeyCode::Esc => {
+                browser.close_detail();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle rule-specific keys. Returns true if the key was consumed.
+    fn handle_rule_key(&mut self, key: KeyEvent) -> bool {
+        let browser = self.rule_browser();
+
+        if browser.search_active() {
+            browser.search_mut().handle_key(key.code);
+            return true;
+        }
+
+        if browser.detail_open() {
+            if key.code == KeyCode::Esc {
+                browser.close_detail();
+            }
+            return true;
+        }
+
+        match key.code {
+            KeyCode::Char('/') => {
+                browser.search_mut().activate();
+                true
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 browser.select_next();
                 true
@@ -514,6 +549,11 @@ impl App {
     fn handle_scratchpad_key(&mut self, key: KeyEvent) -> bool {
         let browser = self.scratchpad_browser();
 
+        if browser.search_active() {
+            browser.search_mut().handle_key(key.code);
+            return true;
+        }
+
         if browser.detail_open() {
             match key.code {
                 KeyCode::Esc => {
@@ -541,6 +581,10 @@ impl App {
         }
 
         match key.code {
+            KeyCode::Char('/') => {
+                browser.search_mut().activate();
+                true
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 browser.select_next();
                 true

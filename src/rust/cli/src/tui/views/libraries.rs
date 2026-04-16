@@ -14,6 +14,7 @@ use ratatui::Frame;
 use super::libraries_data::{
     fetch_library_detail, fetch_library_rows, status_label, LibraryDetail, LibraryRow,
 };
+use crate::tui::search::SearchState;
 
 /// Minimum interval between data refreshes (5 seconds).
 const REFRESH_INTERVAL_MS: u128 = 5000;
@@ -28,6 +29,8 @@ pub struct LibraryBrowser {
     detail: Option<LibraryDetail>,
     /// When data was last refreshed from SQLite.
     last_refresh: Option<Instant>,
+    /// Search/filter state.
+    search: SearchState,
 }
 
 impl LibraryBrowser {
@@ -38,7 +41,16 @@ impl LibraryBrowser {
             selected: 0,
             detail: None,
             last_refresh: None,
+            search: SearchState::new(),
         }
+    }
+
+    pub fn search_mut(&mut self) -> &mut SearchState {
+        &mut self.search
+    }
+
+    pub fn search_active(&self) -> bool {
+        self.search.active
     }
 
     /// Refresh data from SQLite if enough time has elapsed.

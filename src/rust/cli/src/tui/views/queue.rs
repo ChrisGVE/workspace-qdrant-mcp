@@ -14,6 +14,7 @@ use ratatui::Frame;
 use super::queue_data::{
     fetch_queue_detail, fetch_queue_rows, QueueDetail, QueueRow, StatusFilter,
 };
+use crate::tui::search::SearchState;
 
 /// Minimum interval between data refreshes.
 const REFRESH_INTERVAL_MS: u128 = 2000;
@@ -30,6 +31,8 @@ pub struct QueueBrowser {
     detail: Option<QueueDetail>,
     /// When data was last refreshed from SQLite.
     last_refresh: Option<Instant>,
+    /// Search/filter state.
+    search: SearchState,
 }
 
 impl QueueBrowser {
@@ -41,7 +44,16 @@ impl QueueBrowser {
             filter: StatusFilter::All,
             detail: None,
             last_refresh: None,
+            search: SearchState::new(),
         }
+    }
+
+    pub fn search_mut(&mut self) -> &mut SearchState {
+        &mut self.search
+    }
+
+    pub fn search_active(&self) -> bool {
+        self.search.active
     }
 
     /// Refresh data from SQLite if enough time has elapsed.

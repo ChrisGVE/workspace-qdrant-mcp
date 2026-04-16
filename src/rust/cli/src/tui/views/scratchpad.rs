@@ -12,6 +12,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use super::scratchpad_data::{fetch_scratchpad_rows, ScratchpadRow};
+use crate::tui::search::SearchState;
 use crate::tui::theme;
 
 /// Minimum interval between data refreshes.
@@ -25,6 +26,7 @@ pub struct ScratchpadBrowser {
     /// Scroll offset within the detail popup content.
     detail_scroll: u16,
     last_refresh: Option<Instant>,
+    search: SearchState,
 }
 
 impl ScratchpadBrowser {
@@ -35,7 +37,16 @@ impl ScratchpadBrowser {
             detail_open: false,
             detail_scroll: 0,
             last_refresh: None,
+            search: SearchState::new(),
         }
+    }
+
+    pub fn search_mut(&mut self) -> &mut SearchState {
+        &mut self.search
+    }
+
+    pub fn search_active(&self) -> bool {
+        self.search.active
     }
 
     pub fn on_tick(&mut self) {

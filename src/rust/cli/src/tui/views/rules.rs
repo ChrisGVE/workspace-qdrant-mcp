@@ -12,6 +12,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use super::rules_data::{fetch_rule_rows, RuleRow};
+use crate::tui::search::SearchState;
 use crate::tui::theme;
 
 /// Minimum interval between data refreshes.
@@ -27,6 +28,8 @@ pub struct RuleBrowser {
     detail_open: bool,
     /// When data was last refreshed.
     last_refresh: Option<Instant>,
+    /// Search/filter state.
+    search: SearchState,
 }
 
 impl RuleBrowser {
@@ -36,7 +39,16 @@ impl RuleBrowser {
             selected: 0,
             detail_open: false,
             last_refresh: None,
+            search: SearchState::new(),
         }
+    }
+
+    pub fn search_mut(&mut self) -> &mut SearchState {
+        &mut self.search
+    }
+
+    pub fn search_active(&self) -> bool {
+        self.search.active
     }
 
     /// Refresh data from SQLite if enough time has elapsed.
