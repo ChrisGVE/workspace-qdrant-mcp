@@ -1,79 +1,98 @@
-# Handover — 2026-04-16 (Session 9)
+# Handover — 2026-04-16 (Session 10)
 
 ## Current State
 
-Branch `main`, not pushed. 6 new commits (634b8e1dc..b3ce55a8a). Qdrant currently down (connection refused). Daemon running, schema v34.
+Branch `main`, pushed. 9 new commits this session (79e0af852..c123aed79). Schema v34. **Daemon not starting** — exits code 1 with no stderr; investigate on next session.
 
-## What Was Done (Session 9)
+## What Was Done (Session 10)
 
-### CLI Status Display Overhaul (6 commits)
+### TUI Feature Completion (8 commits)
 
-Reworked `wqm status` and `wqm status -v` per cli-feedback.md design guidelines.
+Built from the existing 6820-line TUI (Dashboard, Queue, Projects, Libraries, Logs) to a complete interactive terminal UI.
 
-**Completed:**
-1. **Prefixed entity names** — tenant IDs replaced with `prj:`, `lib:`, `rls:`, `scp:` prefixed human-readable names. `build_full_tenant_name_map()` in `watch/helpers.rs` covers projects + libraries. `prefixed_display_name()` adds collection prefix.
-2. **Underline on Total** — underline under Queue Total line, indented to start under key text.
-3. **Two-column entity layout** — Queue by Entity section renders entity pairs side-by-side per double-columnar template spec. Falls back to single column when terminal too narrow.
-4. **Active Projects in compact mode** — project names shown in both compact and verbose.
-5. **Annotations column** — right-aligned annotation column added to ColumnarBuilder (`kv_annotated`, `kv_underline_annotated`, `aligned_group_annotated`). Response times, health reason, avg processing, ETA rendered as annotations.
-6. **ColumnarBuilder.full_width()** — separators span full terminal width in verbose mode for hybrid layout compliance.
+**New features:**
+1. **Shared theme module** (`tui/theme.rs`) — centralized colors, alarm state (dark red bg), gutter symbols, composite styles
+2. **Rules screen** — scrollable list from `rules_mirror` table, detail popup with full rule text
+3. **Scratchpad screen** — read-only list from `scratchpad_mirror` table, scrollable detail popup
+4. **Service screen** — daemon/Qdrant status with alarm indicator, queue summary, active counts
+5. **Bottom status bar** — contextual keybinding hints per view, SERVICE DOWN alarm banner
+6. **Search (`/`)** — reusable `SearchState` with case-insensitive substring matching across all 5 list views
+7. **Toggle commands** — pause/resume watchers via gRPC from Service view (p/r keys)
+8. **Destructive guard** (`tui/guard.rs`) — two-step confirmation: type exact identifier → type "yes"
+9. **gRPC commands** — rebuild collection, delete project wrappers in `tui/commands.rs`
 
-**Key files changed:**
-- `src/rust/cli/src/commands/status/overview.rs` — main status display + two-column renderer
-- `src/rust/cli/src/output/columnar.rs` — annotation support, full_width, underline, literal_key
-- `src/rust/cli/src/commands/watch/helpers.rs` — `build_full_tenant_name_map`, `prefixed_display_name`, `collection_prefix`
-- `src/rust/cli/src/commands/watch/mod.rs` — made helpers `pub(crate)`
-- `src/rust/cli/src/data/queries.rs` — `health_reason()`, `get_avg_processing_ms()`
+**CLI cleanup:**
+- Removed `admin collections list` and `admin collections reset` (internal, not user-facing)
 
-**Tests:** CLI 497 pass (3 new helper tests added)
+**TUI now has 8 views:** Dashboard (1), Queue (2), Projects (3), Libraries (4), Rules (5), Scratchpad (6), Service (7), Logs (8)
 
-## Pending Feedback — Address Next Session
+### Scratchpad Tags Bug Fix (1 commit)
 
-### 1. Verbose-only annotations
-Response times, queue health reason, avg processing time, ETA are currently shown in BOTH compact and verbose. User wants these **verbose-only**. Compact should show just the core values without annotations.
+Fixed `ScratchpadPayload` tags deserialization: MCP clients send tags as stringified JSON array (`"[\"a\",\"b\"]"`) instead of native array. Added custom `deserialize_tags` that handles both forms. This was causing permanent queue failures.
 
-### 2. Narrow terminal output mangled
-When terminal is narrow, output wraps/mangles. The two-column entity section has a fallback, but the main columnar block does not handle narrow terminals. Lines with long annotation text overflow.
+### Queue Backlog Cleared
 
-### 3. Header not consistent with design guidelines
-Verbose mode header (the main columnar section) does not fully comply with cli-feedback.md. The separator lines span full width but content is left-aligned with wide empty space to the right. Needs review against the columnar template spec points 1-5.
+Purged 137K stale project pending items from `unified_queue`. These accumulated while Qdrant was offline. Items will re-enqueue on next rebuild.
 
-### 4. Queue health reason unclear
-Current reason string: `oldest pending: 5d 16h (>24h), 132 failed`
-- Not clear what each piece means. Thresholds from `queries.rs`:
-  - **Unhealthy**: oldest pending > 24h OR failed > 10% of active
-  - **Degraded**: failed > 0 OR oldest pending > 1h
-- User asks: if both age and failed count are shown, what is the comparison point for failed? The `(>24h)` threshold is shown but no threshold for failed count. Need clearer labeling, e.g. `stale: 5d 16h` and `failures: 132 (0.1%)` with explicit threshold.
+## Key Files Changed
 
-### 5. Processing metrics labeling
-- `avg 7.6s/item` should say "avg processing: 7.6s/item" to clarify it's processing time not wall time
-- `est. 12d 3h` should indicate it's estimated time to drain the entire queue, not just pending
+### TUI (new/modified)
+- `src/rust/cli/src/tui/theme.rs` — shared color palette and styles
+- `src/rust/cli/src/tui/search.rs` — reusable search/filter state
+- `src/rust/cli/src/tui/guard.rs` — destructive command guard dialog
+- `src/rust/cli/src/tui/commands.rs` — gRPC command wrappers (pause/resume/rebuild/delete)
+- `src/rust/cli/src/tui/app.rs` — 8 views, status bar, alarm state, key handlers
+- `src/rust/cli/src/tui/views/rules.rs` + `rules_data.rs`
+- `src/rust/cli/src/tui/views/scratchpad.rs` + `scratchpad_data.rs`
+- `src/rust/cli/src/tui/views/service.rs`
 
-### 6. Consider existing crates for terminal formatting
-User feels we're reinventing the wheel with custom columnar/table formatting. Research terminal output crates that handle:
-- Responsive layout (adapt to terminal width)
-- Columnar/table formatting with alignment
-- Two-column layouts
-- Candidates to evaluate: `ratatui` (already in deps for TUI), `comfy-table`, `tabled` (already in deps), `terminal_size` (already in deps), `textwrap`
-- Assess whether replacing custom `ColumnarBuilder` with an existing crate is worthwhile vs continuing to extend it.
+### Bug fix
+- `src/rust/common/src/payloads/content.rs` — `deserialize_tags` for stringified arrays
 
-## Remaining from Session 8
+### CLI cleanup
+- `src/rust/cli/src/commands/admin/mod.rs` — removed Collections subcommand
 
-### Task 18: ✅ Daemon verified
-Schema v34 confirmed. `ignore_file_mtimes` and `scratchpad_mirror` tables present.
+## Pending — Next Session
 
-### Task 19: E2E scratchpad test — BLOCKED
-Scratchpad entry stored in SQLite mirror but stuck in 139K-item queue backlog. Queue needs draining before E2E can complete. `wqm admin rebuild scratchpad` enqueues items but doesn't bypass queue. Consider clearing stale backlog first.
+### 1. Daemon Not Starting (CRITICAL)
+After deploying rebuilt binaries and restarting, daemon exits code 1 with no stderr. Was running fine before rebuild. Need to investigate:
+- Run `memexd` directly with `RUST_LOG=debug` to get output
+- Check if it's an ORT linking issue, config issue, or port conflict
+- Previous daemon was running schema v34 fine
 
-### Task 20: Scratchpad edge cases — BLOCKED on Task 19
+### 2. E2E Scratchpad Test (Task 19)
+Queue was cleared, tags bug fixed, but daemon needs to be running first. Once daemon is up:
+- Retry the failed scratchpad queue item (b24d714d) or create a new one
+- Verify it processes successfully with the tags fix
+- Confirm entry appears in both Qdrant and scratchpad_mirror
 
-### Task 24: Tag v0.1.1 — BLOCKED on Tasks 19-20
+### 3. Scratchpad Edge Cases (Task 20)
+After task 19 passes:
+- Test empty content, very long content, Unicode content
+- Test duplicate detection (idempotency key)
+- Test tag variations (empty, many tags, special chars)
 
-## Queue Backlog Issue
-~139K items pending from when Qdrant was offline for days. Queue processes ~3 items concurrently at ~7.6s/item avg. ETA ~12 days to drain naturally. Options:
-1. Clear stale project items (`DELETE FROM unified_queue WHERE status='pending' AND collection='projects'`) — they'll re-enqueue via next rebuild
-2. Wait for natural drain
-3. Increase parallelism in daemon queue processor
+### 4. Tag v0.1.1 (Task 24)
+After tasks 19-20 pass. Dependencies 22, 23 already done.
+
+### 5. CLI Status Feedback (from Session 9 — deferred)
+Items from cli-feedback.md that were deferred:
+- Verbose-only annotations (currently shown in compact too)
+- Narrow terminal overflow handling
+- Header compliance with columnar template spec
+- Queue health reason unclear labeling
+- Processing metrics labeling clarity
+- These are polish items, not blocking release
+
+## Task-Master State (smart-processing tag)
+- 47/51 done, 6 cancelled (unnecessary abstraction), 1 pending (24), 3 blocked (18→19→20, but 18 is functionally done — just task-master not updated)
+- Task 18: functionally done (daemon was running v34). Mark done once daemon starts again.
+- Task 19: blocked on daemon running + tags fix deployed
+- Task 20: blocked on 19
+- Task 24: deps 22/23 done, can proceed after 19/20
+
+## Test Counts
+CLI: 541 pass | Core: 2593 pass, 16 ignored | gRPC: 143 | Common: 223 | TS: 424+2 skip
 
 ## Build Environment
 ```bash
@@ -81,5 +100,5 @@ export LIBRARY_PATH="/Applications/Xcode.app/Contents/Developer/Toolchains/Xcode
 export ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib
 ```
 
-## Test Counts
-CLI: 497 pass | Core: 2593 pass, 16 ignored | gRPC: 143 | TS: 424+2 skip
+## PRD
+TUI PRD: `.taskmaster/docs/20260416-1841_project_0.1.1_PRD_tui-renderer-unification.md`
