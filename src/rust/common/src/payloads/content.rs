@@ -1,6 +1,6 @@
 //! Payloads for text-based content: user content, scratchpad entries, memory rules
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Payload for text items (was "content" in old taxonomy)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,12 +25,41 @@ pub struct ScratchpadPayload {
     /// Optional title for the entry
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// Tags for categorization
-    #[serde(default)]
+    /// Tags for categorization.
+    /// Accepts both a JSON array and a stringified JSON array (e.g., from MCP clients).
+    #[serde(default, deserialize_with = "deserialize_tags")]
     pub tags: Vec<String>,
     /// Source type (always "scratchpad")
     #[serde(default = "default_scratchpad_source")]
     pub source_type: String,
+}
+
+/// Deserialize tags from either a JSON array or a stringified JSON array.
+///
+/// MCP clients sometimes send `tags: "[\"a\",\"b\"]"` (string) instead of
+/// `tags: ["a","b"]` (array). This handles both forms gracefully.
+fn deserialize_tags<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum TagsOrString {
+        Tags(Vec<String>),
+        Stringified(String),
+    }
+
+    match TagsOrString::deserialize(deserializer)? {
+        TagsOrString::Tags(v) => Ok(v),
+        TagsOrString::Stringified(s) => {
+            // Try to parse the string as a JSON array
+            serde_json::from_str::<Vec<String>>(&s).map_err(|e| {
+                de::Error::custom(format!("tags string is not a valid JSON array: {e}"))
+            })
+        }
+    }
 }
 
 fn default_scratchpad_source() -> String {
@@ -186,6 +215,14 @@ mod tests {
         assert_eq!(back.content, "design decision: use RRF for fusion");
         assert_eq!(back.title, Some("Search Architecture".to_string()));
         assert_eq!(back.tags, vec!["architecture", "search"]);
+    }
+
+    #[test]
+    fn test_scratchpad_payload_stringified_tags() {
+        // MCP clients sometimes send tags as a stringified JSON array
+        let json = r#"{"content":"note","tags":"[\"e2e-test\",\"session-9\"]","source_type":"scratchpad"}"#;
+        let payload: ScratchpadPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.tags, vec!["e2e-test", "session-9"]);
     }
 
     #[test]
