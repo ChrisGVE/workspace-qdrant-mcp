@@ -53,6 +53,46 @@ impl QueueStats {
         }
     }
 
+    /// Human-readable reason for queue health status.
+    /// Returns `None` when healthy (no explanation needed).
+    pub fn health_reason(&self) -> Option<String> {
+        let age_hours = self.oldest_pending_age_hours();
+        let active = self.pending + self.in_progress + self.failed;
+        if active == 0 {
+            return None;
+        }
+        let fail_ratio = if active > 0 {
+            self.failed as f64 / active as f64
+        } else {
+            0.0
+        };
+
+        let mut reasons = Vec::new();
+        if age_hours > 24.0 {
+            let days = (age_hours / 24.0).floor() as u64;
+            let hours = (age_hours % 24.0).floor() as u64;
+            if days > 0 {
+                reasons.push(format!("oldest pending: {days}d {hours}h"));
+            } else {
+                reasons.push(format!("oldest pending: {hours}h"));
+            }
+        } else if age_hours > 1.0 {
+            let hours = age_hours.floor() as u64;
+            reasons.push(format!("oldest pending: {hours}h"));
+        }
+        if fail_ratio > 0.1 {
+            reasons.push(format!("failed: {:.0}%", fail_ratio * 100.0));
+        } else if self.failed > 0 {
+            reasons.push(format!("{} failed", self.failed));
+        }
+
+        if reasons.is_empty() {
+            None
+        } else {
+            Some(reasons.join(", "))
+        }
+    }
+
     /// Hours since oldest pending item was created. 0.0 if none.
     fn oldest_pending_age_hours(&self) -> f64 {
         let Some(ref ts) = self.oldest_pending else {
@@ -125,6 +165,22 @@ pub fn get_queue_stats(conn: &Connection) -> Result<QueueStats> {
         .ok();
 
     Ok(stats)
+}
+
+/// Average total processing time per queue item (ms), computed from
+/// the `processing_timings` table by summing all phases per queue_id.
+///
+/// Returns `None` if no timing data exists.
+pub fn get_avg_processing_ms(conn: &Connection) -> Option<f64> {
+    conn.query_row(
+        "SELECT AVG(total_ms) FROM (\
+         SELECT queue_id, SUM(duration_ms) AS total_ms \
+         FROM processing_timings GROUP BY queue_id)",
+        [],
+        |row| row.get::<_, Option<f64>>(0),
+    )
+    .ok()
+    .flatten()
 }
 
 // ── Active Projects ──────────────────────────────────────────────

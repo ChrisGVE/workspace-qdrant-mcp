@@ -28,7 +28,8 @@ pub async fn default_status(
     verbose: bool,
     json: bool,
 ) -> Result<()> {
-    // Check daemon connectivity (gRPC)
+    // Check daemon connectivity (gRPC) — measure response time
+    let grpc_start = std::time::Instant::now();
     let (daemon_up, daemon_status) = match DaemonClient::connect_default().await {
         Ok(mut client) => {
             let status = client
@@ -41,9 +42,12 @@ pub async fn default_status(
         }
         Err(_) => (false, None),
     };
+    let grpc_ms = grpc_start.elapsed().as_millis() as u64;
 
-    // Check Qdrant connectivity
+    // Check Qdrant connectivity — measure response time
+    let qdrant_start = std::time::Instant::now();
     let qdrant_health = health::check_qdrant().await;
+    let qdrant_ms = qdrant_start.elapsed().as_millis() as u64;
 
     // Get metrics from SQLite
     let (collection_count, document_count, active_project_count, project_names, queue_stats) =
@@ -134,12 +138,20 @@ pub async fn default_status(
         builder = builder.full_width();
     }
 
+    // Service lines with response times
+    let worker_label = format!("{} ({}ms)", format_health(worker_health), grpc_ms,);
+    let queue_label = match queue_stats.health_reason() {
+        Some(reason) => format!("{} ({})", format_health(queue_health), reason.dimmed(),),
+        None => format_health(queue_health),
+    };
+    let qdrant_label = format!("{} ({}ms)", format_health(qdrant_level), qdrant_ms,);
+
     builder = builder
         .kv("Overall", format_health(overall))
         .section(Some("Services"))
-        .kv("Workspace-Qdrant Worker", format_health(worker_health))
-        .kv("Workspace-Qdrant Queue", format_health(queue_health))
-        .kv("Qdrant Server", format_health(qdrant_level))
+        .kv("Workspace-Qdrant Worker", worker_label)
+        .kv("Workspace-Qdrant Queue", queue_label)
+        .kv("Qdrant Server", qdrant_label)
         .section(Some("Metrics"))
         .kv("Collections", format_usize(total_collections, &locale))
         .kv("Documents", format_usize(document_count, &locale))
@@ -156,18 +168,43 @@ pub async fn default_status(
         }
     }
 
-    // Queue section with decomposition
-    builder = builder
-        .section(Some("Queue"))
-        .kv_underline("Total", format_usize(total_queue, &locale));
+    // Queue section with decomposition + avg processing time + ETA
+    let avg_ms = connect_readonly()
+        .ok()
+        .and_then(|conn| queries::get_avg_processing_ms(&conn));
+
+    builder = builder.section(Some("Queue"));
+
+    // Total line, with avg processing time if available
+    if let Some(avg) = avg_ms {
+        let avg_str = format!(
+            "{}  {}",
+            format_usize(total_queue, &locale),
+            format!("(avg {}/item)", format_duration_short(avg as u64)).dimmed(),
+        );
+        builder = builder.kv_underline("Total", avg_str);
+    } else {
+        builder = builder.kv_underline("Total", format_usize(total_queue, &locale));
+    }
 
     {
-        let decomp: Vec<(&str, String, Gutter)> = vec![
-            (
-                "Pending",
+        // Build decomposition — add ETA to Pending line if avg available
+        let pending_str = if let Some(avg) = avg_ms {
+            // ETA = pending * avg_ms. Rough: assumes serial, but gives
+            // order-of-magnitude. Daemon processes ~3 items at a time.
+            let eta_ms = queue_stats.pending as f64 * avg;
+            let eta_label = format!(
+                "{}  {}",
                 format_usize(queue_stats.pending, &locale),
-                Gutter::Add,
-            ),
+                format!("(est. {})", format_duration_short(eta_ms as u64)).dimmed(),
+            );
+            eta_label
+        } else {
+            format_usize(queue_stats.pending, &locale)
+        };
+
+        let decomp: Vec<(&str, String, Gutter)> = vec![
+            ("Pending", pending_str, Gutter::Add),
             (
                 "In Progress",
                 format_usize(queue_stats.in_progress, &locale),
@@ -211,7 +248,6 @@ pub async fn default_status(
     };
 
     if let Some(per_entity) = verbose_entity_data {
-        println!();
         render_entity_two_column(&per_entity, &locale, &daemon_status);
     }
 
@@ -322,6 +358,37 @@ fn pad_number(formatted: &str, target_width: usize) -> String {
     format!("{}{}", " ".repeat(padding), formatted)
 }
 
+/// Format milliseconds into a compact human-readable duration.
+/// Examples: "1.2s", "45s", "12m", "3h 25m", "2d 5h"
+fn format_duration_short(ms: u64) -> String {
+    let secs = ms / 1000;
+    if secs < 60 {
+        if ms < 10_000 {
+            format!("{:.1}s", ms as f64 / 1000.0)
+        } else {
+            format!("{secs}s")
+        }
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else if secs < 86400 {
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        if m > 0 {
+            format!("{h}h {m}m")
+        } else {
+            format!("{h}h")
+        }
+    } else {
+        let d = secs / 86400;
+        let h = (secs % 86400) / 3600;
+        if h > 0 {
+            format!("{d}d {h}h")
+        } else {
+            format!("{d}d")
+        }
+    }
+}
+
 /// Pad a string (which may contain ANSI codes) to a target visible width.
 fn pad_to(s: &str, target: usize) -> String {
     let visible = output::strip_ansi(s).chars().count();
@@ -369,8 +436,8 @@ fn render_entity_two_column(
     // "Columns should be spread evenly across the available screen."
     let half_w = term_w / 2;
 
-    // Title and separator (full terminal width per hybrid template)
-    println!("{}", "─".repeat(term_w).dimmed());
+    // Section header — no opening separator needed because the main
+    // columnar block's closing separator serves as the section break.
     println!("  {}", "Queue By Entity".bold());
 
     // Render entities in pairs, each occupying one half of the terminal.
