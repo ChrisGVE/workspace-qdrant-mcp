@@ -14,3 +14,8 @@ pub mod projects;
 pub mod projects_data;
 pub mod queue;
 pub mod queue_data;
+pub mod rules;
+pub mod rules_data;
+pub mod scratchpad;
+pub mod scratchpad_data;
+pub mod service;

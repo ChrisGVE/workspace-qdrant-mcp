@@ -1,0 +1,348 @@
+//! Rules browser view with scrollable list and detail popup.
+//!
+//! Data is fetched from the local SQLite rules_mirror table (read-only)
+//! and refreshes on each tick event with a minimum 5-second interval.
+
+use std::time::Instant;
+
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
+use ratatui::Frame;
+
+use super::rules_data::{fetch_rule_rows, RuleRow};
+use crate::tui::theme;
+
+/// Minimum interval between data refreshes.
+const REFRESH_INTERVAL_MS: u128 = 5000;
+
+/// Rules browser view state.
+pub struct RuleBrowser {
+    /// Current list of rules.
+    items: Vec<RuleRow>,
+    /// Index of the selected item.
+    selected: usize,
+    /// Whether the detail popup is open.
+    detail_open: bool,
+    /// When data was last refreshed.
+    last_refresh: Option<Instant>,
+}
+
+impl RuleBrowser {
+    pub fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            selected: 0,
+            detail_open: false,
+            last_refresh: None,
+        }
+    }
+
+    /// Refresh data from SQLite if enough time has elapsed.
+    pub fn on_tick(&mut self) {
+        let should_refresh = self
+            .last_refresh
+            .map_or(true, |t| t.elapsed().as_millis() >= REFRESH_INTERVAL_MS);
+
+        if should_refresh {
+            self.items = fetch_rule_rows();
+            if self.selected >= self.items.len() && !self.items.is_empty() {
+                self.selected = self.items.len() - 1;
+            }
+            self.last_refresh = Some(Instant::now());
+        }
+    }
+
+    pub fn select_next(&mut self) {
+        if !self.items.is_empty() {
+            self.selected = (self.selected + 1).min(self.items.len() - 1);
+        }
+    }
+
+    pub fn select_prev(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    pub fn page_down(&mut self, n: usize) {
+        if !self.items.is_empty() {
+            self.selected = (self.selected + n).min(self.items.len() - 1);
+        }
+    }
+
+    pub fn page_up(&mut self, n: usize) {
+        self.selected = self.selected.saturating_sub(n);
+    }
+
+    pub fn open_detail(&mut self) {
+        if !self.items.is_empty() {
+            self.detail_open = true;
+        }
+    }
+
+    pub fn close_detail(&mut self) {
+        self.detail_open = false;
+    }
+
+    pub fn detail_open(&self) -> bool {
+        self.detail_open
+    }
+
+    /// Draw the rules browser.
+    pub fn draw(&self, frame: &mut Frame, area: Rect) {
+        if self.items.is_empty() {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(" Rules ")
+                .title_style(Style::default().add_modifier(Modifier::BOLD));
+            let p = Paragraph::new("No rules found. Use `wqm rules add` to create rules.")
+                .style(theme::loading_style())
+                .block(block);
+            frame.render_widget(p, area);
+            return;
+        }
+
+        let chunks = Layout::vertical([
+            Constraint::Length(3), // summary
+            Constraint::Min(1),    // table
+        ])
+        .split(area);
+
+        // Summary
+        let summary = Paragraph::new(Line::from(vec![
+            Span::styled(" Rules: ", Style::default().fg(theme::COLOR_MUTED)),
+            Span::styled(
+                self.items.len().to_string(),
+                Style::default()
+                    .fg(theme::COLOR_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  (selected: {}/{})", self.selected + 1, self.items.len()),
+                Style::default().fg(theme::COLOR_DIM),
+            ),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Rules ")
+                .title_style(Style::default().add_modifier(Modifier::BOLD)),
+        );
+        frame.render_widget(summary, chunks[0]);
+
+        // Table
+        let header =
+            Row::new(vec!["  Scope", "Rule Text", "Updated"]).style(theme::table_header_style());
+
+        let visible_height = chunks[1].height.saturating_sub(2) as usize;
+        let start = if self.selected >= visible_height {
+            self.selected - visible_height + 1
+        } else {
+            0
+        };
+
+        let rows: Vec<Row> = self
+            .items
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(visible_height)
+            .map(|(i, rule)| {
+                let scope_display = if rule.scope == "global" {
+                    "global".to_string()
+                } else if rule.tenant_id.is_empty() {
+                    rule.scope.clone()
+                } else {
+                    format!("{}:{}", rule.scope, truncate_str(&rule.tenant_id, 12))
+                };
+
+                let text_preview = truncate_str(&rule.rule_text, 60);
+                let updated = format_short_date(&rule.updated_at);
+
+                let style = if i == self.selected {
+                    theme::selected_row_style()
+                } else {
+                    Style::default()
+                };
+
+                Row::new(vec![format!("  {}", scope_display), text_preview, updated]).style(style)
+            })
+            .collect();
+
+        let widths = [
+            Constraint::Length(16),
+            Constraint::Min(30),
+            Constraint::Length(12),
+        ];
+
+        let table = Table::new(rows, widths)
+            .header(header)
+            .block(Block::default().borders(Borders::ALL));
+
+        frame.render_widget(table, chunks[1]);
+
+        // Detail popup
+        if self.detail_open {
+            if let Some(rule) = self.items.get(self.selected) {
+                self.draw_detail_popup(frame, area, rule);
+            }
+        }
+    }
+
+    fn draw_detail_popup(&self, frame: &mut Frame, area: Rect, rule: &RuleRow) {
+        let popup_width = (area.width - 4).min(80);
+        let popup_height = (area.height - 4).min(30);
+        let x = (area.width.saturating_sub(popup_width)) / 2;
+        let y = (area.height.saturating_sub(popup_height)) / 2;
+        let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+        frame.render_widget(Clear, popup_area);
+
+        let scope_display = if rule.scope == "global" {
+            "global".to_string()
+        } else if rule.tenant_id.is_empty() {
+            rule.scope.clone()
+        } else {
+            format!("{}: {}", rule.scope, rule.tenant_id)
+        };
+
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("  ID:       ", Style::default().fg(theme::COLOR_MUTED)),
+                Span::raw(&rule.rule_id),
+            ]),
+            Line::from(vec![
+                Span::styled("  Scope:    ", Style::default().fg(theme::COLOR_MUTED)),
+                Span::raw(&scope_display),
+            ]),
+            Line::from(vec![
+                Span::styled("  Created:  ", Style::default().fg(theme::COLOR_MUTED)),
+                Span::raw(&rule.created_at),
+            ]),
+            Line::from(vec![
+                Span::styled("  Updated:  ", Style::default().fg(theme::COLOR_MUTED)),
+                Span::raw(&rule.updated_at),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Rule Text:",
+                Style::default()
+                    .fg(theme::COLOR_FG)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+        ];
+
+        // Wrap rule text into lines that fit the popup
+        let text_width = (popup_width - 6) as usize;
+        for wrapped_line in wrap_text(&rule.rule_text, text_width) {
+            lines.push(Line::from(format!("  {}", wrapped_line)));
+        }
+
+        let popup = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Rule Detail ")
+                .title_style(Style::default().add_modifier(Modifier::BOLD))
+                .style(theme::popup_style()),
+        );
+
+        frame.render_widget(popup, popup_area);
+    }
+}
+
+/// Truncate a string to `max_len` characters, adding ellipsis if needed.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_len.saturating_sub(1)).collect();
+        format!("{}\u{2026}", truncated)
+    }
+}
+
+/// Format an ISO datetime string to short date (YYYY-MM-DD).
+fn format_short_date(s: &str) -> String {
+    if s.len() >= 10 {
+        s[..10].to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+/// Simple word-wrapping for display in popups.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.lines() {
+        if paragraph.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let mut current_line = String::new();
+        for word in paragraph.split_whitespace() {
+            if current_line.is_empty() {
+                current_line = word.to_string();
+            } else if current_line.len() + 1 + word.len() <= width {
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                lines.push(current_line);
+                current_line = word.to_string();
+            }
+        }
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_initializes_empty() {
+        let browser = RuleBrowser::new();
+        assert!(browser.items.is_empty());
+        assert_eq!(browser.selected, 0);
+        assert!(!browser.detail_open());
+    }
+
+    #[test]
+    fn truncate_str_short() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_str_long() {
+        let result = truncate_str("hello world foo bar", 10);
+        assert!(result.chars().count() <= 10);
+        assert!(result.contains('\u{2026}'));
+    }
+
+    #[test]
+    fn format_short_date_iso() {
+        assert_eq!(format_short_date("2026-04-16T18:41:10+02:00"), "2026-04-16");
+    }
+
+    #[test]
+    fn format_short_date_short_input() {
+        assert_eq!(format_short_date("2026"), "2026");
+    }
+
+    #[test]
+    fn wrap_text_basic() {
+        let lines = wrap_text("hello world foo bar baz", 12);
+        assert!(!lines.is_empty());
+        for line in &lines {
+            assert!(line.len() <= 12, "line too long: {}", line);
+        }
+    }
+
+    #[test]
+    fn wrap_text_empty() {
+        let lines = wrap_text("", 80);
+        assert!(lines.is_empty());
+    }
+}

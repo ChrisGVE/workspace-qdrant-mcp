@@ -6,16 +6,20 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use super::event::{Event, EventHandler};
 use super::terminal;
+use super::theme;
 use super::views::dashboard::{Dashboard, FocusedCell};
 use super::views::libraries::LibraryBrowser;
 use super::views::logs::LogViewer;
 use super::views::projects::ProjectBrowser;
 use super::views::queue::QueueBrowser;
+use super::views::rules::RuleBrowser;
+use super::views::scratchpad::ScratchpadBrowser;
+use super::views::service::ServiceView;
 
 /// Active view in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,16 +28,22 @@ pub enum View {
     Queue,
     Projects,
     Libraries,
+    Rules,
+    Scratchpad,
+    Service,
     Logs,
 }
 
 impl View {
     /// All views in tab order.
-    const ALL: [View; 5] = [
+    const ALL: [View; 8] = [
         View::Dashboard,
         View::Queue,
         View::Projects,
         View::Libraries,
+        View::Rules,
+        View::Scratchpad,
+        View::Service,
         View::Logs,
     ];
 
@@ -43,6 +53,9 @@ impl View {
             View::Queue => "Queue",
             View::Projects => "Projects",
             View::Libraries => "Libraries",
+            View::Rules => "Rules",
+            View::Scratchpad => "Scratchpad",
+            View::Service => "Service",
             View::Logs => "Logs",
         }
     }
@@ -83,6 +96,12 @@ pub struct App {
     project_browser: Option<ProjectBrowser>,
     /// Library browser state (lazily initialized on first Libraries view).
     library_browser: Option<LibraryBrowser>,
+    /// Rule browser state (lazily initialized on first Rules view).
+    rule_browser: Option<RuleBrowser>,
+    /// Scratchpad browser state (lazily initialized on first Scratchpad view).
+    scratchpad_browser: Option<ScratchpadBrowser>,
+    /// Service view state (lazily initialized on first Service view).
+    service_view: Option<ServiceView>,
     /// Log viewer state (lazily initialized on first Logs view).
     log_viewer: Option<LogViewer>,
 }
@@ -99,6 +118,9 @@ impl App {
             queue_browser: None,
             project_browser: None,
             library_browser: None,
+            rule_browser: None,
+            scratchpad_browser: None,
+            service_view: None,
             log_viewer: None,
         }
     }
@@ -121,6 +143,22 @@ impl App {
     /// Return a mutable reference to the library browser, creating it if needed.
     fn library_browser(&mut self) -> &mut LibraryBrowser {
         self.library_browser.get_or_insert_with(LibraryBrowser::new)
+    }
+
+    /// Return a mutable reference to the rule browser, creating it if needed.
+    fn rule_browser(&mut self) -> &mut RuleBrowser {
+        self.rule_browser.get_or_insert_with(RuleBrowser::new)
+    }
+
+    /// Return a mutable reference to the scratchpad browser, creating it if needed.
+    fn scratchpad_browser(&mut self) -> &mut ScratchpadBrowser {
+        self.scratchpad_browser
+            .get_or_insert_with(ScratchpadBrowser::new)
+    }
+
+    /// Return a mutable reference to the service view, creating it if needed.
+    fn service_view(&mut self) -> &mut ServiceView {
+        self.service_view.get_or_insert_with(ServiceView::new)
     }
 
     /// Return a mutable reference to the log viewer, creating it if needed.
@@ -162,6 +200,15 @@ impl App {
             }
             View::Libraries => {
                 self.library_browser().on_tick();
+            }
+            View::Rules => {
+                self.rule_browser().on_tick();
+            }
+            View::Scratchpad => {
+                self.scratchpad_browser().on_tick();
+            }
+            View::Service => {
+                self.service_view().on_tick();
             }
             View::Logs => {
                 self.log_viewer().on_tick();
@@ -206,6 +253,20 @@ impl App {
         // Delegate keys to the library browser when on Libraries view
         if self.current_view == View::Libraries {
             if self.handle_library_key(key) {
+                return;
+            }
+        }
+
+        // Delegate keys to the rule browser when on Rules view
+        if self.current_view == View::Rules {
+            if self.handle_rule_key(key) {
+                return;
+            }
+        }
+
+        // Delegate keys to the scratchpad browser when on Scratchpad view
+        if self.current_view == View::Scratchpad {
+            if self.handle_scratchpad_key(key) {
                 return;
             }
         }
@@ -409,6 +470,105 @@ impl App {
         }
     }
 
+    /// Handle rule-specific keys. Returns true if the key was consumed.
+    fn handle_rule_key(&mut self, key: KeyEvent) -> bool {
+        let browser = self.rule_browser();
+
+        if browser.detail_open() {
+            if key.code == KeyCode::Esc {
+                browser.close_detail();
+            }
+            return true;
+        }
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                browser.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                browser.select_prev();
+                true
+            }
+            KeyCode::PageUp => {
+                browser.page_up(20);
+                true
+            }
+            KeyCode::PageDown => {
+                browser.page_down(20);
+                true
+            }
+            KeyCode::Enter => {
+                browser.open_detail();
+                true
+            }
+            KeyCode::Esc => {
+                browser.close_detail();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle scratchpad-specific keys. Returns true if the key was consumed.
+    fn handle_scratchpad_key(&mut self, key: KeyEvent) -> bool {
+        let browser = self.scratchpad_browser();
+
+        if browser.detail_open() {
+            match key.code {
+                KeyCode::Esc => {
+                    browser.close_detail();
+                    return true;
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    browser.scroll_detail_down();
+                    return true;
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    browser.scroll_detail_up();
+                    return true;
+                }
+                KeyCode::PageDown => {
+                    browser.page_down(10);
+                    return true;
+                }
+                KeyCode::PageUp => {
+                    browser.page_up(10);
+                    return true;
+                }
+                _ => return true,
+            }
+        }
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                browser.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                browser.select_prev();
+                true
+            }
+            KeyCode::PageUp => {
+                browser.page_up(20);
+                true
+            }
+            KeyCode::PageDown => {
+                browser.page_down(20);
+                true
+            }
+            KeyCode::Enter => {
+                browser.open_detail();
+                true
+            }
+            KeyCode::Esc => {
+                browser.close_detail();
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Handle log-specific keys. Returns true if the key was consumed.
     fn handle_log_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
@@ -450,7 +610,10 @@ impl App {
             KeyCode::Char('2') => self.current_view = View::Queue,
             KeyCode::Char('3') => self.current_view = View::Projects,
             KeyCode::Char('4') => self.current_view = View::Libraries,
-            KeyCode::Char('5') => self.current_view = View::Logs,
+            KeyCode::Char('5') => self.current_view = View::Rules,
+            KeyCode::Char('6') => self.current_view = View::Scratchpad,
+            KeyCode::Char('7') => self.current_view = View::Service,
+            KeyCode::Char('8') => self.current_view = View::Logs,
 
             // Tab navigation
             KeyCode::Tab => self.current_view = self.current_view.next(),
@@ -548,6 +711,27 @@ impl App {
                     draw_loading(frame, area, "Libraries");
                 }
             }
+            View::Rules => {
+                if let Some(browser) = &self.rule_browser {
+                    browser.draw(frame, area);
+                } else {
+                    draw_loading(frame, area, "Rules");
+                }
+            }
+            View::Scratchpad => {
+                if let Some(browser) = &self.scratchpad_browser {
+                    browser.draw(frame, area);
+                } else {
+                    draw_loading(frame, area, "Scratchpad");
+                }
+            }
+            View::Service => {
+                if let Some(view) = &self.service_view {
+                    view.draw(frame, area);
+                } else {
+                    draw_loading(frame, area, "Service");
+                }
+            }
             View::Logs => {
                 if let Some(viewer) = &self.log_viewer {
                     viewer.draw(frame, area);
@@ -587,7 +771,7 @@ impl App {
                 Span::raw("Previous view"),
             ]),
             Line::from(vec![
-                Span::styled("  1-5         ", Style::default().fg(Color::Yellow)),
+                Span::styled("  1-8         ", Style::default().fg(Color::Yellow)),
                 Span::raw("Jump to view"),
             ]),
             Line::from(vec![
@@ -651,18 +835,24 @@ mod tests {
         assert!(app.queue_browser.is_none());
         assert!(app.project_browser.is_none());
         assert!(app.library_browser.is_none());
+        assert!(app.rule_browser.is_none());
+        assert!(app.scratchpad_browser.is_none());
+        assert!(app.service_view.is_none());
     }
 
     #[test]
     fn view_next_wraps() {
         assert_eq!(View::Dashboard.next(), View::Queue);
         assert_eq!(View::Logs.next(), View::Dashboard);
+        assert_eq!(View::Libraries.next(), View::Rules);
+        assert_eq!(View::Service.next(), View::Logs);
     }
 
     #[test]
     fn view_prev_wraps() {
         assert_eq!(View::Dashboard.prev(), View::Logs);
         assert_eq!(View::Queue.prev(), View::Dashboard);
+        assert_eq!(View::Rules.prev(), View::Libraries);
     }
 
     #[test]
@@ -684,6 +874,19 @@ mod tests {
         let mut app = App::new("addr".into());
         app.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
         assert_eq!(app.current_view, View::Projects);
+    }
+
+    #[test]
+    fn handle_key_number_switches_to_new_views() {
+        let mut app = App::new("addr".into());
+        app.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
+        assert_eq!(app.current_view, View::Rules);
+        app.handle_key(KeyEvent::new(KeyCode::Char('6'), KeyModifiers::NONE));
+        assert_eq!(app.current_view, View::Scratchpad);
+        app.handle_key(KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE));
+        assert_eq!(app.current_view, View::Service);
+        app.handle_key(KeyEvent::new(KeyCode::Char('8'), KeyModifiers::NONE));
+        assert_eq!(app.current_view, View::Logs);
     }
 
     #[test]
@@ -710,7 +913,8 @@ mod tests {
     fn view_label_and_index() {
         assert_eq!(View::Dashboard.label(), "Dashboard");
         assert_eq!(View::Queue.index(), 1);
-        assert_eq!(View::from_index(4), View::Logs);
+        assert_eq!(View::from_index(4), View::Rules);
+        assert_eq!(View::from_index(7), View::Logs);
         assert_eq!(View::from_index(99), View::Dashboard);
     }
 
@@ -782,6 +986,72 @@ mod tests {
         assert!(app.library_browser.is_none());
         let _ = app.library_browser();
         assert!(app.library_browser.is_some());
+    }
+
+    #[test]
+    fn rule_browser_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.rule_browser.is_none());
+        let _ = app.rule_browser();
+        assert!(app.rule_browser.is_some());
+    }
+
+    #[test]
+    fn scratchpad_browser_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.scratchpad_browser.is_none());
+        let _ = app.scratchpad_browser();
+        assert!(app.scratchpad_browser.is_some());
+    }
+
+    #[test]
+    fn service_view_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.service_view.is_none());
+        let _ = app.service_view();
+        assert!(app.service_view.is_some());
+    }
+
+    #[test]
+    fn rule_keys_initialize_browser() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Rules;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.rule_browser.is_some());
+        assert!(app.running);
+    }
+
+    #[test]
+    fn scratchpad_keys_initialize_browser() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Scratchpad;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.scratchpad_browser.is_some());
+        assert!(app.running);
+    }
+
+    #[test]
+    fn on_tick_initializes_rules_on_rules_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Rules;
+        app.on_tick();
+        assert!(app.rule_browser.is_some());
+    }
+
+    #[test]
+    fn on_tick_initializes_scratchpad_on_scratchpad_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Scratchpad;
+        app.on_tick();
+        assert!(app.scratchpad_browser.is_some());
+    }
+
+    #[test]
+    fn on_tick_initializes_service_on_service_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Service;
+        app.on_tick();
+        assert!(app.service_view.is_some());
     }
 
     #[test]
