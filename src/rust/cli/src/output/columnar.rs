@@ -38,6 +38,9 @@ pub enum ColumnarEntry {
 pub struct ColumnarBuilder {
     entries: Vec<ColumnarEntry>,
     indent: usize,
+    /// When true, separator lines use full terminal width instead of
+    /// content width. Required for hybrid layouts per cli-feedback.md.
+    full_width: bool,
 }
 
 impl Default for ColumnarBuilder {
@@ -51,7 +54,14 @@ impl ColumnarBuilder {
         Self {
             entries: Vec::new(),
             indent: 4,
+            full_width: false,
         }
+    }
+
+    /// Use full terminal width for separator lines (for hybrid layouts).
+    pub fn full_width(mut self) -> Self {
+        self.full_width = true;
+        self
     }
 
     /// Set the indentation width for nested entries.
@@ -167,13 +177,19 @@ impl ColumnarBuilder {
         let max_key_width = self.compute_max_key_width(&self.entries, 0);
         let content_width = self.compute_content_width(&self.entries, 0, max_key_width);
 
-        // Opening line
-        print_sized_separator(content_width);
+        let separator_width = if self.full_width {
+            super::table::terminal_width().max(content_width)
+        } else {
+            content_width
+        };
 
-        self.render_entries(&self.entries, 0, max_key_width, content_width);
+        // Opening line
+        print_sized_separator(separator_width);
+
+        self.render_entries(&self.entries, 0, max_key_width, separator_width);
 
         // Closing line
-        print_sized_separator(content_width);
+        print_sized_separator(separator_width);
     }
 
     /// Compute the maximum key width across all entries at a given depth.
@@ -286,7 +302,7 @@ impl ColumnarBuilder {
                     if *underline {
                         // Underline from under the key through the last
                         // digit of the value, indented to match the key.
-                        let lead = Gutter::WIDTH + 1 + base_indent;
+                        let lead = Gutter::WIDTH + base_indent;
                         let dash_width = UnicodeWidthStr::width(key_with_colon.as_str())
                                 + padding
                                 + 1 // space before value

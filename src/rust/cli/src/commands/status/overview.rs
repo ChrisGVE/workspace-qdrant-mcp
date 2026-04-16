@@ -127,7 +127,14 @@ pub async fn default_status(
     // Build columnar display
     let total_queue = queue_stats.pending + queue_stats.in_progress + queue_stats.failed;
 
-    let mut builder = ColumnarBuilder::new()
+    let mut builder = ColumnarBuilder::new();
+
+    // In verbose mode, use full terminal width for hybrid layout compliance.
+    if verbose {
+        builder = builder.full_width();
+    }
+
+    builder = builder
         .kv("Overall", format_health(overall))
         .section(Some("Services"))
         .kv("Workspace-Qdrant Worker", format_health(worker_health))
@@ -141,8 +148,8 @@ pub async fn default_status(
             format_usize(active_project_count, &locale),
         );
 
-    // Verbose: list active project names
-    if verbose && !project_names.is_empty() {
+    // List active project names
+    if !project_names.is_empty() {
         builder = builder.section(Some("Active Projects"));
         for name in &project_names {
             builder = builder.raw(name, Gutter::Sync);
