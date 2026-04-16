@@ -628,18 +628,64 @@ impl App {
 
     /// Render the current state.
     fn draw(&self, frame: &mut Frame) {
+        // Check alarm state from service view
+        let alarm = self
+            .service_view
+            .as_ref()
+            .map_or(false, |sv| sv.alarm_active());
+
         let chunks = Layout::vertical([
             Constraint::Length(1), // tab bar (single line)
             Constraint::Min(1),    // main content
+            Constraint::Length(1), // status bar
         ])
         .split(frame.area());
 
+        // Apply alarm background tint to entire frame if service down
+        if alarm {
+            let alarm_bg = Paragraph::new("").style(theme::alarm_style());
+            frame.render_widget(alarm_bg, frame.area());
+        }
+
         self.draw_tab_bar(frame, chunks[0]);
         self.draw_main_content(frame, chunks[1]);
+        self.draw_status_bar(frame, chunks[2], alarm);
 
         if self.show_help {
             self.draw_help_overlay(frame);
         }
+    }
+
+    /// Draw the bottom status bar with contextual hints and alarm indicator.
+    fn draw_status_bar(&self, frame: &mut Frame, area: ratatui::layout::Rect, alarm: bool) {
+        let mut spans = Vec::new();
+
+        // Alarm indicator
+        if alarm {
+            spans.push(Span::styled(
+                " ▲ SERVICE DOWN ",
+                Style::default()
+                    .fg(theme::COLOR_FG)
+                    .bg(theme::COLOR_ERROR)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::raw(" "));
+        }
+
+        // Contextual hints based on current view
+        let hints = match self.current_view {
+            View::Dashboard => "p/l/s/r/a/e Focus cell  Enter Detail  ? Help  q Quit",
+            View::Queue => "j/k Navigate  f Filter  Enter Detail  ? Help  q Quit",
+            View::Projects | View::Libraries => "j/k Navigate  Enter Detail  ? Help  q Quit",
+            View::Rules => "j/k Navigate  Enter Detail  ? Help  q Quit",
+            View::Scratchpad => "j/k Navigate  Enter Detail (j/k scroll)  ? Help  q Quit",
+            View::Service => "? Help  q Quit",
+            View::Logs => "j/k Scroll  G Bottom  ? Help  q Quit",
+        };
+
+        spans.push(Span::styled(format!(" {hints}"), theme::status_bar_style()));
+
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     /// Draw the tab bar: "Workspace Qdrant MCP" bold, then tabs 1-5.
