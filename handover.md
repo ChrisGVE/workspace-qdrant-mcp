@@ -1,74 +1,85 @@
-# Handover — 2026-04-15 (Session 8 complete)
+# Handover — 2026-04-16 (Session 9)
 
 ## Current State
 
-Branch `main`, pushed to remote. Tag `smart-processing`. Qdrant back up.
+Branch `main`, not pushed. 6 new commits (634b8e1dc..b3ce55a8a). Qdrant currently down (connection refused). Daemon running, schema v34.
 
-## What Was Done (Session 8)
+## What Was Done (Session 9)
 
-### Test Fixes (5 Rust + 20 TS pre-existing failures)
-- `CREATE_WATCH_FOLDERS_SQL` missing `is_worktree` + `main_worktree_watch_id` columns (v31 added them, base DDL never updated)
-- `test_empty_file_handling` expected Ok but `process_file` returns `EmptyFile` error
-- gRPC integration tests: accept `FailedPrecondition` when Qdrant unavailable
-- TS: `enqueueUnified` changed sync→async (daemon gRPC); rewrote 6 test files with mock daemon client, async patterns, connectivity error matching
+### CLI Status Display Overhaul (6 commits)
 
-### Task 4: Ignore File Reconciliation (ALL 8 SUBTASKS DONE)
-1. ✅ Subtask 1 (prior session) — `!pattern` + `- pattern` negation
-2. ✅ Subtask 2 — `ProjectIgnoreMatcher::for_dir(dir, project_root)` parent cascade. Walks ancestors from root→dir accumulating .gitignore/.wqmignore rules. 5 new tests. Caller in `scan.rs` passes `None` (backward compat).
-3. ✅ Subtask 3 — `patterns/eligibility_trie.rs`: HashMap<PathBuf, EligibilityStatus> built from WalkBuilder. `.add_custom_ignore_filename(".gitignore")` for non-git dirs. 5 tests.
-4. ✅ Subtask 4 — `startup/reconciliation/ignore_sync.rs`: walks project tree, diffs vs tracked_files, enqueues file/delete (stale) and file/add (missing). 4 tests.
-5. ✅ Subtask 5 — v34 migration: `ignore_file_mtimes` table. `ignore_mtime.rs` with get/set/clear helpers. 5 tests.
-6. ✅ Subtask 6 — `reconcile_all_ignore_rules()` in reconciliation/mod.rs, called from `database.rs::run_reconciliation` after stale cleanup.
-7. ✅ Subtask 7 — `watching_queue/ignore_watch.rs`: intercepts .gitignore/.wqmignore Create/Modify events in `process_file_event`, compares mtime, triggers reconciliation.
-8. ✅ Subtask 8 — Watcher calls `reconcile_ignore_rules` directly (not via queue op) for immediate stale cleanup.
+Reworked `wqm status` and `wqm status -v` per cli-feedback.md design guidelines.
 
-### Tasks 11-16: Scratchpad Rebuild (ALL DONE)
-Code was already implemented. Verified: `scratchpad_rebuild.rs` exists, wired into `mod.rs`, dispatch handles "scratchpad" and "all", CLI has `Scratchpad` variant. Marked done.
+**Completed:**
+1. **Prefixed entity names** — tenant IDs replaced with `prj:`, `lib:`, `rls:`, `scp:` prefixed human-readable names. `build_full_tenant_name_map()` in `watch/helpers.rs` covers projects + libraries. `prefixed_display_name()` adds collection prefix.
+2. **Underline on Total** — underline under Queue Total line, indented to start under key text.
+3. **Two-column entity layout** — Queue by Entity section renders entity pairs side-by-side per double-columnar template spec. Falls back to single column when terminal too narrow.
+4. **Active Projects in compact mode** — project names shown in both compact and verbose.
+5. **Annotations column** — right-aligned annotation column added to ColumnarBuilder (`kv_annotated`, `kv_underline_annotated`, `aligned_group_annotated`). Response times, health reason, avg processing, ETA rendered as annotations.
+6. **ColumnarBuilder.full_width()** — separators span full terminal width in verbose mode for hybrid layout compliance.
 
-### Tasks 17, 21-23: Build, Docs, Tests (ALL DONE)
-- Release binaries built and deployed to `~/.local/bin/`
-- API reference updated
-- All test suites green: core 2593, gRPC 143, CLI 494, TS 424 = **3654 pass, 0 fail**
+**Key files changed:**
+- `src/rust/cli/src/commands/status/overview.rs` — main status display + two-column renderer
+- `src/rust/cli/src/output/columnar.rs` — annotation support, full_width, underline, literal_key
+- `src/rust/cli/src/commands/watch/helpers.rs` — `build_full_tenant_name_map`, `prefixed_display_name`, `collection_prefix`
+- `src/rust/cli/src/commands/watch/mod.rs` — made helpers `pub(crate)`
+- `src/rust/cli/src/data/queries.rs` — `health_reason()`, `get_avg_processing_ms()`
 
-## What Remains
+**Tests:** CLI 497 pass (3 new helper tests added)
 
-### Task 18: Restart daemon (Qdrant now available)
-```bash
-launchctl unload ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
-sleep 2
-launchctl load ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
-```
-Verify: `wqm service status`, check schema_version = 34 (v33 scratchpad_mirror + v34 ignore_file_mtimes).
+## Pending Feedback — Address Next Session
 
-### Task 19: E2E scratchpad store + rebuild test
-1. `wqm store` a scratchpad entry via MCP
-2. Verify in scratchpad_mirror: `sqlite3 ~/.local/share/workspace-qdrant/state.db 'SELECT * FROM scratchpad_mirror'`
-3. Verify in Qdrant scratchpad collection
-4. Delete Qdrant point, run `wqm rebuild scratchpad`, verify restored
-5. Run `wqm rebuild all`, verify scratchpad included
+### 1. Verbose-only annotations
+Response times, queue health reason, avg processing time, ETA are currently shown in BOTH compact and verbose. User wants these **verbose-only**. Compact should show just the core values without annotations.
 
-### Task 20: Scratchpad edge cases
-Empty title, empty tags, unicode content, long content (10KB+), concurrent stores, rebuild with empty mirror, rebuild when collection missing.
+### 2. Narrow terminal output mangled
+When terminal is narrow, output wraps/mangles. The two-column entity section has a fallback, but the main columnar block does not handle narrow terminals. Lines with long annotation text overflow.
 
-### Task 24: Tag v0.1.1
-After tasks 18-20 verified. Annotated tag + push.
+### 3. Header not consistent with design guidelines
+Verbose mode header (the main columnar section) does not fully comply with cli-feedback.md. The separator lines span full width but content is left-aligned with wide empty space to the right. Needs review against the columnar template spec points 1-5.
 
-## Build Environment Note
-Rust builds require `LIBRARY_PATH` for clang_rt:
+### 4. Queue health reason unclear
+Current reason string: `oldest pending: 5d 16h (>24h), 132 failed`
+- Not clear what each piece means. Thresholds from `queries.rs`:
+  - **Unhealthy**: oldest pending > 24h OR failed > 10% of active
+  - **Degraded**: failed > 0 OR oldest pending > 1h
+- User asks: if both age and failed count are shown, what is the comparison point for failed? The `(>24h)` threshold is shown but no threshold for failed count. Need clearer labeling, e.g. `stale: 5d 16h` and `failures: 132 (0.1%)` with explicit threshold.
+
+### 5. Processing metrics labeling
+- `avg 7.6s/item` should say "avg processing: 7.6s/item" to clarify it's processing time not wall time
+- `est. 12d 3h` should indicate it's estimated time to drain the entire queue, not just pending
+
+### 6. Consider existing crates for terminal formatting
+User feels we're reinventing the wheel with custom columnar/table formatting. Research terminal output crates that handle:
+- Responsive layout (adapt to terminal width)
+- Columnar/table formatting with alignment
+- Two-column layouts
+- Candidates to evaluate: `ratatui` (already in deps for TUI), `comfy-table`, `tabled` (already in deps), `terminal_size` (already in deps), `textwrap`
+- Assess whether replacing custom `ColumnarBuilder` with an existing crate is worthwhile vs continuing to extend it.
+
+## Remaining from Session 8
+
+### Task 18: ✅ Daemon verified
+Schema v34 confirmed. `ignore_file_mtimes` and `scratchpad_mirror` tables present.
+
+### Task 19: E2E scratchpad test — BLOCKED
+Scratchpad entry stored in SQLite mirror but stuck in 139K-item queue backlog. Queue needs draining before E2E can complete. `wqm admin rebuild scratchpad` enqueues items but doesn't bypass queue. Consider clearing stale backlog first.
+
+### Task 20: Scratchpad edge cases — BLOCKED on Task 19
+
+### Task 24: Tag v0.1.1 — BLOCKED on Tasks 19-20
+
+## Queue Backlog Issue
+~139K items pending from when Qdrant was offline for days. Queue processes ~3 items concurrently at ~7.6s/item avg. ETA ~12 days to drain naturally. Options:
+1. Clear stale project items (`DELETE FROM unified_queue WHERE status='pending' AND collection='projects'`) — they'll re-enqueue via next rebuild
+2. Wait for natural drain
+3. Increase parallelism in daemon queue processor
+
+## Build Environment
 ```bash
 export LIBRARY_PATH="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin:${LIBRARY_PATH}"
 export ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib
 ```
 
-## Key New Files
-- `src/rust/daemon/core/src/patterns/gitignore.rs` — parent cascade
-- `src/rust/daemon/core/src/patterns/eligibility_trie.rs` — new
-- `src/rust/daemon/core/src/startup/reconciliation/ignore_sync.rs` — new
-- `src/rust/daemon/core/src/ignore_mtime.rs` — new
-- `src/rust/daemon/core/src/schema_version/v34.rs` — new migration
-- `src/rust/daemon/core/src/watching_queue/ignore_watch.rs` — new
-- `src/rust/daemon/core/src/watching_queue/file_watcher_ops.rs` — intercept added
-- `src/rust/daemon/memexd/src/database.rs` — startup integration
-
 ## Test Counts
-Core: 2593 pass, 16 ignored | gRPC: 143 | CLI: 494 | TS: 424+2 skip = **3654 pass, 0 fail**
+CLI: 497 pass | Core: 2593 pass, 16 ignored | gRPC: 143 | TS: 424+2 skip
