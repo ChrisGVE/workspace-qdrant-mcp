@@ -152,9 +152,6 @@ enum AdminCommand {
         command: MetricsCommand,
     },
 
-    /// Collection management (list, reset)
-    Collections(super::collections::CollectionsArgs),
-
     /// Rebuild indexes and sync state (tags, search, vocabulary, keywords, rules, projects, libraries, all)
     Rebuild(super::rebuild::RebuildArgs),
 
@@ -236,7 +233,6 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             MetricsCommand::Disable => metrics_setup::disable().await,
             MetricsCommand::Status { port } => metrics_setup::status(port).await,
         },
-        AdminCommand::Collections(args) => super::collections::execute(args).await,
         AdminCommand::Rebuild(args) => super::rebuild::execute(args).await,
         AdminCommand::Backup(args) => super::backup::execute(args).await,
         AdminCommand::Restore(args) => super::restore::execute(args).await,
