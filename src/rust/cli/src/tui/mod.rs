@@ -10,6 +10,8 @@ pub mod event;
 #[cfg(feature = "tui")]
 pub mod terminal;
 #[cfg(feature = "tui")]
+pub mod theme;
+#[cfg(feature = "tui")]
 pub mod views;
 
 /// Entry point for the TUI. Sets up the terminal, runs the app loop,
