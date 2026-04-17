@@ -36,10 +36,24 @@ export const mockDaemonClient = {
     documentIds: ['doc-123'],
   }),
   embedText: vi.fn().mockResolvedValue({
-    denseEmbedding: new Array(384).fill(0.1),
-    sparseIndices: [1, 2, 3],
-    sparseValues: [0.5, 0.3, 0.2],
+    success: true,
+    embedding: new Array(384).fill(0.1),
   }),
+  generateSparseVector: vi.fn().mockResolvedValue({
+    success: true,
+    indices_values: { 1: 0.5, 2: 0.3, 3: 0.2 },
+  }),
+  enqueueItem: vi.fn().mockResolvedValue({
+    queue_id: 'mock-queue-id',
+    is_new: true,
+    idempotency_key: 'mock-idemp-key',
+  }),
+  notifyServerStatus: vi.fn().mockResolvedValue({}),
+  getStatus: vi.fn().mockResolvedValue({}),
+  getMetrics: vi.fn().mockResolvedValue({}),
+  logSearchEvent: vi.fn().mockResolvedValue({}),
+  updateSearchEvent: vi.fn().mockResolvedValue({}),
+  getConnectionState: vi.fn().mockReturnValue('connected'),
 };
 
 // Mock the Qdrant client
