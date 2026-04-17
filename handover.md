@@ -1,104 +1,84 @@
-# Handover — 2026-04-16 (Session 10)
+# Handover — 2026-04-17 (Session 11)
 
 ## Current State
 
-Branch `main`, pushed. 9 new commits this session (79e0af852..c123aed79). Schema v34. **Daemon not starting** — exits code 1 with no stderr; investigate on next session.
+Branch `main`, pushed. Released **v0.1.2** tag (pushed to origin). Schema v34. Daemon running via launchctl. All task-master tasks in smart-processing tag complete.
 
-## What Was Done (Session 10)
+## What Was Done (Session 11)
 
-### TUI Feature Completion (8 commits)
+### Critical fixes
+1. **Daemon startup investigation** — Discovered earlier claim that fix was deployed was wrong; binary lacked `deserialize_tags` symbols. Rebuilt memexd+wqm with release LTO and deployed.
+2. **Scratchpad tags E2E validated** — b24d714d (session 10 test item with stringified tags) now processes successfully in 1025ms. Tags fix confirmed in production binary.
+3. **Task 20 edge cases** — Submitted 5 scratchpad entries (empty title, empty tags, Unicode/special chars, 10KB long content, session 11 marker). All processed into both `scratchpad_mirror` SQLite table and Qdrant scratchpad collection.
 
-Built from the existing 6820-line TUI (Dashboard, Queue, Projects, Libraries, Logs) to a complete interactive terminal UI.
+### Queue backlog management
+Reconciliation on each daemon start re-enqueues 50K-140K file items from filesystem walks (thales alone = 93K files). SQLite write contention drops INSERT throughput to ~1/sec, making queue drain impractical.
 
-**New features:**
-1. **Shared theme module** (`tui/theme.rs`) — centralized colors, alarm state (dark red bg), gutter symbols, composite styles
-2. **Rules screen** — scrollable list from `rules_mirror` table, detail popup with full rule text
-3. **Scratchpad screen** — read-only list from `scratchpad_mirror` table, scrollable detail popup
-4. **Service screen** — daemon/Qdrant status with alarm indicator, queue summary, active counts
-5. **Bottom status bar** — contextual keybinding hints per view, SERVICE DOWN alarm banner
-6. **Search (`/`)** — reusable `SearchState` with case-insensitive substring matching across all 5 list views
-7. **Toggle commands** — pause/resume watchers via gRPC from Service view (p/r keys)
-8. **Destructive guard** (`tui/guard.rs`) — two-step confirmation: type exact identifier → type "yes"
-9. **gRPC commands** — rebuild collection, delete project wrappers in `tui/commands.rs`
+Mitigations applied this session:
+- Repeatedly `DELETE FROM unified_queue WHERE item_type != 'text'` to clear file backlog
+- `UPDATE watch_folders SET enabled=0` for heavy projects (reconciliation only iterates `enabled=1`)
+- `DELETE FROM tracked_files` for disabled projects (ignore_sync uses tracked_files as reference)
+- After test complete: re-enabled all 23 watch_folders back to `enabled=1`
 
-**CLI cleanup:**
-- Removed `admin collections list` and `admin collections reset` (internal, not user-facing)
+### Released v0.1.2 (tagged + pushed)
 
-**TUI now has 8 views:** Dashboard (1), Queue (2), Projects (3), Libraries (4), Rules (5), Scratchpad (6), Service (7), Logs (8)
+Note: v0.1.1 tag already existed on remote (at commit 96471381) for earlier scratchpad_mirror release. Current work was substantial enough to warrant v0.1.2 bump instead of force-moving v0.1.1.
 
-### Scratchpad Tags Bug Fix (1 commit)
+### Commits (session 11)
+- `test(ts): align mockDaemonClient with current DaemonClient interface` (420638221)
+- `chore: bump version to 0.1.1` (d8de6c09a) — superseded
+- `chore: bump version to 0.1.2` (0c159a76d)
 
-Fixed `ScratchpadPayload` tags deserialization: MCP clients send tags as stringified JSON array (`"[\"a\",\"b\"]"`) instead of native array. Added custom `deserialize_tags` that handles both forms. This was causing permanent queue failures.
-
-### Queue Backlog Cleared
-
-Purged 137K stale project pending items from `unified_queue`. These accumulated while Qdrant was offline. Items will re-enqueue on next rebuild.
-
-## Key Files Changed
-
-### TUI (new/modified)
-- `src/rust/cli/src/tui/theme.rs` — shared color palette and styles
-- `src/rust/cli/src/tui/search.rs` — reusable search/filter state
-- `src/rust/cli/src/tui/guard.rs` — destructive command guard dialog
-- `src/rust/cli/src/tui/commands.rs` — gRPC command wrappers (pause/resume/rebuild/delete)
-- `src/rust/cli/src/tui/app.rs` — 8 views, status bar, alarm state, key handlers
-- `src/rust/cli/src/tui/views/rules.rs` + `rules_data.rs`
-- `src/rust/cli/src/tui/views/scratchpad.rs` + `scratchpad_data.rs`
-- `src/rust/cli/src/tui/views/service.rs`
-
-### Bug fix
-- `src/rust/common/src/payloads/content.rs` — `deserialize_tags` for stringified arrays
-
-### CLI cleanup
-- `src/rust/cli/src/commands/admin/mod.rs` — removed Collections subcommand
-
-## Pending — Next Session
-
-### 1. Daemon Not Starting (CRITICAL)
-After deploying rebuilt binaries and restarting, daemon exits code 1 with no stderr. Was running fine before rebuild. Need to investigate:
-- Run `memexd` directly with `RUST_LOG=debug` to get output
-- Check if it's an ORT linking issue, config issue, or port conflict
-- Previous daemon was running schema v34 fine
-
-### 2. E2E Scratchpad Test (Task 19)
-Queue was cleared, tags bug fixed, but daemon needs to be running first. Once daemon is up:
-- Retry the failed scratchpad queue item (b24d714d) or create a new one
-- Verify it processes successfully with the tags fix
-- Confirm entry appears in both Qdrant and scratchpad_mirror
-
-### 3. Scratchpad Edge Cases (Task 20)
-After task 19 passes:
-- Test empty content, very long content, Unicode content
-- Test duplicate detection (idempotency key)
-- Test tag variations (empty, many tags, special chars)
-
-### 4. Tag v0.1.1 (Task 24)
-After tasks 19-20 pass. Dependencies 22, 23 already done.
-
-### 5. CLI Status Feedback (from Session 9 — deferred)
-Items from cli-feedback.md that were deferred:
-- Verbose-only annotations (currently shown in compact too)
-- Narrow terminal overflow handling
-- Header compliance with columnar template spec
-- Queue health reason unclear labeling
-- Processing metrics labeling clarity
-- These are polish items, not blocking release
+### Tests — all passing
+- wqm-common: **213** passed
+- workspace-qdrant-core (lib): **2197** passed
+- workspace-qdrant-grpc: **143** passed
+- wqm-cli: **541** passed
+- TypeScript mcp-server: **424** passed, 2 skipped
+- **Total: 3518 passing, 0 failing, 2 skipped**
 
 ## Task-Master State (smart-processing tag)
-- 47/51 done, 6 cancelled (unnecessary abstraction), 1 pending (24), 3 blocked (18→19→20, but 18 is functionally done — just task-master not updated)
-- Task 18: functionally done (daemon was running v34). Mark done once daemon starts again.
-- Task 19: blocked on daemon running + tags fix deployed
-- Task 20: blocked on 19
-- Task 24: deps 22/23 done, can proceed after 19/20
+All pending/blocked work resolved:
+- Task 18 (daemon restart with v33): done
+- Task 19 (E2E scratchpad store+rebuild): done
+- Task 20 (scratchpad edge cases): done
+- Task 24 (tag + release): done via v0.1.2 instead of v0.1.1
 
-## Test Counts
-CLI: 541 pass | Core: 2593 pass, 16 ignored | gRPC: 143 | Common: 223 | TS: 424+2 skip
+No pending, no blocked. 48 done / 6 cancelled / 51 total.
+
+## Known Technical Debt
+
+### Queue reconciliation is expensive on startup
+Every daemon restart walks filesystem for all enabled watch folders and re-enqueues any file not in tracked_files. For projects with tens of thousands of files, this generates 50K+ queue items and blocks gRPC server startup for minutes.
+
+Mitigations for release:
+- Users unlikely to restart daemon frequently in production
+- Only impacts cold startup, not steady-state operation
+- `wqm queue cancel <project>` allows clearing backlog
+
+Future improvements (NOT scheduled):
+- Batch reconciliation instead of serial enqueue
+- Defer heavy reconciliation to background task (unblock gRPC startup)
+- Periodic reconciliation instead of startup-only
+
+### Qdrant timeouts under load
+When queue processor hits concurrent deletes against Qdrant, operations time out (60s). Retry logic handles this but each retry is 3min. Adaptive resources reduce concurrency under CPU pressure.
 
 ## Build Environment
 ```bash
 export LIBRARY_PATH="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin:${LIBRARY_PATH}"
 export ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib
+cargo build --release --manifest-path src/rust/Cargo.toml --package memexd --package wqm-cli
 ```
 
-## PRD
-TUI PRD: `.taskmaster/docs/20260416-1841_project_0.1.1_PRD_tui-renderer-unification.md`
+Release LTO compile: ~50 min cold, mostly in `workspace_qdrant_core` LTO link step.
+
+## Next Session
+
+All tasks in smart-processing tag complete. v0.1.2 released.
+
+Possible next steps:
+- Open new task-master tag for next release planning
+- Address deferred CLI polish items (session 9 cli-feedback.md → now at tmp/cli-feedback.md)
+- Reconciliation performance work (queue throughput improvements)
+- Investigate Qdrant timeout tuning for batch operations
