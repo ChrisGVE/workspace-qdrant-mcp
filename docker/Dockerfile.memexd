@@ -92,6 +92,10 @@ COPY src/rust/daemon/memexd/Cargo.toml            daemon/memexd/
 COPY src/rust/daemon/shared-test-utils/Cargo.toml daemon/shared-test-utils/
 COPY src/rust/tools/registry-updater/Cargo.toml   tools/registry-updater/
 
+# [patch.crates-io] in the workspace Cargo.toml points to patches/fastembed.
+# Copy the entire patches/ tree so cargo fetch can resolve the patch source.
+COPY src/rust/patches/                            patches/
+
 # Create stub lib.rs / main.rs for every crate so `cargo fetch` resolves
 # without needing the full source tree.  Also stub any `[[bench]]` entries
 # declared in daemon/core/Cargo.toml — cargo validates bench paths even for
