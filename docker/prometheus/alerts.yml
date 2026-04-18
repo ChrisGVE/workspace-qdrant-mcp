@@ -1,0 +1,86 @@
+# Prometheus alerting rules for workspace-qdrant-mcp v0.1.3.
+#
+# Six rules cover queue health, daemon availability, Qdrant reachability,
+# and MCP session activity. Wire into Prometheus via `rule_files:` in
+# prometheus.yml (see task 4) and mount the file read-only into the
+# Prometheus container (see tasks 3 / 14).
+#
+# Metric-name note (deviation from PRD §G5b as drafted):
+#   The PRD mentions `wqm_queue_failed_total`. The daemon currently exports
+#   queue-processing outcomes via `memexd_queue_items_processed_total`
+#   with a `status` label (see src/rust/daemon/core/src/monitoring/metrics_core.rs).
+#   The failure alerts below filter on `status="failed"` against that
+#   existing counter; no daemon code change is required.
+
+groups:
+  - name: workspace-qdrant-alerts
+    interval: 30s
+    rules:
+
+      # ── Queue health ──────────────────────────────────────────
+
+      - alert: QueueStuck
+        expr: max_over_time(wqm_queue_oldest_pending_age_seconds[1h]) > 43200
+        for: 5m
+        labels:
+          severity: warning
+          component: daemon
+        annotations:
+          summary: "Queue has items stuck pending"
+          description: "Oldest pending queue item has exceeded 12 hours. Investigate the queue processor or blocked task type."
+
+      - alert: QueueFailedWarning
+        expr: increase(memexd_queue_items_processed_total{status="failed"}[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: daemon
+        annotations:
+          summary: "Queue items failing"
+          description: "{{ $value }} queue item(s) failed processing in the last hour."
+
+      - alert: QueueFailedCritical
+        expr: increase(memexd_queue_items_processed_total{status="failed"}[1h]) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: daemon
+        annotations:
+          summary: "Queue failure rate exceeding 10/hour"
+          description: "{{ $value }} queue items failed in the last hour. Likely systemic issue."
+
+      # ── Availability ─────────────────────────────────────────
+
+      - alert: DaemonDown
+        expr: up{job="memexd"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: daemon
+        annotations:
+          summary: "memexd daemon unreachable"
+          description: "Prometheus has been unable to scrape memexd for more than 5 minutes."
+
+      - alert: QdrantUnreachable
+        expr: up{job="qdrant"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: qdrant
+        annotations:
+          summary: "Qdrant instance unreachable"
+          description: "Prometheus has been unable to scrape Qdrant for more than 5 minutes."
+
+      # ── MCP session health ───────────────────────────────────
+
+      - alert: MCPNoInvocations
+        expr: |
+          rate(wqm_mcp_tool_invocations_total[15m]) == 0
+          and on() wqm_mcp_session_count > 0
+        for: 5m
+        labels:
+          severity: info
+          component: mcp
+        annotations:
+          summary: "MCP session active but idle"
+          description: "An MCP session is registered but no tool invocations have been recorded in the last 15 minutes."
