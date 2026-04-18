@@ -1,0 +1,46 @@
+# docker/compose/qdrant.yml
+#
+# CI overlay: adds an ephemeral Qdrant instance to the compose network.
+# Use this on clean machines (CI, fresh developer setups) where Qdrant is
+# NOT already running on the host.
+#
+# Usage (CI / clean machine):
+#   docker compose \
+#     -f docker/compose/minimal.yml \
+#     -f docker/compose/observability.yml \
+#     -f docker/compose/qdrant.yml \
+#     up -d
+#
+# When this overlay is present, QDRANT_URL is set to http://qdrant:6333
+# so memexd reaches Qdrant over the shared compose network.
+# Prometheus scrapes qdrant:6333 as defined in docker/prometheus/prometheus.yml.
+#
+# compose-spec (no Swarm, no BuildKit extensions)
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.0
+    container_name: qdrant
+    restart: unless-stopped
+    environment:
+      - QDRANT__LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
+    volumes:
+      - qdrant_ci_data:/qdrant/storage
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
+
+  memexd:
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+volumes:
+  qdrant_ci_data:

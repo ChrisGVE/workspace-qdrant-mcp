@@ -20,7 +20,7 @@ x-watchtower-off: &watchtower-off
 
 services:
   memexd:
-    image: chrisgve/memexd:v0.1.3
+    image: ${MEMEXD_IMAGE:-chrisgve/memexd:v0.1.3}
     container_name: memexd
     restart: unless-stopped
     env_file:

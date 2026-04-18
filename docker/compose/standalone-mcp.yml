@@ -21,7 +21,7 @@ x-watchtower-off: &watchtower-off
 
 services:
   mcp:
-    image: chrisgve/workspace-qdrant-mcp:v0.1.3
+    image: ${MCP_IMAGE:-chrisgve/workspace-qdrant-mcp:v0.1.3}
     container_name: workspace-qdrant-mcp
     restart: unless-stopped
     env_file:
