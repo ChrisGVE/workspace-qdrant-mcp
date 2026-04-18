@@ -93,7 +93,9 @@ COPY src/rust/daemon/shared-test-utils/Cargo.toml daemon/shared-test-utils/
 COPY src/rust/tools/registry-updater/Cargo.toml   tools/registry-updater/
 
 # Create stub lib.rs / main.rs for every crate so `cargo fetch` resolves
-# without needing the full source tree.
+# without needing the full source tree.  Also stub any `[[bench]]` entries
+# declared in daemon/core/Cargo.toml — cargo validates bench paths even for
+# `cargo fetch`, so missing files abort manifest parsing.
 RUN set -eux; \
     for member in common common-node cli \
                   daemon/core daemon/grpc daemon/shared-test-utils \
@@ -103,7 +105,14 @@ RUN set -eux; \
         echo '' > ${member}/src/lib.rs 2>/dev/null || true; \
     done; \
     mkdir -p daemon/memexd/src; \
-    echo 'fn main() {}' > daemon/memexd/src/main.rs
+    echo 'fn main() {}' > daemon/memexd/src/main.rs; \
+    mkdir -p daemon/core/benches; \
+    for bench in cross_platform_benchmarks queue_processor_bench \
+                 stress_benchmarks example_benchmark qdrant_ingestion_bench \
+                 fts5_search_bench graph_bench perf_extract_benchmarks \
+                 perf_extract_comparison; do \
+        echo 'fn main() {}' > daemon/core/benches/${bench}.rs; \
+    done
 
 # Build.rs for daemon/memexd uses git; provide a stub BUILD_NUMBER env fallback
 # in case there is no git history inside the Docker build context.
