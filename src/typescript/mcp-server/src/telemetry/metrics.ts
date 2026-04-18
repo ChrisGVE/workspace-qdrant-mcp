@@ -18,6 +18,7 @@
  */
 
 import { Counter, Histogram, Gauge, Registry } from 'prom-client';
+import { pushMetricsToOTLP } from './otlp.js';
 
 /** Shared Prometheus registry for this MCP server process. */
 export const register = new Registry();
@@ -128,17 +129,15 @@ export function recordDaemonFallback(tool: string, reason: string): void {
 // ── Stdio-mode exit hook ──────────────────────────────────────────────────────
 
 /**
- * Push metrics to stderr on process exit (stdio mode).
+ * Push accumulated metrics to the OTLP collector on process exit (stdio mode).
  *
- * This is a placeholder for the OTLP push that will be wired in task 6.
- * For now it emits the Prometheus text format to stderr at debug level so
- * the data is not silently discarded.
+ * In HTTP mode metrics are already scraped by Prometheus, so OTLP push is
+ * redundant and intentionally skipped — callers are expected to guard on
+ * MCP_SERVER_MODE before invoking this function (see src/index.ts).
+ *
+ * Delegates to pushMetricsToOTLP() which is fire-and-forget with a 1s timeout
+ * and never throws, ensuring process exit is not blocked.
  */
 export async function pushMetricsOnExit(): Promise<void> {
-  try {
-    const text = await register.metrics();
-    process.stderr.write(`[wqm-metrics] exit snapshot\n${text}\n`);
-  } catch {
-    // best-effort; do not throw during process exit
-  }
+  await pushMetricsToOTLP();
 }
