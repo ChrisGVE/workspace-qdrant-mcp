@@ -1,0 +1,114 @@
+# docker/compose/full-stack.yml
+#
+# Full-stack overlay: adds memexd + MCP server to the running main-docker stack.
+# Qdrant, Prometheus, Grafana, and otel-collector are owned by main-docker —
+# they are NOT redefined here.  This file attaches to main-docker's network so
+# all services can reach each other by container name.
+#
+# Prerequisites:
+#   1. main-docker stack running:
+#        docker compose -f /Users/chris/dev/tools/main-docker/docker-compose.yml up -d
+#   2. The external network 'main-docker_default' exists (created automatically by
+#      the main-docker compose on first `up`).
+#
+# Usage:
+#   cp docker/.env.example docker/.env   # then edit values
+#   docker compose -f docker/compose/full-stack.yml --env-file docker/.env up -d
+#
+# Prometheus scrape targets:
+#   Prometheus in main-docker scrapes its static config from
+#   /Users/chris/dev/tools/main-docker/prometheus.yml.  Add the following
+#   jobs to that file and reload Prometheus (curl -X POST http://localhost:9090/-/reload):
+#
+#     - job_name: "memexd"
+#       static_configs:
+#         - targets: ["memexd:9091"]
+#       metrics_path: /metrics
+#
+#     - job_name: "workspace-qdrant-mcp"
+#       static_configs:
+#         - targets: ["workspace-qdrant-mcp:9092"]
+#       metrics_path: /metrics
+#
+# Ports are NOT published to the host in this mode; Prometheus reaches the
+# metrics endpoints over the shared Docker network.
+
+# ── YAML anchors ─────────────────────────────────────────────────────────────
+
+x-watchtower-off: &watchtower-off
+  com.centurylinklabs.watchtower.enable: "false"
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-memexd-volumes: &memexd-volumes
+  - "${HOME}/.workspace-qdrant:/home/memexd/.workspace-qdrant"
+  - "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant"
+  - "${HOME}/dev:/home/memexd/dev:ro"
+
+x-mcp-volumes: &mcp-volumes
+  - "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant"
+  - "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  memexd:
+    image: chrisgve/memexd:v0.1.3
+    container_name: memexd
+    <<: *restart
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      # "qdrant" is the service name in main-docker; port 6333 is the REST/gRPC port.
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
+      - WQM_DATABASE_PATH=/home/memexd/.workspace-qdrant/memexd.db
+    volumes: *memexd-volumes
+    # No host port bindings — metrics are scraped over the shared network.
+    expose:
+      - "50051"
+      - "9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    networks:
+      - main
+    labels:
+      <<: *watchtower-off
+
+  mcp:
+    image: chrisgve/workspace-qdrant-mcp:v0.1.3
+    container_name: workspace-qdrant-mcp
+    <<: *restart
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      - MEMEXD_GRPC_URL=${MEMEXD_GRPC_URL:-http://memexd:50051}
+      - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
+      - MCP_SERVER_MODE=${MCP_SERVER_MODE:-stdio}
+    volumes: *mcp-volumes
+    expose:
+      - "9092"
+    depends_on:
+      memexd:
+        condition: service_healthy
+    networks:
+      - main
+    labels:
+      <<: *watchtower-off
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+# Attach to main-docker's default network.  Docker Compose names the default
+# network "<project-directory>_default"; for a project at
+# /Users/chris/dev/tools/main-docker the network is "main-docker_default".
+networks:
+  main:
+    external: true
+    name: main-docker_default
