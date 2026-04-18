@@ -75,7 +75,7 @@ poll_http() {
 # prom_query <promql> — returns the Prometheus instant-query JSON result array
 prom_query() {
   local query="$1"
-  curl -sf "http://localhost:9090/api/v1/query?query=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "${query}")" \
+  curl -sf -G "http://localhost:9090/api/v1/query" --data-urlencode "query=${query}" \
     2>/dev/null
 }
 
