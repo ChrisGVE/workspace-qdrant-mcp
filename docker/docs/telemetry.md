@@ -218,4 +218,29 @@ The collector receives OTLP metrics (from the MCP server in stdio mode) and
 exposes them as a Prometheus scrape target at `:8888`. Batch size: 10 items,
 timeout: 10 s.
 
+## Adaptive resource management in containers
+
+The daemon has an adaptive resource manager that scales embedding concurrency
+and inter-item delay based on host user activity (Normal → Active → RampingUp
+→ Burst). Idle detection uses CoreGraphics `CGEventSourceSecondsSinceLastEventType`
+with an IOKit `HIDIdleTime` fallback — **macOS host only**.
+
+Inside a Docker container (always Linux, including Docker Desktop for Mac),
+`seconds_since_last_input()` returns `None` and the state machine stays at
+Normal / Active:
+
+- `Burst` and `RampingUp` modes are unreachable
+- `+50% concurrency when user present and queue has work` degenerates to
+  `+50% whenever queue has work`
+- Queue-depth throttling (`watching_queue/throttle.rs`) and CPU-pressure
+  detection (load average) continue to work unchanged
+
+In practice the daemon is slightly more conservative in Docker than on a
+macOS host — it cannot exploit the "user away, ramp up" window. No crash,
+no misbehaviour.
+
+Future: a Linux-native idle signal (systemd-logind `IdleHint`, host bind
+mount of `/run/user/$UID`, or a manual gRPC "go fast" command) is tracked
+for a later minor release.
+
 _workspace-qdrant-mcp v0.1.3 — documentation updated 2026-04-18_
