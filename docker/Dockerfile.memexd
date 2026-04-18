@@ -11,7 +11,7 @@
 #   No --host flag exists; the daemon always binds to 0.0.0.0 internally.
 #   Metrics endpoint: /metrics  Health endpoint: /health  (axum, metrics_server.rs)
 
-ARG RUST_VERSION=1.86
+ARG RUST_VERSION=1.90
 ARG DEBIAN_CODENAME=bookworm
 ARG ONNX_VERSION=1.23.2
 ARG BUILDKIT_INLINE_CACHE=1
