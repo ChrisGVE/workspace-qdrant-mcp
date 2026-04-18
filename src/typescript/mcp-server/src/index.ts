@@ -14,6 +14,8 @@
 
 import { loadConfig } from './config.js';
 import { createServer, WorkspaceQdrantMcpServer } from './server.js';
+import { pushMetricsOnExit } from './telemetry/metrics.js';
+import { startMetricsServer } from './telemetry/http-server.js';
 
 // Detect stdio mode (MCP protocol requires clean stdout)
 const isStdioMode = !process.env['WQM_CLI_MODE'] && !process.env['WQM_HTTP_MODE'];
@@ -37,6 +39,9 @@ async function main(): Promise<void> {
     if (server) {
       await server.stop();
     }
+    if (isStdioMode) {
+      await pushMetricsOnExit();
+    }
     process.exit(0);
   };
 
@@ -54,9 +59,23 @@ async function main(): Promise<void> {
     });
   });
 
+  // In stdio mode, register a synchronous exit handler as a last-resort flush
+  // (covers process.exit() paths not going through the signal handlers above)
+  if (isStdioMode) {
+    process.on('exit', () => {
+      // Synchronous only — async pushMetricsOnExit() is handled by SIGINT/SIGTERM above
+      process.stderr.write('[wqm-metrics] process exit\n');
+    });
+  }
+
   // Create and start the MCP server
   try {
     server = await createServer(config, isStdioMode);
+
+    // In HTTP mode, start the Prometheus /metrics endpoint
+    if (!isStdioMode && process.env['MCP_SERVER_MODE'] === 'http') {
+      startMetricsServer();
+    }
 
     // Log startup info (only in non-stdio mode since we use stderr in stdio mode)
     const sessionState = server.getSessionState();

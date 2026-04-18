@@ -12,6 +12,7 @@ import { getGitRemoteUrl } from './utils/project-detector.js';
 import { findGitRoot } from './utils/git-utils.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
 import { logInfo, logError, logDebug, logSessionEvent, logDaemonStatus } from './utils/logger.js';
+import { recordDaemonFallback } from './telemetry/metrics.js';
 import { HEARTBEAT_INTERVAL_MS } from './server-types.js';
 import type { SessionState } from './server-types.js';
 
@@ -64,6 +65,7 @@ export async function initializeSession(
     sessionState.daemonConnected = false;
     logDaemonStatus(false, { reason: 'connection_failed' });
     logError('Daemon connection error', error);
+    recordDaemonFallback('session', 'connection_failed');
   }
 }
 
@@ -238,6 +240,7 @@ export async function sendHeartbeat(
     logError('Heartbeat failed', error, { project_id: sessionState.projectId });
     sessionState.daemonConnected = false;
     logDaemonStatus(false, { reason: 'heartbeat_failed' });
+    recordDaemonFallback('session', 'heartbeat_failed');
   }
 }
 
