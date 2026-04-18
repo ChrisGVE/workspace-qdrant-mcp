@@ -190,9 +190,9 @@ LABEL org.opencontainers.image.title="memexd" \
 
 COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
 
-# Strip the binary in the runtime stage as an additional size reduction pass.
-# (The Cargo release profile already sets strip=true, so this is defence-in-depth.)
-RUN strip /usr/local/bin/memexd
+# Note: the Cargo release profile already sets strip=true, so the binary is
+# already stripped when copied from the builder stage.  An extra `strip` pass
+# would require installing binutils in the slim runtime image for no benefit.
 
 USER memexd
 
