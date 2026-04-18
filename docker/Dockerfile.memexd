@@ -1,0 +1,182 @@
+# syntax=docker/dockerfile:1.7
+# Multi-stage, multi-arch Dockerfile for the memexd daemon.
+#
+# Build: docker buildx build --platform linux/amd64,linux/arm64 \
+#          -f docker/Dockerfile.memexd -t memexd:latest --push .
+#
+# Flag notes (verified against src/rust/daemon/memexd/src/startup.rs):
+#   --grpc-port  : gRPC listen port (default 50051). Flag is "grpc-port", NOT "port".
+#   --metrics-port: Prometheus metrics HTTP port. Optional; omitting disables the endpoint.
+#   --foreground : Run in foreground (do not daemonize). Required in containers.
+#   No --host flag exists; the daemon always binds to 0.0.0.0 internally.
+#   Metrics endpoint: /metrics  Health endpoint: /health  (axum, metrics_server.rs)
+
+ARG RUST_VERSION=1.86
+ARG DEBIAN_CODENAME=bookworm
+ARG ONNX_VERSION=1.23.2
+ARG BUILDKIT_INLINE_CACHE=1
+
+# ─────────────────────────────────────────────
+# Stage 1: ONNX Runtime downloader
+# Resolves the correct platform asset before the main build so the large
+# tar download is cached as a separate layer independent of Rust source changes.
+# ─────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM debian:${DEBIAN_CODENAME}-slim AS onnx-download
+
+ARG TARGETPLATFORM
+ARG ONNX_VERSION
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Select correct asset for the target platform.
+RUN set -eux; \
+    case "${TARGETPLATFORM}" in \
+        linux/amd64)  ONNX_ASSET="onnxruntime-linux-x64-static_lib-${ONNX_VERSION}.tgz" ;; \
+        linux/arm64)  ONNX_ASSET="onnxruntime-linux-aarch64-static_lib-${ONNX_VERSION}.tgz" ;; \
+        *) echo "Unsupported platform: ${TARGETPLATFORM}" && exit 1 ;; \
+    esac; \
+    mkdir -p /opt/onnxruntime; \
+    curl --fail --silent --show-error --location \
+        "https://github.com/supertone-inc/onnxruntime-build/releases/download/v${ONNX_VERSION}/${ONNX_ASSET}" \
+        -o /tmp/onnx.tgz; \
+    tar -xzf /tmp/onnx.tgz -C /opt/onnxruntime --strip-components=0; \
+    rm /tmp/onnx.tgz
+
+# ─────────────────────────────────────────────
+# Stage 2: Rust build
+# ─────────────────────────────────────────────
+FROM rust:${RUST_VERSION}-${DEBIAN_CODENAME} AS builder
+
+ARG TARGETPLATFORM
+ARG ONNX_VERSION
+
+# System dependencies for the build.
+# git is required by daemon/memexd/build.rs (git rev-list --count HEAD → BUILD_NUMBER).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        git \
+        libssl-dev \
+        pkg-config \
+        protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy ONNX Runtime static library from the downloader stage.
+COPY --from=onnx-download /opt/onnxruntime /opt/onnxruntime
+
+# Set ORT_LIB_LOCATION so ort-sys finds the static library at build time.
+# The extracted archive places libs under a versioned subdirectory; find the lib dir.
+RUN ORT_LIB=$(find /opt/onnxruntime -name "libonnxruntime*.a" | head -1 | xargs dirname); \
+    echo "ORT_LIB_LOCATION=${ORT_LIB}" >> /etc/environment; \
+    echo "Found ONNX lib at: ${ORT_LIB}"
+
+ENV ORT_LIB_LOCATION=/opt/onnxruntime/lib
+
+WORKDIR /build
+
+# ── Dependency pre-fetch layer ──
+# Copy only the workspace manifest files first.  This layer is cached as long as
+# Cargo.toml / Cargo.lock do not change, even when application source changes.
+COPY src/rust/Cargo.toml src/rust/Cargo.lock ./
+
+# Copy every member Cargo.toml so the workspace resolver works without full source.
+COPY src/rust/common/Cargo.toml                   common/
+COPY src/rust/common-node/Cargo.toml              common-node/
+COPY src/rust/cli/Cargo.toml                      cli/
+COPY src/rust/daemon/core/Cargo.toml              daemon/core/
+COPY src/rust/daemon/grpc/Cargo.toml              daemon/grpc/
+COPY src/rust/daemon/memexd/Cargo.toml            daemon/memexd/
+COPY src/rust/daemon/shared-test-utils/Cargo.toml daemon/shared-test-utils/
+COPY src/rust/tools/registry-updater/Cargo.toml   tools/registry-updater/
+
+# Create stub lib.rs / main.rs for every crate so `cargo fetch` resolves
+# without needing the full source tree.
+RUN set -eux; \
+    for member in common common-node cli \
+                  daemon/core daemon/grpc daemon/shared-test-utils \
+                  tools/registry-updater; do \
+        mkdir -p ${member}/src; \
+        echo 'fn main() {}' > ${member}/src/main.rs 2>/dev/null || true; \
+        echo '' > ${member}/src/lib.rs 2>/dev/null || true; \
+    done; \
+    mkdir -p daemon/memexd/src; \
+    echo 'fn main() {}' > daemon/memexd/src/main.rs
+
+# Build.rs for daemon/memexd uses git; provide a stub BUILD_NUMBER env fallback
+# in case there is no git history inside the Docker build context.
+COPY src/rust/daemon/memexd/build.rs daemon/memexd/build.rs
+
+# Fetch all dependencies into the cargo registry cache.
+# --mount=type=cache keeps the registry between builds.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo fetch --manifest-path /build/Cargo.toml
+
+# ── Full source copy ──
+# Invalidates when actual Rust source changes; dependency layers above remain cached.
+COPY src/rust/ .
+
+# Initialise a minimal git repo so build.rs can obtain BUILD_NUMBER.
+# If a real .git directory is present in the build context it will be used instead.
+RUN if [ ! -d .git ] && [ ! -f .git ]; then \
+        git init -q && git add -A && git commit -q -m "docker-build"; \
+    fi
+
+# ── Compile ──
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/build/target,sharing=locked \
+    ORT_LIB_LOCATION=/opt/onnxruntime/lib \
+    cargo build --release --package memexd
+
+# Copy the binary out of the cache mount so the next stage can access it.
+RUN --mount=type=cache,target=/build/target,sharing=locked \
+    cp /build/target/release/memexd /usr/local/bin/memexd
+
+# ─────────────────────────────────────────────
+# Stage 3: Runtime image
+# ─────────────────────────────────────────────
+FROM debian:${DEBIAN_CODENAME}-slim AS runtime
+
+ARG UID=1000
+
+# Runtime dependencies:
+#   curl  — used by the HEALTHCHECK instruction below
+#   ca-certificates — needed for any TLS connections the daemon makes at runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid ${UID} memexd \
+    && useradd --uid ${UID} --gid ${UID} --no-create-home --shell /usr/sbin/nologin memexd
+
+COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
+
+# Strip the binary in the runtime stage as an additional size reduction pass.
+# (The Cargo release profile already sets strip=true, so this is defence-in-depth.)
+RUN strip /usr/local/bin/memexd
+
+USER memexd
+
+# gRPC service port
+EXPOSE 50051
+# Prometheus metrics port
+EXPOSE 9091
+
+# Health check against the lightweight /health endpoint (returns HTTP 200 "OK").
+# /metrics is also available but /health avoids serialising the full metrics payload.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:9091/health || exit 1
+
+# Flag notes (see src/rust/daemon/memexd/src/startup.rs):
+#   --foreground    : mandatory in containers; prevents the daemon from forking into background
+#   --grpc-port     : gRPC listen port (flag name is "grpc-port", not "port")
+#   --metrics-port  : enables the Prometheus /metrics + /health HTTP endpoint
+# There is no --host flag; the daemon always binds 0.0.0.0 internally.
+CMD ["/usr/local/bin/memexd", \
+     "--foreground", \
+     "--grpc-port", "50051", \
+     "--metrics-port", "9091"]
