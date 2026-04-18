@@ -71,7 +71,6 @@ docker/deploy.sh
 docker/README.md
 docker/test-*.yaml
 docker/test-*.Dockerfile
-docker/.env.example
 docker/integration-tests/
 docker/k8s/
 docker/nginx/

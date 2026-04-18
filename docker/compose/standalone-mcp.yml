@@ -1,0 +1,40 @@
+# docker/compose/standalone-mcp.yml
+#
+# Standalone MCP server only.  Requires a running memexd reachable via
+# MEMEXD_GRPC_URL (gRPC).  Point to the standalone-memexd container, or any
+# other memexd instance on the network.
+#
+# Usage:
+#   cp docker/.env.example docker/.env   # then edit values
+#   docker compose -f docker/compose/standalone-mcp.yml --env-file docker/.env up -d
+#
+# One-liner equivalent:
+#   docker run -d \
+#     -e MEMEXD_GRPC_URL=http://<memexd-host>:50051 \
+#     -v "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant" \
+#     -v "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant" \
+#     -p 9092:9092 \
+#     chrisgve/workspace-qdrant-mcp:v0.1.3
+
+x-watchtower-off: &watchtower-off
+  com.centurylinklabs.watchtower.enable: "false"
+
+services:
+  mcp:
+    image: chrisgve/workspace-qdrant-mcp:v0.1.3
+    container_name: workspace-qdrant-mcp
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      - MEMEXD_GRPC_URL=${MEMEXD_GRPC_URL:-http://host.docker.internal:50051}
+      - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
+      - MCP_SERVER_MODE=${MCP_SERVER_MODE:-stdio}
+    volumes:
+      - "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant"
+      - "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant"
+    ports:
+      - "${MCP_METRICS_PORT:-9092}:9092"
+    labels:
+      <<: *watchtower-off
