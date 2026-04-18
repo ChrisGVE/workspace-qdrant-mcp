@@ -77,6 +77,12 @@ FROM node:${NODE_VERSION}-alpine AS runtime
 # library.  All other native deps are statically linked by node-gyp by default.
 RUN apk add --no-cache libstdc++
 
+LABEL org.opencontainers.image.title="workspace-qdrant-mcp" \
+      org.opencontainers.image.description="TypeScript MCP server for workspace-qdrant" \
+      org.opencontainers.image.version="0.1.3" \
+      org.opencontainers.image.source="https://github.com/ChrisGVE/workspace-qdrant-mcp" \
+      org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
 ENV NODE_ENV=production

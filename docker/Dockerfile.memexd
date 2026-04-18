@@ -171,6 +171,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && groupadd --gid ${UID} memexd \
     && useradd --uid ${UID} --gid ${UID} --no-create-home --shell /usr/sbin/nologin memexd
 
+LABEL org.opencontainers.image.title="memexd" \
+      org.opencontainers.image.description="workspace-qdrant-mcp Rust daemon" \
+      org.opencontainers.image.version="0.1.3" \
+      org.opencontainers.image.source="https://github.com/ChrisGVE/workspace-qdrant-mcp" \
+      org.opencontainers.image.licenses="MIT"
+
 COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
 
 # Strip the binary in the runtime stage as an additional size reduction pass.
