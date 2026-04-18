@@ -121,6 +121,27 @@ impl QueueManager {
         Ok(rows.into_iter().collect())
     }
 
+    /// Get the age in seconds of the oldest pending unified queue item.
+    ///
+    /// Computed as `now - MIN(created_at) WHERE status='pending'`. Returns 0 when
+    /// the queue has no pending items. Uses SQLite's `strftime('%s', ...)` to
+    /// avoid parsing ISO 8601 timestamps in Rust and to keep the arithmetic
+    /// monotonic with the daemon's wall-clock (both sides read 'now' in SQLite).
+    ///
+    /// The timestamp column `unified_queue.created_at` is stored as TEXT in
+    /// ISO 8601 format (`YYYY-MM-DDTHH:MM:SS.mmmZ`); `strftime('%s', ...)` accepts
+    /// that format. A negative difference (clock skew) is clamped to 0.
+    pub async fn get_oldest_pending_age_seconds(&self) -> QueueResult<i64> {
+        let age: Option<i64> = sqlx::query_scalar(
+            "SELECT CAST(strftime('%s', 'now') AS INTEGER) \
+             - CAST(strftime('%s', MIN(created_at)) AS INTEGER) \
+             FROM unified_queue WHERE status = 'pending'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(age.unwrap_or(0).max(0))
+    }
+
     /// Get the oldest pending item in the unified queue
     ///
     /// Used by the fairness scheduler to check for stale items that need
