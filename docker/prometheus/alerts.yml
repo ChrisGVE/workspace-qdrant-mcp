@@ -9,7 +9,7 @@
 #   The PRD mentions `wqm_queue_failed_total`. The daemon currently exports
 #   queue-processing outcomes via `memexd_queue_items_processed_total`
 #   with a `status` label (see src/rust/daemon/core/src/monitoring/metrics_core.rs).
-#   The failure alerts below filter on `status="failed"` against that
+#   The failure alerts below filter on `status="failure"` against that
 #   existing counter; no daemon code change is required.
 
 groups:
@@ -30,7 +30,7 @@ groups:
           description: "Oldest pending queue item has exceeded 12 hours. Investigate the queue processor or blocked task type."
 
       - alert: QueueFailedWarning
-        expr: increase(memexd_queue_items_processed_total{status="failed"}[1h]) > 0
+        expr: increase(memexd_queue_items_processed_total{status="failure"}[1h]) > 0
         for: 5m
         labels:
           severity: warning
@@ -40,7 +40,7 @@ groups:
           description: "{{ $value }} queue item(s) failed processing in the last hour."
 
       - alert: QueueFailedCritical
-        expr: increase(memexd_queue_items_processed_total{status="failed"}[1h]) > 10
+        expr: increase(memexd_queue_items_processed_total{status="failure"}[1h]) > 10
         for: 5m
         labels:
           severity: critical
