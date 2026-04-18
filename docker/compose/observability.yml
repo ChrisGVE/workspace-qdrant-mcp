@@ -1,0 +1,90 @@
+# docker/compose/observability.yml
+#
+# Self-contained observability overlay: Prometheus + Grafana + otel-collector.
+# Layer this on top of minimal.yml for users who do NOT run main-docker.
+#
+# Usage:
+#   cp docker/.env.example docker/.env   # then edit values
+#   docker compose \
+#     -f docker/compose/minimal.yml \
+#     -f docker/compose/observability.yml \
+#     --env-file docker/.env \
+#     up -d
+#
+# After first boot, reload Prometheus config if needed:
+#   curl -X POST http://localhost:9090/-/reload
+#
+# Deployment choices:
+#   minimal.yml only             → memexd + mcp (external Qdrant, no observability)
+#   minimal.yml + observability.yml  → same + self-hosted prometheus/grafana/otel-collector
+#   full-stack.yml               → attaches to main-docker (owns observability there)
+#
+# compose-spec (no Swarm, no BuildKit extensions)
+
+# ── YAML anchors ─────────────────────────────────────────────────────────────
+
+x-watchtower-off: &watchtower-off
+  com.centurylinklabs.watchtower.enable: "false"
+
+x-restart: &restart
+  restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: wqm-prometheus
+    <<: *restart
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    labels:
+      <<: *watchtower-off
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: wqm-grafana
+    <<: *restart
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    labels:
+      <<: *watchtower-off
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.113.0
+    container_name: wqm-otel-collector
+    <<: *restart
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ../otel/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+    expose:
+      - "8888"
+    labels:
+      <<: *watchtower-off
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+
+volumes:
+  prometheus_data:
+  grafana_data:

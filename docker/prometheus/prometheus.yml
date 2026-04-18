@@ -39,3 +39,8 @@ scrape_configs:
     static_configs:
       - targets: [qdrant:6333]
     metrics_path: /metrics
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: [otel-collector:8888]
+    metrics_path: /metrics
