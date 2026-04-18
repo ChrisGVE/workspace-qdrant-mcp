@@ -132,6 +132,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # Invalidates when actual Rust source changes; dependency layers above remain cached.
 COPY src/rust/ .
 
+# common/src/yaml_defaults/mod.rs uses `include_str!("../../../../../assets/default_configuration.yaml")`
+# relative to the repository root.  In this flat /build layout that path normalises
+# to /assets/default_configuration.yaml — copy the asset there.
+COPY assets/default_configuration.yaml /assets/default_configuration.yaml
+
 # Initialise a minimal git repo so build.rs can obtain BUILD_NUMBER.
 # If a real .git directory is present in the build context it will be used instead.
 # user.email / user.name must be configured inline — buildkit sandbox has neither.
