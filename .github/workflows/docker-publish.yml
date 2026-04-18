@@ -95,7 +95,7 @@ jobs:
             type=semver,pattern={{major}},enable={{is_default_branch}}
             type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD-HHMMSS'}},enable={{is_default_branch}}
           flavor: |
-            latest={{is_default_branch}}
+            latest=auto
             prefix=
             suffix=
 
@@ -169,7 +169,7 @@ jobs:
             type=semver,pattern={{major}},enable={{is_default_branch}}
             type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD-HHMMSS'}},enable={{is_default_branch}}
           flavor: |
-            latest={{is_default_branch}}
+            latest=auto
             prefix=
             suffix=
 
