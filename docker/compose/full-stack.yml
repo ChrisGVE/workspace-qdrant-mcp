@@ -16,19 +16,15 @@
 #   docker compose -f docker/compose/full-stack.yml --env-file docker/.env up -d
 #
 # Prometheus scrape targets:
-#   Prometheus in main-docker scrapes its static config from
-#   /Users/chris/dev/tools/main-docker/prometheus.yml.  Add the following
-#   jobs to that file and reload Prometheus (curl -X POST http://localhost:9090/-/reload):
+#   Reference config is in docker/prometheus/prometheus.yml (3 scrape
+#   jobs + rule_files pointing at docker/prometheus/alerts.yml).
+#   Prometheus in main-docker reads its config from
+#   /Users/chris/dev/tools/main-docker/prometheus.yml.  Merge the
+#   scrape_configs blocks from docker/prometheus/prometheus.yml into
+#   that file and reload:  curl -X POST http://localhost:9090/-/reload
 #
-#     - job_name: "memexd"
-#       static_configs:
-#         - targets: ["memexd:9091"]
-#       metrics_path: /metrics
-#
-#     - job_name: "workspace-qdrant-mcp"
-#       static_configs:
-#         - targets: ["workspace-qdrant-mcp:9092"]
-#       metrics_path: /metrics
+#   The mcp job target is 'workspace-qdrant-mcp:9092' on the
+#   main-docker network (container name below matches).
 #
 # Ports are NOT published to the host in this mode; Prometheus reaches the
 # metrics endpoints over the shared Docker network.
