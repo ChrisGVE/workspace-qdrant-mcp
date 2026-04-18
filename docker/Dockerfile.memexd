@@ -134,8 +134,13 @@ COPY src/rust/ .
 
 # Initialise a minimal git repo so build.rs can obtain BUILD_NUMBER.
 # If a real .git directory is present in the build context it will be used instead.
+# user.email / user.name must be configured inline — buildkit sandbox has neither.
 RUN if [ ! -d .git ] && [ ! -f .git ]; then \
-        git init -q && git add -A && git commit -q -m "docker-build"; \
+        git init -q; \
+        git config user.email "build@docker.local"; \
+        git config user.name "docker-build"; \
+        git add -A; \
+        git commit -q -m "docker-build"; \
     fi
 
 # ── Compile ──
