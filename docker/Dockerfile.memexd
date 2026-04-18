@@ -133,10 +133,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # Invalidates when actual Rust source changes; dependency layers above remain cached.
 COPY src/rust/ .
 
-# common/src/yaml_defaults/mod.rs uses `include_str!("../../../../../assets/default_configuration.yaml")`
-# relative to the repository root.  In this flat /build layout that path normalises
-# to /assets/default_configuration.yaml — copy the asset there.
+# Several Rust sources use `include_str!` with repository-root-relative paths
+# (e.g. "../../../../../../patterns/...").  In this flat /build layout those
+# resolve to the filesystem root.  Copy the referenced files there.
+#   - common/src/yaml_defaults/mod.rs         → /assets/default_configuration.yaml
+#   - daemon/core/src/patterns/comprehensive.rs → /assets/internal_configuration.yaml
+#   - daemon/core/src/patterns/manager.rs     → /patterns/*.yaml
 COPY assets/default_configuration.yaml /assets/default_configuration.yaml
+COPY assets/internal_configuration.yaml /assets/internal_configuration.yaml
+COPY patterns/ /patterns/
 
 # Initialise a minimal git repo so build.rs can obtain BUILD_NUMBER.
 # If a real .git directory is present in the build context it will be used instead.
