@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-18
+
+### Added
+- **Docker images** — published to Docker Hub and GHCR for `memexd` (Rust daemon) and `workspace-qdrant-mcp` (TypeScript MCP server), multi-arch `linux/amd64` + `linux/arm64`.
+- **Three deployment bundles** under `docker/compose/`:
+  - `minimal.yml` — memexd + MCP against an external Qdrant
+  - `full-stack.yml` — attaches to the user's existing main-docker stack
+  - `standalone-memexd.yml` / `standalone-mcp.yml` — single-service deployments
+  - `observability.yml` — self-contained Prometheus + Grafana + OpenTelemetry collector overlay
+- **Telemetry pipeline**:
+  - MCP server instrumented with `prom-client` — exports `wqm_mcp_tool_invocations_total`, `wqm_mcp_tool_duration_seconds`, `wqm_mcp_session_count`, `wqm_mcp_daemon_fallback_total`, `wqm_mcp_cache_{hits,misses}_total`.
+  - HTTP `/metrics` endpoint on port 9092 when `MCP_SERVER_MODE=http`.
+  - OTLP push export on session end in stdio mode (1s fire-and-forget).
+  - New daemon gauge `wqm_queue_oldest_pending_age_seconds` driving the QueueStuck alert.
+- **Prometheus alerting rules** (`docker/prometheus/alerts.yml`) — 6 rules covering queue health (QueueStuck, QueueFailedWarning, QueueFailedCritical), daemon/qdrant availability (DaemonDown, QdrantUnreachable), and MCP session idleness (MCPNoInvocations).
+- **Four Grafana dashboards** auto-provisioned under `Workspace`: claude-mcp, qdrant, memexd, system-overview.
+- **Deployment documentation** under `docker/docs/` — README + minimal / full-stack / standalone / telemetry / dashboards guides.
+- **`wqm service` DaemonSource awareness** — `start`, `stop`, `restart`, `status` now detect whether the daemon runs locally, in Docker, both, remotely, or not at all, and branch behaviour accordingly.
+- **CI workflows** — `.github/workflows/docker-publish.yml` (tag-triggered multi-arch publish to Docker Hub + GHCR), `docker-test.yml` (pre-publish smoke test), `docker-integration.yml` (full-stack e2e).
+
+### Changed
+- Dockerfiles use Rust 1.90 base.
+
 ### Deprecated
 - **Legacy Queue Tables** - `ingestion_queue` and `content_ingestion_queue` tables are deprecated
   - Use `unified_queue` table instead

@@ -38,6 +38,7 @@ import {
   sendHeartbeat,
   cleanup,
 } from './session-lifecycle.js';
+import { withToolMetrics, recordSessionStart, recordSessionEnd } from './telemetry/metrics.js';
 
 /**
  * Workspace Qdrant MCP Server
@@ -123,44 +124,45 @@ export class WorkspaceQdrantMcpServer {
     // Implicit heartbeat — fire-and-forget to avoid latency
     sendHeartbeat(this.sessionState, daemonClient);
 
-    try {
-      let result: unknown;
+    // Unknown tool check — outside metrics wrapper to avoid recording unknown names
+    const knownTools = ['search', 'retrieve', 'rules', 'store', 'grep', 'list'];
+    if (!knownTools.includes(toolName)) {
+      logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });
+      return { content: [{ type: 'text', text: `Unknown tool: ${toolName}` }], isError: true };
+    }
 
-      switch (toolName) {
-        case 'search': {
-          const searchResult = await searchTool.search(buildSearchOptions(args));
-          result = healthMonitor.augmentSearchResults({ success: true, ...searchResult });
-          break;
-        }
-        case 'retrieve':
-          result = await retrieveTool.retrieve(buildRetrieveOptions(args));
-          break;
-        case 'rules':
-          result = await rulesTool.execute(buildRuleOptions(args));
-          break;
-        case 'store': {
-          const storeType = (args?.['type'] as string) ?? 'library';
-          if (storeType === 'project') {
-            result = await registerProjectFromTool(args, this.sessionState, daemonClient);
-          } else if (storeType === 'url') {
-            result = await storeUrl(args, stateManager, this.sessionState);
-          } else if (storeType === 'scratchpad') {
-            result = await storeScratchpad(args, stateManager, this.sessionState);
-          } else {
-            result = await storeTool.store(buildStoreOptions(args, this.sessionState));
+    try {
+      const result = await withToolMetrics(toolName, async () => {
+        switch (toolName) {
+          case 'search': {
+            const searchResult = await searchTool.search(buildSearchOptions(args));
+            return healthMonitor.augmentSearchResults({ success: true, ...searchResult });
           }
-          break;
+          case 'retrieve':
+            return retrieveTool.retrieve(buildRetrieveOptions(args));
+          case 'rules':
+            return rulesTool.execute(buildRuleOptions(args));
+          case 'store': {
+            const storeType = (args?.['type'] as string) ?? 'library';
+            if (storeType === 'project') {
+              return registerProjectFromTool(args, this.sessionState, daemonClient);
+            } else if (storeType === 'url') {
+              return storeUrl(args, stateManager, this.sessionState);
+            } else if (storeType === 'scratchpad') {
+              return storeScratchpad(args, stateManager, this.sessionState);
+            } else {
+              return storeTool.store(buildStoreOptions(args, this.sessionState));
+            }
+          }
+          case 'grep':
+            return grepTool.grep(buildGrepOptions(args));
+          case 'list':
+            return listTool.list(buildListOptions(args));
+          default:
+            // Unreachable: knownTools guard above covers all cases
+            throw new Error(`Unexpected tool: ${toolName}`);
         }
-        case 'grep':
-          result = await grepTool.grep(buildGrepOptions(args));
-          break;
-        case 'list':
-          result = await listTool.list(buildListOptions(args));
-          break;
-        default:
-          logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });
-          return { content: [{ type: 'text', text: `Unknown tool: ${toolName}` }], isError: true };
-      }
+      });
 
       logToolCall(toolName, Date.now() - startTime, true);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
@@ -198,6 +200,7 @@ export class WorkspaceQdrantMcpServer {
       }
 
       this.isInitialized = true;
+      recordSessionStart();
     } catch (error) {
       logError('Failed to start MCP server', error);
       throw error;
@@ -214,6 +217,7 @@ export class WorkspaceQdrantMcpServer {
   private async cleanupSession(): Promise<void> {
     const { daemonClient, stateManager, healthMonitor } = this.components;
     await cleanup(this.sessionState, daemonClient, stateManager, healthMonitor);
+    recordSessionEnd();
   }
 
   /**

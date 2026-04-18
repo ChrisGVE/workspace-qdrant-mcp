@@ -209,3 +209,157 @@ async fn test_unified_queue_depth() {
         .unwrap();
     assert_eq!(depth_content, 0);
 }
+
+#[tokio::test]
+async fn test_oldest_pending_age_empty_queue() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_oldest_pending_empty.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let age = manager.get_oldest_pending_age_seconds().await.unwrap();
+    assert_eq!(age, 0, "empty queue must report age 0");
+}
+
+#[tokio::test]
+async fn test_oldest_pending_age_single_item() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_oldest_pending_single.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    let manager = QueueManager::new(pool.clone());
+    manager.init_unified_queue().await.unwrap();
+
+    // Enqueue one item with a created_at 10 seconds in the past.
+    manager
+        .enqueue_unified(
+            ItemType::Text,
+            UnifiedOp::Add,
+            "tenant",
+            "collection",
+            r#"{"content":"x"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Backdate the pending item by 10 seconds.
+    sqlx::query(
+        "UPDATE unified_queue SET created_at = \
+         strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 seconds') \
+         WHERE status = 'pending'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let age = manager.get_oldest_pending_age_seconds().await.unwrap();
+    assert!(
+        (9..=12).contains(&age),
+        "expected age ~10s, got {} (tolerance for clock jitter)",
+        age
+    );
+}
+
+#[tokio::test]
+async fn test_oldest_pending_age_multiple_items_returns_oldest() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_oldest_pending_multi.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    let manager = QueueManager::new(pool.clone());
+    manager.init_unified_queue().await.unwrap();
+
+    // Enqueue three items.
+    for i in 0..3 {
+        manager
+            .enqueue_unified(
+                ItemType::Text,
+                UnifiedOp::Add,
+                "tenant",
+                "collection",
+                &format!(r#"{{"content":"item-{}"}}"#, i),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    // Backdate each to a distinct offset: 60s, 20s, 5s ago.
+    let queue_ids: Vec<(String,)> = sqlx::query_as(
+        "SELECT queue_id FROM unified_queue WHERE status = 'pending' ORDER BY created_at ASC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(queue_ids.len(), 3);
+    let offsets = ["-60 seconds", "-20 seconds", "-5 seconds"];
+    for ((id,), offset) in queue_ids.iter().zip(offsets.iter()) {
+        sqlx::query(
+            "UPDATE unified_queue \
+             SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1) \
+             WHERE queue_id = ?2",
+        )
+        .bind(offset)
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let age = manager.get_oldest_pending_age_seconds().await.unwrap();
+    assert!(
+        (58..=63).contains(&age),
+        "expected oldest age ~60s, got {}",
+        age
+    );
+}
+
+#[tokio::test]
+async fn test_oldest_pending_age_ignores_non_pending() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_oldest_pending_status.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    let manager = QueueManager::new(pool.clone());
+    manager.init_unified_queue().await.unwrap();
+
+    // Enqueue and flip to 'done' — must not be considered by the age query.
+    let (qid, _) = manager
+        .enqueue_unified(
+            ItemType::Text,
+            UnifiedOp::Add,
+            "tenant",
+            "collection",
+            r#"{"content":"done-item"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE unified_queue \
+         SET status = 'done', \
+             created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-120 seconds') \
+         WHERE queue_id = ?1",
+    )
+    .bind(&qid)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let age = manager.get_oldest_pending_age_seconds().await.unwrap();
+    assert_eq!(age, 0, "non-pending items must not contribute to age");
+}

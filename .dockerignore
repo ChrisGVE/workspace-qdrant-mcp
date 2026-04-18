@@ -2,8 +2,9 @@
 .git/
 .gitignore
 
-# Rust build artifacts
+# Rust build artifacts — top-level and per-crate target dirs
 src/rust/target/
+src/rust/**/target/
 src/rust/**/*.d
 
 # Node.js dependencies (rebuilt in Docker)

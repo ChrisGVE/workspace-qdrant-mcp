@@ -3,8 +3,10 @@
 //! Manages the memexd daemon runtime.
 //! Subcommands: start, stop, restart, status, install, uninstall, logs
 
+pub mod detect;
 mod install;
 mod logs;
+mod messages;
 pub mod platform;
 mod restart;
 mod start;

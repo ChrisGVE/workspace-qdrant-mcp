@@ -7,8 +7,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    self, core::Collector, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec, Opts,
-    Registry, TextEncoder,
+    self, core::Collector, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
+    Opts, Registry, TextEncoder,
 };
 
 /// Global metrics registry
@@ -124,6 +124,9 @@ pub struct DaemonMetrics {
     /// Unified queue retry count by item_type
     /// Labels: item_type
     pub unified_queue_retries_total: IntCounterVec,
+
+    /// Age in seconds of the oldest pending queue item (0 if none)
+    pub queue_oldest_pending_age_seconds: IntGauge,
 }
 
 // ── Factory helpers to reduce verbosity in new() ──────────────────────
@@ -393,6 +396,13 @@ impl DaemonMetrics {
             unified_queue_retries_total,
         ) = create_unified_queue_metrics();
 
+        // Scalar gauge: oldest pending queue item age in seconds
+        let queue_oldest_pending_age_seconds = IntGauge::new(
+            "wqm_queue_oldest_pending_age_seconds",
+            "Age in seconds of the oldest pending queue item",
+        )
+        .expect("metric can be created");
+
         register_all(
             &registry,
             vec![
@@ -421,6 +431,7 @@ impl DaemonMetrics {
                 Box::new(unified_queue_dequeues_total.clone()),
                 Box::new(unified_queue_stale_items.clone()),
                 Box::new(unified_queue_retries_total.clone()),
+                Box::new(queue_oldest_pending_age_seconds.clone()),
             ],
         );
 
@@ -451,6 +462,7 @@ impl DaemonMetrics {
             unified_queue_dequeues_total,
             unified_queue_stale_items,
             unified_queue_retries_total,
+            queue_oldest_pending_age_seconds,
         }
     }
 

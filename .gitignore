@@ -60,7 +60,20 @@ BENCHMARKING.md
 # Legacy/external code
 rust-engine-legacy/
 external/
-docker/
+# Legacy Python-based docker files (retained locally, not tracked)
+docker/Dockerfile
+docker/docker-compose.yml
+docker/docker-compose.dev.yml
+docker/docker-compose.prod.yml
+docker/entrypoint.sh
+docker/build-and-push.sh
+docker/deploy.sh
+docker/README.md
+docker/test-*.yaml
+docker/test-*.Dockerfile
+docker/integration-tests/
+docker/k8s/
+docker/nginx/
 
 # Submodule paths (not used)
 web-ui/

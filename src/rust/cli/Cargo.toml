@@ -1,6 +1,6 @@
 [package]
 name = "wqm-cli"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "High-performance companion for workspace-qdrant-mcp"
 authors = ["Chris Van Eerden"]
@@ -81,6 +81,9 @@ semver = "1.0"
 ratatui = { version = "0.29", optional = true }
 crossterm = { version = "0.28", optional = true }
 
+# Unix signal probes (used by service::detect to verify daemon PID liveness via kill(pid, 0))
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal"] }
 
 [dev-dependencies]
 tempfile = "3.26"

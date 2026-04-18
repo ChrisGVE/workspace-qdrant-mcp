@@ -1,0 +1,261 @@
+# Docker image testing workflow
+# Validates Docker images build successfully and pass basic health checks before publishing
+#
+# Mermaid Workflow Diagram:
+# ```mermaid
+# graph TB
+#   A[Push to main/dev or PR to main] --> B{Path Filter}
+#   B -->|Docker files changed| C{Parallel Jobs}
+#   C --> D[test-memexd]
+#   C --> E[test-mcp]
+#   D --> F[Build memexd image]
+#   D --> G[Health check /health endpoint]
+#   D --> H[Validate /metrics output]
+#   D --> I[Check container logs]
+#   E --> J[Build MCP image]
+#   E --> K[Sanity check node --version]
+#   E --> L[HTTP mode metrics test]
+#   E --> M[Stdio mode startup test]
+# ```
+#
+# Triggers: push to main/dev branches, pull requests targeting main (with path filtering)
+# Images: memexd (Rust daemon), workspace-qdrant-mcp (TypeScript MCP server)
+# Platform: linux/amd64 only (arm64 via QEMU too slow for PR testing)
+# Cache: GitHub Actions cache for faster rebuilds
+
+name: Docker Test
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-test.yml'
+      - 'src/rust/**'
+      - 'src/typescript/mcp-server/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-test.yml'
+      - 'src/rust/**'
+      - 'src/typescript/mcp-server/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+concurrency:
+  group: docker-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-memexd:
+    name: Test memexd Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build memexd image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.memexd
+          load: true
+          platforms: linux/amd64
+          tags: memexd:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start memexd container
+        run: |
+          docker run -d --name memexd-test \
+            -e QDRANT_URL=http://localhost:6333 \
+            -p 9091:9091 \
+            memexd:test
+
+      - name: Wait for memexd startup
+        run: |
+          echo "Waiting for memexd to start..."
+          for i in {1..15}; do
+            if curl -fsS http://localhost:9091/health >/dev/null 2>&1; then
+              echo "Health check passed after ${i} attempts"
+              break
+            fi
+            if [ $i -eq 15 ]; then
+              echo "Health check failed after 30 seconds"
+              docker logs memexd-test
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Validate /metrics endpoint
+        run: |
+          echo "Checking /metrics endpoint..."
+          metrics_output=$(curl -fsS http://localhost:9091/metrics)
+          echo "Metrics output preview:"
+          echo "$metrics_output" | head -10
+
+          if ! echo "$metrics_output" | grep -q "memexd_"; then
+            echo "ERROR: No memexd_* metrics found in output"
+            echo "Full metrics output:"
+            echo "$metrics_output"
+            exit 1
+          fi
+          echo "✓ Found memexd_* metrics"
+
+      - name: Validate container is running
+        run: |
+          if [ "$(docker inspect --format '{{.State.Running}}' memexd-test)" != "true" ]; then
+            echo "ERROR: Container is not running"
+            docker logs memexd-test
+            exit 1
+          fi
+          echo "✓ Container is running"
+
+      - name: Check logs for errors
+        run: |
+          echo "Checking container logs for errors..."
+          logs=$(docker logs memexd-test)
+
+          # Check for ERROR or FATAL patterns, but exclude expected Qdrant connection failures
+          if echo "$logs" | grep -i -E "(ERROR|FATAL)" | grep -v -i -E "(qdrant.*connection|qdrant.*unreachable|qdrant.*failed to connect)"; then
+            echo "ERROR: Found unexpected error messages in logs"
+            echo "Full logs:"
+            echo "$logs"
+            exit 1
+          fi
+          echo "✓ No unexpected errors in logs"
+
+      - name: Cleanup memexd container
+        if: always()
+        run: |
+          if docker ps -q -f name=memexd-test; then
+            docker stop memexd-test
+          fi
+          if docker ps -aq -f name=memexd-test; then
+            docker rm memexd-test
+          fi
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memexd-logs
+          path: |
+            docker logs memexd-test > memexd-test.log 2>&1 || true
+
+  test-mcp:
+    name: Test MCP Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.mcp
+          load: true
+          platforms: linux/amd64
+          tags: mcp:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sanity check - Node.js version
+        run: |
+          echo "Testing basic Node.js functionality..."
+          node_version=$(docker run --rm mcp:test node --version)
+          echo "Node.js version: $node_version"
+          if [[ ! "$node_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "ERROR: Invalid Node.js version format"
+            exit 1
+          fi
+          echo "✓ Node.js sanity check passed"
+
+      - name: Test MCP in HTTP mode
+        run: |
+          echo "Testing MCP server in HTTP mode..."
+          docker run -d --name mcp-http \
+            -e MCP_SERVER_MODE=http \
+            -p 9092:9092 \
+            mcp:test
+
+          echo "Waiting for HTTP server to start..."
+          for i in {1..10}; do
+            if curl -fsS http://localhost:9092/metrics >/dev/null 2>&1; then
+              echo "HTTP metrics endpoint responding after ${i} attempts"
+              break
+            fi
+            if [ $i -eq 10 ]; then
+              echo "ERROR: HTTP metrics endpoint not responding after 20 seconds"
+              docker logs mcp-http
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "Checking /metrics content..."
+          metrics_output=$(curl -fsS http://localhost:9092/metrics)
+          if ! echo "$metrics_output" | grep -q "wqm_mcp_"; then
+            echo "ERROR: No wqm_mcp_* metrics found in output"
+            echo "Metrics output:"
+            echo "$metrics_output"
+            exit 1
+          fi
+          echo "✓ Found wqm_mcp_* metrics"
+
+          docker stop mcp-http
+          docker rm mcp-http
+
+      - name: Test MCP in stdio mode
+        run: |
+          echo "Testing MCP server in stdio mode..."
+          # Run for 5 seconds max, expecting timeout (exit code 124)
+          set +e
+          timeout 5 docker run -i --rm mcp:test </dev/null
+          exit_code=$?
+          set -e
+
+          if [ $exit_code -eq 124 ]; then
+            echo "✓ Stdio mode test passed (timeout as expected)"
+          elif [ $exit_code -eq 0 ]; then
+            echo "✓ Stdio mode test passed (clean exit)"
+          else
+            echo "ERROR: MCP server crashed immediately in stdio mode (exit code: $exit_code)"
+            exit 1
+          fi
+
+      - name: Cleanup MCP containers
+        if: always()
+        run: |
+          if docker ps -q -f name=mcp-http; then
+            docker stop mcp-http
+          fi
+          if docker ps -aq -f name=mcp-http; then
+            docker rm mcp-http
+          fi
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-logs
+          path: |
+            docker logs mcp-http > mcp-http.log 2>&1 || true

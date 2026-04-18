@@ -385,6 +385,13 @@ impl UnifiedQueueProcessor {
                 queue_depth_counter.store(depth as usize, std::sync::atomic::Ordering::Relaxed);
             }
 
+            // Update oldest pending age Prometheus gauge (Task 7)
+            if let Ok(age) = queue_manager.get_oldest_pending_age_seconds().await {
+                crate::monitoring::METRICS
+                    .queue_oldest_pending_age_seconds
+                    .set(age);
+            }
+
             // Dequeue batch of items using fairness scheduler (Task 34)
             // The scheduler handles active project prioritization and starvation prevention
             match fairness_scheduler
