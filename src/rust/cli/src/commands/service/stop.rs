@@ -1,10 +1,24 @@
 //! Service stop subcommand
+//!
+//! Behavior matrix driven by [`DaemonSource`](super::detect::DaemonSource):
+//!
+//! | Source                  | Behavior                                         |
+//! |-------------------------|--------------------------------------------------|
+//! | `LocalOnly` / `Both`    | platform-local stop (warning first for `Both`)   |
+//! | `DockerOnly`            | stdout hint pointing at `docker compose down`    |
+//! | `RemoteOnly { addr }`   | stderr error, non-zero exit                      |
+//! | `None`                  | stderr "nothing running", non-zero exit          |
+//!
+//! `plan_stop()` is a pure mapping from `DaemonSource` to [`StopAction`],
+//! keeping all branch selection unit-testable.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use std::process::Command;
 
 use crate::output;
 
+use super::detect::{detect_daemon_source, DaemonSource};
+use super::messages;
 use super::platform::{
     get_service_manager, is_daemon_running, ServiceManager, DAEMON_BINARY, SERVICE_NAME,
 };
@@ -15,8 +29,63 @@ const SHUTDOWN_TIMEOUT_SECS: u64 = 10;
 /// Interval between checks during shutdown.
 const POLL_INTERVAL_MS: u64 = 300;
 
+/// Decision computed from a `DaemonSource` for the `stop` command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StopAction {
+    /// Run the platform-local stop flow. `warn_both` triggers the
+    /// "local+docker" stderr warning before stopping.
+    Local { warn_both: bool },
+    /// Print the `docker compose down` hint and exit success.
+    InfoDocker,
+    /// Print "cannot stop remote memexd at {addr}" and exit non-zero.
+    ErrorRemote { addr: String },
+    /// Print "nothing running" and exit non-zero.
+    ErrorNothing,
+}
+
+/// Pure decision: map a `DaemonSource` to the action `stop` should take.
+pub fn plan_stop(source: &DaemonSource) -> StopAction {
+    match source {
+        DaemonSource::LocalOnly { .. } => StopAction::Local { warn_both: false },
+        DaemonSource::Both { .. } => StopAction::Local { warn_both: true },
+        DaemonSource::DockerOnly => StopAction::InfoDocker,
+        DaemonSource::RemoteOnly { addr } => StopAction::ErrorRemote { addr: addr.clone() },
+        DaemonSource::None => StopAction::ErrorNothing,
+    }
+}
+
 /// Stop the daemon service
 pub async fn execute() -> Result<()> {
+    let source = detect_daemon_source().await;
+    run(plan_stop(&source)).await
+}
+
+/// Dispatch a precomputed `StopAction`.
+pub(super) async fn run(action: StopAction) -> Result<()> {
+    match action {
+        StopAction::InfoDocker => {
+            messages::info_docker("down");
+            Ok(())
+        }
+        StopAction::ErrorRemote { addr } => {
+            messages::err_remote("stop", &addr);
+            Err(anyhow!("cannot stop remote memexd at {}", addr))
+        }
+        StopAction::ErrorNothing => {
+            messages::err_nothing_running();
+            Err(anyhow!("nothing running"))
+        }
+        StopAction::Local { warn_both } => {
+            if warn_both {
+                messages::warn_both();
+            }
+            local_stop().await
+        }
+    }
+}
+
+/// Platform-local stop flow (previously inline in `execute()`).
+async fn local_stop() -> Result<()> {
     output::info("Stopping daemon...");
 
     match get_service_manager() {
@@ -130,4 +199,71 @@ async fn stop_windows() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_local_only_runs_local() {
+        assert_eq!(
+            plan_stop(&DaemonSource::LocalOnly { pid: 1 }),
+            StopAction::Local { warn_both: false }
+        );
+    }
+
+    #[test]
+    fn plan_both_warns_then_local() {
+        assert_eq!(
+            plan_stop(&DaemonSource::Both { pid: 42 }),
+            StopAction::Local { warn_both: true }
+        );
+    }
+
+    #[test]
+    fn plan_docker_only_prints_info() {
+        assert_eq!(plan_stop(&DaemonSource::DockerOnly), StopAction::InfoDocker);
+    }
+
+    #[test]
+    fn plan_remote_only_errors_with_addr() {
+        assert_eq!(
+            plan_stop(&DaemonSource::RemoteOnly {
+                addr: "172.16.0.5:50051".to_string()
+            }),
+            StopAction::ErrorRemote {
+                addr: "172.16.0.5:50051".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn plan_none_errors_nothing_running() {
+        assert_eq!(plan_stop(&DaemonSource::None), StopAction::ErrorNothing);
+    }
+
+    #[tokio::test]
+    async fn run_docker_only_is_ok() {
+        assert!(run(StopAction::InfoDocker).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn run_remote_returns_error_with_addr() {
+        let err = run(StopAction::ErrorRemote {
+            addr: "5.5.5.5:50051".to_string(),
+        })
+        .await
+        .expect_err("remote stop must error");
+        assert!(err.to_string().contains("5.5.5.5:50051"));
+        assert!(err.to_string().contains("cannot stop"));
+    }
+
+    #[tokio::test]
+    async fn run_nothing_returns_error() {
+        let err = run(StopAction::ErrorNothing)
+            .await
+            .expect_err("nothing-running stop must error");
+        assert!(err.to_string().contains("nothing running"));
+    }
 }

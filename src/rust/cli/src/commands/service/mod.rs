@@ -6,6 +6,7 @@
 pub mod detect;
 mod install;
 mod logs;
+mod messages;
 pub mod platform;
 mod restart;
 mod start;
