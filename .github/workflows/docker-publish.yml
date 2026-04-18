@@ -1,0 +1,202 @@
+# Docker Hub and GitHub Container Registry publishing workflow
+# Builds and publishes memexd daemon and MCP server Docker images on version tag push
+#
+# Mermaid Workflow Diagram:
+# ```mermaid
+# graph TB
+#   A[Version Tag Push v*] --> B{Parallel Jobs}
+#   B --> C[memexd Job]
+#   B --> D[mcp Job]
+#   C --> E[Checkout & Setup]
+#   C --> F[Multi-arch Build linux/amd64,linux/arm64]
+#   C --> G[Push to Docker Hub + GHCR]
+#   D --> H[Checkout & Setup]
+#   D --> I[Multi-arch Build linux/amd64,linux/arm64]
+#   D --> J[Push to Docker Hub + GHCR]
+# ```
+#
+# Triggers: version tags (v*), manual dispatch
+# Images: memexd (Rust daemon), workspace-qdrant-mcp (TypeScript MCP server)
+# Registries: Docker Hub (chrisgve/), GitHub Container Registry (ghcr.io/chrisgve/)
+# Platforms: linux/amd64, linux/arm64
+# Cache: GitHub Actions cache for faster rebuilds
+
+name: Docker Publish
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build (tag, branch, or commit SHA)'
+        required: false
+        default: 'main'
+        type: string
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  REGISTRY_DOCKERHUB: docker.io
+  REGISTRY_GHCR: ghcr.io
+  DOCKERHUB_USERNAME: chrisgve
+  GHCR_USERNAME: chrisgve
+
+jobs:
+  memexd:
+    name: Build and Push memexd
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_USERNAME }}/memexd
+            ${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/memexd
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD-HHMMSS'}},enable={{is_default_branch}}
+          flavor: |
+            latest={{is_default_branch}}
+            prefix=
+            suffix=
+
+      - name: Build and push memexd
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.memexd
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Job summary
+        run: |
+          echo "## memexd Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags Published:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  mcp:
+    name: Build and Push MCP Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_USERNAME }}/workspace-qdrant-mcp
+            ${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/workspace-qdrant-mcp
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD-HHMMSS'}},enable={{is_default_branch}}
+          flavor: |
+            latest={{is_default_branch}}
+            prefix=
+            suffix=
+
+      - name: Build and push MCP server
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.mcp
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Job summary
+        run: |
+          echo "## MCP Server Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags Published:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # TODO: v0.1.4 - Add Cosign image signing for enhanced security
