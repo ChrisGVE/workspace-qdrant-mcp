@@ -17,7 +17,8 @@ pub use embedding::EmbeddingSettings;
 pub use ingestion::{AutoIngestionConfig, IngestionLimitsConfig};
 pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
 pub use observability::{
-    LoggingConfig, MetricsConfig, MonitoringConfig, ObservabilityConfig, TelemetryConfig,
+    LoggingConfig, MetricsConfig, MonitoringConfig, ObservabilityConfig, OtlpExportConfig,
+    OtlpProtocol, PrometheusExportConfig, TelemetryConfig,
 };
 pub use processing::{QueueProcessorSettings, StartupConfig};
 pub use resource_limits::{detect_physical_cores, ResourceLimitsConfig};
@@ -195,19 +196,36 @@ fn build_git_config(yaml: &YamlConfig) -> GitConfig {
 }
 
 fn build_observability_config(yaml: &YamlConfig) -> ObservabilityConfig {
+    let y_telemetry = &yaml.observability.telemetry;
+    let protocol =
+        OtlpProtocol::parse(&y_telemetry.otlp.protocol).unwrap_or(OtlpProtocol::HttpProtobuf);
+
     ObservabilityConfig {
         collection_interval: yaml.observability.collection_interval_secs(),
         metrics: MetricsConfig {
             enabled: yaml.observability.metrics.enabled,
         },
         telemetry: TelemetryConfig {
-            enabled: yaml.observability.telemetry.enabled,
-            history_retention: yaml.observability.telemetry.history_retention,
-            cpu_usage: yaml.observability.telemetry.cpu_usage,
-            memory_usage: yaml.observability.telemetry.memory_usage,
-            latency: yaml.observability.telemetry.latency,
-            queue_depth: yaml.observability.telemetry.queue_depth,
-            throughput: yaml.observability.telemetry.throughput,
+            enabled: y_telemetry.enabled,
+            history_retention: y_telemetry.history_retention,
+            cpu_usage: y_telemetry.cpu_usage,
+            memory_usage: y_telemetry.memory_usage,
+            latency: y_telemetry.latency,
+            queue_depth: y_telemetry.queue_depth,
+            throughput: y_telemetry.throughput,
+            service_name: y_telemetry.service_name.clone(),
+            prometheus: PrometheusExportConfig {
+                enabled: y_telemetry.prometheus.enabled,
+                port: y_telemetry.prometheus.port,
+                bind: y_telemetry.prometheus.bind.clone(),
+            },
+            otlp: OtlpExportConfig {
+                enabled: y_telemetry.otlp.enabled,
+                endpoint: y_telemetry.otlp.endpoint.clone(),
+                protocol,
+                sample_rate: y_telemetry.otlp.sample_rate,
+                headers: y_telemetry.otlp.headers.clone(),
+            },
         },
     }
 }

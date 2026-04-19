@@ -1,5 +1,7 @@
 //! Observability configuration (logging, monitoring, metrics, telemetry)
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 // --- Logging ---
@@ -134,6 +136,147 @@ pub struct MetricsConfig {
     pub enabled: bool,
 }
 
+fn default_service_name() -> String {
+    "memexd".to_string()
+}
+
+fn default_prometheus_port() -> u16 {
+    6337
+}
+
+fn default_prometheus_bind() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_otlp_endpoint() -> String {
+    "http://localhost:4318".to_string()
+}
+
+fn default_otlp_protocol() -> OtlpProtocol {
+    OtlpProtocol::HttpProtobuf
+}
+
+fn default_otlp_sample_rate() -> f64 {
+    1.0
+}
+
+/// OTLP wire protocol. Matches the `OTEL_EXPORTER_OTLP_PROTOCOL`
+/// environment variable convention (lowercase with slashes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OtlpProtocol {
+    /// Protobuf-over-HTTP (serde tag: `http/protobuf`). Default.
+    #[serde(rename = "http/protobuf")]
+    HttpProtobuf,
+    /// Protobuf-over-gRPC (serde tag: `grpc`).
+    #[serde(rename = "grpc")]
+    Grpc,
+}
+
+impl OtlpProtocol {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OtlpProtocol::HttpProtobuf => "http/protobuf",
+            OtlpProtocol::Grpc => "grpc",
+        }
+    }
+
+    /// Parse from the canonical OTLP string representation used in
+    /// `OTEL_EXPORTER_OTLP_PROTOCOL` and YAML config.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "http/protobuf" | "http-protobuf" => Some(OtlpProtocol::HttpProtobuf),
+            "grpc" => Some(OtlpProtocol::Grpc),
+            _ => None,
+        }
+    }
+}
+
+/// Prometheus HTTP endpoint configuration.
+///
+/// When enabled, the daemon serves the Prometheus text exposition format
+/// at `GET /metrics` and `200 OK` at `GET /health`, both bound to
+/// `{bind}:{port}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrometheusExportConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default = "default_prometheus_port")]
+    pub port: u16,
+
+    #[serde(default = "default_prometheus_bind")]
+    pub bind: String,
+}
+
+impl Default for PrometheusExportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_prometheus_port(),
+            bind: default_prometheus_bind(),
+        }
+    }
+}
+
+impl PrometheusExportConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.enabled && self.port == 0 {
+            return Err("telemetry.prometheus.port must be non-zero when enabled".to_string());
+        }
+        if self.bind.trim().is_empty() {
+            return Err("telemetry.prometheus.bind must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// OTLP push exporter configuration for traces (and optionally metrics).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtlpExportConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default = "default_otlp_endpoint")]
+    pub endpoint: String,
+
+    #[serde(default = "default_otlp_protocol")]
+    pub protocol: OtlpProtocol,
+
+    #[serde(default = "default_otlp_sample_rate")]
+    pub sample_rate: f64,
+
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+}
+
+impl Default for OtlpExportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: default_otlp_endpoint(),
+            protocol: default_otlp_protocol(),
+            sample_rate: default_otlp_sample_rate(),
+            headers: HashMap::new(),
+        }
+    }
+}
+
+impl OtlpExportConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if !(0.0..=1.0).contains(&self.sample_rate) {
+            return Err(format!(
+                "telemetry.otlp.sample_rate must be within [0.0, 1.0], got {}",
+                self.sample_rate
+            ));
+        }
+        if self.enabled && self.endpoint.trim().is_empty() {
+            return Err("telemetry.otlp.endpoint must not be empty when enabled".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     #[serde(default)]
@@ -156,6 +299,20 @@ pub struct TelemetryConfig {
 
     #[serde(default = "default_telemetry_enabled")]
     pub throughput: bool,
+
+    /// OpenTelemetry `service.name` resource attribute. Used by both the
+    /// OTLP exporter resource and as the `job` label on Prometheus scrapes
+    /// when self-labeling is configured.
+    #[serde(default = "default_service_name")]
+    pub service_name: String,
+
+    /// Prometheus pull-based metrics exposition.
+    #[serde(default)]
+    pub prometheus: PrometheusExportConfig,
+
+    /// OTLP push exporter for traces (and optionally metrics).
+    #[serde(default)]
+    pub otlp: OtlpExportConfig,
 }
 
 impl Default for TelemetryConfig {
@@ -168,7 +325,90 @@ impl Default for TelemetryConfig {
             latency: default_telemetry_enabled(),
             queue_depth: default_telemetry_enabled(),
             throughput: default_telemetry_enabled(),
+            service_name: default_service_name(),
+            prometheus: PrometheusExportConfig::default(),
+            otlp: OtlpExportConfig::default(),
         }
+    }
+}
+
+impl TelemetryConfig {
+    /// Apply environment variable overrides matching the OTEL_* conventions
+    /// used by the TypeScript MCP server (for consistency across services).
+    ///
+    /// Precedence (highest → lowest):
+    ///   1. Environment variables (applied here)
+    ///   2. YAML configuration
+    ///   3. Compiled-in defaults
+    pub fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        if let Ok(val) = env::var("OTEL_SERVICE_NAME") {
+            if !val.trim().is_empty() {
+                self.service_name = val;
+            }
+        }
+
+        if let Ok(val) = env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
+            if !val.trim().is_empty() {
+                self.otlp.endpoint = val;
+                // Explicit endpoint implies the operator wants OTLP on.
+                self.otlp.enabled = true;
+            }
+        }
+
+        if let Ok(val) = env::var("OTEL_EXPORTER_OTLP_PROTOCOL") {
+            if let Some(protocol) = OtlpProtocol::parse(&val) {
+                self.otlp.protocol = protocol;
+            }
+        }
+
+        if let Ok(val) = env::var("OTEL_EXPORTER_OTLP_HEADERS") {
+            for kv in val.split(',') {
+                let kv = kv.trim();
+                if kv.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = kv.split_once('=') {
+                    self.otlp
+                        .headers
+                        .insert(k.trim().to_string(), v.trim().to_string());
+                }
+            }
+        }
+
+        if let Ok(val) = env::var("OTEL_TRACES_SAMPLER_ARG") {
+            if let Ok(parsed) = val.parse::<f64>() {
+                if (0.0..=1.0).contains(&parsed) {
+                    self.otlp.sample_rate = parsed;
+                }
+            }
+        }
+
+        // Prometheus endpoint overrides (WQM_-prefixed to avoid colliding
+        // with OTel conventions that don't cover pull-based exposition).
+        if let Ok(val) = env::var("WQM_PROMETHEUS_ENABLED") {
+            self.prometheus.enabled = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        }
+        if let Ok(val) = env::var("WQM_PROMETHEUS_PORT") {
+            if let Ok(port) = val.parse::<u16>() {
+                self.prometheus.port = port;
+            }
+        }
+        if let Ok(val) = env::var("WQM_PROMETHEUS_BIND") {
+            if !val.trim().is_empty() {
+                self.prometheus.bind = val;
+            }
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.service_name.trim().is_empty() {
+            return Err("telemetry.service_name must not be empty".to_string());
+        }
+        self.prometheus.validate()?;
+        self.otlp.validate()?;
+        Ok(())
     }
 }
 
@@ -210,5 +450,177 @@ mod tests {
 
         // Valid again
         assert!(config.validate().is_ok());
+    }
+
+    // ── TelemetryConfig export-surface tests ────────────────────────────
+    //
+    // The env_overrides tests mutate process-wide environment state, so
+    // they share a `serial_test` group to serialize access.
+
+    use serial_test::serial;
+
+    const OTEL_ENV_VARS: &[&str] = &[
+        "OTEL_SERVICE_NAME",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "OTEL_TRACES_SAMPLER_ARG",
+        "WQM_PROMETHEUS_ENABLED",
+        "WQM_PROMETHEUS_PORT",
+        "WQM_PROMETHEUS_BIND",
+    ];
+
+    struct TelemetryEnvGuard;
+    impl Drop for TelemetryEnvGuard {
+        fn drop(&mut self) {
+            for key in OTEL_ENV_VARS {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    #[test]
+    fn test_telemetry_defaults_are_opt_in() {
+        let t = TelemetryConfig::default();
+        assert!(!t.enabled);
+        assert!(!t.prometheus.enabled);
+        assert_eq!(t.prometheus.port, 6337);
+        assert_eq!(t.prometheus.bind, "0.0.0.0");
+        assert!(!t.otlp.enabled);
+        assert_eq!(t.otlp.endpoint, "http://localhost:4318");
+        assert_eq!(t.otlp.protocol, OtlpProtocol::HttpProtobuf);
+        assert!((t.otlp.sample_rate - 1.0).abs() < f64::EPSILON);
+        assert_eq!(t.service_name, "memexd");
+    }
+
+    #[test]
+    fn test_telemetry_defaults_validate() {
+        TelemetryConfig::default().validate().unwrap();
+    }
+
+    #[test]
+    fn test_telemetry_validation_rejects_invalid_sample_rate() {
+        let mut t = TelemetryConfig::default();
+        t.otlp.sample_rate = 1.5;
+        assert!(t.validate().is_err());
+        t.otlp.sample_rate = -0.1;
+        assert!(t.validate().is_err());
+    }
+
+    #[test]
+    fn test_telemetry_validation_rejects_empty_service_name() {
+        let mut t = TelemetryConfig::default();
+        t.service_name = "   ".to_string();
+        assert!(t.validate().is_err());
+    }
+
+    #[test]
+    fn test_telemetry_validation_rejects_enabled_prometheus_on_port_zero() {
+        let mut t = TelemetryConfig::default();
+        t.prometheus.enabled = true;
+        t.prometheus.port = 0;
+        assert!(t.validate().is_err());
+    }
+
+    #[test]
+    fn test_telemetry_validation_rejects_enabled_otlp_with_empty_endpoint() {
+        let mut t = TelemetryConfig::default();
+        t.otlp.enabled = true;
+        t.otlp.endpoint = "".to_string();
+        assert!(t.validate().is_err());
+    }
+
+    #[test]
+    fn test_otlp_protocol_parse() {
+        assert_eq!(
+            OtlpProtocol::parse("http/protobuf"),
+            Some(OtlpProtocol::HttpProtobuf)
+        );
+        assert_eq!(OtlpProtocol::parse("grpc"), Some(OtlpProtocol::Grpc));
+        assert_eq!(OtlpProtocol::parse("unknown"), None);
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_overrides_service_name_and_endpoint() {
+        let _g = TelemetryEnvGuard;
+        std::env::set_var("OTEL_SERVICE_NAME", "custom-service");
+        std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318");
+
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+
+        assert_eq!(t.service_name, "custom-service");
+        assert_eq!(t.otlp.endpoint, "http://collector:4318");
+        // explicit endpoint implies the operator wants OTLP on
+        assert!(t.otlp.enabled);
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_overrides_protocol_and_headers() {
+        let _g = TelemetryEnvGuard;
+        std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc");
+        std::env::set_var(
+            "OTEL_EXPORTER_OTLP_HEADERS",
+            "authorization=Bearer abc,x-tenant=acme",
+        );
+
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+
+        assert_eq!(t.otlp.protocol, OtlpProtocol::Grpc);
+        assert_eq!(
+            t.otlp.headers.get("authorization"),
+            Some(&"Bearer abc".to_string())
+        );
+        assert_eq!(t.otlp.headers.get("x-tenant"), Some(&"acme".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_overrides_sample_rate_bounds() {
+        let _g = TelemetryEnvGuard;
+        let mut t = TelemetryConfig::default();
+
+        std::env::set_var("OTEL_TRACES_SAMPLER_ARG", "0.25");
+        t.apply_env_overrides();
+        assert!((t.otlp.sample_rate - 0.25).abs() < 1e-9);
+
+        // Out-of-range values are silently ignored so a misconfigured env
+        // can't poison the validated config.
+        std::env::set_var("OTEL_TRACES_SAMPLER_ARG", "2.0");
+        t.apply_env_overrides();
+        assert!((t.otlp.sample_rate - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_overrides_prometheus_toggle_and_port() {
+        let _g = TelemetryEnvGuard;
+        std::env::set_var("WQM_PROMETHEUS_ENABLED", "true");
+        std::env::set_var("WQM_PROMETHEUS_PORT", "9999");
+        std::env::set_var("WQM_PROMETHEUS_BIND", "127.0.0.1");
+
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+
+        assert!(t.prometheus.enabled);
+        assert_eq!(t.prometheus.port, 9999);
+        assert_eq!(t.prometheus.bind, "127.0.0.1");
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_overrides_do_not_clobber_unset_fields() {
+        let _g = TelemetryEnvGuard;
+        let mut t = TelemetryConfig::default();
+        t.otlp.endpoint = "http://set-in-yaml:4318".to_string();
+        t.otlp.sample_rate = 0.5;
+
+        // Nothing in env → YAML values survive.
+        t.apply_env_overrides();
+        assert_eq!(t.otlp.endpoint, "http://set-in-yaml:4318");
+        assert!((t.otlp.sample_rate - 0.5).abs() < 1e-9);
     }
 }

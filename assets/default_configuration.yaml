@@ -1293,6 +1293,45 @@ observability:
     # Format: Boolean
     throughput: true
 
+    # service_name: OpenTelemetry `service.name` resource attribute.
+    # Applied to OTLP spans/metrics and, where configured, Prometheus
+    # scrape labels.
+    # Default: "memexd"
+    service_name: memexd
+
+    # Prometheus pull-based metrics endpoint.
+    # When enabled, the daemon serves Prometheus text-format metrics at
+    # `GET {bind}:{port}/metrics` and `200 OK` at `/health`.
+    # Disabled by default to avoid binding an unexpected port.
+    prometheus:
+      # Master switch for the /metrics HTTP endpoint.
+      enabled: false
+      # TCP port the endpoint listens on. 6337 is chosen to cluster with
+      # workspace-qdrant ports (Qdrant HTTP 6333, Qdrant gRPC 6334).
+      port: 6337
+      # Bind address. 0.0.0.0 allows Docker/Kubernetes sidecars to scrape;
+      # set to 127.0.0.1 for host-local-only exposure.
+      bind: 0.0.0.0
+
+    # OpenTelemetry Protocol push exporter for traces (and, when wired,
+    # metrics). Disabled by default; enable by setting otlp.enabled or by
+    # exporting OTEL_EXPORTER_OTLP_ENDPOINT.
+    otlp:
+      # Master switch. Setting OTEL_EXPORTER_OTLP_ENDPOINT also flips this
+      # to true at runtime.
+      enabled: false
+      # Collector endpoint. http/protobuf uses port 4318 by default; grpc
+      # expects port 4317.
+      endpoint: http://localhost:4318
+      # Wire protocol: "http/protobuf" or "grpc".
+      protocol: http/protobuf
+      # Trace sampler ratio [0.0, 1.0]. 1.0 captures everything; lower
+      # to reduce collector load.
+      sample_rate: 1.0
+      # Extra headers (e.g. auth tokens). Mirrors the
+      # OTEL_EXPORTER_OTLP_HEADERS env var (comma-separated k=v pairs).
+      headers: {}
+
 # =============================================================================
 # RESOURCE LIMITS CONFIGURATION
 # =============================================================================

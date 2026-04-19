@@ -16,6 +16,10 @@ pub(super) fn apply_env_overrides(
     apply_qdrant_overrides(&mut config)?;
     apply_auto_ingestion_overrides(&mut config)?;
     apply_daemon_endpoint_overrides(&mut config)?;
+    // Telemetry export settings follow OTEL_* (and WQM_PROMETHEUS_*)
+    // conventions; the logic lives on the config struct so tests and
+    // external callers can reuse it without depending on this module.
+    config.observability.telemetry.apply_env_overrides();
     Ok(config)
 }
 

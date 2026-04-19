@@ -84,5 +84,11 @@ pub(super) fn validate_config(config: &DaemonConfig) -> Result<(), UnifiedConfig
         ));
     }
 
+    config
+        .observability
+        .telemetry
+        .validate()
+        .map_err(UnifiedConfigError::ValidationError)?;
+
     Ok(())
 }

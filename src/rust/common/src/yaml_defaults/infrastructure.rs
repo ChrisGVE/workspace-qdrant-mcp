@@ -1,6 +1,8 @@
 //! Infrastructure configuration sections: Qdrant, gRPC, performance, watching,
 //! observability, and resource limits.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 use super::duration_serde;
@@ -204,6 +206,18 @@ pub struct YamlTelemetryConfig {
     pub latency: bool,
     pub queue_depth: bool,
     pub throughput: bool,
+
+    /// OpenTelemetry resource `service.name` attribute applied to spans
+    /// and metrics exported by the daemon.
+    pub service_name: String,
+
+    /// Prometheus pull-based metrics exposition settings.
+    #[serde(default)]
+    pub prometheus: YamlPrometheusConfig,
+
+    /// OpenTelemetry Protocol push-based export settings (traces + metrics).
+    #[serde(default)]
+    pub otlp: YamlOtlpConfig,
 }
 
 impl Default for YamlTelemetryConfig {
@@ -216,6 +230,65 @@ impl Default for YamlTelemetryConfig {
             latency: true,
             queue_depth: true,
             throughput: true,
+            service_name: "memexd".to_string(),
+            prometheus: YamlPrometheusConfig::default(),
+            otlp: YamlOtlpConfig::default(),
+        }
+    }
+}
+
+/// Prometheus HTTP exposition endpoint settings.
+///
+/// When `enabled` is true, the daemon binds an HTTP server on
+/// `{bind}:{port}` and serves Prometheus text-format metrics at `/metrics`
+/// plus a `/health` endpoint. Disabled by default to avoid opening ports
+/// unexpectedly.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlPrometheusConfig {
+    pub enabled: bool,
+    pub port: u16,
+    pub bind: String,
+}
+
+impl Default for YamlPrometheusConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            // Adjacent to Qdrant gRPC (6334); keeps workspace-qdrant ports
+            // clustered under 6333-6337 to avoid collisions with common
+            // defaults like 8080/9090.
+            port: 6337,
+            bind: "0.0.0.0".to_string(),
+        }
+    }
+}
+
+/// OpenTelemetry Protocol push exporter settings for traces (and optionally
+/// metrics). Disabled by default; when enabled, spans are batched and shipped
+/// to `endpoint` using `protocol`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlOtlpConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    /// Wire protocol: `http/protobuf` (default) or `grpc`.
+    pub protocol: String,
+    /// Trace sampler ratio in the closed interval `[0.0, 1.0]`. Metrics
+    /// exporters are unaffected by this ratio.
+    pub sample_rate: f64,
+    /// Additional headers to attach to OTLP requests (e.g. auth tokens).
+    pub headers: HashMap<String, String>,
+}
+
+impl Default for YamlOtlpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: "http://localhost:4318".to_string(),
+            protocol: "http/protobuf".to_string(),
+            sample_rate: 1.0,
+            headers: HashMap::new(),
         }
     }
 }
