@@ -34,6 +34,20 @@ pub(super) fn config_source_label() -> &'static str {
     }
 }
 
+/// Diagnostic hint for errors that target the resolved settings path.
+///
+/// Mentions the active source (env var vs. default) so users can tell
+/// whether a bad `CLAUDE_CONFIG_DIR` caused the failure.
+pub(super) fn config_source_hint() -> String {
+    match std::env::var("CLAUDE_CONFIG_DIR") {
+        Ok(v) if !v.trim().is_empty() => format!(
+            "resolved via CLAUDE_CONFIG_DIR={} (verify the directory exists and is writable, or unset the variable to fall back to ~/.claude)",
+            v
+        ),
+        _ => "resolved via default ~/.claude (set CLAUDE_CONFIG_DIR to target a custom Claude Code install)".to_string(),
+    }
+}
+
 /// Read Claude Code settings.json, returning empty object if not found
 pub(super) fn read_settings(path: &Path) -> Result<serde_json::Value> {
     if !path.exists() {
@@ -141,6 +155,38 @@ mod tests {
 
         let resolved = get_claude_config_dir().unwrap();
         assert_eq!(resolved, dir.path());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_source_label_reflects_env() {
+        let _g = EnvGuard;
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+        assert_eq!(config_source_label(), "default (~/.claude)");
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/custom");
+        assert_eq!(config_source_label(), "CLAUDE_CONFIG_DIR");
+        std::env::set_var("CLAUDE_CONFIG_DIR", "   ");
+        assert_eq!(config_source_label(), "default (~/.claude)");
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_source_hint_mentions_env_when_set() {
+        let _g = EnvGuard;
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/custom");
+        let hint = config_source_hint();
+        assert!(hint.contains("CLAUDE_CONFIG_DIR"));
+        assert!(hint.contains("/tmp/custom"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_source_hint_mentions_default_when_unset() {
+        let _g = EnvGuard;
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+        let hint = config_source_hint();
+        assert!(hint.contains("~/.claude"));
+        assert!(hint.contains("CLAUDE_CONFIG_DIR"));
     }
 
     #[test]

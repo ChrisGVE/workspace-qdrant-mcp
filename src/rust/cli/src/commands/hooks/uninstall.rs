@@ -6,7 +6,8 @@ use crate::output;
 
 use super::matchers::is_wqm_hook_command;
 use super::settings::{
-    config_source_label, get_claude_settings_path, read_settings, write_settings,
+    config_source_hint, config_source_label, get_claude_settings_path, read_settings,
+    write_settings,
 };
 
 /// Remove wqm hooks from Claude Code settings
@@ -20,7 +21,8 @@ pub(super) async fn uninstall_hooks() -> Result<()> {
         return Ok(());
     }
 
-    let mut config = read_settings(&settings_path)?;
+    let mut config = read_settings(&settings_path)
+        .with_context(|| format!("Reading Claude Code settings ({})", config_source_hint()))?;
 
     let hooks = match config.get_mut("hooks") {
         Some(h) => h,
@@ -70,7 +72,8 @@ pub(super) async fn uninstall_hooks() -> Result<()> {
         return Ok(());
     }
 
-    write_settings(&settings_path, &config)?;
+    write_settings(&settings_path, &config)
+        .with_context(|| format!("Writing Claude Code settings ({})", config_source_hint()))?;
     output::success("Removed wqm hook(s) from Claude Code settings");
 
     Ok(())

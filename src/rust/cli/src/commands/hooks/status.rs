@@ -1,11 +1,13 @@
 //! Status subcommand handler for Claude Code hooks
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::output;
 
 use super::matchers::{group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER};
-use super::settings::{config_source_label, get_claude_settings_path, read_settings};
+use super::settings::{
+    config_source_hint, config_source_label, get_claude_settings_path, read_settings,
+};
 
 /// Check if hooks are installed.
 ///
@@ -22,7 +24,8 @@ pub(super) async fn status_hooks() -> Result<()> {
         return Ok(());
     }
 
-    let config = read_settings(&settings_path)?;
+    let config = read_settings(&settings_path)
+        .with_context(|| format!("Reading Claude Code settings ({})", config_source_hint()))?;
 
     let installed = config
         .get("hooks")

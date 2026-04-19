@@ -9,7 +9,8 @@ use super::matchers::{
     build_wqm_hook_command, group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER,
 };
 use super::settings::{
-    config_source_label, get_claude_settings_path, read_settings, write_settings,
+    config_source_hint, config_source_label, get_claude_settings_path, read_settings,
+    write_settings,
 };
 
 /// Install Claude Code SessionStart hook for rule injection
@@ -18,7 +19,8 @@ pub(super) async fn install_hooks() -> Result<()> {
     output::kv("Config source", config_source_label());
     output::kv("Settings path", settings_path.display());
 
-    let mut config = read_settings(&settings_path)?;
+    let mut config = read_settings(&settings_path)
+        .with_context(|| format!("Reading Claude Code settings ({})", config_source_hint()))?;
 
     // Ensure hooks.SessionStart array exists
     if config.get("hooks").is_none() {
@@ -58,7 +60,8 @@ pub(super) async fn install_hooks() -> Result<()> {
         }
     }
 
-    write_settings(&settings_path, &config)?;
+    write_settings(&settings_path, &config)
+        .with_context(|| format!("Writing Claude Code settings ({})", config_source_hint()))?;
     output::success("Claude Code SessionStart hook installed");
     output::kv("Hook event", "SessionStart");
     output::kv("Matcher", SESSION_START_MATCHER);
