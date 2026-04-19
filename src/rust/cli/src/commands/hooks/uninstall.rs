@@ -78,11 +78,19 @@ mod tests {
     use super::super::matchers::{
         build_wqm_hook_command, group_has_wqm_command, SESSION_START_MATCHER,
     };
-    use super::super::settings::{read_settings, write_settings};
+    use super::super::settings::{get_claude_settings_path, read_settings, write_settings};
     use super::*;
     use serde_json::json;
+    use serial_test::serial;
     use std::path::Path;
     use tempfile::TempDir;
+
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("CLAUDE_CONFIG_DIR");
+        }
+    }
 
     fn create_test_settings(dir: &Path, content: &str) -> std::path::PathBuf {
         let settings_path = dir.join("settings.json");
@@ -281,5 +289,53 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn test_uninstall_respects_claude_config_dir() {
+        let _g = EnvGuard;
+        let dir = TempDir::new().unwrap();
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.path());
+
+        let settings_path = get_claude_settings_path().unwrap();
+        assert_eq!(settings_path, dir.path().join("settings.json"));
+
+        // Seed the custom settings.json with a wqm hook.
+        std::fs::write(
+            &settings_path,
+            serde_json::to_string(&json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": SESSION_START_MATCHER,
+                        "hooks": [build_wqm_hook_command()]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Simulate the uninstall logic against the resolved path.
+        let mut config = read_settings(&settings_path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
+        let mut to_remove = Vec::new();
+        for (idx, entry) in ss.iter_mut().enumerate() {
+            if let Some(hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                hooks.retain(|h| !is_wqm_hook_command(h));
+                if hooks.is_empty() {
+                    to_remove.push(idx);
+                }
+            }
+        }
+        for idx in to_remove.into_iter().rev() {
+            ss.remove(idx);
+        }
+        write_settings(&settings_path, &config).unwrap();
+
+        let config = read_settings(&settings_path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert!(ss.is_empty(), "wqm hook removed from custom dir");
+        assert!(!ss.iter().any(group_has_wqm_command));
     }
 }
