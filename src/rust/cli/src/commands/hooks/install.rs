@@ -8,11 +8,14 @@ use crate::output;
 use super::matchers::{
     build_wqm_hook_command, group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER,
 };
-use super::settings::{get_claude_settings_path, read_settings, write_settings};
+use super::settings::{
+    config_source_label, get_claude_settings_path, read_settings, write_settings,
+};
 
 /// Install Claude Code SessionStart hook for rule injection
 pub(super) async fn install_hooks() -> Result<()> {
     let settings_path = get_claude_settings_path()?;
+    output::kv("Config source", config_source_label());
     output::kv("Settings path", settings_path.display());
 
     let mut config = read_settings(&settings_path)?;

@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::output;
 
 use super::matchers::{group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER};
-use super::settings::{get_claude_settings_path, read_settings};
+use super::settings::{config_source_label, get_claude_settings_path, read_settings};
 
 /// Check if hooks are installed.
 ///
@@ -14,6 +14,7 @@ use super::settings::{get_claude_settings_path, read_settings};
 /// has active.
 pub(super) async fn status_hooks() -> Result<()> {
     let settings_path = get_claude_settings_path()?;
+    output::kv("Config source", config_source_label());
     output::kv("Settings path", settings_path.display());
 
     if !settings_path.exists() {

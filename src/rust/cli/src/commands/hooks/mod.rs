@@ -26,16 +26,33 @@ pub struct HooksArgs {
     command: HooksCommand,
 }
 
-/// Hooks subcommands
+/// Hooks subcommands.
+///
+/// All subcommands read/write Claude Code's settings.json. The target
+/// directory is resolved in this order:
+///   1. `CLAUDE_CONFIG_DIR` environment variable (if set and non-empty)
+///   2. `~/.claude` (default)
+///
+/// This matches Claude Code's own resolution and supports Enterprise /
+/// custom installations.
 #[derive(Subcommand)]
 enum HooksCommand {
-    /// Install Claude Code SessionStart hook for rule injection
+    /// Install Claude Code SessionStart hook for rule injection.
+    ///
+    /// Writes to `$CLAUDE_CONFIG_DIR/settings.json` if set, otherwise
+    /// `~/.claude/settings.json`.
     Install,
 
-    /// Remove wqm hooks from Claude Code settings
+    /// Remove wqm hooks from Claude Code settings.
+    ///
+    /// Operates on `$CLAUDE_CONFIG_DIR/settings.json` if set, otherwise
+    /// `~/.claude/settings.json`.
     Uninstall,
 
-    /// Check if hooks are installed
+    /// Check if hooks are installed.
+    ///
+    /// Reads `$CLAUDE_CONFIG_DIR/settings.json` if set, otherwise
+    /// `~/.claude/settings.json`.
     Status,
 }
 

@@ -198,7 +198,7 @@ wqm graph pagerank --tenant <t> --top-k 20              # PageRank centrality
 # Setup
 wqm init completions zsh       # Shell completions
 wqm init man install           # Install man pages
-wqm init hooks install         # Install Claude Code hooks
+wqm init hooks install         # Install Claude Code hooks (respects CLAUDE_CONFIG_DIR)
 
 # Queue and monitoring
 wqm queue stats                # Queue statistics
@@ -215,6 +215,22 @@ See [CLI Reference](docs/reference/cli.md) for complete documentation.
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | - | API key (required for Qdrant Cloud) |
 | `FASTEMBED_MODEL` | `all-MiniLM-L6-v2` | Embedding model |
+
+### Claude Code Integration
+
+`wqm init hooks` reads and writes Claude Code's `settings.json`. The
+location is resolved from:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code config directory used by `wqm init hooks install/uninstall/status`. Set this for Claude Code Enterprise or any non-default install. |
+
+Example — Claude Code Enterprise:
+
+```bash
+export CLAUDE_CONFIG_DIR=~/.config/claude/claude-ent
+wqm init hooks install
+```
 
 ## Architecture
 

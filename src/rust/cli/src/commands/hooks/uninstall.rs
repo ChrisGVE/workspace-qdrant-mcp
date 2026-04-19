@@ -5,11 +5,14 @@ use anyhow::{Context, Result};
 use crate::output;
 
 use super::matchers::is_wqm_hook_command;
-use super::settings::{get_claude_settings_path, read_settings, write_settings};
+use super::settings::{
+    config_source_label, get_claude_settings_path, read_settings, write_settings,
+};
 
 /// Remove wqm hooks from Claude Code settings
 pub(super) async fn uninstall_hooks() -> Result<()> {
     let settings_path = get_claude_settings_path()?;
+    output::kv("Config source", config_source_label());
     output::kv("Settings path", settings_path.display());
 
     if !settings_path.exists() {

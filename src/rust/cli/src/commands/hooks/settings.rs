@@ -25,6 +25,15 @@ pub(super) fn get_claude_settings_path() -> Result<PathBuf> {
     Ok(get_claude_config_dir()?.join("settings.json"))
 }
 
+/// Human-readable label describing which source supplied the config dir,
+/// used in CLI output to make path resolution transparent for debugging.
+pub(super) fn config_source_label() -> &'static str {
+    match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(v) if !v.to_string_lossy().trim().is_empty() => "CLAUDE_CONFIG_DIR",
+        _ => "default (~/.claude)",
+    }
+}
+
 /// Read Claude Code settings.json, returning empty object if not found
 pub(super) fn read_settings(path: &Path) -> Result<serde_json::Value> {
     if !path.exists() {
