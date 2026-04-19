@@ -40,6 +40,28 @@ jobs:
         working-directory: src/rust
         run: cargo fmt --all -- --check
 
+  # Guard against new hardcoded ~/.claude paths creeping back into the hooks
+  # module. All path resolution must go through settings::get_claude_config_dir
+  # so CLAUDE_CONFIG_DIR (Claude Code Enterprise / custom installs) is honored.
+  hooks-claude-path-audit:
+    name: Hooks — no hardcoded .claude paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan hooks module
+        run: |
+          set -euo pipefail
+          hits=$(grep -rn '\.claude' src/rust/cli/src/commands/hooks/ --include='*.rs' \
+            | grep -v 'CLAUDE_CONFIG_DIR' \
+            | grep -Ev "^[^:]+:[0-9]+:\s*(//|///|\*)" \
+            | grep -v 'settings.rs' \
+            || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Found hardcoded .claude paths outside settings.rs (use get_claude_config_dir):"
+            echo "$hits"
+            exit 1
+          fi
+
   # Rust build, lint, and test
   rust:
     name: Rust (${{ matrix.os }})
