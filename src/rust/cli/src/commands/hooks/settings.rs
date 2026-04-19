@@ -4,10 +4,25 @@ use anyhow::{Context, Result};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
+/// Get the Claude Code config directory.
+///
+/// Respects the `CLAUDE_CONFIG_DIR` environment variable (used by Claude Code
+/// Enterprise and custom installations). Falls back to `~/.claude` when the
+/// env var is unset or contains only whitespace.
+pub(super) fn get_claude_config_dir() -> Result<PathBuf> {
+    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
+        let s = dir.to_string_lossy();
+        if !s.trim().is_empty() {
+            return Ok(PathBuf::from(s.as_ref()));
+        }
+    }
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    Ok(home.join(".claude"))
+}
+
 /// Get the path to Claude Code's settings.json
 pub(super) fn get_claude_settings_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    Ok(home.join(".claude").join("settings.json"))
+    Ok(get_claude_config_dir()?.join("settings.json"))
 }
 
 /// Read Claude Code settings.json, returning empty object if not found
@@ -47,12 +62,76 @@ pub(super) fn write_settings(path: &Path, config: &serde_json::Value) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use tempfile::TempDir;
 
     fn create_test_settings(dir: &Path, content: &str) -> PathBuf {
         let settings_path = dir.join("settings.json");
         std::fs::write(&settings_path, content).unwrap();
         settings_path
+    }
+
+    /// Guard that removes CLAUDE_CONFIG_DIR on drop to keep tests hermetic.
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("CLAUDE_CONFIG_DIR");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_settings_path_uses_claude_config_dir_when_set() {
+        let _g = EnvGuard;
+        let dir = TempDir::new().unwrap();
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.path());
+
+        let path = get_claude_settings_path().unwrap();
+        assert_eq!(path, dir.path().join("settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_settings_path_falls_back_to_home_when_unset() {
+        let _g = EnvGuard;
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+
+        let path = get_claude_settings_path().unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(path, home.join(".claude").join("settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_settings_path_falls_back_when_empty() {
+        let _g = EnvGuard;
+        std::env::set_var("CLAUDE_CONFIG_DIR", "");
+
+        let path = get_claude_settings_path().unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(path, home.join(".claude").join("settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_settings_path_falls_back_when_whitespace() {
+        let _g = EnvGuard;
+        std::env::set_var("CLAUDE_CONFIG_DIR", "   \t  ");
+
+        let path = get_claude_settings_path().unwrap();
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(path, home.join(".claude").join("settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_dir_uses_claude_config_dir_when_set() {
+        let _g = EnvGuard;
+        let dir = TempDir::new().unwrap();
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.path());
+
+        let resolved = get_claude_config_dir().unwrap();
+        assert_eq!(resolved, dir.path());
     }
 
     #[test]
