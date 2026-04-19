@@ -69,10 +69,18 @@ mod tests {
     use super::super::matchers::{
         build_wqm_hook_command, group_has_wqm_command, is_our_matcher, SESSION_START_MATCHER,
     };
-    use super::super::settings::{read_settings, write_settings};
+    use super::super::settings::{get_claude_settings_path, read_settings, write_settings};
     use super::*;
+    use serial_test::serial;
     use std::path::Path;
     use tempfile::TempDir;
+
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("CLAUDE_CONFIG_DIR");
+        }
+    }
 
     fn create_test_settings(dir: &Path, content: &str) -> std::path::PathBuf {
         let settings_path = dir.join("settings.json");
@@ -204,5 +212,39 @@ mod tests {
         let idx = ss.iter().position(is_our_matcher).unwrap();
         assert!(group_has_wqm_command(&ss[idx]));
         // Already installed → no-op
+    }
+
+    #[test]
+    #[serial]
+    fn test_install_respects_claude_config_dir() {
+        let _g = EnvGuard;
+        let dir = TempDir::new().unwrap();
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.path());
+
+        let settings_path = get_claude_settings_path().unwrap();
+        assert_eq!(settings_path, dir.path().join("settings.json"));
+
+        // Simulate the full install flow into the custom location.
+        let mut config = read_settings(&settings_path).unwrap();
+        config["hooks"] = json!({});
+        config["hooks"]["SessionStart"] = json!([{
+            "matcher": SESSION_START_MATCHER,
+            "hooks": [build_wqm_hook_command()]
+        }]);
+        write_settings(&settings_path, &config).unwrap();
+
+        assert!(
+            settings_path.exists(),
+            "settings.json written to custom dir"
+        );
+        let written = read_settings(&settings_path).unwrap();
+        let ss = written["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(ss.len(), 1);
+        assert!(is_our_matcher(&ss[0]));
+        assert!(group_has_wqm_command(&ss[0]));
+        let cmd = ss[0]["hooks"].as_array().unwrap()[0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(cmd.contains("wqm"), "command should contain 'wqm': {cmd}");
     }
 }
