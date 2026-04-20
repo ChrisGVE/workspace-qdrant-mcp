@@ -13,6 +13,7 @@ use notify::{Event, EventKind};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::interval;
 
+use crate::monitoring::metrics_core::METRICS;
 use crate::processing::{TaskPayload, TaskPriority, TaskSource, TaskSubmitter};
 
 use super::compiled_patterns::CompiledPatterns;
@@ -21,6 +22,17 @@ use super::debouncer::{EventBatcher, EventDebouncer};
 use super::events::{FileEvent, PausedEventBuffer};
 use super::telemetry::{TelemetryTracker, WatchingStats};
 use super::watcher::FileWatcher;
+
+/// Map a notify EventKind to a stable low-cardinality label for Prometheus.
+fn event_kind_label(kind: &EventKind) -> &'static str {
+    match kind {
+        EventKind::Create(_) => "create",
+        EventKind::Modify(notify::event::ModifyKind::Name(_)) => "rename",
+        EventKind::Modify(_) => "modify",
+        EventKind::Remove(_) => "delete",
+        _ => "other",
+    }
+}
 
 impl FileWatcher {
     /// Handle a notify event and convert it to our internal event format
@@ -127,6 +139,7 @@ impl FileWatcher {
         stats: &Arc<Mutex<WatchingStats>>,
         telemetry_tracker: &Arc<Mutex<TelemetryTracker>>,
     ) {
+        METRICS.record_watcher_event(event_kind_label(&event.event_kind));
         {
             let mut stats_lock = stats.lock().await;
             stats_lock.events_received += 1;
@@ -189,6 +202,7 @@ impl FileWatcher {
             )
             .await;
         } else {
+            METRICS.record_watcher_coalesced("debounce");
             let mut stats_lock = stats.lock().await;
             stats_lock.events_debounced += 1;
         }
@@ -369,5 +383,56 @@ impl FileWatcher {
     pub(super) async fn cleanup_old_events(debouncer: &Arc<Mutex<EventDebouncer>>) {
         let mut debouncer_lock = debouncer.lock().await;
         debouncer_lock.cleanup(Duration::from_secs(3600));
+    }
+}
+
+#[cfg(test)]
+mod event_kind_label_tests {
+    use super::event_kind_label;
+    use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
+    use notify::EventKind;
+
+    #[test]
+    fn create_maps_to_create() {
+        assert_eq!(
+            event_kind_label(&EventKind::Create(CreateKind::File)),
+            "create"
+        );
+        assert_eq!(
+            event_kind_label(&EventKind::Create(CreateKind::Folder)),
+            "create"
+        );
+    }
+
+    #[test]
+    fn rename_maps_to_rename() {
+        assert_eq!(
+            event_kind_label(&EventKind::Modify(ModifyKind::Name(RenameMode::From))),
+            "rename"
+        );
+        assert_eq!(
+            event_kind_label(&EventKind::Modify(ModifyKind::Name(RenameMode::To))),
+            "rename"
+        );
+    }
+
+    #[test]
+    fn other_modify_maps_to_modify() {
+        assert_eq!(
+            event_kind_label(&EventKind::Modify(ModifyKind::Any)),
+            "modify"
+        );
+    }
+
+    #[test]
+    fn remove_maps_to_delete() {
+        assert_eq!(
+            event_kind_label(&EventKind::Remove(RemoveKind::File)),
+            "delete"
+        );
+        assert_eq!(
+            event_kind_label(&EventKind::Remove(RemoveKind::Folder)),
+            "delete"
+        );
     }
 }
