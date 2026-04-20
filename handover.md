@@ -1,61 +1,80 @@
-# Handover — 2026-04-20 (session 4)
+# Handover — 2026-04-20 (session 5)
 
 ## Current work
 
-Session 4 shipped the `issue-63` branch/worktree audit end-to-end. All 10
-audit tasks marked done in task-master, issue #63 closed, one bug found
-during the audit filed as #69 and **fixed** in the same session. Repo is
-clean (handover.md is the only pending change).
+Session 5 cleared two rounds of open-issue work on `main`:
+
+1. **#66 — `TENANT_GLOBAL` sentinel** (commit `55f215ba7`). Extracted a
+   shared constant in `wqm-common::constants` and
+   `src/typescript/mcp-server/src/constants/tenants.ts`. Swept
+   production-code `"global"` tenant/scope literals across CLI, TUI,
+   daemon, and MCP server (tests and type-union positions intentionally
+   kept literal). Added a one-shot startup UPDATE in
+   `startup/rules_backfill::coerce_legacy_global_values` that coerces
+   any historical `_global`/`_global_` rows in `rules_mirror` and
+   `scratchpad_mirror` to the canonical `global` sentinel.
+2. **#57 / #65 / #68 — rules-add UUID error** (commit `6a99f2086`). CLI
+   (`src/rust/cli/src/commands/rules/add.rs`) and TS MCP
+   (`src/typescript/mcp-server/src/tools/rules-mutations.ts::addRule`)
+   now pass a generated UUID as `document_id` instead of the label. The
+   label is still carried in payload metadata (already indexed); the
+   SQLite mirror is keyed by label so rebuild-from-Qdrant stays
+   consistent. Updated `tests/tools/rules-crud.test.ts` assertion — the
+   `label` field in the response is now the user-supplied label, not
+   the daemon-assigned UUID.
+
+All tests pass (Rust touched modules + full TS suite, 470/470). Tree
+clean, pushed to `origin/main`.
 
 ## Task-master
 
-- **Tag/milestone**: `issue-63` (complete, 10/10). Previous tag
-  `issue-64` also complete (12/12).
+- **Tag/milestone**: `issue-63` is still the active tag (complete,
+  10/10). No new task-master tasks created for this session's work —
+  both items were standalone chore/bug commits driven directly from
+  GitHub issues.
 - **In progress**: none.
-- **Blocked**: none.
-- **Recently completed this session**:
-  - `issue-63/1` — `GitFixtures` builder in
-    `src/rust/daemon/shared-test-utils/src/git_fixtures.rs` (9 smoke
-    tests). 9 scenarios: plain_clone, no_remote, detached_head,
-    mid_rebase, shallow_clone, multiple_clones(n), worktree,
-    nested_worktree, with_submodule.
-  - `issue-63/2..9` — 16 integration tests in
-    `src/rust/daemon/core/tests/branch_worktree_audit.rs` driving each
-    scenario through `detect_git_status`, `find_main_worktree_path`,
-    `BranchLifecycleDetector`, `ProjectIdCalculator`,
-    `DisambiguationPathComputer`, and `PathValidator`.
-  - `issue-63/10` — report in
-    `docs/specs/19-branch-worktree-audit.md` (14 ok, 5 gaps, 1 bug
-    fixed).
-- **Available next tags**:
-  - `docker` — 15 tasks — docker compose + MCP HTTP transport (not
-    started, has pending decisions — see below).
-  - No other pending audit work.
+- **Blocked**: none (except `docker` — still pending the 4 user
+  decisions, see Pending Decisions).
+- **Available next tags**: `docker` only (blocked).
 
 ## Resume instructions
 
-1. Read this file, then `git log --oneline origin/main -20` for recent
+1. Read this file, then `git log --oneline origin/main -10` for recent
    commits.
-2. If picking up `docker`: `task-master use-tag docker`. **Blocked** on
+2. If picking up open GitHub issues — all remaining are user-reported
+   bugs or heavier work that needs a decision or repro:
+   - **#58** — legacy rules missing scope/label payload fields. Needs
+     a `wqm admin rebuild rules-payload` backfill command +
+     inject-side fallback. Medium scope; fix options already written
+     in the issue.
+   - **#59** — reconciliation on daemon startup blocks gRPC readiness.
+     Timing/startup-ordering bug; requires daemon boot flow investigation.
+   - **#60** — linux-native idle detection for adaptive resource
+     management. Linux-specific feature work.
+   - **#61** — re-enable `linux/arm64` in docker-publish workflow.
+     Likely blocked on the `docker` tag decisions (see below) since the
+     compose/transport story is still open.
+   - **#70** — `wqm project register` claims success but the project
+     does not appear in `wqm project list` afterward. Likely
+     persistence/commit issue in the register path; needs end-to-end
+     trace from CLI → daemon → SQLite.
+   - **#55** — daemon client reports "Client not connected" despite
+     daemon healthy. Connection-pool / reconnect behavior.
+3. If picking up `docker`: `task-master use-tag docker`. **Blocked** on
    four decisions (see Pending Decisions). Ask the user before starting.
-3. If addressing open bugs from the audit gaps (see §§1.6, 2.4, 3.4, 4.2,
-   4.3 in `docs/specs/19-branch-worktree-audit.md`): pick the gap, file
-   an issue, add a follow-up task.
-4. If addressing #66 (TENANT_GLOBAL constant): start in
-   `src/rust/common/src/constants.rs`; add
-   `pub const TENANT_GLOBAL: &str = "global";` and sweep the ~15 literal
-   sites listed in the issue. Mirror in TypeScript. Add a one-shot UPDATE
-   in `rules_backfill.rs` to coerce `_global`/`_global_` rows.
-5. If addressing #65 / #68 (rules add UUID error) or #70 (register-claims-
-   success-but-not-listed): user-reported bugs, repro + fix.
-6. `task-master next` in the active tag.
+4. If addressing audit gaps from session 4 (§§1.6, 2.4, 3.4, 4.2, 4.3
+   in `docs/specs/19-branch-worktree-audit.md`): pick the gap, file a
+   GitHub issue, add a follow-up task.
+5. `task-master next` in the active tag — expect "no tasks
+   available" outside `docker`.
 
 ## Pending decisions
 
-_(None blocking for issue-63/-64 — both fully shipped.)_
+_(None blocking the session-5 commits — both shipped.)_
 
 - **Docker image distribution** (for `docker` tag, Phase 2): GHCR vs
-  local-build. PRD recommends GHCR. Ask before starting `docker` Phase 2.
+  local-build. PRD recommends GHCR. Ask before starting `docker`
+  Phase 2.
 - **Docker token rotation UX** (for `docker` tag): static `.env` vs
   admin endpoint.
 - **TLS strategy for HTTP MCP** (for `docker` tag): native vs
@@ -69,37 +88,24 @@ _(None blocking for issue-63/-64 — both fully shipped.)_
 
 | Commit | Summary |
 |--------|---------|
-| f60883bdf | test(shared-test-utils): add GitFixtures builder for branch/worktree audit |
-| 29f09d222 | test(monitoring): add otlp_headers and otlp_protocol to OtelConfig literal (compile fix) |
-| f95bcc37c | test(core): add branch/worktree audit integration tests + findings doc |
-| bf6682b09 | fix(daemon): correlate atomic branch rename in BranchLifecycleDetector (closes #69) |
-| a latest  | docs(audit): fix #69 issue URL in branch-worktree audit spec |
+| `55f215ba7` | `refactor(common): extract TENANT_GLOBAL sentinel constant` (closes #66) |
+| `6a99f2086` | `fix(rules): generate UUID for document_id on rules add` (closes #57, #65, #68) |
 
-### GitHub issues
+### GitHub issues touched this session
 
-- **#63** — CLOSED (this session) — branch/worktree audit.
-- **#69** — CLOSED (this session) — atomic-rename misclassification,
-  fixed in bf6682b09.
-- **#64** — CLOSED (previous session) — daemon telemetry.
-- **#66** — OPEN — extract `TENANT_GLOBAL` constant (chore).
-- **#65** / **#68** — OPEN — rules add UUID error.
-- **#70** — OPEN — `wqm project register` claims success but project
-  not in list.
-- **#61** — OPEN — re-enable linux/arm64 in docker-publish workflow.
-- **#60** — OPEN — linux-native idle detection.
-- **#59** — OPEN — reconciliation on daemon startup blocks gRPC
-  readiness.
-- **#58** — OPEN — legacy rules missing scope/label payload fields.
+- **#57** — CLOSED — CLI/MCP now send a valid UUID.
+- **#65** — CLOSED — duplicate of #57, fixed by the same commit.
+- **#66** — CLOSED — `TENANT_GLOBAL` sentinel shipped.
+- **#68** — CLOSED — duplicate of #57, fixed by the same commit.
 
-### Audit finding summary
+### Still OPEN after this session
 
-`docs/specs/19-branch-worktree-audit.md` has the full record. 16
-integration tests pass. Remaining gaps captured in the report, each
-with a follow-up sketch (full-stack orphan cleanup, queue dedup under
-rapid switches, symlink canonicalisation, submodule auto-discovery
-integration, shallow-clone reflog parsing). Two ADR notes on
-ambiguous invariants (symlink clone identity, worktree tenant
-equivalence).
+- **#55** — daemon client reports "Client not connected".
+- **#58** — legacy rules missing scope/label payload fields.
+- **#59** — reconciliation blocks gRPC readiness.
+- **#60** — linux-native idle detection.
+- **#61** — re-enable `linux/arm64` in docker-publish workflow.
+- **#70** — `wqm project register` success but not listed.
 
 ### Architectural invariants (carried forward)
 
@@ -113,8 +119,18 @@ equivalence).
   `rules`, `scratchpad`.
 - `ProjectIdCalculator::normalize_git_url` is the one-and-only URL
   normaliser — used by daemon and CLI both.
-- `BranchLifecycleDetector::scan_for_changes` order is now
-  delete → new → expire; this order is required for rename correlation.
+- `BranchLifecycleDetector::scan_for_changes` order is
+  delete → new → expire; required for rename correlation.
+- **New (session 5)**: `TENANT_GLOBAL = "global"` is the one-and-only
+  sentinel for the global-scope `tenant_id` payload field. Add future
+  writes through `wqm_common::constants::TENANT_GLOBAL` (Rust) or
+  `./constants/tenants.ts` (TS). Test fixtures keep the literal on
+  purpose so they catch drift if the constant is ever changed.
+- **New (session 5)**: Rules `document_id` in Qdrant is always a UUID.
+  The human-readable label lives in `payload.label` and is the
+  SQLite `rules_mirror` primary key. Backfill from Qdrant uses
+  `payload.label` → `rules_mirror.rule_id`, so live writes must keep
+  the same invariant (mirror keyed by label, Qdrant keyed by UUID).
 
 ### Gotchas carried forward
 
@@ -134,11 +150,19 @@ equivalence).
   calls — `rm -f .git/index.lock` if it blocks a commit.
 - `ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib` required for
   every `cargo build` / `cargo test`.
+- `wqm-cli` generates ~47 pre-existing compile warnings; none
+  introduced by sessions 4 or 5.
 
-### New reference files (session 4)
+### Reference files (session 5)
 
-- Fixtures: `src/rust/daemon/shared-test-utils/src/git_fixtures.rs`
-  (depends on `git2` + `git` CLI for worktree/rebase/submodule ops).
-- Audit tests: `src/rust/daemon/core/tests/branch_worktree_audit.rs`.
-- Audit doc: `docs/specs/19-branch-worktree-audit.md`.
-- Branch lifecycle fix: `src/rust/daemon/core/src/git/branch_lifecycle/detector.rs::scan_for_changes`.
+- `src/rust/common/src/constants.rs` — `TENANT_GLOBAL` added.
+- `src/rust/daemon/core/src/startup/rules_backfill.rs` —
+  `coerce_legacy_global_values` helper + unit test
+  (`test_coerce_legacy_global_values`).
+- `src/typescript/mcp-server/src/constants/tenants.ts` — TS mirror of
+  the constant (uses `as const` so it narrows to the literal type).
+- `src/rust/cli/src/commands/rules/add.rs` — UUID generation for
+  `document_id`.
+- `src/typescript/mcp-server/src/tools/rules-mutations.ts` — UUID
+  generation for `document_id`; mirror keyed by label; response
+  returns the input label rather than the daemon-assigned UUID.
