@@ -118,6 +118,19 @@ export async function addRule(
     resolvedProjectId = projectInfo?.projectId;
   }
 
+  // Don't silently fall back to the global tenant when a project rule was
+  // requested but the project isn't tracked — the rule would end up
+  // misfiled and the caller would never know. Tell them instead.
+  if (scope === 'project' && !resolvedProjectId) {
+    return {
+      success: false,
+      action: 'add',
+      message:
+        'Project-scoped rule requested but the current directory is not a registered project. ' +
+        'Run `wqm project watch <path>` first, or pass `projectId` explicitly, or set `scope: "global"`.',
+    };
+  }
+
   const label = options.label.trim();
   const metadata: Record<string, string> = { scope, rule_type: 'behavioral', label };
   if (resolvedProjectId) metadata[FIELD_PROJECT_ID] = resolvedProjectId;
