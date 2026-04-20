@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use wqm_common::constants::TENANT_GLOBAL;
 
 /// Performance settings for a collection type
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +100,7 @@ pub fn get_settings_for_type(collection_type: Option<&str>) -> CollectionTypeSet
         Some("system") => CollectionTypeSettings::system(),
         Some("library") => CollectionTypeSettings::library(),
         Some("project") => CollectionTypeSettings::project(),
-        Some("global") => CollectionTypeSettings::global(),
+        Some(s) if s == TENANT_GLOBAL => CollectionTypeSettings::global(),
         _ => CollectionTypeSettings::unknown(),
     }
 }

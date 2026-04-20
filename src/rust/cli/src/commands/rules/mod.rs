@@ -13,6 +13,7 @@ mod search;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use wqm_common::constants::TENANT_GLOBAL;
 
 /// Rules command arguments
 #[derive(Args)]
@@ -231,7 +232,7 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
 /// Resolve scope from --global / --project flags
 fn resolve_scope(global: bool, project: Option<String>) -> Option<String> {
     if global {
-        Some("global".to_string())
+        Some(TENANT_GLOBAL.to_string())
     } else {
         project.map(|p| format!("project:{}", p))
     }

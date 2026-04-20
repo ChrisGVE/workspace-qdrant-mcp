@@ -23,6 +23,7 @@ export type {
 
 import type { RuleOptions, RuleResponse, RuleToolConfig, Rule, RuleScope } from './rules-types.js';
 import { RULES_COLLECTION } from './rules-types.js';
+import { TENANT_GLOBAL } from '../constants/tenants.js';
 import { FIELD_CONTENT } from '../common/native-bridge.js';
 import { addRule, updateRule, removeRule } from './rules-mutations.js';
 import { listRules } from './rules-list.js';
@@ -43,7 +44,7 @@ export class RulesTool {
     config: RuleToolConfig,
     daemonClient: DaemonClient,
     stateManager: SqliteStateManager,
-    projectDetector: ProjectDetector,
+    projectDetector: ProjectDetector
   ) {
     const clientConfig: { url: string; apiKey?: string; timeout?: number } = {
       url: config.qdrantUrl,
@@ -83,7 +84,11 @@ export class RulesTool {
       case 'list':
         return listRules(this.qdrantClient, this.stateManager, this.projectDetector, options);
       default:
-        return { success: false, action: options.action, message: `Unknown action: ${options.action}` };
+        return {
+          success: false,
+          action: options.action,
+          message: `Unknown action: ${options.action}`,
+        };
     }
   }
 
@@ -108,7 +113,7 @@ export class RulesTool {
         .map((point) => ({
           id: String(point.id),
           content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
-          scope: (point.payload?.['scope'] as RuleScope) ?? 'global',
+          scope: (point.payload?.['scope'] as RuleScope) ?? TENANT_GLOBAL,
           label: (point.payload?.['label'] as string) ?? undefined,
           title: (point.payload?.['title'] as string) ?? undefined,
           similarity: Math.round(point.score * 1000) / 1000,

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use qdrant_client::qdrant::{value::Kind, Filter, RetrievedPoint};
 use sqlx::SqlitePool;
 use tracing::{info, warn};
+use wqm_common::constants::TENANT_GLOBAL;
 
 use workspace_qdrant_core::StorageClient;
 
@@ -266,7 +267,7 @@ async fn enqueue_rule_ingestion(
     tenant: &Option<String>,
     now: &str,
 ) {
-    let tid = tenant.as_deref().unwrap_or("global");
+    let tid = tenant.as_deref().unwrap_or(TENANT_GLOBAL);
     let payload = serde_json::json!({
         "content": content,
         "scope": scope,

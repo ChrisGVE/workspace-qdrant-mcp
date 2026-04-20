@@ -16,6 +16,7 @@ import {
 } from '../common/native-bridge.js';
 import type { RuleAction, RuleOptions, RuleResponse, RuleScope } from './rules-types.js';
 import { RULES_BASENAME, RULES_COLLECTION } from './rules-types.js';
+import { TENANT_GLOBAL } from '../constants/tenants.js';
 
 /** Check if an error is a connectivity error (daemon unavailable). */
 function isConnectivityError(err: unknown): boolean {
@@ -76,7 +77,7 @@ async function queueRuleOperation(
   const result = await stateManager.enqueueUnified(
     'text',
     op,
-    operation.projectId ?? 'global',
+    operation.projectId ?? TENANT_GLOBAL,
     RULES_COLLECTION,
     payload,
     PRIORITY_HIGH,
@@ -143,7 +144,7 @@ export async function addRule(
     const response = await daemonClient.ingestText({
       content,
       collection_basename: RULES_BASENAME,
-      tenant_id: resolvedProjectId ?? 'global',
+      tenant_id: resolvedProjectId ?? TENANT_GLOBAL,
       document_id: label,
       metadata,
     });
@@ -232,7 +233,7 @@ export async function updateRule(
     const response = await daemonClient.ingestText({
       content,
       collection_basename: RULES_BASENAME,
-      tenant_id: 'global',
+      tenant_id: TENANT_GLOBAL,
       document_id: label,
       metadata,
     });

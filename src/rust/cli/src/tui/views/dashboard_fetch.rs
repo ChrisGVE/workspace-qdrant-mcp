@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use rusqlite::Connection;
+use wqm_common::constants::TENANT_GLOBAL;
 
 use crate::data::db::connect_readonly;
 
@@ -359,8 +360,8 @@ fn q_val(q: Option<&HashMap<String, i64>>, status: &str) -> i64 {
 }
 
 fn tenant_display_name(tid: &str, names: &HashMap<String, String>) -> String {
-    if tid == "global" {
-        "global".to_string()
+    if tid == TENANT_GLOBAL {
+        TENANT_GLOBAL.to_string()
     } else {
         names.get(tid).cloned().unwrap_or(tid.to_string())
     }

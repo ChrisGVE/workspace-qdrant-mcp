@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { SessionState } from './server-types.js';
 import { COLLECTION_SCRATCHPAD, PRIORITY_HIGH } from './common/native-bridge.js';
+import { TENANT_GLOBAL } from './constants/tenants.js';
 import { utcNow } from './utils/timestamps.js';
 
 type StoreResult = {
@@ -52,7 +53,7 @@ export async function storeUrl(
   const libraryName = args?.['libraryName'] as string | undefined;
   const title = args?.['title'] as string | undefined;
   const collection = libraryName ? 'libraries' : COLLECTION_SCRATCHPAD;
-  const tenantId = libraryName?.trim() || sessionState.projectId || 'global';
+  const tenantId = libraryName?.trim() || sessionState.projectId || TENANT_GLOBAL;
 
   const payload: Record<string, unknown> = {
     url: url.trim(),
@@ -121,7 +122,7 @@ export async function storeScratchpad(
 
   const title = args?.['title'] as string | undefined;
   const tags = (args?.['tags'] as string[] | undefined) ?? [];
-  const tenantId = sessionState.projectId || 'global';
+  const tenantId = sessionState.projectId || TENANT_GLOBAL;
 
   const payload: Record<string, unknown> = {
     content: content.trim(),

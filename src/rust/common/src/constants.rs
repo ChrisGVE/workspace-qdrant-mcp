@@ -15,8 +15,15 @@ pub const COLLECTION_LIBRARIES: &str = "libraries";
 pub const COLLECTION_RULES: &str = "rules";
 
 /// Scratchpad collection - persistent LLM scratch space
-/// Filtered by tenant_id payload field ("global" or project_id)
+/// Filtered by tenant_id payload field (`TENANT_GLOBAL` or project_id)
 pub const COLLECTION_SCRATCHPAD: &str = "scratchpad";
+
+/// Sentinel tenant_id for global-scope rules and scratchpad entries.
+///
+/// Used in the `tenant_id` payload field of `rules` and `scratchpad` points
+/// that apply across all projects. Must match the TypeScript constant in
+/// `src/typescript/mcp-server/src/constants/tenants.ts`.
+pub const TENANT_GLOBAL: &str = "global";
 
 /// Images collection - stores CLIP-embedded images from documents
 /// 512-dimensional vectors (CLIP ViT-B-32), dense-only (no sparse)
@@ -164,6 +171,11 @@ mod tests {
         assert_eq!(COLLECTION_RULES, "rules");
         assert_eq!(COLLECTION_SCRATCHPAD, "scratchpad");
         assert_eq!(COLLECTION_IMAGES, "images");
+    }
+
+    #[test]
+    fn test_tenant_global() {
+        assert_eq!(TENANT_GLOBAL, "global");
     }
 
     #[test]

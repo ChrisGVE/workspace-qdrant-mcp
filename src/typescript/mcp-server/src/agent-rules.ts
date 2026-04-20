@@ -7,6 +7,7 @@ import { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import { DaemonClient } from './clients/daemon-client.js';
 import { ProjectDetector } from './utils/project-detector.js';
 import { RulesTool, type Rule } from './tools/rules.js';
+import { TENANT_GLOBAL } from './constants/tenants.js';
 
 export type { Rule };
 
@@ -45,7 +46,11 @@ export async function fetchRules(
     const rulesTool = new RulesTool(rulesToolConfig, daemonClient, stateManager, projectDetector);
 
     // Fetch global rules
-    const globalResponse = await rulesTool.execute({ action: 'list', scope: 'global', limit: 50 });
+    const globalResponse = await rulesTool.execute({
+      action: 'list',
+      scope: TENANT_GLOBAL,
+      limit: 50,
+    });
     if (globalResponse.success && globalResponse.rules) {
       rules.push(...globalResponse.rules);
       console.log(`[Agent] Fetched ${globalResponse.rules.length} global rule(s)`);
@@ -107,7 +112,7 @@ export function formatRulesForPrompt(rules: Rule[]): string {
 
   formatSection(
     'Global Rules',
-    rules.filter((r) => r.scope === 'global')
+    rules.filter((r) => r.scope === TENANT_GLOBAL)
   );
   formatSection(
     'Project-Specific Rules',

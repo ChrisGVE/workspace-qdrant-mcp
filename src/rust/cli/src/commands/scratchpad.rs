@@ -738,7 +738,7 @@ fn print_table_entries(points: &[QdrantPoint], project: Option<&str>, verbose: b
 
 fn resolve_tenant_id(project: Option<&str>) -> Result<String> {
     match project {
-        None => Ok("global".to_string()),
+        None => Ok(wqm_common::constants::TENANT_GLOBAL.to_string()),
         Some(p) => {
             let path = std::path::Path::new(p);
             if path.exists() {

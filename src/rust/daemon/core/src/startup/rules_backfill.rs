@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
+use wqm_common::constants::TENANT_GLOBAL;
 use wqm_common::timestamps;
 
 use crate::storage::StorageClient;
@@ -26,6 +27,11 @@ pub async fn backfill_rules_mirror(
 
     info!("Starting rules_mirror backfill from Qdrant...");
     let start = std::time::Instant::now();
+
+    // Coerce any historically drifted tenant_id/scope values to the canonical
+    // TENANT_GLOBAL sentinel before backfilling. Protects against `_global`
+    // or `_global_` rows inserted by out-of-tree code or manual edits.
+    coerce_legacy_global_values(pool).await;
 
     let exists = storage_client
         .collection_exists(wqm_common::constants::COLLECTION_RULES)
@@ -137,6 +143,53 @@ async fn insert_rules_mirror_point(
     }
 }
 
+/// Coerce legacy `_global` / `_global_` tenant/scope values to the canonical
+/// `TENANT_GLOBAL` sentinel in `rules_mirror` and `scratchpad_mirror`.
+///
+/// This is a one-shot UPDATE run on daemon startup. Rows inserted by future
+/// code always use [`TENANT_GLOBAL`] directly, so this is a no-op after the
+/// first pass. Errors are logged but do not fail startup — mirror tables may
+/// not yet exist on fresh installs, and the backfill caller tolerates that.
+async fn coerce_legacy_global_values(pool: &SqlitePool) {
+    const LEGACY_VARIANTS: &[&str] = &["_global", "_global_"];
+
+    for table in &["rules_mirror", "scratchpad_mirror"] {
+        for column in &["tenant_id", "scope"] {
+            // scratchpad_mirror has no scope column; UPDATEs on missing
+            // columns fail cleanly and we log+continue.
+            let sql = format!(
+                "UPDATE {table} SET {column} = ?1 WHERE {column} IN (?2, ?3)",
+                table = table,
+                column = column,
+            );
+            match sqlx::query(&sql)
+                .bind(TENANT_GLOBAL)
+                .bind(LEGACY_VARIANTS[0])
+                .bind(LEGACY_VARIANTS[1])
+                .execute(pool)
+                .await
+            {
+                Ok(r) if r.rows_affected() > 0 => {
+                    info!(
+                        "Coerced {} legacy global value(s) in {}.{} to '{}'",
+                        r.rows_affected(),
+                        table,
+                        column,
+                        TENANT_GLOBAL,
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    debug!(
+                        "Skipped legacy-global coercion for {}.{}: {}",
+                        table, column, e
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Statistics from rules mirror backfill
 #[derive(Debug, Clone, Default)]
 pub struct RulesBackfillStats {
@@ -243,5 +296,90 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 2);
+    }
+
+    /// Legacy `_global` / `_global_` tenant_id and scope values are coerced
+    /// to the canonical `global` sentinel on startup. Untouched values and
+    /// non-legacy strings are left alone.
+    #[tokio::test]
+    async fn test_coerce_legacy_global_values() {
+        use sqlx::sqlite::SqlitePoolOptions;
+        use std::time::Duration;
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+
+        sqlx::query(crate::watch_folders_schema::CREATE_RULES_MIRROR_SQL)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let now = timestamps::now_utc();
+
+        // Row with legacy scope "_global"
+        sqlx::query(
+            "INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )
+        .bind("r-legacy-1")
+        .bind("legacy-1")
+        .bind("_global")
+        .bind::<Option<&str>>(None)
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool).await.unwrap();
+
+        // Row with legacy tenant_id "_global_"
+        sqlx::query(
+            "INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )
+        .bind("r-legacy-2")
+        .bind("legacy-2")
+        .bind("global")
+        .bind(Some("_global_"))
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool).await.unwrap();
+
+        // Row already canonical — must remain untouched
+        sqlx::query(
+            "INSERT INTO rules_mirror (rule_id, rule_text, scope, tenant_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        )
+        .bind("r-ok")
+        .bind("ok")
+        .bind("global")
+        .bind(Some("proj-abc"))
+        .bind(&now)
+        .bind(&now)
+        .execute(&pool).await.unwrap();
+
+        coerce_legacy_global_values(&pool).await;
+
+        let scope1: String =
+            sqlx::query_scalar("SELECT scope FROM rules_mirror WHERE rule_id = 'r-legacy-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(scope1, TENANT_GLOBAL);
+
+        let tenant2: String =
+            sqlx::query_scalar("SELECT tenant_id FROM rules_mirror WHERE rule_id = 'r-legacy-2'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(tenant2, TENANT_GLOBAL);
+
+        let tenant_ok: String =
+            sqlx::query_scalar("SELECT tenant_id FROM rules_mirror WHERE rule_id = 'r-ok'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(tenant_ok, "proj-abc");
     }
 }

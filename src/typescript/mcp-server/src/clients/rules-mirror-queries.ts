@@ -7,6 +7,7 @@
 
 import type { Database as DatabaseType } from 'better-sqlite3';
 import type { DaemonClient } from './daemon-client.js';
+import { TENANT_GLOBAL } from '../constants/tenants.js';
 
 export interface RulesMirrorEntry {
   ruleId: string;
@@ -84,7 +85,7 @@ export function listRulesMirror(
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
-    if (scope === 'global') {
+    if (scope === TENANT_GLOBAL) {
       conditions.push("(scope = 'global' OR scope IS NULL)");
     } else if (scope === 'project' && tenantId) {
       conditions.push("scope = 'project'");

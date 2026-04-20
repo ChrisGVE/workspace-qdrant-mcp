@@ -4,6 +4,8 @@
 
 use std::collections::HashMap;
 
+use wqm_common::constants::TENANT_GLOBAL;
+
 use crate::data::db::connect_readonly;
 
 // Re-export draw function from the UI module.
@@ -233,8 +235,8 @@ fn fetch_is_active(conn: &rusqlite::Connection, tenant_id: &str) -> bool {
 }
 
 fn resolve_display_name(conn: &rusqlite::Connection, tenant_id: &str) -> String {
-    if tenant_id == "global" {
-        "global".to_string()
+    if tenant_id == TENANT_GLOBAL {
+        TENANT_GLOBAL.to_string()
     } else {
         fetch_project_name(conn, tenant_id).unwrap_or(tenant_id.to_string())
     }

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use git2::Repository;
 use tracing::{debug, warn};
+use wqm_common::constants::TENANT_GLOBAL;
 
 use crate::file_classification::{classify_file_type, get_extension_for_storage, is_test_file};
 use crate::watching_queue::get_current_branch;
@@ -206,7 +207,7 @@ fn enrich_library(metadata: &mut HashMap<String, String>, library_name: String) 
 
 /// Apply RULES collection enrichment: global scope only.
 fn enrich_rules(metadata: &mut HashMap<String, String>) {
-    metadata.insert("scope".to_string(), "global".to_string());
+    metadata.insert("scope".to_string(), TENANT_GLOBAL.to_string());
 
     debug!("RULES collection: global scope, no project metadata");
 

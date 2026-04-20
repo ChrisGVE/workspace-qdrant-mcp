@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use wqm_common::constants::TENANT_GLOBAL;
+
 // Re-export the main fetch entry point from the fetch module.
 pub use super::dashboard_fetch::fetch_dashboard_data;
 
@@ -313,8 +315,8 @@ fn add_qdrant_only_tenants<T, F>(
         .iter()
         .filter(|(tid, _)| !existing_tids.contains(tid.as_str()))
         .map(|(tid, &count)| {
-            let name = if tid == "global" {
-                "global".to_string()
+            let name = if tid == TENANT_GLOBAL {
+                TENANT_GLOBAL.to_string()
             } else {
                 tid.clone()
             };

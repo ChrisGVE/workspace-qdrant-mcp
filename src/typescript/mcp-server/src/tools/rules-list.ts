@@ -8,16 +8,17 @@ import type { ProjectDetector } from '../utils/project-detector.js';
 import type { RuleOptions, RuleResponse, Rule, RuleScope } from './rules-types.js';
 import { RULES_COLLECTION } from './rules-types.js';
 import { FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
+import { TENANT_GLOBAL } from '../constants/tenants.js';
 
 /** Build Qdrant filter for list query based on scope. */
 function buildListFilter(
   scope: RuleScope,
-  projectId?: string,
+  projectId?: string
 ): Record<string, unknown> | undefined {
   const mustConditions: Record<string, unknown>[] = [];
 
-  if (scope === 'global') {
-    mustConditions.push({ key: 'scope', match: { value: 'global' } });
+  if (scope === TENANT_GLOBAL) {
+    mustConditions.push({ key: 'scope', match: { value: TENANT_GLOBAL } });
   } else if (scope === 'project' && projectId) {
     mustConditions.push({ key: 'scope', match: { value: 'project' } });
     mustConditions.push({ key: FIELD_PROJECT_ID, match: { value: projectId } });
@@ -31,7 +32,7 @@ export async function listRules(
   qdrantClient: QdrantClient,
   stateManager: SqliteStateManager,
   projectDetector: ProjectDetector,
-  options: RuleOptions,
+  options: RuleOptions
 ): Promise<RuleResponse> {
   const { scope = 'project', projectId, limit = 50 } = options;
 
@@ -57,7 +58,7 @@ export async function listRules(
       const rule: Rule = {
         id: String(point.id),
         content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
-        scope: (point.payload?.['scope'] as RuleScope) ?? 'global',
+        scope: (point.payload?.['scope'] as RuleScope) ?? TENANT_GLOBAL,
       };
 
       const label = point.payload?.['label'] as string | undefined;
@@ -101,7 +102,7 @@ export async function listRules(
           const rule: Rule = {
             id: row.ruleId,
             content: row.ruleText,
-            scope: (row.scope as RuleScope) ?? 'global',
+            scope: (row.scope as RuleScope) ?? TENANT_GLOBAL,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
           };

@@ -10,6 +10,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
+use wqm_common::constants::TENANT_GLOBAL;
 
 use super::rules_data::{fetch_rule_rows, RuleRow};
 use crate::tui::search::SearchState;
@@ -160,8 +161,8 @@ impl RuleBrowser {
             .skip(start)
             .take(visible_height)
             .map(|(i, rule)| {
-                let scope_display = if rule.scope == "global" {
-                    "global".to_string()
+                let scope_display = if rule.scope == TENANT_GLOBAL {
+                    TENANT_GLOBAL.to_string()
                 } else if rule.tenant_id.is_empty() {
                     rule.scope.clone()
                 } else {
@@ -210,8 +211,8 @@ impl RuleBrowser {
 
         frame.render_widget(Clear, popup_area);
 
-        let scope_display = if rule.scope == "global" {
-            "global".to_string()
+        let scope_display = if rule.scope == TENANT_GLOBAL {
+            TENANT_GLOBAL.to_string()
         } else if rule.tenant_id.is_empty() {
             rule.scope.clone()
         } else {

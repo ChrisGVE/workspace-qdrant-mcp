@@ -4,6 +4,7 @@
 //! falls back to EnqueueItem if IngestText fails.
 
 use anyhow::Result;
+use wqm_common::constants::TENANT_GLOBAL;
 
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::{EnqueueItemRequest, IngestTextRequest, QueueType, RefreshSignalRequest};
@@ -11,13 +12,13 @@ use crate::output;
 
 /// Derive tenant_id from scope string.
 ///
-/// Rules use `"global"` as tenant for global scope, or the project ID
-/// extracted from `"project:<id>"` for project-scoped rules.
+/// Rules use [`TENANT_GLOBAL`] as tenant for global scope, or the project
+/// ID extracted from `"project:<id>"` for project-scoped rules.
 fn tenant_id_from_scope(scope: &str) -> String {
     if let Some(project_id) = scope.strip_prefix("project:") {
         project_id.to_string()
     } else {
-        "global".to_string()
+        TENANT_GLOBAL.to_string()
     }
 }
 
@@ -30,7 +31,7 @@ pub async fn add_rule(
 ) -> Result<()> {
     output::section("Add Rule");
 
-    let scope_str = scope.as_deref().unwrap_or("global");
+    let scope_str = scope.as_deref().unwrap_or(TENANT_GLOBAL);
     let tenant_id = tenant_id_from_scope(scope_str);
 
     output::kv("Label", label);

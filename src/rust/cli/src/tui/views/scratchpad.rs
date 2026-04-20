@@ -10,6 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
+use wqm_common::constants::TENANT_GLOBAL;
 
 use super::scratchpad_data::{fetch_scratchpad_rows, ScratchpadRow};
 use crate::tui::search::SearchState;
@@ -178,8 +179,8 @@ impl ScratchpadBrowser {
             .take(visible_height)
             .map(|(i, entry)| {
                 let title = truncate_str(&entry.title, 40);
-                let tenant = if entry.tenant_id == "global" {
-                    "global".to_string()
+                let tenant = if entry.tenant_id == TENANT_GLOBAL {
+                    TENANT_GLOBAL.to_string()
                 } else {
                     truncate_str(&entry.tenant_id, 16)
                 };
@@ -227,8 +228,8 @@ impl ScratchpadBrowser {
         frame.render_widget(Clear, popup_area);
 
         let tags = format_tags(&entry.tags);
-        let tenant = if entry.tenant_id == "global" {
-            "global".to_string()
+        let tenant = if entry.tenant_id == TENANT_GLOBAL {
+            TENANT_GLOBAL.to_string()
         } else {
             entry.tenant_id.clone()
         };

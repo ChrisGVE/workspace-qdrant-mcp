@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
+use wqm_common::constants::TENANT_GLOBAL;
 use wqm_common::schema::qdrant::rules as rules_schema;
 
 use crate::output::ColumnHints;
@@ -189,10 +190,10 @@ pub fn normalize_commas(s: &str) -> String {
 pub fn build_scope_filter(scope_str: &str) -> serde_json::Value {
     let mut must = Vec::new();
 
-    if scope_str == "global" {
+    if scope_str == TENANT_GLOBAL {
         must.push(serde_json::json!({
             "key": rules_schema::SCOPE.name,
-            "match": { "value": "global" }
+            "match": { "value": TENANT_GLOBAL }
         }));
     } else if let Some(project_id) = scope_str.strip_prefix("project:") {
         must.push(serde_json::json!({

@@ -8,6 +8,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use wqm_common::constants::TENANT_GLOBAL;
 use wqm_common::schema::qdrant::rules as rules_schema;
 
 use super::helpers::{
@@ -68,7 +69,7 @@ pub async fn inject_rules() -> Result<()> {
     let base_url = qdrant_url();
 
     // Fetch global rules
-    let global_filter = build_scope_filter("global");
+    let global_filter = build_scope_filter(TENANT_GLOBAL);
     let global_rules = fetch_rules_by_scope(&client, &base_url, global_filter).await;
 
     // Fetch project rules if project resolved

@@ -20,6 +20,7 @@ import type { SessionState, ServerOptions } from './server-types.js';
 export type { SessionState, ServerOptions } from './server-types.js';
 
 import { buildServerComponents } from './server-factory.js';
+import { TENANT_GLOBAL } from './constants/tenants.js';
 import type { ServerComponents } from './server-factory.js';
 import { getToolDefinitions } from './tool-definitions/index.js';
 import {
@@ -227,7 +228,7 @@ export class WorkspaceQdrantMcpServer {
   private async seedDefaultRule(): Promise<void> {
     const { rulesTool } = this.components;
     try {
-      const listResult = await rulesTool.execute({ action: 'list', scope: 'global' });
+      const listResult = await rulesTool.execute({ action: 'list', scope: TENANT_GLOBAL });
       if (!listResult.success || (listResult.rules && listResult.rules.length > 0)) {
         return; // Rules exist or list failed — skip seeding
       }
@@ -243,7 +244,7 @@ export class WorkspaceQdrantMcpServer {
           'Do not rely on training data for project-specific questions.',
           'Use scope="project" for code questions and includeLibraries=true for broader knowledge queries.',
         ].join(' '),
-        scope: 'global',
+        scope: TENANT_GLOBAL,
         priority: 100,
       });
 
