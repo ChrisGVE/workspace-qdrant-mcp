@@ -242,6 +242,6 @@ up `main_worktree_watch_id.tenant_id` and forces the same value.
 
 Bugs filed:
 
-- **#69** — BranchLifecycleDetector misclassifies atomic rename as Created+Deleted.
+- **#69** — BranchLifecycleDetector misclassifies atomic rename as Created+Deleted. **Fixed** in the same session by reordering `scan_for_changes` (delete → new → expire). The audit test now asserts a single `Renamed` event.
 
 Gaps captured as follow-up tasks (see §§1.6, 2.4, 3.4, 4.2, 4.3).

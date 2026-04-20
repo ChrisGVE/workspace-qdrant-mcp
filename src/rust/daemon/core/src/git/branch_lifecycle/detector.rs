@@ -201,6 +201,11 @@ impl BranchLifecycleDetector {
         let rename_timeout = Duration::from_millis(self.config.rename_correlation_timeout_ms);
         let mut pending = self.pending_deletes.write().await;
 
+        // Deletions are captured first so that the rename-correlation
+        // lookup in detect_new_branches can match a fresh pending delete
+        // when a branch rename (git branch -m) shows up as an atomic
+        // delete + create in the same scan.
+        self.detect_deleted_branches(&current_names, &tracked_names, &mut tracked, &mut pending);
         self.detect_new_branches(
             &current_branches,
             &tracked_names,
@@ -209,7 +214,6 @@ impl BranchLifecycleDetector {
             rename_timeout,
             &mut events,
         );
-        self.detect_deleted_branches(&current_names, &tracked_names, &mut tracked, &mut pending);
         self.emit_expired_deletes(&mut pending, rename_timeout, &mut events);
 
         let current_default = self.detect_default_branch()?;

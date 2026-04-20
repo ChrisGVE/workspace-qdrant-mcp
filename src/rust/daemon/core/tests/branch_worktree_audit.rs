@@ -168,39 +168,40 @@ async fn task4_branch_rename_emits_renamed_event_within_timeout() {
         .status()
         .unwrap();
 
-    // BUG (#69): BranchLifecycleDetector::scan_for_changes runs
-    // detect_new_branches BEFORE detect_deleted_branches, so an atomic
-    // rename (`git branch -m main trunk`) is misclassified as
-    // Created+DefaultChanged in the first scan and Deleted in a
-    // subsequent scan once the rename_correlation_timeout expires,
-    // instead of emitting a single Renamed event.
-    //
-    // This test documents the *actual* behavior. Once #69 is fixed,
-    // the assertions below should be flipped back to a single
-    // `BranchEvent::Renamed { old_name: "main", new_name: "trunk" }`.
+    // Post-#69: an atomic rename must produce a single Renamed event.
+    // A DefaultChanged event is still expected because .git/HEAD now
+    // points to the new branch name.
     let events = detector.scan_for_changes().await.unwrap();
-    let has_created = events
-        .iter()
-        .any(|e| matches!(e, BranchEvent::Created { branch, .. } if branch == "trunk"));
-    let has_default_changed = events.iter().any(|e| {
+    let renamed = events.iter().find_map(|e| match e {
+        BranchEvent::Renamed { old_name, new_name } => Some((old_name.clone(), new_name.clone())),
+        _ => None,
+    });
+    assert_eq!(
+        renamed,
+        Some(("main".to_string(), "trunk".to_string())),
+        "expected a single Renamed main->trunk, got {:?}",
+        events
+    );
+    let default_changed = events.iter().any(|e| {
         matches!(
             e,
             BranchEvent::DefaultChanged { old_default, new_default }
                 if old_default == "main" && new_default == "trunk"
         )
     });
-    assert!(has_created, "expected Created for trunk, got {:?}", events);
     assert!(
-        has_default_changed,
+        default_changed,
         "expected DefaultChanged main->trunk, got {:?}",
         events
     );
-    let has_renamed = events
+    // Must NOT emit a bare Created for the new name.
+    let has_created = events
         .iter()
-        .any(|e| matches!(e, BranchEvent::Renamed { .. }));
+        .any(|e| matches!(e, BranchEvent::Created { branch, .. } if branch == "trunk"));
     assert!(
-        !has_renamed,
-        "known bug #69: atomic rename currently NOT classified as Renamed; if this changes the audit finding must be updated"
+        !has_created,
+        "rename must not leak a Created event for the new name, got {:?}",
+        events
     );
 }
 
