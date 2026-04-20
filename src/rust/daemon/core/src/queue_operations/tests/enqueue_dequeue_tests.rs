@@ -179,3 +179,106 @@ async fn test_dequeue_lifo_ordering() {
     assert_eq!(items[1].queue_id, "lifo-q2");
     assert_eq!(items[2].queue_id, "lifo-q1"); // oldest
 }
+
+/// issue-64 task 4: enqueue/dequeue update Prometheus counters.
+#[tokio::test]
+async fn test_enqueue_dequeue_updates_prometheus_counters() {
+    use crate::monitoring::metrics_core::METRICS;
+
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("metrics_wire.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let enqueued_before = METRICS
+        .unified_queue_enqueues_total
+        .with_label_values(&["daemon"])
+        .get();
+    let dequeued_before = METRICS
+        .unified_queue_dequeues_total
+        .with_label_values(&["file"])
+        .get();
+
+    let (_qid, is_new) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant-metrics",
+            "test-collection",
+            r#"{"file_path":"/tmp/metrics-file.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(is_new);
+
+    let items = manager
+        .dequeue_unified(10, "worker-metrics", Some(300), None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(items.len(), 1);
+
+    let enqueued_after = METRICS
+        .unified_queue_enqueues_total
+        .with_label_values(&["daemon"])
+        .get();
+    let dequeued_after = METRICS
+        .unified_queue_dequeues_total
+        .with_label_values(&["file"])
+        .get();
+
+    // Global METRICS is shared across parallel tests, so only assert the
+    // counter moved forward by at least the operations we performed here.
+    assert!(enqueued_after >= enqueued_before + 1);
+    assert!(dequeued_after >= dequeued_before + 1);
+}
+
+/// issue-64 task 4: depth query returns grouped (item_type, status) counts.
+#[tokio::test]
+async fn test_depth_by_type_status_excludes_done() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("depth_group.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    for i in 0..3 {
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Add,
+                "tenant-depth",
+                "test-collection",
+                &format!(r#"{{"file_path":"/tmp/depth-{i}.rs"}}"#),
+                Some("main"),
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    let rows = manager
+        .get_unified_queue_depth_by_type_status()
+        .await
+        .unwrap();
+    let file_pending = rows
+        .iter()
+        .find(|(t, s, _)| t == "file" && s == "pending")
+        .map(|(_, _, c)| *c)
+        .unwrap_or(0);
+    assert_eq!(file_pending, 3);
+}

@@ -2,6 +2,7 @@
 
 use tracing::{debug, error, info};
 
+use crate::monitoring::metrics_core::METRICS;
 use crate::unified_queue_schema::{
     generate_unified_idempotency_key, ItemType, QueueOperation as UnifiedOp,
     CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
@@ -85,6 +86,10 @@ impl QueueManager {
             &idempotency_key,
         )
         .await?;
+
+        if is_new {
+            METRICS.unified_queue_enqueued("daemon");
+        }
 
         Ok((queue_id, is_new))
     }

@@ -13,6 +13,7 @@ use crate::config::IngestionLimitsConfig;
 use crate::fairness_scheduler::FairnessScheduler;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
+use crate::monitoring::metrics_core::METRICS;
 use crate::queue_health::QueueProcessorHealth;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
@@ -634,6 +635,12 @@ impl UnifiedQueueProcessor {
                         {
                             Ok(()) => {
                                 let processing_time = start_time.elapsed().as_millis() as u64;
+                                METRICS.unified_queue_item_processed(
+                                    &item.item_type.to_string(),
+                                    &item.op.to_string(),
+                                    "success",
+                                    start_time.elapsed().as_secs_f64(),
+                                );
 
                                 // Per-destination state machine (Task 6):
                                 // Resolve any destination statuses that weren't explicitly set
@@ -705,6 +712,12 @@ impl UnifiedQueueProcessor {
                                 // Classify error into 5 categories for observability
                                 let error_category = Self::classify_error(&e);
                                 let is_permanent = Self::is_permanent_category(error_category);
+                                METRICS.unified_queue_item_processed(
+                                    &item.item_type.to_string(),
+                                    &item.op.to_string(),
+                                    "failure",
+                                    start_time.elapsed().as_secs_f64(),
+                                );
 
                                 if error_category == "permanent_gone" {
                                     // File deleted or inaccessible — nothing to retry.
@@ -762,6 +775,8 @@ impl UnifiedQueueProcessor {
                                             "Failed to mark item {} as failed: {}",
                                             item.queue_id, mark_err
                                         );
+                                    } else if !is_permanent {
+                                        METRICS.unified_queue_retry(&item.item_type.to_string());
                                     }
                                 }
 

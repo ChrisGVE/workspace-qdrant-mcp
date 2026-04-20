@@ -131,6 +131,51 @@ pub fn start_metrics_collection(pool: SqlitePool) -> JoinHandle<()> {
     handle
 }
 
+/// Periodically refresh unified queue depth gauges (issue-64 Task 4).
+///
+/// Queries the queue for pending/in_progress/failed counts grouped by
+/// `(item_type, status)` and pushes them into the Prometheus gauge so
+/// `/metrics` reflects real queue size without instrumenting every DB mutation.
+pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
+    use workspace_qdrant_core::queue_operations::QueueManager;
+
+    let handle = tokio::spawn(async move {
+        let manager = QueueManager::new(pool.clone());
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        let known_pairs: std::sync::Arc<
+            tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
+        > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+        loop {
+            interval.tick().await;
+            match manager.get_unified_queue_depth_by_type_status().await {
+                Ok(rows) => {
+                    let mut seen = std::collections::HashSet::new();
+                    for (item_type, status, count) in rows {
+                        METRICS.set_unified_queue_depth(&item_type, &status, count);
+                        seen.insert((item_type, status));
+                    }
+                    // Zero-out any (item_type, status) pairs we've seen before
+                    // but aren't present now, so gauges don't get stuck.
+                    let mut guard = known_pairs.lock().await;
+                    for pair in guard.iter() {
+                        if !seen.contains(pair) {
+                            METRICS.set_unified_queue_depth(&pair.0, &pair.1, 0);
+                        }
+                    }
+                    guard.extend(seen);
+                }
+                Err(e) => debug!("queue depth refresh failed: {}", e),
+            }
+            match manager.get_unified_queue_stats().await {
+                Ok(stats) => METRICS.set_unified_queue_stale_items(stats.stale_leases),
+                Err(e) => debug!("queue stats refresh failed: {}", e),
+            }
+        }
+    });
+    info!("Queue depth exporter started (10s interval)");
+    handle
+}
+
 /// Start hourly metrics maintenance: aggregation + retention (Task 544.11-14).
 pub fn start_metrics_maintenance(pool: SqlitePool) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -289,6 +334,7 @@ pub fn spawn_all(
     let _inactivity = start_inactivity_timeout(pool.clone());
     let _remote = start_remote_url_monitor(pool.clone());
     let _git_state = start_git_state_monitor(pool.clone());
+    let _queue_depth = start_queue_depth_exporter(pool.clone());
 
     BackgroundHandles {
         uptime_handle,

@@ -105,6 +105,25 @@ impl QueueManager {
         Ok(count)
     }
 
+    /// Get the depth of the unified queue keyed by (item_type, status).
+    ///
+    /// Used by the background metrics exporter to refresh the
+    /// `memexd_unified_queue_depth` gauge. Excludes `done` items because they
+    /// are deleted as soon as finalization runs.
+    pub async fn get_unified_queue_depth_by_type_status(
+        &self,
+    ) -> QueueResult<Vec<(String, String, i64)>> {
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT item_type, status, COUNT(*) \
+             FROM unified_queue \
+             WHERE status != 'done' \
+             GROUP BY item_type, status",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// Get the depth of the unified queue per collection (pending items only)
     ///
     /// Returns a HashMap mapping collection names to their pending item counts.

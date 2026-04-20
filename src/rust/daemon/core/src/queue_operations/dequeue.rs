@@ -7,6 +7,7 @@ use tracing::{debug, info};
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 use wqm_common::timestamps;
 
+use crate::monitoring::metrics_core::METRICS;
 use crate::unified_queue_schema::{
     DestinationStatus, ItemType, QueueOperation as UnifiedOp, QueueStatus, UnifiedQueueItem,
 };
@@ -103,6 +104,10 @@ impl QueueManager {
             items.len(),
             worker_id
         );
+
+        for item in &items {
+            METRICS.unified_queue_dequeued(&item.item_type.to_string());
+        }
 
         Ok(items)
     }
