@@ -134,6 +134,12 @@ async fn run_daemon(
         &daemon_config,
     );
 
+    // gRPC is serving — run the slow ignore-rule reconciliation in the
+    // background so projects with many files no longer delay readiness
+    // (issue #59).
+    let _ignore_reconcile_handle =
+        database::spawn_background_reconciliation(db_handles.queue_pool.clone());
+
     // Phase 6b: File watching + hierarchy
     let watch_manager = start_file_watchers(&qc, &watch_refresh_signal).await;
     spawn_git_event_consumer(&qc.unified_queue_processor, &watch_manager);

@@ -94,54 +94,28 @@ pub async fn reconcile_ignore_rules(
 
     let mut stats = ReconcileStats::default();
 
-    // Step 5: Enqueue deletions for stale files
-    for file_path in &stale {
-        let payload = serde_json::json!({
-            "file_path": file_path,
-            "reason": "ignore_rule_change",
-        });
-        match queue_manager
-            .enqueue_unified(
-                ItemType::File,
-                QueueOperation::Delete,
-                tenant_id,
-                collection,
-                &payload.to_string(),
-                None,
-                None,
-            )
-            .await
-        {
-            Ok(_) => stats.stale_deleted += 1,
-            Err(e) => warn!(
-                "[ignore_sync] enqueue delete failed for {}: {}",
-                file_path, e
-            ),
-        }
-    }
+    // Step 5/6: Batch-enqueue deletions and additions in transactions of
+    // `IGNORE_SYNC_BATCH_SIZE`. Each batch is one SQLite transaction so
+    // large projects no longer pay a lock acquisition per file (issue #59).
+    stats.stale_deleted = enqueue_ignore_ops(
+        queue_manager,
+        tenant_id,
+        collection,
+        QueueOperation::Delete,
+        &stale,
+        "ignore_rule_change",
+    )
+    .await;
 
-    // Step 6: Enqueue additions for missing files
-    for file_path in &missing {
-        let payload = serde_json::json!({
-            "file_path": file_path,
-            "source": "ignore_reconciliation",
-        });
-        match queue_manager
-            .enqueue_unified(
-                ItemType::File,
-                QueueOperation::Add,
-                tenant_id,
-                collection,
-                &payload.to_string(),
-                None,
-                None,
-            )
-            .await
-        {
-            Ok(_) => stats.missing_added += 1,
-            Err(e) => warn!("[ignore_sync] enqueue add failed for {}: {}", file_path, e),
-        }
-    }
+    stats.missing_added = enqueue_ignore_ops(
+        queue_manager,
+        tenant_id,
+        collection,
+        QueueOperation::Add,
+        &missing,
+        "ignore_reconciliation",
+    )
+    .await;
 
     info!(
         "[ignore_sync] {} — enqueued {} deletes, {} adds",
@@ -149,6 +123,83 @@ pub async fn reconcile_ignore_rules(
     );
 
     Ok(stats)
+}
+
+/// Default batch size for ignore-sync enqueues.
+///
+/// Each batch is committed as a single SQLite transaction so we amortise
+/// lock contention across hundreds of inserts. 500 is a balance between
+/// commit latency and transaction size that matches the `#59` acceptance
+/// criteria.
+pub const IGNORE_SYNC_BATCH_SIZE: usize = 500;
+
+/// Enqueue `file_paths` as `(File, op)` items in batches using a single
+/// SQLite transaction per batch. Progress is logged every batch so large
+/// backfills are observable in the daemon log.
+async fn enqueue_ignore_ops(
+    queue_manager: &Arc<QueueManager>,
+    tenant_id: &str,
+    collection: &str,
+    op: QueueOperation,
+    file_paths: &[&String],
+    reason: &str,
+) -> u64 {
+    let total = file_paths.len();
+    if total == 0 {
+        return 0;
+    }
+
+    let mut enqueued: u64 = 0;
+    let op_label = match op {
+        QueueOperation::Delete => "delete",
+        QueueOperation::Add => "add",
+        _ => "op",
+    };
+
+    for chunk in file_paths.chunks(IGNORE_SYNC_BATCH_SIZE) {
+        let payloads: Vec<String> = chunk
+            .iter()
+            .map(|file_path| {
+                match op {
+                    QueueOperation::Delete => serde_json::json!({
+                        "file_path": file_path,
+                        "reason": reason,
+                    }),
+                    _ => serde_json::json!({
+                        "file_path": file_path,
+                        "source": reason,
+                    }),
+                }
+                .to_string()
+            })
+            .collect();
+
+        match queue_manager
+            .enqueue_unified_batch(ItemType::File, op, tenant_id, collection, &payloads, None)
+            .await
+        {
+            Ok(n) => {
+                enqueued += n;
+                debug!(
+                    "[ignore_sync] {} — {}: batch committed {}/{} items ({} total enqueued)",
+                    tenant_id,
+                    op_label,
+                    n,
+                    chunk.len(),
+                    enqueued
+                );
+            }
+            Err(e) => warn!(
+                "[ignore_sync] {} — {} batch failed (size={}): {}",
+                tenant_id,
+                op_label,
+                chunk.len(),
+                e
+            ),
+        }
+    }
+
+    enqueued
 }
 
 /// Walk project tree and collect all eligible file paths (not excluded

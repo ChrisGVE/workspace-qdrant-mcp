@@ -282,3 +282,90 @@ async fn test_depth_by_type_status_excludes_done() {
         .unwrap_or(0);
     assert_eq!(file_pending, 3);
 }
+
+/// Regression for issue #59: a single `enqueue_unified_batch` call must
+/// commit hundreds of rows in one SQLite transaction (one commit) rather
+/// than the N transactions that per-row `enqueue_unified` calls would
+/// generate. We rely on the fact that SQLite's `data_version` PRAGMA is
+/// bumped once per write commit, so a 10-row batch advances it by
+/// exactly 1 — not 10.
+#[tokio::test]
+async fn test_enqueue_unified_batch_is_single_transaction() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("batch.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    let manager = QueueManager::new(pool.clone());
+    manager.init_unified_queue().await.unwrap();
+
+    let before: i64 = sqlx::query_scalar("PRAGMA data_version")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    let payloads: Vec<String> = (0..10)
+        .map(|i| format!(r#"{{"file_path":"/tmp/batch-{i}.rs"}}"#))
+        .collect();
+
+    let inserted = manager
+        .enqueue_unified_batch(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant-batch",
+            "projects",
+            &payloads,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let after: i64 = sqlx::query_scalar("PRAGMA data_version")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(inserted, 10);
+    assert_eq!(
+        after - before,
+        1,
+        "batch of 10 should commit exactly once (data_version delta == 1)"
+    );
+
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE tenant_id = 'tenant-batch'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(total, 10);
+}
+
+/// Batch enqueue must skip duplicates via the existing idempotency-key /
+/// file_path uniqueness guard just like the single-item path does.
+#[tokio::test]
+async fn test_enqueue_unified_batch_deduplicates() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("batch_dedup.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let payloads = vec![
+        r#"{"file_path":"/tmp/dup.rs"}"#.to_string(),
+        r#"{"file_path":"/tmp/dup.rs"}"#.to_string(),
+        r#"{"file_path":"/tmp/fresh.rs"}"#.to_string(),
+    ];
+
+    let inserted = manager
+        .enqueue_unified_batch(
+            ItemType::File,
+            UnifiedOp::Add,
+            "tenant-dedup",
+            "projects",
+            &payloads,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(inserted, 2, "duplicate file_path should be ignored");
+}

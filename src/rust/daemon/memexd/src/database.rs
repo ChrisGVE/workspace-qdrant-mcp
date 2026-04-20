@@ -123,9 +123,16 @@ pub async fn init_graph_db(queue_pool: &SqlitePool) -> Option<ConcreteGraphStore
     }
 }
 
-/// Run startup reconciliation: clean stale state and validate watch folders (Task 512).
+/// Run the **fast** half of startup reconciliation.
+///
+/// Only SQL-only cleanup and watch-folder path validation run here — all
+/// operations are either set-based or at worst O(watch_folders) and
+/// complete in milliseconds even on large projects. The slow ignore-rule
+/// reconciliation is deferred to `spawn_background_reconciliation` so
+/// that gRPC readiness does not regress on projects with many files
+/// (issue #59).
 pub async fn run_reconciliation(queue_pool: &SqlitePool) {
-    info!("Running startup reconciliation...");
+    info!("Running startup reconciliation (fast path)...");
 
     match workspace_qdrant_core::startup::clean_stale_state(queue_pool).await {
         Ok(stats) => {
@@ -162,22 +169,45 @@ pub async fn run_reconciliation(queue_pool: &SqlitePool) {
         Err(e) => warn!("Watch folder validation failed (non-fatal): {}", e),
     }
 
-    // Reconcile ignore rules: enqueue stale/missing files after ignore file changes
-    let qm = Arc::new(workspace_qdrant_core::queue_operations::QueueManager::new(
-        queue_pool.clone(),
-    ));
-    match workspace_qdrant_core::startup::reconcile_all_ignore_rules(queue_pool, &qm).await {
-        Ok(stats) if stats.stale_deleted > 0 || stats.missing_added > 0 => {
-            info!(
-                "Ignore reconciliation: {} stale deleted, {} missing added",
-                stats.stale_deleted, stats.missing_added
-            );
-        }
-        Ok(_) => info!("Ignore reconciliation: index consistent"),
-        Err(e) => warn!("Ignore reconciliation failed (non-fatal): {}", e),
-    }
+    info!("Startup reconciliation (fast path) complete");
+}
 
-    info!("Startup reconciliation complete");
+/// Spawn the **slow** half of startup reconciliation in the background.
+///
+/// Ignore-rule reconciliation walks the filesystem and enqueues `file/add`
+/// / `file/delete` items for any drift, which on large projects (e.g.
+/// 90K+ files) can take several minutes. Calling this from the main
+/// startup path delayed gRPC readiness for that entire window. Running
+/// it on a spawned task lets gRPC come up immediately while the reconcile
+/// proceeds concurrently (issue #59).
+pub fn spawn_background_reconciliation(queue_pool: SqlitePool) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let qm = Arc::new(workspace_qdrant_core::queue_operations::QueueManager::new(
+            queue_pool.clone(),
+        ));
+        let started = std::time::Instant::now();
+        info!("[startup-bg] Starting background ignore reconciliation...");
+        match workspace_qdrant_core::startup::reconcile_all_ignore_rules(&queue_pool, &qm).await {
+            Ok(stats) if stats.stale_deleted > 0 || stats.missing_added > 0 => {
+                info!(
+                    "[startup-bg] Ignore reconciliation complete in {:?}: \
+                     {} stale deleted, {} missing added",
+                    started.elapsed(),
+                    stats.stale_deleted,
+                    stats.missing_added
+                );
+            }
+            Ok(_) => info!(
+                "[startup-bg] Ignore reconciliation complete in {:?}: index consistent",
+                started.elapsed()
+            ),
+            Err(e) => warn!(
+                "[startup-bg] Ignore reconciliation failed after {:?}: {}",
+                started.elapsed(),
+                e
+            ),
+        }
+    })
 }
 
 /// Initialize the shared pause flag from database state (Task 543.16).

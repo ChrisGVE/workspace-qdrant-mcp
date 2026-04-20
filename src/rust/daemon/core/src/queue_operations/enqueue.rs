@@ -140,6 +140,96 @@ impl QueueManager {
         }
     }
 
+    /// Bulk-enqueue `(item_type, op, tenant_id, collection, payload_json)` tuples
+    /// inside a single SQLite transaction.
+    ///
+    /// Used by the startup ignore reconciler to avoid one lock acquisition per
+    /// row on large projects (issue #59). Duplicates (same idempotency key or
+    /// file path) are silently skipped via `INSERT OR IGNORE`; the returned
+    /// count is the number of rows actually inserted.
+    ///
+    /// All items must share the same `item_type`, `op`, `tenant_id`, and
+    /// `collection`. Enforcing that at the call site keeps the idempotency
+    /// key / payload validation cheap.
+    pub async fn enqueue_unified_batch(
+        &self,
+        item_type: ItemType,
+        op: UnifiedOp,
+        tenant_id: &str,
+        collection: &str,
+        payload_jsons: &[String],
+        branch: Option<&str>,
+    ) -> QueueResult<u64> {
+        if payload_jsons.is_empty() {
+            return Ok(0);
+        }
+
+        let tenant_id = tenant_id.trim();
+        if tenant_id.is_empty() {
+            return Err(QueueError::EmptyTenantId);
+        }
+        let collection = collection.trim();
+        if collection.is_empty() {
+            return Err(QueueError::EmptyCollection);
+        }
+        let branch = branch.unwrap_or("main");
+        let metadata = "{}";
+
+        let mut tx = self.pool.begin().await?;
+        let mut inserted: u64 = 0;
+
+        for payload_json in payload_jsons {
+            let payload: serde_json::Value = serde_json::from_str(payload_json)
+                .map_err(|e| QueueError::InvalidPayloadJson(e.to_string()))?;
+            Self::validate_payload_for_type(item_type, op, &payload)?;
+
+            let idempotency_key = generate_unified_idempotency_key(
+                item_type,
+                op,
+                tenant_id,
+                collection,
+                payload_json,
+            )
+            .map_err(|e| QueueError::InvalidOperation(e.to_string()))?;
+            let file_path = Self::extract_file_path(item_type, &payload);
+
+            let result = sqlx::query(
+                r#"
+                INSERT OR IGNORE INTO unified_queue (
+                    item_type, op, tenant_id, collection,
+                    branch, payload_json, metadata, idempotency_key, file_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+            )
+            .bind(item_type.to_string())
+            .bind(op.to_string())
+            .bind(tenant_id)
+            .bind(collection)
+            .bind(branch)
+            .bind(payload_json)
+            .bind(metadata)
+            .bind(&idempotency_key)
+            .bind(&file_path)
+            .execute(&mut *tx)
+            .await?;
+
+            if result.rows_affected() > 0 {
+                inserted += 1;
+            }
+        }
+
+        tx.commit().await?;
+
+        if inserted > 0 {
+            METRICS.unified_queue_enqueued("daemon");
+            debug!(
+                "Bulk-enqueued {} items (type={}, op={}, collection={})",
+                inserted, item_type, op, collection
+            );
+        }
+        Ok(inserted)
+    }
+
     /// Execute the INSERT OR IGNORE and return whether a new row was inserted.
     async fn insert_queue_item(
         &self,
