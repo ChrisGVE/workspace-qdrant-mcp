@@ -127,6 +127,23 @@ pub struct DaemonMetrics {
 
     /// Age in seconds of the oldest pending queue item (0 if none)
     pub queue_oldest_pending_age_seconds: IntGauge,
+
+    // Telemetry extension metrics (issue-64 Task 2)
+    /// Total filesystem watcher events by event_type
+    /// Labels: event_type (create, modify, delete, rename)
+    pub watcher_events_total: IntCounterVec,
+
+    /// Total watcher events coalesced before enqueue
+    /// Labels: reason (debounce, duplicate)
+    pub watcher_coalesced_total: IntCounterVec,
+
+    /// Total gRPC requests by service, method, and status
+    /// Labels: service, method, status (ok, error)
+    pub grpc_requests_total: IntCounterVec,
+
+    /// gRPC request duration in seconds by service and method
+    /// Labels: service, method
+    pub grpc_request_duration_seconds: HistogramVec,
 }
 
 // ── Factory helpers to reduce verbosity in new() ──────────────────────
@@ -307,6 +324,38 @@ fn create_watch_metrics() -> (
     )
 }
 
+/// Create telemetry extension metrics (issue-64 Task 2)
+fn create_telemetry_extension_metrics(
+) -> (IntCounterVec, IntCounterVec, IntCounterVec, HistogramVec) {
+    let watcher_events_total = int_counter_vec(
+        "memexd_watcher_events_total",
+        "Total filesystem watcher events by event_type",
+        &["event_type"],
+    );
+    let watcher_coalesced_total = int_counter_vec(
+        "memexd_watcher_coalesced_total",
+        "Total watcher events coalesced before enqueue",
+        &["reason"],
+    );
+    let grpc_requests_total = int_counter_vec(
+        "memexd_grpc_requests_total",
+        "Total gRPC requests by service, method, and status",
+        &["service", "method", "status"],
+    );
+    let grpc_request_duration_seconds = histogram_vec(
+        "memexd_grpc_request_duration_seconds",
+        "gRPC request duration in seconds by service and method",
+        &["service", "method"],
+        vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0],
+    );
+    (
+        watcher_events_total,
+        watcher_coalesced_total,
+        grpc_requests_total,
+        grpc_request_duration_seconds,
+    )
+}
+
 /// Create unified queue metrics (Task 37.35)
 fn create_unified_queue_metrics() -> (
     IntGaugeVec,
@@ -395,6 +444,12 @@ impl DaemonMetrics {
             unified_queue_stale_items,
             unified_queue_retries_total,
         ) = create_unified_queue_metrics();
+        let (
+            watcher_events_total,
+            watcher_coalesced_total,
+            grpc_requests_total,
+            grpc_request_duration_seconds,
+        ) = create_telemetry_extension_metrics();
 
         // Scalar gauge: oldest pending queue item age in seconds
         let queue_oldest_pending_age_seconds = IntGauge::new(
@@ -432,6 +487,10 @@ impl DaemonMetrics {
                 Box::new(unified_queue_stale_items.clone()),
                 Box::new(unified_queue_retries_total.clone()),
                 Box::new(queue_oldest_pending_age_seconds.clone()),
+                Box::new(watcher_events_total.clone()),
+                Box::new(watcher_coalesced_total.clone()),
+                Box::new(grpc_requests_total.clone()),
+                Box::new(grpc_request_duration_seconds.clone()),
             ],
         );
 
@@ -463,7 +522,42 @@ impl DaemonMetrics {
             unified_queue_stale_items,
             unified_queue_retries_total,
             queue_oldest_pending_age_seconds,
+            watcher_events_total,
+            watcher_coalesced_total,
+            grpc_requests_total,
+            grpc_request_duration_seconds,
         }
+    }
+
+    /// Record a single filesystem watcher event.
+    pub fn record_watcher_event(&self, event_type: &str) {
+        self.watcher_events_total
+            .with_label_values(&[event_type])
+            .inc();
+    }
+
+    /// Record a coalesced watcher event (debounced or duplicate).
+    pub fn record_watcher_coalesced(&self, reason: &str) {
+        self.watcher_coalesced_total
+            .with_label_values(&[reason])
+            .inc();
+    }
+
+    /// Record a completed gRPC call with its duration and outcome.
+    pub fn record_grpc_call(
+        &self,
+        service: &str,
+        method: &str,
+        ok: bool,
+        duration: std::time::Duration,
+    ) {
+        let status = if ok { "ok" } else { "error" };
+        self.grpc_requests_total
+            .with_label_values(&[service, method, status])
+            .inc();
+        self.grpc_request_duration_seconds
+            .with_label_values(&[service, method])
+            .observe(duration.as_secs_f64());
     }
 
     /// Encode all metrics in Prometheus text format
@@ -479,5 +573,130 @@ impl DaemonMetrics {
 impl Default for DaemonMetrics {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod telemetry_extension_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn watcher_events_increment_per_label() {
+        let m = DaemonMetrics::new();
+        m.record_watcher_event("create");
+        m.record_watcher_event("create");
+        m.record_watcher_event("modify");
+        m.record_watcher_event("delete");
+        m.record_watcher_event("rename");
+        assert_eq!(
+            m.watcher_events_total.with_label_values(&["create"]).get(),
+            2
+        );
+        assert_eq!(
+            m.watcher_events_total.with_label_values(&["modify"]).get(),
+            1
+        );
+        assert_eq!(
+            m.watcher_events_total.with_label_values(&["delete"]).get(),
+            1
+        );
+        assert_eq!(
+            m.watcher_events_total.with_label_values(&["rename"]).get(),
+            1
+        );
+    }
+
+    #[test]
+    fn watcher_coalesced_increment_per_reason() {
+        let m = DaemonMetrics::new();
+        m.record_watcher_coalesced("debounce");
+        m.record_watcher_coalesced("debounce");
+        m.record_watcher_coalesced("duplicate");
+        assert_eq!(
+            m.watcher_coalesced_total
+                .with_label_values(&["debounce"])
+                .get(),
+            2
+        );
+        assert_eq!(
+            m.watcher_coalesced_total
+                .with_label_values(&["duplicate"])
+                .get(),
+            1
+        );
+    }
+
+    #[test]
+    fn grpc_records_count_and_duration() {
+        let m = DaemonMetrics::new();
+        m.record_grpc_call(
+            "SystemService",
+            "HealthCheck",
+            true,
+            Duration::from_millis(5),
+        );
+        m.record_grpc_call(
+            "SystemService",
+            "HealthCheck",
+            true,
+            Duration::from_millis(12),
+        );
+        m.record_grpc_call(
+            "SystemService",
+            "HealthCheck",
+            false,
+            Duration::from_millis(50),
+        );
+        m.record_grpc_call(
+            "DocumentService",
+            "Ingest",
+            true,
+            Duration::from_millis(300),
+        );
+
+        assert_eq!(
+            m.grpc_requests_total
+                .with_label_values(&["SystemService", "HealthCheck", "ok"])
+                .get(),
+            2
+        );
+        assert_eq!(
+            m.grpc_requests_total
+                .with_label_values(&["SystemService", "HealthCheck", "error"])
+                .get(),
+            1
+        );
+        assert_eq!(
+            m.grpc_requests_total
+                .with_label_values(&["DocumentService", "Ingest", "ok"])
+                .get(),
+            1
+        );
+
+        let hist = m
+            .grpc_request_duration_seconds
+            .with_label_values(&["SystemService", "HealthCheck"]);
+        let metric = hist.collect();
+        let sample_count = metric[0].get_metric()[0].get_histogram().get_sample_count();
+        assert_eq!(sample_count, 3);
+    }
+
+    #[test]
+    fn encode_contains_extension_metric_names() {
+        let m = DaemonMetrics::new();
+        m.record_watcher_event("create");
+        m.record_watcher_coalesced("debounce");
+        m.record_grpc_call(
+            "SystemService",
+            "HealthCheck",
+            true,
+            Duration::from_millis(1),
+        );
+        let out = m.encode().expect("encode ok");
+        assert!(out.contains("memexd_watcher_events_total"));
+        assert!(out.contains("memexd_watcher_coalesced_total"));
+        assert!(out.contains("memexd_grpc_requests_total"));
+        assert!(out.contains("memexd_grpc_request_duration_seconds"));
     }
 }
