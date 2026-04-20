@@ -1,109 +1,144 @@
-# Handover — 2026-04-19 (session 2)
+# Handover — 2026-04-20 (session 4)
 
 ## Current work
 
-Worked through **issue-62** (CLAUDE_CONFIG_DIR for hooks) completely — 6/6 tasks done, pushed to `main`. Started **issue-64** (daemon telemetry): Task 1 (config schema) done and pushed. Stopped before Task 2 because it overlaps with the existing `monitoring::metrics_core::DaemonMetrics` registry and requires a scope call.
+Session 4 shipped the `issue-63` branch/worktree audit end-to-end. All 10
+audit tasks marked done in task-master, issue #63 closed, one bug found
+during the audit filed as #69 and **fixed** in the same session. Repo is
+clean (handover.md is the only pending change).
 
 ## Task-master
 
-- **Active tag**: `issue-64` (1/12 tasks done)
-- **Completed tags this session**:
-  - `issue-62` — 6/6 — shipped in commits 98361db59..ded19dd7a, issue #62 closed
-- **Partially done**:
-  - `issue-64` — 1/12 — config schema in place (`TelemetryConfig.service_name`, `.prometheus`, `.otlp` + `OtlpProtocol` enum, env overrides, validation, default YAML)
-- **Not started**:
-  - `issue-63` — 10 tasks — branch/worktree audit
-  - `docker` — 15 tasks — docker compose + MCP HTTP transport
-- **In progress**: none
-- **Blocked**: none, but see **Pending decisions** below
+- **Tag/milestone**: `issue-63` (complete, 10/10). Previous tag
+  `issue-64` also complete (12/12).
+- **In progress**: none.
+- **Blocked**: none.
+- **Recently completed this session**:
+  - `issue-63/1` — `GitFixtures` builder in
+    `src/rust/daemon/shared-test-utils/src/git_fixtures.rs` (9 smoke
+    tests). 9 scenarios: plain_clone, no_remote, detached_head,
+    mid_rebase, shallow_clone, multiple_clones(n), worktree,
+    nested_worktree, with_submodule.
+  - `issue-63/2..9` — 16 integration tests in
+    `src/rust/daemon/core/tests/branch_worktree_audit.rs` driving each
+    scenario through `detect_git_status`, `find_main_worktree_path`,
+    `BranchLifecycleDetector`, `ProjectIdCalculator`,
+    `DisambiguationPathComputer`, and `PathValidator`.
+  - `issue-63/10` — report in
+    `docs/specs/19-branch-worktree-audit.md` (14 ok, 5 gaps, 1 bug
+    fixed).
+- **Available next tags**:
+  - `docker` — 15 tasks — docker compose + MCP HTTP transport (not
+    started, has pending decisions — see below).
+  - No other pending audit work.
 
 ## Resume instructions
 
-Recommended next step: **resolve the Task 2 scope call below**, then continue `issue-64` with `task-master next`. If the user wants to hold on `issue-64` decisions, switch to `issue-63` (audit, no blocking decisions) or the MCP-HTTP half of `docker` (no blocking decisions on that half).
+1. Read this file, then `git log --oneline origin/main -20` for recent
+   commits.
+2. If picking up `docker`: `task-master use-tag docker`. **Blocked** on
+   four decisions (see Pending Decisions). Ask the user before starting.
+3. If addressing open bugs from the audit gaps (see §§1.6, 2.4, 3.4, 4.2,
+   4.3 in `docs/specs/19-branch-worktree-audit.md`): pick the gap, file
+   an issue, add a follow-up task.
+4. If addressing #66 (TENANT_GLOBAL constant): start in
+   `src/rust/common/src/constants.rs`; add
+   `pub const TENANT_GLOBAL: &str = "global";` and sweep the ~15 literal
+   sites listed in the issue. Mirror in TypeScript. Add a one-shot UPDATE
+   in `rules_backfill.rs` to coerce `_global`/`_global_` rows.
+5. If addressing #65 / #68 (rules add UUID error) or #70 (register-claims-
+   success-but-not-listed): user-reported bugs, repro + fix.
+6. `task-master next` in the active tag.
 
-### Decision required before `issue-64` Task 2
+## Pending decisions
 
-During Task 1 implementation, I discovered `src/rust/daemon/core/src/monitoring/metrics_core.rs` (483 lines) already defines a `DaemonMetrics` registry with queue, unified queue, watch error, session, tenant, and system metrics — backed by a Prometheus `Registry`, exposed via an axum server in `monitoring/metrics_server.rs` (188 lines).
+_(None blocking for issue-63/-64 — both fully shipped.)_
 
-Task 2 as written says to create a **new** `src/rust/daemon/core/src/telemetry/metrics.rs` with a parallel `TELEMETRY_METRICS` struct. Two options:
-
-1. **Extend existing `DaemonMetrics`** (add watcher event counters, gRPC request/duration, embedding/SQLite/Qdrant latencies). Smaller diff, no registry duplication, reuses `monitoring::metrics_server::MetricsServer` after a small config-awareness patch. **Recommended.**
-2. **Create parallel `telemetry::` module** as written. Clean separation but duplicates the registry, the server, and the label-management helpers.
-
-Need user call before proceeding. My recommendation is Option 1 and I'll rewrite tasks 2/3 via `task-master update-task` to reflect that before coding.
-
-### Still pending from session 1 (carry-over)
-
-- **Metrics SDK choice for daemon (issue-64 task 10)**: Prometheus-native registry + OTLP traces only, **or** OpenTelemetry metrics SDK with a Prometheus exporter? Defaults I'd pick without further input: prometheus crate for pull metrics (already in deps), `opentelemetry` + `opentelemetry-otlp` + `tracing-opentelemetry` for traces only (all already in deps), defer OTLP metrics export until explicitly requested.
-- **Docker image distribution**: GHCR vs local-build. PRD recommends GHCR; need explicit sign-off before Phase 2 of `docker` stream.
-- **Docker token rotation UX**: static `.env` vs admin endpoint.
-- **TLS strategy for HTTP MCP**: native vs reverse-proxy default.
-- **MCP HTTP port default**: `6335` proposed (adjacent to Qdrant 6333/6334); needs sign-off before codifying in compose.
+- **Docker image distribution** (for `docker` tag, Phase 2): GHCR vs
+  local-build. PRD recommends GHCR. Ask before starting `docker` Phase 2.
+- **Docker token rotation UX** (for `docker` tag): static `.env` vs
+  admin endpoint.
+- **TLS strategy for HTTP MCP** (for `docker` tag): native vs
+  reverse-proxy default.
+- **MCP HTTP port default** (for `docker` tag): `6335` proposed;
+  sign-off before codifying in compose.
 
 ## Key context
 
-### Shipped this session (all on `main`)
+### Shipped this session (all on `main`, pushed)
 
 | Commit | Summary |
 |--------|---------|
-| 98361db59 | feat(cli): honor CLAUDE_CONFIG_DIR in hooks settings resolver |
-| d5a732df3 | test(cli): install flow respects CLAUDE_CONFIG_DIR |
-| 15acc49db | test(cli): uninstall and status flows respect CLAUDE_CONFIG_DIR |
-| 0e2ef2f11 | ci: guard against hardcoded .claude paths in hooks module |
-| fcfb14b33 | docs(cli): document CLAUDE_CONFIG_DIR for hooks commands |
-| ded19dd7a | feat(cli): surface CLAUDE_CONFIG_DIR in hook error diagnostics |
-| c9eba544c | feat(daemon): add telemetry export config schema (Prometheus + OTLP) |
+| f60883bdf | test(shared-test-utils): add GitFixtures builder for branch/worktree audit |
+| 29f09d222 | test(monitoring): add otlp_headers and otlp_protocol to OtelConfig literal (compile fix) |
+| f95bcc37c | test(core): add branch/worktree audit integration tests + findings doc |
+| bf6682b09 | fix(daemon): correlate atomic branch rename in BranchLifecycleDetector (closes #69) |
+| a latest  | docs(audit): fix #69 issue URL in branch-worktree audit spec |
 
-### Files touched in `issue-64` Task 1
+### GitHub issues
 
-- `src/rust/common/src/yaml_defaults/infrastructure.rs` — added `YamlPrometheusConfig`, `YamlOtlpConfig`; extended `YamlTelemetryConfig` with `service_name`/`prometheus`/`otlp`
-- `src/rust/common/src/yaml_defaults/tests.rs` — `test_telemetry_export_defaults_parse_from_yaml`
-- `src/rust/daemon/core/src/config/observability.rs` — new `OtlpProtocol` enum, `PrometheusExportConfig`, `OtlpExportConfig`; extended `TelemetryConfig` with `apply_env_overrides()` + `validate()`; 14 unit tests (serial_test for env-mutating tests)
-- `src/rust/daemon/core/src/config/mod.rs` — re-exports + `build_observability_config` wiring
-- `src/rust/daemon/core/src/unified_config/env_overrides.rs` — calls `apply_env_overrides` at end of load pipeline
-- `src/rust/daemon/core/src/unified_config/validation.rs` — calls `telemetry.validate()` in validation pass
-- `assets/default_configuration.yaml` — documents the new schema with comments
+- **#63** — CLOSED (this session) — branch/worktree audit.
+- **#69** — CLOSED (this session) — atomic-rename misclassification,
+  fixed in bf6682b09.
+- **#64** — CLOSED (previous session) — daemon telemetry.
+- **#66** — OPEN — extract `TENANT_GLOBAL` constant (chore).
+- **#65** / **#68** — OPEN — rules add UUID error.
+- **#70** — OPEN — `wqm project register` claims success but project
+  not in list.
+- **#61** — OPEN — re-enable linux/arm64 in docker-publish workflow.
+- **#60** — OPEN — linux-native idle detection.
+- **#59** — OPEN — reconciliation on daemon startup blocks gRPC
+  readiness.
+- **#58** — OPEN — legacy rules missing scope/label payload fields.
 
-### Env var conventions codified in Task 1
+### Audit finding summary
 
-- `OTEL_SERVICE_NAME` → `telemetry.service_name`
-- `OTEL_EXPORTER_OTLP_ENDPOINT` → `telemetry.otlp.endpoint` (also flips `otlp.enabled = true`)
-- `OTEL_EXPORTER_OTLP_PROTOCOL` → `telemetry.otlp.protocol` (`http/protobuf` | `grpc`)
-- `OTEL_EXPORTER_OTLP_HEADERS` → `telemetry.otlp.headers` (comma-separated `k=v`)
-- `OTEL_TRACES_SAMPLER_ARG` → `telemetry.otlp.sample_rate` (silently dropped if out of [0,1])
-- `WQM_PROMETHEUS_ENABLED` / `WQM_PROMETHEUS_PORT` / `WQM_PROMETHEUS_BIND` → pull endpoint
+`docs/specs/19-branch-worktree-audit.md` has the full record. 16
+integration tests pass. Remaining gaps captured in the report, each
+with a follow-up sketch (full-stack orphan cleanup, queue dedup under
+rapid switches, symlink canonicalisation, submodule auto-discovery
+integration, shallow-clone reflog parsing). Two ADR notes on
+ambiguous invariants (symlink clone identity, worktree tenant
+equivalence).
 
-Precedence: env > YAML > compiled-in defaults.
+### Architectural invariants (carried forward)
 
-### GitHub issues filed in session 1
-
-- #62 — CLOSED (this session)
-- #63 — https://github.com/ChrisGVE/workspace-qdrant-mcp/issues/63 — branch/worktree audit
-- #64 — https://github.com/ChrisGVE/workspace-qdrant-mcp/issues/64 — daemon OTLP + Prometheus (in progress, 1/12)
-
-### PRD files (.taskmaster/docs/)
-
-- `20260419-2128_workspace-qdrant-mcp_v0.1.3_PRD_issue-62-hooks-claude-config-dir.txt` — delivered
-- `20260419-2128_workspace-qdrant-mcp_v0.1.3_PRD_issue-63-branch-worktree-audit.txt`
-- `20260419-2128_workspace-qdrant-mcp_v0.1.3_PRD_issue-64-daemon-otlp.txt`
-- `20260419-2128_workspace-qdrant-mcp_v0.1.3_PRD_docker-http-transport.txt`
-
-### Reference files for remaining work
-
-- Existing metrics registry (extend, don't duplicate): `src/rust/daemon/core/src/monitoring/metrics_core.rs`
-- Existing axum /metrics server (extend for config-driven startup): `src/rust/daemon/core/src/monitoring/metrics_server.rs`
-- Existing OTLP trace setup (extend for config-driven sampler/protocol): `src/rust/daemon/core/src/tracing_otel.rs`
-- TS OTLP reference: `src/typescript/mcp-server/src/telemetry/otlp.ts`
-- MCP transport code: `src/typescript/mcp-server/src/server.ts:194-200` (stdio-only today)
-- Hooks settings path fix (done): `src/rust/cli/src/commands/hooks/settings.rs`
-- Existing compose pattern reference: `/Users/chris/dev/tools/main-docker/docker-compose.yml`
-- Architectural invariants: `docs/specs/04-write-path.md` (ADR-003 daemon owns state), ADR-001 (canonical collections)
+- `DaemonMetrics` is the single metrics registry — do **not** spawn a
+  parallel `telemetry::metrics` module.
+- Prometheus is the canonical metrics surface. OTLP carries **traces
+  only** until task 10 of issue-64 is re-opened.
+- Daemon-only write path: Qdrant + SQLite mutations go through the
+  queue processor (ADR-003).
+- 4 canonical collections: `projects` (by `tenant_id`), `libraries`,
+  `rules`, `scratchpad`.
+- `ProjectIdCalculator::normalize_git_url` is the one-and-only URL
+  normaliser — used by daemon and CLI both.
+- `BranchLifecycleDetector::scan_for_changes` order is now
+  delete → new → expire; this order is required for rename correlation.
 
 ### Gotchas carried forward
 
 - `task-master parse-prd` takes ~3 min per PRD.
-- `numTasks` parameter is a hint, not exact.
+- `numTasks` is a hint, not exact.
 - Task-master tag names cannot start with `#`.
-- Env-mutating tests must be marked `#[serial]` (`serial_test` crate already a workspace dev-dep); `wqm-cli` had to add its own `serial_test` dev-dep in session 2.
-- Clippy run on workspace-qdrant-core emits warnings from `daemon/core/src/graph/algorithms/community.rs`, `graph/sqlite_store.rs`, `patterns/detection/detector.rs`, `keyword_extraction/semantic_rerank.rs`. Pre-existing, unrelated to this work. Exit 0 though — they're deferred cleanup.
-- `MetricsServer::start()` in `monitoring/metrics_server.rs` ignores the new `telemetry.prometheus.*` config today; the wiring patch is part of Task 3 scope.
+- Env-mutating tests must be `#[serial]`.
+- Prometheus `METRICS` is a global singleton; tests that read counters
+  must use delta assertions with `>=`.
+- `opentelemetry-otlp` 0.14 headers injection requires tonic-version
+  alignment; `OTEL_EXPORTER_OTLP_HEADERS` env is the supported path.
+- Clippy on `workspace-qdrant-core` still emits pre-existing warnings
+  in `graph/algorithms/community.rs`, `graph/sqlite_store.rs`,
+  `patterns/detection/detector.rs`,
+  `keyword_extraction/semantic_rerank.rs`. Exit 0; deferred cleanup.
+- Git index.lock occasionally lingers after background task-master
+  calls — `rm -f .git/index.lock` if it blocks a commit.
+- `ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib` required for
+  every `cargo build` / `cargo test`.
+
+### New reference files (session 4)
+
+- Fixtures: `src/rust/daemon/shared-test-utils/src/git_fixtures.rs`
+  (depends on `git2` + `git` CLI for worktree/rebase/submodule ops).
+- Audit tests: `src/rust/daemon/core/tests/branch_worktree_audit.rs`.
+- Audit doc: `docs/specs/19-branch-worktree-audit.md`.
+- Branch lifecycle fix: `src/rust/daemon/core/src/git/branch_lifecycle/detector.rs::scan_for_changes`.
