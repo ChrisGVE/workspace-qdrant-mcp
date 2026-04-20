@@ -6,6 +6,7 @@
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { randomUUID } from 'node:crypto';
 import { utcNow } from '../utils/timestamps.js';
 import {
   PRIORITY_HIGH,
@@ -139,20 +140,25 @@ export async function addRule(
   if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
   if (priority !== undefined) metadata['priority'] = String(priority);
 
-  // Try daemon first
+  // Try daemon first.
+  //
+  // The daemon requires `document_id` to be a valid UUID (see #57). The
+  // human-readable label lives in payload metadata; retrieval goes
+  // through the label payload field. The SQLite mirror is still keyed
+  // by label so it stays in sync with the Qdrant payload on rebuild.
   try {
     const response = await daemonClient.ingestText({
       content,
       collection_basename: RULES_BASENAME,
       tenant_id: resolvedProjectId ?? TENANT_GLOBAL,
-      document_id: label,
+      document_id: randomUUID(),
       metadata,
     });
 
     if (response.success) {
       const now = utcNow();
       stateManager.upsertRulesMirror({
-        ruleId: response.document_id ?? label,
+        ruleId: label,
         ruleText: content,
         scope: scope ?? null,
         tenantId: resolvedProjectId ?? null,
@@ -162,7 +168,7 @@ export async function addRule(
       return {
         success: true,
         action: 'add',
-        label: response.document_id,
+        label,
         message: 'Rule added successfully',
       };
     }

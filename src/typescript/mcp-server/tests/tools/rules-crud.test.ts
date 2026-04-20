@@ -123,7 +123,9 @@ describe('RulesTool', () => {
 
       expect(result.success).toBe(true);
       expect(result.action).toBe('add');
-      expect(result.label).toBe('new-rule-id');
+      // `label` in the response is the user-supplied label, not the
+      // daemon-assigned UUID (see #57).
+      expect(result.label).toBe('write-tests');
       expect(result.fallback_mode).toBeUndefined();
       expect(mockDaemonClient.ingestText).toHaveBeenCalled();
     });

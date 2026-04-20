@@ -4,6 +4,7 @@
 //! falls back to EnqueueItem if IngestText fails.
 
 use anyhow::Result;
+use uuid::Uuid;
 use wqm_common::constants::TENANT_GLOBAL;
 
 use crate::grpc::ensure_daemon_available;
@@ -50,11 +51,14 @@ pub async fn add_rule(
     metadata.insert("priority".to_string(), "5".to_string());
     metadata.insert("enabled".to_string(), "true".to_string());
 
+    // Daemon requires document_id to be a valid UUID (see #57). The rule
+    // label is carried in payload metadata above, so the UUID is purely a
+    // point identifier; retrieval goes through the label payload field.
     let request = IngestTextRequest {
         content: content.to_string(),
         collection_basename: "rules".to_string(),
         tenant_id: tenant_id.clone(),
-        document_id: Some(label.to_string()),
+        document_id: Some(Uuid::new_v4().to_string()),
         metadata,
         chunk_text: false,
     };
