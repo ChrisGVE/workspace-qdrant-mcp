@@ -134,7 +134,31 @@ async fn test_empty_project_id_generates_local_id() {
 }
 
 #[tokio::test]
-async fn test_empty_path_returns_error() {
+async fn test_empty_path_and_project_id_returns_error() {
+    // Issue #70: empty path is now allowed as long as project_id is set
+    // (activation flow). Both missing must still be rejected.
+    let (pool, _temp_dir) = setup_test_db().await;
+    let service = ProjectServiceImpl::new(pool);
+
+    let request = Request::new(RegisterProjectRequest {
+        path: "".to_string(),
+        project_id: "".to_string(),
+        name: None,
+        git_remote: None,
+        register_if_new: false,
+        priority: Some("high".to_string()),
+    });
+
+    let result = service.register_project(request).await;
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn test_empty_path_with_project_id_is_allowed_for_activation() {
+    // Issue #70: `wqm project activate` sends an empty path and relies on
+    // project_id alone. The handler must accept this and return a
+    // "not found" response (priority=none) rather than rejecting.
     let (pool, _temp_dir) = setup_test_db().await;
     let service = ProjectServiceImpl::new(pool);
 
@@ -147,7 +171,13 @@ async fn test_empty_path_returns_error() {
         priority: Some("high".to_string()),
     });
 
-    let result = service.register_project(request).await;
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
+    let response = service
+        .register_project(request)
+        .await
+        .unwrap()
+        .into_inner();
+    // Project does not exist and register_if_new=false => not found.
+    assert_eq!(response.priority, "none");
+    assert!(!response.is_active);
+    assert!(!response.newly_registered);
 }

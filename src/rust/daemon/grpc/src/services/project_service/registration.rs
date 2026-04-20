@@ -62,22 +62,39 @@ impl ProjectServiceImpl {
         &self,
         req: RegisterProjectRequest,
     ) -> Result<RegisterProjectResponse, Status> {
-        if req.path.is_empty() {
-            return Err(Status::invalid_argument("path cannot be empty"));
+        // `wqm project activate` sends an empty path because activation only
+        // needs a project_id — a registered project already has its path on
+        // file. Accept either path or project_id; reject only when both are
+        // missing (issue #70).
+        if req.path.is_empty() && req.project_id.is_empty() {
+            return Err(Status::invalid_argument(
+                "either path or project_id must be supplied",
+            ));
         }
 
         // Resolve the git repository root so that subfolder registrations
-        // use the correct project root and tenant ID.
-        let effective_path = resolve_git_root(Path::new(&req.path));
-        let effective_path_str = effective_path.to_string_lossy().to_string();
+        // use the correct project root and tenant ID. When `path` is empty
+        // (activation path) we skip this step and carry an empty effective
+        // path — downstream code only uses it for new registrations.
+        let (effective_path, effective_path_str) = if req.path.is_empty() {
+            (PathBuf::new(), String::new())
+        } else {
+            let p = resolve_git_root(Path::new(&req.path));
+            let s = p.to_string_lossy().to_string();
+            if s != req.path {
+                info!("Resolved git root: {} -> {}", req.path, s);
+            }
+            (p, s)
+        };
 
-        if effective_path_str != req.path {
-            info!("Resolved git root: {} -> {}", req.path, effective_path_str);
-        }
-
-        // Detect git remote from the resolved path when the request lacks one
+        // Detect git remote from the resolved path when the request lacks one.
+        // Skip detection when no path is provided (activation flow).
         let effective_git_remote = if req.git_remote.as_ref().map_or(true, |r| r.is_empty()) {
-            detect_git_remote(&effective_path)
+            if effective_path.as_os_str().is_empty() {
+                None
+            } else {
+                detect_git_remote(&effective_path)
+            }
         } else {
             req.git_remote.clone()
         };

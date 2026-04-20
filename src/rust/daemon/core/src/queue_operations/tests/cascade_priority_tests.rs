@@ -219,3 +219,51 @@ async fn test_op_priority_dequeue_ordering() {
         "Scan should be dequeued last"
     );
 }
+
+/// Regression for issue #70: a new `(tenant, add)` project registration
+/// must cut the line ahead of a large backlog of `(file, add)` items so
+/// `wqm project register` materialises in `wqm project list` without
+/// waiting for the entire backlog to drain.
+#[tokio::test]
+async fn test_tenant_add_priority_over_file_add_backlog() {
+    let (pool, manager, _temp_dir) = setup_cascade_pool().await;
+    // An already-registered, active tenant whose backlog of (file, add)
+    // items would otherwise be favoured by `w.is_active > 0`.
+    insert_watch_folder(&pool, "w-backlog", "/backlog", "tenant-backlog").await;
+
+    // 25 file/add items for the backlog tenant, enqueued first so their
+    // created_at is earlier — FIFO alone would serve them first.
+    enqueue_file_adds(&manager, "tenant-backlog", "/backlog", 25).await;
+
+    // Later, a user issues `wqm project register` for a new tenant. The
+    // (tenant, add) has no watch_folder yet so `w.is_active` is NULL.
+    // Without the #70 fix it would sit at the bottom of the queue.
+    manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            UnifiedOp::Add,
+            "tenant-new",
+            "projects",
+            r#"{"project_root":"/new"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let dequeued = manager
+        .dequeue_unified(5, "worker-1", None, None, None, None)
+        .await
+        .unwrap();
+
+    assert!(!dequeued.is_empty());
+    assert_eq!(
+        dequeued[0].item_type,
+        ItemType::Tenant,
+        "Project registration should jump ahead of the file-add backlog"
+    );
+    assert_eq!(
+        dequeued[0].tenant_id, "tenant-new",
+        "The newly registered tenant's (tenant, add) must be served first"
+    );
+}

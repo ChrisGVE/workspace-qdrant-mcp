@@ -319,6 +319,10 @@ fn build_dequeue_query(
                  WHEN q.op = 'reset' THEN 1
                  ELSE 0
             END DESC,
+            -- Project registrations jump the line so `wqm project register`
+            -- materialises in `wqm project list` even when the queue is
+            -- backlogged with file ingestion (issue #70).
+            CASE WHEN q.item_type = 'tenant' AND q.op = 'add' THEN 1 ELSE 0 END DESC,
             CASE
                 WHEN q.collection = '{coll_memory}' THEN 1
                 WHEN q.collection = '{coll_libraries}' THEN 0
