@@ -26,6 +26,7 @@ use workspace_qdrant_core::SearchDbManager;
 pub mod auth;
 mod builder;
 mod factory;
+pub mod metrics_layer;
 pub mod services;
 
 // Re-export auth types at crate root for backward compatibility

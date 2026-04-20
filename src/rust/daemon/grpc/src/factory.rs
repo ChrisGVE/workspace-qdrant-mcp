@@ -182,7 +182,17 @@ impl GrpcServer {
         log_security_warnings(&self.config);
     }
 
-    async fn configure_transport(&self) -> Result<tonic::transport::server::Server, GrpcError> {
+    async fn configure_transport(
+        &self,
+    ) -> Result<
+        tonic::transport::server::Server<
+            tower::layer::util::Stack<
+                crate::metrics_layer::MetricsLayer,
+                tower::layer::util::Identity,
+            >,
+        >,
+        GrpcError,
+    > {
         let mut server_builder = Server::builder()
             .timeout(self.config.timeout_config.request_timeout)
             .concurrency_limit_per_connection(
@@ -194,13 +204,20 @@ impl GrpcServer {
             server_builder = apply_tls(server_builder, tls_config).await?;
         }
 
-        Ok(server_builder)
+        // Install the Prometheus metrics tower layer so every RPC is counted
+        // and timed via the shared DaemonMetrics registry.
+        Ok(server_builder.layer(crate::metrics_layer::MetricsLayer))
     }
 
     #[allow(clippy::too_many_arguments)]
     async fn serve(
         &mut self,
-        mut server_builder: tonic::transport::server::Server,
+        mut server_builder: tonic::transport::server::Server<
+            tower::layer::util::Stack<
+                crate::metrics_layer::MetricsLayer,
+                tower::layer::util::Identity,
+            >,
+        >,
         system_service: SystemServiceImpl,
         collection_service: CollectionServiceImpl,
         document_service: DocumentServiceImpl,
