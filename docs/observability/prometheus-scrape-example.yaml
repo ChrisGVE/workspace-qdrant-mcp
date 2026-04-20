@@ -1,0 +1,29 @@
+# Reference Prometheus scrape config for memexd (issue-64).
+#
+# Enable `telemetry.prometheus.enabled: true` (default port 9464) in the
+# daemon config, or set WQM_PROMETHEUS_ENABLED=true / WQM_PROMETHEUS_PORT
+# / WQM_PROMETHEUS_BIND env vars, then add the job below to your
+# Prometheus `scrape_configs`.
+
+scrape_configs:
+  - job_name: memexd
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["localhost:9464"]
+        labels:
+          service: memexd
+          env: local
+
+  # Example for multi-host deployment: override the bind host per target.
+  # - job_name: memexd-fleet
+  #   scrape_interval: 30s
+  #   static_configs:
+  #     - targets:
+  #         - "memexd-host-a.internal:9464"
+  #         - "memexd-host-b.internal:9464"
+  #       labels:
+  #         service: memexd
+  #         env: prod
