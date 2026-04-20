@@ -232,6 +232,61 @@ export CLAUDE_CONFIG_DIR=~/.config/claude/claude-ent
 wqm init hooks install
 ```
 
+## Observability
+
+The daemon exposes metrics and traces. Both are disabled by default.
+
+### Prometheus (`/metrics`, pull)
+
+Enable via config or env var, then scrape:
+
+```yaml
+# in the daemon config
+observability:
+  telemetry:
+    prometheus:
+      enabled: true
+      port: 9464
+      bind: 0.0.0.0
+```
+
+or:
+
+```bash
+WQM_PROMETHEUS_ENABLED=true WQM_PROMETHEUS_PORT=9464 memexd --foreground
+curl http://localhost:9464/metrics | head
+```
+
+The `--metrics-port <N>` CLI flag is a shortcut that forces
+`enabled=true` and overrides the port. See
+`docs/observability/prometheus-scrape-example.yaml` for a
+`scrape_configs` snippet and
+`docs/observability/memexd-telemetry-dashboard.json` for a Grafana 10
+dashboard.
+
+### OTLP traces (push)
+
+`#[tracing::instrument]` spans on the queue processor, watcher, gRPC,
+embedding, and Qdrant paths are exported over OTLP/gRPC when:
+
+```yaml
+observability:
+  telemetry:
+    service_name: memexd
+    otlp:
+      enabled: true
+      endpoint: http://collector.example:4317
+      protocol: grpc   # http/protobuf is also recognized (logs a warning)
+      sample_rate: 0.1
+```
+
+Standard OpenTelemetry env vars are honored: `OTEL_SERVICE_NAME`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`,
+`OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_TRACES_SAMPLER_ARG`.
+
+OTLP metrics export is **not** currently implemented — Prometheus is
+the canonical metrics surface.
+
 ## Architecture
 
 ```
