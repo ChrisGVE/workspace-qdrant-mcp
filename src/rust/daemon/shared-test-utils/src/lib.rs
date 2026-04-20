@@ -5,12 +5,14 @@
 
 pub mod containers;
 pub mod fixtures;
+pub mod git_fixtures;
 pub mod matchers;
 pub mod test_helpers;
 
 // Re-export commonly used testing types and functions
 pub use containers::*;
 pub use fixtures::*;
+pub use git_fixtures::*;
 pub use matchers::*;
 pub use test_helpers::*;
 

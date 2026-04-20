@@ -5875,6 +5875,7 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "chrono",
+ "git2",
  "libc",
  "once_cell",
  "proptest",
