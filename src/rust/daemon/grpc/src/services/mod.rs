@@ -9,6 +9,7 @@ pub mod document_service;
 pub mod embedding_service;
 pub mod graph_service;
 pub mod project_service;
+mod rules_payload_backfill;
 mod rules_rebuild;
 mod scratchpad_rebuild;
 pub mod system_service;

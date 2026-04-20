@@ -25,6 +25,7 @@ pub(super) async fn dispatch(
         "vocabulary" => rebuild_vocabulary(lexicon_manager, db_pool, collection).await,
         "keywords" => rebuild_keywords(db_pool, tenant_id, collection).await,
         "rules" => rebuild_rules(storage_client, db_pool).await,
+        "rules-payload" => rebuild_rules_payload(storage_client, db_pool).await,
         "scratchpad" => rebuild_scratchpad(storage_client, db_pool).await,
         "projects" => rebuild_watch_folders(db_pool, "projects", tenant_id).await,
         "libraries" => rebuild_watch_folders(db_pool, "libraries", tenant_id).await,
@@ -36,6 +37,9 @@ pub(super) async fn dispatch(
             rebuild_components(db_pool, tenant_id, force).await;
             rebuild_tags(hierarchy_builder, tenant_id).await;
             rebuild_keywords(db_pool, tenant_id, collection).await;
+            // Recover payload fields from any legacy RULE-headered content
+            // before reconciliation scans by label.
+            rebuild_rules_payload(storage_client.clone(), db_pool).await;
             rebuild_rules(storage_client.clone(), db_pool).await;
             rebuild_scratchpad(storage_client, db_pool).await;
             rebuild_watch_folders(db_pool, "projects", tenant_id).await;
@@ -403,6 +407,38 @@ async fn rebuild_rules(
         updated,
         enqueued
     );
+}
+
+/// Backfill payload scope/label/etc. fields from legacy `RULE`-headered
+/// content (issue #58).
+async fn rebuild_rules_payload(
+    storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
+    db_pool: Option<&sqlx::SqlitePool>,
+) {
+    use crate::services::rules_payload_backfill;
+
+    let Some(pool) = db_pool else {
+        error!("[rebuild:rules-payload] Database pool not configured");
+        return;
+    };
+    let Some(storage) = storage_client else {
+        error!("[rebuild:rules-payload] Storage client not configured");
+        return;
+    };
+
+    match rules_payload_backfill::backfill_rules_payload(&storage, pool).await {
+        Ok(stats) => info!(
+            "[rebuild:rules-payload] scanned={} backfilled={} already_ok={} \
+             unparseable={} mirror_upserts={} errors={}",
+            stats.scanned,
+            stats.backfilled,
+            stats.already_ok,
+            stats.unparseable,
+            stats.mirror_upserts,
+            stats.errors
+        ),
+        Err(e) => error!("[rebuild:rules-payload] {}", e),
+    }
 }
 
 /// Reconcile scratchpad entries between SQLite mirror and Qdrant.

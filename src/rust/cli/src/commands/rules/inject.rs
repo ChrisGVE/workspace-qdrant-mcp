@@ -9,6 +9,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use wqm_common::constants::TENANT_GLOBAL;
+use wqm_common::rules_legacy::{is_legacy_rule_content, parse_rule_header};
 use wqm_common::schema::qdrant::rules as rules_schema;
 
 use super::helpers::{
@@ -70,20 +71,32 @@ pub async fn inject_rules() -> Result<()> {
 
     // Fetch global rules
     let global_filter = build_scope_filter(TENANT_GLOBAL);
-    let global_rules = fetch_rules_by_scope(&client, &base_url, global_filter).await;
+    let mut global_rules = fetch_rules_by_scope(&client, &base_url, global_filter).await;
 
     // Fetch project rules if project resolved
-    let (project_rules, project_name) = match &project_info {
+    let (mut project_rules, project_name, project_tenant) = match &project_info {
         Some((tenant_id, path)) => {
             let filter = build_scope_filter(&format!("project:{}", tenant_id));
             let rules = fetch_rules_by_scope(&client, &base_url, filter).await;
             let name = Path::new(path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string());
-            (rules, name)
+            (rules, name, Some(tenant_id.clone()))
         }
-        None => (Vec::new(), None),
+        None => (Vec::new(), None, None),
     };
+
+    // Issue #58 safety net: include any legacy rules whose label/scope are
+    // still embedded in the content text. Synthesises payload fields on the
+    // fly so the backfill can be run later without losing this hook output.
+    augment_with_legacy_rules(
+        &client,
+        &base_url,
+        &mut global_rules,
+        &mut project_rules,
+        project_tenant.as_deref(),
+    )
+    .await;
 
     // Format and output
     let output = format_inject_output(&global_rules, &project_rules, project_name.as_deref());
@@ -130,6 +143,91 @@ async fn fetch_rules_by_scope(
         .into_iter()
         .filter_map(|p| p.payload)
         .collect()
+}
+
+/// Scroll the full rules collection (no filter) and recover any payloads
+/// whose `label`/`scope` fields are still embedded in the `content` text.
+///
+/// For each recovered rule we synthesise a payload (label + content body)
+/// and route it into the right bucket: global rules go to `global_rules`,
+/// project rules only get included when the tenant matches `project_tenant`.
+///
+/// Rules already present (same label) are skipped so the backfill remains
+/// idempotent — this is pure belt-and-suspenders for issue #58.
+async fn augment_with_legacy_rules(
+    client: &reqwest::Client,
+    base_url: &str,
+    global_rules: &mut Vec<serde_json::Value>,
+    project_rules: &mut Vec<serde_json::Value>,
+    project_tenant: Option<&str>,
+) {
+    let url = format!(
+        "{}/collections/{}/points/scroll",
+        base_url,
+        wqm_common::constants::COLLECTION_RULES,
+    );
+    let body = serde_json::json!({
+        "limit": 500,
+        "with_payload": true,
+    });
+
+    let resp = match client.post(&url).json(&body).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return,
+    };
+    let scroll: ScrollResponse = match resp.json().await {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let existing_global: std::collections::HashSet<String> = global_rules
+        .iter()
+        .map(|p| payload_str(p, rules_schema::LABEL.name))
+        .collect();
+    let existing_project: std::collections::HashSet<String> = project_rules
+        .iter()
+        .map(|p| payload_str(p, rules_schema::LABEL.name))
+        .collect();
+
+    for point in scroll.result.points {
+        let Some(payload) = point.payload else {
+            continue;
+        };
+        let has_label = !payload_str(&payload, rules_schema::LABEL.name).is_empty();
+        let content = payload_str(&payload, rules_schema::CONTENT.name);
+        if has_label || !is_legacy_rule_content(&content) {
+            continue;
+        }
+        let Some(header) = parse_rule_header(&content) else {
+            continue;
+        };
+        let Some(label) = header.label().map(str::to_string) else {
+            continue;
+        };
+
+        let synth = serde_json::json!({
+            rules_schema::LABEL.name: label,
+            rules_schema::CONTENT.name: header.body,
+        });
+
+        let (scope, project_id) = header.split_scope();
+        if scope == TENANT_GLOBAL {
+            if existing_global.contains(&label) {
+                continue;
+            }
+            global_rules.push(synth);
+        } else if scope == "project" {
+            if existing_project.contains(&label) {
+                continue;
+            }
+            match (project_tenant, project_id.as_deref()) {
+                (Some(current), Some(pid)) if current == pid => {
+                    project_rules.push(synth);
+                }
+                _ => {} // project rule for a different tenant — skip
+            }
+        }
+    }
 }
 
 /// Format fetched rules into the output block for Claude Code context injection.
@@ -220,5 +318,27 @@ mod tests {
 
         let output = format_inject_output(&global, &project, None);
         assert!(output.is_empty());
+    }
+
+    /// Exercise the synth payload shape used by `augment_with_legacy_rules`
+    /// so renderers continue to surface legacy rules via the fallback.
+    #[test]
+    fn test_inject_renders_legacy_synth_payload() {
+        let src = "RULE\n\
+label:use-common-crate\n\
+scope:project:abc123\n\
+type:constraint\n\
+priority:8\n\
+---\n\
+When introducing or modifying shared data structures, always use wqm-common.";
+        let header = parse_rule_header(src).expect("parse");
+        let synth = serde_json::json!({
+            rules_schema::LABEL.name: header.label().unwrap(),
+            rules_schema::CONTENT.name: header.body,
+        });
+
+        let output = format_inject_output(&[], std::slice::from_ref(&synth), Some("myproj"));
+        assert!(output.contains("- **use-common-crate**: When introducing"));
+        assert!(!output.contains("RULE\nlabel")); // header stripped
     }
 }

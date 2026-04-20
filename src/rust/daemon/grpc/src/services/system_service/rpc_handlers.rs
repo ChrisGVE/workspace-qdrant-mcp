@@ -419,6 +419,7 @@ impl SystemService for SystemServiceImpl {
             "vocabulary",
             "keywords",
             "rules",
+            "rules-payload",
             "scratchpad",
             "projects",
             "libraries",

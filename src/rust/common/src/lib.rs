@@ -22,6 +22,7 @@ pub mod paths;
 pub mod payloads;
 pub mod project_id;
 pub mod queue_types;
+pub mod rules_legacy;
 pub mod schema;
 pub mod timestamp_fmt;
 pub mod timestamps;

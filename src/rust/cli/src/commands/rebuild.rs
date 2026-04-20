@@ -55,6 +55,11 @@ enum RebuildCommand {
     /// Diagnose and reconcile rules between Qdrant and SQLite
     Rules,
 
+    /// Backfill payload fields for legacy rules whose label/scope are
+    /// still embedded in the content text (issue #58).
+    #[command(name = "rules-payload")]
+    RulesPayload,
+
     /// Reconcile scratchpad entries between SQLite mirror and Qdrant
     Scratchpad,
 
@@ -109,6 +114,7 @@ pub async fn execute(args: RebuildArgs) -> Result<()> {
             ("keywords".to_string(), tenant, Some(collection), false)
         }
         RebuildCommand::Rules => ("rules".to_string(), None, None, false),
+        RebuildCommand::RulesPayload => ("rules-payload".to_string(), None, None, false),
         RebuildCommand::Scratchpad => ("scratchpad".to_string(), None, None, false),
         RebuildCommand::Projects { tenant } => ("projects".to_string(), tenant, None, false),
         RebuildCommand::Libraries { tenant } => ("libraries".to_string(), tenant, None, false),
