@@ -14,6 +14,11 @@ use super::super::types::{CollectionInfoResult, StorageError};
 
 impl StorageClient {
     /// Create a new collection with vector configuration
+    #[tracing::instrument(
+        name = "qdrant.create_collection",
+        skip_all,
+        fields(collection = %collection_name)
+    )]
     pub async fn create_collection(
         &self,
         collection_name: &str,
@@ -81,6 +86,11 @@ impl StorageClient {
     }
 
     /// Delete a collection
+    #[tracing::instrument(
+        name = "qdrant.delete_collection",
+        skip_all,
+        fields(collection = %collection_name)
+    )]
     pub async fn delete_collection(&self, collection_name: &str) -> Result<(), StorageError> {
         info!("Deleting collection: {}", collection_name);
 

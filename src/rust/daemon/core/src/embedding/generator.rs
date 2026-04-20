@@ -262,6 +262,11 @@ impl EmbeddingGenerator {
         })
     }
 
+    #[tracing::instrument(
+        name = "embedding.generate_batch",
+        skip_all,
+        fields(model = %model_name, batch_size = texts.len())
+    )]
     pub async fn generate_embeddings_batch(
         &self,
         texts: &[String],

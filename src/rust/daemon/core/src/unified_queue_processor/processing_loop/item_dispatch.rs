@@ -22,6 +22,17 @@ use crate::unified_queue_processor::UnifiedQueueProcessor;
 impl UnifiedQueueProcessor {
     /// Process a single unified queue item based on its type
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(
+        name = "queue.process_item",
+        skip_all,
+        fields(
+            queue_id = %item.queue_id,
+            item_type = ?item.item_type,
+            op = ?item.op,
+            collection = %item.collection,
+            tenant_id = %item.tenant_id,
+        )
+    )]
     pub(crate) async fn process_item(
         queue_manager: &QueueManager,
         item: &UnifiedQueueItem,

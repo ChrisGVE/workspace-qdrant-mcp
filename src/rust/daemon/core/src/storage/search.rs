@@ -16,6 +16,11 @@ use super::types::{
 
 impl StorageClient {
     /// Perform hybrid search with dense/sparse vector fusion
+    #[tracing::instrument(
+        name = "qdrant.search",
+        skip_all,
+        fields(collection = %collection_name, mode = ?params.search_mode, limit = params.limit)
+    )]
     pub async fn search(
         &self,
         collection_name: &str,

@@ -37,6 +37,11 @@ impl QueueManager {
     ///
     /// Returns (queue_id, is_new) where is_new indicates if this was a new insertion
     /// or if an existing item with the same idempotency key was found.
+    #[tracing::instrument(
+        name = "queue.enqueue",
+        skip_all,
+        fields(item_type = ?item_type, op = ?op, tenant_id = %tenant_id, collection = %collection)
+    )]
     pub async fn enqueue_unified(
         &self,
         item_type: ItemType,

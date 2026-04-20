@@ -18,6 +18,11 @@ use super::types::{BatchStats, DocumentPoint, StorageError};
 
 impl StorageClient {
     /// Insert a single document point
+    #[tracing::instrument(
+        name = "qdrant.insert_point",
+        skip_all,
+        fields(collection = %collection_name, point_id = %point.id)
+    )]
     pub async fn insert_point(
         &self,
         collection_name: &str,

@@ -29,6 +29,16 @@ impl QueueManager {
     /// * `priority_descending` - If true, high priority first (DESC) with FIFO tiebreaker;
     ///   if false, low priority first (ASC) with LIFO tiebreaker.
     ///   Used for anti-starvation alternation. Defaults to true if None.
+    #[tracing::instrument(
+        name = "queue.dequeue",
+        skip_all,
+        fields(
+            batch_size = batch_size,
+            worker_id = %worker_id,
+            tenant_id = tracing::field::Empty,
+            item_type = tracing::field::Empty,
+        )
+    )]
     pub async fn dequeue_unified(
         &self,
         batch_size: i32,
@@ -38,6 +48,12 @@ impl QueueManager {
         item_type: Option<ItemType>,
         priority_descending: Option<bool>,
     ) -> QueueResult<Vec<UnifiedQueueItem>> {
+        if let Some(tid) = tenant_id {
+            tracing::Span::current().record("tenant_id", tid);
+        }
+        if let Some(it) = item_type {
+            tracing::Span::current().record("item_type", tracing::field::debug(it));
+        }
         let lease_duration = lease_duration_secs.unwrap_or(300);
         let lease_until = Utc::now() + ChronoDuration::seconds(lease_duration);
         let lease_until_str = timestamps::format_utc(&lease_until);
