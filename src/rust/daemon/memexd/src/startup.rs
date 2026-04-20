@@ -274,6 +274,19 @@ pub fn init_logging_with_telemetry(
         })
         .and_then(|cfg| workspace_qdrant_core::tracing_otel::otel_layer(&cfg));
 
+    // OTLP metrics export is intentionally deferred: the Prometheus pull
+    // endpoint is the canonical metric surface for this daemon. Spans are
+    // still shipped over OTLP via the tracing bridge above when enabled.
+    if let Some(t) = telemetry {
+        if t.otlp.enabled {
+            tracing::info!(
+                "OTLP export: traces enabled via tracing_opentelemetry bridge; \
+                 metrics export is disabled — scrape /metrics from the \
+                 Prometheus endpoint for counters and histograms"
+            );
+        }
+    }
+
     initialize_logging_with_otel(config, otel_layer)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
