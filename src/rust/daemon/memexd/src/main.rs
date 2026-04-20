@@ -301,15 +301,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args = startup::parse_args()?;
-    startup::init_logging(&args.log_level, args.foreground)?;
-
-    info!("memexd daemon starting up");
-    info!("Command-line arguments: {:?}", args);
-
+    // Load config first so we can honor the OTLP settings during
+    // subscriber initialization. Config loading uses tracing calls that are
+    // dropped until the subscriber is installed — acceptable tradeoff for
+    // getting OTLP export on `#[instrument]` spans right from startup.
     let config = startup::load_config(&args).map_err(|e| {
         error!("Failed to load configuration: {}", e);
         e
     })?;
+    startup::init_logging_with_telemetry(
+        &args.log_level,
+        args.foreground,
+        Some(&config.observability.telemetry),
+    )?;
+
+    info!("memexd daemon starting up");
+    info!("Command-line arguments: {:?}", args);
 
     if let Err(e) = run_daemon(config, args).await {
         error!("Daemon failed: {}", e);

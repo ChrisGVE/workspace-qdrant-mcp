@@ -99,5 +99,8 @@ pub fn abort_background_tasks(
         info!("Metrics server stopped");
     }
 
+    // Flush any buffered OTLP spans before the process exits.
+    workspace_qdrant_core::tracing_otel::shutdown_tracer();
+
     info!("memexd daemon shutdown complete");
 }

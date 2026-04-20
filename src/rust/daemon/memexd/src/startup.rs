@@ -14,7 +14,6 @@ use tracing::{error, info, warn};
 
 use workspace_qdrant_core::{
     config::DaemonConfig,
-    initialize_logging,
     unified_config::{UnifiedConfigError, UnifiedConfigManager},
     LoggingConfig,
 };
@@ -226,7 +225,17 @@ pub fn suppress_third_party_output() {
 }
 
 /// Initialize comprehensive logging with daemon mode support.
-pub fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
+///
+/// When `telemetry` is supplied and `telemetry.otlp.enabled` is true, a
+/// `tracing_opentelemetry` layer is installed so `#[instrument]` spans export
+/// over OTLP. Passing `None` keeps logging-only behavior.
+pub fn init_logging_with_telemetry(
+    log_level: &str,
+    foreground: bool,
+    telemetry: Option<&workspace_qdrant_core::config::TelemetryConfig>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use workspace_qdrant_core::monitoring::logging_config::initialize_logging_with_otel;
+
     if !foreground {
         std::env::set_var("WQM_SERVICE_MODE", "true");
         workspace_qdrant_core::logging::suppress_tty_debug_output();
@@ -256,7 +265,17 @@ pub fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std
         config.level = Level::INFO;
     }
 
-    initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    let otel_layer = telemetry
+        .and_then(|t| {
+            workspace_qdrant_core::tracing_otel::OtelConfig::from_telemetry(
+                t,
+                env!("CARGO_PKG_VERSION"),
+            )
+        })
+        .and_then(|cfg| workspace_qdrant_core::tracing_otel::otel_layer(&cfg));
+
+    initialize_logging_with_otel(config, otel_layer)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
 /// Check if another memexd instance is already running by inspecting the PID file.

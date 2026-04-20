@@ -323,6 +323,23 @@ fn build_non_blocking_writer(
 
 /// Initialize comprehensive logging system with daemon mode silence support
 pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
+    // Supply a concrete Layer-implementing type so the generic parameter can
+    // be inferred; `None` means no OTel layer is installed.
+    type NoopLayer = tracing_subscriber::fmt::Layer<Registry>;
+    initialize_logging_with_otel::<NoopLayer>(config, None)
+}
+
+/// Like [`initialize_logging`] but optionally installs an additional layer
+/// (typically `tracing_opentelemetry::OpenTelemetryLayer`) into the
+/// subscriber so `#[instrument]` spans are exported to OTLP while normal
+/// logging keeps working. Pass `None` for the logging-only behavior.
+pub fn initialize_logging_with_otel<L>(
+    config: LoggingConfig,
+    otel_layer: Option<L>,
+) -> Result<(), WorkspaceError>
+where
+    L: Layer<Registry> + Send + Sync + 'static,
+{
     let daemon_mode = is_daemon_mode();
 
     if !config.console_output && !config.file_logging {
@@ -341,6 +358,9 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     let disable_ansi = determine_disable_ansi(daemon_mode, config.force_disable_ansi);
     let registry = Registry::default();
 
+    // Install the OTel layer first so the bound `L: Layer<Registry>` holds
+    // regardless of how many other layers sit above it. Filters applied by
+    // later `.with()` calls still apply to the OTel layer's event flow.
     if config.console_output && config.file_logging {
         let log_file_path = config.log_file_path.as_ref().ok_or_else(|| {
             WorkspaceError::configuration("File logging enabled but no log file path specified")
@@ -355,13 +375,18 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
             .with_thread_ids(true)
             .with_thread_names(true);
         registry
+            .with(otel_layer)
             .with(env_filter)
             .with(console_layer)
             .with(file_layer)
             .init();
     } else if config.console_output {
         let console_layer = build_console_layer(config.json_format, disable_ansi);
-        registry.with(env_filter).with(console_layer).init();
+        registry
+            .with(otel_layer)
+            .with(env_filter)
+            .with(console_layer)
+            .init();
     } else if config.file_logging {
         let log_file_path = config.log_file_path.as_ref().ok_or_else(|| {
             WorkspaceError::configuration("File logging enabled but no log file path specified")
@@ -374,13 +399,21 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
             .with_target(true)
             .with_thread_ids(true)
             .with_thread_names(true);
-        registry.with(env_filter).with(file_layer).init();
+        registry
+            .with(otel_layer)
+            .with(env_filter)
+            .with(file_layer)
+            .init();
     } else if daemon_mode {
         let null_writer = || std::io::sink();
         let null_layer = fmt::layer().with_writer(null_writer).with_ansi(false);
-        registry.with(env_filter).with(null_layer).init();
+        registry
+            .with(otel_layer)
+            .with(env_filter)
+            .with(null_layer)
+            .init();
     } else {
-        registry.with(env_filter).init();
+        registry.with(otel_layer).with(env_filter).init();
     }
 
     info!(config = ?config, "Logging system initialized");

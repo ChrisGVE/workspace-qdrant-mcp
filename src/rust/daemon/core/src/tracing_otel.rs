@@ -31,6 +31,10 @@ pub struct OtelConfig {
     pub sampling_ratio: f64,
     /// Enable trace context propagation in gRPC metadata
     pub propagate_context: bool,
+    /// OTLP exporter protocol: `grpc` (tonic) or `http/protobuf` (reqwest/http).
+    pub otlp_protocol: String,
+    /// OTLP metadata/header entries (e.g. `authorization=Bearer ...`).
+    pub otlp_headers: std::collections::HashMap<String, String>,
 }
 
 impl Default for OtelConfig {
@@ -41,7 +45,36 @@ impl Default for OtelConfig {
             otlp_endpoint: env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok(),
             sampling_ratio: 1.0,
             propagate_context: true,
+            otlp_protocol: "grpc".to_string(),
+            otlp_headers: std::collections::HashMap::new(),
         }
+    }
+}
+
+impl OtelConfig {
+    /// Build an [`OtelConfig`] from the daemon's telemetry configuration.
+    ///
+    /// Only returns `Some` when `otlp.enabled` is true — callers should treat
+    /// `None` as "do not initialize OTLP".
+    pub fn from_telemetry(
+        telemetry: &crate::config::TelemetryConfig,
+        service_version: impl Into<String>,
+    ) -> Option<Self> {
+        if !telemetry.otlp.enabled {
+            return None;
+        }
+        Some(Self {
+            service_name: telemetry.service_name.clone(),
+            service_version: service_version.into(),
+            otlp_endpoint: Some(telemetry.otlp.endpoint.clone()),
+            sampling_ratio: telemetry.otlp.sample_rate,
+            propagate_context: true,
+            otlp_protocol: match telemetry.otlp.protocol {
+                crate::config::OtlpProtocol::Grpc => "grpc".to_string(),
+                crate::config::OtlpProtocol::HttpProtobuf => "http/protobuf".to_string(),
+            },
+            otlp_headers: telemetry.otlp.headers.clone(),
+        })
     }
 }
 
@@ -91,10 +124,31 @@ pub fn init_tracer_provider(
     if let Some(endpoint) = &config.otlp_endpoint {
         // Use OTLP exporter for production
         tracing::info!(
-            "Initializing OpenTelemetry with OTLP endpoint: {}",
-            endpoint
+            "Initializing OpenTelemetry with OTLP endpoint: {} (protocol={})",
+            endpoint,
+            config.otlp_protocol
         );
+        if config.otlp_protocol != "grpc" {
+            tracing::warn!(
+                "OTLP protocol '{}' requested but only the tonic/gRPC exporter is \
+                 compiled in. Falling back to gRPC transport to the configured endpoint.",
+                config.otlp_protocol
+            );
+        }
 
+        if !config.otlp_headers.is_empty() {
+            // Header/metadata injection requires tonic version alignment with
+            // opentelemetry-otlp 0.14's vendored tonic. Relying on the
+            // `OTEL_EXPORTER_OTLP_HEADERS` env variable is the interop path
+            // the SDK already honors. Warn so operators know we're not
+            // wiring them manually yet.
+            tracing::warn!(
+                "telemetry.otlp.headers configured ({} entries) but are being \
+                 forwarded via OTEL_EXPORTER_OTLP_HEADERS env only; direct \
+                 injection is not yet implemented",
+                config.otlp_headers.len()
+            );
+        }
         let exporter = opentelemetry_otlp::new_exporter()
             .tonic()
             .with_endpoint(endpoint.clone())
@@ -209,5 +263,37 @@ mod tests {
         // Without active span, should return None
         assert!(current_trace_id().is_none());
         assert!(current_span_id().is_none());
+    }
+
+    #[test]
+    fn from_telemetry_disabled_returns_none() {
+        let t = crate::config::TelemetryConfig::default();
+        assert!(!t.otlp.enabled);
+        assert!(OtelConfig::from_telemetry(&t, "1.2.3").is_none());
+    }
+
+    #[test]
+    fn from_telemetry_enabled_maps_fields() {
+        let mut t = crate::config::TelemetryConfig::default();
+        t.service_name = "daemon-test".to_string();
+        t.otlp.enabled = true;
+        t.otlp.endpoint = "http://collector.example:4317".to_string();
+        t.otlp.protocol = crate::config::OtlpProtocol::HttpProtobuf;
+        t.otlp.sample_rate = 0.25;
+        t.otlp.headers.insert("x-trace".into(), "yes".into());
+
+        let o = OtelConfig::from_telemetry(&t, "9.9.9").expect("enabled config maps");
+        assert_eq!(o.service_name, "daemon-test");
+        assert_eq!(o.service_version, "9.9.9");
+        assert_eq!(
+            o.otlp_endpoint.as_deref(),
+            Some("http://collector.example:4317")
+        );
+        assert_eq!(o.otlp_protocol, "http/protobuf");
+        assert_eq!(o.sampling_ratio, 0.25);
+        assert_eq!(
+            o.otlp_headers.get("x-trace").map(String::as_str),
+            Some("yes")
+        );
     }
 }
