@@ -62,6 +62,34 @@ describe('DaemonClient', () => {
       expect(client.isConnected()).toBe(false);
     });
   });
+
+  describe('auto-reconnect (issue #55)', () => {
+    it('should attempt to connect on RPC call when never connected', async () => {
+      // When the MCP server starts before the daemon, the initial connect()
+      // fails and the client is left with undefined service handles. The
+      // user's first RPC must retry via ensureConnected() rather than
+      // failing outright with "Client not connected".
+      const testClient = new DaemonClient({ port: 59998, timeoutMs: 500, maxRetries: 1 });
+
+      await expect(testClient.healthCheck()).rejects.toThrow();
+      // The surfaced error must be the connection failure, not the stale
+      // "Client not connected" guard.
+      try {
+        await testClient.healthCheck();
+      } catch (err) {
+        expect((err as Error).message).not.toContain('Client not connected');
+      }
+    });
+
+    it('should re-attempt connect after close()', async () => {
+      const testClient = new DaemonClient({ port: 59997, timeoutMs: 500, maxRetries: 1 });
+      // Simulate the lifecycle: close first (no-op), then call — the call
+      // should attempt a fresh connect(), not silently use stale handles.
+      testClient.close();
+      expect(testClient.isConnected()).toBe(false);
+      await expect(testClient.healthCheck()).rejects.toThrow();
+    });
+  });
 });
 
 describe('DaemonClient integration', () => {

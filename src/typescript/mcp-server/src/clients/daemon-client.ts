@@ -131,6 +131,14 @@ export class DaemonClient {
   private trackingWriteClient?: TrackingWriteServiceClient;
 
   private connectionState: ConnectionState = { connected: false };
+  /**
+   * Reentrancy guard: prevents `ensureConnected()` from recursing back
+   * through `healthCheck()` while `connect()` is still in flight.
+   * Without it the auto-reconnect path in `callWithRetry` bounces
+   * between connect → healthCheck → callWithRetry → ensureConnected →
+   * connect and blows the call stack. See issue #55.
+   */
+  private connecting = false;
 
   constructor(config: DaemonClientConfig = {}) {
     this.host = config.host ?? DEFAULT_HOST;
@@ -362,18 +370,43 @@ export class DaemonClient {
 
   // ── Retry logic ──
 
+  /**
+   * Ensure the gRPC clients are initialised before issuing an RPC.
+   *
+   * When the MCP server's initial `connect()` fails (daemon not running,
+   * proto load error, etc.) we still hold a `DaemonClient` with
+   * undefined service clients. Without this helper, every subsequent
+   * call would reject with "Client not connected" even after the daemon
+   * comes back up. Calling `connect()` here lets the client self-heal
+   * on the next user action. See issue #55.
+   */
+  private async ensureConnected(): Promise<void> {
+    if (this.connecting) return; // connect() is in flight — let it finish
+    if (this.connectionState.connected && this.systemClient) return;
+    this.connecting = true;
+    try {
+      await this.connect();
+    } finally {
+      this.connecting = false;
+    }
+  }
+
   private async callWithRetry<T>(fn: () => Promise<T>): Promise<T> {
     let lastError: Error | undefined;
     let delay = INITIAL_RETRY_DELAY_MS;
 
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       try {
+        await this.ensureConnected();
         const result = await fn();
         this.connectionState = { connected: true, lastHealthCheck: new Date() };
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (!this.isRetryableError(lastError)) throw lastError;
+        // A transient failure invalidates our notion of being connected —
+        // the next iteration's `ensureConnected` will reconnect.
+        this.connectionState = { connected: false, lastError: lastError.message };
         if (attempt < this.maxRetries - 1) {
           await new Promise<void>((r) => setTimeout(r, delay));
           delay *= 2;
@@ -396,7 +429,13 @@ export class DaemonClient {
     return (
       error.message.includes('ECONNREFUSED') ||
       error.message.includes('ETIMEDOUT') ||
-      error.message.includes('ENOTFOUND')
+      error.message.includes('ENOTFOUND') ||
+      // Issue #55: retry when the local client handle is stale (never
+      // connected, closed, or a dropped channel) so the next iteration's
+      // ensureConnected() can heal the connection.
+      error.message.includes('Client not connected') ||
+      error.message.includes('channel has been closed') ||
+      error.message.includes('Channel has been shut down')
     );
   }
 }
