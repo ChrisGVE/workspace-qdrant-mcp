@@ -71,7 +71,7 @@ references + code paths), and, for bugs and gaps, a follow-up action.
 
 ### 2.1 Atomic branch rename
 
-- **Status**: **bug** — filed as [#69](https://github.com/ChrisGVE/workspace-qdrant-mcp/issues/68).
+- **Status**: **bug** — filed as [#69](https://github.com/ChrisGVE/workspace-qdrant-mcp/issues/69), fixed in the same session (see §6 summary).
 - **Evidence**: `task4_branch_rename_emits_renamed_event_within_timeout`.
   After `git branch -m main trunk`, `BranchLifecycleDetector::scan_for_changes`
   (`git/branch_lifecycle/detector.rs:193`) emits
