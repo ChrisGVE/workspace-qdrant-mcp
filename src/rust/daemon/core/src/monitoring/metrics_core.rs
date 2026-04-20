@@ -144,6 +144,27 @@ pub struct DaemonMetrics {
     /// gRPC request duration in seconds by service and method
     /// Labels: service, method
     pub grpc_request_duration_seconds: HistogramVec,
+
+    // Dependency latency metrics (issue-64 Task 7)
+    /// Embedding generation duration in seconds by model
+    /// Labels: model
+    pub embedding_duration_seconds: HistogramVec,
+
+    /// Embedding batch size (items per call) by model
+    /// Labels: model
+    pub embedding_batch_size: HistogramVec,
+
+    /// SQLite query duration in seconds by op
+    /// Labels: op (read, write, transaction)
+    pub sqlite_query_duration_seconds: HistogramVec,
+
+    /// Qdrant request duration in seconds by op
+    /// Labels: op (upsert, search, delete, collection_create, collection_info)
+    pub qdrant_request_duration_seconds: HistogramVec,
+
+    /// Total Qdrant request errors by op and error_type
+    /// Labels: op, error_type
+    pub qdrant_request_errors_total: IntCounterVec,
 }
 
 // ── Factory helpers to reduce verbosity in new() ──────────────────────
@@ -324,6 +345,53 @@ fn create_watch_metrics() -> (
     )
 }
 
+/// Create dependency-latency metrics (issue-64 Task 7)
+#[allow(clippy::type_complexity)]
+fn create_dependency_metrics() -> (
+    HistogramVec,
+    HistogramVec,
+    HistogramVec,
+    HistogramVec,
+    IntCounterVec,
+) {
+    let embedding_duration_seconds = histogram_vec(
+        "memexd_embedding_duration_seconds",
+        "Embedding generation duration in seconds by model",
+        &["model"],
+        vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+    );
+    let embedding_batch_size = histogram_vec(
+        "memexd_embedding_batch_size",
+        "Embedding batch size (items per call) by model",
+        &["model"],
+        vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0],
+    );
+    let sqlite_query_duration_seconds = histogram_vec(
+        "memexd_sqlite_query_duration_seconds",
+        "SQLite query duration in seconds by op",
+        &["op"],
+        vec![0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+    );
+    let qdrant_request_duration_seconds = histogram_vec(
+        "memexd_qdrant_request_duration_seconds",
+        "Qdrant request duration in seconds by op",
+        &["op"],
+        vec![0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0],
+    );
+    let qdrant_request_errors_total = int_counter_vec(
+        "memexd_qdrant_request_errors_total",
+        "Total Qdrant request errors by op and error_type",
+        &["op", "error_type"],
+    );
+    (
+        embedding_duration_seconds,
+        embedding_batch_size,
+        sqlite_query_duration_seconds,
+        qdrant_request_duration_seconds,
+        qdrant_request_errors_total,
+    )
+}
+
 /// Create telemetry extension metrics (issue-64 Task 2)
 fn create_telemetry_extension_metrics(
 ) -> (IntCounterVec, IntCounterVec, IntCounterVec, HistogramVec) {
@@ -450,6 +518,13 @@ impl DaemonMetrics {
             grpc_requests_total,
             grpc_request_duration_seconds,
         ) = create_telemetry_extension_metrics();
+        let (
+            embedding_duration_seconds,
+            embedding_batch_size,
+            sqlite_query_duration_seconds,
+            qdrant_request_duration_seconds,
+            qdrant_request_errors_total,
+        ) = create_dependency_metrics();
 
         // Scalar gauge: oldest pending queue item age in seconds
         let queue_oldest_pending_age_seconds = IntGauge::new(
@@ -491,6 +566,11 @@ impl DaemonMetrics {
                 Box::new(watcher_coalesced_total.clone()),
                 Box::new(grpc_requests_total.clone()),
                 Box::new(grpc_request_duration_seconds.clone()),
+                Box::new(embedding_duration_seconds.clone()),
+                Box::new(embedding_batch_size.clone()),
+                Box::new(sqlite_query_duration_seconds.clone()),
+                Box::new(qdrant_request_duration_seconds.clone()),
+                Box::new(qdrant_request_errors_total.clone()),
             ],
         );
 
@@ -526,6 +606,40 @@ impl DaemonMetrics {
             watcher_coalesced_total,
             grpc_requests_total,
             grpc_request_duration_seconds,
+            embedding_duration_seconds,
+            embedding_batch_size,
+            sqlite_query_duration_seconds,
+            qdrant_request_duration_seconds,
+            qdrant_request_errors_total,
+        }
+    }
+
+    /// Record an embedding batch: duration and batch size by model.
+    pub fn record_embedding(&self, model: &str, batch_size: usize, duration: std::time::Duration) {
+        self.embedding_duration_seconds
+            .with_label_values(&[model])
+            .observe(duration.as_secs_f64());
+        self.embedding_batch_size
+            .with_label_values(&[model])
+            .observe(batch_size as f64);
+    }
+
+    /// Record a SQLite query by op (read, write, transaction).
+    pub fn record_sqlite(&self, op: &str, duration: std::time::Duration) {
+        self.sqlite_query_duration_seconds
+            .with_label_values(&[op])
+            .observe(duration.as_secs_f64());
+    }
+
+    /// Record a Qdrant request with op, duration, and optional error type.
+    pub fn record_qdrant(&self, op: &str, duration: std::time::Duration, error: Option<&str>) {
+        self.qdrant_request_duration_seconds
+            .with_label_values(&[op])
+            .observe(duration.as_secs_f64());
+        if let Some(error_type) = error {
+            self.qdrant_request_errors_total
+                .with_label_values(&[op, error_type])
+                .inc();
         }
     }
 
@@ -698,5 +812,79 @@ mod telemetry_extension_tests {
         assert!(out.contains("memexd_watcher_coalesced_total"));
         assert!(out.contains("memexd_grpc_requests_total"));
         assert!(out.contains("memexd_grpc_request_duration_seconds"));
+    }
+
+    #[test]
+    fn embedding_records_duration_and_batch_size() {
+        let m = DaemonMetrics::new();
+        m.record_embedding("all-MiniLM-L6-v2", 32, Duration::from_millis(150));
+        m.record_embedding("all-MiniLM-L6-v2", 8, Duration::from_millis(60));
+
+        let dur = m
+            .embedding_duration_seconds
+            .with_label_values(&["all-MiniLM-L6-v2"]);
+        let metric = dur.collect();
+        let sample_count = metric[0].get_metric()[0].get_histogram().get_sample_count();
+        assert_eq!(sample_count, 2);
+    }
+
+    #[test]
+    fn sqlite_records_by_op() {
+        let m = DaemonMetrics::new();
+        m.record_sqlite("read", Duration::from_millis(2));
+        m.record_sqlite("write", Duration::from_millis(5));
+        m.record_sqlite("transaction", Duration::from_millis(10));
+        for op in ["read", "write", "transaction"] {
+            let h = m.sqlite_query_duration_seconds.with_label_values(&[op]);
+            let metric = h.collect();
+            assert_eq!(
+                metric[0].get_metric()[0].get_histogram().get_sample_count(),
+                1,
+                "op {op} should have 1 sample"
+            );
+        }
+    }
+
+    #[test]
+    fn qdrant_records_duration_and_errors() {
+        let m = DaemonMetrics::new();
+        m.record_qdrant("upsert", Duration::from_millis(20), None);
+        m.record_qdrant("upsert", Duration::from_millis(25), Some("timeout"));
+        m.record_qdrant("search", Duration::from_millis(15), None);
+
+        let upsert = m
+            .qdrant_request_duration_seconds
+            .with_label_values(&["upsert"]);
+        assert_eq!(
+            upsert.collect()[0].get_metric()[0]
+                .get_histogram()
+                .get_sample_count(),
+            2
+        );
+        assert_eq!(
+            m.qdrant_request_errors_total
+                .with_label_values(&["upsert", "timeout"])
+                .get(),
+            1
+        );
+        assert_eq!(
+            m.qdrant_request_errors_total
+                .with_label_values(&["search", "timeout"])
+                .get(),
+            0
+        );
+    }
+
+    #[test]
+    fn encode_contains_dependency_metric_names() {
+        let m = DaemonMetrics::new();
+        m.record_embedding("all-MiniLM-L6-v2", 1, Duration::from_millis(1));
+        m.record_sqlite("read", Duration::from_millis(1));
+        m.record_qdrant("search", Duration::from_millis(1), None);
+        let out = m.encode().expect("encode ok");
+        assert!(out.contains("memexd_embedding_duration_seconds"));
+        assert!(out.contains("memexd_embedding_batch_size"));
+        assert!(out.contains("memexd_sqlite_query_duration_seconds"));
+        assert!(out.contains("memexd_qdrant_request_duration_seconds"));
     }
 }

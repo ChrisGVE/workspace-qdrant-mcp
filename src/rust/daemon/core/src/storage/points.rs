@@ -28,6 +28,7 @@ impl StorageClient {
             point.id, collection_name
         );
 
+        let started = std::time::Instant::now();
         let qdrant_point = convert_to_qdrant_point(point)?;
 
         let upsert_points = UpsertPoints {
@@ -37,13 +38,28 @@ impl StorageClient {
             ..Default::default()
         };
 
-        self.retry_operation(|| async {
-            self.client
-                .upsert_points(upsert_points.clone())
-                .await
-                .map_err(|e| StorageError::Point(e.to_string()))
-        })
-        .await?;
+        let result = self
+            .retry_operation(|| async {
+                self.client
+                    .upsert_points(upsert_points.clone())
+                    .await
+                    .map_err(|e| StorageError::Point(e.to_string()))
+            })
+            .await;
+        let elapsed = started.elapsed();
+        match &result {
+            Ok(_) => {
+                crate::monitoring::metrics_core::METRICS.record_qdrant("upsert", elapsed, None);
+            }
+            Err(_) => {
+                crate::monitoring::metrics_core::METRICS.record_qdrant(
+                    "upsert",
+                    elapsed,
+                    Some("upsert_error"),
+                );
+            }
+        }
+        result?;
 
         debug!(
             "Successfully inserted point into collection {}",

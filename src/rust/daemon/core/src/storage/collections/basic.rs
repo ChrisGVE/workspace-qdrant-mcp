@@ -52,13 +52,29 @@ impl StorageClient {
             ..Default::default()
         };
 
-        self.retry_operation(|| async {
-            self.client
-                .create_collection(create_collection.clone())
-                .await
-                .map_err(|e| StorageError::Collection(e.to_string()))
-        })
-        .await?;
+        let started = std::time::Instant::now();
+        let result = self
+            .retry_operation(|| async {
+                self.client
+                    .create_collection(create_collection.clone())
+                    .await
+                    .map_err(|e| StorageError::Collection(e.to_string()))
+            })
+            .await;
+        let elapsed = started.elapsed();
+        match &result {
+            Ok(_) => crate::monitoring::metrics_core::METRICS.record_qdrant(
+                "collection_create",
+                elapsed,
+                None,
+            ),
+            Err(_) => crate::monitoring::metrics_core::METRICS.record_qdrant(
+                "collection_create",
+                elapsed,
+                Some("collection_error"),
+            ),
+        }
+        result?;
 
         info!("Successfully created collection: {}", collection_name);
         Ok(())
@@ -73,13 +89,27 @@ impl StorageClient {
             timeout: Some(self.config.timeout_ms),
         };
 
-        self.retry_operation(|| async {
-            self.client
-                .delete_collection(delete_collection.clone())
-                .await
-                .map_err(|e| StorageError::Collection(e.to_string()))
-        })
-        .await?;
+        let started = std::time::Instant::now();
+        let result = self
+            .retry_operation(|| async {
+                self.client
+                    .delete_collection(delete_collection.clone())
+                    .await
+                    .map_err(|e| StorageError::Collection(e.to_string()))
+            })
+            .await;
+        let elapsed = started.elapsed();
+        match &result {
+            Ok(_) => {
+                crate::monitoring::metrics_core::METRICS.record_qdrant("delete", elapsed, None)
+            }
+            Err(_) => crate::monitoring::metrics_core::METRICS.record_qdrant(
+                "delete",
+                elapsed,
+                Some("collection_error"),
+            ),
+        }
+        result?;
 
         info!("Successfully deleted collection: {}", collection_name);
         Ok(())

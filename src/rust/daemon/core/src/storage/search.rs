@@ -22,6 +22,7 @@ impl StorageClient {
         params: SearchParams,
     ) -> Result<Vec<SearchResult>, StorageError> {
         debug!("Performing search in collection: {}", collection_name);
+        let started = std::time::Instant::now();
 
         let results = match params.search_mode {
             HybridSearchMode::Dense => {
@@ -74,6 +75,7 @@ impl StorageClient {
         };
 
         debug!("Search completed, returned {} results", results.len());
+        crate::monitoring::metrics_core::METRICS.record_qdrant("search", started.elapsed(), None);
         Ok(results)
     }
 

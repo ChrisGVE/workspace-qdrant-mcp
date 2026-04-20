@@ -41,7 +41,9 @@ impl WriteActor {
     async fn run(mut self) {
         debug!("WriteActor started");
         while let Some(cmd) = self.rx.recv().await {
+            let started = std::time::Instant::now();
             self.handle_command(cmd).await;
+            crate::monitoring::metrics_core::METRICS.record_sqlite("write", started.elapsed());
         }
         debug!("WriteActor stopped (channel closed)");
     }

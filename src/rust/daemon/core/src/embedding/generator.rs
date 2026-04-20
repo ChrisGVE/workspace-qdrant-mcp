@@ -285,6 +285,11 @@ impl EmbeddingGenerator {
             per_item_ms = per_item_ms,
             "embedding batch completed"
         );
+        crate::monitoring::metrics_core::METRICS.record_embedding(
+            model_name,
+            batch_size,
+            batch_start.elapsed(),
+        );
         Ok(results)
     }
 
