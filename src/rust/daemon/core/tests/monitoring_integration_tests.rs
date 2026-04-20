@@ -280,6 +280,8 @@ fn test_otel_tracer_provider_init() {
         otlp_endpoint: None, // No exporter
         sampling_ratio: 1.0,
         propagate_context: true,
+        otlp_protocol: "grpc".to_string(),
+        otlp_headers: std::collections::HashMap::new(),
     };
 
     let result = init_tracer_provider(&config);
