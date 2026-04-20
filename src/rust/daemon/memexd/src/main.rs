@@ -92,10 +92,14 @@ async fn run_daemon(
     // Phase 2: Database
     let db_handles = database::initialize_all(&config).await?;
     // Phase 3: Background tasks
+    let prometheus_config = background::resolve_prometheus_config(
+        daemon_config.observability.telemetry.prometheus.clone(),
+        args.metrics_port,
+    );
     let mut bg_handles = background::spawn_all(
         &db_handles.queue_pool,
         &db_handles.pause_flag,
-        args.metrics_port,
+        &prometheus_config,
     );
     // Phase 4: LSP manager
     let lsp_manager = grpc_setup::init_lsp_manager(&daemon_config).await;

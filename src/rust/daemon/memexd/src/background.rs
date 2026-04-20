@@ -11,6 +11,7 @@ use sqlx::SqlitePool;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
+use workspace_qdrant_core::config::PrometheusExportConfig;
 use workspace_qdrant_core::{
     check_git_state_changes, check_remote_url_changes, metrics_history, poll_pause_state,
     processing_timings, MetricsServer, METRICS,
@@ -26,20 +27,48 @@ pub struct BackgroundHandles {
     pub metrics_handle: Option<JoinHandle<()>>,
 }
 
-/// Start the Prometheus metrics endpoint (if port is specified).
-pub fn start_metrics_server(metrics_port: Option<u16>) -> Option<JoinHandle<()>> {
-    if let Some(port) = metrics_port {
-        info!("Starting Prometheus metrics endpoint on port {}", port);
-        let mut metrics_server = MetricsServer::new(port);
-        let handle = tokio::spawn(async move {
-            if let Err(e) = metrics_server.start().await {
-                error!("Metrics server error: {}", e);
-            }
-        });
-        Some(handle)
-    } else {
-        info!("Metrics endpoint disabled (use --metrics-port to enable)");
-        None
+/// Start the Prometheus metrics endpoint when `config.enabled` is true.
+pub fn start_metrics_server(config: &PrometheusExportConfig) -> Option<JoinHandle<()>> {
+    if !config.enabled {
+        info!(
+            "Prometheus metrics endpoint disabled (set telemetry.prometheus.enabled=true \
+             or pass --metrics-port to enable)"
+        );
+        return None;
+    }
+    let mut metrics_server = match MetricsServer::from_config(config) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to build metrics server from config: {}", e);
+            return None;
+        }
+    };
+    info!(
+        "Starting Prometheus metrics endpoint on {}:{}",
+        config.bind, config.port
+    );
+    let handle = tokio::spawn(async move {
+        if let Err(e) = metrics_server.start().await {
+            error!("Metrics server error: {}", e);
+        }
+    });
+    Some(handle)
+}
+
+/// Build an effective PrometheusExportConfig by merging the CLI `--metrics-port`
+/// override (if provided) on top of the config-file values. The CLI flag flips
+/// `enabled=true` when set, preserving the documented behavior of the flag.
+pub fn resolve_prometheus_config(
+    base: PrometheusExportConfig,
+    cli_override_port: Option<u16>,
+) -> PrometheusExportConfig {
+    match cli_override_port {
+        Some(port) => PrometheusExportConfig {
+            enabled: true,
+            port,
+            bind: base.bind,
+        },
+        None => base,
     }
 }
 
@@ -246,9 +275,9 @@ pub fn start_git_state_monitor(pool: SqlitePool) -> JoinHandle<()> {
 pub fn spawn_all(
     pool: &SqlitePool,
     pause_flag: &Arc<std::sync::atomic::AtomicBool>,
-    metrics_port: Option<u16>,
+    prometheus_config: &PrometheusExportConfig,
 ) -> BackgroundHandles {
-    let metrics_handle = start_metrics_server(metrics_port);
+    let metrics_handle = start_metrics_server(prometheus_config);
     let uptime_handle = start_uptime_tracker();
     let pause_poll_handle = start_pause_polling(pool.clone(), Arc::clone(pause_flag));
     let metrics_collect_handle = start_metrics_collection(pool.clone());

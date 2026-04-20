@@ -4,34 +4,56 @@
 //! for CLI/API consumption.
 
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 
 use prometheus::core::Collector;
 
 use super::metrics_core::METRICS;
+use crate::config::PrometheusExportConfig;
 
 /// HTTP metrics endpoint server
 ///
 /// Serves Prometheus metrics at /metrics endpoint
 pub struct MetricsServer {
-    /// Port to listen on
-    port: u16,
+    /// Resolved listen address
+    addr: SocketAddr,
+    /// Configured bind spec (for diagnostics)
+    bind: String,
     /// Shutdown signal sender
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl MetricsServer {
-    /// Create a new metrics server on the given port
+    /// Create a metrics server bound to `port` on 0.0.0.0 (legacy helper).
     pub fn new(port: u16) -> Self {
+        let addr = SocketAddr::from(([0, 0, 0, 0], port));
         Self {
-            port,
+            addr,
+            bind: "0.0.0.0".to_string(),
             shutdown_tx: None,
         }
+    }
+
+    /// Create a metrics server from a PrometheusExportConfig.
+    ///
+    /// Returns Err if `config.bind` is not a parsable IP address.
+    pub fn from_config(config: &PrometheusExportConfig) -> Result<Self, String> {
+        let ip: IpAddr = config.bind.parse().map_err(|e| {
+            format!(
+                "telemetry.prometheus.bind '{}' is not a valid IP address: {e}",
+                config.bind
+            )
+        })?;
+        Ok(Self {
+            addr: SocketAddr::new(ip, config.port),
+            bind: config.bind.clone(),
+            shutdown_tx: None,
+        })
     }
 
     /// Start the metrics HTTP server
     pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use axum::{routing::get, Router};
-        use std::net::SocketAddr;
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.shutdown_tx = Some(tx);
@@ -40,10 +62,11 @@ impl MetricsServer {
             .route("/metrics", get(metrics_handler))
             .route("/health", get(health_handler));
 
-        let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
-        tracing::info!("Metrics server listening on http://{}", addr);
+        tracing::info!("Metrics server listening on http://{}", self.addr);
 
-        let listener = tokio::net::TcpListener::bind(addr).await?;
+        let listener = tokio::net::TcpListener::bind(self.addr).await?;
+        let local_addr = listener.local_addr()?;
+        self.addr = local_addr;
         axum::serve(listener, app)
             .with_graceful_shutdown(async {
                 let _ = rx.await;
@@ -60,9 +83,20 @@ impl MetricsServer {
         }
     }
 
-    /// Get the port
+    /// Get the configured port
     pub fn port(&self) -> u16 {
-        self.port
+        self.addr.port()
+    }
+
+    /// Get the bound address. If constructed from a config using port 0,
+    /// this reflects the actual OS-assigned port after `start()` runs.
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    /// Get the configured bind spec string.
+    pub fn bind(&self) -> &str {
+        &self.bind
     }
 }
 
@@ -184,5 +218,94 @@ impl MetricsSnapshot {
             error_counts: labeled_counter_map(&metrics.ingestion_errors_total),
             tenant_documents: labeled_gauge_map(&metrics.tenant_documents_total),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn from_config_parses_bind_address() {
+        let cfg = PrometheusExportConfig {
+            enabled: true,
+            port: 9464,
+            bind: "127.0.0.1".to_string(),
+        };
+        let server = MetricsServer::from_config(&cfg).expect("valid config");
+        assert_eq!(server.port(), 9464);
+        assert_eq!(server.bind(), "127.0.0.1");
+        assert_eq!(server.addr().to_string(), "127.0.0.1:9464");
+    }
+
+    #[test]
+    fn from_config_rejects_invalid_bind() {
+        let cfg = PrometheusExportConfig {
+            enabled: true,
+            port: 9464,
+            bind: "not-an-ip".to_string(),
+        };
+        assert!(MetricsServer::from_config(&cfg).is_err());
+    }
+
+    #[tokio::test]
+    async fn server_serves_metrics_and_health_on_ephemeral_port() {
+        let cfg = PrometheusExportConfig {
+            enabled: true,
+            port: 0,
+            bind: "127.0.0.1".to_string(),
+        };
+        // Bind ephemeral port first so we know the address before spawning.
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind ephemeral");
+        let addr = listener.local_addr().expect("local_addr");
+        drop(listener);
+
+        // Record one of the new telemetry metrics so it shows up in /metrics.
+        METRICS.record_watcher_event("create");
+        METRICS.record_grpc_call(
+            "SystemService",
+            "HealthCheck",
+            true,
+            Duration::from_millis(2),
+        );
+
+        let bound_cfg = PrometheusExportConfig {
+            port: addr.port(),
+            ..cfg
+        };
+        let mut server = MetricsServer::from_config(&bound_cfg).expect("valid cfg");
+        let server_task = tokio::spawn(async move {
+            // Ignore shutdown-related errors after signal.
+            let _ = server.start().await;
+        });
+
+        // Give the server a moment to bind.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let client = reqwest::Client::new();
+        let metrics_url = format!("http://{}/metrics", addr);
+        let metrics_body = client
+            .get(&metrics_url)
+            .send()
+            .await
+            .expect("metrics request succeeds")
+            .text()
+            .await
+            .expect("body utf8");
+        assert!(metrics_body.contains("memexd_watcher_events_total"));
+        assert!(metrics_body.contains("memexd_grpc_requests_total"));
+
+        let health_url = format!("http://{}/health", addr);
+        let health = client
+            .get(&health_url)
+            .send()
+            .await
+            .expect("health request succeeds");
+        assert_eq!(health.status(), reqwest::StatusCode::OK);
+
+        server_task.abort();
     }
 }
