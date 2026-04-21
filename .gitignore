@@ -39,6 +39,7 @@ dev-debug.log
 # Development files - NOT for users/contributors
 CLAUDE.md
 CLAUDE.local.md
+handover.md
 .claude/
 .taskmaster/
 /specs/
