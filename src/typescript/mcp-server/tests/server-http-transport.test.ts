@@ -73,6 +73,8 @@ function createTestConfig(tempDir: string): ServerConfig {
   };
 }
 
+const TEST_TOKEN = 'a'.repeat(32);
+
 describe('MCP HTTP transport', () => {
   let tempDir: string;
   let config: ServerConfig;
@@ -100,6 +102,7 @@ describe('MCP HTTP transport', () => {
       config,
       mode: 'http',
       http: { host: '127.0.0.1', port: 0, path: '/mcp' },
+      auth: { token: TEST_TOKEN, rateLimitPerMin: 1000, corsOrigins: [] },
     });
     await server.start();
     expect(server.getMode()).toBe('http');
@@ -114,17 +117,22 @@ describe('MCP HTTP transport', () => {
     expect(addr).toBeTruthy();
     const baseUrl = `http://127.0.0.1:${addr.port}`;
 
-    // healthz reachable
+    // healthz reachable without auth
     const healthRes = await fetch(`${baseUrl}/healthz`);
     expect(healthRes.status).toBe(200);
     expect(await healthRes.text()).toBe('ok');
 
-    // JSON-RPC initialize on /mcp
+    // Missing bearer → 401
+    const unauthedRes = await fetch(`${baseUrl}/mcp`, { method: 'POST' });
+    expect(unauthedRes.status).toBe(401);
+
+    // JSON-RPC initialize on /mcp with valid bearer
     const initRes = await fetch(`${baseUrl}/mcp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream',
+        Authorization: `Bearer ${TEST_TOKEN}`,
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -144,11 +152,12 @@ describe('MCP HTTP transport', () => {
     );
   });
 
-  it('should return 404 for unknown paths', async () => {
+  it('should return 404 for unknown paths (authed)', async () => {
     server = new WorkspaceQdrantMcpServer({
       config,
       mode: 'http',
       http: { host: '127.0.0.1', port: 0, path: '/mcp' },
+      auth: { token: TEST_TOKEN, rateLimitPerMin: 1000, corsOrigins: [] },
     });
     await server.start();
 
@@ -159,7 +168,9 @@ describe('MCP HTTP transport', () => {
     ).httpHandle.httpServer;
     const addr = httpServer.address() as AddressInfo;
 
-    const res = await fetch(`http://127.0.0.1:${addr.port}/nonexistent`);
+    const res = await fetch(`http://127.0.0.1:${addr.port}/nonexistent`, {
+      headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+    });
     expect(res.status).toBe(404);
   });
 
@@ -168,6 +179,7 @@ describe('MCP HTTP transport', () => {
       config,
       mode: 'http',
       http: { host: '127.0.0.1', port: 0, path: '/rpc/mcp' },
+      auth: { token: TEST_TOKEN, rateLimitPerMin: 1000, corsOrigins: [] },
     });
     await server.start();
 
@@ -179,7 +191,110 @@ describe('MCP HTTP transport', () => {
     const addr = httpServer.address() as AddressInfo;
 
     // Default /mcp path must 404 when custom path is configured.
-    const wrongRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`);
+    const wrongRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+      headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+    });
     expect(wrongRes.status).toBe(404);
+  });
+
+  it('should refuse to start HTTP mode without a token', async () => {
+    server = new WorkspaceQdrantMcpServer({
+      config,
+      mode: 'http',
+      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
+      auth: { token: null, rateLimitPerMin: 100, corsOrigins: [] },
+    });
+    await expect(server.start()).rejects.toThrow(/MCP_HTTP_TOKEN is required/);
+    server = null; // start failed — don't attempt stop in afterEach
+  });
+
+  it('should reject an invalid bearer token', async () => {
+    server = new WorkspaceQdrantMcpServer({
+      config,
+      mode: 'http',
+      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
+      auth: { token: TEST_TOKEN, rateLimitPerMin: 1000, corsOrigins: [] },
+    });
+    await server.start();
+
+    const httpServer = (
+      server as unknown as {
+        httpHandle: { httpServer: { address(): AddressInfo | string | null } };
+      }
+    ).httpHandle.httpServer;
+    const addr = httpServer.address() as AddressInfo;
+
+    const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer wrong-token',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toContain('Bearer');
+  });
+
+  it('should enforce rate limit per IP', async () => {
+    server = new WorkspaceQdrantMcpServer({
+      config,
+      mode: 'http',
+      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
+      auth: { token: TEST_TOKEN, rateLimitPerMin: 3, corsOrigins: [] },
+    });
+    await server.start();
+
+    const httpServer = (
+      server as unknown as {
+        httpHandle: { httpServer: { address(): AddressInfo | string | null } };
+      }
+    ).httpHandle.httpServer;
+    const addr = httpServer.address() as AddressInfo;
+
+    const base = `http://127.0.0.1:${addr.port}/mcp`;
+    const headers = {
+      Authorization: `Bearer ${TEST_TOKEN}`,
+      'Content-Type': 'application/json',
+    };
+
+    for (let i = 0; i < 3; i++) {
+      await fetch(base, { method: 'POST', headers, body: '{}' });
+    }
+    const limited = await fetch(base, { method: 'POST', headers, body: '{}' });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).toBe('60');
+  });
+
+  it('should answer CORS preflight for allowed origin', async () => {
+    server = new WorkspaceQdrantMcpServer({
+      config,
+      mode: 'http',
+      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
+      auth: {
+        token: TEST_TOKEN,
+        rateLimitPerMin: 1000,
+        corsOrigins: ['https://app.example'],
+      },
+    });
+    await server.start();
+
+    const httpServer = (
+      server as unknown as {
+        httpHandle: { httpServer: { address(): AddressInfo | string | null } };
+      }
+    ).httpHandle.httpServer;
+    const addr = httpServer.address() as AddressInfo;
+
+    const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://app.example',
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://app.example');
+    expect(res.headers.get('access-control-allow-methods')).toContain('POST');
   });
 });

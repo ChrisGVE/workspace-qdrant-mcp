@@ -36,6 +36,8 @@ export type {
 } from './server-types.js';
 import { startMcpHttpServer, stopMcpHttpServer } from './mcp-http-server.js';
 import type { McpHttpServerHandle } from './mcp-http-server.js';
+import type { AuthConfig } from './auth-middleware.js';
+import { loadAuthConfig, requireAuth } from './auth-middleware.js';
 
 import { buildServerComponents } from './server-factory.js';
 import { TENANT_GLOBAL } from './constants/tenants.js';
@@ -81,6 +83,7 @@ export class WorkspaceQdrantMcpServer {
 
   private readonly mode: ServerMode;
   private readonly httpOptions: HttpTransportOptions;
+  private readonly authConfig: AuthConfig;
   private httpHandle: McpHttpServerHandle | null = null;
   private isInitialized = false;
 
@@ -91,6 +94,7 @@ export class WorkspaceQdrantMcpServer {
       port: options.http?.port ?? DEFAULT_HTTP_PORT,
       path: options.http?.path ?? DEFAULT_HTTP_PATH,
     };
+    this.authConfig = options.auth ?? loadAuthConfig();
     this.components = buildServerComponents(options.config);
 
     this.server = new Server(
@@ -222,7 +226,8 @@ export class WorkspaceQdrantMcpServer {
         await this.server.connect(transport);
         logInfo('MCP server started', { mode: 'stdio' });
       } else if (this.mode === 'http') {
-        this.httpHandle = await startMcpHttpServer(this.server, this.httpOptions);
+        requireAuth(this.authConfig);
+        this.httpHandle = await startMcpHttpServer(this.server, this.httpOptions, this.authConfig);
         logInfo('MCP server started', {
           mode: 'http',
           host: this.httpOptions.host,

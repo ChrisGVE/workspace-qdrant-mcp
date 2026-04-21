@@ -28,6 +28,8 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import type { HttpTransportOptions } from './server-types.js';
 import { logInfo, logError } from './utils/logger.js';
+import type { AuthConfig } from './auth-middleware.js';
+import { createAuthMiddleware } from './auth-middleware.js';
 
 /**
  * Running HTTP-mode transport plus the Node listener that fronts it. Held by
@@ -50,7 +52,8 @@ export interface McpHttpServerHandle {
  */
 export async function startMcpHttpServer(
   mcpServer: McpServer,
-  options: HttpTransportOptions
+  options: HttpTransportOptions,
+  authConfig: AuthConfig
 ): Promise<McpHttpServerHandle> {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: (): string => randomUUID(),
@@ -62,8 +65,10 @@ export async function startMcpHttpServer(
   // against the base interface, but the runtime contract is satisfied.
   await mcpServer.connect(transport as unknown as Transport);
 
+  const authMiddleware = createAuthMiddleware(authConfig);
+
   const httpServer = createHttpServer((req: IncomingMessage, res: ServerResponse): void => {
-    void handleRequest(req, res, transport, options.path);
+    void handleRequest(req, res, transport, options.path, authMiddleware);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -101,11 +106,21 @@ async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
   transport: StreamableHTTPServerTransport,
-  mcpPath: string
+  mcpPath: string,
+  authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean }
 ): Promise<void> {
+  // Liveness probe: always 200, no auth. Intentionally narrow — only exact
+  // match on `/healthz` GET. Anything else goes through auth.
   if (req.url === '/healthz' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('ok');
+    return;
+  }
+
+  // Auth + rate-limit + CORS. Middleware writes its own terminal response on
+  // failure (401 / 429 / 204 for preflight) and tells us whether to proceed.
+  const decision = authMiddleware(req, res);
+  if (!decision.authorized) {
     return;
   }
 

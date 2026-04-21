@@ -60,6 +60,13 @@ export interface ServerOptions {
   stdio?: boolean;
   /** HTTP transport settings. Required when `mode === 'http'`. */
   http?: HttpTransportOptions;
+  /**
+   * HTTP auth / rate limit / CORS. If omitted, the server reads the same
+   * settings from the process environment (`MCP_HTTP_TOKEN`,
+   * `MCP_HTTP_RATE_LIMIT`, `MCP_HTTP_CORS_ORIGINS`). Tests inject an explicit
+   * config to avoid touching real env vars.
+   */
+  auth?: import('./auth-middleware.js').AuthConfig;
 }
 
 /** Default HTTP listener configuration for `mode: 'http'`. */
