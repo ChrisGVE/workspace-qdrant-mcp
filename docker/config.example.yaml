@@ -1,0 +1,66 @@
+# workspace-qdrant-mcp — example runtime configuration
+#
+# This file shows the minimal set of keys typically overridden in a Docker
+# deployment. Everything omitted falls back to `assets/default_configuration.yaml`
+# which ships with the image. See the baked-in defaults for documentation on
+# every available knob.
+#
+# Installation:
+#   1. Copy this file to a host location, e.g. ~/.config/wqm/config.yaml.
+#   2. Edit the values for your environment.
+#   3. Point the memexd service at it by setting WQM_CONFIG_FILE in
+#      docker/.env to the absolute host path — the compose file bind-mounts
+#      it read-only at /etc/wqm/config.yaml inside the container.
+
+# ── Qdrant connection ─────────────────────────────────────────────────────────
+# Inside the compose network, memexd reaches Qdrant by service name.
+# For remote Qdrant (Cloud, separate host) put the URL + API key here.
+qdrant:
+  url: http://qdrant:6333
+  # api_key: ""   # set for Qdrant Cloud or an auth-protected self-hosted instance
+  timeout_seconds: 30
+
+# ── Workspace (watched roots) ─────────────────────────────────────────────────
+# `include_paths` are indexed into the `projects` collection. Use absolute
+# paths that match the host layout — WQM_DEV_ROOT is bind-mounted at the
+# identical path inside the container (see reference.yml), so the values
+# here can be taken verbatim from the host.
+workspace:
+  include_paths:
+    - /Users/your-user/dev
+  # Directories to skip under every watched root.
+  exclude_patterns:
+    - node_modules
+    - target
+    - .git
+    - __pycache__
+    - .venv
+    - dist
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level: INFO           # ERROR | WARN | INFO | DEBUG | TRACE
+  format: json          # json for Grafana/Loki; text for human tails
+
+# ── Observability (optional) ──────────────────────────────────────────────────
+# Fill these in when shipping telemetry to an external OTLP collector. Leave
+# the defaults (Prometheus only) when running the reference stack alone.
+observability:
+  otlp:
+    enabled: false
+    # endpoint: http://otel-collector:4318
+    # protocol: http/protobuf
+    sample_rate: 1.0
+
+# ── Resource limits ───────────────────────────────────────────────────────────
+# The defaults auto-detect sensible values from CPU cores. Override only when
+# sharing the host with other heavy workloads.
+resource_limits:
+  nice_level: 10                 # process priority; higher = lower priority
+  max_concurrent_embeddings: 0   # 0 = auto (physical_cores / 4, min 1)
+  # Linux idle detection — adaptive resource manager ramps up embedding
+  # concurrency when the host is idle. Default "none" disables ramp-up in
+  # Linux containers; "proc" reads /proc/loadavg and treats the host as idle
+  # when normalised load falls below linux_idle_load_threshold.
+  linux_idle_source: none        # none | proc
+  linux_idle_load_threshold: 0.1
