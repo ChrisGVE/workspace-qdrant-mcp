@@ -1,25 +1,23 @@
 # Docker Hub and GitHub Container Registry publishing workflow
 # Builds and publishes memexd daemon and MCP server Docker images on version tag push
 #
-# Mermaid Workflow Diagram:
-# ```mermaid
-# graph TB
-#   A[Version Tag Push v*] --> B{Parallel Jobs}
-#   B --> C[memexd Job]
-#   B --> D[mcp Job]
-#   C --> E[Checkout & Setup]
-#   C --> F[Multi-arch Build linux/amd64,linux/arm64]
-#   C --> G[Push to Docker Hub + GHCR]
-#   D --> H[Checkout & Setup]
-#   D --> I[Multi-arch Build linux/amd64,linux/arm64]
-#   D --> J[Push to Docker Hub + GHCR]
-# ```
+# Architecture:
+#   Each image uses a two-stage fan-out/fan-in pattern. Per-arch jobs build
+#   and push digest-only images to both registries in parallel on native
+#   hardware (ubuntu-latest for amd64, ubuntu-24.04-arm for arm64). A final
+#   merge job assembles the per-arch digests into multi-arch manifests and
+#   applies the semver tags via `docker buildx imagetools create`. This avoids
+#   QEMU emulation (which previously timed out the arm64 Rust build) and makes
+#   per-arch builds cancellable and individually retryable.
 #
 # Triggers: version tags (v*), manual dispatch
 # Images: memexd (Rust daemon), workspace-qdrant-mcp (TypeScript MCP server)
 # Registries: Docker Hub (chrisgve/), GitHub Container Registry (ghcr.io/chrisgve/)
-# Platforms: linux/amd64, linux/arm64
-# Cache: GitHub Actions cache for faster rebuilds
+# Platforms: linux/amd64 (ubuntu-latest), linux/arm64 (ubuntu-24.04-arm)
+# Cache: GitHub Actions cache for faster rebuilds, scoped per-arch
+#
+# Reference: https://docs.docker.com/build/ci/github-actions/multi-platform/
+#            #distribute-build-across-multiple-runners
 
 name: Docker Publish
 
@@ -51,19 +49,29 @@ env:
   GHCR_USERNAME: chrisgve
 
 jobs:
-  memexd:
-    name: Build and Push memexd
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+  # --------------------------------------------------------------------------
+  # memexd (Rust daemon) — per-arch build and digest export
+  # --------------------------------------------------------------------------
+  memexd-build:
+    name: Build memexd (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -82,7 +90,75 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract image labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_USERNAME }}/memexd
+            ${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/memexd
+
+      - name: Build and push (digest only)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.memexd
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=memexd-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=memexd-${{ matrix.arch }}
+          outputs: |
+            type=image,name=${{ env.DOCKERHUB_USERNAME }}/memexd,push-by-digest=true,name-canonical=true,push=true
+            type=image,name=${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/memexd,push-by-digest=true,name-canonical=true,push=true
+          provenance: true
+          sbom: true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests/memexd
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/memexd/${{ matrix.arch }}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-memexd-${{ matrix.arch }}
+          path: /tmp/digests/memexd/*
+          if-no-files-found: error
+          retention-days: 1
+
+  memexd-manifest:
+    name: Merge memexd manifest
+    needs: [memexd-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests/memexd
+          pattern: digests-memexd-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tags
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -99,45 +175,87 @@ jobs:
             prefix=
             suffix=
 
-      - name: Build and push memexd
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.memexd
-          platforms: linux/amd64
-          push: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true') }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+      - name: Create manifests (Docker Hub + GHCR)
+        run: |
+          set -euo pipefail
+          cd /tmp/digests/memexd
+
+          for arch in amd64 arm64; do
+            if [[ ! -s "$arch" ]]; then
+              echo "::error::Missing digest for arch=$arch"
+              exit 1
+            fi
+          done
+          amd64_digest="$(cat amd64)"
+          arm64_digest="$(cat arm64)"
+
+          for image in "${{ env.DOCKERHUB_USERNAME }}/memexd" \
+                       "${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/memexd"; do
+            tag_args=()
+            while IFS= read -r tag; do
+              [[ -z "$tag" ]] && continue
+              case "$tag" in
+                "$image":*) tag_args+=("-t" "$tag") ;;
+              esac
+            done <<< '${{ steps.meta.outputs.tags }}'
+
+            if [[ ${#tag_args[@]} -eq 0 ]]; then
+              echo "::warning::No tags resolved for $image; skipping"
+              continue
+            fi
+
+            docker buildx imagetools create "${tag_args[@]}" \
+              "${image}@${amd64_digest}" \
+              "${image}@${arm64_digest}"
+          done
+
+      - name: Inspect published manifests
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            echo "## $tag"
+            docker buildx imagetools inspect "$tag" || true
+          done <<< '${{ steps.meta.outputs.tags }}'
 
       - name: Job summary
         run: |
-          echo "## memexd Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags Published:**" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## memexd Publish Summary"
+            echo ""
+            echo "**Per-arch digests:**"
+            echo "- amd64: \`$(cat /tmp/digests/memexd/amd64)\`"
+            echo "- arm64: \`$(cat /tmp/digests/memexd/arm64)\`"
+            echo ""
+            echo "**Tags published:**"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  mcp:
-    name: Build and Push MCP Server
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+  # --------------------------------------------------------------------------
+  # workspace-qdrant-mcp (TypeScript MCP server) — per-arch build and digest
+  # --------------------------------------------------------------------------
+  mcp-build:
+    name: Build MCP Server (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -156,7 +274,75 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract image labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_USERNAME }}/workspace-qdrant-mcp
+            ${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/workspace-qdrant-mcp
+
+      - name: Build and push (digest only)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.mcp
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=mcp-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=mcp-${{ matrix.arch }}
+          outputs: |
+            type=image,name=${{ env.DOCKERHUB_USERNAME }}/workspace-qdrant-mcp,push-by-digest=true,name-canonical=true,push=true
+            type=image,name=${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/workspace-qdrant-mcp,push-by-digest=true,name-canonical=true,push=true
+          provenance: true
+          sbom: true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests/mcp
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/mcp/${{ matrix.arch }}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-mcp-${{ matrix.arch }}
+          path: /tmp/digests/mcp/*
+          if-no-files-found: error
+          retention-days: 1
+
+  mcp-manifest:
+    name: Merge MCP Server manifest
+    needs: [mcp-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests/mcp
+          pattern: digests-mcp-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tags
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -173,30 +359,62 @@ jobs:
             prefix=
             suffix=
 
-      - name: Build and push MCP server
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.mcp
-          platforms: linux/amd64
-          push: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true') }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+      - name: Create manifests (Docker Hub + GHCR)
+        run: |
+          set -euo pipefail
+          cd /tmp/digests/mcp
+
+          for arch in amd64 arm64; do
+            if [[ ! -s "$arch" ]]; then
+              echo "::error::Missing digest for arch=$arch"
+              exit 1
+            fi
+          done
+          amd64_digest="$(cat amd64)"
+          arm64_digest="$(cat arm64)"
+
+          for image in "${{ env.DOCKERHUB_USERNAME }}/workspace-qdrant-mcp" \
+                       "${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/workspace-qdrant-mcp"; do
+            tag_args=()
+            while IFS= read -r tag; do
+              [[ -z "$tag" ]] && continue
+              case "$tag" in
+                "$image":*) tag_args+=("-t" "$tag") ;;
+              esac
+            done <<< '${{ steps.meta.outputs.tags }}'
+
+            if [[ ${#tag_args[@]} -eq 0 ]]; then
+              echo "::warning::No tags resolved for $image; skipping"
+              continue
+            fi
+
+            docker buildx imagetools create "${tag_args[@]}" \
+              "${image}@${amd64_digest}" \
+              "${image}@${arm64_digest}"
+          done
+
+      - name: Inspect published manifests
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            echo "## $tag"
+            docker buildx imagetools inspect "$tag" || true
+          done <<< '${{ steps.meta.outputs.tags }}'
 
       - name: Job summary
         run: |
-          echo "## MCP Server Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags Published:**" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## MCP Server Publish Summary"
+            echo ""
+            echo "**Per-arch digests:**"
+            echo "- amd64: \`$(cat /tmp/digests/mcp/amd64)\`"
+            echo "- arm64: \`$(cat /tmp/digests/mcp/arm64)\`"
+            echo ""
+            echo "**Tags published:**"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # TODO: v0.1.4 - Add Cosign image signing for enhanced security
