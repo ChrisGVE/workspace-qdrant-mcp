@@ -13,6 +13,7 @@
 //! - NLP tokenization utilities
 
 pub mod classification;
+pub mod cli_profiles;
 pub mod constants;
 pub mod duration_fmt;
 pub mod env_expand;
