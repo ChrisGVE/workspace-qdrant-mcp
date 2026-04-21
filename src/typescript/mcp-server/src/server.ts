@@ -93,6 +93,7 @@ export class WorkspaceQdrantMcpServer {
       host: options.http?.host ?? DEFAULT_HTTP_HOST,
       port: options.http?.port ?? DEFAULT_HTTP_PORT,
       path: options.http?.path ?? DEFAULT_HTTP_PATH,
+      ...(options.http?.tls ? { tls: options.http.tls } : {}),
     };
     this.authConfig = options.auth ?? loadAuthConfig();
     this.components = buildServerComponents(options.config);

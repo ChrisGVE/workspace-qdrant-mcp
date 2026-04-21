@@ -45,7 +45,20 @@ function resolveHttpOptions(): HttpTransportOptions {
   const port = Number.isFinite(parsed) && parsed > 0 && parsed < 65536 ? parsed : DEFAULT_HTTP_PORT;
   const host = process.env['MCP_HTTP_HOST'] ?? DEFAULT_HTTP_HOST;
   const path = process.env['MCP_HTTP_PATH'] ?? DEFAULT_HTTP_PATH;
-  return { host, port, path };
+  const options: HttpTransportOptions = { host, port, path };
+
+  // Optional native TLS. Leave unset to run plain HTTP behind a reverse proxy
+  // (Caddy/Traefik), which is the recommended production deployment.
+  const certPath = process.env['MCP_HTTP_TLS_CERT'];
+  const keyPath = process.env['MCP_HTTP_TLS_KEY'];
+  if (certPath && keyPath) {
+    const caPath = process.env['MCP_HTTP_TLS_CA'];
+    options.tls = caPath ? { certPath, keyPath, caPath } : { certPath, keyPath };
+  } else if (certPath || keyPath) {
+    throw new Error('MCP_HTTP_TLS_CERT and MCP_HTTP_TLS_KEY must both be set to enable native TLS');
+  }
+
+  return options;
 }
 
 const serverMode: ServerMode = resolveServerMode();

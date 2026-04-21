@@ -20,13 +20,15 @@ import {
   type Server as NodeHttpServer,
   type ServerResponse,
 } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
-import type { HttpTransportOptions } from './server-types.js';
+import type { HttpTlsOptions, HttpTransportOptions } from './server-types.js';
 import { logInfo, logError } from './utils/logger.js';
 import type { AuthConfig } from './auth-middleware.js';
 import { createAuthMiddleware } from './auth-middleware.js';
@@ -41,6 +43,8 @@ export interface McpHttpServerHandle {
   host: string;
   port: number;
   path: string;
+  /** `true` when native TLS termination is active (`https` server). */
+  tlsEnabled: boolean;
 }
 
 /**
@@ -67,9 +71,18 @@ export async function startMcpHttpServer(
 
   const authMiddleware = createAuthMiddleware(authConfig);
 
-  const httpServer = createHttpServer((req: IncomingMessage, res: ServerResponse): void => {
+  const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
     void handleRequest(req, res, transport, options.path, authMiddleware);
-  });
+  };
+
+  const tlsEnabled = options.tls !== undefined;
+  const httpServer: NodeHttpServer = tlsEnabled
+    ? // Node's https.Server extends http.Server — safe to type through it.
+      (createHttpsServer(
+        loadTlsCredentials(options.tls!),
+        requestHandler
+      ) as unknown as NodeHttpServer)
+    : createHttpServer(requestHandler);
 
   await new Promise<void>((resolve, reject) => {
     httpServer.once('error', reject);
@@ -83,9 +96,41 @@ export async function startMcpHttpServer(
     host: options.host,
     port: options.port,
     path: options.path,
+    scheme: tlsEnabled ? 'https' : 'http',
   });
 
-  return { transport, httpServer, host: options.host, port: options.port, path: options.path };
+  return {
+    transport,
+    httpServer,
+    host: options.host,
+    port: options.port,
+    path: options.path,
+    tlsEnabled,
+  };
+}
+
+/**
+ * Read the certificate, key, and optional CA bundle from disk. Throws with a
+ * specific error message if any path is unreadable so operators get actionable
+ * output instead of a stack trace deep in `tls.createSecureContext`.
+ */
+function loadTlsCredentials(tls: HttpTlsOptions): { cert: Buffer; key: Buffer; ca?: Buffer } {
+  const cert = readPem(tls.certPath, 'MCP_HTTP_TLS_CERT');
+  const key = readPem(tls.keyPath, 'MCP_HTTP_TLS_KEY');
+  const result: { cert: Buffer; key: Buffer; ca?: Buffer } = { cert, key };
+  if (tls.caPath !== undefined && tls.caPath !== '') {
+    result.ca = readPem(tls.caPath, 'MCP_HTTP_TLS_CA');
+  }
+  return result;
+}
+
+function readPem(path: string, envName: string): Buffer {
+  try {
+    return readFileSync(path);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read ${envName} from ${path}: ${reason}`);
+  }
 }
 
 /**

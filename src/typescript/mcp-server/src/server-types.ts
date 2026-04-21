@@ -36,6 +36,23 @@ export interface SessionState {
 export type ServerMode = 'stdio' | 'http' | 'test';
 
 /**
+ * Optional TLS configuration for the HTTP transport.
+ *
+ * When populated the server terminates TLS itself (Node `https` module).
+ * Recommended production pattern is to run plain HTTP behind a reverse proxy
+ * (Caddy / Traefik / nginx) and leave these fields unset; native TLS exists
+ * as a fallback for deployments that do not want a proxy.
+ */
+export interface HttpTlsOptions {
+  /** Filesystem path to the server certificate in PEM format (chain ok). */
+  certPath: string;
+  /** Filesystem path to the server private key in PEM format. */
+  keyPath: string;
+  /** Optional PEM path for the CA bundle, for intermediate chain serving. */
+  caPath?: string;
+}
+
+/**
  * HTTP transport configuration.
  *
  * `host` defaults to `127.0.0.1`. Bind to `0.0.0.0` only inside a container
@@ -46,6 +63,8 @@ export interface HttpTransportOptions {
   host: string;
   port: number;
   path: string;
+  /** Optional native TLS termination. Unset → plain HTTP. */
+  tls?: HttpTlsOptions;
 }
 
 export interface ServerOptions {
