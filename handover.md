@@ -1,242 +1,261 @@
-# Handover — 2026-04-20 (session 6)
+# Handover — 2026-04-21 (session 7)
 
 ## Current work
 
-Session 6 closed four open GitHub issues on `main` and pushed them to
-`origin/main`. All Rust + TypeScript tests green (workspace-qdrant-core
-queue_operations 63 passed, startup 23 passed, workspace-qdrant-grpc 149
-passed incl. 21 project_service, TS suite 472 passed). Release binaries
-built + deployed + daemon restarted via launchctl; daemon comes up
-healthy within ~10s with the new background reconciliation.
+Closed two outstanding GitHub issues, then moved into the `docker`
+task-master tag. 6/15 docker tasks complete. MCP server now has full
+HTTP-mode wiring (Streamable transport + bearer auth + CORS + rate
+limit + optional native TLS). `memexd` image bundles rust-analyzer,
+gopls, pyright, typescript-language-server. Reference compose stack
+lives at `docker/compose/reference.yml`, TLS overlay at
+`docker/compose/reference.tls.yml`, Caddyfile at `docker/caddy/`.
 
-1. **#58 — legacy rules payload backfill** (commit `cd5d0aa72`). Added a
-   shared `wqm_common::rules_legacy::parse_rule_header` parser, a new
-   `wqm admin rebuild rules-payload` one-shot that runs in the daemon
-   (`rules_payload_backfill::backfill_rules_payload`), and an
-   inject-time fallback in `wqm rules inject` that scrolls the whole
-   collection and synthesises payloads for any point whose label/scope
-   are still only in the `content` text. `rebuild_all` now runs
-   `rules-payload` ahead of `rules` so the later reconciliation scan
-   sees recovered labels.
+All Rust + TypeScript tests green:
+- `workspace-qdrant-core` lib: 2238 passed (+2 new in task #60)
+- `workspace-qdrant-grpc` full: 150 passed
+- `wqm-common`: 234 passed
+- `wqm-cli` bin: 597 passed
+- TypeScript MCP full suite: 507 passed (was 472, +35 across the
+  three HTTP-mode commits: 6 mode-resolution + 7 HTTP transport +
+  21 auth-middleware + 4 TLS transport + reshuffled)
 
-2. **#70 — project register persistence + activate empty path**
-   (commit `e0f8cf2f6`). Two problems compounded:
-   - `(tenant, add)` items had no explicit dequeue priority, so new
-     project registrations sat behind a large `(file, add)` backlog for
-     already-active projects indefinitely. Added a `(tenant, add)`
-     priority bucket in `queue_operations/dequeue.rs::build_dequeue_query`
-     so registrations cut the line. Regression test:
-     `test_tenant_add_priority_over_file_add_backlog`.
-   - `wqm project activate` sends `path=""`, and the daemon rejected
-     every call with `"path cannot be empty"`. Relaxed
-     `handle_register_project` to accept empty path when `project_id`
-     is provided (activation flow). Both-empty still rejected. Tests:
-     `test_empty_path_and_project_id_returns_error`,
-     `test_empty_path_with_project_id_is_allowed_for_activation`.
+Release binaries built + deployed to `~/.local/bin/` early in the
+session for the #60 fix; daemon restarted via launchctl and came up
+healthy. Daemon still healthy at time of writing (PID 29275,
+uptime measured in hours — will differ on next restart).
 
-3. **#55 — DaemonClient "Client not connected" never recovers**
-   (commit `bcdf0b6b1`). `callWithRetry` now runs `ensureConnected()`
-   on every attempt, so a stale handle (initial `connect()` failed,
-   channel closed, etc.) triggers a reconnect on the next RPC rather
-   than throwing forever. Added `connecting` reentrancy guard to stop
-   `ensureConnected → connect → healthCheck → callWithRetry →
-   ensureConnected` recursion. Expanded `isRetryableError` to catch
-   `"Client not connected"`, `"channel has been closed"`,
-   `"Channel has been shut down"`. Tests:
-   `auto-reconnect > should attempt to connect on RPC call when never
-   connected`, `should re-attempt connect after close()`.
+## Closed this session
 
-4. **#59 — reconciliation blocks gRPC readiness** (commit `e5fd74cff`).
-   Split `run_reconciliation` into a fast path (SQL-only cleanup +
-   watch folder validation, runs before gRPC binds) and a new
-   `spawn_background_reconciliation` (tokio::spawn from `run_daemon`
-   after queue processor starts) for the slow ignore-rule diff. Added
-   `QueueManager::enqueue_unified_batch` — a single-transaction bulk
-   insert — and rewrote `reconcile_ignore_rules` to use it with a
-   `IGNORE_SYNC_BATCH_SIZE = 500` chunking. Tests:
-   `test_enqueue_unified_batch_is_single_transaction` (asserts
-   `PRAGMA data_version` bumps by 1 for a 10-row batch),
-   `test_enqueue_unified_batch_deduplicates`.
+- **GH #60** — Linux-native idle detection. `/proc` heuristic chosen.
+  Commit `153f06f11`. `src/rust/daemon/core/src/adaptive_resources/idle_detection.rs`
+  refactored into `IdleDetector` struct; Linux backend reads
+  `/proc/loadavg`, treats host as idle when `load_1m/cores < threshold`
+  (default 0.1). New config fields `resource_limits.linux_idle_source`
+  (`"none"` | `"proc"`) and `resource_limits.linux_idle_load_threshold`.
+  Tests: 6 linux-only + 2 cross-platform.
+- **GH #61** — linux/arm64 in docker-publish. Commit `c5d03af4d`.
+  Split-matrix native-arm64 build (amd64 on `ubuntu-latest`, arm64 on
+  `ubuntu-24.04-arm`) merged via `docker buildx imagetools create`.
+  Zero incremental cost on this public repo. Full workflow rewrite in
+  `.github/workflows/docker-publish.yml`.
 
-## Task-master
+## Docker tag progress (6/15 done)
 
-- **Tag/milestone**: `issue-63` still active (complete, 10/10). No new
-  task-master tasks were created for session 6 — all four items were
-  standalone chore/bug commits driven directly from GitHub issues and
-  tracked via the Task tool locally.
-- **In progress**: none.
-- **Blocked**: none (except `docker` — still pending the 4 user
-  decisions, unchanged from session 5).
-- **Available next tags**: `docker` only (blocked).
+| # | Title | Commit | Notes |
+|---|-------|--------|-------|
+| 1 | MCP StreamableHTTPServerTransport | `aba02bf8b` | `MCP_SERVER_MODE=http`, port 6335 default. `mcp-http-server.ts`. |
+| 2 | Bearer token auth + rate limit + CORS | `78b279cb1` | `auth-middleware.ts`. `timingSafeEqual`, 100 req/min, digest logging. Refuses startup in http mode without `MCP_HTTP_TOKEN`. |
+| 3 | Optional native TLS | `40255b62b` | `MCP_HTTP_TLS_CERT`/`MCP_HTTP_TLS_KEY` env. Default = plain HTTP (reverse-proxy path). |
+| 4 | LSP bundle in memexd image | `a19004d38` | rust-analyzer (binary download), gopls (go-install build stage), pyright + typescript-language-server (npm -g). |
+| 5 | MCP image http-mode env + /healthz probe | `ba890afab` | Dockerfile.mcp comment block lists every env var; `wget /healthz` HEALTHCHECK on `MCP_HTTP_PORT`. |
+| 6 | Reference compose + TLS overlay | `c9808f12d` | `docker/compose/reference.yml` (qdrant + memexd + mcp), `reference.tls.yml` (Caddy), `docker/caddy/Caddyfile`. |
+
+## Docker tag remaining (9/15)
+
+Pending (IDs in the `docker` tag):
+- **7** — Example config + onboarding docs (medium)
+- **8** — `wqm config` profile management (medium)
+- **9** — Upgrade `wqm health` to probe MCP HTTP (medium)
+- **10** — Integrate compose with existing observability overlay (low)
+- **11** — Grafana dashboards for http mode (low)
+- **12** — Docker deployment docs (medium)
+- **13** — CI workflow to build + test images on PR (medium)
+- **14** — Integration test suite for compose (medium)
+- **15** — Chaos testing + graceful degradation (low)
+
+Priority: 7 → 13 → 9 → 12. 8 and 10 can wait. 11/14/15 are follow-ups.
+
+## Decisions locked in (user confirmed in session 7)
+
+- **C1 distribution**: publish to both Docker Hub AND GHCR at no extra
+  cost. Existing workflow already does this — no change needed.
+- **C2 token rotation**: static bearer from `.env`. Option A, simplest.
+  Migration to per-client admin endpoint deferred until multi-user
+  demand appears (additive: `auth_tokens` table, keep
+  `MCP_HTTP_TOKEN` as implicit root token).
+- **C3 TLS strategy**: reverse-proxy default (Caddy overlay). Native
+  TLS remains optional fallback (task 3).
+- **C4 MCP HTTP port**: 6335 confirmed. Configurable via
+  `MCP_HTTP_PORT`.
+- **#60 backend**: `/proc` heuristic (option 2). Ship simplest, works
+  everywhere Linux-native.
+- **#61 arm64**: split-matrix native runner (options 1+4). Public repo
+  → free `ubuntu-24.04-arm`.
 
 ## Resume instructions
 
-1. Read this file, then `git log --oneline origin/main -10` for recent
-   commits.
-2. Two GitHub issues remain open:
-   - **#60** — Linux-native idle detection for adaptive resource
-     management. Feature work, needs a decision (systemd-logind vs
-     /proc heuristic vs manual gRPC command vs Wayland/X11 bind-mount).
-     Cannot be validated on macOS dev env. Ask the user which of the
-     four options to implement; the implementation then lives in
-     `src/rust/daemon/core/src/adaptive_resources/` behind a Linux
-     `cfg` gate + `resource_limits.linux_idle_source` config flag.
-   - **#61** — re-enable `linux/arm64` in docker-publish workflow.
-     Still blocked on the `docker` tag decisions (GHCR vs local-build,
-     token rotation UX, TLS strategy, HTTP port default). Ask before
-     starting.
-3. If picking up `docker`: `task-master use-tag docker`. **Blocked**
-   on four decisions (see Pending decisions). Ask the user before
-   starting.
-4. If addressing audit gaps from session 4 (§§1.6, 2.4, 3.4, 4.2, 4.3
-   in `docs/specs/19-branch-worktree-audit.md`): pick the gap, file a
-   GitHub issue, add a follow-up task.
-5. `task-master next` in the active tag — expect "no tasks
-   available" outside `docker`.
+1. Read this file; `git log --oneline -12` for recent commits.
+2. Verify daemon still healthy: `wqm service status`. If down,
+   `launchctl load ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist`.
+3. Continue in `docker` tag: `task-master use-tag docker`, then
+   `task-master next`. Task 7 is next (example config + onboarding).
+4. Task list intent summary:
+   - **7** writes `docker/config.example.yaml` + a short `docker/README.md`
+     quickstart pointing at the reference compose. Reuse the env-var
+     documentation already in `reference.yml`'s header comment block.
+   - **13** adds a PR-triggered GH workflow that builds both Dockerfiles
+     on amd64 only (no publish) to catch regressions. The multi-arch
+     `docker-publish.yml` already exists for tagged releases.
+   - **9** extends `wqm admin health` / `wqm status health` to check
+     the MCP HTTP `/healthz` endpoint (respect `MCP_HTTP_PORT`,
+     optionally `MCP_HTTP_TLS_*`).
+5. `.env.example` manual edit still pending (blocked by sensitive-file
+   hook). User should add the block documented at
+   `docker/compose/reference.yml:1` — see the env-var list in the
+   commit message of `c9808f12d`. Variables to add:
+   - `MCP_HTTP_TOKEN`, `MCP_HTTP_PORT`, `MCP_HTTP_PATH`,
+     `MCP_HTTP_RATE_LIMIT`, `MCP_HTTP_CORS_ORIGINS`
+   - `WQM_VERSION`, `WQM_STATE_DIR`, `WQM_DEV_ROOT`,
+     `WQM_CONFIG_FILE`
+   - `QDRANT_VERSION`, `QDRANT_HTTP_PORT`, `QDRANT_GRPC_PORT`
+   - `MCP_PUBLIC_HOSTNAME`, `MCP_TLS_EMAIL`
+   - `OTEL_EXPORTER_OTLP_ENDPOINT`
 
-## Pending decisions
+## Pending decisions (none blocking docker tag)
 
-- **#60 idle-source backend**: which of the four proposed options to
-  implement. systemd-logind is the most semantically correct but adds
-  a DBus socket bind-mount requirement; `/proc` heuristic is lowest
-  friction; manual gRPC is simplest; Wayland/X11 mount is the most
-  permissive requirement.
-- **Docker image distribution** (for `docker` tag, Phase 2): GHCR vs
-  local-build. PRD recommends GHCR. Ask before starting `docker`
-  Phase 2.
-- **Docker token rotation UX** (for `docker` tag): static `.env` vs
-  admin endpoint.
-- **TLS strategy for HTTP MCP** (for `docker` tag): native vs
-  reverse-proxy default.
-- **MCP HTTP port default** (for `docker` tag): `6335` proposed;
-  sign-off before codifying in compose.
+All four docker-tag decisions from session 6 are closed. No new
+decisions outstanding for the next 4-5 docker tasks.
 
 ## Key context
 
-### Shipped this session (all on `main`, pushed)
+### Commits shipped this session (all on `origin/main`)
 
 | Commit | Summary |
 |--------|---------|
-| `cd5d0aa72` | `fix(rules): backfill payload fields for legacy RULE-headered content` (closes #58) |
-| `e0f8cf2f6` | `fix(daemon): prioritize project registrations and accept activate empty path` (closes #70) |
-| `bcdf0b6b1` | `fix(mcp): auto-reconnect DaemonClient when gRPC handles are stale` (closes #55) |
-| `e5fd74cff` | `fix(daemon): defer ignore reconciliation and batch the enqueues` (closes #59) |
+| `153f06f11` | `feat(daemon): add linux /proc idle detection backend` — closes #60 |
+| `c5d03af4d` | `ci(docker): build linux/arm64 natively via split-matrix manifest merge` — closes #61 |
+| `aba02bf8b` | `feat(mcp): add HTTP Streamable transport alongside stdio` — docker task 1 |
+| `78b279cb1` | `feat(mcp): add bearer token auth, rate limit, and CORS for HTTP mode` — docker task 2 |
+| `40255b62b` | `feat(mcp): add optional native TLS termination for HTTP mode` — docker task 3 |
+| `a19004d38` | `build(docker): bundle rust-analyzer, gopls, pyright, typescript-language-server in memexd image` — docker task 4 |
+| `ba890afab` | `build(docker): document http-mode env vars and add /healthz check for mcp image` — docker task 5 |
+| `c9808f12d` | `build(docker): reference compose stack with optional TLS overlay` — docker task 6 |
 
-(Commit hashes above are truncated — `git log --oneline origin/main -4`
-gives the exact IDs.)
+### Architectural invariants (carry forward)
 
-### GitHub issues touched this session
+- **MCP HTTP default = plain HTTP**. Terminate TLS at Caddy in the
+  overlay. Native TLS (`MCP_HTTP_TLS_*` env) is fallback only.
+- **HTTP mode requires a bearer token**. `requireAuth()` enforces
+  16-char minimum at startup; refuses to launch without it.
+- **`/healthz` is auth-exempt**. Only endpoint that bypasses the
+  middleware — narrow `GET /healthz` exact match.
+- **Rate-limit lives in-process**. Single-process only; multi-node
+  deployments must terminate rate limit at the reverse proxy.
+- **Audit logging uses `tokenDigest`** — first 8 hex chars of
+  `SHA-256(token)`. Never log the raw secret.
+- **Linux idle detection gated behind config**. Default
+  `linux_idle_source = "none"` preserves macOS-only behaviour on new
+  deployments; `"proc"` opt-in via `resource_limits.linux_idle_source`.
+- **Path transparency in compose**. `WQM_DEV_ROOT` is bind-mounted at
+  the identical path inside `memexd` so daemon-stored absolute paths
+  reconcile with host `wqm` CLI state. Compose refuses to start
+  without it (`${WQM_DEV_ROOT:?…}` form).
+- **Native binary tier for LSPs**: rust-analyzer from github releases
+  (pinned `RUST_ANALYZER_VERSION` ARG), gopls from-source via golang
+  build stage (pinned `GOPLS_VERSION`), pyright + typescript-language-
+  server via npm global install in runtime stage.
 
-- **#55** — CLOSED — auto-reconnect in DaemonClient.
-- **#58** — CLOSED — `wqm admin rebuild rules-payload` + inject-time
-  fallback.
-- **#59** — CLOSED — background ignore reconcile + batch enqueue.
-- **#70** — CLOSED — `(tenant, add)` queue priority + activate empty
-  path.
+### Test state
 
-### Still OPEN after this session
+- Rust:
+  - `workspace-qdrant-core` lib: 2238 ✓
+  - `workspace-qdrant-grpc` full: 150 ✓
+  - `wqm-common`: 234 ✓
+  - `wqm-cli` bin: 597 ✓
+- TypeScript MCP: 507 ✓ / 2 skipped
+- Dockerfiles: `docker buildx build --check` clean on both
+  Dockerfile.memexd and Dockerfile.mcp
 
-- **#60** — Linux-native idle detection (needs decision).
-- **#61** — re-enable `linux/arm64` in docker-publish workflow
-  (blocked on `docker` tag decisions).
+### Reference files touched this session
 
-### Architectural invariants (carried forward)
+**Rust (issue #60)**:
+- `src/rust/daemon/core/src/adaptive_resources/idle_detection.rs` —
+  `IdleDetector` struct, `linux_idle::LinuxIdleDetector` + trait-based
+  testable `LoadReader`.
+- `src/rust/daemon/core/src/adaptive_resources/manager.rs` — passes
+  `ResourceLimitsConfig` through to detector construction.
+- `src/rust/daemon/core/src/adaptive_resources/tests.rs` — 2 new
+  cross-platform tests (detector default, linux source validation).
+- `src/rust/daemon/core/src/config/resource_limits.rs` — two new fields
+  + env overrides + validation.
+- `src/rust/common/src/yaml_defaults/infrastructure.rs` — yaml side.
+- `src/rust/daemon/core/src/config/mod.rs` — yaml → resource-limits
+  wiring.
+- `src/rust/daemon/memexd/src/queue_init.rs` — passes config through
+  to `AdaptiveResourceManager::start`.
+- `assets/default_configuration.yaml` — docs + defaults.
 
-- `DaemonMetrics` is the single metrics registry — do **not** spawn a
-  parallel `telemetry::metrics` module.
-- Prometheus is the canonical metrics surface. OTLP carries **traces
-  only** until task 10 of issue-64 is re-opened.
-- Daemon-only write path: Qdrant + SQLite mutations go through the
-  queue processor (ADR-003).
-- 4 canonical collections: `projects` (by `tenant_id`), `libraries`,
-  `rules`, `scratchpad`.
-- `ProjectIdCalculator::normalize_git_url` is the one-and-only URL
-  normaliser — used by daemon and CLI both.
-- `BranchLifecycleDetector::scan_for_changes` order is
-  delete → new → expire; required for rename correlation.
-- `TENANT_GLOBAL = "global"` is the one-and-only sentinel for the
-  global-scope `tenant_id` payload field. Add future writes through
-  `wqm_common::constants::TENANT_GLOBAL` (Rust) or
-  `./constants/tenants.ts` (TS). Test fixtures keep the literal on
-  purpose so they catch drift if the constant is ever changed.
-- Rules `document_id` in Qdrant is always a UUID. The human-readable
-  label lives in `payload.label` and is the SQLite `rules_mirror`
-  primary key.
-- **New (session 6)**: legacy RULE-headered content (`RULE\nlabel:X\n
-  scope:Y\n…\n---\nbody`) is parsed by
-  `wqm_common::rules_legacy::parse_rule_header`. Both the daemon
-  backfill (`services::rules_payload_backfill`) and the CLI inject
-  fallback reuse it. Post-backfill, `content` is the body only — the
-  header is stripped.
-- **New (session 6)**: `(tenant, add)` gets a dedicated dequeue
-  priority bucket ahead of all non-destructive ops. Scan/uplift
-  tenant items do *not* get this priority (would regress #59 by
-  pushing bursty scans ahead of user work).
-- **New (session 6)**: `QueueManager::enqueue_unified_batch` is the
-  single-transaction bulk insert. Use it for any enqueue loop where
-  N ≫ 1 and items share `(item_type, op, tenant_id, collection)`. It
-  still runs full payload validation and idempotency dedup per row —
-  only the commit is amortised.
-- **New (session 6)**: ignore reconciliation at startup runs on a
-  detached `tokio::spawn`. Callers must not assume the index is
-  consistent the instant `run_daemon` returns from Phase 6; the
-  background task finishes asynchronously and logs
-  `[startup-bg] Ignore reconciliation complete in …`.
+**CI (#61)**:
+- `.github/workflows/docker-publish.yml` — rewritten fan-out/fan-in.
+
+**TypeScript MCP (docker tasks 1–3)**:
+- `src/typescript/mcp-server/src/mcp-http-server.ts` — new; wraps
+  `StreamableHTTPServerTransport` in `http`/`https` server, invokes
+  auth middleware, exposes `/healthz`.
+- `src/typescript/mcp-server/src/auth-middleware.ts` — new; bearer
+  auth, sliding-window rate limiter, CORS.
+- `src/typescript/mcp-server/src/server-types.ts` — `ServerMode`,
+  `HttpTransportOptions` (+ optional `tls` nested struct),
+  `ServerOptions.auth`, defaults consts.
+- `src/typescript/mcp-server/src/server.ts` — mode resolution,
+  conditional stdio/http/test branches, handle lifecycle.
+- `src/typescript/mcp-server/src/index.ts` — env → mode + transport
+  + TLS options.
+- `src/typescript/mcp-server/tests/server-core.test.ts` — 4 new mode
+  tests.
+- `src/typescript/mcp-server/tests/server-http-transport.test.ts` —
+  new; 7 tests (init, 404, custom path, missing-token startup fail,
+  invalid token, rate-limit, CORS preflight).
+- `src/typescript/mcp-server/tests/auth-middleware.test.ts` — new;
+  21 unit tests.
+- `src/typescript/mcp-server/tests/server-http-tls.test.ts` — new;
+  4 TLS tests using self-signed cert generated via `openssl req
+  -x509` in `beforeAll`.
+
+**Docker (tasks 4–6)**:
+- `docker/Dockerfile.memexd` — +80 lines, two new stages
+  (`rust-analyzer-download`, `gopls-build`), runtime stage gains
+  nodejs/npm/git + global npm installs + LSP binary copies.
+- `docker/Dockerfile.mcp` — HTTP-mode env-var documentation block,
+  new EXPOSE 6335, HEALTHCHECK against `/healthz`.
+- `docker/compose/reference.yml` — new; self-contained three-service
+  stack.
+- `docker/compose/reference.tls.yml` — new; Caddy overlay.
+- `docker/caddy/Caddyfile` — new; Let's Encrypt + reverse proxy to
+  `mcp:6335`.
 
 ### Gotchas carried forward
 
 - `task-master parse-prd` takes ~3 min per PRD.
-- `numTasks` is a hint, not exact.
-- Task-master tag names cannot start with `#`.
+- `numTasks` hint, not exact.
+- Tag names cannot start with `#`.
 - Env-mutating tests must be `#[serial]`.
-- Prometheus `METRICS` is a global singleton; tests that read counters
-  must use delta assertions with `>=`.
-- `opentelemetry-otlp` 0.14 headers injection requires tonic-version
-  alignment; `OTEL_EXPORTER_OTLP_HEADERS` env is the supported path.
-- Clippy on `workspace-qdrant-core` still emits pre-existing warnings
-  in `graph/algorithms/community.rs`, `graph/sqlite_store.rs`,
-  `patterns/detection/detector.rs`,
-  `keyword_extraction/semantic_rerank.rs`. Exit 0; deferred cleanup.
-- Git index.lock occasionally lingers after background task-master
+- Prometheus `METRICS` global singleton; tests use delta asserts.
+- `opentelemetry-otlp` 0.14 headers injection: use
+  `OTEL_EXPORTER_OTLP_HEADERS` env.
+- Clippy pre-existing warnings in `graph/algorithms/community.rs`,
+  `graph/sqlite_store.rs`, `patterns/detection/detector.rs`,
+  `keyword_extraction/semantic_rerank.rs`. Exit 0.
+- `git/index.lock` occasional linger after background task-master
   calls — `rm -f .git/index.lock` if it blocks a commit.
 - `ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib` required for
   every `cargo build` / `cargo test`.
-- `wqm-cli` generates ~47 pre-existing compile warnings; none
-  introduced by sessions 4, 5, or 6.
-- The DaemonClient auto-reconnect retries up to `maxRetries` (default
-  3) so the first user-facing error from a never-connected client is
-  the underlying gRPC `UNAVAILABLE`, not `"Client not connected"`.
-  Keep MCP tests that assert the latter scoped to the direct
-  `grpcUnary` helper, not the high-level RPC surface.
-
-### Reference files (session 6)
-
-- `src/rust/common/src/rules_legacy.rs` — RULE-header parser and
-  `split_scope` helper.
-- `src/rust/daemon/grpc/src/services/rules_payload_backfill.rs` —
-  `backfill_rules_payload` + payload/mirror upsert helpers.
-- `src/rust/daemon/grpc/src/services/system_service/rebuild.rs` —
-  `rebuild_rules_payload` wiring; `"rules-payload"` dispatch case;
-  `rebuild_all` ordering adjusted.
-- `src/rust/daemon/grpc/src/services/system_service/rpc_handlers.rs` —
-  `"rules-payload"` added to `VALID_TARGETS`.
-- `src/rust/cli/src/commands/rebuild.rs` — new
-  `RebuildCommand::RulesPayload` CLI subcommand.
-- `src/rust/cli/src/commands/rules/inject.rs` —
-  `augment_with_legacy_rules` fallback.
-- `src/rust/daemon/core/src/queue_operations/dequeue.rs` — new
-  `(tenant, add)` priority bucket in `build_dequeue_query`.
-- `src/rust/daemon/core/src/queue_operations/enqueue.rs` — new
-  `enqueue_unified_batch` single-transaction bulk insert.
-- `src/rust/daemon/core/src/startup/reconciliation/ignore_sync.rs` —
-  `IGNORE_SYNC_BATCH_SIZE` constant + `enqueue_ignore_ops` batch
-  helper.
-- `src/rust/daemon/memexd/src/database.rs` — split
-  `run_reconciliation` / `spawn_background_reconciliation`.
-- `src/rust/daemon/memexd/src/main.rs` — launches the background
-  reconciliation after Phase 6 gRPC startup.
-- `src/rust/daemon/grpc/src/services/project_service/registration.rs`
-  — accepts empty `path` when `project_id` supplied.
-- `src/typescript/mcp-server/src/clients/daemon-client.ts` —
-  `ensureConnected`, `connecting` reentrancy guard, expanded
-  `isRetryableError`.
+- `wqm-cli` ~47 pre-existing compile warnings.
+- `unified_queue` has no `priority` column; priority computed in
+  `build_dequeue_query`'s `ORDER BY`.
+- **New (session 7)**: `docker/docker-compose.yml` is gitignored (as
+  "legacy"). Reference stack lives under `docker/compose/reference*.yml`.
+  Legacy top-level file was removed locally as part of task 6 but
+  remains in the gitignore.
+- **New (session 7)**: `docker/.env.example` edits are blocked by the
+  sensitive-file hook. Document new variables in compose headers;
+  user manually merges additions into `.env.example`.
+- **New (session 7)**: Dockerfile changes should be verified with
+  `docker buildx build --check`; real builds take 15+ min and need
+  ONNX Runtime, so rely on CI for the full rebuild.
+- **New (session 7)**: `task-master set-status --id=<N>` only works
+  when the ID lives in the currently selected tag. `use-tag docker`
+  is required before task-master commands touch docker tasks.
+- **New (session 7)**: `cd` in `Bash` is not persistent — working
+  directory resets between calls. Use absolute paths or inline
+  `cd … && …`.
