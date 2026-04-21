@@ -16,6 +16,11 @@ ARG DEBIAN_CODENAME=bookworm
 ARG ONNX_VERSION=1.23.2
 ARG BUILDKIT_INLINE_CACHE=1
 
+# Bundled LSP binary versions. Pinned so image builds are reproducible; bump
+# these in a PR and the image is rebuilt with the new toolchain.
+ARG RUST_ANALYZER_VERSION=2026-04-14
+ARG GOPLS_VERSION=0.19.1
+
 # ─────────────────────────────────────────────
 # Stage 1: ONNX Runtime downloader
 # Resolves the correct platform asset before the main build so the large
@@ -166,7 +171,55 @@ RUN --mount=type=cache,target=/build/target,sharing=locked \
     cp /build/target/release/memexd /usr/local/bin/memexd
 
 # ─────────────────────────────────────────────
-# Stage 3: Runtime image
+# Stage 3a: rust-analyzer binary download
+# Ships as a single statically-linked release archive on GitHub. Downloaded
+# in its own stage so the network fetch is cached independently of the Rust
+# compilation and of the gopls toolchain.
+# ─────────────────────────────────────────────
+FROM debian:${DEBIAN_CODENAME}-slim AS rust-analyzer-download
+
+ARG TARGETPLATFORM
+ARG RUST_ANALYZER_VERSION
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    mkdir -p /opt/lsp/bin; \
+    case "${TARGETPLATFORM}" in \
+        linux/amd64) RA_ASSET="rust-analyzer-x86_64-unknown-linux-gnu.gz" ;; \
+        linux/arm64) RA_ASSET="rust-analyzer-aarch64-unknown-linux-gnu.gz" ;; \
+        *) echo "Unsupported platform: ${TARGETPLATFORM}" && exit 1 ;; \
+    esac; \
+    curl --fail --silent --show-error --location \
+        "https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/${RA_ASSET}" \
+        -o /tmp/rust-analyzer.gz; \
+    gunzip -c /tmp/rust-analyzer.gz > /opt/lsp/bin/rust-analyzer; \
+    chmod +x /opt/lsp/bin/rust-analyzer; \
+    rm /tmp/rust-analyzer.gz
+
+# ─────────────────────────────────────────────
+# Stage 3b: gopls build
+# gopls is a Go module with no prebuilt release binaries; build it from source
+# against the pinned version. The golang base image handles cross-compilation
+# via GOOS/GOARCH automatically when invoked via buildx.
+# ─────────────────────────────────────────────
+FROM golang:1.23-${DEBIAN_CODENAME} AS gopls-build
+
+ARG GOPLS_VERSION
+
+# `GOBIN` controls where `go install` drops the resulting binary.
+ENV GOBIN=/out
+ENV CGO_ENABLED=0
+
+RUN mkdir -p /out \
+    && go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}"
+
+# ─────────────────────────────────────────────
+# Stage 4: Runtime image
 # ─────────────────────────────────────────────
 FROM debian:${DEBIAN_CODENAME}-slim AS runtime
 
@@ -175,12 +228,35 @@ ARG UID=1000
 # Runtime dependencies:
 #   curl  — used by the HEALTHCHECK instruction below
 #   ca-certificates — needed for any TLS connections the daemon makes at runtime
+#   nodejs / npm   — host for the npm-distributed LSPs (pyright,
+#                    typescript-language-server). Pulled from the Debian
+#                    archive so the arch selection is automatic.
+#   git            — rust-analyzer shells out to git for some workspace
+#                    detection; avoids rare "could not run git" errors at
+#                    runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        nodejs \
+        npm \
+        git \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid ${UID} memexd \
     && useradd --uid ${UID} --gid ${UID} --no-create-home --shell /usr/sbin/nologin memexd
+
+# Install npm-based LSPs globally so the daemon can spawn them by name.
+# `--omit=dev` keeps the installed tree focused on runtime artefacts.
+RUN npm install --global --omit=dev \
+        pyright@1.1.405 \
+        typescript-language-server@4.3.4 \
+        typescript@5.7.2 \
+    && npm cache clean --force
+
+# Copy the native LSPs into /usr/local/bin so the daemon can spawn them by
+# name. `rust-analyzer` comes from the prebuilt release archive;
+# `gopls` is compiled from source in the gopls-build stage.
+COPY --from=rust-analyzer-download /opt/lsp/bin/rust-analyzer /usr/local/bin/rust-analyzer
+COPY --from=gopls-build /out/gopls /usr/local/bin/gopls
 
 LABEL org.opencontainers.image.title="memexd" \
       org.opencontainers.image.description="workspace-qdrant-mcp Rust daemon" \
