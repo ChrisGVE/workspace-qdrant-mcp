@@ -49,6 +49,12 @@ fn default_active_concurrency_multiplier() -> f64 {
 fn default_active_inter_item_delay_ms() -> u64 {
     25
 }
+fn default_linux_idle_source() -> String {
+    "none".to_string()
+}
+fn default_linux_idle_load_threshold() -> f64 {
+    0.1
+}
 
 /// Resource limits configuration section
 ///
@@ -147,6 +153,24 @@ pub struct ResourceLimitsConfig {
     /// Default: 25 (half of normal 50ms)
     #[serde(default = "default_active_inter_item_delay_ms")]
     pub active_inter_item_delay_ms: u64,
+
+    // --- Linux Idle Detection ---
+    /// Backend for Linux idle detection. Only consulted when running on Linux.
+    /// - `"none"`: No idle detection (default). Adaptive manager stays at Normal/Active.
+    /// - `"proc"`: `/proc/loadavg` heuristic. Treats host as idle when the 1-minute
+    ///   load average normalized by physical cores falls below
+    ///   `linux_idle_load_threshold`.
+    ///
+    /// Future values: `"systemd"` (logind `IdleHint` via DBus), `"manual"` (operator
+    /// command), `"x11"` (Wayland/X11 session bind-mount).
+    #[serde(default = "default_linux_idle_source")]
+    pub linux_idle_source: String,
+
+    /// Normalized load-average threshold for the `/proc` Linux idle heuristic.
+    /// Below this ratio (1-minute load / physical cores), the host is considered idle.
+    /// Default: 0.1
+    #[serde(default = "default_linux_idle_load_threshold")]
+    pub linux_idle_load_threshold: f64,
 }
 
 impl Default for ResourceLimitsConfig {
@@ -168,6 +192,8 @@ impl Default for ResourceLimitsConfig {
             idle_poll_interval_secs: default_idle_poll_interval_secs(),
             active_concurrency_multiplier: default_active_concurrency_multiplier(),
             active_inter_item_delay_ms: default_active_inter_item_delay_ms(),
+            linux_idle_source: default_linux_idle_source(),
+            linux_idle_load_threshold: default_linux_idle_load_threshold(),
         }
     }
 }
@@ -227,6 +253,17 @@ impl ResourceLimitsConfig {
                 "onnx_intra_threads must be between 1 and 16 (0 should have been auto-resolved)"
                     .to_string(),
             );
+        }
+        match self.linux_idle_source.as_str() {
+            "none" | "proc" => {}
+            other => {
+                return Err(format!(
+                    "linux_idle_source must be one of: none, proc (got: {other})"
+                ));
+            }
+        }
+        if self.linux_idle_load_threshold <= 0.0 || self.linux_idle_load_threshold > 10.0 {
+            return Err("linux_idle_load_threshold must be > 0.0 and <= 10.0".to_string());
         }
         Ok(())
     }
@@ -291,6 +328,14 @@ impl ResourceLimitsConfig {
             "WQM_RESOURCE_ACTIVE_INTER_ITEM_DELAY_MS",
             &mut self.active_inter_item_delay_ms,
         );
+        apply_env_string(
+            "WQM_RESOURCE_LINUX_IDLE_SOURCE",
+            &mut self.linux_idle_source,
+        );
+        apply_env_f64(
+            "WQM_RESOURCE_LINUX_IDLE_LOAD_THRESHOLD",
+            &mut self.linux_idle_load_threshold,
+        );
     }
 }
 
@@ -335,6 +380,15 @@ fn apply_env_f64(var: &str, field: &mut f64) {
     if let Ok(val) = std::env::var(var) {
         if let Ok(parsed) = val.parse() {
             *field = parsed;
+        }
+    }
+}
+
+/// Apply an environment variable override to a `String` field.
+fn apply_env_string(var: &str, field: &mut String) {
+    if let Ok(val) = std::env::var(var) {
+        if !val.is_empty() {
+            *field = val;
         }
     }
 }

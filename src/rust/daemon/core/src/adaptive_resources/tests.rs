@@ -1,7 +1,7 @@
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::idle_detection::is_cpu_under_pressure;
+use super::idle_detection::{is_cpu_under_pressure, IdleDetector};
 use super::*;
 use crate::config::ResourceLimitsConfig;
 
@@ -229,7 +229,7 @@ async fn test_adaptive_manager_starts_with_normal_profile() {
     let limits = test_limits();
     let config = AdaptiveResourceConfig::from_resource_limits(&limits);
     let token = CancellationToken::new();
-    let manager = AdaptiveResourceManager::start(config, token.clone(), None);
+    let manager = AdaptiveResourceManager::start(config, &limits, token.clone(), None);
 
     let profile = manager.current_profile();
     assert_eq!(profile.max_concurrent_embeddings, 2);
@@ -244,7 +244,7 @@ async fn test_adaptive_manager_subscribe() {
     let limits = test_limits();
     let config = AdaptiveResourceConfig::from_resource_limits(&limits);
     let token = CancellationToken::new();
-    let manager = AdaptiveResourceManager::start(config, token.clone(), None);
+    let manager = AdaptiveResourceManager::start(config, &limits, token.clone(), None);
 
     let rx = manager.subscribe();
     let profile = *rx.borrow();
@@ -310,6 +310,72 @@ fn test_cpu_pressure_check() {
     // Threshold of 0.0 means any non-zero load triggers pressure.
     // On a running system, 1-min load average is always > 0.
     assert!(is_cpu_under_pressure(0.0, 1));
+}
+
+// --- IdleDetector construction tests ---
+
+#[test]
+fn test_idle_detector_default_config() {
+    // Default config uses linux_idle_source = "none" — on Linux this produces
+    // a detector whose `seconds_since_last_input` is always None; on macOS the
+    // detector delegates to the CoreGraphics/IOKit backend (already covered by
+    // integration tests against a live WindowServer).
+    let limits = ResourceLimitsConfig::default();
+    let detector = IdleDetector::new(&limits, 4);
+
+    #[cfg(target_os = "linux")]
+    {
+        assert!(
+            detector.seconds_since_last_input().is_none(),
+            "default linux_idle_source=\"none\" must yield no reading"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // Under a macOS test runner with WindowServer present, CG returns Some(secs).
+        // In headless CI (no WindowServer) CG may fail and IOKit fallback fires.
+        // Either way the call must not panic.
+        let _ = detector.seconds_since_last_input();
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        assert!(detector.seconds_since_last_input().is_none());
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_idle_detector_proc_source_is_some() {
+    let mut limits = ResourceLimitsConfig::default();
+    limits.linux_idle_source = "proc".to_string();
+    limits.linux_idle_load_threshold = 10.0; // above any plausible load
+    let detector = IdleDetector::new(&limits, 4);
+
+    // With a huge threshold and a populated /proc/loadavg we must see a
+    // non-None reading.
+    assert!(detector.seconds_since_last_input().is_some());
+}
+
+#[test]
+fn test_linux_idle_source_validation() {
+    let mut limits = ResourceLimitsConfig::default();
+    limits.resolve_auto_values();
+    limits.linux_idle_source = "bogus".to_string();
+    assert!(limits.validate().is_err());
+
+    limits.linux_idle_source = "proc".to_string();
+    assert!(limits.validate().is_ok());
+
+    limits.linux_idle_source = "none".to_string();
+    assert!(limits.validate().is_ok());
+
+    limits.linux_idle_load_threshold = 0.0;
+    assert!(limits.validate().is_err());
+
+    limits.linux_idle_load_threshold = 0.1;
+    assert!(limits.validate().is_ok());
 }
 
 #[cfg(target_os = "macos")]

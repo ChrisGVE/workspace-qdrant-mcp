@@ -307,6 +307,7 @@ pub async fn initialize(
     let queue_depth = uqp.queue_depth();
     let adaptive_manager = AdaptiveResourceManager::start(
         adaptive_config,
+        &config.resource_limits,
         adaptive_shutdown_token.clone(),
         queue_depth,
     );

@@ -1438,6 +1438,25 @@ resource_limits:
   # Format: Integer 1..60
   idle_poll_interval_secs: 5
 
+  # --- Linux Idle Detection ---
+  # linux_idle_source: Which backend supplies the idle signal on Linux hosts.
+  # macOS uses CoreGraphics + IOKit directly; this key is only consulted on Linux.
+  #   - "none": No idle detection (default). Adaptive manager stays at Normal/Active.
+  #   - "proc": /proc/loadavg heuristic. Host is considered idle when the
+  #            1-minute load average divided by physical cores falls below
+  #            linux_idle_load_threshold.
+  # Future values: "systemd" (logind IdleHint via DBus), "manual" (operator
+  # command), "x11" (Wayland/X11 session bind-mount).
+  # Format: String
+  linux_idle_source: "none"
+
+  # linux_idle_load_threshold: Normalized load-average threshold for the
+  # "proc" Linux idle heuristic. Below this ratio (load_1m / physical_cores),
+  # the host is considered idle.
+  # Default: 0.1
+  # Format: Float (0.0, 10.0]
+  linux_idle_load_threshold: 0.1
+
   # NOTE: idle_cooloff_polls has been removed. The ramp_down_step_secs
   # configuration provides proper per-level descent timing instead of
   # the crude poll-based cooloff mechanism.

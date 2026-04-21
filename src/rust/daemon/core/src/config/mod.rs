@@ -303,6 +303,8 @@ fn build_resource_limits_config(yaml: &YamlConfig) -> ResourceLimitsConfig {
         idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
         active_concurrency_multiplier: yaml.resource_limits.active_concurrency_multiplier,
         active_inter_item_delay_ms: yaml.resource_limits.active_inter_item_delay_ms,
+        linux_idle_source: yaml.resource_limits.linux_idle_source.clone(),
+        linux_idle_load_threshold: yaml.resource_limits.linux_idle_load_threshold,
     }
 }
 

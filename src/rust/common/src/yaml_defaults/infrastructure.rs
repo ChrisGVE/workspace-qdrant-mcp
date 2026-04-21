@@ -330,6 +330,10 @@ pub struct YamlResourceLimitsConfig {
     pub active_concurrency_multiplier: f64,
     /// Inter-item delay in active processing mode (ms)
     pub active_inter_item_delay_ms: u64,
+    /// Linux idle-detection backend (`"none"` or `"proc"`).
+    pub linux_idle_source: String,
+    /// Normalized load-average threshold for the `/proc` Linux heuristic.
+    pub linux_idle_load_threshold: f64,
 }
 
 impl Default for YamlResourceLimitsConfig {
@@ -351,6 +355,8 @@ impl Default for YamlResourceLimitsConfig {
             idle_poll_interval_secs: 5,
             active_concurrency_multiplier: 1.5,
             active_inter_item_delay_ms: 25,
+            linux_idle_source: "none".to_string(),
+            linux_idle_load_threshold: 0.1,
         }
     }
 }

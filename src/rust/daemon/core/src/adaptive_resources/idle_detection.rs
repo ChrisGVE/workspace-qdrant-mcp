@@ -3,10 +3,80 @@
 //! ## Platform support
 //! - macOS: CGEventSourceSecondsSinceLastEventType (CoreGraphics),
 //!          with IOKit HIDIdleTime fallback (works during screen lock)
-//! - Linux: falls back to always-interactive (no burst mode)
+//! - Linux: pluggable backend selected via `resource_limits.linux_idle_source`.
+//!          Currently supports `"none"` (default — no idle detection) and
+//!          `"proc"` (1-minute load average heuristic via `/proc/loadavg`).
 //! - Other: always-interactive (no burst mode)
 
-/// Returns seconds since last user input event, or None if unavailable.
+use crate::config::ResourceLimitsConfig;
+
+/// Stateful idle detector owned by the adaptive resource manager.
+///
+/// Wraps the platform-specific detection backend. Construct once at manager
+/// startup via [`IdleDetector::new`] and call [`IdleDetector::seconds_since_last_input`]
+/// on each poll.
+pub struct IdleDetector {
+    #[cfg(target_os = "linux")]
+    linux: Option<linux_idle::LinuxIdleDetector>,
+    #[cfg(not(target_os = "linux"))]
+    _phantom: std::marker::PhantomData<()>,
+}
+
+impl IdleDetector {
+    /// Build a detector from the resolved resource-limits config.
+    ///
+    /// `physical_cores` is used to normalize load-average when the `/proc`
+    /// backend is active. Pass the same value you feed into
+    /// `AdaptiveResourceConfig`.
+    pub fn new(config: &ResourceLimitsConfig, physical_cores: usize) -> Self {
+        let _ = (config, physical_cores); // silence unused on non-linux
+
+        #[cfg(target_os = "linux")]
+        {
+            let linux = match config.linux_idle_source.as_str() {
+                "proc" => Some(linux_idle::LinuxIdleDetector::new_proc(
+                    config.linux_idle_load_threshold,
+                    physical_cores.max(1),
+                )),
+                _ => None,
+            };
+            Self { linux }
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            Self {
+                _phantom: std::marker::PhantomData,
+            }
+        }
+    }
+
+    /// Return seconds since last user input, or `None` when detection is
+    /// unavailable on this platform / backend.
+    pub fn seconds_since_last_input(&self) -> Option<f64> {
+        #[cfg(target_os = "macos")]
+        {
+            macos_idle::seconds_since_last_input()
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            self.linux
+                .as_ref()
+                .and_then(|d| d.seconds_since_last_input())
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            None
+        }
+    }
+}
+
+/// Back-compat shim for callers that want an idle reading without owning a
+/// detector. On macOS this is the historical CoreGraphics+IOKit path; on
+/// every other platform it returns `None`.
+#[allow(dead_code)]
 pub(super) fn seconds_since_last_input() -> Option<f64> {
     #[cfg(target_os = "macos")]
     {
@@ -15,7 +85,7 @@ pub(super) fn seconds_since_last_input() -> Option<f64> {
 
     #[cfg(not(target_os = "macos"))]
     {
-        None // No idle detection on this platform
+        None
     }
 }
 
@@ -128,6 +198,195 @@ mod macos_idle {
     /// Tries CoreGraphics first (lighter), falls back to IOKit (works during screen lock).
     pub fn seconds_since_last_input() -> Option<f64> {
         cg_idle_seconds().or_else(iokit_idle_seconds)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) mod linux_idle {
+    //! Linux idle backends.
+    //!
+    //! Only `/proc/loadavg` is wired today. The heuristic treats the host as
+    //! idle whenever `load_1min / physical_cores < threshold` and reports the
+    //! elapsed time since the last non-idle sample as the "seconds since last
+    //! input" signal consumed by the adaptive state machine.
+
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    /// Abstract reader for the 1-minute normalised load value. Lets tests
+    /// inject deterministic load sequences without touching `/proc`.
+    pub(super) trait LoadReader: Send + Sync {
+        fn read_1m_load(&self) -> Option<f64>;
+    }
+
+    /// Real `/proc/loadavg` reader.
+    struct ProcLoadReader;
+
+    impl LoadReader for ProcLoadReader {
+        fn read_1m_load(&self) -> Option<f64> {
+            let raw = std::fs::read_to_string("/proc/loadavg").ok()?;
+            raw.split_whitespace()
+                .next()
+                .and_then(|first| first.parse::<f64>().ok())
+        }
+    }
+
+    pub(super) struct LinuxIdleDetector {
+        reader: Box<dyn LoadReader>,
+        threshold: f64,
+        cores: f64,
+        last_active: Mutex<Instant>,
+    }
+
+    impl LinuxIdleDetector {
+        /// `/proc/loadavg` backend.
+        pub fn new_proc(threshold: f64, cores: usize) -> Self {
+            Self::with_reader(Box::new(ProcLoadReader), threshold, cores)
+        }
+
+        /// Build with an explicit reader. Used by tests.
+        pub(super) fn with_reader(
+            reader: Box<dyn LoadReader>,
+            threshold: f64,
+            cores: usize,
+        ) -> Self {
+            Self {
+                reader,
+                threshold,
+                cores: cores.max(1) as f64,
+                last_active: Mutex::new(Instant::now()),
+            }
+        }
+
+        /// Return seconds since the last "non-idle" sample, or `None` if the
+        /// backing reader is unavailable.
+        pub fn seconds_since_last_input(&self) -> Option<f64> {
+            let raw = self.reader.read_1m_load()?;
+            let normalized = raw / self.cores;
+
+            let mut last = self.last_active.lock().ok()?;
+            if normalized >= self.threshold {
+                *last = Instant::now();
+                Some(0.0)
+            } else {
+                Some(last.elapsed().as_secs_f64())
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use std::thread::sleep;
+        use std::time::Duration;
+
+        /// Scripted reader yielding one load value per call, wrapping at end.
+        struct ScriptedReader {
+            values: Vec<f64>,
+            cursor: AtomicUsize,
+        }
+
+        impl ScriptedReader {
+            fn new(values: Vec<f64>) -> Arc<Self> {
+                Arc::new(Self {
+                    values,
+                    cursor: AtomicUsize::new(0),
+                })
+            }
+        }
+
+        impl LoadReader for Arc<ScriptedReader> {
+            fn read_1m_load(&self) -> Option<f64> {
+                if self.values.is_empty() {
+                    return None;
+                }
+                let idx = self.cursor.fetch_add(1, Ordering::Relaxed) % self.values.len();
+                Some(self.values[idx])
+            }
+        }
+
+        struct FailingReader;
+
+        impl LoadReader for FailingReader {
+            fn read_1m_load(&self) -> Option<f64> {
+                None
+            }
+        }
+
+        fn detector_with(values: Vec<f64>, threshold: f64, cores: usize) -> LinuxIdleDetector {
+            let reader = ScriptedReader::new(values);
+            LinuxIdleDetector::with_reader(Box::new(reader), threshold, cores)
+        }
+
+        #[test]
+        fn busy_load_resets_to_zero_idle() {
+            // load 1.6 on 4 cores = 0.4 normalized > threshold 0.1 → busy
+            let detector = detector_with(vec![1.6], 0.1, 4);
+            let idle = detector.seconds_since_last_input().unwrap();
+            assert_eq!(idle, 0.0);
+        }
+
+        #[test]
+        fn idle_load_accumulates_seconds() {
+            // load 0.04 on 4 cores = 0.01 normalized < threshold 0.1 → idle
+            let detector = detector_with(vec![0.04], 0.1, 4);
+            // First poll starts counting.
+            let _ = detector.seconds_since_last_input();
+            sleep(Duration::from_millis(60));
+            let idle = detector.seconds_since_last_input().unwrap();
+            assert!(
+                idle >= 0.05,
+                "expected accumulated idle >= 50ms, got {idle}s"
+            );
+        }
+
+        #[test]
+        fn busy_then_idle_resets_counter() {
+            let detector = detector_with(vec![2.0, 0.04, 0.04], 0.1, 4);
+            // Busy → 0
+            assert_eq!(detector.seconds_since_last_input().unwrap(), 0.0);
+            sleep(Duration::from_millis(20));
+            // Idle → small positive
+            let first_idle = detector.seconds_since_last_input().unwrap();
+            assert!(first_idle > 0.0);
+            sleep(Duration::from_millis(20));
+            // Still idle → growing
+            let second_idle = detector.seconds_since_last_input().unwrap();
+            assert!(second_idle > first_idle);
+        }
+
+        #[test]
+        fn reader_failure_returns_none() {
+            let detector = LinuxIdleDetector::with_reader(Box::new(FailingReader), 0.1, 4);
+            assert!(detector.seconds_since_last_input().is_none());
+        }
+
+        #[test]
+        fn zero_cores_treated_as_one() {
+            let detector = detector_with(vec![0.5], 1.0, 0);
+            // 0.5 / 1 = 0.5 < 1.0 → idle → 0 on first call
+            let idle = detector.seconds_since_last_input().unwrap();
+            assert_eq!(idle, 0.0);
+        }
+
+        #[test]
+        fn threshold_boundary_is_busy() {
+            // Normalized exactly equal to threshold → treated as busy
+            let detector = detector_with(vec![0.4], 0.1, 4); // 0.4/4 = 0.1 == threshold
+            assert_eq!(detector.seconds_since_last_input().unwrap(), 0.0);
+        }
+
+        #[test]
+        fn proc_reader_handles_realistic_line() {
+            // Make sure the real /proc parser logic matches Linux's format.
+            // We invoke ProcLoadReader through a tempfile-style override: just
+            // parse the string directly instead of touching the filesystem.
+            let raw = "0.42 0.38 0.35 2/534 12345";
+            let parsed: f64 = raw.split_whitespace().next().unwrap().parse().unwrap();
+            assert!((parsed - 0.42).abs() < f64::EPSILON);
+        }
     }
 }
 

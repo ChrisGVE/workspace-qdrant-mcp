@@ -11,12 +11,13 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use super::idle_detection::{is_cpu_under_pressure, seconds_since_last_input};
+use super::idle_detection::{is_cpu_under_pressure, IdleDetector};
 use super::{
     build_profiles, detect_physical_cores, log_startup_config, profile_for_level,
     AdaptiveResourceConfig, AdaptiveResourceState, Profiles, ResourceLevel, ResourceMode,
     ResourceProfile, SystemState,
 };
+use crate::config::ResourceLimitsConfig;
 
 /// Manages dynamic resource allocation based on system idle state.
 ///
@@ -43,6 +44,7 @@ impl AdaptiveResourceManager {
     /// Active Processing mode with +50% resources.
     pub fn start(
         config: AdaptiveResourceConfig,
+        resource_limits: &ResourceLimitsConfig,
         cancellation_token: CancellationToken,
         queue_depth: Option<Arc<AtomicUsize>>,
     ) -> Self {
@@ -54,6 +56,7 @@ impl AdaptiveResourceManager {
         state.set_profile(&normal_profile);
         let state_clone = Arc::clone(&state);
         let physical_cores = detect_physical_cores();
+        let detector = IdleDetector::new(resource_limits, physical_cores);
 
         log_startup_config(&config, &profiles);
 
@@ -66,6 +69,7 @@ impl AdaptiveResourceManager {
                 state_clone,
                 physical_cores,
                 queue_depth,
+                detector,
             )
             .await;
         });
@@ -98,6 +102,7 @@ async fn run_adaptive_loop(
     state: Arc<AdaptiveResourceState>,
     physical_cores: usize,
     queue_depth: Option<Arc<AtomicUsize>>,
+    detector: IdleDetector,
 ) {
     let poll_interval = Duration::from_secs(config.poll_interval_secs);
     let idle_confirmation = Duration::from_secs(config.idle_confirmation_secs);
@@ -119,7 +124,7 @@ async fn run_adaptive_loop(
                 break;
             }
             _ = tokio::time::sleep(poll_interval) => {
-                let idle_secs = seconds_since_last_input().unwrap_or(0.0);
+                let idle_secs = detector.seconds_since_last_input().unwrap_or(0.0);
                 state.set_idle_seconds(idle_secs);
 
                 let user_is_idle = idle_secs >= config.idle_threshold_secs as f64;
