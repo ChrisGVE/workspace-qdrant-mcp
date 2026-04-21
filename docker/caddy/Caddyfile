@@ -1,0 +1,44 @@
+# Caddy configuration for the TLS overlay.
+#
+# One site backed by the MCP HTTP transport. Caddy requests a certificate
+# from Let's Encrypt (HTTP-01 challenge) on first boot and renews on its own.
+# The ADMIN API stays bound to localhost-only.
+#
+# Variables (expanded by Caddy from the compose environment):
+#   MCP_PUBLIC_HOSTNAME — FQDN of this deployment.
+#   MCP_TLS_EMAIL       — ACME contact address.
+
+{
+    email {$MCP_TLS_EMAIL}
+    admin off
+}
+
+{$MCP_PUBLIC_HOSTNAME} {
+    encode zstd gzip
+
+    # Root handler: proxy to the MCP transport. Preserve the original Host
+    # and forwarded headers so the MCP server sees the real client info.
+    reverse_proxy mcp:6335 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Optional: expose Prometheus metrics on /metrics only when the request
+    # comes from a private network. Comment this block out to keep metrics
+    # entirely internal.
+    @metrics path /metrics
+    handle @metrics {
+        @internal remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+        handle @internal {
+            reverse_proxy mcp:9092
+        }
+        respond "Forbidden" 403
+    }
+
+    # Access log to stderr in JSON so docker logs captures it.
+    log {
+        output stderr
+        format json
+    }
+}

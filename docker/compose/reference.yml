@@ -1,0 +1,137 @@
+# workspace-qdrant-mcp reference stack.
+#
+# Three services: Qdrant vector store, memexd (Rust daemon), and the
+# TypeScript MCP server (Streamable HTTP transport). Ship as a self-contained
+# deployment suitable for a single host; overlay `reference.tls.yml` for
+# Let's Encrypt HTTPS via Caddy.
+#
+# Usage:
+#   cp docker/.env.example docker/.env          # then edit values
+#   docker compose \
+#     --env-file docker/.env \
+#     -f docker/compose/reference.yml up -d
+#
+# With TLS overlay:
+#   docker compose \
+#     --env-file docker/.env \
+#     -f docker/compose/reference.yml \
+#     -f docker/compose/reference.tls.yml up -d
+#
+# Path transparency:
+#   Daemon records the absolute path of each watched folder in SQLite. Host
+#   CLI queries that SQLite state over the published gRPC port, so watched
+#   roots must mount at the *same* path inside the container. Set WQM_DEV_ROOT
+#   to the host path; compose bind-mounts it to the identical path inside
+#   memexd. Without this, `wqm project activate $(pwd)` on the host cannot
+#   reconcile with the daemon's stored entry.
+
+name: workspace-qdrant-mcp
+
+services:
+  # ─────────────────────────────────────────────
+  # Qdrant vector database
+  # ─────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:${QDRANT_VERSION:-latest}
+    container_name: wqm-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - ${WQM_STATE_DIR:-./state}/qdrant/storage:/qdrant/storage
+      - ${WQM_STATE_DIR:-./state}/qdrant/snapshots:/qdrant/snapshots
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+    healthcheck:
+      # Qdrant exposes /readyz for readiness probes.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+    networks:
+      - workspace-network
+
+  # ─────────────────────────────────────────────
+  # memexd — Rust daemon
+  # ─────────────────────────────────────────────
+  memexd:
+    image: ${MEMEXD_IMAGE:-ghcr.io/chrisgve/memexd:${WQM_VERSION:-latest}}
+    container_name: wqm-memexd
+    restart: unless-stopped
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    ports:
+      # Expose the gRPC socket so the host `wqm` CLI can drive the daemon.
+      - "${MEMEXD_GRPC_PORT:-50051}:50051"
+      - "${MEMEXD_METRICS_PORT:-9091}:9091"
+    volumes:
+      # Persistent daemon state (SQLite, queues, rules cache).
+      - ${WQM_STATE_DIR:-./state}/memexd:/home/memexd/.workspace-qdrant
+      # Optional read-only config file override.
+      - ${WQM_CONFIG_FILE:-/dev/null}:/etc/wqm/config.yaml:ro
+      # Named volumes for caches that benefit from reuse across restarts.
+      - wqm-grammars:/home/memexd/.cache/wqm/grammars
+      - wqm-lsp-cache:/home/memexd/.cache/wqm/lsp
+      # Identical-path bind for watched source trees.
+      # Without this mount, paths recorded by the daemon won't line up with
+      # the host's `wqm` CLI. Override WQM_DEV_ROOT in .env to point at the
+      # directory whose children you want indexed.
+      - ${WQM_DEV_ROOT:?set WQM_DEV_ROOT in .env to your dev-root absolute path}:${WQM_DEV_ROOT}
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    networks:
+      - workspace-network
+
+  # ─────────────────────────────────────────────
+  # workspace-qdrant-mcp — TypeScript MCP server (Streamable HTTP)
+  # ─────────────────────────────────────────────
+  mcp:
+    image: ${MCP_IMAGE:-ghcr.io/chrisgve/workspace-qdrant-mcp:${WQM_VERSION:-latest}}
+    container_name: wqm-mcp
+    restart: unless-stopped
+    depends_on:
+      memexd:
+        condition: service_healthy
+    ports:
+      - "${MCP_HTTP_PORT:-6335}:6335"
+      - "${MCP_METRICS_PORT:-9092}:9092"
+    environment:
+      MCP_SERVER_MODE: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: ${MCP_HTTP_PORT:-6335}
+      MCP_HTTP_PATH: ${MCP_HTTP_PATH:-/mcp}
+      MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; generate with `openssl rand -hex 32`}
+      MCP_HTTP_RATE_LIMIT: ${MCP_HTTP_RATE_LIMIT:-100}
+      MCP_HTTP_CORS_ORIGINS: ${MCP_HTTP_CORS_ORIGINS:-}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      WQM_DAEMON_ENDPOINT: memexd:50051
+      WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    networks:
+      - workspace-network
+
+# ─────────────────────────────────────────────
+# Networks + Volumes
+# ─────────────────────────────────────────────
+networks:
+  workspace-network:
+    driver: bridge
+
+volumes:
+  # Tree-sitter grammar binaries downloaded on demand.
+  wqm-grammars:
+  # LSP server cache (index files, download markers).
+  wqm-lsp-cache:

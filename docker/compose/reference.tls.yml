@@ -1,0 +1,48 @@
+# TLS overlay — adds a Caddy reverse proxy in front of the MCP HTTP
+# transport with automatic Let's Encrypt certificate provisioning.
+#
+# Layering:
+#   docker compose \
+#     --env-file docker/.env \
+#     -f docker/compose/reference.yml \
+#     -f docker/compose/reference.tls.yml \
+#     up -d
+#
+# Required .env values:
+#   MCP_PUBLIC_HOSTNAME — FQDN pointing at this host (A/AAAA record). Caddy
+#                        uses it as the automatic HTTPS site label.
+#   MCP_TLS_EMAIL       — Contact address Let's Encrypt should use for
+#                        expiration notices.
+#
+# The overlay:
+#   • Unpublishes port 6335 from the mcp service (Caddy handles external
+#     traffic; MCP stays reachable inside the compose network).
+#   • Adds a `caddy` service that terminates TLS on :443 and proxies
+#     to mcp:6335/mcp.
+
+services:
+  mcp:
+    # Drop the direct 6335/9092 publish; route via caddy instead.
+    ports: !reset []
+
+  caddy:
+    image: caddy:2
+    container_name: wqm-caddy
+    restart: unless-stopped
+    depends_on:
+      mcp:
+        # No health check on mcp yet; dependency is ordering-only.
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ${WQM_STATE_DIR:-./state}/caddy/data:/data
+      - ${WQM_STATE_DIR:-./state}/caddy/config:/config
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      MCP_PUBLIC_HOSTNAME: ${MCP_PUBLIC_HOSTNAME:?set MCP_PUBLIC_HOSTNAME (FQDN) in .env}
+      MCP_TLS_EMAIL: ${MCP_TLS_EMAIL:?set MCP_TLS_EMAIL in .env}
+    networks:
+      - workspace-network
