@@ -14,11 +14,42 @@
 
 import { loadConfig } from './config.js';
 import { createServer, WorkspaceQdrantMcpServer } from './server.js';
+import {
+  DEFAULT_HTTP_HOST,
+  DEFAULT_HTTP_PORT,
+  DEFAULT_HTTP_PATH,
+  type HttpTransportOptions,
+  type ServerMode,
+} from './server-types.js';
 import { pushMetricsOnExit } from './telemetry/metrics.js';
 import { startMetricsServer } from './telemetry/http-server.js';
 
-// Detect stdio mode (MCP protocol requires clean stdout)
-const isStdioMode = !process.env['WQM_CLI_MODE'] && !process.env['WQM_HTTP_MODE'];
+/**
+ * Resolve the server transport mode from environment variables.
+ *
+ * - `MCP_SERVER_MODE=http` forces HTTP mode explicitly (preferred).
+ * - Legacy `WQM_HTTP_MODE` / `WQM_CLI_MODE` env vars also disable stdio; they
+ *   are kept because existing docker/compose configs set them.
+ */
+function resolveServerMode(): ServerMode {
+  const explicit = process.env['MCP_SERVER_MODE']?.toLowerCase();
+  if (explicit === 'http') return 'http';
+  if (explicit === 'stdio') return 'stdio';
+  if (process.env['WQM_HTTP_MODE'] || process.env['WQM_CLI_MODE']) return 'http';
+  return 'stdio';
+}
+
+function resolveHttpOptions(): HttpTransportOptions {
+  const portEnv = process.env['MCP_HTTP_PORT'];
+  const parsed = portEnv ? Number.parseInt(portEnv, 10) : NaN;
+  const port = Number.isFinite(parsed) && parsed > 0 && parsed < 65536 ? parsed : DEFAULT_HTTP_PORT;
+  const host = process.env['MCP_HTTP_HOST'] ?? DEFAULT_HTTP_HOST;
+  const path = process.env['MCP_HTTP_PATH'] ?? DEFAULT_HTTP_PATH;
+  return { host, port, path };
+}
+
+const serverMode: ServerMode = resolveServerMode();
+const isStdioMode = serverMode === 'stdio';
 
 // In stdio mode, suppress all console.log to prevent protocol contamination
 // Keep console.error and console.warn for critical issues (sent to stderr)
@@ -70,10 +101,15 @@ async function main(): Promise<void> {
 
   // Create and start the MCP server
   try {
-    server = await createServer(config, isStdioMode);
+    if (serverMode === 'http') {
+      const httpOptions = resolveHttpOptions();
+      server = await createServer(config, 'http', httpOptions);
+    } else {
+      server = await createServer(config, serverMode);
+    }
 
-    // In HTTP mode, start the Prometheus /metrics endpoint
-    if (!isStdioMode && process.env['MCP_SERVER_MODE'] === 'http') {
+    // In HTTP mode, start the Prometheus /metrics endpoint on a separate port.
+    if (serverMode === 'http') {
       startMetricsServer();
     }
 
@@ -81,6 +117,7 @@ async function main(): Promise<void> {
     const sessionState = server.getSessionState();
     if (!isStdioMode) {
       console.log('workspace-qdrant-mcp server started');
+      console.log(`Mode: ${serverMode}`);
       console.log(`Session ID: ${sessionState.sessionId}`);
       console.log(`Project: ${sessionState.projectPath ?? 'none'}`);
       console.log(`Project ID: ${sessionState.projectId ?? 'none'}`);

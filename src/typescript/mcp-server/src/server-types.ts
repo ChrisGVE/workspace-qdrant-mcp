@@ -23,7 +23,46 @@ export interface SessionState {
   daemonConnected: boolean;
 }
 
+/**
+ * Transport mode for the MCP server.
+ *
+ * - `stdio`: MCP over stdin/stdout (default; Claude Desktop, `claude mcp ...` CLI).
+ * - `http`:  MCP Streamable HTTP transport. Required for Docker deployments and
+ *            for any client that cannot spawn a subprocess.
+ * - `test`:  In-process only; the server is constructed and wired but no
+ *            transport is connected. Used by unit tests that drive the server
+ *            directly through its class API.
+ */
+export type ServerMode = 'stdio' | 'http' | 'test';
+
+/**
+ * HTTP transport configuration.
+ *
+ * `host` defaults to `127.0.0.1`. Bind to `0.0.0.0` only inside a container
+ * (Docker will expose the listener explicitly via `-p`). `path` is the request
+ * route; defaults to `/mcp` to match the Streamable HTTP spec convention.
+ */
+export interface HttpTransportOptions {
+  host: string;
+  port: number;
+  path: string;
+}
+
 export interface ServerOptions {
   config: ServerConfig;
+  /**
+   * Transport mode. When omitted, `stdio` is inferred from the legacy `stdio`
+   * boolean (kept for back-compat with older tests): `stdio: false` → `test`,
+   * otherwise `stdio`.
+   */
+  mode?: ServerMode;
+  /** Legacy toggle. Prefer `mode`. `stdio: false` maps to `mode: 'test'`. */
   stdio?: boolean;
+  /** HTTP transport settings. Required when `mode === 'http'`. */
+  http?: HttpTransportOptions;
 }
+
+/** Default HTTP listener configuration for `mode: 'http'`. */
+export const DEFAULT_HTTP_HOST = '127.0.0.1';
+export const DEFAULT_HTTP_PORT = 6335;
+export const DEFAULT_HTTP_PATH = '/mcp';

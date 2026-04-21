@@ -15,9 +15,27 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 
 import type { ServerConfig } from './types/index.js';
 import { logInfo, logError, logDebug, logToolCall } from './utils/logger.js';
-import { SERVER_NAME, SERVER_VERSION } from './server-types.js';
-import type { SessionState, ServerOptions } from './server-types.js';
-export type { SessionState, ServerOptions } from './server-types.js';
+import {
+  SERVER_NAME,
+  SERVER_VERSION,
+  DEFAULT_HTTP_HOST,
+  DEFAULT_HTTP_PORT,
+  DEFAULT_HTTP_PATH,
+} from './server-types.js';
+import type {
+  SessionState,
+  ServerOptions,
+  ServerMode,
+  HttpTransportOptions,
+} from './server-types.js';
+export type {
+  SessionState,
+  ServerOptions,
+  ServerMode,
+  HttpTransportOptions,
+} from './server-types.js';
+import { startMcpHttpServer, stopMcpHttpServer } from './mcp-http-server.js';
+import type { McpHttpServerHandle } from './mcp-http-server.js';
 
 import { buildServerComponents } from './server-factory.js';
 import { TENANT_GLOBAL } from './constants/tenants.js';
@@ -61,11 +79,18 @@ export class WorkspaceQdrantMcpServer {
     daemonConnected: false,
   };
 
-  private isStdioMode: boolean;
+  private readonly mode: ServerMode;
+  private readonly httpOptions: HttpTransportOptions;
+  private httpHandle: McpHttpServerHandle | null = null;
   private isInitialized = false;
 
   constructor(options: ServerOptions) {
-    this.isStdioMode = options.stdio ?? true;
+    this.mode = resolveMode(options);
+    this.httpOptions = {
+      host: options.http?.host ?? DEFAULT_HTTP_HOST,
+      port: options.http?.port ?? DEFAULT_HTTP_PORT,
+      path: options.http?.path ?? DEFAULT_HTTP_PATH,
+    };
     this.components = buildServerComponents(options.config);
 
     this.server = new Server(
@@ -192,10 +217,18 @@ export class WorkspaceQdrantMcpServer {
       // Seed default search-first rule on fresh installation
       await this.seedDefaultRule();
 
-      if (this.isStdioMode) {
+      if (this.mode === 'stdio') {
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
         logInfo('MCP server started', { mode: 'stdio' });
+      } else if (this.mode === 'http') {
+        this.httpHandle = await startMcpHttpServer(this.server, this.httpOptions);
+        logInfo('MCP server started', {
+          mode: 'http',
+          host: this.httpOptions.host,
+          port: this.httpOptions.port,
+          path: this.httpOptions.path,
+        });
       } else {
         logInfo('MCP server started', { mode: 'test' });
       }
@@ -211,8 +244,16 @@ export class WorkspaceQdrantMcpServer {
   async stop(): Promise<void> {
     logInfo('Stopping MCP server');
     await this.cleanupSession();
+    if (this.httpHandle) {
+      await stopMcpHttpServer(this.httpHandle);
+      this.httpHandle = null;
+    }
     await this.server.close();
     logInfo('MCP server stopped');
+  }
+
+  getMode(): ServerMode {
+    return this.mode;
   }
 
   private async cleanupSession(): Promise<void> {
@@ -292,13 +333,44 @@ export class WorkspaceQdrantMcpServer {
 }
 
 /**
- * Create and start the MCP server
+ * Resolve the effective transport mode from `ServerOptions`.
+ *
+ * Precedence: explicit `mode` wins. If omitted, the legacy `stdio` boolean
+ * maps `false` to `'test'` and everything else to `'stdio'`.
+ */
+function resolveMode(options: ServerOptions): ServerMode {
+  if (options.mode) {
+    return options.mode;
+  }
+  if (options.stdio === false) {
+    return 'test';
+  }
+  return 'stdio';
+}
+
+/**
+ * Create and start the MCP server.
+ *
+ * @param config    Resolved server configuration.
+ * @param modeOrStdio  Either a `ServerMode` string, or (legacy) a boolean
+ *                     `stdio` flag. `true` → stdio, `false` → test.
+ * @param httpOptions  HTTP transport options; required when `modeOrStdio === 'http'`.
  */
 export async function createServer(
   config: ServerConfig,
-  stdio = true
+  modeOrStdio: ServerMode | boolean = true,
+  httpOptions?: HttpTransportOptions
 ): Promise<WorkspaceQdrantMcpServer> {
-  const server = new WorkspaceQdrantMcpServer({ config, stdio });
+  const options: ServerOptions = { config };
+  if (typeof modeOrStdio === 'string') {
+    options.mode = modeOrStdio;
+  } else {
+    options.stdio = modeOrStdio;
+  }
+  if (httpOptions) {
+    options.http = httpOptions;
+  }
+  const server = new WorkspaceQdrantMcpServer(options);
   await server.start();
   return server;
 }

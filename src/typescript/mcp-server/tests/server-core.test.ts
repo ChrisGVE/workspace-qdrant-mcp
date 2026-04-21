@@ -134,6 +134,26 @@ describe('WorkspaceQdrantMcpServer', () => {
 
       // Can't directly test the mode, but the server should be created
       expect(server).toBeDefined();
+      expect(server.getMode()).toBe('stdio');
+    });
+
+    it('should map legacy stdio:false to test mode', () => {
+      const server = new WorkspaceQdrantMcpServer({ config, stdio: false });
+      expect(server.getMode()).toBe('test');
+    });
+
+    it('should accept explicit mode and override legacy stdio flag', () => {
+      const server = new WorkspaceQdrantMcpServer({ config, mode: 'http', stdio: true });
+      expect(server.getMode()).toBe('http');
+    });
+
+    it('should accept http mode with custom transport options', () => {
+      const server = new WorkspaceQdrantMcpServer({
+        config,
+        mode: 'http',
+        http: { host: '0.0.0.0', port: 9999, path: '/custom' },
+      });
+      expect(server.getMode()).toBe('http');
     });
   });
 
