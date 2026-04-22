@@ -15,6 +15,7 @@ pub use path_env::{capture_user_path, setup_environment_path};
 
 use std::env;
 
+use wqm_common::cli_profiles::{load_cli_config, Profile};
 use wqm_common::yaml_defaults::DEFAULT_YAML_CONFIG;
 
 // Re-export shared path functions from wqm-common (single source of truth)
@@ -61,6 +62,12 @@ pub struct Config {
     /// Daemon gRPC address (e.g., "http://127.0.0.1:50051")
     pub daemon_address: String,
 
+    /// Qdrant HTTP base URL (e.g., "http://localhost:6333")
+    pub qdrant_url: String,
+
+    /// Environment variable holding the Qdrant API key, if any.
+    pub qdrant_api_key_env: String,
+
     /// Connection timeout in seconds
     pub connection_timeout_secs: u64,
 
@@ -72,6 +79,9 @@ pub struct Config {
 
     /// Verbose mode
     pub verbose: bool,
+
+    /// Active profile name (empty if no cli-config.toml was consulted).
+    pub active_profile: String,
 }
 
 impl Default for Config {
@@ -79,10 +89,13 @@ impl Default for Config {
         let yaml = &*DEFAULT_YAML_CONFIG;
         Self {
             daemon_address: format!("http://{}:{}", yaml.grpc.host, yaml.grpc.port),
+            qdrant_url: wqm_common::constants::DEFAULT_QDRANT_URL.to_string(),
+            qdrant_api_key_env: String::new(),
             connection_timeout_secs: 5,
             output_format: OutputFormat::Table,
             color_enabled: true,
             verbose: false,
+            active_profile: String::new(),
         }
     }
 }
@@ -93,10 +106,21 @@ impl Config {
         Self::default()
     }
 
+    /// Apply a profile on top of the default config. Env overrides still win.
+    pub fn with_profile(mut self, profile: &Profile) -> Self {
+        self.daemon_address = profile.daemon_address.clone();
+        self.qdrant_url = profile.qdrant_url.clone();
+        self.qdrant_api_key_env = profile.qdrant_api_key_env.clone();
+        self.active_profile = profile.name.clone();
+        self
+    }
+
     /// Load configuration from environment variables
     ///
-    /// Environment variables:
+    /// Environment variables (highest priority, override any profile value):
+    /// - `WQM_PROFILE`: Name of the cli-config.toml profile to activate.
     /// - `WQM_DAEMON_ADDR`: Daemon gRPC address
+    /// - `WQM_QDRANT_URL`: Qdrant HTTP base URL
     /// - `WQM_TIMEOUT`: Connection timeout in seconds
     /// - `WQM_OUTPUT_FORMAT`: Output format (table, json, plain)
     /// - `NO_COLOR`: Disable colored output (any value)
@@ -104,9 +128,31 @@ impl Config {
     pub fn from_env() -> Self {
         let mut config = Self::default();
 
+        // Apply the active profile first, so explicit env vars still override.
+        match load_cli_config() {
+            Ok(Some((file, _path))) => {
+                let profile_name = env::var("WQM_PROFILE")
+                    .ok()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| file.active.clone());
+                if let Some(profile) = file.find(&profile_name) {
+                    config = config.with_profile(profile);
+                }
+            }
+            Ok(None) => {}
+            Err(_) => {
+                // Malformed cli-config.toml is visible via `wqm config show`;
+                // here we prefer a working CLI over a hard failure.
+            }
+        }
+
         // Daemon address
         if let Ok(addr) = env::var("WQM_DAEMON_ADDR") {
             config.daemon_address = addr;
+        }
+
+        if let Ok(url) = env::var("WQM_QDRANT_URL") {
+            config.qdrant_url = url;
         }
 
         // Connection timeout
@@ -189,4 +235,42 @@ impl Config {
 
         Ok(())
     }
+}
+
+/// Resolve the daemon gRPC address using env + active cli-config profile.
+///
+/// Priority: `WQM_DAEMON_ADDR` > active profile > workspace default.
+pub fn resolve_daemon_address() -> String {
+    Config::from_env().daemon_address
+}
+
+/// Resolve the Qdrant HTTP base URL using env + active cli-config profile.
+///
+/// Priority: `QDRANT_URL` > `WQM_QDRANT_URL` > active profile > workspace
+/// default (`http://localhost:6333`). `QDRANT_URL` is honored for
+/// compatibility with docker-compose deployments.
+pub fn resolve_qdrant_url() -> String {
+    if let Ok(url) = env::var("QDRANT_URL") {
+        if !url.is_empty() {
+            return url;
+        }
+    }
+    Config::from_env().qdrant_url
+}
+
+/// Resolve the Qdrant API key (if the active profile names an env var holding
+/// it, or `QDRANT_API_KEY` is set directly).
+pub fn resolve_qdrant_api_key() -> Option<String> {
+    if let Ok(key) = env::var("QDRANT_API_KEY") {
+        if !key.is_empty() {
+            return Some(key);
+        }
+    }
+    let cfg = Config::from_env();
+    if cfg.qdrant_api_key_env.is_empty() {
+        return None;
+    }
+    env::var(&cfg.qdrant_api_key_env)
+        .ok()
+        .filter(|v| !v.is_empty())
 }

@@ -1,15 +1,18 @@
 //! Config command - configuration management
 //!
-//! Subcommands: generate, default, xdg, show, path
+//! Daemon YAML subcommands: generate, default, xdg, yaml-show, path.
+//! CLI connection profile subcommands: list, use, show.
 
 mod daemon;
 mod handlers;
 mod migration;
+mod profile_handlers;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use handlers::{generate, move_to_default, move_to_xdg, show, show_path};
+use handlers::{generate, move_to_default, move_to_xdg, show as show_yaml, show_path};
+use profile_handlers::{list_profiles, show_active_profile, use_profile};
 
 /// Config command arguments
 #[derive(Args)]
@@ -21,14 +24,24 @@ pub struct ConfigCmdArgs {
 /// Config subcommands
 #[derive(Subcommand)]
 enum ConfigCommand {
-    /// Output the default configuration YAML to stdout
-    Generate,
-    /// Move configuration to ~/.workspace-qdrant/ (default location)
-    Default,
-    /// Move configuration to XDG directories
-    Xdg,
-    /// Show the active configuration (merged defaults + user overrides)
+    /// List CLI connection profiles
+    List,
+    /// Switch the active CLI connection profile
+    Use {
+        /// Profile name (e.g. native, docker-local)
+        name: String,
+    },
+    /// Show the active CLI connection profile and its endpoints
     Show,
+    /// Output the default daemon YAML configuration to stdout
+    Generate,
+    /// Move daemon configuration to ~/.workspace-qdrant/ (default location)
+    Default,
+    /// Move daemon configuration to XDG directories
+    Xdg,
+    /// Show the merged daemon YAML configuration (defaults + user overrides)
+    #[command(name = "yaml-show")]
+    YamlShow,
     /// Show configuration file search paths and which one is active
     Path,
 }
@@ -36,10 +49,13 @@ enum ConfigCommand {
 /// Execute config command
 pub async fn execute(args: ConfigCmdArgs) -> Result<()> {
     match args.command {
+        ConfigCommand::List => list_profiles(),
+        ConfigCommand::Use { name } => use_profile(&name),
+        ConfigCommand::Show => show_active_profile(),
         ConfigCommand::Generate => generate(),
         ConfigCommand::Default => move_to_default().await,
         ConfigCommand::Xdg => move_to_xdg().await,
-        ConfigCommand::Show => show(),
+        ConfigCommand::YamlShow => show_yaml(),
         ConfigCommand::Path => show_path(),
     }
 }

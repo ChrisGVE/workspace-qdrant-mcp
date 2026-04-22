@@ -527,13 +527,13 @@ fn payload_tags(payload: &serde_json::Value) -> Vec<String> {
 // ─── List implementation ───────────────────────────────────────────────────
 
 fn qdrant_url() -> String {
-    std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string())
+    crate::config::resolve_qdrant_url()
 }
 
 fn build_qdrant_client() -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10));
 
-    if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
+    if let Some(api_key) = crate::config::resolve_qdrant_api_key() {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "api-key",

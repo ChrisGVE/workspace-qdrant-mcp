@@ -1,6 +1,109 @@
 use super::path_env::*;
 use super::*;
+use serial_test::serial;
 use std::path::PathBuf;
+
+// --- Profile-aware env resolution tests -----------------------------------
+
+fn scrub_profile_env() {
+    std::env::remove_var("WQM_DAEMON_ADDR");
+    std::env::remove_var("WQM_QDRANT_URL");
+    std::env::remove_var("QDRANT_URL");
+    std::env::remove_var("QDRANT_API_KEY");
+    std::env::remove_var("WQM_PROFILE");
+}
+
+fn point_cli_config_at_nonexistent_path() {
+    std::env::set_var(
+        "WQM_CLI_CONFIG",
+        "/tmp/wqm-config-tests-nonexistent-path/cli-config.toml",
+    );
+}
+
+#[test]
+#[serial]
+fn resolve_daemon_address_falls_back_to_default_when_no_profile() {
+    scrub_profile_env();
+    point_cli_config_at_nonexistent_path();
+    let addr = resolve_daemon_address();
+    assert!(addr.starts_with("http://"), "got {addr}");
+    assert!(addr.contains("50051"), "got {addr}");
+    std::env::remove_var("WQM_CLI_CONFIG");
+}
+
+#[test]
+#[serial]
+fn resolve_daemon_address_honors_env_override() {
+    scrub_profile_env();
+    point_cli_config_at_nonexistent_path();
+    std::env::set_var("WQM_DAEMON_ADDR", "http://10.0.0.5:60000");
+    let addr = resolve_daemon_address();
+    assert_eq!(addr, "http://10.0.0.5:60000");
+    std::env::remove_var("WQM_DAEMON_ADDR");
+    std::env::remove_var("WQM_CLI_CONFIG");
+}
+
+#[test]
+#[serial]
+fn resolve_qdrant_url_prefers_explicit_env_var() {
+    scrub_profile_env();
+    point_cli_config_at_nonexistent_path();
+    std::env::set_var("QDRANT_URL", "http://qdrant.internal:6333");
+    let url = resolve_qdrant_url();
+    assert_eq!(url, "http://qdrant.internal:6333");
+    std::env::remove_var("QDRANT_URL");
+    std::env::remove_var("WQM_CLI_CONFIG");
+}
+
+#[test]
+#[serial]
+fn resolve_qdrant_api_key_reads_direct_env() {
+    scrub_profile_env();
+    point_cli_config_at_nonexistent_path();
+    std::env::set_var("QDRANT_API_KEY", "sekret");
+    let key = resolve_qdrant_api_key();
+    std::env::remove_var("QDRANT_API_KEY");
+    std::env::remove_var("WQM_CLI_CONFIG");
+    assert_eq!(key.as_deref(), Some("sekret"));
+}
+
+#[test]
+#[serial]
+fn from_env_applies_active_profile_from_cli_config() {
+    use wqm_common::cli_profiles::{save_cli_config, CliConfigFile};
+    scrub_profile_env();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("cli-config.toml");
+    let mut cfg = CliConfigFile::default();
+    cfg.set_active("docker-local").unwrap();
+    save_cli_config(&path, &cfg).unwrap();
+
+    std::env::set_var("WQM_CLI_CONFIG", &path);
+    let resolved = Config::from_env();
+    assert_eq!(resolved.active_profile, "docker-local");
+
+    std::env::remove_var("WQM_CLI_CONFIG");
+}
+
+#[test]
+#[serial]
+fn from_env_wqm_profile_overrides_active_field() {
+    use wqm_common::cli_profiles::{save_cli_config, CliConfigFile};
+    scrub_profile_env();
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("cli-config.toml");
+    let cfg = CliConfigFile::default(); // active = native
+    save_cli_config(&path, &cfg).unwrap();
+
+    std::env::set_var("WQM_CLI_CONFIG", &path);
+    std::env::set_var("WQM_PROFILE", "docker-local");
+    let resolved = Config::from_env();
+    std::env::remove_var("WQM_PROFILE");
+    std::env::remove_var("WQM_CLI_CONFIG");
+    assert_eq!(resolved.active_profile, "docker-local");
+}
 
 #[test]
 fn test_default_config() {

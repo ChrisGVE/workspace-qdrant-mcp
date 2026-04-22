@@ -7,17 +7,17 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-/// Get Qdrant REST base URL from environment or default.
+/// Get Qdrant REST base URL. Priority: `QDRANT_URL` env > active cli-config
+/// profile > workspace default (`http://localhost:6333`).
 pub fn qdrant_base_url() -> String {
-    std::env::var("QDRANT_URL")
-        .unwrap_or_else(|_| wqm_common::constants::DEFAULT_QDRANT_URL.to_string())
+    crate::config::resolve_qdrant_url()
 }
 
 /// Build an HTTP client for Qdrant REST API with optional API key.
 pub fn build_qdrant_http_client() -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30));
 
-    if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
+    if let Some(api_key) = crate::config::resolve_qdrant_api_key() {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "api-key",

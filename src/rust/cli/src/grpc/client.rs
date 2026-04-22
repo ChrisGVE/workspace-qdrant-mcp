@@ -91,9 +91,19 @@ impl DaemonClient {
         })
     }
 
-    /// Connect to daemon at default address (localhost:50051)
+    /// Connect to daemon at the default address resolved from environment and
+    /// the active cli-config.toml profile.
+    ///
+    /// Priority: `WQM_DAEMON_ADDR` > active profile daemon_address > built-in
+    /// default (`http://127.0.0.1:50051`). Keeping the constant around lets
+    /// tests and diagnostics quote the hard-coded fallback.
     pub async fn connect_default() -> Result<Self> {
-        Self::connect(&format!("http://127.0.0.1:{}", DEFAULT_GRPC_PORT)).await
+        let addr = crate::config::resolve_daemon_address();
+        if addr.is_empty() {
+            Self::connect(&format!("http://127.0.0.1:{}", DEFAULT_GRPC_PORT)).await
+        } else {
+            Self::connect(&addr).await
+        }
     }
 
     /// Get mutable reference to SystemService client

@@ -73,12 +73,24 @@ impl Probe {
 /// Resolve the Qdrant URL for probing. Priority:
 /// 1. `WQM_QDRANT_URL` env (explicit override)
 /// 2. `QDRANT_URL` env (matches daemon config)
-/// 3. Compose default `http://127.0.0.1:6333`
+/// 3. Active cli-config.toml profile (only when one is active)
+/// 4. Compose default `http://127.0.0.1:6333`
 fn qdrant_url() -> String {
-    env::var("WQM_QDRANT_URL")
-        .ok()
-        .or_else(|| env::var("QDRANT_URL").ok())
-        .unwrap_or_else(|| "http://127.0.0.1:6333".to_string())
+    if let Ok(url) = env::var("WQM_QDRANT_URL") {
+        if !url.is_empty() {
+            return url;
+        }
+    }
+    if let Ok(url) = env::var("QDRANT_URL") {
+        if !url.is_empty() {
+            return url;
+        }
+    }
+    let cfg = crate::config::Config::from_env();
+    if !cfg.active_profile.is_empty() {
+        return cfg.qdrant_url;
+    }
+    "http://127.0.0.1:6333".to_string()
 }
 
 /// Optional MCP HTTP URL. Returns `None` in stdio deployments so the probe
@@ -343,6 +355,13 @@ mod tests {
         env::remove_var("WQM_MCP_HTTP_URL");
         env::remove_var("MCP_HTTP_HOST");
         env::remove_var("MCP_HTTP_PORT");
+        env::remove_var("WQM_PROFILE");
+        // Point at a path that can't exist so the user's real cli-config.toml
+        // (if present) does not leak profile endpoints into the test.
+        env::set_var(
+            "WQM_CLI_CONFIG",
+            "/dev/null/wqm-health-test-nonexistent/cli-config.toml",
+        );
     }
 
     #[test]
