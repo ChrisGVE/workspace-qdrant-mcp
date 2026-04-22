@@ -1,9 +1,13 @@
-# Docker compose end-to-end integration test
+# Docker compose end-to-end integration tests.
 #
-# Builds both images locally (no push), boots the full telemetry stack
-# (minimal + observability + qdrant overlays), and runs the e2e test script.
+# Two jobs:
+#   - observability (tags / dispatch only): boots minimal + observability +
+#     qdrant and validates the telemetry pipeline.
+#   - reference-stack (also runs on PRs touching docker/ Rust Dockerfiles or
+#     the MCP server): boots docker/compose/reference.yml and runs the
+#     reference-stack test suite under tests/integration/docker/.
 #
-# Triggers: version tags (same filter as docker-publish), manual dispatch.
+# Triggers: version tags, PRs with matching path filters, manual dispatch.
 
 name: Docker Integration Test
 
@@ -11,6 +15,13 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
+  pull_request:
+    paths:
+      - 'docker/**'
+      - 'src/typescript/mcp-server/**'
+      - 'src/rust/**/Dockerfile*'
+      - 'tests/integration/docker/**'
+      - '.github/workflows/docker-integration.yml'
   workflow_dispatch:
     inputs:
       ref:
@@ -27,8 +38,11 @@ permissions:
   contents: read
 
 jobs:
-  e2e:
-    name: Full-stack e2e
+  observability:
+    name: Full-stack observability e2e
+    # Skip on PRs — observability runs on tags + dispatch only. The PR path
+    # filter fires the reference-stack job below instead.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -81,4 +95,83 @@ jobs:
         with:
           name: wqm-e2e-logs
           path: /tmp/wqm-e2e-logs/
+          if-no-files-found: ignore
+
+  reference-stack:
+    name: Reference-stack e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      MEMEXD_IMAGE: memexd:ci
+      MCP_IMAGE: mcp:ci
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build memexd image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.memexd
+          load: true
+          platforms: linux/amd64
+          tags: memexd:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.mcp
+          load: true
+          platforms: linux/amd64
+          tags: mcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/rust
+
+      - name: Fetch ONNX Runtime static library
+        run: |
+          mkdir -p "$HOME/.onnxruntime-static"
+          curl -L "https://github.com/supertone-inc/onnxruntime-build/releases/download/v1.23.2/onnxruntime-linux-x64-static_lib-1.23.2.tgz" \
+            -o "$HOME/.onnxruntime-static/ort.tgz"
+          tar xzf "$HOME/.onnxruntime-static/ort.tgz" -C "$HOME/.onnxruntime-static"
+          rm "$HOME/.onnxruntime-static/ort.tgz"
+          echo "ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib" >> "$GITHUB_ENV"
+
+      - name: Build host wqm (release)
+        run: cargo build --release --manifest-path src/rust/Cargo.toml --package wqm-cli
+
+      - name: Export WQM_BIN
+        run: echo "WQM_BIN=$GITHUB_WORKSPACE/src/rust/target/release/wqm" >> "$GITHUB_ENV"
+
+      - name: Run reference-stack integration suite
+        run: tests/integration/docker/run-all.sh
+        env:
+          MEMEXD_IMAGE: memexd:ci
+          MCP_IMAGE: mcp:ci
+          POLL_TIMEOUT: "240"
+
+      - name: Upload scratch dirs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wqm-reference-stack-logs
+          path: /tmp/wqm-e2e-*
           if-no-files-found: ignore
