@@ -29,6 +29,7 @@ import type { Server as McpServer } from '@modelcontextprotocol/sdk/server/index
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import type { HttpTlsOptions, HttpTransportOptions } from './server-types.js';
+import { recordHttpRequest } from './telemetry/metrics.js';
 import { logInfo, logError } from './utils/logger.js';
 import type { AuthConfig } from './auth-middleware.js';
 import { createAuthMiddleware } from './auth-middleware.js';
@@ -154,6 +155,12 @@ async function handleRequest(
   mcpPath: string,
   authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean }
 ): Promise<void> {
+  // Record the final status once, no matter which branch terminates the
+  // response. Hooking `res.writeHead` keeps middleware + handler + SDK
+  // transport code paths consistent without threading a recorder through
+  // each of them.
+  instrumentHttpResponse(req, res);
+
   // Liveness probe: always 200, no auth. Intentionally narrow — only exact
   // match on `/healthz` GET. Anything else goes through auth.
   if (req.url === '/healthz' && req.method === 'GET') {
@@ -186,4 +193,27 @@ async function handleRequest(
       res.end('Internal Server Error');
     }
   }
+}
+
+/**
+ * Wrap `res.writeHead` so the first status-bearing call records a Prometheus
+ * counter sample. Repeated calls (e.g. the SDK re-setting headers on stream
+ * continuations) are ignored — the first response line is what clients see.
+ */
+function instrumentHttpResponse(req: IncomingMessage, res: ServerResponse): void {
+  let recorded = false;
+  const originalWriteHead = res.writeHead.bind(res);
+  res.writeHead = ((...args: unknown[]): ServerResponse => {
+    const statusCode = typeof args[0] === 'number' ? args[0] : res.statusCode;
+    if (!recorded) {
+      recorded = true;
+      recordHttpRequest(req.url, statusCode);
+    }
+    // Delegate to the original implementation with the original arguments.
+    // The signature is overloaded (writeHead(code), writeHead(code, headers),
+    // writeHead(code, message), writeHead(code, message, headers)), so cast
+    // through `any` rather than re-declaring every overload.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (originalWriteHead as any)(...args);
+  }) as typeof res.writeHead;
 }

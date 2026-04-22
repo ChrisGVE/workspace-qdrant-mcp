@@ -1,13 +1,16 @@
 /**
  * Prometheus metrics for the workspace-qdrant MCP server.
  *
- * Defines 6 metric families:
- *   wqm_mcp_tool_invocations_total   - Counter, labels [tool, status]
- *   wqm_mcp_tool_duration_seconds    - Histogram, label [tool], buckets [0.01…5]
- *   wqm_mcp_session_count            - Gauge
- *   wqm_mcp_daemon_fallback_total    - Counter, labels [tool, reason]
- *   wqm_mcp_cache_hits_total         - Counter, label [cache]
- *   wqm_mcp_cache_misses_total       - Counter, label [cache]
+ * Defines 9 metric families:
+ *   wqm_mcp_tool_invocations_total     - Counter, labels [tool, status]
+ *   wqm_mcp_tool_duration_seconds      - Histogram, label [tool], buckets [0.01…5]
+ *   wqm_mcp_session_count              - Gauge
+ *   wqm_mcp_daemon_fallback_total      - Counter, labels [tool, reason]
+ *   wqm_mcp_cache_hits_total           - Counter, label [cache]
+ *   wqm_mcp_cache_misses_total         - Counter, label [cache]
+ *   wqm_mcp_http_requests_total        - Counter, labels [path, status_class]
+ *   wqm_mcp_http_auth_failures_total   - Counter, label [reason]
+ *   wqm_mcp_http_rate_limited_total    - Counter (no labels; single signal)
  *
  * Cache hit/miss counters are defined but unwired: no cache layer exists in
  * the MCP server at v0.1.3. They are ready for future use.
@@ -75,6 +78,42 @@ export const cacheMisses = new Counter({
   registers: [register],
 });
 
+// ── HTTP transport metrics (MCP_SERVER_MODE=http) ──────────────────────────
+
+/**
+ * Total HTTP requests handled by the MCP listener, bucketed by logical path
+ * (`/mcp`, `/healthz`, `other`) and status class (`2xx`, `4xx`, `5xx`). These
+ * are only incremented in HTTP mode; stdio deployments leave them at zero.
+ */
+export const httpRequests = new Counter({
+  name: 'wqm_mcp_http_requests_total',
+  help: 'MCP HTTP transport requests by path and status class',
+  labelNames: ['path', 'status_class'] as const,
+  registers: [register],
+});
+
+/**
+ * HTTP bearer-auth failures. Labelled by failure reason (`missing_header`,
+ * `invalid_token`, `not_configured`) so dashboards can distinguish
+ * mis-configured clients from probable attacks.
+ */
+export const httpAuthFailures = new Counter({
+  name: 'wqm_mcp_http_auth_failures_total',
+  help: 'MCP HTTP auth failures by failure reason',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+/**
+ * HTTP rate-limit hits. Single counter — alerting on sustained non-zero rate
+ * catches runaway clients or brute-force attempts.
+ */
+export const httpRateLimited = new Counter({
+  name: 'wqm_mcp_http_rate_limited_total',
+  help: 'MCP HTTP requests rejected by the per-IP sliding-window rate limiter',
+  registers: [register],
+});
+
 // ── Tool wrapper ─────────────────────────────────────────────────────────────
 
 /**
@@ -124,6 +163,42 @@ export function recordSessionEnd(): void {
  */
 export function recordDaemonFallback(tool: string, reason: string): void {
   daemonFallback.labels({ tool, reason }).inc();
+}
+
+// ── HTTP helpers ────────────────────────────────────────────────────────────
+
+/** Logical path label for HTTP counters — collapses ad-hoc URLs into buckets. */
+export function httpPathLabel(rawPath: string | undefined): string {
+  if (rawPath === undefined) return 'other';
+  const noQuery = rawPath.split('?', 1)[0] ?? '';
+  if (noQuery === '/healthz') return '/healthz';
+  if (noQuery === '/mcp' || noQuery.startsWith('/mcp/')) return '/mcp';
+  return 'other';
+}
+
+/** Status-class label for HTTP counters (`2xx`, `4xx`, `5xx`, or `other`). */
+export function httpStatusClass(statusCode: number): string {
+  if (statusCode >= 200 && statusCode < 300) return '2xx';
+  if (statusCode >= 400 && statusCode < 500) return '4xx';
+  if (statusCode >= 500 && statusCode < 600) return '5xx';
+  return 'other';
+}
+
+/** Record a completed HTTP request. Safe to call from middleware or handler. */
+export function recordHttpRequest(rawPath: string | undefined, statusCode: number): void {
+  httpRequests
+    .labels({ path: httpPathLabel(rawPath), status_class: httpStatusClass(statusCode) })
+    .inc();
+}
+
+/** Record a bearer-auth failure. `reason` is free-form but low-cardinality. */
+export function recordHttpAuthFailure(reason: string): void {
+  httpAuthFailures.labels({ reason }).inc();
+}
+
+/** Record a rate-limit rejection. */
+export function recordHttpRateLimited(): void {
+  httpRateLimited.inc();
 }
 
 // ── Stdio-mode exit hook ──────────────────────────────────────────────────────

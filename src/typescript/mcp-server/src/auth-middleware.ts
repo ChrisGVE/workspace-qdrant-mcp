@@ -26,6 +26,7 @@
 import { timingSafeEqual, createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import { recordHttpAuthFailure, recordHttpRateLimited } from './telemetry/metrics.js';
 import { logInfo, logDebug } from './utils/logger.js';
 
 /** Default rate limit (requests per minute per client IP). */
@@ -165,6 +166,7 @@ export function createAuthMiddleware(
       });
       res.end('Too Many Requests');
       logDebug('HTTP rate limit exceeded', { clientIp });
+      recordHttpRateLimited();
       return { authorized: false };
     }
 
@@ -174,12 +176,14 @@ export function createAuthMiddleware(
     if (presented === null) {
       writeUnauthorized(res, 'Missing or malformed Authorization header');
       logDebug('HTTP auth rejected: missing bearer', { clientIp });
+      recordHttpAuthFailure('missing_header');
       return { authorized: false };
     }
 
     if (config.token === null) {
       // `requireAuth` should have caught this at startup; belt-and-braces.
       writeUnauthorized(res, 'Server is not configured for authentication');
+      recordHttpAuthFailure('not_configured');
       return { authorized: false };
     }
 
@@ -189,6 +193,7 @@ export function createAuthMiddleware(
         clientIp,
         presentedDigest: tokenDigest(presented),
       });
+      recordHttpAuthFailure('invalid_token');
       return { authorized: false };
     }
 
