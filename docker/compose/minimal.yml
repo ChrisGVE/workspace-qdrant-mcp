@@ -50,6 +50,8 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+    networks:
+      - workspace-network
     labels:
       <<: *watchtower-off
 
@@ -70,5 +72,16 @@ services:
     depends_on:
       memexd:
         condition: service_healthy
+    networks:
+      - workspace-network
     labels:
       <<: *watchtower-off
+
+# ── Networks ─────────────────────────────────────────────────────────────────
+#
+# Shared with docker/compose/reference.yml and observability.yml so overlay
+# compositions put every service on the same bridge.
+
+networks:
+  workspace-network:
+    driver: bridge

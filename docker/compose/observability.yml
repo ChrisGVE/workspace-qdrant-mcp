@@ -1,10 +1,18 @@
 # docker/compose/observability.yml
 #
 # Self-contained observability overlay: Prometheus + Grafana + otel-collector.
-# Layer this on top of minimal.yml for users who do NOT run main-docker.
+# Layer this on top of minimal.yml OR reference.yml for users who do NOT
+# run main-docker.
 #
-# Usage:
+# Usage (reference stack — recommended for single-host deployments):
 #   cp docker/.env.example docker/.env   # then edit values
+#   docker compose \
+#     -f docker/compose/reference.yml \
+#     -f docker/compose/observability.yml \
+#     --env-file docker/.env \
+#     up -d
+#
+# Usage (minimal stack):
 #   docker compose \
 #     -f docker/compose/minimal.yml \
 #     -f docker/compose/observability.yml \
@@ -15,9 +23,13 @@
 #   curl -X POST http://localhost:9090/-/reload
 #
 # Deployment choices:
-#   minimal.yml only             → memexd + mcp (external Qdrant, no observability)
-#   minimal.yml + observability.yml  → same + self-hosted prometheus/grafana/otel-collector
-#   full-stack.yml               → attaches to main-docker (owns observability there)
+#   reference.yml                        → memexd + mcp + Qdrant (no observability)
+#   reference.yml + observability.yml    → same + self-hosted prometheus/grafana/otel-collector
+#   minimal.yml + observability.yml      → memexd + mcp (external Qdrant) + observability
+#   full-stack.yml                       → attaches to main-docker (owns observability there)
+#
+# All four compose files share the `workspace-network` bridge so
+# Prometheus can reach `memexd:9091`, `mcp:9092`, and `qdrant:6333`.
 #
 # compose-spec (no Swarm, no BuildKit extensions)
 
@@ -46,6 +58,8 @@ services:
       - prometheus_data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - workspace-network
     labels:
       <<: *watchtower-off
 
@@ -65,6 +79,8 @@ services:
       - "${GRAFANA_PORT:-3000}:3000"
     depends_on:
       - prometheus
+    networks:
+      - workspace-network
     labels:
       <<: *watchtower-off
 
@@ -80,10 +96,19 @@ services:
       - "${OTEL_HTTP_PORT:-4318}:4318"
     expose:
       - "8888"
+    networks:
+      - workspace-network
     labels:
       <<: *watchtower-off
 
-# ── Volumes ───────────────────────────────────────────────────────────────────
+# ── Networks + Volumes ───────────────────────────────────────────────────────
+#
+# Network name matches reference.yml and minimal.yml so services resolve
+# each other by container name when the overlay is composed in.
+
+networks:
+  workspace-network:
+    driver: bridge
 
 volumes:
   prometheus_data:

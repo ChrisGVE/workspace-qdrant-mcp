@@ -74,6 +74,41 @@ the system.
         http://127.0.0.1:6335/mcp
    ```
 
+## Add local observability (Prometheus + Grafana + OTLP)
+
+Compose in `observability.yml` to attach a self-hosted Prometheus +
+Grafana + OpenTelemetry Collector to any of the primary stacks. The
+overlay joins `workspace-network`, so Prometheus reaches the memexd
+(`:9091`) and MCP (`:9092`) metrics endpoints by service DNS without
+publishing extra host ports.
+
+Extra `.env` values (all optional):
+
+```
+PROMETHEUS_PORT=9090
+GRAFANA_PORT=3000
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=change-me
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+```
+
+Launch:
+
+```bash
+docker compose \
+  --env-file docker/.env \
+  -f docker/compose/reference.yml \
+  -f docker/compose/observability.yml up -d
+```
+
+Prometheus scrape targets live in `docker/prometheus/prometheus.yml`
+(already wired to `memexd`, `mcp`, `qdrant`, `otel-collector`).
+Grafana picks up `docker/grafana/provisioning/` on first boot.
+
+Already running `main-docker`? Use `full-stack.yml` instead — it
+attaches memexd + mcp to the main-docker observability stack and
+omits Prometheus/Grafana here.
+
 ## Add Let's Encrypt TLS
 
 Extra `.env` values:
@@ -133,3 +168,7 @@ from the host would fail silently.
 | 6335 | mcp | MCP Streamable HTTP (`/mcp`, `/healthz`) |
 | 9092 | mcp | MCP Prometheus metrics |
 | 80, 443 | caddy (TLS overlay only) | Reverse proxy |
+| 9090 | prometheus (observability overlay) | Prometheus UI |
+| 3000 | grafana (observability overlay) | Grafana UI |
+| 4317 | otel-collector (observability overlay) | OTLP gRPC |
+| 4318 | otel-collector (observability overlay) | OTLP HTTP |
