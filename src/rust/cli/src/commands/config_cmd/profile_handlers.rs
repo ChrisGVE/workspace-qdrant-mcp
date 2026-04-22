@@ -67,10 +67,7 @@ pub fn use_profile(name: &str) -> Result<()> {
         return Ok(());
     }
 
-    cfg.set_active(name).map_err(|e| {
-        let known: Vec<String> = cfg.profiles.iter().map(|p| p.name.clone()).collect();
-        anyhow::anyhow!("{}. Known profiles: {}", e, known.join(", "))
-    })?;
+    cfg.set_active(name)?;
     save_cli_config(&path, &cfg).context("Failed to write CLI config")?;
     output::success(&format!("Active profile → {}", name.bold()));
     Ok(())

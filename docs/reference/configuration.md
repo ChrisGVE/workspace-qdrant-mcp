@@ -24,10 +24,28 @@ No project-local configuration file is searched. All components use the same sea
 ### Generate the default configuration file
 
 ```bash
-wqm config init     # Write embedded defaults to ~/.workspace-qdrant/config.yaml
-wqm config show     # Print active configuration (merged defaults + overrides)
-wqm config edit     # Open config in $EDITOR
+wqm config generate  > ~/.workspace-qdrant/config.yaml   # Write embedded daemon defaults
+wqm config yaml-show                                     # Print merged daemon YAML config
+wqm config path                                          # Show which config file is active
 ```
+
+### CLI connection profiles
+
+`wqm` selects its daemon and Qdrant endpoints from a profile stored in
+`cli-config.toml` (canonical path: `$XDG_CONFIG_HOME/wqm/cli-config.toml`,
+override with `WQM_CLI_CONFIG`). The file is created with two built-in
+profiles on first use — `native` (daemon + Qdrant on localhost) and
+`docker-local` (reference compose stack).
+
+```bash
+wqm config list              # List profiles and endpoints
+wqm config use docker-local  # Switch the active profile
+wqm config show              # Show the active profile and effective endpoints
+```
+
+`WQM_PROFILE` overrides the active profile for a single invocation;
+`WQM_DAEMON_ADDR`, `QDRANT_URL`, and `WQM_QDRANT_URL` still win over any
+profile value.
 
 ---
 
