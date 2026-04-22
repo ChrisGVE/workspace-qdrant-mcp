@@ -16,6 +16,7 @@ parallel on the same host.
 | `test-cli-connection.sh` | host `wqm` CLI talks to the dockerized daemon via the `docker-local` profile |
 | `test-path-transparency.sh` | daemon records the host's absolute project path verbatim (WQM_DEV_ROOT bind-mount invariant) |
 | `test-restart-persistence.sh` | `compose down` (without `--volumes`) preserves project registration + Qdrant storage |
+| `test-chaos.sh` | restart each service × 3 and SIGTERM memexd; stack recovers, exit codes clean. See [reliability notes](../../../docs/deployment/reliability.md) for full coverage + known failure modes. |
 | `run-all.sh` | driver that runs every `test-*.sh` sequentially |
 
 ## Running locally
