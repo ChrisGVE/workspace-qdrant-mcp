@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 /// Errors that can occur during embedding generation
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum EmbeddingError {
     #[error("Model initialization failed: {message}")]
     InitializationError { message: String },
@@ -24,6 +24,32 @@ pub enum EmbeddingError {
     /// budget — just re-lease the item for later.
     #[error("Embedding subsystem temporarily unavailable, retry after {retry_after_secs}s")]
     TemporarilyUnavailable { retry_after_secs: u64 },
+
+    /// Remote embedding endpoint returned a non-success HTTP status. The
+    /// `status_code` is the upstream value; `message` carries any structured
+    /// error body the provider supplied (truncated by the caller).
+    #[error("Remote embedding error: HTTP {status_code}: {message}")]
+    RemoteError { status_code: u16, message: String },
+
+    /// Adaptive rate limiter exhausted its retry budget. `consecutive_429s`
+    /// counts the unbroken streak of throttle responses; `retry_after_secs`
+    /// reflects the longest server-supplied wait observed in that streak.
+    #[error("Rate limit exhausted after {consecutive_429s} consecutive 429s; retry after {retry_after_secs}s")]
+    RateLimitExhausted {
+        consecutive_429s: u32,
+        retry_after_secs: u64,
+    },
+
+    /// Active provider dimensionality disagrees with the dimensionality
+    /// stored on existing Qdrant collections. The daemon refuses to start
+    /// in this state; the operator must run `wqm admin reembed --confirm`.
+    #[error(
+        "Embedding dimension mismatch: provider returns {actual_dim}, collections store {stored_dim}"
+    )]
+    DimensionMismatch {
+        actual_dim: usize,
+        stored_dim: usize,
+    },
 }
 
 /// Configuration for embedding generation
@@ -100,4 +126,75 @@ pub struct PreprocessedText {
     pub cleaned: String,
     pub tokens: Vec<String>,
     pub token_ids: Vec<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedding_error_is_clone() {
+        let err = EmbeddingError::TemporarilyUnavailable {
+            retry_after_secs: 30,
+        };
+        let cloned = err.clone();
+        assert!(matches!(
+            cloned,
+            EmbeddingError::TemporarilyUnavailable {
+                retry_after_secs: 30
+            }
+        ));
+    }
+
+    #[test]
+    fn remote_error_displays_status_and_message() {
+        let err = EmbeddingError::RemoteError {
+            status_code: 503,
+            message: "service unavailable".to_string(),
+        };
+        let s = err.to_string();
+        assert!(s.contains("HTTP 503"), "missing status: {s}");
+        assert!(s.contains("service unavailable"), "missing body: {s}");
+    }
+
+    #[test]
+    fn rate_limit_exhausted_displays_streak_and_retry_after() {
+        let err = EmbeddingError::RateLimitExhausted {
+            consecutive_429s: 6,
+            retry_after_secs: 60,
+        };
+        let s = err.to_string();
+        assert!(s.contains("6 consecutive 429s"), "missing streak: {s}");
+        assert!(s.contains("retry after 60s"), "missing retry: {s}");
+    }
+
+    #[test]
+    fn dimension_mismatch_displays_both_dims() {
+        let err = EmbeddingError::DimensionMismatch {
+            actual_dim: 1536,
+            stored_dim: 384,
+        };
+        let s = err.to_string();
+        assert!(s.contains("1536"));
+        assert!(s.contains("384"));
+    }
+
+    #[test]
+    fn dimension_mismatch_round_trip_clone() {
+        let err = EmbeddingError::DimensionMismatch {
+            actual_dim: 1536,
+            stored_dim: 384,
+        };
+        let cloned = err.clone();
+        match cloned {
+            EmbeddingError::DimensionMismatch {
+                actual_dim,
+                stored_dim,
+            } => {
+                assert_eq!(actual_dim, 1536);
+                assert_eq!(stored_dim, 384);
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
 }
