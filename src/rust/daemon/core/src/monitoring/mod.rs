@@ -9,6 +9,7 @@ pub mod logging_structured;
 pub mod metrics_aggregation;
 pub mod metrics_alerts;
 pub mod metrics_core;
+mod metrics_factories; // per-subsystem Prometheus collector factories
 mod metrics_helpers; // impl blocks for DaemonMetrics helper methods
 pub mod metrics_history;
 pub mod metrics_server;
@@ -18,6 +19,8 @@ pub mod tool_monitor;
 
 #[cfg(test)]
 mod logging_tests;
+#[cfg(test)]
+mod metrics_core_tests;
 #[cfg(test)]
 mod metrics_history_tests;
 #[cfg(test)]
