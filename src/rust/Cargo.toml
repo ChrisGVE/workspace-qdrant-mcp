@@ -105,6 +105,9 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # Crypto
 sha2 = "0.10"
 
+# HTTP date parsing for adaptive rate limiting (Retry-After headers)
+httpdate = "1.0"
+
 # OCR (optional)
 leptess = "0.14"
 

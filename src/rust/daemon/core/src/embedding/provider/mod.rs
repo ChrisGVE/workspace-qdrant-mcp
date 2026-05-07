@@ -17,6 +17,9 @@ use async_trait::async_trait;
 
 use crate::config::EmbeddingSettings;
 
+pub mod rate_limit;
+pub use rate_limit::RateLimitAdapter;
+
 use super::types::{DenseEmbedding, EmbeddingError};
 
 /// Runtime contract for a dense-embedding backend.
