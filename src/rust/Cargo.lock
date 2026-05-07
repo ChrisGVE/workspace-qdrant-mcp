@@ -8370,6 +8370,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "html2text",
+ "httpdate",
  "ignore",
  "image",
  "imara-diff",

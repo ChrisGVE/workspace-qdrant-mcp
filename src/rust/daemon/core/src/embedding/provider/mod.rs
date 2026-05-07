@@ -17,7 +17,9 @@ use async_trait::async_trait;
 
 use crate::config::EmbeddingSettings;
 
+pub mod fastembed;
 pub mod rate_limit;
+pub use fastembed::FastEmbedProvider;
 pub use rate_limit::RateLimitAdapter;
 
 use super::types::{DenseEmbedding, EmbeddingError};
@@ -57,47 +59,42 @@ pub trait DenseProvider: Send + Sync + std::fmt::Debug {
 
 /// Construct the active dense provider from configuration.
 ///
-/// Synchronous: no network I/O. Concrete provider implementations land in
-/// later commits; this factory currently rejects every value with
-/// `EmbeddingError::InitializationError` so callers integrate against the
-/// final signature now.
+/// Synchronous: no network I/O. The OpenAI-compatible provider lands in a
+/// later commit (PRD §9 commit 5); until then this factory only knows how
+/// to construct the local FastEmbed implementation. The provider-name
+/// dispatch becomes config-driven once `EmbeddingSettings` gains a
+/// `provider` field (PRD §9 commit 6); for the moment FastEmbed is the
+/// only valid backend.
 pub fn build_dense_provider(
     settings: &EmbeddingSettings,
-    _num_threads: Option<usize>,
+    num_threads: Option<usize>,
 ) -> Result<Arc<dyn DenseProvider>, EmbeddingError> {
-    Err(EmbeddingError::InitializationError {
-        message: format!(
-            "dense provider not yet wired (cache_max_entries={}, model_cache_dir={:?})",
-            settings.cache_max_entries, settings.model_cache_dir
-        ),
-    })
+    let provider = FastEmbedProvider::new(
+        DEFAULT_FASTEMBED_BATCH_SIZE,
+        settings.model_cache_dir.clone(),
+        num_threads,
+    );
+    Ok(Arc::new(provider))
 }
+
+const DEFAULT_FASTEMBED_BATCH_SIZE: usize = 32;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn factory_returns_initialization_error_until_impls_land() {
+    fn factory_constructs_fastembed_provider() {
         let settings = EmbeddingSettings::default();
-        let err = build_dense_provider(&settings, None)
-            .expect_err("factory must reject construction until impls land");
-        match err {
-            EmbeddingError::InitializationError { message } => {
-                assert!(
-                    message.contains("not yet wired"),
-                    "unexpected msg: {message}"
-                );
-            }
-            other => panic!("unexpected error variant: {other:?}"),
-        }
+        let provider = build_dense_provider(&settings, None).expect("factory must succeed");
+        assert_eq!(provider.output_dim(), 384);
+        assert_eq!(provider.metrics_label(), "fastembed");
     }
 
     #[test]
     fn factory_signature_accepts_optional_num_threads() {
         let settings = EmbeddingSettings::default();
-        // Both arms must compile and yield the same error variant.
-        let _ = build_dense_provider(&settings, Some(4));
-        let _ = build_dense_provider(&settings, None);
+        let _ = build_dense_provider(&settings, Some(4)).unwrap();
+        let _ = build_dense_provider(&settings, None).unwrap();
     }
 }
