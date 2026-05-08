@@ -43,6 +43,7 @@ impl GrpcServer {
             document_service,
             embedding_service,
             project_service,
+            storage_client,
         )
         .await
     }
@@ -228,6 +229,7 @@ impl GrpcServer {
         document_service: DocumentServiceImpl,
         embedding_service: EmbeddingServiceImpl,
         project_service: Option<ProjectServiceImpl>,
+        local_storage_client: Arc<StorageClient>,
     ) -> Result<(), GrpcError> {
         use crate::proto;
 
@@ -291,9 +293,34 @@ impl GrpcServer {
                 proto::tracking_write_service_server::TrackingWriteServiceServer::new(
                     TrackingWriteServiceImpl::new(write_handle.clone()),
                 );
-            let admin_write_svc = proto::admin_write_service_server::AdminWriteServiceServer::new(
-                AdminWriteServiceImpl::new(write_handle),
-            );
+            let mut admin_impl = AdminWriteServiceImpl::new(write_handle);
+            if let (Some(settings), Some(provider), Some(pool), Some(pause_flag)) = (
+                self.embedding_settings.clone(),
+                self.dense_provider.clone(),
+                self.db_pool.clone(),
+                self.pause_flag.clone(),
+            ) {
+                let storage_for_reembed = self
+                    .storage_client
+                    .clone()
+                    .unwrap_or_else(|| Arc::clone(&local_storage_client));
+                let ctx = Arc::new(crate::services::reembed::ReembedContext {
+                    settings,
+                    provider,
+                    storage_client: storage_for_reembed,
+                    pool,
+                    pause_flag,
+                });
+                admin_impl = admin_impl.with_reembed_context(ctx);
+                tracing::info!("AdminWriteService TriggerReembed wiring complete");
+            } else {
+                tracing::warn!(
+                    "AdminWriteService TriggerReembed NOT wired: missing one of \
+                     (embedding_settings, dense_provider, db_pool, pause_flag)"
+                );
+            }
+            let admin_write_svc =
+                proto::admin_write_service_server::AdminWriteServiceServer::new(admin_impl);
             router = router
                 .add_service(queue_write_svc)
                 .add_service(watch_write_svc)

@@ -8514,6 +8514,7 @@ name = "workspace-qdrant-grpc"
 version = "0.1.3"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "fastembed",
  "futures",

@@ -59,6 +59,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # Crypto for idempotency key generation
 sha2 = "0.10"
 
+# Async traits (for CollectionRecreator in reembed pipeline)
+async-trait = "0.1"
+
 # Qdrant client (for rebuild_rules scrolling)
 qdrant-client = "1.17"
 

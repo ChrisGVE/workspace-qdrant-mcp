@@ -63,6 +63,7 @@ pub fn spawn_grpc_server(
     hierarchy_builder: Arc<HierarchyBuilder>,
     lexicon_pool: SqlitePool,
     dense_provider: Arc<dyn DenseProvider>,
+    embedding_settings: Arc<workspace_qdrant_core::config::EmbeddingSettings>,
 ) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     let grpc_port = args.grpc_port;
     let grpc_addr = format!("127.0.0.1:{}", grpc_port)
@@ -86,7 +87,8 @@ pub fn spawn_grpc_server(
             .with_search_db(search_db)
             .with_hierarchy_builder(hierarchy_builder)
             .with_lexicon_manager(grpc_lexicon_manager)
-            .with_dense_provider(dense_provider);
+            .with_dense_provider(dense_provider)
+            .with_embedding_settings(embedding_settings);
 
         if let Some(lsp_manager) = lsp_manager {
             grpc_server = grpc_server.with_lsp_manager(lsp_manager);

@@ -148,4 +148,14 @@ impl GrpcServer {
         self.dense_provider = Some(provider);
         self
     }
+
+    /// Inject the embedding settings (authoritative `output_dim` for the
+    /// reembed pipeline + dim-mismatch guard messages).
+    pub fn with_embedding_settings(
+        mut self,
+        settings: Arc<workspace_qdrant_core::config::EmbeddingSettings>,
+    ) -> Self {
+        self.embedding_settings = Some(settings);
+        self
+    }
 }

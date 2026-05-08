@@ -1,6 +1,11 @@
 //! AdminWriteService gRPC implementation
 //!
 //! Delegates all state.db mutations to the WriteActor via WriteActorHandle.
+//! TriggerReembed bypasses the WriteActor channel because the reembed
+//! pipeline manages its own queue + Qdrant lifecycle (PRD §6.6).
+
+use std::sync::Arc;
+use std::time::Duration;
 
 use tonic::{Request, Response, Status};
 use workspace_qdrant_core::write_actor::{
@@ -12,14 +17,31 @@ use crate::proto::{
     RenameTenantAdminRequest, RenameTenantAdminResponse, TriggerReembedRequest,
     TriggerReembedResponse,
 };
+use crate::services::reembed::{execute_reembed, ReembedContext, StorageClientRecreator};
+
+/// Drain-to-quiescence timeout per PRD §6.6.
+const REEMBED_DRAIN_TIMEOUT: Duration = Duration::from_secs(60);
+/// Polling cadence while waiting for in_progress items to drain.
+const REEMBED_DRAIN_POLL: Duration = Duration::from_millis(500);
 
 pub struct AdminWriteServiceImpl {
     write_actor: WriteActorHandle,
+    reembed_ctx: Option<Arc<ReembedContext>>,
 }
 
 impl AdminWriteServiceImpl {
     pub fn new(write_actor: WriteActorHandle) -> Self {
-        Self { write_actor }
+        Self {
+            write_actor,
+            reembed_ctx: None,
+        }
+    }
+
+    /// Inject the dependencies required by `TriggerReembed`. Without this
+    /// call the RPC returns `failed_precondition`.
+    pub fn with_reembed_context(mut self, ctx: Arc<ReembedContext>) -> Self {
+        self.reembed_ctx = Some(ctx);
+        self
     }
 }
 
@@ -76,8 +98,28 @@ impl AdminWriteService for AdminWriteServiceImpl {
 
     async fn trigger_reembed(
         &self,
-        _request: Request<TriggerReembedRequest>,
+        request: Request<TriggerReembedRequest>,
     ) -> Result<Response<TriggerReembedResponse>, Status> {
-        Err(Status::unimplemented("TriggerReembed flow not yet wired"))
+        let req = request.into_inner();
+        if !req.confirm {
+            return Err(Status::failed_precondition(
+                "TriggerReembed requires confirm=true",
+            ));
+        }
+
+        let ctx = self.reembed_ctx.clone().ok_or_else(|| {
+            Status::failed_precondition(
+                "TriggerReembed not available: reembed context not wired \
+                     (embedding settings, provider, storage client, db pool, \
+                     pause flag must all be present)",
+            )
+        })?;
+
+        let recreator = StorageClientRecreator {
+            storage: Arc::clone(&ctx.storage_client),
+        };
+        let resp =
+            execute_reembed(&ctx, &recreator, REEMBED_DRAIN_TIMEOUT, REEMBED_DRAIN_POLL).await?;
+        Ok(Response::new(resp))
     }
 }

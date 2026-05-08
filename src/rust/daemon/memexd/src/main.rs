@@ -56,6 +56,7 @@ fn wire_grpc(
     qc: &queue_init::QueueComponents,
     lsp_manager: &Option<Arc<tokio::sync::RwLock<workspace_qdrant_core::LanguageServerManager>>>,
     watch_refresh_signal: &Arc<Notify>,
+    embedding_settings: Arc<workspace_qdrant_core::config::EmbeddingSettings>,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     grpc_setup::spawn_grpc_server(
         args,
@@ -70,6 +71,7 @@ fn wire_grpc(
         Arc::clone(&qc.hierarchy_builder),
         qc.watch_pool.clone(),
         Arc::clone(&qc.dense_provider),
+        embedding_settings,
     )
 }
 
@@ -163,12 +165,14 @@ async fn run_daemon(
     tokio::spawn(async move { health_monitor.run(health_monitor_token).await });
 
     // Phase 6: gRPC server + queue start + recovery
+    let embedding_settings = Arc::new(daemon_config.embedding.clone());
     bg_handles.grpc_handle = Some(wire_grpc(
         &args,
         &db_handles,
         &qc,
         &lsp_manager,
         &watch_refresh_signal,
+        embedding_settings,
     )?);
     queue_init::start_processor(&mut qc.unified_queue_processor, &daemon_config).await?;
     queue_init::spawn_recovery_tasks(

@@ -316,6 +316,8 @@ pub struct GrpcServer {
     pub(crate) write_actor: Option<WriteActorHandle>,
     /// Active dense embedding provider for EmbeddingService.
     pub(crate) dense_provider: Option<Arc<dyn DenseProvider>>,
+    /// Embedding settings — authoritative dim for reembed recreation.
+    pub(crate) embedding_settings: Option<Arc<workspace_qdrant_core::config::EmbeddingSettings>>,
 }
 
 /// Server metrics for monitoring
@@ -348,6 +350,7 @@ impl GrpcServer {
             storage_client: None,
             write_actor: None,
             dense_provider: None,
+            embedding_settings: None,
         }
     }
 }
