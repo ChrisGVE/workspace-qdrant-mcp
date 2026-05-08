@@ -3,6 +3,7 @@
 //! Consolidates logging, metrics, alerting, metrics history,
 //! remote monitoring, and tool monitoring into a single module namespace.
 
+pub mod embedding_metrics;
 pub mod logging_config;
 pub mod logging_perf;
 pub mod logging_structured;

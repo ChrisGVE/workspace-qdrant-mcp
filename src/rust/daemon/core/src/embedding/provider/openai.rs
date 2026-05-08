@@ -125,7 +125,12 @@ impl OpenAiCompatibleProvider {
     /// Issue a single batch request to the upstream and parse the response.
     /// Returns embeddings in the input order.
     async fn embed_chunk(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+        let waits_before = self.rate_limiter.waits_observed();
         self.rate_limiter.pre_request().await;
+        if self.rate_limiter.waits_observed() > waits_before {
+            crate::monitoring::embedding_metrics::record_rate_limit_wait(self.metrics_tag);
+        }
+        let started = std::time::Instant::now();
 
         let request = OpenAiEmbeddingRequest {
             input: texts.to_vec(),
@@ -143,14 +148,28 @@ impl OpenAiCompatibleProvider {
             .json(&request)
             .send()
             .await
-            .map_err(|e| EmbeddingError::GenerationError {
-                message: format!("Embedding HTTP request failed: {e}"),
+            .map_err(|e| {
+                crate::monitoring::embedding_metrics::record_request(
+                    self.metrics_tag,
+                    &self.model,
+                    None,
+                    started.elapsed().as_secs_f64(),
+                );
+                EmbeddingError::GenerationError {
+                    message: format!("Embedding HTTP request failed: {e}"),
+                }
             })?;
 
         let status = response.status();
         let headers = response.headers().clone();
         self.rate_limiter
             .observe_response(&headers, status.as_u16());
+        crate::monitoring::embedding_metrics::record_request(
+            self.metrics_tag,
+            &self.model,
+            Some(status.as_u16()),
+            started.elapsed().as_secs_f64(),
+        );
 
         if status.is_success() {
             let parsed: OpenAiEmbeddingResponse =
@@ -279,7 +298,7 @@ impl DenseProvider for OpenAiCompatibleProvider {
 /// Map a base URL onto the fixed metrics-label enum. Cardinality is bounded
 /// to: `openai`, `azure_openai`, `lmstudio`, `llama_cpp`,
 /// `openai_compatible_other`. `fastembed` is owned by `FastEmbedProvider`.
-fn classify_provider(base_url: &str) -> &'static str {
+pub(crate) fn classify_provider(base_url: &str) -> &'static str {
     let lower = base_url.to_ascii_lowercase();
     if lower.contains("openai.azure.com") {
         "azure_openai"
