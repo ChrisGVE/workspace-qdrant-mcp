@@ -2,6 +2,7 @@
 //!
 //! Split from the original `processing_loop.rs` to stay within the 500-line file limit.
 
+mod batch_processing;
 mod idle_work;
 mod item_dispatch;
 mod loop_core;
