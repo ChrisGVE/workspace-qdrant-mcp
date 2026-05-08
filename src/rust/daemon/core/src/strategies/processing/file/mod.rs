@@ -14,8 +14,10 @@
 //! - `update_preamble` — hash comparison + reference-counted old point deletion
 
 mod chunk_embed;
+mod component;
 mod delete;
 mod fts5_index;
+mod grammar;
 mod graph_ingest;
 mod ingest;
 mod keyword_extract;
