@@ -12,6 +12,7 @@
 //! MUST return `EmbeddingError::GenerationError` rather than emit a NaN.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 
@@ -63,22 +64,40 @@ pub trait DenseProvider: Send + Sync + std::fmt::Debug {
 
 /// Construct the active dense provider from configuration.
 ///
-/// Synchronous: no network I/O. The OpenAI-compatible provider lands in a
-/// later commit (PRD §9 commit 5); until then this factory only knows how
-/// to construct the local FastEmbed implementation. The provider-name
-/// dispatch becomes config-driven once `EmbeddingSettings` gains a
-/// `provider` field (PRD §9 commit 6); for the moment FastEmbed is the
-/// only valid backend.
+/// Synchronous: no network I/O. Dispatch is config-driven via
+/// `settings.provider` (`"fastembed"` or `"openai_compatible"`). Any other
+/// value yields `EmbeddingError::InitializationError`.
 pub fn build_dense_provider(
     settings: &EmbeddingSettings,
     num_threads: Option<usize>,
 ) -> Result<Arc<dyn DenseProvider>, EmbeddingError> {
-    let provider = FastEmbedProvider::new(
-        DEFAULT_FASTEMBED_BATCH_SIZE,
-        settings.model_cache_dir.clone(),
-        num_threads,
-    );
-    Ok(Arc::new(provider))
+    match settings.provider.as_str() {
+        "fastembed" => {
+            let provider = FastEmbedProvider::new(
+                DEFAULT_FASTEMBED_BATCH_SIZE,
+                settings.model_cache_dir.clone(),
+                num_threads,
+            );
+            Ok(Arc::new(provider))
+        }
+        "openai_compatible" => {
+            let provider = OpenAiCompatibleProvider::new(
+                settings.base_url.clone(),
+                settings.model.clone(),
+                settings.remote_batch_size,
+                settings.output_dim,
+                &settings.api_key_env_var,
+                Duration::from_secs(settings.health_probe_cache_secs),
+            )?;
+            Ok(Arc::new(provider))
+        }
+        other => Err(EmbeddingError::InitializationError {
+            message: format!(
+                "Unknown embedding provider '{}': expected 'fastembed' or 'openai_compatible'",
+                other
+            ),
+        }),
+    }
 }
 
 const DEFAULT_FASTEMBED_BATCH_SIZE: usize = 32;
@@ -86,10 +105,17 @@ const DEFAULT_FASTEMBED_BATCH_SIZE: usize = 32;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
+
+    fn fastembed_settings() -> EmbeddingSettings {
+        let mut settings = EmbeddingSettings::default();
+        settings.provider = "fastembed".to_string();
+        settings
+    }
 
     #[test]
     fn factory_constructs_fastembed_provider() {
-        let settings = EmbeddingSettings::default();
+        let settings = fastembed_settings();
         let provider = build_dense_provider(&settings, None).expect("factory must succeed");
         assert_eq!(provider.output_dim(), 384);
         assert_eq!(provider.metrics_label(), "fastembed");
@@ -97,8 +123,40 @@ mod tests {
 
     #[test]
     fn factory_signature_accepts_optional_num_threads() {
-        let settings = EmbeddingSettings::default();
+        let settings = fastembed_settings();
         let _ = build_dense_provider(&settings, Some(4)).unwrap();
         let _ = build_dense_provider(&settings, None).unwrap();
+    }
+
+    #[test]
+    fn test_factory_fastembed() {
+        let settings = fastembed_settings();
+        let provider = build_dense_provider(&settings, None).expect("factory must succeed");
+        assert_eq!(provider.output_dim(), 384);
+    }
+
+    #[test]
+    #[serial]
+    fn test_factory_openai_compatible_no_network() {
+        let env_var = "WQM_TEST_FACTORY_OPENAI_KEY";
+        std::env::set_var(env_var, "sk-test-no-network");
+
+        let mut settings = EmbeddingSettings::default();
+        settings.provider = "openai_compatible".to_string();
+        settings.api_key_env_var = env_var.to_string();
+        settings.output_dim = 1536;
+
+        let provider = build_dense_provider(&settings, None).expect("factory must succeed");
+        assert_eq!(provider.output_dim(), 1536);
+
+        std::env::remove_var(env_var);
+    }
+
+    #[test]
+    fn test_factory_unknown_provider() {
+        let mut settings = EmbeddingSettings::default();
+        settings.provider = "unknown".to_string();
+        let err = build_dense_provider(&settings, None).expect_err("must reject unknown provider");
+        assert!(matches!(err, EmbeddingError::InitializationError { .. }));
     }
 }

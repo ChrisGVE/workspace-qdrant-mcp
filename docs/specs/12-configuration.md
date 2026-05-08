@@ -159,13 +159,20 @@ git:
 
 # Embedding generation
 embedding:
-  model: "sentence-transformers/all-MiniLM-L6-v2"  # 384-dim, 256-token max
+  provider: "openai_compatible"        # "fastembed" | "openai_compatible"
+  model: "text-embedding-3-small"      # Model identifier (provider-specific)
+  base_url: "https://api.openai.com"   # Endpoint base URL (no trailing slash); openai_compatible only
+  remote_batch_size: 128               # Texts per HTTP request; openai_compatible only
+  api_key_env_var: "OPENAI_API_KEY"    # Env var holding the API key (resolved at startup)
+  output_dim: 1536                     # Authoritative dim for startup guard + reembed
+  health_probe_cache_secs: 60          # Health-probe cache TTL
   enable_sparse_vectors: true          # Enable BM25 sparse vectors for hybrid search
   chunk_size: 384                      # Chars per chunk (≈82 prose tokens, ≈110 code tokens)
   chunk_overlap: 58                    # 15% overlap for context preservation
   cache_max_entries: 1000              # Max cached embedding results
-  model_cache_dir: null                # Override model download dir (~/.cache/fastembed/)
-  # Env overrides: WQM_EMBEDDING_CACHE_MAX_ENTRIES, WQM_EMBEDDING_MODEL_CACHE_DIR
+  model_cache_dir: null                # Override FastEmbed model download dir (~/.cache/fastembed/)
+  # Env overrides: WQM_EMBEDDING_CACHE_MAX_ENTRIES, WQM_EMBEDDING_MODEL_CACHE_DIR,
+  #                WQM_EMBEDDING_PROVIDER, WQM_EMBEDDING_BASE_URL, WQM_EMBEDDING_API_KEY_ENV_VAR
 
 # LSP (Language Server Protocol) integration
 lsp:

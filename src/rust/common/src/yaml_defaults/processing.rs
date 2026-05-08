@@ -108,12 +108,18 @@ pub struct YamlEmbeddingConfig {
     pub cache_enabled: bool,
     pub cache_max_entries: usize,
     pub model_cache_dir: Option<String>,
+    pub provider: String,
+    pub base_url: String,
+    pub remote_batch_size: usize,
+    pub api_key_env_var: String,
+    pub output_dim: usize,
+    pub health_probe_cache_secs: u64,
 }
 
 impl Default for YamlEmbeddingConfig {
     fn default() -> Self {
         Self {
-            model: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+            model: "text-embedding-3-small".to_string(),
             enable_sparse_vectors: true,
             chunk_size: 384,
             chunk_overlap: 58,
@@ -121,6 +127,12 @@ impl Default for YamlEmbeddingConfig {
             cache_enabled: true,
             cache_max_entries: 1000,
             model_cache_dir: None,
+            provider: "openai_compatible".to_string(),
+            base_url: "https://api.openai.com".to_string(),
+            remote_batch_size: 128,
+            api_key_env_var: "OPENAI_API_KEY".to_string(),
+            output_dim: 1536,
+            health_probe_cache_secs: 60,
         }
     }
 }

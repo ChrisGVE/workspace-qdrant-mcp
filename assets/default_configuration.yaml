@@ -250,14 +250,10 @@ qdrant:
   # Consistency: Ensures uniform configuration across project collections
   default_collection:
     # vector_size: Dimension count for dense vector embeddings
-    # Purpose: Defines vector space dimensionality for embedding storage
-    # Critical requirement: Must exactly match embedding model output dimensions
-    # Model compatibility: sentence-transformers/all-MiniLM-L6-v2 outputs 384 dimensions
-    # Performance impact: Higher dimensions increase memory usage and search time
-    # Model examples:
-    #   - all-MiniLM-L6-v2: 384 dimensions (balanced performance)
-    #   - all-mpnet-base-v2: 768 dimensions (higher quality)
-    #   - text-embedding-ada-002: 1536 dimensions (OpenAI)
+    # DEPRECATED: This field is no longer the authoritative source of truth for
+    # vector dimension. Use `embedding.output_dim` (confirmed by background probe).
+    # This value is ignored when `embedding.provider` is configured.
+    # Kept for backwards reference only.
     # Format: Integer > 0
     vector_size: 384
 
@@ -364,20 +360,54 @@ qdrant:
 # vector representations for semantic search. Critical for search quality,
 # performance, and system resource utilization.
 embedding:
-  # model: FastEmbed model identifier for text vectorization
-  # Purpose: Specifies which pre-trained model to use for generating text embeddings
-  # Performance characteristics: Balanced speed/quality model selection
-  # Quality considerations: all-MiniLM-L6-v2 provides good semantic understanding
-  # Multilingual options: Consider e5-small-v2 for non-English content
-  # Specialization: Choose domain-specific models for technical/scientific content
-  # Model examples:
-  #   - sentence-transformers/all-MiniLM-L6-v2: 384d, fast, good quality
-  #   - sentence-transformers/all-mpnet-base-v2: 768d, slower, higher quality
-  #   - BAAI/bge-small-en-v1.5: 384d, optimized for English
-  #   - intfloat/e5-small-v2: 384d, multilingual support
-  # Compatibility: vector_size must match model output dimensions
+  # provider: Active dense embedding provider
+  # Purpose: Selects between local (FastEmbed/ONNX) and remote (OpenAI-compatible) providers
+  # Valid values:
+  #   - "fastembed": Local ONNX-based provider (no network, fixed at AllMiniLM-L6-v2 / 384 dim)
+  #   - "openai_compatible": Remote provider speaking the OpenAI /v1/embeddings protocol
+  # Format: String enum
+  provider: "openai_compatible"
+
+  # model: Model identifier passed to the configured provider
+  # Purpose: Names the model used for generating text embeddings
+  # When provider="fastembed": informational; FastEmbed currently pinned to AllMiniLM-L6-v2
+  # When provider="openai_compatible": passed verbatim in the API request body
+  # Examples:
+  #   - "text-embedding-3-small": OpenAI, 1536 dim native (default)
+  #   - "text-embedding-3-large": OpenAI, 3072 dim
+  #   - "text-embedding-ada-002": OpenAI, 1536 dim (legacy)
   # Format: String model identifier
-  model: "sentence-transformers/all-MiniLM-L6-v2"
+  model: "text-embedding-3-small"
+
+  # base_url: Endpoint base URL for the OpenAI-compatible provider
+  # Purpose: Allows pointing at OpenAI, Azure OpenAI, LM Studio, llama.cpp, vLLM, etc.
+  # No effect when provider="fastembed"
+  # Format: URL string, no trailing slash
+  base_url: "https://api.openai.com"
+
+  # remote_batch_size: Number of texts per HTTP request for the remote provider
+  # Purpose: Controls batching of inputs sent to the remote /v1/embeddings endpoint
+  # No effect when provider="fastembed"
+  # Format: Integer > 0
+  remote_batch_size: 128
+
+  # api_key_env_var: Name of the environment variable holding the API key
+  # Purpose: Daemon resolves this env var at startup; the key itself never lives on disk
+  # Format: String (env var name)
+  api_key_env_var: "OPENAI_API_KEY"
+
+  # output_dim: Authoritative output dimensionality of the configured model
+  # Purpose: Single source of truth for the startup dim-mismatch guard and for
+  # collection recreation during reembed. The runtime probe may detect drift
+  # against this value and emit a WARN log, but never silently overrides it.
+  # Format: Integer > 0
+  output_dim: 1536
+
+  # health_probe_cache_secs: Seconds to cache the embedding provider health probe result
+  # Purpose: Avoids hammering the upstream on every health check call
+  # 0 = no caching (probe on every call)
+  # Format: Integer ≥ 0
+  health_probe_cache_secs: 60
 
   # enable_sparse_vectors: Hybrid search capability activation
   # Purpose: Enables generation of sparse keyword vectors alongside dense semantic vectors

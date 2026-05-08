@@ -234,6 +234,13 @@ fn build_embedding_settings(yaml: &YamlConfig) -> EmbeddingSettings {
     EmbeddingSettings {
         cache_max_entries: yaml.embedding.cache_max_entries,
         model_cache_dir: yaml.embedding.model_cache_dir.as_ref().map(PathBuf::from),
+        provider: yaml.embedding.provider.clone(),
+        model: yaml.embedding.model.clone(),
+        base_url: yaml.embedding.base_url.clone(),
+        remote_batch_size: yaml.embedding.remote_batch_size,
+        api_key_env_var: yaml.embedding.api_key_env_var.clone(),
+        output_dim: yaml.embedding.output_dim,
+        health_probe_cache_secs: yaml.embedding.health_probe_cache_secs,
     }
 }
 
