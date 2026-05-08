@@ -69,6 +69,7 @@ fn wire_grpc(
         lsp_manager.clone(),
         Arc::clone(&qc.hierarchy_builder),
         qc.watch_pool.clone(),
+        Arc::clone(&qc.dense_provider),
     )
 }
 
@@ -117,6 +118,16 @@ async fn run_daemon(
         &watch_refresh_signal,
     )
     .await?;
+
+    // Phase 5b: Background dense-provider health probe loop.
+    let health_monitor = workspace_qdrant_core::embedding::provider::ProviderHealthMonitor::new(
+        Arc::clone(&qc.dense_provider),
+        std::time::Duration::from_secs(
+            workspace_qdrant_core::embedding::provider::health_monitor::DEFAULT_PROBE_INTERVAL_SECS,
+        ),
+    );
+    let health_monitor_token = qc.adaptive_shutdown_token.child_token();
+    tokio::spawn(async move { health_monitor.run(health_monitor_token).await });
 
     // Phase 6: gRPC server + queue start + recovery
     bg_handles.grpc_handle = Some(wire_grpc(

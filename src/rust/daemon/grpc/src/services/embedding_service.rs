@@ -1,23 +1,25 @@
 //! EmbeddingService gRPC implementation
 //!
-//! Provides embedding generation for TypeScript MCP server.
+//! Provides embedding generation for the TypeScript MCP server.
 //! Exposes 2 RPCs: EmbedText (dense embedding), GenerateSparseVector (BM25 sparse vector).
 //!
-//! This service centralizes embedding generation in the daemon, allowing the TypeScript
-//! MCP server to use the same FastEmbed model as the Rust processing pipeline.
+//! Dense generation is delegated to the injected `Arc<dyn DenseProvider>`,
+//! so this service inherits whichever provider the daemon was configured
+//! with (FastEmbed local, OpenAI-compatible remote, etc.). Sparse vectors
+//! still use a service-local BM25 corpus.
 
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use lru::LruCache;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
+use workspace_qdrant_core::embedding::provider::DenseProvider;
 use workspace_qdrant_core::BM25;
 
 use crate::proto::{
@@ -25,26 +27,11 @@ use crate::proto::{
     SparseVectorRequest, SparseVectorResponse,
 };
 
-/// Global embedding model instance (lazy-initialized, thread-safe)
-static EMBEDDING_MODEL: OnceLock<TokioMutex<TextEmbedding>> = OnceLock::new();
-
-/// Global embedding cache (content hash → embedding vector)
-static EMBEDDING_CACHE: OnceLock<TokioMutex<LruCache<u64, Vec<f32>>>> = OnceLock::new();
-
-/// Global BM25 instance for sparse vector generation
-static BM25_MODEL: OnceLock<TokioRwLock<BM25>> = OnceLock::new();
-
 /// Default cache size (number of entries)
 const DEFAULT_CACHE_SIZE: usize = 1000;
 
 /// Default BM25 parameters
 const DEFAULT_BM25_K1: f32 = 1.2;
-
-/// Default vector dimension for all-MiniLM-L6-v2
-const DEFAULT_VECTOR_SIZE: i32 = 384;
-
-/// Default model name
-const DEFAULT_MODEL_NAME: &str = "all-MiniLM-L6-v2";
 
 /// Cache metrics for monitoring
 pub struct EmbeddingCacheMetrics {
@@ -67,71 +54,45 @@ impl EmbeddingCacheMetrics {
     }
 }
 
-/// Global cache metrics instance
+/// Global cache metrics instance (read by health/metrics endpoints).
 pub static CACHE_METRICS: EmbeddingCacheMetrics = EmbeddingCacheMetrics::new();
 
-/// EmbeddingService implementation
-pub struct EmbeddingServiceImpl;
+/// EmbeddingService implementation backed by an injected dense provider.
+pub struct EmbeddingServiceImpl {
+    dense_provider: Arc<dyn DenseProvider>,
+    cache: Arc<TokioMutex<LruCache<u64, Vec<f32>>>>,
+    bm25: Arc<TokioRwLock<BM25>>,
+}
 
 impl EmbeddingServiceImpl {
-    /// Create a new EmbeddingService
-    pub fn new() -> Self {
-        Self
+    /// Create a new EmbeddingService bound to the given dense provider.
+    pub fn new(dense_provider: Arc<dyn DenseProvider>) -> Self {
+        let cache_size =
+            NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
+        Self {
+            dense_provider,
+            cache: Arc::new(TokioMutex::new(LruCache::new(cache_size))),
+            bm25: Arc::new(TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))),
+        }
     }
 
-    /// Initialize the global embedding model, cache, and BM25 if not already initialized
-    fn init_embedding_model() -> Result<(), Status> {
-        // Initialize the embedding model
-        EMBEDDING_MODEL.get_or_init(|| {
-            info!("Initializing FastEmbed model ({})...", DEFAULT_MODEL_NAME);
-            let model = TextEmbedding::try_new(
-                InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(true),
-            )
-            .expect("Failed to initialize FastEmbed model");
-            info!("FastEmbed model initialized successfully");
-            TokioMutex::new(model)
-        });
-
-        // Initialize the embedding cache
-        EMBEDDING_CACHE.get_or_init(|| {
-            let cache_size =
-                NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
-            info!(
-                "Initializing embedding cache with {} entries",
-                DEFAULT_CACHE_SIZE
-            );
-            TokioMutex::new(LruCache::new(cache_size))
-        });
-
-        // Initialize BM25 for sparse vector generation
-        BM25_MODEL.get_or_init(|| {
-            info!("Initializing BM25 model (k1={})...", DEFAULT_BM25_K1);
-            TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))
-        });
-
-        Ok(())
-    }
-
-    /// Compute a hash of the input text for cache lookup
+    /// Compute a hash of the input text for cache lookup.
     fn content_hash(text: &str) -> u64 {
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
         hasher.finish()
     }
 
-    /// Simple tokenization for BM25 sparse vector generation
+    /// Simple tokenization for BM25 sparse vector generation.
     fn tokenize(text: &str) -> Vec<String> {
         wqm_common::nlp::tokenize(text)
     }
 
-    /// Generate dense embedding using FastEmbed
+    /// Generate a dense embedding via the injected provider, with an LRU cache.
     async fn generate_embedding_internal(&self, text: &str) -> Result<Vec<f32>, Status> {
-        Self::init_embedding_model()?;
-
-        // Check cache first
         let content_hash = Self::content_hash(text);
-        if let Some(cache) = EMBEDDING_CACHE.get() {
-            let mut cache_guard = cache.lock().await;
+        {
+            let mut cache_guard = self.cache.lock().await;
             if let Some(cached_embedding) = cache_guard.get(&content_hash) {
                 CACHE_METRICS.hits.fetch_add(1, Ordering::Relaxed);
                 debug!("Cache hit for content hash {}", content_hash);
@@ -139,43 +100,21 @@ impl EmbeddingServiceImpl {
             }
         }
 
-        // Cache miss - generate embedding
         CACHE_METRICS.misses.fetch_add(1, Ordering::Relaxed);
 
-        let model = EMBEDDING_MODEL
-            .get()
-            .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
+        let mut embeddings = self.dense_provider.embed(&[text]).await.map_err(|e| {
+            error!("Dense provider embed failed: {:?}", e);
+            Status::internal(format!("Embedding generation failed: {}", e))
+        })?;
 
-        let text_owned = text.to_string();
+        let dense = embeddings
+            .pop()
+            .ok_or_else(|| Status::internal("Provider returned no embedding"))?;
 
-        // Acquire lock and generate embedding
-        let embedding = {
-            let mut model_guard = model.lock().await;
-            let documents = vec![text_owned.as_str()];
+        let embedding = dense.vector;
 
-            match model_guard.embed(documents, None) {
-                Ok(embeddings) => {
-                    if embeddings.is_empty() {
-                        return Err(Status::internal("FastEmbed returned empty embeddings"));
-                    }
-                    embeddings
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| Status::internal("FastEmbed returned no embeddings"))?
-                }
-                Err(e) => {
-                    error!("FastEmbed embedding generation failed: {:?}", e);
-                    return Err(Status::internal(format!(
-                        "Embedding generation failed: {}",
-                        e
-                    )));
-                }
-            }
-        };
-
-        // Store in cache
-        if let Some(cache) = EMBEDDING_CACHE.get() {
-            let mut cache_guard = cache.lock().await;
+        {
+            let mut cache_guard = self.cache.lock().await;
             cache_guard.put(content_hash, embedding.clone());
         }
 
@@ -183,17 +122,11 @@ impl EmbeddingServiceImpl {
         Ok(embedding)
     }
 
-    /// Generate sparse vector using BM25
+    /// Generate a sparse vector using BM25 (service-local corpus).
     async fn generate_sparse_vector_internal(
         &self,
         text: &str,
     ) -> Result<HashMap<u32, f32>, Status> {
-        Self::init_embedding_model()?;
-
-        let bm25 = BM25_MODEL
-            .get()
-            .ok_or_else(|| Status::internal("BM25 model not initialized"))?;
-
         let tokens = Self::tokenize(text);
 
         if tokens.is_empty() {
@@ -201,17 +134,10 @@ impl EmbeddingServiceImpl {
             return Ok(HashMap::new());
         }
 
-        // Add document to corpus and generate sparse vector
         let sparse_map: HashMap<u32, f32> = {
-            let mut bm25_guard = bm25.write().await;
-
-            // Add document to corpus for IDF calculation
+            let mut bm25_guard = self.bm25.write().await;
             bm25_guard.add_document(&tokens);
-
-            // Generate sparse vector
             let sparse = bm25_guard.generate_sparse_vector(&tokens);
-
-            // Convert to HashMap<u32, f32>
             sparse
                 .indices
                 .into_iter()
@@ -225,11 +151,11 @@ impl EmbeddingServiceImpl {
         );
         Ok(sparse_map)
     }
-}
 
-impl Default for EmbeddingServiceImpl {
-    fn default() -> Self {
-        Self::new()
+    /// BM25 corpus vocabulary size (used in the SparseVectorResponse).
+    async fn vocab_size(&self) -> i32 {
+        let bm25_guard = self.bm25.read().await;
+        bm25_guard.vocab_size() as i32
     }
 }
 
@@ -246,13 +172,15 @@ impl EmbeddingService for EmbeddingServiceImpl {
             return Err(Status::invalid_argument("Text cannot be empty"));
         }
 
-        // Model parameter is ignored for now - only all-MiniLM-L6-v2 supported
-        let model_name = req.model.unwrap_or_else(|| DEFAULT_MODEL_NAME.to_string());
-        if model_name != DEFAULT_MODEL_NAME {
-            debug!(
-                "Requested model '{}' not available, using default '{}'",
-                model_name, DEFAULT_MODEL_NAME
-            );
+        let provider_label = self.dense_provider.provider_label().to_string();
+        let requested_model = req.model.clone();
+        if let Some(ref m) = requested_model {
+            if m != &provider_label {
+                debug!(
+                    "Requested model '{}' does not match active provider '{}', using active provider",
+                    m, provider_label
+                );
+            }
         }
 
         info!(
@@ -263,12 +191,11 @@ impl EmbeddingService for EmbeddingServiceImpl {
         match self.generate_embedding_internal(&req.text).await {
             Ok(embedding) => {
                 let dimensions = embedding.len() as i32;
-
-                // Verify dimension matches expected model output
-                if dimensions != DEFAULT_VECTOR_SIZE {
+                let expected_dim = self.dense_provider.output_dim() as i32;
+                if dimensions != expected_dim {
                     tracing::warn!(
                         "Embedding dimension mismatch: expected {}, got {}",
-                        DEFAULT_VECTOR_SIZE,
+                        expected_dim,
                         dimensions
                     );
                 }
@@ -276,7 +203,7 @@ impl EmbeddingService for EmbeddingServiceImpl {
                 Ok(Response::new(EmbedTextResponse {
                     embedding,
                     dimensions,
-                    model_name: DEFAULT_MODEL_NAME.to_string(),
+                    model_name: provider_label,
                     success: true,
                     error_message: String::new(),
                 }))
@@ -286,7 +213,7 @@ impl EmbeddingService for EmbeddingServiceImpl {
                 Ok(Response::new(EmbedTextResponse {
                     embedding: vec![],
                     dimensions: 0,
-                    model_name: DEFAULT_MODEL_NAME.to_string(),
+                    model_name: provider_label,
                     success: false,
                     error_message: e.message().to_string(),
                 }))
@@ -317,14 +244,7 @@ impl EmbeddingService for EmbeddingServiceImpl {
 
         match self.generate_sparse_vector_internal(&req.text).await {
             Ok(sparse_map) => {
-                // Get vocabulary size
-                let vocab_size = if let Some(bm25) = BM25_MODEL.get() {
-                    let bm25_guard = bm25.read().await;
-                    bm25_guard.vocab_size() as i32
-                } else {
-                    0
-                };
-
+                let vocab_size = self.vocab_size().await;
                 Ok(Response::new(SparseVectorResponse {
                     indices_values: sparse_map,
                     vocab_size,
@@ -348,16 +268,20 @@ impl EmbeddingService for EmbeddingServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use workspace_qdrant_core::embedding::provider::FastEmbedProvider;
+
+    fn make_service() -> EmbeddingServiceImpl {
+        let provider: Arc<dyn DenseProvider> = Arc::new(FastEmbedProvider::new(32, None, None));
+        EmbeddingServiceImpl::new(provider)
+    }
 
     #[test]
     fn test_tokenize() {
-        // Basic tokenization
         let tokens = EmbeddingServiceImpl::tokenize("Hello world test");
         assert!(tokens.contains(&"hello".to_string()));
         assert!(tokens.contains(&"world".to_string()));
         assert!(tokens.contains(&"test".to_string()));
 
-        // Stopwords should be filtered
         let tokens2 = EmbeddingServiceImpl::tokenize("the quick brown fox and the lazy dog");
         assert!(!tokens2.contains(&"the".to_string()));
         assert!(!tokens2.contains(&"and".to_string()));
@@ -367,19 +291,17 @@ mod tests {
 
     #[test]
     fn test_content_hash() {
-        // Same content should produce same hash
         let hash1 = EmbeddingServiceImpl::content_hash("test content");
         let hash2 = EmbeddingServiceImpl::content_hash("test content");
         assert_eq!(hash1, hash2);
 
-        // Different content should produce different hash
         let hash3 = EmbeddingServiceImpl::content_hash("different content");
         assert_ne!(hash1, hash3);
     }
 
     #[tokio::test]
     async fn test_embed_text() {
-        let service = EmbeddingServiceImpl::new();
+        let service = make_service();
 
         let request = Request::new(EmbedTextRequest {
             text: "Test embedding generation".to_string(),
@@ -393,12 +315,10 @@ mod tests {
         let resp = response.into_inner();
 
         assert!(resp.success);
-        assert_eq!(resp.dimensions, DEFAULT_VECTOR_SIZE);
-        assert_eq!(resp.embedding.len(), DEFAULT_VECTOR_SIZE as usize);
-        assert_eq!(resp.model_name, DEFAULT_MODEL_NAME);
+        assert_eq!(resp.dimensions, 384);
+        assert_eq!(resp.embedding.len(), 384);
         assert!(resp.error_message.is_empty());
 
-        // Check embeddings are normalized (FastEmbed normalizes by default)
         let magnitude: f32 = resp.embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!(
             (magnitude - 1.0).abs() < 0.1,
@@ -409,7 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_embed_text_empty_input() {
-        let service = EmbeddingServiceImpl::new();
+        let service = make_service();
 
         let request = Request::new(EmbedTextRequest {
             text: "".to_string(),
@@ -423,9 +343,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_sparse_vector() {
-        let service = EmbeddingServiceImpl::new();
+        let service = make_service();
 
-        // First add some documents to build vocabulary
         let request1 = Request::new(SparseVectorRequest {
             text: "machine learning algorithms for natural language processing".to_string(),
         });
@@ -434,7 +353,6 @@ mod tests {
             .await
             .expect("Failed");
 
-        // Now generate sparse vector for another document
         let request2 = Request::new(SparseVectorRequest {
             text: "deep learning neural networks for image classification".to_string(),
         });
@@ -448,7 +366,6 @@ mod tests {
         assert!(resp.vocab_size > 0);
         assert!(resp.error_message.is_empty());
 
-        // Verify all values are non-negative
         for &value in resp.indices_values.values() {
             assert!(value >= 0.0, "BM25 scores should be non-negative");
         }
@@ -456,7 +373,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_sparse_vector_empty_input() {
-        let service = EmbeddingServiceImpl::new();
+        let service = make_service();
 
         let request = Request::new(SparseVectorRequest {
             text: "".to_string(),
@@ -474,15 +391,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_embedding_cache() {
-        let service = EmbeddingServiceImpl::new();
+        let service = make_service();
 
-        // Reset cache metrics
         CACHE_METRICS.hits.store(0, Ordering::Relaxed);
         CACHE_METRICS.misses.store(0, Ordering::Relaxed);
 
         let text = "Cache test embedding";
 
-        // First call should be a cache miss
         let request1 = Request::new(EmbedTextRequest {
             text: text.to_string(),
             model: None,
@@ -493,7 +408,6 @@ mod tests {
             .expect("Failed")
             .into_inner();
 
-        // Second call with same text should be a cache hit
         let request2 = Request::new(EmbedTextRequest {
             text: text.to_string(),
             model: None,
@@ -504,10 +418,8 @@ mod tests {
             .expect("Failed")
             .into_inner();
 
-        // Embeddings should be identical
         assert_eq!(resp1.embedding, resp2.embedding);
 
-        // Verify cache metrics
         let hits = CACHE_METRICS.hits.load(Ordering::Relaxed);
         let misses = CACHE_METRICS.misses.load(Ordering::Relaxed);
         assert!(

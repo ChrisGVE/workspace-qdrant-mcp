@@ -248,21 +248,129 @@ fn test_sparse_vector_mode_config() {
 
 #[test]
 fn test_embedding_generator_sparse_mode_accessor() {
+    use crate::embedding::provider::FastEmbedProvider;
+    use std::sync::Arc;
+
     let config = EmbeddingConfig {
         sparse_vector_mode: "splade".to_string(),
         ..EmbeddingConfig::default()
     };
-    let gen = EmbeddingGenerator::new(config).unwrap();
+    let provider = Arc::new(FastEmbedProvider::new(32, None, None));
+    let gen = EmbeddingGenerator::new(config, provider).unwrap();
     assert_eq!(gen.sparse_vector_mode(), "splade");
 }
 
-#[test]
-fn test_embedding_generator_initially_unavailable() {
-    let gen = EmbeddingGenerator::new(EmbeddingConfig::default()).unwrap();
-    // A freshly created generator has not yet tried to init — is_available is false,
-    // failure count is 0, and no backoff is in effect.
-    assert!(!gen.is_available());
-    assert_eq!(gen.init_failure_count(), 0);
+#[cfg(test)]
+mod delegation_tests {
+    //! §7.5 delegation tests: confirm `EmbeddingGenerator` forwards dense work
+    //! to its injected `DenseProvider` and that BM25 sparse generation still
+    //! runs alongside an arbitrary provider.
+
+    use super::*;
+    use crate::embedding::provider::DenseProvider;
+    use crate::embedding::types::DenseEmbedding;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// Mock provider returning a fixed-dim, fixed-content vector. Tracks
+    /// number of `embed` calls so tests can verify delegation.
+    #[derive(Debug)]
+    struct MockProvider {
+        dim: usize,
+        fill: f32,
+        embed_calls: AtomicUsize,
+    }
+
+    impl MockProvider {
+        fn new(dim: usize, fill: f32) -> Arc<Self> {
+            Arc::new(Self {
+                dim,
+                fill,
+                embed_calls: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl DenseProvider for MockProvider {
+        async fn embed(&self, texts: &[&str]) -> Result<Vec<DenseEmbedding>, EmbeddingError> {
+            self.embed_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(texts
+                .iter()
+                .map(|t| DenseEmbedding {
+                    vector: vec![self.fill; self.dim],
+                    model_name: "mock".to_string(),
+                    sequence_length: t.len(),
+                })
+                .collect())
+        }
+
+        fn output_dim(&self) -> usize {
+            self.dim
+        }
+
+        fn provider_label(&self) -> &str {
+            "mock"
+        }
+
+        fn metrics_label(&self) -> &'static str {
+            "fastembed"
+        }
+
+        async fn probe(&self) -> Result<(), EmbeddingError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_generator_dense_dim_delegates_to_provider() {
+        let provider = MockProvider::new(999, 0.0);
+        let gen = EmbeddingGenerator::new(EmbeddingConfig::default(), provider.clone()).unwrap();
+        assert_eq!(gen.dense_dim(), 999);
+    }
+
+    #[tokio::test]
+    async fn test_generate_embedding_uses_provider() {
+        let provider = MockProvider::new(4, 0.25);
+        let gen = EmbeddingGenerator::new(EmbeddingConfig::default(), provider.clone()).unwrap();
+
+        let result = gen
+            .generate_embedding("the quick brown fox", "ignored")
+            .await
+            .expect("generate_embedding must succeed with mock provider");
+
+        assert_eq!(result.dense.vector, vec![0.25_f32; 4]);
+        assert_eq!(provider.embed_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_bm25_still_works_with_openai_provider() {
+        // Drive BM25 path with a non-FastEmbed mock provider; the sparse
+        // branch must remain populated regardless of which dense backend
+        // is wired in.
+        let provider = MockProvider::new(4, 0.5);
+        let gen = EmbeddingGenerator::new(EmbeddingConfig::default(), provider).unwrap();
+
+        // Seed corpus with enough distinct documents so the queried term
+        // has a positive IDF (df=1, N>=6 ⇒ idf > 0). BM25 zeros-out
+        // entries with non-positive idf, which would otherwise leave the
+        // sparse vector empty.
+        gen.add_document_to_corpus("machine learning algorithms")
+            .await;
+        gen.add_document_to_corpus("alpha bravo charlie").await;
+        gen.add_document_to_corpus("delta echo foxtrot").await;
+        gen.add_document_to_corpus("golf hotel india").await;
+        gen.add_document_to_corpus("juliet kilo lima").await;
+        gen.add_document_to_corpus("mike november oscar").await;
+
+        let result = gen
+            .generate_embedding("learning algorithms", "ignored")
+            .await
+            .expect("BM25 path must succeed");
+        assert!(!result.sparse.indices.is_empty());
+        assert_eq!(result.sparse.indices.len(), result.sparse.values.len());
+    }
 }
 
 #[test]

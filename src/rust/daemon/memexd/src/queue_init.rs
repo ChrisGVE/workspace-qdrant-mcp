@@ -15,6 +15,7 @@ use workspace_qdrant_core::{
     config::Config,
     config::DaemonConfig,
     create_grammar_manager,
+    embedding::provider::{build_dense_provider, DenseProvider},
     ipc::IpcServer,
     AllowedExtensions, DocumentProcessor, EmbeddingConfig, EmbeddingGenerator, HierarchyBuilder,
     HierarchyRebuildConfig, LanguageServerManager, ProcessorConfig, QueueProcessorHealth,
@@ -35,6 +36,9 @@ pub struct QueueComponents {
     pub watch_pool: SqlitePool,
     /// Mirror storage for rules backfill.
     pub mirror_storage: Arc<StorageClient>,
+    /// Active dense embedding provider, shared with gRPC services and the
+    /// background `ProviderHealthMonitor`.
+    pub dense_provider: Arc<dyn DenseProvider>,
 }
 
 /// Initialize the IPC server with spill-to-disk and rollback storage.
@@ -85,13 +89,27 @@ fn resolve_model_cache_dir(configured: Option<std::path::PathBuf>) -> std::path:
     dir
 }
 
-/// Create the embedding generator from daemon configuration.
+/// Create the embedding generator and the dense provider that backs it.
+///
+/// The dense provider is built from `daemon_config.embedding` via
+/// `build_dense_provider` so the dispatch logic (FastEmbed vs.
+/// OpenAI-compatible) lives in one place. The same `Arc<dyn DenseProvider>`
+/// is later cloned into the gRPC server and the `ProviderHealthMonitor`.
 fn create_embedding_generator(
     daemon_config: &DaemonConfig,
     config: &Config,
-) -> Result<Arc<EmbeddingGenerator>, Box<dyn std::error::Error>> {
+) -> Result<(Arc<EmbeddingGenerator>, Arc<dyn DenseProvider>), Box<dyn std::error::Error>> {
     let model_cache_dir = resolve_model_cache_dir(daemon_config.embedding.model_cache_dir.clone());
     info!("Model cache directory: {}", model_cache_dir.display());
+
+    let mut embedding_settings = daemon_config.embedding.clone();
+    embedding_settings.model_cache_dir = Some(model_cache_dir.clone());
+
+    let dense_provider = build_dense_provider(
+        &embedding_settings,
+        Some(config.resource_limits.onnx_intra_threads),
+    )
+    .map_err(|e| format!("Failed to build dense embedding provider: {}", e))?;
 
     let embedding_config = EmbeddingConfig {
         max_cache_size: daemon_config.embedding.cache_max_entries,
@@ -100,9 +118,9 @@ fn create_embedding_generator(
         ..EmbeddingConfig::default()
     };
 
-    let generator = EmbeddingGenerator::new(embedding_config)
+    let generator = EmbeddingGenerator::new(embedding_config, Arc::clone(&dense_provider))
         .map_err(|e| format!("Failed to create embedding generator: {}", e))?;
-    Ok(Arc::new(generator))
+    Ok((Arc::new(generator), dense_provider))
 }
 
 /// Wait for Qdrant to become available on gRPC, then initialize collections.
@@ -264,7 +282,7 @@ pub async fn initialize(
         ..ProcessorConfig::default()
     };
 
-    let embedding_generator = create_embedding_generator(daemon_config, config)?;
+    let (embedding_generator, dense_provider) = create_embedding_generator(daemon_config, config)?;
     let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
     wait_for_qdrant_and_init(&storage_client).await;
 
@@ -331,6 +349,7 @@ pub async fn initialize(
         queue_health,
         watch_pool,
         mirror_storage,
+        dense_provider,
     })
 }
 

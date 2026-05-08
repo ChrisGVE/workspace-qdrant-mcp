@@ -34,13 +34,19 @@ impl IngestionEngine {
     pub fn new(config: Config) -> std::result::Result<Self, ProcessingError> {
         let storage_client = Arc::new(crate::storage::StorageClient::new());
         let embedding_config = EmbeddingConfig::default();
-        let embedding_generator =
-            Arc::new(EmbeddingGenerator::new(embedding_config).map_err(|e| {
+        let dense_provider = Arc::new(crate::embedding::provider::FastEmbedProvider::new(
+            32,
+            embedding_config.model_cache_dir.clone(),
+            embedding_config.num_threads,
+        ));
+        let embedding_generator = Arc::new(
+            EmbeddingGenerator::new(embedding_config, dense_provider).map_err(|e| {
                 ProcessingError::Processing(format!(
                     "Failed to initialize embedding generator: {}",
                     e
                 ))
-            })?);
+            })?,
+        );
         let document_processor = DocumentProcessor::new();
 
         Ok(Self {

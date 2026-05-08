@@ -9,6 +9,7 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::{Notify, RwLock};
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
+use workspace_qdrant_core::embedding::provider::DenseProvider;
 use workspace_qdrant_core::LanguageServerManager;
 use workspace_qdrant_core::SearchDbManager;
 
@@ -139,6 +140,12 @@ impl GrpcServer {
         handle: workspace_qdrant_core::write_actor::WriteActorHandle,
     ) -> Self {
         self.write_actor = Some(handle);
+        self
+    }
+
+    /// Inject the active dense embedding provider used by `EmbeddingService`.
+    pub fn with_dense_provider(mut self, provider: Arc<dyn DenseProvider>) -> Self {
+        self.dense_provider = Some(provider);
         self
     }
 }

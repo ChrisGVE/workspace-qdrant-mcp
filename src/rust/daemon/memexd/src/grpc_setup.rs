@@ -11,8 +11,9 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use workspace_qdrant_core::{
-    adaptive_resources::AdaptiveResourceState, HierarchyBuilder, LanguageServerManager,
-    ProjectLspConfig, QueueProcessorHealth, SearchDbManager,
+    adaptive_resources::AdaptiveResourceState, embedding::provider::DenseProvider,
+    HierarchyBuilder, LanguageServerManager, ProjectLspConfig, QueueProcessorHealth,
+    SearchDbManager,
 };
 use workspace_qdrant_grpc::{GrpcServer, ServerConfig as GrpcServerConfig};
 
@@ -61,6 +62,7 @@ pub fn spawn_grpc_server(
     lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
     hierarchy_builder: Arc<HierarchyBuilder>,
     lexicon_pool: SqlitePool,
+    dense_provider: Arc<dyn DenseProvider>,
 ) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     let grpc_port = args.grpc_port;
     let grpc_addr = format!("127.0.0.1:{}", grpc_port)
@@ -83,7 +85,8 @@ pub fn spawn_grpc_server(
             .with_adaptive_state(adaptive_state)
             .with_search_db(search_db)
             .with_hierarchy_builder(hierarchy_builder)
-            .with_lexicon_manager(grpc_lexicon_manager);
+            .with_lexicon_manager(grpc_lexicon_manager)
+            .with_dense_provider(dense_provider);
 
         if let Some(lsp_manager) = lsp_manager {
             grpc_server = grpc_server.with_lsp_manager(lsp_manager);

@@ -112,8 +112,13 @@ impl UnifiedQueueProcessor {
             num_threads: Some(config.onnx_intra_threads),
             ..EmbeddingConfig::default()
         };
+        let dense_provider = Arc::new(crate::embedding::provider::FastEmbedProvider::new(
+            32,
+            embedding_config.model_cache_dir.clone(),
+            embedding_config.num_threads,
+        ));
         let embedding_generator = Arc::new(
-            EmbeddingGenerator::new(embedding_config.clone())
+            EmbeddingGenerator::new(embedding_config.clone(), dense_provider)
                 .expect("Failed to create embedding generator"),
         );
         let storage_config = StorageConfig::default();

@@ -19,6 +19,7 @@ use sqlx::SqlitePool;
 use thiserror::Error;
 use tokio::sync::{Notify, RwLock};
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
+use workspace_qdrant_core::embedding::provider::DenseProvider;
 use workspace_qdrant_core::write_actor::WriteActorHandle;
 use workspace_qdrant_core::LanguageServerManager;
 use workspace_qdrant_core::SearchDbManager;
@@ -313,6 +314,8 @@ pub struct GrpcServer {
     pub(crate) storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
     /// WriteActor handle for serialized state.db mutations
     pub(crate) write_actor: Option<WriteActorHandle>,
+    /// Active dense embedding provider for EmbeddingService.
+    pub(crate) dense_provider: Option<Arc<dyn DenseProvider>>,
 }
 
 /// Server metrics for monitoring
@@ -344,6 +347,7 @@ impl GrpcServer {
             lexicon_manager: None,
             storage_client: None,
             write_actor: None,
+            dense_provider: None,
         }
     }
 }

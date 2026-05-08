@@ -1,41 +1,34 @@
-//! Embedding generator and text preprocessor using FastEmbed.
+//! Embedding generator and text preprocessor.
+//!
+//! Dense embedding generation is delegated to an injected
+//! `Arc<dyn DenseProvider>`. Sparse generation (BM25 / SPLADE++) and the
+//! cross-document phrase cache stay in this module unchanged.
 
-use fastembed::{
-    EmbeddingModel, InitOptions, SparseInitOptions, SparseModel, SparseTextEmbedding, TextEmbedding,
-};
+use fastembed::{SparseInitOptions, SparseModel, SparseTextEmbedding};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
-use tracing::{info, warn};
-
-/// Exponential backoff schedule (seconds) for failed init attempts.
-/// Indexed by `init_failure_count - 1`, capped at the last entry.
-const INIT_BACKOFF_SECS: &[u64] = &[30, 60, 120, 300, 600];
+use tracing::info;
 
 use super::bm25::{tokenize_for_bm25, BM25};
 use super::phrase_cache::PhraseCache;
+use super::provider::DenseProvider;
 use super::types::{
     DenseEmbedding, EmbeddingConfig, EmbeddingError, EmbeddingResult, PreprocessedText,
     SparseEmbedding,
 };
 
-/// Embedding generator using FastEmbed
+/// Embedding generator that delegates dense work to a `DenseProvider`.
 pub struct EmbeddingGenerator {
     config: EmbeddingConfig,
-    model: Arc<Mutex<Option<TextEmbedding>>>,
+    dense_provider: Arc<dyn DenseProvider>,
     bm25: Arc<Mutex<BM25>>,
-    initialized: Arc<std::sync::atomic::AtomicBool>,
-    /// Optional directory for model cache
+    /// Optional directory used by SPLADE++ initialisation.
     model_cache_dir: Option<PathBuf>,
-    /// SPLADE++ sparse embedding model (lazy-initialized)
+    /// SPLADE++ sparse embedding model (lazy-initialised).
     splade_model: Arc<Mutex<Option<SparseTextEmbedding>>>,
-    /// Timestamp of the last failed initialization attempt (None = never failed)
-    last_failed_init: Arc<Mutex<Option<Instant>>>,
-    /// Number of consecutive initialization failures
-    init_failure_count: Arc<AtomicU32>,
-    /// LRU cache for short-phrase dense embeddings (cross-document reuse)
+    /// LRU cache for short-phrase dense embeddings (cross-document reuse).
     phrase_cache: PhraseCache,
 }
 
@@ -43,134 +36,42 @@ impl std::fmt::Debug for EmbeddingGenerator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmbeddingGenerator")
             .field("config", &self.config)
-            .field(
-                "initialized",
-                &self.initialized.load(std::sync::atomic::Ordering::SeqCst),
-            )
+            .field("dense_provider", &self.dense_provider.provider_label())
             .field("sparse_mode", &self.config.sparse_vector_mode)
             .finish()
     }
 }
 
 impl EmbeddingGenerator {
-    pub fn new(config: EmbeddingConfig) -> Result<Self, EmbeddingError> {
+    /// Create a new generator backed by the provided dense provider.
+    pub fn new(
+        config: EmbeddingConfig,
+        dense_provider: Arc<dyn DenseProvider>,
+    ) -> Result<Self, EmbeddingError> {
         let model_cache_dir = config.model_cache_dir.clone();
         let phrase_cache = PhraseCache::new(config.max_cache_size);
         Ok(Self {
             config: config.clone(),
-            model: Arc::new(Mutex::new(None)),
+            dense_provider,
             bm25: Arc::new(Mutex::new(BM25::new(config.bm25_k1))),
-            initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             model_cache_dir,
             splade_model: Arc::new(Mutex::new(None)),
-            last_failed_init: Arc::new(Mutex::new(None)),
-            init_failure_count: Arc::new(AtomicU32::new(0)),
             phrase_cache,
         })
     }
 
-    /// Initialize the embedding model (lazy initialization with backoff).
-    ///
-    /// If a previous initialization attempt failed, subsequent calls are rate-limited
-    /// using an exponential backoff schedule (`INIT_BACKOFF_SECS`). While within the
-    /// backoff window, returns `EmbeddingError::TemporarilyUnavailable` so the caller
-    /// can re-lease the queue item without burning its retry budget.
-    async fn ensure_initialized(&self) -> Result<(), EmbeddingError> {
-        if self.initialized.load(std::sync::atomic::Ordering::SeqCst) {
-            return Ok(());
-        }
-
-        // Check backoff window before attempting initialization.
-        let failure_count = self
-            .init_failure_count
-            .load(std::sync::atomic::Ordering::SeqCst);
-        if failure_count > 0 {
-            let last_failed = self.last_failed_init.lock().await;
-            if let Some(last_attempt) = *last_failed {
-                let backoff_idx = (failure_count as usize - 1).min(INIT_BACKOFF_SECS.len() - 1);
-                let backoff = INIT_BACKOFF_SECS[backoff_idx];
-                let elapsed = last_attempt.elapsed().as_secs();
-                if elapsed < backoff {
-                    let retry_after = backoff - elapsed;
-                    return Err(EmbeddingError::TemporarilyUnavailable {
-                        retry_after_secs: retry_after,
-                    });
-                }
-            }
-        }
-
-        let mut model_guard = self.model.lock().await;
-        if model_guard.is_some() {
-            return Ok(());
-        }
-
-        // Build InitOptions with optional cache directory and thread count
-        let mut init_options =
-            InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(true);
-
-        if let Some(threads) = self.config.num_threads {
-            info!("ONNX intra-op threads: {}", threads);
-            init_options = init_options.with_num_threads(threads);
-        }
-
-        if let Some(ref cache_dir) = self.model_cache_dir {
-            info!(
-                "Initializing FastEmbed model (all-MiniLM-L6-v2) with cache dir: {}",
-                cache_dir.display()
-            );
-            init_options = init_options.with_cache_dir(cache_dir.clone());
-        } else {
-            info!("Initializing FastEmbed model (all-MiniLM-L6-v2) with default cache dir...");
-        }
-
-        match TextEmbedding::try_new(init_options) {
-            Ok(model) => {
-                *model_guard = Some(model);
-                self.initialized
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-                // Reset failure tracking on success
-                self.init_failure_count
-                    .store(0, std::sync::atomic::Ordering::SeqCst);
-                *self.last_failed_init.lock().await = None;
-                info!("FastEmbed model initialized successfully");
-                Ok(())
-            }
-            Err(e) => {
-                let new_count = self
-                    .init_failure_count
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                    + 1;
-                *self.last_failed_init.lock().await = Some(Instant::now());
-                let backoff_idx = (new_count as usize - 1).min(INIT_BACKOFF_SECS.len() - 1);
-                let next_retry = INIT_BACKOFF_SECS[backoff_idx];
-                warn!(
-                    failure_count = new_count,
-                    next_retry_secs = next_retry,
-                    "FastEmbed initialization failed (attempt {}), next retry in {}s: {}",
-                    new_count,
-                    next_retry,
-                    e
-                );
-                Err(EmbeddingError::InitializationError {
-                    message: format!("Failed to initialize FastEmbed: {}", e),
-                })
-            }
-        }
+    /// Output dimensionality of the underlying dense provider.
+    pub fn dense_dim(&self) -> usize {
+        self.dense_provider.output_dim()
     }
 
-    /// Returns true if the embedding subsystem is currently available.
-    pub fn is_available(&self) -> bool {
-        self.initialized.load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    /// Returns the number of consecutive initialization failures.
-    pub fn init_failure_count(&self) -> u32 {
-        self.init_failure_count
-            .load(std::sync::atomic::Ordering::SeqCst)
+    /// Issue a single probe call against the dense provider.
+    pub async fn probe_provider(&self) -> Result<(), EmbeddingError> {
+        self.dense_provider.probe().await
     }
 
     pub async fn initialize_model(&self, _model_name: &str) -> Result<(), EmbeddingError> {
-        self.ensure_initialized().await
+        self.probe_provider().await
     }
 
     pub async fn generate_embedding(
@@ -178,54 +79,40 @@ impl EmbeddingGenerator {
         text: &str,
         _model_name: &str,
     ) -> Result<EmbeddingResult, EmbeddingError> {
-        // Check phrase cache before initializing the model (avoids lock contention
-        // on hot phrases like common keywords and stdlib names)
+        // Check phrase cache before delegating to the provider.
         let cached_dense = self.phrase_cache.get(text).await;
 
-        let dense_vector =
-            if let Some(v) = cached_dense {
-                v
-            } else {
-                self.ensure_initialized().await?;
+        let dense = if let Some(v) = cached_dense {
+            DenseEmbedding {
+                vector: v,
+                model_name: self.dense_provider.provider_label().to_string(),
+                sequence_length: text.len(),
+            }
+        } else {
+            let embed_start = Instant::now();
+            let mut embeddings = self.dense_provider.embed(&[text]).await?;
+            let embed_ms = embed_start.elapsed().as_millis();
 
-                let mut model_guard = self.model.lock().await;
-                let model =
-                    model_guard
-                        .as_mut()
-                        .ok_or_else(|| EmbeddingError::InitializationError {
-                            message: "Model not initialized".to_string(),
-                        })?;
-
-                // Generate dense embedding
-                let documents = vec![text];
-                let embed_start = Instant::now();
-                let embeddings =
-                    model
-                        .embed(documents, None)
-                        .map_err(|e| EmbeddingError::GenerationError {
-                            message: format!("Embedding generation failed: {}", e),
-                        })?;
-                let embed_ms = embed_start.elapsed().as_millis();
-
-                let v = embeddings.into_iter().next().ok_or_else(|| {
-                    EmbeddingError::GenerationError {
-                        message: "No embedding returned".to_string(),
-                    }
+            let dense = embeddings
+                .pop()
+                .ok_or_else(|| EmbeddingError::GenerationError {
+                    message: "Provider returned no embedding".to_string(),
                 })?;
 
-                info!(
-                    text_len = text.len(),
-                    dim = v.len(),
-                    embed_ms = embed_ms,
-                    "dense embedding generated"
-                );
+            info!(
+                text_len = text.len(),
+                dim = dense.vector.len(),
+                embed_ms = embed_ms,
+                provider = self.dense_provider.metrics_label(),
+                "dense embedding generated"
+            );
 
-                // Populate cache for eligible phrases
-                self.phrase_cache.put(text, v.clone()).await;
-                v
-            };
+            // Populate cache for eligible phrases.
+            self.phrase_cache.put(text, dense.vector.clone()).await;
+            dense
+        };
 
-        // Generate sparse embedding using BM25
+        // Generate sparse embedding using BM25.
         let bm25_start = Instant::now();
         let tokens = tokenize_for_bm25(text);
 
@@ -252,11 +139,7 @@ impl EmbeddingGenerator {
 
         Ok(EmbeddingResult {
             text_hash,
-            dense: DenseEmbedding {
-                vector: dense_vector,
-                model_name: "all-MiniLM-L6-v2".to_string(),
-                sequence_length: tokens.len(),
-            },
+            dense,
             sparse,
             generated_at: chrono::Utc::now(),
         })
@@ -316,11 +199,11 @@ impl EmbeddingGenerator {
     }
 
     pub fn available_models(&self) -> Vec<String> {
-        vec!["all-MiniLM-L6-v2".to_string()]
+        vec![self.dense_provider.provider_label().to_string()]
     }
 
     pub async fn is_model_ready(&self, _model_name: &str) -> bool {
-        self.initialized.load(std::sync::atomic::Ordering::SeqCst)
+        self.probe_provider().await.is_ok()
     }
 
     /// Get the configured sparse vector mode ("bm25" or "splade").
@@ -330,9 +213,7 @@ impl EmbeddingGenerator {
 
     /// Generate a sparse vector using the SPLADE++ model.
     ///
-    /// Lazy-initializes the SPLADE++ model on first call (~150MB download).
-    /// Converts fastembed's `SparseEmbedding` (indices: `Vec<usize>`) to our
-    /// `SparseEmbedding` (indices: `Vec<u32>`).
+    /// Lazy-initialises the SPLADE++ model on first call (~150MB download).
     pub async fn generate_splade_sparse_vector(
         &self,
         text: &str,
