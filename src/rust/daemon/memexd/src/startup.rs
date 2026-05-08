@@ -37,6 +37,8 @@ pub struct DaemonArgs {
     pub project_id: Option<String>,
     /// Port for Prometheus metrics endpoint (disabled if not specified).
     pub metrics_port: Option<u16>,
+    /// Allow startup despite dim mismatch (used during provider migration only).
+    pub bootstrap_reembed: bool,
 }
 
 impl Default for DaemonArgs {
@@ -50,6 +52,7 @@ impl Default for DaemonArgs {
             foreground: false,
             project_id: None,
             metrics_port: None,
+            bootstrap_reembed: false,
         }
     }
 }
@@ -129,6 +132,16 @@ fn build_cli(is_daemon: bool) -> Command {
                 .default_value("50051")
                 .value_parser(clap::value_parser!(u16)),
         )
+        .arg(
+            Arg::new("bootstrap-reembed")
+                .long("bootstrap-reembed")
+                .help(
+                    "Suppress the startup dim-mismatch guard. Use only during \
+                     provider migration; remove the flag after running \
+                     `wqm admin reembed --confirm`.",
+                )
+                .action(clap::ArgAction::SetTrue),
+        )
 }
 
 /// Parse command-line arguments with graceful error handling.
@@ -174,6 +187,7 @@ pub fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
         foreground: matches.get_flag("foreground"),
         project_id: matches.get_one::<String>("project-id").cloned(),
         metrics_port: matches.get_one::<u16>("metrics-port").copied(),
+        bootstrap_reembed: matches.get_flag("bootstrap-reembed"),
     })
 }
 

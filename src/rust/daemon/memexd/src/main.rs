@@ -119,6 +119,39 @@ async fn run_daemon(
     )
     .await?;
 
+    // Phase 5a: Embedding-dim consistency guard.
+    //
+    // Refuse to start when the active provider's `output_dim` disagrees with
+    // the dim of the existing `projects` collection. `--bootstrap-reembed`
+    // suppresses the guard for provider migration. See PRD §6.5.
+    let active_dim = daemon_config.embedding.output_dim;
+    if let Err(e) = workspace_qdrant_core::specs::check_dim_consistency(
+        &qc.mirror_storage,
+        active_dim,
+        args.bootstrap_reembed,
+    )
+    .await
+    {
+        if let workspace_qdrant_core::embedding::EmbeddingError::DimensionMismatch {
+            actual_dim,
+            stored_dim,
+        } = &e
+        {
+            eprintln!(
+                "FATAL: active embedding provider outputs {}-dim vectors but the \
+                 'projects' Qdrant collection was created with {}-dim vectors.\n\
+                 Run `wqm admin reembed --confirm` to rebuild all collections at \
+                 the new dimension.\n\n\
+                 If you are in the middle of a provider migration, start the \
+                 daemon with:\n  memexd --bootstrap-reembed\n\
+                 to suppress this check, run `wqm admin reembed --confirm`, \
+                 then restart normally.",
+                actual_dim, stored_dim
+            );
+        }
+        return Err(Box::new(e));
+    }
+
     // Phase 5b: Background dense-provider health probe loop.
     let health_monitor = workspace_qdrant_core::embedding::provider::ProviderHealthMonitor::new(
         Arc::clone(&qc.dense_provider),

@@ -13,9 +13,11 @@
 
 pub mod collection;
 pub mod payload;
+pub mod startup_checks;
 
 pub use collection::Collection;
 pub use payload::parse_payload;
+pub use startup_checks::check_dim_consistency;
 
 use std::marker::PhantomData;
 
