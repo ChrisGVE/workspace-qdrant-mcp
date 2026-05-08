@@ -7,63 +7,11 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
 
+mod projects;
+pub use projects::*;
+
 mod queue;
 pub use queue::*;
-
-// ── Active Projects ──────────────────────────────────────────────
-
-/// Basic project info from SQLite `watch_folders`.
-#[derive(Debug, Clone)]
-pub struct ProjectInfo {
-    pub tenant_id: String,
-    pub path: String,
-    pub is_active: bool,
-    pub watch_id: String,
-    pub created_at: Option<String>,
-    pub last_scan: Option<String>,
-    pub last_activity_at: Option<String>,
-}
-
-/// Get all registered projects (parent watch folders in 'projects' collection).
-pub fn get_projects(conn: &Connection) -> Result<Vec<ProjectInfo>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT watch_id, tenant_id, path, COALESCE(is_active, 0), \
-                    created_at, last_scan, last_activity_at \
-             FROM watch_folders \
-             WHERE parent_watch_id IS NULL AND collection = 'projects' \
-             ORDER BY is_active DESC, path ASC",
-        )
-        .context("Failed to query projects")?;
-
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(ProjectInfo {
-                watch_id: row.get(0)?,
-                tenant_id: row.get(1)?,
-                path: row.get(2)?,
-                is_active: row.get::<_, i64>(3)? > 0,
-                created_at: row.get(4)?,
-                last_scan: row.get(5)?,
-                last_activity_at: row.get(6)?,
-            })
-        })
-        .context("Failed to read projects")?;
-
-    rows.collect::<Result<Vec<_>, _>>()
-        .context("Failed to parse project rows")
-}
-
-/// Count active projects (enabled watch folders).
-pub fn get_active_project_count(conn: &Connection) -> Result<usize> {
-    conn.query_row(
-        "SELECT COUNT(*) FROM watch_folders \
-         WHERE parent_watch_id IS NULL AND collection = 'projects' AND is_active > 0",
-        [],
-        |row| row.get(0),
-    )
-    .context("Failed to count active projects")
-}
 
 // ── Document / Chunk Counts ──────────────────────────────────────
 
@@ -378,22 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn active_projects_count() {
-        let conn = setup_test_db();
-        conn.execute_batch(
-            "INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active)
-             VALUES ('w1', 't1', '/proj1', 'projects', 1);
-             INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active)
-             VALUES ('w2', 't2', '/proj2', 'projects', 0);
-             INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active)
-             VALUES ('w3', 't3', '/proj3', 'projects', 1);",
-        )
-        .unwrap();
-        assert_eq!(get_active_project_count(&conn).unwrap(), 2);
-        assert_eq!(get_projects(&conn).unwrap().len(), 3);
-    }
-
-    #[test]
     fn document_counts_per_tenant() {
         let conn = setup_test_db();
         conn.execute_batch(
@@ -551,20 +483,5 @@ mod tests {
         .unwrap();
         // COUNT(DISTINCT collection): 'projects' and 'libraries' = 2
         assert_eq!(get_active_collection_count(&conn).unwrap(), 2);
-    }
-
-    #[test]
-    fn projects_with_null_fields() {
-        let conn = setup_test_db();
-        conn.execute_batch(
-            "INSERT INTO watch_folders (watch_id, tenant_id, path, collection, is_active, last_activity_at, created_at)
-             VALUES ('w1', 't1', '/proj1', 'projects', 1, NULL, NULL);",
-        )
-        .unwrap();
-        let projects = get_projects(&conn).unwrap();
-        assert_eq!(projects.len(), 1);
-        assert_eq!(projects[0].tenant_id, "t1");
-        assert!(projects[0].created_at.is_none());
-        assert!(projects[0].last_activity_at.is_none());
     }
 }
