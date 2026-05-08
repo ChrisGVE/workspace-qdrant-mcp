@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     item_type TEXT NOT NULL CHECK (item_type IN (
         'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
     )),
-    op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
+    op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset', 'reembed')),
     tenant_id TEXT NOT NULL,
     collection TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (

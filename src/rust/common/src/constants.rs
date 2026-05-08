@@ -158,6 +158,9 @@ pub mod operation {
     pub const UPLIFT: &str = "uplift";
     /// Clear all content in a collection (not delete the collection)
     pub const RESET: &str = "reset";
+    /// Recreate canonical Qdrant collections at the active provider dim
+    /// (driven by the gRPC `TriggerReembed` flow, queue-side mutation).
+    pub const REEMBED: &str = "reembed";
 }
 
 #[cfg(test)]
@@ -255,5 +258,6 @@ mod tests {
         assert_eq!(operation::RENAME, "rename");
         assert_eq!(operation::UPLIFT, "uplift");
         assert_eq!(operation::RESET, "reset");
+        assert_eq!(operation::REEMBED, "reembed");
     }
 }

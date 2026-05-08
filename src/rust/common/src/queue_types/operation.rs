@@ -27,6 +27,9 @@ pub enum QueueOperation {
     Uplift,
     /// Clear all content in a collection (not delete the collection)
     Reset,
+    /// Recreate canonical collections at the active provider dim. Driven by
+    /// the gRPC `TriggerReembed` flow; valid only for `ItemType::Collection`.
+    Reembed,
 }
 
 impl fmt::Display for QueueOperation {
@@ -48,6 +51,7 @@ impl QueueOperation {
             constants::operation::RENAME => Some(QueueOperation::Rename),
             constants::operation::UPLIFT => Some(QueueOperation::Uplift),
             constants::operation::RESET => Some(QueueOperation::Reset),
+            constants::operation::REEMBED => Some(QueueOperation::Reembed),
             // Legacy mapping
             "ingest" => Some(QueueOperation::Add),
             _ => None,
@@ -120,9 +124,10 @@ impl QueueOperation {
             (ItemType::Tenant, QueueOperation::Uplift) => true,
             (ItemType::Tenant, _) => false,
 
-            // Collection: uplift, reset only
+            // Collection: uplift, reset, reembed
             (ItemType::Collection, QueueOperation::Uplift) => true,
             (ItemType::Collection, QueueOperation::Reset) => true,
+            (ItemType::Collection, QueueOperation::Reembed) => true,
             (ItemType::Collection, _) => false,
         }
     }
@@ -137,6 +142,7 @@ impl QueueOperation {
             QueueOperation::Rename => constants::operation::RENAME,
             QueueOperation::Uplift => constants::operation::UPLIFT,
             QueueOperation::Reset => constants::operation::RESET,
+            QueueOperation::Reembed => constants::operation::REEMBED,
         }
     }
 
@@ -150,6 +156,7 @@ impl QueueOperation {
             QueueOperation::Rename,
             QueueOperation::Uplift,
             QueueOperation::Reset,
+            QueueOperation::Reembed,
         ]
     }
 }

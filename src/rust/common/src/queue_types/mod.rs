@@ -111,6 +111,7 @@ mod tests {
         assert_eq!(QueueOperation::Rename.to_string(), "rename");
         assert_eq!(QueueOperation::Uplift.to_string(), "uplift");
         assert_eq!(QueueOperation::Reset.to_string(), "reset");
+        assert_eq!(QueueOperation::Reembed.to_string(), "reembed");
     }
 
     #[test]
@@ -140,7 +141,38 @@ mod tests {
             QueueOperation::parse_str("reset"),
             Some(QueueOperation::Reset)
         );
+        assert_eq!(
+            QueueOperation::parse_str("reembed"),
+            Some(QueueOperation::Reembed)
+        );
         assert_eq!(QueueOperation::parse_str("invalid"), None);
+    }
+
+    // ========================================================================
+    // §7.12 — Reembed enum coverage
+    // ========================================================================
+
+    #[test]
+    fn test_reembed_variant_parses() {
+        assert_eq!(
+            QueueOperation::parse_str("reembed"),
+            Some(QueueOperation::Reembed)
+        );
+    }
+
+    #[test]
+    fn test_reembed_is_valid_for_collection() {
+        assert!(QueueOperation::Reembed.is_valid_for(ItemType::Collection));
+    }
+
+    #[test]
+    fn test_reembed_not_valid_for_file() {
+        assert!(!QueueOperation::Reembed.is_valid_for(ItemType::File));
+    }
+
+    #[test]
+    fn test_reembed_in_all() {
+        assert!(QueueOperation::all().contains(&QueueOperation::Reembed));
     }
 
     #[test]
@@ -161,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_queue_operation_all_count() {
-        assert_eq!(QueueOperation::all().len(), 7);
+        assert_eq!(QueueOperation::all().len(), 8);
     }
 
     // ========================================================================
@@ -270,10 +302,10 @@ mod tests {
                 }
             }
         }
-        // 8 item types * 7 ops = 56 total
-        assert_eq!(valid_count + invalid_count, 56);
-        // Expected valid: text(4) + file(5) + url(4) + website(5) + doc(2) + folder(3) + tenant(6) + collection(2) = 31
-        assert_eq!(valid_count, 31);
+        // 8 item types * 8 ops = 64 total
+        assert_eq!(valid_count + invalid_count, 64);
+        // Expected valid: text(4) + file(5) + url(4) + website(5) + doc(2) + folder(3) + tenant(6) + collection(3 — uplift,reset,reembed) = 32
+        assert_eq!(valid_count, 32);
     }
 
     // ========================================================================

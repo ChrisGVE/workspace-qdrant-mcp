@@ -80,10 +80,7 @@ fn test_git_defaults() {
 #[test]
 fn test_embedding_defaults() {
     let config = &*DEFAULT_YAML_CONFIG;
-    assert_eq!(
-        config.embedding.model,
-        "sentence-transformers/all-MiniLM-L6-v2"
-    );
+    assert_eq!(config.embedding.model, "text-embedding-3-small");
     assert!(config.embedding.enable_sparse_vectors);
     assert_eq!(config.embedding.cache_max_entries, 1000);
 }

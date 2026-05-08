@@ -276,3 +276,157 @@ async fn test_incremental_migration_v4_to_current() {
         "collection column should exist after v6 migration"
     );
 }
+
+// ============================================================================
+// §7.11 — Migration v35 (active_provider column + reembed op)
+// ============================================================================
+
+#[tokio::test]
+async fn test_v35_adds_active_provider_column() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run migrations to current version");
+
+    let has_active_provider: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') \
+         WHERE name = 'active_provider'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        has_active_provider,
+        "watch_folders.active_provider must exist after v35"
+    );
+
+    // Default value: an INSERT with no explicit value yields 'openai_compatible'.
+    let now = "2026-01-01T00:00:00.000Z";
+    sqlx::query(
+        "INSERT INTO watch_folders \
+            (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+    )
+    .bind("wf-v35-default")
+    .bind("/tmp/v35-default")
+    .bind("projects")
+    .bind("tenant-v35")
+    .bind(now)
+    .execute(&pool)
+    .await
+    .expect("Failed to insert watch_folders row");
+    let provider: String = sqlx::query_scalar(
+        "SELECT active_provider FROM watch_folders WHERE watch_id = 'wf-v35-default'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(provider, "openai_compatible");
+}
+
+#[tokio::test]
+async fn test_v35_queue_op_accepts_reembed() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run migrations to current version");
+
+    sqlx::query(
+        "INSERT INTO unified_queue \
+             (item_type, op, tenant_id, collection, idempotency_key) \
+         VALUES ('collection', 'reembed', 't-v35', 'projects', 'idem-v35-1')",
+    )
+    .execute(&pool)
+    .await
+    .expect("Inserting op='reembed' should succeed after v35");
+}
+
+#[tokio::test]
+async fn test_v35_existing_in_progress_rows_survive_migration() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+
+    manager.initialize().await.expect("init");
+    for v in 1..=34 {
+        manager
+            .run_migration(v)
+            .await
+            .unwrap_or_else(|e| panic!("Failed to run v{}: {}", v, e));
+        manager
+            .record_migration(v)
+            .await
+            .unwrap_or_else(|e| panic!("Failed to record v{}: {}", v, e));
+    }
+
+    sqlx::query(
+        "INSERT INTO unified_queue \
+             (item_type, op, tenant_id, collection, idempotency_key, status) \
+         VALUES ('file', 'add', 't-v35', 'projects', 'idem-v35-survive', 'in_progress')",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to insert pre-v35 in_progress row");
+
+    manager.run_migration(35).await.expect("v35 should run");
+    manager.record_migration(35).await.expect("record v35");
+
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM unified_queue WHERE idempotency_key = 'idem-v35-survive'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status, "in_progress",
+        "pre-v35 in_progress row must survive the table rebuild with status preserved"
+    );
+}
+
+#[tokio::test]
+async fn test_v35_ddl_has_no_extra_item_types() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run migrations to current version");
+
+    let queue_sql: String = sqlx::query_scalar(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='unified_queue'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // The 8 canonical item_type values, in DDL order. No 'library', 'memory',
+    // or 'scratchpad' should have leaked in.
+    for kind in [
+        "'text'",
+        "'file'",
+        "'url'",
+        "'website'",
+        "'doc'",
+        "'folder'",
+        "'tenant'",
+        "'collection'",
+    ] {
+        assert!(
+            queue_sql.contains(kind),
+            "expected item_type {} in DDL, full DDL: {}",
+            kind,
+            queue_sql
+        );
+    }
+    for forbidden in ["'library'", "'memory'", "'scratchpad'"] {
+        assert!(
+            !queue_sql.contains(forbidden),
+            "v35 DDL must not contain {}, full DDL: {}",
+            forbidden,
+            queue_sql
+        );
+    }
+}
