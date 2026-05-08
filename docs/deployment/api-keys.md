@@ -7,7 +7,7 @@ config (default `OPENAI_API_KEY`). The key is wrapped in
 `Debug` output, tracing spans, or metric labels.
 
 What differs across deployments is *how* that environment variable
-gets set. This page documents three opt-in approaches; pick whichever
+gets set. This page documents four opt-in approaches; pick whichever
 matches the platform constraints. The daemon needs no changes — it
 only reads the env var.
 
@@ -109,16 +109,41 @@ For Kubernetes deployments, mount the value via a `Secret` and
 reference it in the pod spec — the daemon does not care which
 mechanism delivers the env var.
 
-## Choosing between the three
+## Option 4 — Direct shell launch
 
-| Concern | Option 1 (env file) | Option 2 (set-environment) | Option 3 (container env) |
-|---|---|---|---|
-| Survives reboot | yes | macOS: no, Linux: no | yes (compose / k8s state) |
-| Visible to other shell sessions of same user | no | yes (`launchctl getenv`) | container-scoped |
-| Plaintext at rest | yes (single file, 0600) | no | yes (`docker/.env` or k8s `Secret`) |
-| Suitable for CI / production | yes | no (manual rotation) | yes |
+When `memexd` is started manually from a shell (development, ad-hoc
+testing, or one-off reindex runs) the binary inherits the launching
+shell's environment via `std::env::var`. No wrapper, plist, unit, or
+config file is involved — just export the key in the shell that runs
+the daemon:
+
+```sh
+export OPENAI_API_KEY=sk-...
+~/.local/bin/memexd                # or `cargo run -p memexd -- ...`
+```
+
+For a one-off invocation that does not pollute the shell history:
+
+```sh
+OPENAI_API_KEY=sk-... ~/.local/bin/memexd
+```
+
+This path is convenient during development but does not persist across
+reboots and leaves the value visible to anything that can read the
+process environment of the launching user.
+
+## Choosing between the four
+
+| Concern | Option 1 (env file) | Option 2 (set-environment) | Option 3 (container env) | Option 4 (shell launch) |
+|---|---|---|---|---|
+| Survives reboot | yes | macOS: no, Linux: no | yes (compose / k8s state) | no |
+| Visible to other shell sessions of same user | no | yes (`launchctl getenv`) | container-scoped | only inside that shell |
+| Plaintext at rest | yes (single file, 0600) | no | yes (`docker/.env` or k8s `Secret`) | no (shell only) |
+| Suitable for CI / production | yes | no (manual rotation) | yes | no (interactive only) |
 
 The shipped wrapper, plist template, and compose files all default to
 "no key set" so users on FastEmbed do not need to configure anything —
 the secret-handling path only kicks in when
-`embedding.provider = "openai_compatible"`.
+`embedding.provider = "openai_compatible"`. The same is true for
+direct shell launches: with `provider = "fastembed"` the daemon never
+reads the API-key env var.
