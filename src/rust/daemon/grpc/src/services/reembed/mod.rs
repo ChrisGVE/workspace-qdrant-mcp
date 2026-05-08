@@ -8,7 +8,11 @@
 //! /scratchpad re-ingestion goes through normal `add` items so existing
 //! queue strategies pick them up.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+mod context;
+
+pub use context::{ReembedContext, CANONICAL_COLLECTIONS};
+
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -19,26 +23,9 @@ use tonic::Status;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use workspace_qdrant_core::config::EmbeddingSettings;
-use workspace_qdrant_core::embedding::provider::DenseProvider;
 use workspace_qdrant_core::storage::StorageClient;
 
 use crate::proto::TriggerReembedResponse;
-
-/// Names of the four canonical Qdrant collections affected by a reembed.
-pub const CANONICAL_COLLECTIONS: &[&str] = &["projects", "libraries", "rules", "scratchpad"];
-
-/// Shared dependencies wired into `AdminWriteServiceImpl` to support
-/// `TriggerReembed`. Optional on the impl: when any field is missing the
-/// RPC returns `Status::failed_precondition`.
-#[derive(Clone)]
-pub struct ReembedContext {
-    pub settings: Arc<EmbeddingSettings>,
-    pub provider: Arc<dyn DenseProvider>,
-    pub storage_client: Arc<StorageClient>,
-    pub pool: SqlitePool,
-    pub pause_flag: Arc<AtomicBool>,
-}
 
 /// Abstraction over Qdrant collection recreation so the reembed flow can
 /// be unit-tested without a running Qdrant instance.
@@ -393,8 +380,9 @@ async fn enqueue_scratchpad_mirror(pool: &SqlitePool, now: &str) -> Result<u32, 
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
     use std::sync::Mutex;
+    use workspace_qdrant_core::embedding::provider::DenseProvider;
     use workspace_qdrant_core::embedding::{DenseEmbedding, EmbeddingError};
 
     /// In-memory mock recreator: records (name, dim) per call.
@@ -530,7 +518,7 @@ mod tests {
     }
 
     fn ctx_with(pool: SqlitePool, dim: usize) -> ReembedContext {
-        let mut settings = EmbeddingSettings::default();
+        let mut settings = workspace_qdrant_core::config::EmbeddingSettings::default();
         settings.output_dim = dim;
         ReembedContext {
             settings: Arc::new(settings),
@@ -816,7 +804,7 @@ mod tests {
         // Configured 1536; provider also 1536 so pre-flight passes. Verify
         // the recreator is invoked at exactly 1536 — i.e. settings.output_dim
         // is the authoritative dim for recreation.
-        let mut settings = EmbeddingSettings::default();
+        let mut settings = workspace_qdrant_core::config::EmbeddingSettings::default();
         settings.output_dim = 1536;
         let ctx = ReembedContext {
             settings: Arc::new(settings),
