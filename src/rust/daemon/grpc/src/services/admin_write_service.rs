@@ -9,7 +9,8 @@ use workspace_qdrant_core::write_actor::{
 
 use crate::proto::{
     admin_write_service_server::AdminWriteService, RebalanceIdfRequest, RebalanceIdfResponse,
-    RenameTenantAdminRequest, RenameTenantAdminResponse,
+    RenameTenantAdminRequest, RenameTenantAdminResponse, TriggerReembedRequest,
+    TriggerReembedResponse,
 };
 
 pub struct AdminWriteServiceImpl {
@@ -71,5 +72,12 @@ impl AdminWriteService for AdminWriteServiceImpl {
             success: result.success,
             message: result.message,
         }))
+    }
+
+    async fn trigger_reembed(
+        &self,
+        _request: Request<TriggerReembedRequest>,
+    ) -> Result<Response<TriggerReembedResponse>, Status> {
+        Err(Status::unimplemented("TriggerReembed flow not yet wired"))
     }
 }

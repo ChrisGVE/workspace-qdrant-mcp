@@ -74,6 +74,9 @@ service SystemService {
 
     // Rebuild computed indexes (tag hierarchy, FTS, sparse vectors, etc.)
     rpc RebuildIndex(RebuildIndexRequest) returns (RebuildIndexResponse);
+
+    // Embedding provider status: configured provider, model, dim, probe state
+    rpc GetEmbeddingProviderStatus(google.protobuf.Empty) returns (GetEmbeddingProviderStatusResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -893,6 +896,10 @@ service AdminWriteService {
 
     // Update corpus_statistics after IDF rebalancing
     rpc RebalanceIdf(RebalanceIdfRequest) returns (RebalanceIdfResponse);
+
+    // Trigger full re-embed pipeline (drain queue, recreate canonical
+    // collections at settings.output_dim, re-enqueue all indexed sources).
+    rpc TriggerReembed(TriggerReembedRequest) returns (TriggerReembedResponse);
 }
 
 // =============================================================================
@@ -1173,6 +1180,29 @@ message RebalanceIdfRequest {
 message RebalanceIdfResponse {
     bool success = 1;
     string message = 2;
+}
+
+// TriggerReembed Request
+message TriggerReembedRequest {
+    bool confirm = 1;                                 // Must be true to proceed
+}
+
+// TriggerReembed Response
+message TriggerReembedResponse {
+    uint32 files_enqueued = 1;                        // Files re-enqueued from watch_folders
+    uint32 rules_enqueued = 2;                        // Rules re-enqueued from rules_mirror
+    uint32 scratchpad_enqueued = 3;                   // Scratchpad items re-enqueued
+    string message = 4;
+}
+
+// GetEmbeddingProviderStatus Response
+message GetEmbeddingProviderStatusResponse {
+    string provider = 1;                              // fastembed | openai_compatible | ...
+    string model = 2;                                 // Model identifier
+    uint32 output_dim = 3;                            // Configured dim from settings.output_dim
+    string base_url = 4;                              // For remote providers ("" if local)
+    string probe_status = 5;                          // healthy | unhealthy | degraded | probe_pending
+    string probe_message = 6;                         // Human-readable detail
 }
 
 // =============================================================================

@@ -12,9 +12,10 @@ use tracing::{debug, error, info, warn};
 use wqm_common::timestamps;
 
 use crate::proto::{
-    system_service_server::SystemService, ComponentHealth, HealthResponse, Metric, MetricsResponse,
-    QueueStatsResponse, QueueType, RebuildIndexRequest, RebuildIndexResponse, RefreshSignalRequest,
-    ServerState, ServerStatusNotification, ServiceStatus, SystemMetrics, SystemStatusResponse,
+    system_service_server::SystemService, ComponentHealth, GetEmbeddingProviderStatusResponse,
+    HealthResponse, Metric, MetricsResponse, QueueStatsResponse, QueueType, RebuildIndexRequest,
+    RebuildIndexResponse, RefreshSignalRequest, ServerState, ServerStatusNotification,
+    ServiceStatus, SystemMetrics, SystemStatusResponse,
 };
 
 use super::rebuild;
@@ -474,5 +475,18 @@ impl SystemService for SystemServiceImpl {
             duration_ms: 0,
             details,
         }))
+    }
+
+    #[tracing::instrument(
+        skip_all,
+        fields(method = "SystemService.get_embedding_provider_status")
+    )]
+    async fn get_embedding_provider_status(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<GetEmbeddingProviderStatusResponse>, Status> {
+        Err(Status::unimplemented(
+            "GetEmbeddingProviderStatus not yet wired",
+        ))
     }
 }
