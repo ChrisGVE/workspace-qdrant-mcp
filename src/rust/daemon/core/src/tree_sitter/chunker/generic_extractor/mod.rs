@@ -6,6 +6,7 @@
 //! functions, classes, methods, structs, enums, traits, modules, etc.
 
 mod docstring;
+mod walker;
 
 use std::path::Path;
 
@@ -373,54 +374,6 @@ impl GenericExtractor {
 
         chunks
     }
-
-    // ── Main dispatch ─────────────────────────────────────────────────
-
-    fn matches_any(kind: &str, types: &[String]) -> bool {
-        types.iter().any(|t| t == kind)
-    }
-
-    fn classify_node(&self, kind: &str) -> Option<ChunkType> {
-        let p = &self.patterns;
-
-        if Self::matches_any(kind, &p.function.node_types)
-            || Self::matches_any(kind, &p.function.async_node_types)
-        {
-            return Some(ChunkType::Function);
-        }
-        if Self::matches_any(kind, &p.class.node_types) {
-            return Some(ChunkType::Class);
-        }
-        if Self::matches_any(kind, &p.struct_def.node_types) {
-            return Some(ChunkType::Struct);
-        }
-        if Self::matches_any(kind, &p.enum_def.node_types) {
-            return Some(ChunkType::Enum);
-        }
-        if Self::matches_any(kind, &p.trait_def.node_types) {
-            return Some(ChunkType::Trait);
-        }
-        if Self::matches_any(kind, &p.interface.node_types) {
-            return Some(ChunkType::Interface);
-        }
-        if Self::matches_any(kind, &p.module.node_types) {
-            return Some(ChunkType::Module);
-        }
-        if Self::matches_any(kind, &p.constant.node_types) {
-            return Some(ChunkType::Constant);
-        }
-        if Self::matches_any(kind, &p.macro_def.node_types) {
-            return Some(ChunkType::Macro);
-        }
-        if Self::matches_any(kind, &p.type_alias.node_types) {
-            return Some(ChunkType::TypeAlias);
-        }
-        if Self::matches_any(kind, &p.impl_block.node_types) {
-            return Some(ChunkType::Impl);
-        }
-
-        None
-    }
 }
 
 impl ChunkExtractor for GenericExtractor {
@@ -442,7 +395,15 @@ impl ChunkExtractor for GenericExtractor {
         }
 
         // Walk root children, unwrapping root_wrappers transparently
-        self.walk_children(&root, source, &file_path_str, &mut chunks);
+        walker::walk_children(
+            &self.patterns,
+            &root,
+            source,
+            &file_path_str,
+            &mut chunks,
+            &|n, s, fp, ct| self.extract_container(n, s, fp, ct),
+            &|n, s, fp, ct, p| self.extract_definition(n, s, fp, ct, p),
+        );
 
         Ok(chunks)
     }
@@ -451,115 +412,6 @@ impl ChunkExtractor for GenericExtractor {
         // Leak the string for the 'static lifetime required by the trait.
         // This is acceptable because extractors are long-lived.
         Box::leak(self.language_name.clone().into_boxed_str())
-    }
-}
-
-impl GenericExtractor {
-    /// Walk children of a node, classifying each. If a child matches a
-    /// `root_wrappers` entry, recurse into it transparently instead.
-    fn walk_children(
-        &self,
-        parent: &Node,
-        source: &str,
-        file_path: &str,
-        chunks: &mut Vec<SemanticChunk>,
-    ) {
-        let decorated_wrapper = self.patterns.decorated_wrapper.as_deref();
-        let wrappers = &self.patterns.root_wrappers;
-        let mut cursor = parent.walk();
-
-        for child in parent.children(&mut cursor) {
-            let kind = child.kind();
-
-            // Unwrap root_wrappers transparently
-            if wrappers.iter().any(|w| w == kind) {
-                self.walk_children(&child, source, file_path, chunks);
-                continue;
-            }
-
-            if let Some(chunk_type) = self.classify_node(kind) {
-                match chunk_type {
-                    ChunkType::Class
-                    | ChunkType::Struct
-                    | ChunkType::Trait
-                    | ChunkType::Interface
-                    | ChunkType::Module
-                    | ChunkType::Impl => {
-                        chunks
-                            .extend(self.extract_container(&child, source, file_path, chunk_type));
-                    }
-                    _ => {
-                        chunks.push(
-                            self.extract_definition(&child, source, file_path, chunk_type, None),
-                        );
-                    }
-                }
-            } else if Some(kind) == decorated_wrapper {
-                self.handle_decorated_node(&child, source, file_path, chunks);
-            } else if kind == "call" {
-                self.handle_call_node(&child, source, file_path, chunks);
-            }
-        }
-    }
-
-    fn handle_decorated_node(
-        &self,
-        node: &Node,
-        source: &str,
-        file_path: &str,
-        chunks: &mut Vec<SemanticChunk>,
-    ) {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            let kind = child.kind();
-            if let Some(chunk_type) = self.classify_node(kind) {
-                match chunk_type {
-                    ChunkType::Class | ChunkType::Struct | ChunkType::Module => {
-                        chunks
-                            .extend(self.extract_container(&child, source, file_path, chunk_type));
-                    }
-                    _ => {
-                        chunks.push(
-                            self.extract_definition(&child, source, file_path, chunk_type, None),
-                        );
-                    }
-                }
-                return;
-            }
-        }
-    }
-
-    fn handle_call_node(
-        &self,
-        node: &Node,
-        source: &str,
-        file_path: &str,
-        chunks: &mut Vec<SemanticChunk>,
-    ) {
-        let text = node_text(node, source);
-        let first_word = text.split_whitespace().next().unwrap_or("");
-
-        // Check if this call matches any definition pattern
-        // Elixir: defmodule → Module, def/defp → Function, defmacro → Macro
-        if Self::matches_any("call", &self.patterns.module.node_types)
-            && matches!(first_word, "defmodule")
-        {
-            chunks.extend(self.extract_container(node, source, file_path, ChunkType::Module));
-        } else if Self::matches_any("call", &self.patterns.function.node_types)
-            && matches!(first_word, "def" | "defp")
-        {
-            chunks.push(self.extract_definition(
-                node,
-                source,
-                file_path,
-                ChunkType::Function,
-                None,
-            ));
-        } else if Self::matches_any("call", &self.patterns.macro_def.node_types)
-            && matches!(first_word, "defmacro" | "defmacrop")
-        {
-            chunks.push(self.extract_definition(node, source, file_path, ChunkType::Macro, None));
-        }
     }
 }
 
