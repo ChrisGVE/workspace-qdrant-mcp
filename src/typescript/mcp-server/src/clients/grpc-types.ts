@@ -18,6 +18,7 @@ export {
   type SystemStatusResponse,
   type Metric,
   type MetricsResponse,
+  type GetEmbeddingProviderStatusResponse,
   type RefreshSignalRequest,
   type ServerStatusNotification,
   // CollectionService

@@ -22,6 +22,7 @@ import type {
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
+  GetEmbeddingProviderStatusResponse,
   RegisterProjectRequest,
   RegisterProjectResponse,
   DeprioritizeProjectRequest,
@@ -263,6 +264,10 @@ export class DaemonClient {
     return this.callWithRetry(() => grpcUnary(this.systemClient, 'getMetrics', {}));
   }
 
+  async getEmbeddingProviderStatus(): Promise<GetEmbeddingProviderStatusResponse> {
+    return this.callWithRetry(() => grpcUnary(this.systemClient, 'getEmbeddingProviderStatus', {}));
+  }
+
   async notifyServerStatus(
     state: ServerState,
     projectName?: string,
@@ -446,6 +451,7 @@ export type {
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
+  GetEmbeddingProviderStatusResponse,
   RegisterProjectRequest,
   RegisterProjectResponse,
   DeprioritizeProjectRequest,

@@ -6,6 +6,7 @@ import type {
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
+  GetEmbeddingProviderStatusResponse,
   RefreshSignalRequest,
   ServerStatusNotification,
   CreateCollectionRequest,
@@ -74,6 +75,10 @@ export interface SystemServiceClient {
   resumeAllWatchers(
     request: Record<string, never>,
     callback: (error: Error | null, response: Record<string, never>) => void
+  ): void;
+  getEmbeddingProviderStatus(
+    request: Record<string, never>,
+    callback: (error: Error | null, response: GetEmbeddingProviderStatusResponse) => void
   ): void;
 }
 

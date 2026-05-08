@@ -52,6 +52,7 @@ import {
   buildListOptions,
 } from './tool-builders/index.js';
 import { storeUrl, storeScratchpad } from './store-handlers.js';
+import { handleEmbedding } from './tools/embedding.js';
 import {
   initializeSession,
   registerProjectFromTool,
@@ -156,7 +157,7 @@ export class WorkspaceQdrantMcpServer {
     sendHeartbeat(this.sessionState, daemonClient);
 
     // Unknown tool check — outside metrics wrapper to avoid recording unknown names
-    const knownTools = ['search', 'retrieve', 'rules', 'store', 'grep', 'list'];
+    const knownTools = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'];
     if (!knownTools.includes(toolName)) {
       logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });
       return { content: [{ type: 'text', text: `Unknown tool: ${toolName}` }], isError: true };
@@ -189,6 +190,8 @@ export class WorkspaceQdrantMcpServer {
             return grepTool.grep(buildGrepOptions(args));
           case 'list':
             return listTool.list(buildListOptions(args));
+          case 'embedding':
+            return handleEmbedding(args, daemonClient);
           default:
             // Unreachable: knownTools guard above covers all cases
             throw new Error(`Unexpected tool: ${toolName}`);

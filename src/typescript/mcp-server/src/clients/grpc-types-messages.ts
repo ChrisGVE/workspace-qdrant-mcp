@@ -73,6 +73,15 @@ export interface MetricsResponse {
   collected_at?: { seconds: number; nanos: number };
 }
 
+export interface GetEmbeddingProviderStatusResponse {
+  provider: string;
+  model: string;
+  output_dim: number;
+  base_url: string;
+  probe_status: string;
+  probe_message: string;
+}
+
 export interface RefreshSignalRequest {
   queue_type: QueueType;
   lsp_languages?: string[];

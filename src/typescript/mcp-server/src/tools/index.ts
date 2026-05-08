@@ -14,3 +14,4 @@ export * from './rules.js';
 export * from './store.js';
 export * from './retrieve.js';
 export * from './grep.js';
+export * from './embedding.js';

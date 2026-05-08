@@ -9,6 +9,7 @@ export { rulesToolDefinition } from './rules.js';
 export { storeToolDefinition } from './store.js';
 export { grepToolDefinition } from './grep.js';
 export { listToolDefinition } from './list.js';
+export { embeddingToolDefinition } from './embedding.js';
 
 import { searchToolDefinition } from './search.js';
 import { retrieveToolDefinition } from './retrieve.js';
@@ -16,6 +17,7 @@ import { rulesToolDefinition } from './rules.js';
 import { storeToolDefinition } from './store.js';
 import { grepToolDefinition } from './grep.js';
 import { listToolDefinition } from './list.js';
+import { embeddingToolDefinition } from './embedding.js';
 
 /**
  * Returns the full list of tool definitions for the ListTools MCP response
@@ -28,5 +30,6 @@ export function getToolDefinitions() {
     storeToolDefinition,
     grepToolDefinition,
     listToolDefinition,
+    embeddingToolDefinition,
   ];
 }
