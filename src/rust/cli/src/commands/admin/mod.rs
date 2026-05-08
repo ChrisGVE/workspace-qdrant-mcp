@@ -20,6 +20,7 @@ mod perf_data;
 mod perf_queries;
 mod prune_logs;
 mod rebalance_idf;
+mod reembed;
 mod rename_tenant;
 
 /// Canonical collection names (validated against wqm-common constants)
@@ -121,6 +122,16 @@ enum AdminCommand {
         min_growth_pct: f64,
     },
 
+    /// Trigger a full re-embed: drop and recreate the four canonical Qdrant
+    /// collections at the configured embedding output_dim and re-enqueue all
+    /// indexed sources. Used after switching embedding provider/model to a
+    /// model with a different dimensionality.
+    Reembed {
+        /// Required safety flag — without it the command refuses to run.
+        #[arg(long)]
+        confirm: bool,
+    },
+
     /// Display pipeline performance statistics (per-phase timing breakdown)
     #[command(
         after_long_help = "See also:\n  wqm admin stats processing  operation-level breakdown with Q1/Q3 quartiles\n  wqm status --performance    system resource metrics (CPU, memory, disk)"
@@ -220,6 +231,7 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             dry_run,
             min_growth_pct,
         } => rebalance_idf::execute(collection, dry_run, min_growth_pct).await,
+        AdminCommand::Reembed { confirm } => reembed::execute(confirm).await,
         AdminCommand::Perf {
             window,
             json,

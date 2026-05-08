@@ -310,9 +310,17 @@ pub async fn execute(
         ..Default::default()
     };
 
-    let _gen_bm25 = workspace_qdrant_core::EmbeddingGenerator::new(config_bm25)
-        .context("Failed to create BM25 embedding generator")?;
-    let gen_splade = workspace_qdrant_core::EmbeddingGenerator::new(config_splade)
+    let dense_settings = workspace_qdrant_core::config::EmbeddingSettings {
+        provider: "fastembed".to_string(),
+        ..Default::default()
+    };
+    let dense_provider =
+        workspace_qdrant_core::embedding::build_dense_provider(&dense_settings, None)
+            .context("Failed to build dense provider for sparse benchmark")?;
+    let _gen_bm25 =
+        workspace_qdrant_core::EmbeddingGenerator::new(config_bm25, dense_provider.clone())
+            .context("Failed to create BM25 embedding generator")?;
+    let gen_splade = workspace_qdrant_core::EmbeddingGenerator::new(config_splade, dense_provider)
         .context("Failed to create SPLADE embedding generator")?;
 
     println!("Readable samples: {}", samples.len());
