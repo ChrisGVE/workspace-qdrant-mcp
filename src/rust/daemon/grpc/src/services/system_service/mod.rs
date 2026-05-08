@@ -6,6 +6,7 @@
 //! SendRefreshSignal, NotifyServerStatus, PauseAllWatchers, ResumeAllWatchers,
 //! RebuildIndex
 
+mod helpers;
 mod rebuild;
 mod rpc_handlers;
 mod service_impl;
