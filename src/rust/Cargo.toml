@@ -108,6 +108,9 @@ sha2 = "0.10"
 # HTTP date parsing for adaptive rate limiting (Retry-After headers)
 httpdate = "1.0"
 
+# Secret wrapper for API keys (zeroize-on-drop, no Debug leak)
+secrecy = "0.10"
+
 # OCR (optional)
 leptess = "0.14"
 
@@ -126,6 +129,7 @@ once_cell = "1.19"
 regex = "1.12"
 testcontainers = { version = "0.25", features = ["blocking"] }
 testcontainers-modules = { version = "0.13" }
+wiremock = "0.6"
 
 [workspace.metadata.docs.rs]
 all-features = true
