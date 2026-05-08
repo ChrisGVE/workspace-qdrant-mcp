@@ -1129,3 +1129,62 @@ When operations are queued:
 
 ---
 
+### TriggerReembed (provider migration)
+
+`AdminWriteService.TriggerReembed` recreates the four canonical
+Qdrant collections (`projects`, `libraries`, `rules`, `scratchpad`)
+at the active embedding provider's dimensionality and re-enqueues
+all existing sources. Used after switching `embedding.provider` /
+`embedding.model` to a model with a different `output_dim`.
+
+**Enqueue-only invariant preserved.** The RPC handler does not
+mutate ingest state through bypass paths: file/rule/scratchpad
+re-ingestion is performed by inserting normal `unified_queue`
+items that the existing queue processor strategies pick up. The
+only direct mutations are SQLite housekeeping (flush stale
+pending, clear vector-derived state) and Qdrant collection
+recreation — neither of which the queue processor owns.
+
+**Drain-to-quiescence semantics.** Before any destructive step
+the handler:
+
+1. Sets the shared `pause_flag` so queue workers stop dequeuing.
+2. Polls `unified_queue` for `status='in_progress'` items whose
+   lease has not expired.
+3. Waits up to a hard 60s cap. If items are still in flight at
+   the cap, the pause flag is released and the RPC returns
+   `FAILED_PRECONDITION "drain-to-quiescence timeout: …"`.
+   **No collection recreation occurs on timeout** — the system
+   stays in its previous configuration.
+4. Once `in_progress = 0`, the handler proceeds with flush →
+   clear → recreate → enqueue → resume.
+
+**Authoritative dim is `settings.output_dim`.** Both the
+startup dim-mismatch guard (PRD §6.5) and the reembed
+recreation step use `settings.output_dim` rather than the
+runtime `provider.output_dim()` atomic. The latter is
+informational only — updated by the provider's `probe()` to
+reflect the dim it last observed and used for WARN-level
+drift logging.
+
+**`op = 'reembed'` is a recognised queue operation.** The
+unified queue's `op` CHECK constraint includes `'reembed'`
+since schema v34. `TriggerReembed` enqueues four
+traceability items —
+`(item_type='collection', op='reembed', tenant_id='_system',
+collection={projects|libraries|rules|scratchpad})` —
+with idempotency key
+`SHA256("collection|reembed|_system|{collection}|{}")[:32]`.
+Existing queue strategies treat unknown ops on
+`item_type='collection'` as no-ops, so the items remain
+`pending` until a future task wires concrete handling. The
+real recreation work happens inline inside the RPC handler
+while the pause flag is held.
+
+**Pre-flight dim check.** If
+`settings.output_dim != provider.output_dim()`, the handler
+fails fast with `FAILED_PRECONDITION` and never sets the
+pause flag — the operator must reconcile configuration first.
+
+---
+
