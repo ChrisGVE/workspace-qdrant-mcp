@@ -3,11 +3,14 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock};
 use tracing::{debug, error, info, warn};
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
+use workspace_qdrant_core::config::EmbeddingSettings;
+use workspace_qdrant_core::embedding::provider::DenseProvider;
+use workspace_qdrant_core::embedding::EmbeddingError;
 use workspace_qdrant_core::lifecycle::WatchFolderLifecycle;
 use workspace_qdrant_core::QueueProcessorHealth;
 use wqm_common::timestamps;
@@ -46,6 +49,21 @@ pub struct SystemServiceImpl {
     pub(super) lexicon_manager: Option<Arc<workspace_qdrant_core::LexiconManager>>,
     /// Storage client for Qdrant operations (rules rebuild)
     pub(super) storage_client: Option<Arc<workspace_qdrant_core::StorageClient>>,
+    /// Active dense embedding provider for the embedding_provider health
+    /// component and `GetEmbeddingProviderStatus` RPC.
+    pub(super) dense_provider: Option<Arc<dyn DenseProvider>>,
+    /// Embedding settings — authoritative `output_dim`, model id, base url.
+    pub(super) embedding_settings: Option<Arc<EmbeddingSettings>>,
+    /// Cached embedding-provider probe result (TTL = settings.health_probe_cache_secs).
+    /// `None` means no probe has completed yet.
+    pub(super) embedding_probe_cache: Arc<Mutex<EmbeddingProbeCache>>,
+}
+
+/// Cached state of the most recent embedding-provider probe call.
+#[derive(Default, Debug)]
+pub(super) struct EmbeddingProbeCache {
+    pub(super) last_probe_at: Option<Instant>,
+    pub(super) last_result: Option<Result<(), EmbeddingError>>,
 }
 
 impl std::fmt::Debug for SystemServiceImpl {
@@ -77,6 +95,9 @@ impl SystemServiceImpl {
             search_db: None,
             lexicon_manager: None,
             storage_client: None,
+            dense_provider: None,
+            embedding_settings: None,
+            embedding_probe_cache: Arc::new(Mutex::new(EmbeddingProbeCache::default())),
         }
     }
 
@@ -148,9 +169,129 @@ impl SystemServiceImpl {
         self
     }
 
+    /// Set the active dense embedding provider for the
+    /// `embedding_provider` health component and `GetEmbeddingProviderStatus`.
+    pub fn with_dense_provider(mut self, provider: Arc<dyn DenseProvider>) -> Self {
+        self.dense_provider = Some(provider);
+        self
+    }
+
+    /// Set the embedding settings (model, output_dim, base_url, probe TTL).
+    pub fn with_embedding_settings(mut self, settings: Arc<EmbeddingSettings>) -> Self {
+        self.embedding_settings = Some(settings);
+        self
+    }
+
     /// Get a clone of the pause flag for sharing with file watchers
     pub fn pause_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.pause_flag)
+    }
+
+    /// Run a probe inline with a 3s timeout and store the outcome in the
+    /// shared cache. Used by `GetEmbeddingProviderStatus` so callers see
+    /// fresh state on demand. Returns `(probe_status, probe_message)`.
+    ///
+    /// Honors `health_probe_cache_secs`: if the cached result is younger
+    /// than the TTL it is reused without issuing a network probe.
+    ///
+    /// Status values: `healthy`, `unhealthy`, `degraded`, `probe_pending`.
+    pub(super) async fn probe_embedding_provider(&self) -> (String, String) {
+        let provider = match &self.dense_provider {
+            Some(p) => Arc::clone(p),
+            None => {
+                return (
+                    "probe_pending".to_string(),
+                    "embedding provider not wired".to_string(),
+                );
+            }
+        };
+
+        let ttl = self
+            .embedding_settings
+            .as_ref()
+            .map(|s| s.health_probe_cache_secs)
+            .unwrap_or(0);
+
+        if ttl > 0 {
+            let cache = self.embedding_probe_cache.lock().await;
+            if let (Some(last_at), Some(last_result)) =
+                (cache.last_probe_at, cache.last_result.as_ref())
+            {
+                if last_at.elapsed() < Duration::from_secs(ttl) {
+                    return classify_probe_result(last_result);
+                }
+            }
+        }
+
+        let probe_call = tokio::time::timeout(Duration::from_secs(3), provider.probe()).await;
+        match probe_call {
+            Ok(result) => {
+                let pair = classify_probe_result(&result);
+                let mut cache = self.embedding_probe_cache.lock().await;
+                cache.last_probe_at = Some(Instant::now());
+                cache.last_result = Some(result);
+                pair
+            }
+            Err(_elapsed) => {
+                let mut cache = self.embedding_probe_cache.lock().await;
+                cache.last_probe_at = Some(Instant::now());
+                cache.last_result = None;
+                ("unhealthy".to_string(), "timeout after 3s".to_string())
+            }
+        }
+    }
+
+    /// Build the `embedding_provider` ComponentHealth for the `Health` RPC
+    /// from the cached probe result. The Health endpoint never blocks on a
+    /// network probe — fresh probes are issued by `ProviderHealthMonitor`
+    /// (background) or by `GetEmbeddingProviderStatus` (on-demand). Until
+    /// the cache is warm, the component status is `Degraded` with a
+    /// `probe pending` message.
+    pub(super) async fn get_embedding_provider_health(&self) -> ComponentHealth {
+        let now = SystemTime::now();
+
+        if self.dense_provider.is_none() {
+            return ComponentHealth {
+                component_name: "embedding_provider".to_string(),
+                status: ServiceStatus::Unspecified as i32,
+                message: "embedding provider not wired".to_string(),
+                last_check: Some(prost_types::Timestamp::from(now)),
+            };
+        }
+
+        let cache = self.embedding_probe_cache.lock().await;
+        match cache.last_result.as_ref() {
+            None => ComponentHealth {
+                component_name: "embedding_provider".to_string(),
+                status: ServiceStatus::Degraded as i32,
+                message: "probe pending: background probe not yet completed".to_string(),
+                last_check: Some(prost_types::Timestamp::from(now)),
+            },
+            Some(result) => {
+                let (_, probe_message) = classify_probe_result(result);
+                let svc_status = match result {
+                    Ok(()) => ServiceStatus::Healthy,
+                    Err(EmbeddingError::TemporarilyUnavailable { .. }) => ServiceStatus::Degraded,
+                    Err(_) => ServiceStatus::Unhealthy,
+                };
+                ComponentHealth {
+                    component_name: "embedding_provider".to_string(),
+                    status: svc_status as i32,
+                    message: probe_message,
+                    last_check: Some(prost_types::Timestamp::from(now)),
+                }
+            }
+        }
+    }
+
+    /// Test-only seeding of the embedding probe cache. Marked `pub(super)`
+    /// so test modules can simulate "cache warm" / "cache stale" states
+    /// without needing a real provider call. Not exposed to crate users.
+    #[cfg(test)]
+    pub(super) async fn seed_embedding_probe_cache(&self, result: Result<(), EmbeddingError>) {
+        let mut cache = self.embedding_probe_cache.lock().await;
+        cache.last_probe_at = Some(Instant::now());
+        cache.last_result = Some(result);
     }
 
     /// Get queue processor health component
@@ -455,5 +596,34 @@ impl SystemServiceImpl {
 impl Default for SystemServiceImpl {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Map the raw probe `Result<(), EmbeddingError>` into the
+/// `(probe_status, probe_message)` pair surfaced by the
+/// `GetEmbeddingProviderStatus` RPC and the `embedding_provider` health
+/// component.
+pub(super) fn classify_probe_result(result: &Result<(), EmbeddingError>) -> (String, String) {
+    match result {
+        Ok(()) => ("healthy".to_string(), "Running normally".to_string()),
+        Err(EmbeddingError::RemoteError {
+            status_code: 401,
+            message,
+        }) => (
+            "unhealthy".to_string(),
+            format!("auth failure: 401 {}", message),
+        ),
+        Err(EmbeddingError::RemoteError {
+            status_code: 403,
+            message,
+        }) => (
+            "unhealthy".to_string(),
+            format!("auth failure: 403 {}", message),
+        ),
+        Err(EmbeddingError::TemporarilyUnavailable { retry_after_secs }) => (
+            "degraded".to_string(),
+            format!("temporarily unavailable, retry in {retry_after_secs}s"),
+        ),
+        Err(other) => ("unhealthy".to_string(), other.to_string()),
     }
 }

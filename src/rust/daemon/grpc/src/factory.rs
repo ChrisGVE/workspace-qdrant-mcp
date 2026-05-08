@@ -92,6 +92,13 @@ impl GrpcServer {
             svc = svc.with_storage_client(Arc::clone(storage_client));
         }
 
+        if let Some(ref provider) = self.dense_provider {
+            svc = svc.with_dense_provider(Arc::clone(provider));
+        }
+        if let Some(ref settings) = self.embedding_settings {
+            svc = svc.with_embedding_settings(Arc::clone(settings));
+        }
+
         svc
     }
 

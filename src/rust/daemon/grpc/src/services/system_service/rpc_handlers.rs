@@ -41,6 +41,9 @@ impl SystemService for SystemServiceImpl {
         let queue_status = queue_health.status;
         components.push(queue_health);
 
+        // Add embedding provider health (probe with 3s timeout, TTL cache).
+        components.push(self.get_embedding_provider_health().await);
+
         // Determine overall status (worst of all components)
         let overall_status = if components
             .iter()
@@ -485,8 +488,24 @@ impl SystemService for SystemServiceImpl {
         &self,
         _request: Request<()>,
     ) -> Result<Response<GetEmbeddingProviderStatusResponse>, Status> {
-        Err(Status::unimplemented(
-            "GetEmbeddingProviderStatus not yet wired",
-        ))
+        let provider = self.dense_provider.as_ref().ok_or_else(|| {
+            Status::failed_precondition(
+                "GetEmbeddingProviderStatus not available: provider not wired",
+            )
+        })?;
+        let settings = self.embedding_settings.as_ref().ok_or_else(|| {
+            Status::failed_precondition(
+                "GetEmbeddingProviderStatus not available: settings not wired",
+            )
+        })?;
+        let (probe_status, probe_message) = self.probe_embedding_provider().await;
+        Ok(Response::new(GetEmbeddingProviderStatusResponse {
+            provider: settings.provider.clone(),
+            model: settings.model.clone(),
+            output_dim: provider.output_dim() as u32,
+            base_url: settings.base_url.clone(),
+            probe_status,
+            probe_message,
+        }))
     }
 }
