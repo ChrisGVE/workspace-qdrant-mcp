@@ -23,13 +23,15 @@ use async_trait::async_trait;
 use reqwest::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::warn;
 
 use super::rate_limit::RateLimitAdapter;
 use super::DenseProvider;
 use crate::embedding::types::{DenseEmbedding, EmbeddingError};
+
+mod types;
+use types::{OpenAiEmbedding, OpenAiEmbeddingRequest, OpenAiEmbeddingResponse};
 
 /// Default HTTP request timeout (seconds).
 const HTTP_TIMEOUT_SECS: u64 = 60;
@@ -345,23 +347,6 @@ fn parse_retry_after_secs(headers: &HeaderMap) -> Option<u64> {
         .trim()
         .parse::<u64>()
         .ok()
-}
-
-#[derive(Serialize)]
-struct OpenAiEmbeddingRequest<'a> {
-    input: Vec<&'a str>,
-    model: &'a str,
-}
-
-#[derive(Deserialize)]
-struct OpenAiEmbeddingResponse {
-    data: Vec<OpenAiEmbedding>,
-}
-
-#[derive(Deserialize)]
-struct OpenAiEmbedding {
-    embedding: Vec<f32>,
-    index: usize,
 }
 
 #[cfg(test)]
