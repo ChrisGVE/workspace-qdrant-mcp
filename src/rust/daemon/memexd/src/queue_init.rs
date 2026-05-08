@@ -18,8 +18,9 @@ use workspace_qdrant_core::{
     embedding::provider::{build_dense_provider, DenseProvider},
     ipc::IpcServer,
     AllowedExtensions, DocumentProcessor, EmbeddingConfig, EmbeddingGenerator, HierarchyBuilder,
-    HierarchyRebuildConfig, LanguageServerManager, ProcessorConfig, QueueProcessorHealth,
-    SearchDbManager, StorageClient, StorageConfig, UnifiedProcessorConfig, UnifiedQueueProcessor,
+    HierarchyRebuildConfig, LanguageServerManager, MultiTenantConfig, ProcessorConfig,
+    QueueProcessorHealth, SearchDbManager, StorageClient, StorageConfig, UnifiedProcessorConfig,
+    UnifiedQueueProcessor,
 };
 
 use crate::database::ConcreteGraphStore;
@@ -130,7 +131,7 @@ fn create_embedding_generator(
 /// without completing items, leaking memory. We retry with exponential
 /// backoff up to ~90 seconds before giving up (the circuit breaker recovery
 /// loop will continue trying in the background).
-async fn wait_for_qdrant_and_init(storage_client: &StorageClient) {
+async fn wait_for_qdrant_and_init(storage_client: &StorageClient, vector_size: u64) {
     const MAX_ATTEMPTS: u32 = 10;
     const INITIAL_DELAY_MS: u64 = 1000;
 
@@ -138,7 +139,7 @@ async fn wait_for_qdrant_and_init(storage_client: &StorageClient) {
         match storage_client.test_connection().await {
             Ok(true) => {
                 info!("Qdrant is ready (attempt {}/{})", attempt, MAX_ATTEMPTS);
-                init_qdrant_collections(storage_client).await;
+                init_qdrant_collections(storage_client, vector_size).await;
                 return;
             }
             _ => {
@@ -162,10 +163,17 @@ async fn wait_for_qdrant_and_init(storage_client: &StorageClient) {
 }
 
 /// Initialize multi-tenant Qdrant collections (idempotent).
-async fn init_qdrant_collections(storage_client: &StorageClient) {
-    info!("Initializing Qdrant collections...");
+async fn init_qdrant_collections(storage_client: &StorageClient, vector_size: u64) {
+    info!(
+        "Initializing Qdrant collections at vector_size={} (active provider dim)",
+        vector_size
+    );
+    let mt_config = MultiTenantConfig {
+        vector_size,
+        ..MultiTenantConfig::default()
+    };
     match storage_client
-        .initialize_multi_tenant_collections(None)
+        .initialize_multi_tenant_collections(Some(mt_config))
         .await
     {
         Ok(result) => {
@@ -284,7 +292,8 @@ pub async fn initialize(
 
     let (embedding_generator, dense_provider) = create_embedding_generator(daemon_config, config)?;
     let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
-    wait_for_qdrant_and_init(&storage_client).await;
+    let active_dim = daemon_config.embedding.output_dim as u64;
+    wait_for_qdrant_and_init(&storage_client, active_dim).await;
 
     let allowed_extensions = Arc::new(AllowedExtensions::default());
     info!("File type allowlist initialized (90+ project extensions, library extensions active)");

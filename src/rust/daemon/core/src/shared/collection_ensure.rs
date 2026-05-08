@@ -31,14 +31,17 @@ pub async fn ensure_collection(
 /// Ensure a canonical Qdrant collection exists using `Collection` enum config.
 ///
 /// Convenience wrapper that pulls the name and creation config from the enum.
+/// `vector_size` must come from the active embedding provider's dim
+/// (`embedding.output_dim` per PRD §5.10 / §6.5).
 pub async fn ensure_canonical_collection(
     storage_client: &Arc<StorageClient>,
     collection: &Collection,
+    vector_size: u64,
 ) -> Result<(), StorageError> {
     ensure_collection_with_config(
         storage_client,
         collection.name(),
-        &collection.creation_config(),
+        &collection.creation_config(vector_size),
     )
     .await
 }

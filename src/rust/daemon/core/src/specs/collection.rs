@@ -36,10 +36,15 @@ impl Collection {
 
     /// The `MultiTenantConfig` used when creating this collection.
     ///
-    /// Currently returns default for all collections — this is the single
-    /// point to customize per-collection settings in the future.
-    pub fn creation_config(&self) -> MultiTenantConfig {
-        MultiTenantConfig::default()
+    /// `vector_size` is the authoritative dense-vector dimensionality for the
+    /// active embedding provider (`embedding.output_dim` in config). The
+    /// `MultiTenantConfig::default()` value is intentionally ignored for this
+    /// field — see PRD §5.10 / §6.5.
+    pub fn creation_config(&self, vector_size: u64) -> MultiTenantConfig {
+        MultiTenantConfig {
+            vector_size,
+            ..MultiTenantConfig::default()
+        }
     }
 
     /// Parse a collection name string into the enum.
@@ -104,14 +109,24 @@ mod tests {
 
     #[test]
     fn test_creation_config_defaults() {
+        const PROBE_DIM: u64 = 1536;
         for collection in [
             Collection::Projects,
             Collection::Libraries,
             Collection::Rules,
             Collection::Scratchpad,
         ] {
-            let config = collection.creation_config();
-            assert_eq!(config.vector_size, 384, "{:?} vector_size", collection);
+            let config = collection.creation_config(PROBE_DIM);
+            assert!(
+                config.vector_size > 0,
+                "{:?} vector_size must be positive",
+                collection
+            );
+            assert_eq!(
+                config.vector_size, PROBE_DIM,
+                "{:?} vector_size must reflect the provider dim passed in",
+                collection
+            );
             assert_eq!(config.hnsw_m, 16, "{:?} hnsw_m", collection);
             assert_eq!(
                 config.hnsw_ef_construct, 100,
