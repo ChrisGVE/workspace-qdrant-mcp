@@ -5,6 +5,8 @@
 //! configuration, it walks the tree-sitter AST and extracts preamble,
 //! functions, classes, methods, structs, enums, traits, modules, etc.
 
+mod docstring;
+
 use std::path::Path;
 
 use tree_sitter::{Language, Node};
@@ -178,7 +180,7 @@ impl GenericExtractor {
                 .to_string()
         });
 
-        let docstring = self.extract_docstring(node, source);
+        let docstring = docstring::extract_docstring(&self.patterns, node, source);
 
         let calls = if matches!(
             effective_type,
@@ -256,173 +258,6 @@ impl GenericExtractor {
             .map(|s| s.split('<').next().unwrap_or(s))
             .map(|s| s.split(':').next().unwrap_or(s))
             .unwrap_or("anonymous")
-    }
-
-    // ── Docstring extraction ──────────────────────────────────────────
-
-    fn extract_docstring(&self, node: &Node, source: &str) -> Option<String> {
-        match self.patterns.docstring_style {
-            DocstringStyle::FirstStringInBody => self.docstring_first_string(node, source),
-            DocstringStyle::PrecedingComments => self.docstring_preceding_comments(node, source),
-            DocstringStyle::Javadoc => self.docstring_javadoc(node, source),
-            DocstringStyle::Haddock => self.docstring_haddock(node, source),
-            DocstringStyle::ElixirAttr => self.docstring_elixir_attr(node, source),
-            DocstringStyle::OcamlDoc => self.docstring_ocaml(node, source),
-            DocstringStyle::Pod => self.docstring_pod(node, source),
-            DocstringStyle::None => None,
-        }
-    }
-
-    /// Python-style: first string expression in function/class body.
-    fn docstring_first_string(&self, node: &Node, source: &str) -> Option<String> {
-        let body_type = self.patterns.body_node.as_deref().unwrap_or("block");
-        let body = find_child_by_kind(node, body_type)?;
-        let mut cursor = body.walk();
-
-        for child in body.children(&mut cursor) {
-            if child.kind() == "expression_statement" {
-                if let Some(string_node) = find_child_by_kind(&child, "string") {
-                    let text = node_text(&string_node, source);
-                    return Some(
-                        text.trim_start_matches("\"\"\"")
-                            .trim_start_matches("'''")
-                            .trim_end_matches("\"\"\"")
-                            .trim_end_matches("'''")
-                            .trim()
-                            .to_string(),
-                    );
-                }
-            }
-            break;
-        }
-        None
-    }
-
-    /// C/C++/Rust/Go/Ruby style: comment nodes preceding the definition.
-    fn docstring_preceding_comments(&self, node: &Node, source: &str) -> Option<String> {
-        let comment_types = &self.patterns.comment_nodes;
-        if comment_types.is_empty() {
-            return None;
-        }
-
-        let mut comments = Vec::new();
-        let mut prev = node.prev_sibling();
-
-        while let Some(sibling) = prev {
-            if comment_types.iter().any(|t| t == sibling.kind()) {
-                let text = node_text(&sibling, source);
-                // Check for doc comment markers
-                let is_doc = text.starts_with("///")
-                    || text.starts_with("//!")
-                    || text.starts_with("/**")
-                    || text.starts_with("##")
-                    || text.starts_with("-- |")
-                    || text.starts_with("---");
-                if is_doc || comments.is_empty() {
-                    comments.push(text.to_string());
-                    prev = sibling.prev_sibling();
-                    continue;
-                }
-            }
-            break;
-        }
-
-        if comments.is_empty() {
-            return None;
-        }
-
-        comments.reverse();
-        let joined = comments.join("\n");
-
-        // Clean common doc comment prefixes
-        let cleaned: String = joined
-            .lines()
-            .map(|l| {
-                l.trim()
-                    .trim_start_matches("///")
-                    .trim_start_matches("//!")
-                    .trim_start_matches("## ")
-                    .trim_start_matches("-- |")
-                    .trim_start_matches("-- ")
-                    .trim_start_matches("---")
-                    .trim_start()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        Some(cleaned.trim().to_string())
-    }
-
-    /// Java/JS/TS/Scala style: `/** ... */` block comment.
-    fn docstring_javadoc(&self, node: &Node, source: &str) -> Option<String> {
-        let prev = node.prev_sibling()?;
-        let text = node_text(&prev, source);
-        if text.starts_with("/**") {
-            let cleaned = text
-                .trim_start_matches("/**")
-                .trim_end_matches("*/")
-                .lines()
-                .map(|l| l.trim().trim_start_matches("* ").trim_start_matches('*'))
-                .collect::<Vec<_>>()
-                .join("\n")
-                .trim()
-                .to_string();
-            if !cleaned.is_empty() {
-                return Some(cleaned);
-            }
-        }
-        None
-    }
-
-    /// Haskell style: `-- |` Haddock comments.
-    fn docstring_haddock(&self, node: &Node, source: &str) -> Option<String> {
-        self.docstring_preceding_comments(node, source)
-    }
-
-    /// Elixir style: `@doc` attribute.
-    fn docstring_elixir_attr(&self, node: &Node, source: &str) -> Option<String> {
-        let mut prev = node.prev_sibling();
-        while let Some(sibling) = prev {
-            let text = node_text(&sibling, source);
-            if text.starts_with("@doc") {
-                let doc = text
-                    .trim_start_matches("@doc")
-                    .trim()
-                    .trim_start_matches("\"\"\"")
-                    .trim_end_matches("\"\"\"")
-                    .trim()
-                    .to_string();
-                return Some(doc);
-            }
-            if sibling.kind() == "comment" {
-                prev = sibling.prev_sibling();
-                continue;
-            }
-            break;
-        }
-        None
-    }
-
-    /// OCaml style: `(** ... *)` doc comments.
-    fn docstring_ocaml(&self, node: &Node, source: &str) -> Option<String> {
-        let prev = node.prev_sibling()?;
-        if prev.kind() == "comment" {
-            let text = node_text(&prev, source);
-            if text.starts_with("(**") {
-                let cleaned = text
-                    .trim_start_matches("(**")
-                    .trim_end_matches("*)")
-                    .trim()
-                    .to_string();
-                return Some(cleaned);
-            }
-        }
-        None
-    }
-
-    /// Perl POD style (simplified — extracts preceding comment block).
-    fn docstring_pod(&self, node: &Node, source: &str) -> Option<String> {
-        self.docstring_preceding_comments(node, source)
     }
 
     // ── Class/module body walking ─────────────────────────────────────
@@ -510,7 +345,7 @@ impl GenericExtractor {
         let start_line = node.start_position().row + 1;
         let end_line = node.end_position().row + 1;
 
-        let docstring = self.extract_docstring(node, source);
+        let docstring = docstring::extract_docstring(&self.patterns, node, source);
 
         let mut chunk = SemanticChunk::new(
             chunk_type,
