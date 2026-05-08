@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent template for memexd. Replace `__HOME__` with the absolute
+  user home directory (e.g. /Users/alice) before installing to
+  ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist, then run:
+
+      launchctl unload ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
+      launchctl load   ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
+
+  Key handling: this template invokes `memexd-launch`, which reads an
+  optional env file (mode 0600) at $HOME/.config/memexd/env and inherits
+  anything already set via `launchctl setenv`. See
+  docs/deployment/api-keys.md for the three supported approaches.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.workspace-qdrant.memexd</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/.local/bin/memexd-launch</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>__HOME__/.workspace-qdrant</string>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.workspace-qdrant/memexd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.workspace-qdrant/memexd.err.log</string>
+
+    <!--
+      Non-secret config can live here. Do NOT put OPENAI_API_KEY in this
+      block — the plist is world-readable on macOS by default. Use the
+      env file (option 1) or `launchctl setenv` (option 2) instead.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>WQM_LOG_LEVEL</key>
+        <string>INFO</string>
+        <key>QDRANT_URL</key>
+        <string>http://localhost:6333</string>
+    </dict>
+</dict>
+</plist>

@@ -23,5 +23,11 @@ RestartSec=5s
 Environment=RUST_LOG=info
 Environment=QDRANT_URL=http://localhost:6333
 
+# Optional env file for API keys (option 1 in docs/deployment/api-keys.md).
+# Leading dash makes systemd skip silently when the file is absent —
+# leave it out entirely if you prefer `systemctl --user set-environment`
+# (option 2) or an external secret manager. The file should be mode 0600.
+EnvironmentFile=-%h/.config/memexd/env
+
 [Install]
 WantedBy=default.target

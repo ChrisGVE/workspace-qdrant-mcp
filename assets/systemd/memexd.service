@@ -49,5 +49,10 @@ SyslogIdentifier=memexd
 Environment=RUST_LOG=info
 Environment=QDRANT_URL=http://localhost:6333
 
+# Optional env file for API keys (option 1 in docs/deployment/api-keys.md).
+# For system services, /etc/memexd/env (root-owned, mode 0600) is the
+# typical location. Leading dash makes the unit start even when absent.
+EnvironmentFile=-/etc/memexd/env
+
 [Install]
 WantedBy=multi-user.target
