@@ -6,8 +6,11 @@
 //! 3. Strong pattern-based filters (IDs, hashes, versions, paths)
 //! 4. Code and prose boilerplate stoplists
 
-use regex::Regex;
+mod filters;
+
 use std::collections::HashMap;
+
+use filters::{is_stopword, JunkPatterns};
 
 /// A keyword candidate with its score components.
 #[derive(Debug, Clone)]
@@ -46,189 +49,6 @@ impl Default for LexicalConfig {
     }
 }
 
-/// English prose boilerplate terms to filter out.
-const PROSE_STOPLIST: &[&str] = &[
-    "introduction",
-    "section",
-    "references",
-    "conclusion",
-    "abstract",
-    "chapter",
-    "appendix",
-    "figure",
-    "table",
-    "example",
-    "note",
-    "see",
-    "also",
-    "shall",
-    "hereby",
-    "therefore",
-    "whereas",
-    "overview",
-    "summary",
-    "background",
-    "related",
-    "previous",
-];
-
-/// Code boilerplate terms to filter out.
-const CODE_STOPLIST: &[&str] = &[
-    "impl",
-    "mod",
-    "struct",
-    "pub",
-    "self",
-    "async",
-    "let",
-    "mut",
-    "fn",
-    "use",
-    "crate",
-    "super",
-    "return",
-    "match",
-    "enum",
-    "trait",
-    "const",
-    "static",
-    "type",
-    "where",
-    "move",
-    "ref",
-    "dyn",
-    "box",
-    "data",
-    "value",
-    "item",
-    "result",
-    "error",
-    "option",
-    "none",
-    "some",
-    "true",
-    "false",
-    "null",
-    "undefined",
-    "var",
-    "def",
-    "class",
-    "import",
-    "export",
-    "from",
-    "require",
-    "module",
-    "function",
-    "new",
-    "delete",
-    "void",
-    "int",
-    "string",
-    "bool",
-    "float",
-    "double",
-    "char",
-    "byte",
-    "args",
-    "kwargs",
-    "self",
-    "this",
-    "super",
-    "extends",
-    "implements",
-    "override",
-    "final",
-    "abstract",
-    "virtual",
-    "inline",
-    "extern",
-    "static",
-    "const",
-    "volatile",
-    "register",
-    "sizeof",
-    "typeof",
-    "instanceof",
-    "throw",
-    "catch",
-    "try",
-    "finally",
-    "yield",
-    "await",
-    "break",
-    "continue",
-    "goto",
-    "switch",
-    "case",
-    "default",
-    "while",
-    "for",
-    "do",
-    "if",
-    "else",
-    "elif",
-    "unless",
-    "until",
-    "loop",
-    "begin",
-    "end",
-    "then",
-    "elsif",
-    "rescue",
-    "ensure",
-    "raise",
-    "pass",
-    "lambda",
-    "with",
-    "assert",
-    "print",
-    "println",
-    "printf",
-    "fmt",
-    "todo",
-    "fixme",
-    "hack",
-    "xxx",
-    "note",
-    "warn",
-];
-
-/// Junk pattern regexes compiled once.
-struct JunkPatterns {
-    hex_hash: Regex,
-    version: Regex,
-    path: Regex,
-    hex_literal: Regex,
-    uuid: Regex,
-    single_letter: Regex,
-    all_digits: Regex,
-}
-
-impl JunkPatterns {
-    fn new() -> Self {
-        Self {
-            hex_hash: Regex::new(r"^[a-f0-9]{8,}$").unwrap(),
-            version: Regex::new(r"^v?\d+\.\d+").unwrap(),
-            path: Regex::new(r"^[/\\]|[/\\]").unwrap(),
-            hex_literal: Regex::new(r"^0x[a-f0-9]+$").unwrap(),
-            uuid: Regex::new(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
-                .unwrap(),
-            single_letter: Regex::new(r"^[a-z]$").unwrap(),
-            all_digits: Regex::new(r"^\d+$").unwrap(),
-        }
-    }
-
-    fn is_junk(&self, phrase: &str) -> bool {
-        self.hex_hash.is_match(phrase)
-            || self.version.is_match(phrase)
-            || self.path.is_match(phrase)
-            || self.hex_literal.is_match(phrase)
-            || self.uuid.is_match(phrase)
-            || self.single_letter.is_match(phrase)
-            || self.all_digits.is_match(phrase)
-    }
-}
-
 /// Tokenize text into words suitable for n-gram construction.
 ///
 /// Splits on whitespace and common punctuation, lowercases,
@@ -258,26 +78,6 @@ fn extract_ngrams(tokens: &[String], max_n: u8) -> Vec<(String, u8)> {
     ngrams
 }
 
-/// Check if a phrase is in the stoplist.
-fn is_stopword(phrase: &str, is_code: bool) -> bool {
-    // Check common English stopwords
-    if wqm_common::nlp::ENGLISH_STOPWORDS.contains(&phrase) {
-        return true;
-    }
-
-    // Check prose boilerplate
-    if PROSE_STOPLIST.contains(&phrase) {
-        return true;
-    }
-
-    // Check code boilerplate if processing code
-    if is_code && CODE_STOPLIST.contains(&phrase) {
-        return true;
-    }
-
-    false
-}
-
 /// Extract TF-IDF lexical candidates from document text.
 ///
 /// Returns candidates sorted by TF score descending, limited to `config.max_candidates`.
@@ -288,13 +88,11 @@ pub fn extract_candidates(text: &str, config: &LexicalConfig) -> Vec<LexicalCand
 
     let junk = JunkPatterns::new();
 
-    // Tokenize
     let tokens = tokenize_for_ngrams(text);
     if tokens.is_empty() {
         return Vec::new();
     }
 
-    // Extract n-grams and count frequencies
     let ngrams = extract_ngrams(&tokens, config.max_ngram);
     let mut freq_map: HashMap<String, (u32, u8)> = HashMap::new();
     for (phrase, n) in ngrams {
@@ -302,34 +100,24 @@ pub fn extract_candidates(text: &str, config: &LexicalConfig) -> Vec<LexicalCand
         entry.0 += 1;
     }
 
-    // Filter and score
     let mut candidates: Vec<LexicalCandidate> = freq_map
         .into_iter()
         .filter(|(phrase, (tf, _))| {
-            // Minimum TF threshold
             if *tf < config.min_tf {
                 return false;
             }
-
-            // Skip single-word stopwords
             if !phrase.contains(' ') && is_stopword(phrase, config.is_code) {
                 return false;
             }
-
-            // Skip junk patterns (only check individual words of multi-word phrases
-            // would be too aggressive — check the whole phrase and individual words)
             if junk.is_junk(phrase) {
                 return false;
             }
-
-            // For multi-word phrases, check if ALL words are stopwords
             if phrase.contains(' ') {
                 let words: Vec<&str> = phrase.split(' ').collect();
                 if words.iter().all(|w| is_stopword(w, config.is_code)) {
                     return false;
                 }
             }
-
             true
         })
         .map(|(phrase, (tf, n))| {
@@ -343,7 +131,6 @@ pub fn extract_candidates(text: &str, config: &LexicalConfig) -> Vec<LexicalCand
         })
         .collect();
 
-    // Sort by TF score descending, then by ngram_size descending (prefer longer phrases)
     candidates.sort_by(|a, b| {
         b.tf_score
             .partial_cmp(&a.tf_score)
@@ -351,7 +138,6 @@ pub fn extract_candidates(text: &str, config: &LexicalConfig) -> Vec<LexicalCand
             .then(b.ngram_size.cmp(&a.ngram_size))
     });
 
-    // Truncate to max candidates
     candidates.truncate(config.max_candidates);
 
     candidates
@@ -375,7 +161,6 @@ mod tests {
         let candidates = extract_candidates(text, &config);
         assert!(!candidates.is_empty());
 
-        // "quick" should appear as a candidate (appears 3 times)
         let quick = candidates.iter().find(|c| c.phrase == "quick");
         assert!(quick.is_some(), "Expected 'quick' as a candidate");
         assert_eq!(quick.unwrap().raw_tf, 3);
@@ -404,14 +189,12 @@ mod tests {
         };
         let candidates = extract_candidates(text, &config);
 
-        // Code keywords like "pub", "fn", "let" should be filtered
         let has_pub = candidates.iter().any(|c| c.phrase == "pub");
         assert!(!has_pub, "'pub' should be filtered by code stoplist");
 
         let has_fn = candidates.iter().any(|c| c.phrase == "fn");
         assert!(!has_fn, "'fn' should be filtered by code stoplist");
 
-        // Domain terms should survive
         let has_embedding = candidates.iter().any(|c| c.phrase.contains("embedding"));
         assert!(has_embedding, "Expected 'embedding' related candidate");
     }
@@ -446,7 +229,6 @@ mod tests {
 
     #[test]
     fn test_extract_candidates_max_limit() {
-        // Generate a large text
         let text: String = (0..1000)
             .map(|i| format!("unique_word_{}", i))
             .collect::<Vec<_>>()
@@ -473,7 +255,6 @@ mod tests {
         };
         let candidates = extract_candidates(text, &config);
 
-        // "vector" (tf=3) should score higher than "database" (tf=2) > "search" (tf=1)
         let vector = candidates.iter().find(|c| c.phrase == "vector").unwrap();
         let database = candidates.iter().find(|c| c.phrase == "database").unwrap();
         let search = candidates.iter().find(|c| c.phrase == "search").unwrap();
@@ -517,7 +298,6 @@ mod tests {
         };
         let candidates = extract_candidates(text, &config);
 
-        // All words are stopwords, so no candidates should survive
         assert!(
             candidates.is_empty(),
             "All-stopword phrases should be filtered"
@@ -550,35 +330,5 @@ mod tests {
         assert_eq!(ngrams.len(), 5);
         assert!(ngrams.iter().any(|(p, n)| p == "hello world" && *n == 2));
         assert!(ngrams.iter().any(|(p, n)| p == "world foo" && *n == 2));
-    }
-
-    #[test]
-    fn test_junk_patterns_hex() {
-        let junk = JunkPatterns::new();
-        assert!(junk.is_junk("abc123def456"));
-        assert!(junk.is_junk("0xdeadbeef"));
-        assert!(!junk.is_junk("hello"));
-    }
-
-    #[test]
-    fn test_junk_patterns_version() {
-        let junk = JunkPatterns::new();
-        assert!(junk.is_junk("v2.3.1"));
-        assert!(junk.is_junk("1.0.0"));
-        assert!(!junk.is_junk("vector"));
-    }
-
-    #[test]
-    fn test_junk_patterns_uuid() {
-        let junk = JunkPatterns::new();
-        assert!(junk.is_junk("550e8400-e29b-41d4-a716-446655440000"));
-        assert!(!junk.is_junk("hello-world"));
-    }
-
-    #[test]
-    fn test_junk_patterns_digits() {
-        let junk = JunkPatterns::new();
-        assert!(junk.is_junk("12345"));
-        assert!(!junk.is_junk("12abc"));
     }
 }
