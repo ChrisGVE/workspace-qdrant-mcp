@@ -9,15 +9,18 @@
 //! convenient, falling back to the `git` CLI for operations git2 does not
 //! expose cleanly (worktree add, rebase, submodules, shallow clones).
 
+mod helpers;
+
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::path::PathBuf;
+use std::process::Command;
 
-use git2::{Repository, Signature};
+use git2::Repository;
 use tempfile::TempDir;
 
 use crate::TestResult;
+use helpers::{run_git, run_git_stdout, seed_initial_commit, write_and_commit};
 
 /// Generic fixture returned by single-repo builders.
 pub struct GitFixture {
@@ -159,7 +162,7 @@ impl GitFixtures {
         let repo = Repository::init(&repo_path)?;
         seed_initial_commit(&repo, "main", "README.md", "initial")?;
 
-        // Create a conflicting branch: diverging content on same file
+        // Create a conflicting branch: diverging content on same file.
         run_git(&repo_path, &["checkout", "-b", "feature"])?;
         write_and_commit(&repo_path, "README.md", "feature-side", "feature commit")?;
 
@@ -402,7 +405,7 @@ impl GitFixtures {
         let parent_repo = Repository::init(&parent_path)?;
         seed_initial_commit(&parent_repo, "main", "README.md", "parent")?;
 
-        // Allow file-based submodules (git ≥ 2.38 requires opt-in).
+        // Allow file-based submodules (git >= 2.38 requires opt-in).
         run_git(
             &parent_path,
             &[
@@ -437,252 +440,5 @@ impl GitFixtures {
     }
 }
 
-// ---- helpers --------------------------------------------------------------
-
-fn test_signature<'a>() -> git2::Signature<'a> {
-    // Deterministic author/committer for reproducible commit SHAs across runs.
-    Signature::new(
-        "Fixture Bot",
-        "fixture@example.invalid",
-        &git2::Time::new(1_700_000_000, 0),
-    )
-    .expect("static signature")
-}
-
-/// Create the initial commit on `branch_name`, materializing a single file so
-/// the working tree is non-empty.
-fn seed_initial_commit(
-    repo: &Repository,
-    branch_name: &str,
-    file_name: &str,
-    content: &str,
-) -> TestResult<String> {
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| "bare repo has no workdir".to_string())?
-        .to_path_buf();
-    fs::write(workdir.join(file_name), content)?;
-
-    let mut index = repo.index()?;
-    index.add_path(Path::new(file_name))?;
-    index.write()?;
-    let tree_id = index.write_tree()?;
-    let tree = repo.find_tree(tree_id)?;
-
-    let sig = test_signature();
-    let ref_name = format!("refs/heads/{}", branch_name);
-    let commit_id = repo.commit(Some(&ref_name), &sig, &sig, "initial", &tree, &[])?;
-
-    // Point HEAD at the branch so subsequent ops see the right ref.
-    repo.set_head(&ref_name)?;
-    Ok(commit_id.to_string())
-}
-
-/// Write `content` to `file_name` and create a follow-up commit on the current
-/// branch.
-fn write_and_commit(
-    repo_path: &Path,
-    file_name: &str,
-    content: &str,
-    msg: &str,
-) -> TestResult<String> {
-    fs::write(repo_path.join(file_name), content)?;
-    let repo = Repository::open(repo_path)?;
-    let mut index = repo.index()?;
-    index.add_path(Path::new(file_name))?;
-    index.write()?;
-    let tree_id = index.write_tree()?;
-    let tree = repo.find_tree(tree_id)?;
-
-    let parent = repo.head()?.peel_to_commit()?;
-    let sig = test_signature();
-    let commit_id = repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &[&parent])?;
-    Ok(commit_id.to_string())
-}
-
-/// Run `git` in `cwd`, erroring with captured stderr on non-zero exit.
-fn run_git(cwd: &Path, args: &[&str]) -> TestResult<Output> {
-    let out = Command::new("git")
-        // Force deterministic identity even if the host has no user.* config.
-        .args([
-            "-c",
-            "user.name=Fixture Bot",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "-c",
-            "init.defaultBranch=main",
-        ])
-        .args(args)
-        .current_dir(cwd)
-        .output()?;
-    if !out.status.success() {
-        return Err(format!(
-            "git {:?} failed in {}: {}",
-            args,
-            cwd.display(),
-            String::from_utf8_lossy(&out.stderr)
-        )
-        .into());
-    }
-    Ok(out)
-}
-
-/// Run `git` and return captured stdout (utf-8).
-fn run_git_stdout(cwd: &Path, args: &[&str]) -> TestResult<String> {
-    let out = run_git(cwd, args)?;
-    Ok(String::from_utf8(out.stdout)?)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn has_git_cli() -> bool {
-        Command::new("git")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-
-    #[test]
-    fn plain_clone_opens_and_has_remote() -> TestResult {
-        let fx = GitFixtures::plain_clone()?;
-        let repo = Repository::open(&fx.repo_path)?;
-        assert!(repo.find_remote("origin").is_ok());
-        assert!(fx.repo_path.join(".git").is_dir());
-        assert!(fx.commit_hash.is_some());
-        assert_eq!(fx.branch, "main");
-        Ok(())
-    }
-
-    #[test]
-    fn no_remote_has_no_origin() -> TestResult {
-        let fx = GitFixtures::no_remote()?;
-        let repo = Repository::open(&fx.repo_path)?;
-        assert!(repo.find_remote("origin").is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn detached_head_puts_head_off_branch() -> TestResult {
-        let fx = GitFixtures::detached_head()?;
-        let repo = Repository::open(&fx.repo_path)?;
-        let head = repo.head()?;
-        assert!(!head.is_branch(), "HEAD should be detached");
-        Ok(())
-    }
-
-    #[test]
-    fn mid_rebase_leaves_rebase_dir() -> TestResult {
-        if !has_git_cli() {
-            eprintln!("skipping: git CLI unavailable");
-            return Ok(());
-        }
-        let fx = GitFixtures::mid_rebase()?;
-        let rebase_apply = fx.repo_path.join(".git/rebase-apply");
-        let rebase_merge = fx.repo_path.join(".git/rebase-merge");
-        assert!(
-            rebase_apply.exists() || rebase_merge.exists(),
-            "expected rebase state dir"
-        );
-        // Repository::open must still succeed mid-rebase.
-        Repository::open(&fx.repo_path)?;
-        Ok(())
-    }
-
-    #[test]
-    fn shallow_clone_restricts_history() -> TestResult {
-        if !has_git_cli() {
-            return Ok(());
-        }
-        let fx = GitFixtures::shallow_clone(1)?;
-        let repo = Repository::open(&fx.repo_path)?;
-        // A shallow file should exist in the .git dir.
-        assert!(fx.repo_path.join(".git/shallow").exists());
-        // rev-list --count HEAD should be 1.
-        let out = run_git_stdout(&fx.repo_path, &["rev-list", "--count", "HEAD"])?;
-        assert_eq!(out.trim(), "1");
-        assert!(repo.find_remote("origin").is_ok());
-        Ok(())
-    }
-
-    #[test]
-    fn multiple_clones_share_remote_differ_in_path() -> TestResult {
-        if !has_git_cli() {
-            return Ok(());
-        }
-        let fx = GitFixtures::multiple_clones(3)?;
-        assert_eq!(fx.clone_paths.len(), 3);
-        for p in &fx.clone_paths {
-            let repo = Repository::open(p)?;
-            let url = repo.find_remote("origin")?.url().map(str::to_string);
-            assert_eq!(url.as_deref(), Some(fx.remote_url.as_str()));
-        }
-        // All clones must have distinct canonical paths.
-        let mut canon: Vec<_> = fx
-            .clone_paths
-            .iter()
-            .map(|p| p.canonicalize().unwrap())
-            .collect();
-        canon.sort();
-        canon.dedup();
-        assert_eq!(canon.len(), 3, "clone paths must be distinct");
-        Ok(())
-    }
-
-    #[test]
-    fn worktree_produces_linked_checkout() -> TestResult {
-        if !has_git_cli() {
-            return Ok(());
-        }
-        let fx = GitFixtures::worktree("feature")?;
-        // Worktree checkout has a .git *file* (not directory).
-        let dot_git = fx.worktree_path.join(".git");
-        assert!(dot_git.is_file(), "worktree .git must be a file");
-        // Main repo retains a .git directory.
-        assert!(fx.main_path.join(".git").is_dir());
-
-        // The .git file points to main/.git/worktrees/<name>/ which contains
-        // a commondir file.
-        let content = fs::read_to_string(&dot_git)?;
-        let gitdir_line = content.trim_start_matches("gitdir: ").trim();
-        let commondir = PathBuf::from(gitdir_line).join("commondir");
-        assert!(commondir.exists(), "worktree commondir must exist");
-
-        // Repository::open must succeed on the worktree checkout.
-        let repo = Repository::open(&fx.worktree_path)?;
-        let head = repo.head()?;
-        assert_eq!(head.shorthand(), Some("feature"));
-        Ok(())
-    }
-
-    #[test]
-    fn nested_worktree_has_two_linked_checkouts() -> TestResult {
-        if !has_git_cli() {
-            return Ok(());
-        }
-        let fx = GitFixtures::nested_worktree()?;
-        let nested = fx.nested_worktree_path.as_ref().expect("nested path");
-        assert!(nested.join(".git").is_file());
-        // Both nested and outer worktrees must open cleanly.
-        Repository::open(&fx.worktree_path)?;
-        Repository::open(nested)?;
-        Ok(())
-    }
-
-    #[test]
-    fn with_submodule_populates_submodule_dir() -> TestResult {
-        if !has_git_cli() {
-            return Ok(());
-        }
-        let fx = GitFixtures::with_submodule()?;
-        // Parent .gitmodules must exist.
-        assert!(fx.parent_path.join(".gitmodules").exists());
-        // Submodule checkout exists under parent.
-        assert!(fx.submodule_path.exists());
-        // Submodule has its own .git pointer.
-        assert!(fx.submodule_path.join(".git").exists());
-        Ok(())
-    }
-}
+mod tests;
