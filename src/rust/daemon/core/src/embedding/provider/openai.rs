@@ -20,9 +20,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use tokio::sync::Mutex;
 use tracing::warn;
 
@@ -31,34 +30,31 @@ use super::DenseProvider;
 use crate::embedding::types::{DenseEmbedding, EmbeddingError};
 
 mod types;
-use types::{OpenAiEmbedding, OpenAiEmbeddingRequest, OpenAiEmbeddingResponse};
 
 mod utils;
 pub(crate) use utils::classify_provider;
-use utils::{normalize_in_place, parse_retry_after_secs, reorder_by_index};
+use utils::normalize_in_place;
+
+mod http;
 
 /// Default HTTP request timeout (seconds).
 const HTTP_TIMEOUT_SECS: u64 = 60;
-
-/// Maximum streak of 429/503 responses before `embed()` surfaces
-/// `RateLimitExhausted` to the caller.
-const RATE_LIMIT_STREAK_BUDGET: u32 = 5;
 
 /// HTTP client for any OpenAI-compatible `/v1/embeddings` endpoint.
 ///
 /// Construction is non-blocking — no network call in `new`.
 pub struct OpenAiCompatibleProvider {
-    base_url: String,
-    model: String,
-    batch_size: usize,
-    api_key: SecretString,
-    output_dim: AtomicUsize,
-    http: Client,
-    rate_limiter: Arc<RateLimitAdapter>,
-    metrics_tag: &'static str,
-    provider_label_value: String,
-    probe_cache: Mutex<Option<(Instant, Result<(), Arc<EmbeddingError>>)>>,
-    probe_cache_ttl: Duration,
+    pub(super) base_url: String,
+    pub(super) model: String,
+    pub(super) batch_size: usize,
+    pub(super) api_key: SecretString,
+    pub(super) output_dim: AtomicUsize,
+    pub(super) http: Client,
+    pub(super) rate_limiter: Arc<RateLimitAdapter>,
+    pub(super) metrics_tag: &'static str,
+    pub(super) provider_label_value: String,
+    pub(super) probe_cache: Mutex<Option<(Instant, Result<(), Arc<EmbeddingError>>)>>,
+    pub(super) probe_cache_ttl: Duration,
 }
 
 impl std::fmt::Debug for OpenAiCompatibleProvider {
@@ -124,90 +120,14 @@ impl OpenAiCompatibleProvider {
     }
 
     /// Endpoint URL: `{base_url}/v1/embeddings`.
-    fn endpoint_url(&self) -> String {
+    pub(super) fn endpoint_url(&self) -> String {
         format!("{}/v1/embeddings", self.base_url)
     }
 
     /// Issue a single batch request to the upstream and parse the response.
     /// Returns embeddings in the input order.
     async fn embed_chunk(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
-        let waits_before = self.rate_limiter.waits_observed();
-        self.rate_limiter.pre_request().await;
-        if self.rate_limiter.waits_observed() > waits_before {
-            crate::monitoring::embedding_metrics::record_rate_limit_wait(self.metrics_tag);
-        }
-        let started = std::time::Instant::now();
-
-        let request = OpenAiEmbeddingRequest {
-            input: texts.to_vec(),
-            model: &self.model,
-        };
-
-        let response = self
-            .http
-            .post(self.endpoint_url())
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", self.api_key.expose_secret()),
-            )
-            .header(CONTENT_TYPE, "application/json")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| {
-                crate::monitoring::embedding_metrics::record_request(
-                    self.metrics_tag,
-                    &self.model,
-                    None,
-                    started.elapsed().as_secs_f64(),
-                );
-                EmbeddingError::GenerationError {
-                    message: format!("Embedding HTTP request failed: {e}"),
-                }
-            })?;
-
-        let status = response.status();
-        let headers = response.headers().clone();
-        self.rate_limiter
-            .observe_response(&headers, status.as_u16());
-        crate::monitoring::embedding_metrics::record_request(
-            self.metrics_tag,
-            &self.model,
-            Some(status.as_u16()),
-            started.elapsed().as_secs_f64(),
-        );
-
-        if status.is_success() {
-            let parsed: OpenAiEmbeddingResponse =
-                response
-                    .json()
-                    .await
-                    .map_err(|e| EmbeddingError::GenerationError {
-                        message: format!("Failed to decode embedding response: {e}"),
-                    })?;
-            return Ok(reorder_by_index(parsed.data));
-        }
-
-        if matches!(status.as_u16(), 429 | 503) {
-            let streak = self.rate_limiter.consecutive_429s();
-            if streak > RATE_LIMIT_STREAK_BUDGET {
-                return Err(EmbeddingError::RateLimitExhausted {
-                    consecutive_429s: streak,
-                    retry_after_secs: parse_retry_after_secs(&headers).unwrap_or(0),
-                });
-            }
-        }
-
-        let body = response.text().await.unwrap_or_default();
-        let truncated = if body.len() > 256 {
-            &body[..256]
-        } else {
-            &body
-        };
-        Err(EmbeddingError::RemoteError {
-            status_code: status.as_u16(),
-            message: truncated.to_string(),
-        })
+        http::embed_chunk(self, texts).await
     }
 }
 
