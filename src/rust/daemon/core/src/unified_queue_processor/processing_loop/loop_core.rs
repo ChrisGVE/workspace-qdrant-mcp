@@ -28,6 +28,8 @@ use crate::unified_queue_processor::config::{
 use crate::unified_queue_processor::error::UnifiedProcessorResult;
 use crate::unified_queue_processor::UnifiedQueueProcessor;
 
+use super::loop_state::LoopState;
+
 impl UnifiedQueueProcessor {
     /// Main processing loop (runs in background task)
     #[allow(clippy::too_many_arguments)]
@@ -55,53 +57,22 @@ impl UnifiedQueueProcessor {
         ingestion_limits: Arc<IngestionLimitsConfig>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
-        let mut last_metrics_log = Utc::now();
         let mut resource_profile_rx = resource_profile_rx;
-        // Track current adaptive target to detect changes
-        let mut adaptive_target_permits: Option<usize> = None;
         let metrics_log_interval = ChronoDuration::minutes(1);
-        let mut warmup_logged = false;
-        // Resurrection tracking
         let resurrection_interval_secs = config.failed_resurrection_interval_secs;
-        let mut last_resurrection = std::time::Instant::now()
-            .checked_sub(Duration::from_secs(resurrection_interval_secs))
-            .unwrap_or_else(std::time::Instant::now);
-        // Metadata uplift tracking
-        let mut uplift_config = crate::metadata_uplift::UpliftConfig::default();
-        let mut last_uplift_attempt = std::time::Instant::now()
-            .checked_sub(Duration::from_secs(uplift_config.min_interval_secs))
-            .unwrap_or_else(std::time::Instant::now);
-
-        // Failed item triage tracking
         let triage_interval_secs = config.triage_interval_secs;
-        let mut last_triage = std::time::Instant::now()
-            .checked_sub(Duration::from_secs(triage_interval_secs))
-            .unwrap_or_else(std::time::Instant::now);
 
-        // Grammar idle-time update check tracking
-        let mut idle_since: Option<std::time::Instant> = None;
-        let mut last_grammar_check = std::time::Instant::now()
-            .checked_sub(Duration::from_secs(3600))
-            .unwrap_or_else(std::time::Instant::now);
-
-        // Maintenance scheduler
-        let mut maintenance_scheduler = crate::idle::MaintenanceScheduler::new();
-        maintenance_scheduler
-            .register(Box::new(crate::idle::tasks::FilesystemReconcileTask::new()));
-        maintenance_scheduler.register(Box::new(crate::idle::tasks::OrphanCleanupTask::new()));
-        maintenance_scheduler.register(Box::new(
-            crate::idle::tasks::StaleProjectDeactivationTask::new(),
-        ));
+        let mut state = LoopState::new(&config);
 
         info!(
             "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s, maintenance_tasks={})",
             config.batch_size, config.worker_id, config.fairness_enabled,
-            config.warmup_window_secs, maintenance_scheduler.task_count()
+            config.warmup_window_secs, state.maintenance_scheduler.task_count()
         );
 
         loop {
             // Log warmup transition and adjust embedding semaphore (Task 577, Task 578)
-            if !warmup_logged && !warmup_state.is_in_warmup() {
+            if !state.warmup_logged && !warmup_state.is_in_warmup() {
                 // Add permits to embedding semaphore to reach normal limit (Task 578)
                 let permits_to_add = config
                     .max_concurrent_embeddings
@@ -118,7 +89,7 @@ impl UnifiedQueueProcessor {
                     config.warmup_max_concurrent_embeddings,
                     config.max_concurrent_embeddings
                 );
-                warmup_logged = true;
+                state.warmup_logged = true;
             }
 
             // Check for shutdown signal
@@ -134,9 +105,10 @@ impl UnifiedQueueProcessor {
                     let target = profile.max_concurrent_embeddings;
 
                     // Only adjust after warmup is complete
-                    if warmup_logged {
-                        let current_target =
-                            adaptive_target_permits.unwrap_or(config.max_concurrent_embeddings);
+                    if state.warmup_logged {
+                        let current_target = state
+                            .adaptive_target_permits
+                            .unwrap_or(config.max_concurrent_embeddings);
                         if target > current_target {
                             let permits_to_add = target - current_target;
                             embedding_semaphore.add_permits(permits_to_add);
@@ -152,7 +124,7 @@ impl UnifiedQueueProcessor {
                                 removed, excess, target
                             );
                         }
-                        adaptive_target_permits = Some(target);
+                        state.adaptive_target_permits = Some(target);
                     }
                 }
             }
@@ -241,23 +213,23 @@ impl UnifiedQueueProcessor {
                 Ok(items) => {
                     if items.is_empty() {
                         // Track continuous idle time for grammar update checks
-                        if idle_since.is_none() {
-                            idle_since = Some(std::time::Instant::now());
+                        if state.idle_since.is_none() {
+                            state.idle_since = Some(std::time::Instant::now());
                         }
 
                         // Run metadata uplift when queue is idle (Task 18)
-                        let since_last = last_uplift_attempt.elapsed().as_secs();
-                        if since_last >= uplift_config.min_interval_secs {
+                        let since_last = state.last_uplift_attempt.elapsed().as_secs();
+                        if since_last >= state.uplift_config.min_interval_secs {
                             debug!(
                                 "Queue idle — running metadata uplift pass (gen={})",
-                                uplift_config.current_generation
+                                state.uplift_config.current_generation
                             );
                             let collections = vec!["projects".to_string(), "libraries".to_string()];
                             let stats = crate::metadata_uplift::run_uplift_pass(
                                 &storage_client,
                                 &lexicon_manager,
                                 &collections,
-                                &uplift_config,
+                                &state.uplift_config,
                             )
                             .await;
                             if stats.scanned > 0 {
@@ -268,12 +240,12 @@ impl UnifiedQueueProcessor {
                             }
                             if stats.updated == 0 && stats.errors == 0 {
                                 // All points uplifted at this generation, advance
-                                uplift_config.current_generation += 1;
+                                state.uplift_config.current_generation += 1;
                             }
-                            last_uplift_attempt = std::time::Instant::now();
+                            state.last_uplift_attempt = std::time::Instant::now();
                         }
 
-                        let idle_elapsed = idle_since.map_or(0, |t| t.elapsed().as_secs());
+                        let idle_elapsed = state.idle_since.map_or(0, |t| t.elapsed().as_secs());
 
                         // Maintenance scheduler — run one batch if eligible
                         {
@@ -292,7 +264,8 @@ impl UnifiedQueueProcessor {
                                     search_db: search_db.as_ref(),
                                     queue_manager: &queue_manager,
                                 };
-                                let _ = maintenance_scheduler
+                                let _ = state
+                                    .maintenance_scheduler
                                     .tick(idle_state, idle_elapsed, &maint_ctx)
                                     .await;
                             }
@@ -310,7 +283,7 @@ impl UnifiedQueueProcessor {
                             if check_enabled
                                 && idle_elapsed >= delay
                                 && needs_check
-                                && last_grammar_check.elapsed().as_secs() >= delay
+                                && state.last_grammar_check.elapsed().as_secs() >= delay
                             {
                                 info!(
                                     "Queue idle for {}s (threshold: {}s) — running grammar update check",
@@ -328,7 +301,7 @@ impl UnifiedQueueProcessor {
                                         "Grammar update check: {checked} checked, {updated} up-to-date, {errors} errors"
                                     );
                                 }
-                                last_grammar_check = std::time::Instant::now();
+                                state.last_grammar_check = std::time::Instant::now();
                             }
 
                             // Evict idle grammars to bound memory usage
@@ -372,7 +345,8 @@ impl UnifiedQueueProcessor {
 
                         // Periodic resurrection of transient failed items
                         if resurrection_interval_secs > 0
-                            && last_resurrection.elapsed().as_secs() >= resurrection_interval_secs
+                            && state.last_resurrection.elapsed().as_secs()
+                                >= resurrection_interval_secs
                         {
                             match queue_manager
                                 .resurrect_failed_transient(config.max_resurrections)
@@ -390,17 +364,17 @@ impl UnifiedQueueProcessor {
                                     warn!("Resurrection pass failed (non-fatal): {}", e);
                                 }
                             }
-                            last_resurrection = std::time::Instant::now();
+                            state.last_resurrection = std::time::Instant::now();
                         }
 
                         // Failed item triage
                         if triage_interval_secs > 0
-                            && last_triage.elapsed().as_secs() >= triage_interval_secs
+                            && state.last_triage.elapsed().as_secs() >= triage_interval_secs
                         {
                             if let Err(e) = queue_manager.triage_failed_items().await {
                                 warn!("Triage pass failed (non-fatal): {}", e);
                             }
-                            last_triage = std::time::Instant::now();
+                            state.last_triage = std::time::Instant::now();
                         }
 
                         debug!(
@@ -412,8 +386,8 @@ impl UnifiedQueueProcessor {
                     }
 
                     // Queue has items — cancel maintenance and reset idle tracker
-                    maintenance_scheduler.cancel_active();
-                    idle_since = None;
+                    state.maintenance_scheduler.cancel_active();
+                    state.idle_since = None;
 
                     info!(
                         "Dequeued {} unified queue items for processing",
@@ -649,13 +623,17 @@ impl UnifiedQueueProcessor {
                         for tenant_id in &processed_tenants {
                             if let Err(e) = sqlx::query(
                                 "UPDATE watch_folders SET last_activity_at = ?1, updated_at = ?1 \
-                                 WHERE tenant_id = ?2 AND collection = 'projects' AND is_active > 0"
+                                 WHERE tenant_id = ?2 AND collection = 'projects' AND is_active > 0",
                             )
                             .bind(&now_str)
                             .bind(tenant_id)
                             .execute(queue_manager.pool())
-                            .await {
-                                debug!("Failed to update activity for tenant {}: {}", tenant_id, e);
+                            .await
+                            {
+                                debug!(
+                                    "Failed to update activity for tenant {}: {}",
+                                    tenant_id, e
+                                );
                             }
                         }
                     }
@@ -671,9 +649,9 @@ impl UnifiedQueueProcessor {
 
             // Log metrics periodically
             let now = Utc::now();
-            if now - last_metrics_log >= metrics_log_interval {
+            if now - state.last_metrics_log >= metrics_log_interval {
                 Self::log_metrics(&metrics).await;
-                last_metrics_log = now;
+                state.last_metrics_log = now;
             }
 
             // Brief pause before next batch
