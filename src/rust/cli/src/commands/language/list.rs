@@ -82,7 +82,7 @@ pub async fn list_languages(
         }
     }
 
-    defs.sort_by(|a, b| a.language.to_lowercase().cmp(&b.language.to_lowercase()));
+    defs.sort_by_key(|d| d.language.to_lowercase());
 
     // Detect installed components
     let detected_servers = detect_available_servers();

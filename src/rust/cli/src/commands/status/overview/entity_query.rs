@@ -63,7 +63,7 @@ pub(super) fn get_per_entity_queue(
             (display, p, i, f)
         })
         .collect();
-    sorted.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    sorted.sort_by_key(|row| row.0.to_lowercase());
     sorted
 }
 

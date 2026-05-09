@@ -365,11 +365,7 @@ impl ColumnarBuilder {
                     let key_display_width = Gutter::WIDTH
                         + base_indent
                         + UnicodeWidthStr::width(key_with_colon.as_str());
-                    let padding = if max_key_width > key_display_width {
-                        max_key_width - key_display_width
-                    } else {
-                        0
-                    };
+                    let padding = max_key_width.saturating_sub(key_display_width);
 
                     // Core KV line width (visible chars)
                     let core_width =

@@ -68,14 +68,12 @@ pub fn build_full_tenant_name_map(conn: &Connection) -> HashMap<String, String> 
         }) {
             for r in rows.flatten() {
                 let (tenant_id, path) = r;
-                if !map.contains_key(&tenant_id) {
-                    let name = path
-                        .rsplit('/')
+                map.entry(tenant_id.clone()).or_insert_with(|| {
+                    path.rsplit('/')
                         .find(|s| !s.is_empty())
                         .unwrap_or(&tenant_id)
-                        .to_string();
-                    map.insert(tenant_id, name);
-                }
+                        .to_string()
+                });
             }
         }
     }

@@ -125,7 +125,7 @@ pub fn get_languages(conn: &Connection, tenant_id: &str, collection: &str) -> Re
         .map(|(lang, _)| lang)
         .collect();
 
-    languages.sort_unstable_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    languages.sort_unstable_by_key(|lang| lang.to_lowercase());
     Ok(languages)
 }
 

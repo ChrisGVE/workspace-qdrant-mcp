@@ -292,7 +292,7 @@ fn compute_col_widths(cols: &[ColDef], rows: &[CellRow], usable_width: usize) ->
         }
     }
 
-    let gaps = if n > 1 { n - 1 } else { 0 };
+    let gaps = n.saturating_sub(1);
     let total_fixed: usize = widths.iter().sum::<usize>() + gaps;
 
     if total_fixed <= usable_width {

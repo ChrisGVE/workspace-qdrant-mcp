@@ -106,7 +106,7 @@ pub async fn ts_list(show_all: bool) -> Result<()> {
     let cached = manager.cached_languages().unwrap_or_default();
 
     let mut defs = load_definitions();
-    defs.sort_by(|a, b| a.language.to_lowercase().cmp(&b.language.to_lowercase()));
+    defs.sort_by_key(|d| d.language.to_lowercase());
 
     println!(
         "  {:<16} {:<42} {:<10} {}",

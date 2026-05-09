@@ -98,8 +98,7 @@ fn fetch_projects(conn: &Connection, data: &mut DashboardData) {
             }
         })
         .collect();
-    data.projects
-        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    data.projects.sort_by_key(|p| p.name.to_lowercase());
 }
 
 fn fetch_libraries(conn: &Connection, data: &mut DashboardData) {
@@ -144,8 +143,7 @@ fn fetch_libraries(conn: &Connection, data: &mut DashboardData) {
             }
         })
         .collect();
-    data.libraries
-        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    data.libraries.sort_by_key(|lib| lib.name.to_lowercase());
 }
 
 fn fetch_scratchpad_queue(conn: &Connection, data: &mut DashboardData) {
@@ -231,8 +229,7 @@ fn fetch_active_projects(conn: &Connection, data: &mut DashboardData) {
             }
         })
         .collect();
-    data.active_projects
-        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    data.active_projects.sort_by_key(|p| p.name.to_lowercase());
 }
 
 fn fetch_errors(conn: &Connection, data: &mut DashboardData) {
