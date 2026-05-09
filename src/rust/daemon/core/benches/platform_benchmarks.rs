@@ -11,6 +11,7 @@ fn get_platform() -> &'static str {
 }
 
 // Mock platform-specific file watching configurations
+#[allow(dead_code)] // benchmark fixture: fields model production config shape
 #[derive(Debug, Clone)]
 struct PlatformConfig {
     name: String,
@@ -361,6 +362,7 @@ fn benchmark_platform_specific_apis(c: &mut Criterion) {
 
 fn benchmark_compilation_targets(c: &mut Criterion) {
     // Mock compilation target optimizations
+    #[allow(dead_code)] // benchmark fixture: fields model build config shape
     struct CompilationTarget {
         arch: String,
         features: Vec<String>,

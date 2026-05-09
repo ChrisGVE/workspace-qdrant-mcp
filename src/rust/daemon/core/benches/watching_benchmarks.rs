@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tempfile::TempDir;
 
 // Mock file event structure for benchmarking
+#[allow(dead_code)] // benchmark fixture: fields model production event shape
 #[derive(Debug, Clone)]
 struct MockFileEvent {
     path: PathBuf,

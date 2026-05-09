@@ -38,12 +38,14 @@ impl MockDocumentProcessor {
     }
 }
 
+#[allow(dead_code)] // benchmark fixture: fields exist to model production payload shape
 struct MockDocumentContent {
     chunks: Vec<MockChunk>,
     document_type: String,
     metadata: HashMap<String, String>,
 }
 
+#[allow(dead_code)] // benchmark fixture: fields exist to model production payload shape
 struct MockChunk {
     content: String,
     chunk_index: usize,
@@ -110,11 +112,13 @@ impl MockStorageClient {
         }
     }
 
+    #[allow(dead_code)] // benchmark fixture: API parity with real client
     async fn test_connection(&self) -> Result<(), String> {
         Ok(())
     }
 }
 
+#[allow(dead_code)] // benchmark fixture: fields exist to model production payload shape
 struct MockPoint {
     id: String,
     vector: Vec<f32>,
