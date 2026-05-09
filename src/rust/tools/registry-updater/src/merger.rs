@@ -132,7 +132,7 @@ pub fn merge_all(scraped: &ScrapedData) -> Result<Vec<LanguageDefinition>> {
 
     // Collect and sort by language name
     let mut result: Vec<LanguageDefinition> = map.into_values().collect();
-    result.sort_by(|a, b| a.language.to_lowercase().cmp(&b.language.to_lowercase()));
+    result.sort_by_key(|d| d.language.to_lowercase());
 
     Ok(result)
 }

@@ -116,67 +116,41 @@ pub fn parse_query_file(content: &str) -> ExtractedPatterns {
 }
 
 /// Classify a @capture and add the associated node type to the right pattern group.
+///
+/// Duplicates are tolerated here — the caller runs `dedup_preserve_order`
+/// over each pattern group after classification finishes.
 fn classify_capture(node_type: &str, capture: &str, patterns: &mut ExtractedPatterns) {
+    let nt = node_type.to_string();
     match capture {
-        // Function definitions
         c if c.starts_with("function") || c == "definition.function" => {
-            if !patterns.function_nodes.contains(&node_type.to_string()) {
-                patterns.function_nodes.push(node_type.to_string());
-            }
+            patterns.function_nodes.push(nt);
         }
-        // Class definitions
         c if c.starts_with("class") || c == "definition.class" => {
-            if !patterns.class_nodes.contains(&node_type.to_string()) {
-                patterns.class_nodes.push(node_type.to_string());
-            }
+            patterns.class_nodes.push(nt);
         }
-        // Method definitions
         c if c.starts_with("method") || c == "definition.method" => {
-            if !patterns.method_nodes.contains(&node_type.to_string()) {
-                patterns.method_nodes.push(node_type.to_string());
-            }
+            patterns.method_nodes.push(nt);
         }
-        // Module definitions
         c if c.starts_with("module") || c == "definition.module" || c == "scope.module" => {
-            if !patterns.module_nodes.contains(&node_type.to_string()) {
-                patterns.module_nodes.push(node_type.to_string());
-            }
+            patterns.module_nodes.push(nt);
         }
-        // Import/include (preamble)
         c if c.starts_with("import") || c.starts_with("include") || c == "keyword.import" => {
-            if !patterns.preamble_nodes.contains(&node_type.to_string()) {
-                patterns.preamble_nodes.push(node_type.to_string());
-            }
+            patterns.preamble_nodes.push(nt);
         }
-        // Struct definitions
         c if c.starts_with("struct") || c == "definition.struct" => {
-            if !patterns.struct_nodes.contains(&node_type.to_string()) {
-                patterns.struct_nodes.push(node_type.to_string());
-            }
+            patterns.struct_nodes.push(nt);
         }
-        // Enum definitions
         c if c.starts_with("enum") || c == "definition.enum" => {
-            if !patterns.enum_nodes.contains(&node_type.to_string()) {
-                patterns.enum_nodes.push(node_type.to_string());
-            }
+            patterns.enum_nodes.push(nt);
         }
-        // Interface definitions
         c if c.starts_with("interface") || c == "definition.interface" => {
-            if !patterns.interface_nodes.contains(&node_type.to_string()) {
-                patterns.interface_nodes.push(node_type.to_string());
-            }
+            patterns.interface_nodes.push(nt);
         }
-        // Constants
         c if c.starts_with("constant") || c == "definition.constant" => {
-            if !patterns.constant_nodes.contains(&node_type.to_string()) {
-                patterns.constant_nodes.push(node_type.to_string());
-            }
+            patterns.constant_nodes.push(nt);
         }
-        // Type aliases
         c if c.starts_with("type") && c.contains("alias") => {
-            if !patterns.type_alias_nodes.contains(&node_type.to_string()) {
-                patterns.type_alias_nodes.push(node_type.to_string());
-            }
+            patterns.type_alias_nodes.push(nt);
         }
         _ => {}
     }
