@@ -6,62 +6,26 @@
 //!
 //! This replaces Qdrant scrolling with fast SQLite queries.
 
+mod queue;
+mod reconcile;
+pub mod types;
+
+pub use types::{FullRecoveryStats, RecoveryStats};
+
 use std::path::Path;
 
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
-use wqm_common::timestamps;
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::config::StartupConfig;
-use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
-use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
+use crate::unified_queue_schema::{ItemType, QueueOperation};
 
-/// Result of a recovery operation for a single watch_folder
-#[derive(Debug, Clone, Default)]
-pub struct RecoveryStats {
-    /// Number of files queued for ingestion (new on disk)
-    pub files_to_ingest: u64,
-    /// Number of files queued for deletion (removed from disk)
-    pub files_to_delete: u64,
-    /// Number of files queued for update (content changed)
-    pub files_to_update: u64,
-    /// Number of files skipped (unchanged)
-    pub files_unchanged: u64,
-    /// Number of files routed to libraries collection (from project folders)
-    pub files_routed_to_library: u64,
-    /// Number of files now excluded (queued for deletion)
-    pub files_newly_excluded: u64,
-    /// Number of progressive scans enqueued (Tenant, Scan) for async file discovery
-    pub progressive_scans_enqueued: u64,
-    /// Errors encountered during recovery
-    pub errors: u64,
-}
-
-/// Result of the full recovery run across all watch_folders
-#[derive(Debug, Clone, Default)]
-pub struct FullRecoveryStats {
-    /// Per-watch_folder stats
-    pub per_folder: Vec<(String, RecoveryStats)>,
-    /// Total folders processed
-    pub folders_processed: u64,
-    /// Files re-queued from needs_reconcile markers
-    pub reconciled: u64,
-    /// Reconciliation errors
-    pub reconcile_errors: u64,
-}
-
-impl FullRecoveryStats {
-    pub fn total_queued(&self) -> u64 {
-        self.per_folder
-            .iter()
-            .map(|(_, s)| s.progressive_scans_enqueued + s.files_to_delete + s.files_newly_excluded)
-            .sum()
-    }
-}
+use queue::{enqueue_file_op, enqueue_progressive_scan};
+use reconcile::reconcile_flagged_files;
 
 /// Check and trigger the one-time base_point migration.
 ///
@@ -233,127 +197,6 @@ fn log_folder_recovery(
     full_stats.folders_processed += 1;
 }
 
-/// Process tracked_files flagged with needs_reconcile=1.
-///
-/// For each flagged file, look up its watch_folder to get routing info,
-/// then re-queue it for ingestion.
-async fn reconcile_flagged_files(
-    pool: &SqlitePool,
-    queue_manager: &QueueManager,
-    stats: &mut FullRecoveryStats,
-) {
-    let flagged = match tracked_files_schema::get_files_needing_reconcile(pool).await {
-        Ok(files) => files,
-        Err(e) => {
-            warn!("Failed to query needs_reconcile files: {}", e);
-            stats.reconcile_errors += 1;
-            return;
-        }
-    };
-
-    if flagged.is_empty() {
-        debug!("No files need reconciliation");
-        return;
-    }
-
-    info!("Reconciling {} flagged files", flagged.len());
-
-    for file in &flagged {
-        reconcile_single_file(pool, queue_manager, stats, file).await;
-    }
-}
-
-/// Reconcile a single flagged file: look up watch folder, re-queue, clear flag.
-async fn reconcile_single_file(
-    pool: &SqlitePool,
-    queue_manager: &QueueManager,
-    stats: &mut FullRecoveryStats,
-    file: &tracked_files_schema::TrackedFile,
-) {
-    let wf = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT path, collection, tenant_id FROM watch_folders WHERE watch_id = ?1",
-    )
-    .bind(&file.watch_folder_id)
-    .fetch_optional(pool)
-    .await;
-
-    let (base_path, collection, tenant_id) = match wf {
-        Ok(Some(row)) => row,
-        Ok(None) => {
-            warn!(
-                "Watch folder {} not found for reconcile file_id={}, clearing flag",
-                file.watch_folder_id, file.file_id
-            );
-            let _ = clear_reconcile_flag(pool, file.file_id).await;
-            stats.reconcile_errors += 1;
-            return;
-        }
-        Err(e) => {
-            warn!(
-                "Failed to query watch_folder {}: {}",
-                file.watch_folder_id, e
-            );
-            stats.reconcile_errors += 1;
-            return;
-        }
-    };
-
-    let abs_path = Path::new(&base_path).join(&file.file_path);
-    let op = if abs_path.exists() {
-        QueueOperation::Update
-    } else {
-        QueueOperation::Delete
-    };
-
-    if let Err(e) = enqueue_file_op(
-        queue_manager,
-        &tenant_id,
-        &collection,
-        &abs_path.to_string_lossy(),
-        op.clone(),
-        None,
-    )
-    .await
-    {
-        warn!(
-            "Failed to re-queue reconcile file {}: {}",
-            file.file_path, e
-        );
-        stats.reconcile_errors += 1;
-        return;
-    }
-
-    if let Err(e) = clear_reconcile_flag(pool, file.file_id).await {
-        warn!(
-            "Failed to clear reconcile flag for file_id={}: {}",
-            file.file_id, e
-        );
-        stats.reconcile_errors += 1;
-    } else {
-        info!(
-            "Reconciled file_id={} ({}): re-queued for {}",
-            file.file_id,
-            file.file_path,
-            op.as_str()
-        );
-        stats.reconciled += 1;
-    }
-}
-
-/// Clear the needs_reconcile flag for a tracked file (non-transactional)
-async fn clear_reconcile_flag(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
-    let now = timestamps::now_utc();
-    sqlx::query(
-        "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1
-         WHERE file_id = ?2",
-    )
-    .bind(&now)
-    .bind(file_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 /// Recover a single watch_folder using progressive enqueue-first scanning.
 ///
 /// Instead of walking the entire directory tree upfront (WalkDir), this:
@@ -396,40 +239,6 @@ async fn recover_watch_folder(
     Ok(stats)
 }
 
-/// Enqueue a progressive scan for async file discovery.
-async fn enqueue_progressive_scan(
-    queue_manager: &QueueManager,
-    root: &Path,
-    tenant_id: &str,
-    collection: &str,
-    stats: &mut RecoveryStats,
-) -> Result<(), String> {
-    let scan_payload = serde_json::json!({
-        "project_root": root.to_string_lossy(),
-        "recovery": true,
-    })
-    .to_string();
-
-    let branch = crate::watching_queue::get_current_branch(root);
-
-    queue_manager
-        .enqueue_unified(
-            ItemType::Tenant,
-            QueueOperation::Scan,
-            tenant_id,
-            collection,
-            &scan_payload,
-            Some(&branch),
-            None,
-        )
-        .await
-        .map(|_| ())
-        .map_err(|e| format!("Failed to enqueue progressive scan: {}", e))?;
-
-    stats.progressive_scans_enqueued += 1;
-    Ok(())
-}
-
 /// Detect deleted/excluded files from tracked_files and queue deletions.
 #[allow(clippy::too_many_arguments)]
 async fn detect_deleted_files(
@@ -458,54 +267,15 @@ async fn detect_deleted_files(
 
     for (_file_id, file_path, _branch) in &tracked {
         let abs_path = root.join(file_path);
-
-        if !abs_path.exists() {
-            match enqueue_file_op(
-                queue_manager,
-                tenant_id,
-                collection,
-                &abs_path.to_string_lossy(),
-                QueueOperation::Delete,
-                None,
-            )
-            .await
-            {
-                Ok(()) => {
-                    stats.files_to_delete += 1;
-                    enqueued_in_batch += 1;
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to queue deletion for missing file: {}: {}",
-                        file_path, e
-                    );
-                    stats.errors += 1;
-                }
-            }
-        } else if should_exclude_file(file_path) {
-            match enqueue_file_op(
-                queue_manager,
-                tenant_id,
-                collection,
-                &abs_path.to_string_lossy(),
-                QueueOperation::Delete,
-                None,
-            )
-            .await
-            {
-                Ok(()) => {
-                    stats.files_newly_excluded += 1;
-                    enqueued_in_batch += 1;
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to queue deletion for excluded file: {}: {}",
-                        file_path, e
-                    );
-                    stats.errors += 1;
-                }
-            }
-        }
+        enqueued_in_batch += process_tracked_file(
+            queue_manager,
+            tenant_id,
+            collection,
+            &abs_path,
+            file_path,
+            stats,
+        )
+        .await;
 
         if batch_size > 0 && enqueued_in_batch >= batch_size {
             debug!(
@@ -521,51 +291,64 @@ async fn detect_deleted_files(
     }
 }
 
-/// Enqueue a file operation (ingest, update, or delete)
-async fn enqueue_file_op(
+/// Check one tracked file and enqueue a deletion if it is missing or now excluded.
+/// Returns 1 if an item was enqueued, 0 otherwise.
+async fn process_tracked_file(
     queue_manager: &QueueManager,
     tenant_id: &str,
     collection: &str,
-    abs_file_path: &str,
-    op: QueueOperation,
-    metadata: Option<&str>,
-) -> Result<(), String> {
-    let file_type = if op != QueueOperation::Delete {
-        Some(
-            classify_file_type(Path::new(abs_file_path))
-                .as_str()
-                .to_string(),
-        )
-    } else {
-        None
-    };
-
-    let file_payload = FilePayload {
-        file_path: abs_file_path.to_string(),
-        file_type,
-        file_hash: None,
-        size_bytes: None,
-        old_path: None,
-    };
-
-    let payload_json = serde_json::to_string(&file_payload)
-        .map_err(|e| format!("Failed to serialize FilePayload: {}", e))?;
-
-    let branch = crate::watching_queue::get_current_branch(Path::new(abs_file_path));
-
-    queue_manager
-        .enqueue_unified(
-            ItemType::File,
-            op,
+    abs_path: &Path,
+    file_path: &str,
+    stats: &mut RecoveryStats,
+) -> usize {
+    if !abs_path.exists() {
+        match enqueue_file_op(
+            queue_manager,
             tenant_id,
             collection,
-            &payload_json,
-            Some(&branch),
-            metadata,
+            &abs_path.to_string_lossy(),
+            QueueOperation::Delete,
+            None,
         )
         .await
-        .map(|_| ())
-        .map_err(|e| format!("Failed to enqueue: {}", e))
+        {
+            Ok(()) => {
+                stats.files_to_delete += 1;
+                return 1;
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to queue deletion for missing file: {}: {}",
+                    file_path, e
+                );
+                stats.errors += 1;
+            }
+        }
+    } else if should_exclude_file(file_path) {
+        match enqueue_file_op(
+            queue_manager,
+            tenant_id,
+            collection,
+            &abs_path.to_string_lossy(),
+            QueueOperation::Delete,
+            None,
+        )
+        .await
+        {
+            Ok(()) => {
+                stats.files_newly_excluded += 1;
+                return 1;
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to queue deletion for excluded file: {}: {}",
+                    file_path, e
+                );
+                stats.errors += 1;
+            }
+        }
+    }
+    0
 }
 
 #[cfg(test)]
