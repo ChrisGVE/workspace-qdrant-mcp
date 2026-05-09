@@ -12,6 +12,7 @@
 
 pub(crate) mod cleanup;
 mod delete;
+mod delete_doc;
 mod grammar_warm;
 mod library;
 mod project;
@@ -74,7 +75,7 @@ impl TenantStrategy {
         match item.op {
             QueueOperation::Delete => delete::process_delete_tenant_item(ctx, item).await,
             QueueOperation::Rename => {
-                delete::process_tenant_rename_item(item, &ctx.storage_client).await
+                delete_doc::process_tenant_rename_item(item, &ctx.storage_client).await
             }
             _ => {
                 // Add, Scan, Update -- route by collection
@@ -93,7 +94,7 @@ impl TenantStrategy {
     ) -> UnifiedProcessorResult<()> {
         match item.op {
             QueueOperation::Delete => {
-                delete::process_delete_document_item(item, &_ctx.storage_client).await
+                delete_doc::process_delete_document_item(item, &_ctx.storage_client).await
             }
             QueueOperation::Uplift => {
                 // Placeholder: no enrichment logic yet
