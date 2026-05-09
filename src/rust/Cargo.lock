@@ -8584,6 +8584,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "which 6.0.3",
+ "windows-service",
  "workspace-qdrant-core",
  "wqm-common",
 ]

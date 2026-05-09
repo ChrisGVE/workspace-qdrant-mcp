@@ -52,7 +52,8 @@ pub async fn execute(binary: Option<String>) -> Result<()> {
     match get_service_manager() {
         ServiceManager::Launchctl => install_launchctl(&dest).await,
         ServiceManager::Systemd => install_systemd(&dest).await,
-        ServiceManager::WindowsService | ServiceManager::Unknown => {
+        ServiceManager::WindowsService => install_windows_service(&dest).await,
+        ServiceManager::Unknown => {
             output::warning("Service management not supported on this platform");
             output::info(format!("Binary installed at: {}", dest.display()));
             output::info("To run manually: memexd --foreground");
@@ -92,6 +93,71 @@ async fn install_launchctl(dest: &std::path::Path) -> Result<()> {
         output::info("Try: launchctl load -w <plist_path>");
     }
 
+    Ok(())
+}
+
+/// Register `memexd.exe` with the Windows Service Control Manager.
+///
+/// `dest` is the absolute path to the freshly-copied daemon binary;
+/// the SCM stores this as the `BinaryPathName` so `sc.exe start
+/// memexd` can locate it later.
+#[cfg(windows)]
+async fn install_windows_service(dest: &std::path::Path) -> Result<()> {
+    use windows_service::service::{
+        ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
+    };
+    use windows_service::service_manager::{ServiceManager as WinScm, ServiceManagerAccess};
+
+    let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
+    let scm = WinScm::local_computer(None::<&str>, manager_access)
+        .context("Failed to connect to the Windows Service Control Manager")?;
+
+    let service_info = ServiceInfo {
+        name: SERVICE_NAME.into(),
+        display_name: "Workspace Qdrant MCP Daemon".into(),
+        service_type: ServiceType::OWN_PROCESS,
+        start_type: ServiceStartType::AutoStart,
+        error_control: ServiceErrorControl::Normal,
+        executable_path: dest.to_path_buf(),
+        launch_arguments: Vec::new(),
+        dependencies: Vec::new(),
+        // Default to LocalSystem so the daemon can write to its
+        // per-machine data directory. Operators who want a more
+        // restricted account can re-create the service manually with
+        // `sc.exe config memexd obj= ".\\<account>" password= <pwd>`.
+        account_name: None,
+        account_password: None,
+    };
+
+    let service_access = ServiceAccess::CHANGE_CONFIG | ServiceAccess::START;
+    let service = scm
+        .create_service(&service_info, service_access)
+        .context("Failed to register memexd with the Windows SCM")?;
+
+    output::kv("Service registered", SERVICE_NAME);
+
+    if let Err(e) = service.start::<&str>(&[]) {
+        output::warning(format!("Service registered but failed to start: {}", e));
+        output::info("Try: sc.exe start memexd");
+        return Ok(());
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    if is_daemon_running().await {
+        output::success("Daemon installed and running");
+    } else {
+        output::warning("Service started but daemon not responding yet");
+        output::info("Check status with: wqm service status");
+    }
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+async fn install_windows_service(_dest: &std::path::Path) -> Result<()> {
+    // unreachable: get_service_manager() never returns WindowsService
+    // outside of cfg(windows). Kept as a stub so the dispatch table
+    // typechecks cross-platform.
     Ok(())
 }
 

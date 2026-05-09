@@ -164,9 +164,11 @@ fn test_validation_invalid_timeout() {
 }
 
 #[test]
+#[serial]
 fn test_get_database_path() {
-    // This test covers both default path and env override in a single test
-    // to avoid race conditions when tests run in parallel (env vars are global).
+    // Env vars are process-global; serialise this test against any
+    // others that touch WQM_DATABASE_PATH so parallel test threads
+    // don't observe each other's mutations.
     let prev = std::env::var("WQM_DATABASE_PATH").ok();
 
     // 1. Test default path (no env override)
