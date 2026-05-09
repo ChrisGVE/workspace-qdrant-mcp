@@ -2,6 +2,7 @@ mod branch_detector;
 mod branch_lifecycle;
 mod diff_tree;
 mod reflog;
+mod tree_ops;
 mod types;
 mod watcher;
 mod watcher_types;
@@ -32,10 +33,10 @@ pub use reflog::{
 };
 
 // Re-export from diff_tree
-pub use diff_tree::{
-    diff_tree, get_blob_hash, ls_tree_submodules, parse_diff_tree_output, FileChange,
-    FileChangeStatus,
-};
+pub use diff_tree::{diff_tree, parse_diff_tree_output, FileChange, FileChangeStatus};
+
+// Re-export from tree_ops
+pub use tree_ops::{get_blob_hash, ls_tree_submodules};
 
 // Re-export from worktree
 pub use worktree::find_main_worktree_path;
