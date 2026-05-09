@@ -11,8 +11,7 @@
 //! Run with: cargo bench --bench stress_benchmarks
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -60,6 +59,7 @@ impl MockDocumentProcessor {
     }
 }
 
+#[allow(dead_code)] // benchmark fixture: fields model production result shape
 struct ProcessingResult {
     chunks_created: usize,
     processing_time_ms: u64,
@@ -128,6 +128,7 @@ impl MockStorageClient {
         self.points_stored.load(Ordering::SeqCst)
     }
 
+    #[allow(dead_code)] // benchmark fixture: API parity with real client
     fn reset(&self) {
         self.points_stored.store(0, Ordering::SeqCst);
     }
@@ -188,12 +189,14 @@ fn test_function_{i}() {{
 // Stress Test Pipeline
 // ============================================================================
 
-/// Full ingestion pipeline simulation
+/// Full ingestion pipeline simulation. Mocks are passed as `Arc` so the
+/// pipeline can be invoked from `tokio::spawn` without `'static` borrow
+/// problems.
 async fn ingest_file_pipeline(
     file_path: &Path,
-    processor: &MockDocumentProcessor,
-    embedding_gen: &MockEmbeddingGenerator,
-    storage: &MockStorageClient,
+    processor: Arc<MockDocumentProcessor>,
+    embedding_gen: Arc<MockEmbeddingGenerator>,
+    storage: Arc<MockStorageClient>,
 ) -> Result<(), String> {
     // Process file
     let result = processor.process_file(file_path).await?;
@@ -232,21 +235,19 @@ fn bench_high_volume_ingestion(c: &mut Criterion) {
                 let rt = Runtime::new().unwrap();
 
                 b.to_async(&rt).iter(|| async {
-                    let processor = MockDocumentProcessor::new(5, 1); // 5 chunks, 1ms delay
-                    let embedding_gen = MockEmbeddingGenerator::new(384, 0);
-                    let storage = MockStorageClient::new(1, 0.0); // 1ms network delay, no failures
+                    let processor = Arc::new(MockDocumentProcessor::new(5, 1)); // 5 chunks, 1ms delay
+                    let embedding_gen = Arc::new(MockEmbeddingGenerator::new(384, 0));
+                    let storage = Arc::new(MockStorageClient::new(1, 0.0)); // 1ms network delay
 
-                    // Create test files
-                    let temp_dir = tempdir().unwrap();
                     let mut tasks = Vec::new();
 
-                    for i in 0..file_count {
+                    for _ in 0..file_count {
                         let file = create_test_file(5).await.unwrap(); // 5KB files
                         let path = file.path().to_path_buf();
 
-                        let proc = &processor;
-                        let emb = &embedding_gen;
-                        let stor = &storage;
+                        let proc = processor.clone();
+                        let emb = embedding_gen.clone();
+                        let stor = storage.clone();
 
                         tasks.push(tokio::spawn(async move {
                             let _ = ingest_file_pipeline(&path, proc, emb, stor).await;
@@ -284,9 +285,9 @@ fn bench_high_rate_ingestion(c: &mut Criterion) {
                 let rt = Runtime::new().unwrap();
 
                 b.to_async(&rt).iter(|| async {
-                    let processor = MockDocumentProcessor::new(3, 0); // Fast processing
-                    let embedding_gen = MockEmbeddingGenerator::new(384, 0);
-                    let storage = MockStorageClient::new(0, 0.0); // No delay
+                    let processor = Arc::new(MockDocumentProcessor::new(3, 0)); // Fast processing
+                    let embedding_gen = Arc::new(MockEmbeddingGenerator::new(384, 0));
+                    let storage = Arc::new(MockStorageClient::new(0, 0.0)); // No delay
 
                     let duration = Duration::from_secs(2); // 2 second burst
                     let file_count = target_rate * 2;
@@ -302,9 +303,9 @@ fn bench_high_rate_ingestion(c: &mut Criterion) {
                         let file = create_test_file(2).await.unwrap();
                         let path = file.path().to_path_buf();
 
-                        let proc = &processor;
-                        let emb = &embedding_gen;
-                        let stor = &storage;
+                        let proc = processor.clone();
+                        let emb = embedding_gen.clone();
+                        let stor = storage.clone();
 
                         tasks.push(tokio::spawn(async move {
                             let _ = ingest_file_pipeline(&path, proc, emb, stor).await;
@@ -339,9 +340,9 @@ fn bench_multiple_watchers(c: &mut Criterion) {
 
                 b.to_async(&rt).iter(|| async {
                     let files_per_watcher = 50;
-                    let processor = MockDocumentProcessor::new(3, 1);
-                    let embedding_gen = MockEmbeddingGenerator::new(384, 0);
-                    let storage = MockStorageClient::new(1, 0.0);
+                    let processor = Arc::new(MockDocumentProcessor::new(3, 1));
+                    let embedding_gen = Arc::new(MockEmbeddingGenerator::new(384, 0));
+                    let storage = Arc::new(MockStorageClient::new(1, 0.0));
 
                     let mut all_tasks = Vec::new();
 
@@ -351,9 +352,9 @@ fn bench_multiple_watchers(c: &mut Criterion) {
                             let file = create_test_file(3).await.unwrap();
                             let path = file.path().to_path_buf();
 
-                            let proc = &processor;
-                            let emb = &embedding_gen;
-                            let stor = &storage;
+                            let proc = processor.clone();
+                            let emb = embedding_gen.clone();
+                            let stor = storage.clone();
 
                             all_tasks.push(tokio::spawn(async move {
                                 let _ = ingest_file_pipeline(&path, proc, emb, stor).await;
@@ -392,15 +393,15 @@ fn bench_large_files(c: &mut Criterion) {
 
                 b.to_async(&rt).iter(|| async {
                     let chunks_for_size = (file_size_mb / 5).max(10); // ~5MB chunks
-                    let processor = MockDocumentProcessor::new(chunks_for_size, 2);
-                    let embedding_gen = MockEmbeddingGenerator::new(384, 1);
-                    let storage = MockStorageClient::new(2, 0.0);
+                    let processor = Arc::new(MockDocumentProcessor::new(chunks_for_size, 2));
+                    let embedding_gen = Arc::new(MockEmbeddingGenerator::new(384, 1));
+                    let storage = Arc::new(MockStorageClient::new(2, 0.0));
 
                     let file = create_test_file(file_size_mb * 1024).await.unwrap();
-                    let path = file.path();
+                    let path = file.path().to_path_buf();
 
                     let result =
-                        ingest_file_pipeline(path, &processor, &embedding_gen, &storage).await;
+                        ingest_file_pipeline(&path, processor, embedding_gen, storage).await;
 
                     drop(file);
                     black_box(result)
@@ -426,9 +427,9 @@ fn bench_memory_constraints(c: &mut Criterion) {
 
                 b.to_async(&rt).iter(|| async {
                     let file_count = 200;
-                    let processor = MockDocumentProcessor::new(5, 1);
-                    let embedding_gen = MockEmbeddingGenerator::new(384, 0);
-                    let storage = MockStorageClient::new(1, 0.0);
+                    let processor = Arc::new(MockDocumentProcessor::new(5, 1));
+                    let embedding_gen = Arc::new(MockEmbeddingGenerator::new(384, 0));
+                    let storage = Arc::new(MockStorageClient::new(1, 0.0));
                     let semaphore = Arc::new(Semaphore::new(max_concurrent));
 
                     let mut tasks = Vec::new();
@@ -438,9 +439,9 @@ fn bench_memory_constraints(c: &mut Criterion) {
                         let path = file.path().to_path_buf();
                         let sem = semaphore.clone();
 
-                        let proc = &processor;
-                        let emb = &embedding_gen;
-                        let stor = &storage;
+                        let proc = processor.clone();
+                        let emb = embedding_gen.clone();
+                        let stor = storage.clone();
 
                         tasks.push(tokio::spawn(async move {
                             let _permit = sem.acquire().await.unwrap();
@@ -476,9 +477,9 @@ fn bench_network_failures(c: &mut Criterion) {
 
                 b.to_async(&rt).iter(|| async {
                     let file_count = 100;
-                    let processor = MockDocumentProcessor::new(3, 1);
-                    let embedding_gen = MockEmbeddingGenerator::new(384, 0);
-                    let storage = MockStorageClient::new(5, fail_rate); // Network issues
+                    let processor = Arc::new(MockDocumentProcessor::new(3, 1));
+                    let embedding_gen = Arc::new(MockEmbeddingGenerator::new(384, 0));
+                    let storage = Arc::new(MockStorageClient::new(5, fail_rate)); // Network issues
 
                     let mut success_count = 0;
                     let mut tasks = Vec::new();
@@ -487,15 +488,22 @@ fn bench_network_failures(c: &mut Criterion) {
                         let file = create_test_file(5).await.unwrap();
                         let path = file.path().to_path_buf();
 
-                        let proc = &processor;
-                        let emb = &embedding_gen;
-                        let stor = &storage;
+                        let proc = processor.clone();
+                        let emb = embedding_gen.clone();
+                        let stor = storage.clone();
 
                         tasks.push(tokio::spawn(async move {
                             // Retry logic
                             let mut retries = 3;
                             while retries > 0 {
-                                match ingest_file_pipeline(&path, proc, emb, stor).await {
+                                match ingest_file_pipeline(
+                                    &path,
+                                    proc.clone(),
+                                    emb.clone(),
+                                    stor.clone(),
+                                )
+                                .await
+                                {
                                     Ok(_) => {
                                         drop(file);
                                         return 1;
@@ -540,9 +548,9 @@ fn bench_code_analysis(c: &mut Criterion) {
 
                 b.to_async(&rt).iter(|| async {
                     let file_count = 50;
-                    let processor = MockDocumentProcessor::new(function_count / 5, 2);
-                    let embedding_gen = MockEmbeddingGenerator::new(384, 1);
-                    let storage = MockStorageClient::new(1, 0.0);
+                    let processor = Arc::new(MockDocumentProcessor::new(function_count / 5, 2));
+                    let embedding_gen = Arc::new(MockEmbeddingGenerator::new(384, 1));
+                    let storage = Arc::new(MockStorageClient::new(1, 0.0));
 
                     let temp_dir = tempdir().unwrap();
                     let mut tasks = Vec::new();
@@ -558,9 +566,9 @@ fn bench_code_analysis(c: &mut Criterion) {
                         drop(file);
 
                         let path = file_path.clone();
-                        let proc = &processor;
-                        let emb = &embedding_gen;
-                        let stor = &storage;
+                        let proc = processor.clone();
+                        let emb = embedding_gen.clone();
+                        let stor = storage.clone();
 
                         tasks.push(tokio::spawn(async move {
                             let _ = ingest_file_pipeline(&path, proc, emb, stor).await;
