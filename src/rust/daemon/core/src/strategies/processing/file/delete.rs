@@ -30,7 +30,6 @@ pub(super) async fn process_file_delete(
     let mut timings: Vec<PhaseTiming> = Vec::new();
     let detected_language = detect_language(std::path::Path::new(abs_file_path));
 
-    // Safety net: check incremental flag before deleting
     if let Ok(true) = tracked_files_schema::is_incremental(pool, abs_file_path).await {
         info!(
             "Skipping delete for incremental file (safety net): {}",
@@ -39,7 +38,6 @@ pub(super) async fn process_file_delete(
         return Ok(());
     }
 
-    // Try tracked_files lookup first for precise deletion
     if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
         pool,
         watch_folder_id,
@@ -48,91 +46,181 @@ pub(super) async fn process_file_delete(
     )
     .await
     {
-        // Phase: lookup
         timings.push(PhaseTiming {
             phase: "lookup",
             duration_ms: delete_start.elapsed().as_millis() as u64,
         });
 
-        // Reference-counted deletion: check if another watch folder still references this base_point
-        let delete_from_qdrant = if let Some(ref bp) = existing.base_point {
-            let has_refs = ctx
-                .queue_manager
-                .has_other_references(bp, watch_folder_id)
-                .await
-                .unwrap_or(false);
-            if has_refs {
-                info!(
-                    "base_point {} still referenced by another watch folder, skipping Qdrant deletion for: {}",
-                    bp, relative_path
-                );
-            }
-            !has_refs
-        } else {
-            true // No base_point recorded -- safe to delete
-        };
-
-        // Phase: qdrant_delete
-        let t0 = Instant::now();
-        if delete_from_qdrant {
-            // Get point_ids from qdrant_chunks for targeted deletion
-            let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
-                .await
-                .unwrap_or_default();
-
-            if !point_ids.is_empty() {
-                // Delete from Qdrant (best-effort for deletes — orphaned points are
-                // acceptable; blocking the queue is not).
-                match ctx
-                    .storage_client
-                    .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
-                    .await
-                {
-                    Ok(_) => {}
-                    Err(e) => {
-                        warn!(
-                            "Qdrant delete failed for {} ({} tracked points): {} — proceeding with SQLite cleanup",
-                            relative_path,
-                            point_ids.len(),
-                            e
-                        );
-                    }
-                }
-            }
-        }
-        timings.push(PhaseTiming {
-            phase: "qdrant_delete",
-            duration_ms: t0.elapsed().as_millis() as u64,
-        });
-
-        // Phase: sqlite_cleanup
-        let t0 = Instant::now();
-        // Always clean up SQLite records (this watch folder's tracked entry)
-        // CASCADE handles qdrant_chunks
-        let tx_result: Result<(), UnifiedProcessorError> = async {
-            let mut tx = pool.begin().await.map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
-            })?;
-            tracked_files_schema::delete_tracked_file_tx(&mut tx, existing.file_id)
-                .await
-                .map_err(|e| {
-                    UnifiedProcessorError::QueueOperation(format!(
-                        "tracked_files delete failed: {}",
-                        e
-                    ))
-                })?;
-            tx.commit().await.map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e))
-            })?;
-            Ok(())
-        }
+        delete_tracked_file(
+            ctx,
+            item,
+            pool,
+            watch_folder_id,
+            relative_path,
+            abs_file_path,
+            &existing,
+            &mut timings,
+            delete_start,
+        )
         .await;
+
+        record_delete_timings(ctx, item, pool, detected_language, &timings).await;
+        return Ok(());
+    }
+
+    // Fallback: file not in tracked_files — attempt Qdrant filter delete (best-effort).
+    fallback_qdrant_delete(ctx, item, abs_file_path, delete_start, &mut timings).await;
+    record_delete_timings(ctx, item, pool, detected_language, &timings).await;
+    Ok(())
+}
+
+/// Delete a file that is present in tracked_files: Qdrant (ref-counted), SQLite,
+/// FTS5, graph edges, and keyword extractions.
+#[allow(clippy::too_many_arguments)]
+async fn delete_tracked_file(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    relative_path: &str,
+    abs_file_path: &str,
+    existing: &tracked_files_schema::TrackedFile,
+    timings: &mut Vec<PhaseTiming>,
+    delete_start: Instant,
+) {
+    let delete_from_qdrant =
+        check_qdrant_deletion_needed(ctx, watch_folder_id, relative_path, existing).await;
+
+    let t0 = Instant::now();
+    if delete_from_qdrant {
+        delete_qdrant_points(ctx, item, pool, relative_path, abs_file_path, existing).await;
+    }
+    timings.push(PhaseTiming {
+        phase: "qdrant_delete",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
+
+    let t0 = Instant::now();
+    let sqlite_ok = delete_tracked_file_sqlite(pool, relative_path, existing, timings, t0).await;
+
+    if sqlite_ok {
+        let t0 = Instant::now();
+        cleanup_fts5(ctx, existing).await;
         timings.push(PhaseTiming {
-            phase: "sqlite_cleanup",
+            phase: "fts5_cleanup",
             duration_ms: t0.elapsed().as_millis() as u64,
         });
 
-        if let Err(e) = tx_result {
+        let t0 = Instant::now();
+        super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path).await;
+        timings.push(PhaseTiming {
+            phase: "graph_cleanup",
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
+
+        let t0 = Instant::now();
+        let doc_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
+        super::keyword_persist::delete_extraction(pool, &doc_id).await;
+        timings.push(PhaseTiming {
+            phase: "keyword_cleanup",
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
+
+        info!(
+            "Deleted tracked file for: {} in {}ms (qdrant_delete={})",
+            relative_path,
+            delete_start.elapsed().as_millis(),
+            delete_from_qdrant
+        );
+    }
+}
+
+/// Determine whether Qdrant points should be deleted (reference-count check).
+async fn check_qdrant_deletion_needed(
+    ctx: &ProcessingContext,
+    watch_folder_id: &str,
+    relative_path: &str,
+    existing: &tracked_files_schema::TrackedFile,
+) -> bool {
+    if let Some(ref bp) = existing.base_point {
+        let has_refs = ctx
+            .queue_manager
+            .has_other_references(bp, watch_folder_id)
+            .await
+            .unwrap_or(false);
+        if has_refs {
+            info!(
+                "base_point {} still referenced by another watch folder, skipping Qdrant deletion for: {}",
+                bp, relative_path
+            );
+        }
+        !has_refs
+    } else {
+        true
+    }
+}
+
+/// Delete Qdrant points for a tracked file (best-effort).
+async fn delete_qdrant_points(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &SqlitePool,
+    relative_path: &str,
+    abs_file_path: &str,
+    existing: &tracked_files_schema::TrackedFile,
+) {
+    let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
+        .await
+        .unwrap_or_default();
+
+    if !point_ids.is_empty() {
+        if let Err(e) = ctx
+            .storage_client
+            .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
+            .await
+        {
+            warn!(
+                "Qdrant delete failed for {} ({} tracked points): {} — proceeding with SQLite cleanup",
+                relative_path,
+                point_ids.len(),
+                e
+            );
+        }
+    }
+}
+
+/// Delete the tracked_files row in a transaction. Returns `true` on success.
+async fn delete_tracked_file_sqlite(
+    pool: &SqlitePool,
+    relative_path: &str,
+    existing: &tracked_files_schema::TrackedFile,
+    timings: &mut Vec<PhaseTiming>,
+    t0: Instant,
+) -> bool {
+    let tx_result: Result<(), UnifiedProcessorError> = async {
+        let mut tx = pool.begin().await.map_err(|e| {
+            UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
+        })?;
+        tracked_files_schema::delete_tracked_file_tx(&mut tx, existing.file_id)
+            .await
+            .map_err(|e| {
+                UnifiedProcessorError::QueueOperation(format!("tracked_files delete failed: {}", e))
+            })?;
+        tx.commit().await.map_err(|e| {
+            UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e))
+        })?;
+        Ok(())
+    }
+    .await;
+
+    timings.push(PhaseTiming {
+        phase: "sqlite_cleanup",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
+
+    match tx_result {
+        Ok(()) => true,
+        Err(e) => {
             warn!(
                 "SQLite transaction failed after Qdrant delete for {}: {}. Marked for reconciliation on next startup.",
                 relative_path, e
@@ -143,57 +231,34 @@ pub(super) async fn process_file_delete(
                 &format!("delete_tx_failed: {}", e),
             )
             .await;
-        } else {
-            // Phase: fts5_cleanup
-            let t0 = Instant::now();
-            if let Some(sdb) = &ctx.search_db {
-                let processor = FtsBatchProcessor::new(sdb, FtsBatchConfig::default());
-                if let Err(e) = processor.delete_file(existing.file_id).await {
-                    warn!(
-                        "FTS5: failed to delete code_lines for file_id={}: {} (non-fatal)",
-                        existing.file_id, e
-                    );
-                } else {
-                    debug!("FTS5: deleted code_lines for file_id={}", existing.file_id);
-                }
-            }
-            timings.push(PhaseTiming {
-                phase: "fts5_cleanup",
-                duration_ms: t0.elapsed().as_millis() as u64,
-            });
-
-            // Phase: graph_cleanup
-            let t0 = Instant::now();
-            super::graph_ingest::delete_graph_edges(ctx, &item.tenant_id, relative_path).await;
-            timings.push(PhaseTiming {
-                phase: "graph_cleanup",
-                duration_ms: t0.elapsed().as_millis() as u64,
-            });
-
-            // Phase: keyword_cleanup
-            let t0 = Instant::now();
-            let doc_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
-            super::keyword_persist::delete_extraction(pool, &doc_id).await;
-            timings.push(PhaseTiming {
-                phase: "keyword_cleanup",
-                duration_ms: t0.elapsed().as_millis() as u64,
-            });
-
-            info!(
-                "Deleted tracked file for: {} in {}ms (qdrant_delete={})",
-                relative_path,
-                delete_start.elapsed().as_millis(),
-                delete_from_qdrant
-            );
+            false
         }
-
-        record_delete_timings(ctx, item, pool, detected_language, &timings).await;
-        return Ok(());
     }
+}
 
-    // Fallback: file not in tracked_files, attempt Qdrant filter delete (tenant-scoped).
-    // Best-effort: if Qdrant is down the file was likely never indexed (or points
-    // are already gone). Orphaned points are acceptable; blocking the queue is not.
+/// Clean up FTS5 code_lines for a deleted file (non-fatal).
+async fn cleanup_fts5(ctx: &ProcessingContext, existing: &tracked_files_schema::TrackedFile) {
+    if let Some(sdb) = &ctx.search_db {
+        let processor = FtsBatchProcessor::new(sdb, FtsBatchConfig::default());
+        if let Err(e) = processor.delete_file(existing.file_id).await {
+            warn!(
+                "FTS5: failed to delete code_lines for file_id={}: {} (non-fatal)",
+                existing.file_id, e
+            );
+        } else {
+            debug!("FTS5: deleted code_lines for file_id={}", existing.file_id);
+        }
+    }
+}
+
+/// Fallback delete when the file is not in tracked_files: attempt Qdrant filter delete.
+async fn fallback_qdrant_delete(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    abs_file_path: &str,
+    delete_start: Instant,
+    timings: &mut Vec<PhaseTiming>,
+) {
     debug!(
         "File not in tracked_files, attempting Qdrant filter delete: {}",
         abs_file_path
@@ -222,9 +287,6 @@ pub(super) async fn process_file_delete(
         phase: "qdrant_delete",
         duration_ms: t0.elapsed().as_millis() as u64,
     });
-
-    record_delete_timings(ctx, item, pool, detected_language, &timings).await;
-    Ok(())
 }
 
 /// Record timing data for delete operations.
