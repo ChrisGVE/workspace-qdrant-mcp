@@ -103,8 +103,6 @@ pub struct ErrorRow {
     pub collection_letter: char,
     pub tenant_name: String,
     pub error_message: String,
-    pub tenant_id: String,
-    pub collection: String,
 }
 
 // ---------------------------------------------------------------------------

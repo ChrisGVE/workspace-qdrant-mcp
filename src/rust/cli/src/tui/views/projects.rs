@@ -491,8 +491,6 @@ mod tests {
         (0..n)
             .map(|i| ProjectRow {
                 watch_id: format!("watch-{i}"),
-                short_id: format!("watch-{i}"),
-                tenant_id: format!("tenant-{i}"),
                 name: format!("project-{i}"),
                 display_path: format!("~/dev/project-{i}"),
                 is_active: i % 2 == 0,
@@ -508,7 +506,6 @@ mod tests {
             watch_id: "w1".into(),
             tenant_id: "t1".into(),
             name: "test-proj".into(),
-            path: "/home/user/test-proj".into(),
             display_path: "~/test-proj".into(),
             collection: "projects".into(),
             is_active: true,

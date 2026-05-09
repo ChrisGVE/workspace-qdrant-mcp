@@ -377,7 +377,6 @@ mod tests {
         browser.detail = Some(LibraryDetail {
             watch_id: "lib-test".into(),
             tag: "test".into(),
-            path: "/tmp/lib".into(),
             display_path: "/tmp/lib".into(),
             enabled: true,
             is_active: false,
@@ -432,7 +431,6 @@ mod tests {
             .map(|i| LibraryRow {
                 watch_id: format!("lib-tag-{i}"),
                 tag: format!("tag-{i}"),
-                path: format!("/tmp/lib-{i}"),
                 display_path: format!("/tmp/lib-{i}"),
                 enabled: true,
                 is_active: i % 2 == 0,

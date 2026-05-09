@@ -3,8 +3,6 @@
 //! Every command that reports Qdrant-sourced data must verify
 //! connectivity before displaying metrics.
 
-use anyhow::Result;
-
 use crate::commands::qdrant_helpers::{build_qdrant_http_client, qdrant_base_url};
 
 /// Result of a Qdrant health check.
@@ -74,21 +72,3 @@ pub async fn check_qdrant() -> QdrantHealth {
     }
 }
 
-/// Print a warning line if Qdrant is not reachable.
-/// Returns the health result for further use.
-pub async fn check_qdrant_with_warning() -> QdrantHealth {
-    let health = check_qdrant().await;
-    if !health.reachable {
-        let msg = health.error.as_deref().unwrap_or("Qdrant unreachable");
-        crate::output::warning(format!("{} — some data may be unavailable", msg));
-    }
-    health
-}
-
-/// Check if daemon is reachable via gRPC.
-pub async fn check_daemon() -> Result<bool> {
-    match crate::grpc::client::DaemonClient::connect_default().await {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false),
-    }
-}

@@ -270,8 +270,6 @@ fn fetch_errors(conn: &Connection, data: &mut DashboardData) {
                 collection_letter: letter,
                 tenant_name: tname,
                 error_message: msg,
-                tenant_id: tid,
-                collection: coll,
             }
         })
         .collect();

@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 
 use wqm_common::cli_profiles::{
-    default_cli_config_path, ensure_cli_config, save_cli_config, CliConfigFile, Profile,
+    ensure_cli_config, save_cli_config, CliConfigFile, Profile,
 };
 
 use crate::output;
@@ -124,13 +124,6 @@ fn show_profile_section(cfg: &CliConfigFile, name: &str) {
     if let Ok(v) = std::env::var("WQM_PROFILE") {
         output::kv("Env override: WQM_PROFILE", v.as_str());
     }
-}
-
-/// Return the path that `ensure_cli_config` would use on bootstrap. Exposed
-/// for tests and diagnostics.
-pub fn preview_cli_config_path() -> Result<String> {
-    let path = default_cli_config_path()?;
-    Ok(home_to_tilde(&path.display().to_string()))
 }
 
 #[cfg(test)]

@@ -125,14 +125,18 @@ pub fn search_style() -> Style {
 /// Gutter symbol for in-sync/healthy items.
 pub const GUTTER_SYNC: &str = "●";
 /// Gutter symbol for pending/to-add items.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/gutter.rs
 pub const GUTTER_ADD: &str = "○";
 /// Gutter symbol for in-progress/updating items.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/gutter.rs
 pub const GUTTER_UPDATE: &str = "◆";
 /// Gutter symbol for failed/to-remove items.
 pub const GUTTER_REMOVE: &str = "✗";
 /// Gutter symbol for warning/orphan.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/gutter.rs
 pub const GUTTER_WARNING: &str = "▲";
 /// Gutter symbol for informational.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/gutter.rs
 pub const GUTTER_INFO: &str = "·";
 
 #[cfg(test)]

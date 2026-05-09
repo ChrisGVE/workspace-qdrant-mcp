@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use crate::data::db::connect_readonly;
-use crate::output::style::{home_to_tilde, short_id};
+use crate::output::style::home_to_tilde;
 
 /// Maximum watch folders to fetch per query.
 const FETCH_LIMIT: i64 = 200;
@@ -16,10 +16,6 @@ const FETCH_LIMIT: i64 = 200;
 pub struct ProjectRow {
     /// Watch folder ID (primary key).
     pub watch_id: String,
-    /// Shortened watch ID for display.
-    pub short_id: String,
-    /// Tenant ID for queue count lookups.
-    pub tenant_id: String,
     /// Human-readable project name (last path component).
     pub name: String,
     /// Full path with `~` substitution.
@@ -40,7 +36,6 @@ pub struct ProjectDetail {
     pub watch_id: String,
     pub tenant_id: String,
     pub name: String,
-    pub path: String,
     pub display_path: String,
     pub collection: String,
     pub is_active: bool,
@@ -122,9 +117,7 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
             let d_count = doc_counts.get(&tenant_id).copied().unwrap_or(0);
 
             ProjectRow {
-                short_id: short_id(&watch_id),
                 watch_id,
-                tenant_id,
                 name,
                 display_path,
                 is_active: is_active > 0,
@@ -163,7 +156,6 @@ pub fn fetch_project_detail(watch_id: &str) -> Option<ProjectDetail> {
                 tenant_id: row.get(1)?,
                 name,
                 display_path: home_to_tilde(&path),
-                path,
                 collection: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? > 0,
                 is_paused: row.get::<_, i64>(5)? != 0,
@@ -272,8 +264,6 @@ mod tests {
     fn project_row_fields() {
         let row = ProjectRow {
             watch_id: "abc123def456".to_string(),
-            short_id: "abc123de".to_string(),
-            tenant_id: "tenant-1".to_string(),
             name: "my-project".to_string(),
             display_path: "~/dev/my-project".to_string(),
             is_active: true,
@@ -293,7 +283,6 @@ mod tests {
             watch_id: "w1".to_string(),
             tenant_id: "t1".to_string(),
             name: "test-proj".to_string(),
-            path: "/home/user/test-proj".to_string(),
             display_path: "~/test-proj".to_string(),
             collection: "projects".to_string(),
             is_active: true,
@@ -319,7 +308,6 @@ mod tests {
             watch_id: String::new(),
             tenant_id: String::new(),
             name: String::new(),
-            path: String::new(),
             display_path: String::new(),
             collection: "projects".to_string(),
             is_active: false,
@@ -342,7 +330,6 @@ mod tests {
             watch_id: String::new(),
             tenant_id: String::new(),
             name: String::new(),
-            path: String::new(),
             display_path: String::new(),
             collection: "projects".to_string(),
             is_active: true,

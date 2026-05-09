@@ -5,7 +5,6 @@ use crate::data::db::connect_readonly;
 /// A scratchpad entry for display in the TUI.
 #[derive(Debug, Clone)]
 pub struct ScratchpadRow {
-    pub scratchpad_id: String,
     pub title: String,
     pub content: String,
     pub tags: String,
@@ -22,7 +21,7 @@ pub fn fetch_scratchpad_rows() -> Vec<ScratchpadRow> {
     };
 
     let mut stmt = match conn.prepare(
-        "SELECT scratchpad_id, COALESCE(title, '(untitled)'), content, \
+        "SELECT COALESCE(title, '(untitled)'), content, \
          COALESCE(tags, '[]'), tenant_id, created_at, updated_at \
          FROM scratchpad_mirror ORDER BY updated_at DESC",
     ) {
@@ -33,13 +32,12 @@ pub fn fetch_scratchpad_rows() -> Vec<ScratchpadRow> {
     let rows = stmt
         .query_map([], |row| {
             Ok(ScratchpadRow {
-                scratchpad_id: row.get(0)?,
-                title: row.get(1)?,
-                content: row.get(2)?,
-                tags: row.get(3)?,
-                tenant_id: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                title: row.get(0)?,
+                content: row.get(1)?,
+                tags: row.get(2)?,
+                tenant_id: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
             })
         })
         .ok();

@@ -30,8 +30,6 @@ pub enum FileStatus {
     Pending,
     InProgress,
     Errored,
-    ErroredNoVersion,
-    Missing,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +43,6 @@ pub struct ErrorDetail {
     pub created_at: String,
     pub updated_at: String,
     pub retry_count: i32,
-    pub payload_json: String,
 }
 
 #[derive(Debug, Clone)]
@@ -176,8 +173,7 @@ pub fn fetch_error_popup(queue_id: &str) -> Option<PopupState> {
     let mut stmt = conn
         .prepare(
             "SELECT collection, tenant_id, error_message, item_type, op, \
-         file_path, created_at, updated_at, retry_count, \
-         COALESCE(payload_json, '{}') \
+         file_path, created_at, updated_at, retry_count \
          FROM unified_queue WHERE queue_id = ?1",
         )
         .ok()?;
@@ -198,7 +194,6 @@ pub fn fetch_error_popup(queue_id: &str) -> Option<PopupState> {
                 created_at: row.get(6)?,
                 updated_at: row.get(7)?,
                 retry_count: row.get(8)?,
-                payload_json: row.get(9)?,
             })
         })
         .ok()?;

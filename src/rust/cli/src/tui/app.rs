@@ -83,8 +83,6 @@ pub struct App {
     pub current_view: View,
     /// Whether the help overlay is visible.
     pub show_help: bool,
-    /// Daemon gRPC address for data fetching.
-    pub daemon_addr: String,
     /// Dashboard view state (lazily initialized on first Dashboard view).
     dashboard: Option<Dashboard>,
     /// Queue browser state (lazily initialized on first Queue view).
@@ -105,12 +103,11 @@ pub struct App {
 
 impl App {
     /// Create a new app instance.
-    pub fn new(daemon_addr: String) -> Self {
+    pub fn new(_daemon_addr: String) -> Self {
         Self {
             running: true,
             current_view: View::Dashboard,
             show_help: false,
-            daemon_addr,
             dashboard: None,
             queue_browser: None,
             project_browser: None,

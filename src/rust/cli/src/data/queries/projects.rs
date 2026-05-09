@@ -9,7 +9,6 @@ pub struct ProjectInfo {
     pub tenant_id: String,
     pub path: String,
     pub is_active: bool,
-    pub watch_id: String,
     pub created_at: Option<String>,
     pub last_scan: Option<String>,
     pub last_activity_at: Option<String>,
@@ -19,7 +18,7 @@ pub struct ProjectInfo {
 pub fn get_projects(conn: &Connection) -> Result<Vec<ProjectInfo>> {
     let mut stmt = conn
         .prepare(
-            "SELECT watch_id, tenant_id, path, COALESCE(is_active, 0), \
+            "SELECT tenant_id, path, COALESCE(is_active, 0), \
                     created_at, last_scan, last_activity_at \
              FROM watch_folders \
              WHERE parent_watch_id IS NULL AND collection = 'projects' \
@@ -30,13 +29,12 @@ pub fn get_projects(conn: &Connection) -> Result<Vec<ProjectInfo>> {
     let rows = stmt
         .query_map([], |row| {
             Ok(ProjectInfo {
-                watch_id: row.get(0)?,
-                tenant_id: row.get(1)?,
-                path: row.get(2)?,
-                is_active: row.get::<_, i64>(3)? > 0,
-                created_at: row.get(4)?,
-                last_scan: row.get(5)?,
-                last_activity_at: row.get(6)?,
+                tenant_id: row.get(0)?,
+                path: row.get(1)?,
+                is_active: row.get::<_, i64>(2)? > 0,
+                created_at: row.get(3)?,
+                last_scan: row.get(4)?,
+                last_activity_at: row.get(5)?,
             })
         })
         .context("Failed to read projects")?;

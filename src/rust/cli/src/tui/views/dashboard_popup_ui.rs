@@ -250,13 +250,6 @@ fn status_circle(status: FileStatus) -> Span<'static> {
         FileStatus::Pending => Span::styled("●", Style::default().fg(Color::Yellow)),
         FileStatus::InProgress => Span::styled("●", Style::default().fg(Color::Blue)),
         FileStatus::Errored => Span::styled("●", Style::default().fg(Color::Red)),
-        FileStatus::ErroredNoVersion => Span::styled(
-            "◆",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::REVERSED),
-        ),
-        FileStatus::Missing => Span::styled("○", Style::default().fg(Color::Gray)),
     }
 }
 

@@ -12,8 +12,6 @@ pub struct LibraryRow {
     pub watch_id: String,
     /// Library tag/name (tenant_id).
     pub tag: String,
-    /// Absolute filesystem path.
-    pub path: String,
     /// Path with home directory replaced by `~`.
     pub display_path: String,
     /// Whether the library watch is enabled.
@@ -31,7 +29,6 @@ pub struct LibraryRow {
 pub struct LibraryDetail {
     pub watch_id: String,
     pub tag: String,
-    pub path: String,
     pub display_path: String,
     pub enabled: bool,
     pub is_active: bool,
@@ -77,7 +74,6 @@ pub fn fetch_library_rows() -> Vec<LibraryRow> {
             watch_id: row.get(0)?,
             tag: row.get(1)?,
             display_path: abbreviate_home(&path, &home_dir),
-            path,
             enabled: row.get(3)?,
             is_active: is_active_val > 0,
             mode: row.get(5)?,
@@ -118,7 +114,6 @@ pub fn fetch_library_detail(watch_id: &str) -> Option<LibraryDetail> {
             watch_id: row.get(0)?,
             tag: row.get(1)?,
             display_path: abbreviate_home(&path, &home_dir),
-            path,
             enabled: row.get(3)?,
             is_active: is_active_val > 0,
             mode: row.get(5)?,
@@ -207,7 +202,6 @@ mod tests {
         let row = LibraryRow {
             watch_id: "lib-rust-docs".to_string(),
             tag: "rust-docs".to_string(),
-            path: "/Users/alice/docs/rust".to_string(),
             display_path: "~/docs/rust".to_string(),
             enabled: true,
             is_active: true,
@@ -224,7 +218,6 @@ mod tests {
         let detail = LibraryDetail {
             watch_id: "lib-test".to_string(),
             tag: "test".to_string(),
-            path: "/tmp/lib".to_string(),
             display_path: "/tmp/lib".to_string(),
             enabled: true,
             is_active: false,

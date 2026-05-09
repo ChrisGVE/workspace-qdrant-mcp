@@ -110,14 +110,6 @@ pub enum HealthLevel {
 }
 
 impl HealthLevel {
-    pub fn label(self) -> &'static str {
-        match self {
-            HealthLevel::Healthy => "healthy",
-            HealthLevel::Degraded => "degraded",
-            HealthLevel::Unhealthy => "unhealthy",
-        }
-    }
-
     /// Worst of two health levels.
     pub fn worst(self, other: Self) -> Self {
         self.max(other)

@@ -3,52 +3,6 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-/// Basic library info from SQLite.
-#[derive(Debug, Clone)]
-pub struct LibraryInfo {
-    pub watch_id: String,
-    pub tenant_id: String,
-    pub path: String,
-    pub mode: String,
-    pub enabled: bool,
-    pub document_count: usize,
-}
-
-/// Get all registered libraries with document counts.
-pub fn get_libraries(conn: &Connection) -> Result<Vec<LibraryInfo>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT wf.watch_id, wf.tenant_id, wf.path, \
-                    COALESCE(wf.library_mode, 'incremental'), \
-                    COALESCE(wf.enabled, 1), \
-                    COALESCE(tf_count.cnt, 0) \
-             FROM watch_folders wf \
-             LEFT JOIN ( \
-                 SELECT watch_folder_id, COUNT(*) AS cnt \
-                 FROM tracked_files GROUP BY watch_folder_id \
-             ) tf_count ON tf_count.watch_folder_id = wf.watch_id \
-             WHERE wf.collection = 'libraries' \
-             ORDER BY wf.tenant_id",
-        )
-        .context("Failed to query libraries")?;
-
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(LibraryInfo {
-                watch_id: row.get(0)?,
-                tenant_id: row.get(1)?,
-                path: row.get(2)?,
-                mode: row.get(3)?,
-                enabled: row.get::<_, i64>(4)? > 0,
-                document_count: row.get(5)?,
-            })
-        })
-        .context("Failed to read libraries")?;
-
-    rows.collect::<Result<Vec<_>, _>>()
-        .context("Failed to parse library rows")
-}
-
 /// Count of collections known to have data (from watch_folders).
 pub fn get_active_collection_count(conn: &Connection) -> Result<usize> {
     conn.query_row(
@@ -120,24 +74,6 @@ mod tests {
         )
         .unwrap();
         conn
-    }
-
-    #[test]
-    fn libraries_with_counts() {
-        let conn = setup_test_db();
-        conn.execute_batch(
-            "INSERT INTO watch_folders (watch_id, tenant_id, path, collection, library_mode)
-             VALUES ('lib-docs', 'lib-docs', '/docs', 'libraries', 'sync');
-             INSERT INTO tracked_files (file_id, watch_folder_id)
-             VALUES (1, 'lib-docs');
-             INSERT INTO tracked_files (file_id, watch_folder_id)
-             VALUES (2, 'lib-docs');",
-        )
-        .unwrap();
-        let libs = get_libraries(&conn).unwrap();
-        assert_eq!(libs.len(), 1);
-        assert_eq!(libs[0].document_count, 2);
-        assert_eq!(libs[0].mode, "sync");
     }
 
     #[test]
