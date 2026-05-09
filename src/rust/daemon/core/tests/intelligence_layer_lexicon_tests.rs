@@ -1,25 +1,16 @@
-//! Integration tests for intelligence layer features.
+//! Integration tests for the dynamic lexicon and sparse-vector sub-systems.
 //!
 //! Tests:
 //! - Dynamic lexicon: per-collection vocabulary, document frequency, persistence
-//! - BM25 IDF weighting: common vs distinctive term scoring
-//! - Sparse vector generation via lexicon (persisted BM25)
-//! - Metadata uplift: UpliftConfig, UpliftStats, candidate identification
-//! - Keyword extraction pipeline configuration
+//! - Lexicon sparse vector generation via persisted BM25 IDF
+//! - Cross-feature: lexicon + BM25 consistency and incremental corpus growth
 
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::time::Duration;
-use workspace_qdrant_core::{
-    embedding::BM25,
-    keyword_extraction::keyword_selector::SelectedKeyword,
-    keyword_extraction::pipeline::{ExtractionResult, PipelineConfig},
-    keyword_extraction::tag_selector::{SelectedTag, TagType},
-    lexicon::LexiconManager,
-    metadata_uplift::{UpliftConfig, UpliftStats},
-};
+use workspace_qdrant_core::lexicon::LexiconManager;
 
-/// Create in-memory SQLite pool with lexicon tables
+/// Create in-memory SQLite pool with lexicon tables.
 async fn create_lexicon_pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -173,128 +164,6 @@ async fn test_lexicon_multi_collection_isolation() {
     assert_eq!(mgr.document_frequency("libraries", "rust").await, 0);
 }
 
-// ── BM25 IDF Weighting Tests ──
-
-#[test]
-fn test_bm25_idf_downweights_common_terms() {
-    let mut bm25 = BM25::new(1.2);
-
-    // Build corpus of 20 docs: "function" in all 20, "qdrant_search" in 2
-    for _ in 0..20 {
-        bm25.add_document(&["function".into(), "return".into(), "let".into()]);
-    }
-    // Add 2 more docs with "qdrant_search" (total N=22, function df=22, qdrant_search df=2)
-    bm25.add_document(&["qdrant_search".into(), "rare_api".into()]);
-    bm25.add_document(&["qdrant_search".into(), "rare_api".into()]);
-
-    let sparse = bm25.generate_sparse_vector(&["function".into(), "qdrant_search".into()]);
-
-    // "function" (df=20, N=22): IDF = ln((22-20+0.5)/(20+0.5)) = ln(2.5/20.5) < 0 → floored to 0
-    // So "function" should NOT be in the sparse vector (zero weight)
-    // "qdrant_search" (df=2, N=22): IDF = ln((22-2+0.5)/(2+0.5)) = ln(20.5/2.5) = ln(8.2) ≈ 2.1
-    // So "qdrant_search" should have positive weight
-
-    let vocab = bm25.vocab();
-    let function_id = *vocab.get("function").unwrap();
-    let qdrant_id = *vocab.get("qdrant_search").unwrap();
-
-    let function_weight = sparse
-        .indices
-        .iter()
-        .zip(sparse.values.iter())
-        .find(|(&idx, _)| idx == function_id)
-        .map(|(_, &val)| val);
-    let qdrant_weight = sparse
-        .indices
-        .iter()
-        .zip(sparse.values.iter())
-        .find(|(&idx, _)| idx == qdrant_id)
-        .map(|(_, &val)| val);
-
-    // Common term "function" gets zero IDF (floored), so excluded from sparse vector
-    assert!(
-        function_weight.is_none() || function_weight.unwrap() == 0.0,
-        "Ubiquitous term should have zero or no weight: {:?}",
-        function_weight
-    );
-
-    // Rare term "qdrant_search" should have positive weight
-    assert!(
-        qdrant_weight.is_some() && qdrant_weight.unwrap() > 0.0,
-        "Rare term should have positive weight: {:?}",
-        qdrant_weight
-    );
-}
-
-#[test]
-fn test_bm25_empty_corpus_uses_tf_only() {
-    let bm25 = BM25::new(1.2);
-
-    // No documents added — should still generate sparse vector (TF-only fallback)
-    let sparse = bm25.generate_sparse_vector(&["hello".into(), "world".into()]);
-
-    // With empty corpus, unknown terms won't have vocab IDs, so vector is empty
-    assert!(
-        sparse.indices.is_empty(),
-        "Terms not in vocab should produce empty vector"
-    );
-}
-
-#[test]
-fn test_bm25_tf_saturation() {
-    let mut bm25 = BM25::new(1.2);
-
-    // Need corpus where "test" has positive IDF: N=10, test df=2
-    for _ in 0..8 {
-        bm25.add_document(&["other".into()]);
-    }
-    bm25.add_document(&["test".into(), "other".into()]);
-    bm25.add_document(&["test".into(), "other".into()]);
-
-    // Repeated term: tf=5
-    let sparse_repeated = bm25.generate_sparse_vector(&[
-        "test".into(),
-        "test".into(),
-        "test".into(),
-        "test".into(),
-        "test".into(),
-    ]);
-    // Single occurrence: tf=1
-    let sparse_single = bm25.generate_sparse_vector(&["test".into()]);
-
-    // Find "test" weight in each vector
-    let test_id = *bm25.vocab().get("test").unwrap();
-    let repeated_weight = sparse_repeated
-        .indices
-        .iter()
-        .zip(sparse_repeated.values.iter())
-        .find(|(&i, _)| i == test_id)
-        .map(|(_, &v)| v)
-        .unwrap_or(0.0);
-    let single_weight = sparse_single
-        .indices
-        .iter()
-        .zip(sparse_single.values.iter())
-        .find(|(&i, _)| i == test_id)
-        .map(|(_, &v)| v)
-        .unwrap_or(0.0);
-
-    assert!(
-        single_weight > 0.0,
-        "Single occurrence should have positive weight"
-    );
-    assert!(
-        repeated_weight > single_weight,
-        "Higher TF should give higher weight"
-    );
-    assert!(
-        repeated_weight < single_weight * 3.0,
-        "BM25 k1 saturation should prevent linear scaling (repeated={}, single={})",
-        repeated_weight,
-        single_weight
-    );
-}
-
 // ── Lexicon Sparse Vector Tests ──
 
 #[tokio::test]
@@ -367,119 +236,6 @@ async fn test_lexicon_sparse_vector_empty_for_unknown_collection() {
         sparse.indices.is_empty(),
         "Unknown collection should return empty sparse vector"
     );
-}
-
-// ── Metadata Uplift Tests ──
-
-#[test]
-fn test_uplift_config_respects_generation_tracking() {
-    let config = UpliftConfig::default();
-    assert_eq!(config.current_generation, 1, "Should start at generation 1");
-    assert_eq!(config.batch_size, 10);
-    assert_eq!(config.min_interval_secs, 300, "5 minute minimum interval");
-}
-
-#[test]
-fn test_uplift_stats_aggregation() {
-    let mut stats = UpliftStats::default();
-    stats.scanned = 10;
-    stats.updated = 5;
-    stats.skipped = 3;
-    stats.errors = 2;
-
-    assert_eq!(stats.scanned, stats.updated + stats.skipped + stats.errors);
-}
-
-// ── Pipeline Configuration Tests ──
-
-#[test]
-fn test_pipeline_config_defaults_are_sane() {
-    let config = PipelineConfig::default();
-
-    assert!(config.keyword.max_keywords > 0, "Should have keyword limit");
-    assert!(config.tag.max_tags > 0, "Should have tag limit");
-    assert!(
-        config.basket.min_similarity > 0.0,
-        "Should have minimum similarity"
-    );
-    assert!(
-        config.basket.min_similarity < 1.0,
-        "Minimum similarity should be < 1"
-    );
-}
-
-#[test]
-fn test_extraction_result_accessors() {
-    let result = ExtractionResult {
-        summary_vector: Some(vec![0.1, 0.2, 0.3]),
-        gist_indices: vec![0, 2, 4],
-        keywords: vec![
-            SelectedKeyword {
-                phrase: "vector_search".to_string(),
-                score: 0.95,
-                semantic_score: 0.9,
-                lexical_score: 1.0,
-                stability_count: 5,
-                ngram_size: 1,
-            },
-            SelectedKeyword {
-                phrase: "embedding_model".to_string(),
-                score: 0.85,
-                semantic_score: 0.8,
-                lexical_score: 0.9,
-                stability_count: 3,
-                ngram_size: 1,
-            },
-        ],
-        tags: vec![SelectedTag {
-            phrase: "search".to_string(),
-            tag_type: TagType::Concept,
-            score: 0.9,
-            diversity_score: 1.0,
-            semantic_score: 0.85,
-            ngram_size: 1,
-        }],
-        structural_tags: vec![
-            SelectedTag {
-                phrase: "language:rust".to_string(),
-                tag_type: TagType::Structural,
-                score: 1.0,
-                diversity_score: 1.0,
-                semantic_score: 1.0,
-                ngram_size: 1,
-            },
-            SelectedTag {
-                phrase: "framework:tokio".to_string(),
-                tag_type: TagType::Structural,
-                score: 1.0,
-                diversity_score: 1.0,
-                semantic_score: 1.0,
-                ngram_size: 1,
-            },
-        ],
-        baskets: vec![],
-    };
-
-    let kw_phrases = result.keyword_phrases();
-    assert_eq!(kw_phrases.len(), 2);
-    assert!(kw_phrases.contains(&"vector_search".to_string()));
-    assert!(kw_phrases.contains(&"embedding_model".to_string()));
-
-    let tag_phrases = result.tag_phrases();
-    assert_eq!(tag_phrases, vec!["search"]);
-
-    let struct_map = result.structural_tags_map();
-    assert_eq!(
-        struct_map.get("language").unwrap(),
-        &vec!["rust".to_string()]
-    );
-    assert_eq!(
-        struct_map.get("framework").unwrap(),
-        &vec!["tokio".to_string()]
-    );
-
-    assert_eq!(result.gist_indices.len(), 3);
-    assert!(result.summary_vector.is_some());
 }
 
 // ── Cross-Feature Integration Tests ──
