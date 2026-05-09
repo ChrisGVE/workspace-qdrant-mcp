@@ -79,50 +79,15 @@ impl FileStrategy {
             item.queue_id, item.collection, item.op
         );
 
-        // Parse the file payload
         let payload: FilePayload = parse_payload(item)?;
 
-        // File type allowlist check (Task 511) - skip for delete operations
-        if item.op != QueueOperation::Delete
-            && !ctx
-                .allowed_extensions
-                .is_allowed(&payload.file_path, &item.collection)
-        {
-            debug!(
-                "File type not in allowlist, skipping: {} (collection={})",
-                payload.file_path, item.collection
-            );
+        if !passes_ingestion_guards(ctx, item, &payload) {
             return Ok(());
-        }
-
-        // Per-extension size limit check (Task 14) - skip for delete operations
-        if item.op != QueueOperation::Delete {
-            if let Some(size) = payload.size_bytes {
-                let ext = crate::file_classification::get_extension_for_storage(
-                    std::path::Path::new(&payload.file_path),
-                )
-                .unwrap_or_default();
-                if let Some(limit) = ctx.ingestion_limits.size_limit_bytes(&ext) {
-                    if size > limit {
-                        warn!(
-                            extension = %ext,
-                            size_kb = size / 1024,
-                            limit_kb = limit / 1024,
-                            path = %payload.file_path,
-                            "Skipping oversized file: exceeds per-extension limit"
-                        );
-                        return Ok(());
-                    }
-                }
-            }
         }
 
         let file_path = Path::new(&payload.file_path);
         let pool = ctx.queue_manager.pool();
-
-        // Look up watch_folder for tracked_files context
         let (watch_folder_id, base_path) = resolve_watch_folder(pool, item).await?;
-
         let relative_path =
             tracked_files_schema::compute_relative_path(&payload.file_path, &base_path)
                 .unwrap_or_else(|| payload.file_path.clone());
@@ -131,7 +96,6 @@ impl FileStrategy {
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
-        // === DELETE OPERATION ===
         if item.op == QueueOperation::Delete {
             return delete::process_file_delete(
                 ctx,
@@ -144,129 +108,39 @@ impl FileStrategy {
             .await;
         }
 
-        // For ingest/update: check if file exists on disk
         if !file_path.exists() {
-            delete::cleanup_missing_file(
+            handle_missing_file(ctx, item, pool, &watch_folder_id, &relative_path, &payload).await;
+            return Ok(());
+        }
+
+        if item.op == QueueOperation::Update {
+            if prepare_update(
                 ctx,
                 item,
                 pool,
+                file_path,
                 &watch_folder_id,
                 &relative_path,
                 &payload,
             )
-            .await;
-            // File is gone — cleanup already handled above. Treat as a no-op
-            // success so the queue item is deleted rather than stuck in 'failed'.
-            //
-            // Explicitly mark both destinations done so check_and_finalize() can
-            // finalise the item even if a previous failed attempt left qdrant_status
-            // stuck at 'in_progress' (stale state from an interrupted pipeline).
-            let _ = ctx
-                .queue_manager
-                .update_destination_status(
-                    &item.queue_id,
-                    "qdrant",
-                    crate::unified_queue_schema::DestinationStatus::Done,
-                )
-                .await;
-            let _ = ctx
-                .queue_manager
-                .update_destination_status(
-                    &item.queue_id,
-                    "search",
-                    crate::unified_queue_schema::DestinationStatus::Done,
-                )
-                .await;
-            info!(
-                "File no longer exists, cleaned up and dequeuing: {}",
-                payload.file_path
-            );
-            return Ok(());
-        }
-
-        // === UPDATE OPERATION: hash comparison + reference-counted deletion ===
-        // This block is inlined (not in a helper) because the `return Ok(())`
-        // on hash-match must exit process_file_item entirely.
-        if item.op == QueueOperation::Update {
-            let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
-                UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e))
-            })?;
-
-            if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
-                pool,
-                &watch_folder_id,
-                &relative_path,
-                Some(item.branch.as_str()),
-            )
-            .await
+            .await?
+                == UpdateAction::Skip
             {
-                if existing.file_hash == new_hash {
-                    info!(
-                        "File unchanged (hash match), skipping update: {}",
-                        relative_path
-                    );
-                    return Ok(());
-                }
-
-                update_preamble::execute_update_deletion(
-                    ctx,
-                    item,
-                    pool,
-                    &watch_folder_id,
-                    &relative_path,
-                    &payload,
-                    &existing,
-                    &new_hash,
-                )
-                .await?;
-            } else {
-                // Not tracked yet -- defensive cleanup: delete by filter as fallback for update
-                ctx.storage_client
-                    .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
-                    .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                return Ok(());
             }
         }
 
-        // === UPLIFT OPERATION: capability upgrade re-processing ===
-        // Bypasses hash comparison — the file content hasn't changed but
-        // capabilities have improved (grammar now available, LSP now ready,
-        // or a previous enrichment failure should be retried). Delete old
-        // points so the full re-ingest produces fresh chunks/enrichment.
         if item.op == QueueOperation::Uplift {
-            let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
-                UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e))
-            })?;
-
-            if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+            prepare_uplift(
+                ctx,
+                item,
                 pool,
+                file_path,
                 &watch_folder_id,
                 &relative_path,
-                Some(item.branch.as_str()),
+                &payload,
             )
-            .await
-            {
-                info!(
-                    "Uplift: re-processing file for capability upgrade: {}",
-                    relative_path
-                );
-                update_preamble::execute_update_deletion(
-                    ctx,
-                    item,
-                    pool,
-                    &watch_folder_id,
-                    &relative_path,
-                    &payload,
-                    &existing,
-                    &new_hash,
-                )
-                .await?;
-            } else {
-                debug!(
-                    "Uplift: file not previously tracked, treating as fresh ingest: {}",
-                    relative_path
-                );
-            }
+            .await?;
         }
 
         ingest::ingest_file_content(
@@ -281,6 +155,187 @@ impl FileStrategy {
         )
         .await
     }
+}
+
+/// Return value for `prepare_update`: indicates whether to skip or proceed with ingest.
+#[derive(PartialEq)]
+enum UpdateAction {
+    Skip,
+    Proceed,
+}
+
+/// Check allowlist and per-extension size limit. Returns `false` if the file
+/// should be silently skipped (non-error).
+fn passes_ingestion_guards(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    payload: &FilePayload,
+) -> bool {
+    if item.op == QueueOperation::Delete {
+        return true;
+    }
+
+    if !ctx
+        .allowed_extensions
+        .is_allowed(&payload.file_path, &item.collection)
+    {
+        debug!(
+            "File type not in allowlist, skipping: {} (collection={})",
+            payload.file_path, item.collection
+        );
+        return false;
+    }
+
+    if let Some(size) = payload.size_bytes {
+        let ext =
+            crate::file_classification::get_extension_for_storage(Path::new(&payload.file_path))
+                .unwrap_or_default();
+        if let Some(limit) = ctx.ingestion_limits.size_limit_bytes(&ext) {
+            if size > limit {
+                warn!(
+                    extension = %ext,
+                    size_kb = size / 1024,
+                    limit_kb = limit / 1024,
+                    path = %payload.file_path,
+                    "Skipping oversized file: exceeds per-extension limit"
+                );
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// Handle a queue item whose file no longer exists on disk: clean up tracked
+/// records and mark both destinations done so the item is dequeued cleanly.
+async fn handle_missing_file(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &sqlx::SqlitePool,
+    watch_folder_id: &str,
+    relative_path: &str,
+    payload: &FilePayload,
+) {
+    delete::cleanup_missing_file(ctx, item, pool, watch_folder_id, relative_path, payload).await;
+    let _ = ctx
+        .queue_manager
+        .update_destination_status(
+            &item.queue_id,
+            "qdrant",
+            crate::unified_queue_schema::DestinationStatus::Done,
+        )
+        .await;
+    let _ = ctx
+        .queue_manager
+        .update_destination_status(
+            &item.queue_id,
+            "search",
+            crate::unified_queue_schema::DestinationStatus::Done,
+        )
+        .await;
+    info!(
+        "File no longer exists, cleaned up and dequeuing: {}",
+        payload.file_path
+    );
+}
+
+/// Handle the Update pre-flight: hash comparison and reference-counted deletion.
+///
+/// Returns `UpdateAction::Skip` when the file is unchanged (hash match).
+async fn prepare_update(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &sqlx::SqlitePool,
+    file_path: &Path,
+    watch_folder_id: &str,
+    relative_path: &str,
+    payload: &FilePayload,
+) -> UnifiedProcessorResult<UpdateAction> {
+    let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e))
+    })?;
+
+    if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+        pool,
+        watch_folder_id,
+        relative_path,
+        Some(item.branch.as_str()),
+    )
+    .await
+    {
+        if existing.file_hash == new_hash {
+            info!(
+                "File unchanged (hash match), skipping update: {}",
+                relative_path
+            );
+            return Ok(UpdateAction::Skip);
+        }
+        update_preamble::execute_update_deletion(
+            ctx,
+            item,
+            pool,
+            watch_folder_id,
+            relative_path,
+            payload,
+            &existing,
+            &new_hash,
+        )
+        .await?;
+    } else {
+        // Not tracked yet — defensive cleanup via filter
+        ctx.storage_client
+            .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+    }
+    Ok(UpdateAction::Proceed)
+}
+
+/// Handle the Uplift pre-flight: delete old points so fresh enrichment is produced.
+async fn prepare_uplift(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &sqlx::SqlitePool,
+    file_path: &Path,
+    watch_folder_id: &str,
+    relative_path: &str,
+    payload: &FilePayload,
+) -> UnifiedProcessorResult<()> {
+    let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e))
+    })?;
+
+    if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+        pool,
+        watch_folder_id,
+        relative_path,
+        Some(item.branch.as_str()),
+    )
+    .await
+    {
+        info!(
+            "Uplift: re-processing file for capability upgrade: {}",
+            relative_path
+        );
+        update_preamble::execute_update_deletion(
+            ctx,
+            item,
+            pool,
+            watch_folder_id,
+            relative_path,
+            payload,
+            &existing,
+            &new_hash,
+        )
+        .await?;
+    } else {
+        debug!(
+            "Uplift: file not previously tracked, treating as fresh ingest: {}",
+            relative_path
+        );
+    }
+    Ok(())
 }
 
 /// Resolve the watch folder for a file item (with library fallback).
