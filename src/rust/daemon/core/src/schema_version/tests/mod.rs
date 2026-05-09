@@ -6,7 +6,8 @@ mod constants;
 mod constraints;
 mod manager;
 mod migrations;
-mod versioned;
+mod versioned_v16_v19;
+mod versioned_v20_v31;
 
 /// Create an in-memory SQLite pool for testing
 pub(super) async fn create_test_pool() -> SqlitePool {
