@@ -34,7 +34,20 @@ pub async fn wait_for_signal() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let scm_notify = crate::windows_service::scm_shutdown_signal();
+        tokio::select! {
+            _ = signal::ctrl_c() => {
+                info!("Received Ctrl+C, initiating graceful shutdown");
+            }
+            _ = scm_notify.notified() => {
+                info!("Received SCM Stop/Shutdown, initiating graceful shutdown");
+            }
+        }
+    }
+
+    #[cfg(all(not(unix), not(windows)))]
     {
         signal::ctrl_c().await?;
         info!("Received Ctrl+C, initiating graceful shutdown");

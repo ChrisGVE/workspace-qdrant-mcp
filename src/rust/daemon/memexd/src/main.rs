@@ -17,6 +17,8 @@ mod grpc_setup;
 mod queue_init;
 mod shutdown;
 mod startup;
+#[cfg(windows)]
+mod windows_service;
 
 use std::process;
 use std::sync::Arc;
@@ -339,8 +341,29 @@ fn redirect_stderr_for_daemon() {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Cross-platform entry point.
+///
+/// On Windows, first attempt to run as an SCM-managed service. If
+/// `service_dispatcher::start` reports that the binary was not started
+/// by the SCM (`ERROR_FAILED_SERVICE_CONTROLLER_CONNECT`, raw
+/// errno 1063), fall through to the normal `tokio::main` interactive
+/// path. On non-Windows the SCM step is a no-op.
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    {
+        if windows_service::try_start_dispatcher() {
+            // Service ran under the SCM and has now stopped.
+            return Ok(());
+        }
+    }
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async_main())
+}
+
+async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("TTY_DETECTION_SILENT", "1");
     std::env::set_var("ATTY_FORCE_DISABLE_DEBUG", "1");
     std::env::set_var("NO_COLOR", "1");
