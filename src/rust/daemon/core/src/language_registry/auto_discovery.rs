@@ -54,151 +54,9 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
 
     let mut patterns = SemanticPatterns::default();
     let mut notes = Vec::new();
-    let mut matched = 0;
 
-    // Functions
-    let fn_types = find_matching(&named_types, FUNCTION_HINTS);
-    if !fn_types.is_empty() {
-        notes.push(format!("Functions: {}", fn_types.join(", ")));
-        let async_types = find_matching(&named_types, ASYNC_FUNCTION_HINTS);
-        patterns.function = FunctionPatternGroup {
-            node_types: fn_types,
-            async_node_types: async_types,
-        };
-        matched += 1;
-    }
-
-    // Classes
-    let class_types = find_matching(&named_types, CLASS_HINTS);
-    if !class_types.is_empty() {
-        notes.push(format!("Classes: {}", class_types.join(", ")));
-        patterns.class = PatternGroup {
-            node_types: class_types,
-        };
-        matched += 1;
-    }
-
-    // Methods (same as functions, context determined at runtime)
-    let method_types = find_matching(&named_types, METHOD_HINTS);
-    if !method_types.is_empty() {
-        notes.push(format!("Methods: {}", method_types.join(", ")));
-        patterns.method = MethodPatternGroup {
-            node_types: method_types,
-            context: Some("inside_class".to_string()),
-        };
-        matched += 1;
-    }
-
-    // Structs
-    let struct_types = find_matching(&named_types, STRUCT_HINTS);
-    if !struct_types.is_empty() {
-        notes.push(format!("Structs: {}", struct_types.join(", ")));
-        patterns.struct_def = PatternGroup {
-            node_types: struct_types,
-        };
-        matched += 1;
-    }
-
-    // Enums
-    let enum_types = find_matching(&named_types, ENUM_HINTS);
-    if !enum_types.is_empty() {
-        notes.push(format!("Enums: {}", enum_types.join(", ")));
-        patterns.enum_def = PatternGroup {
-            node_types: enum_types,
-        };
-        matched += 1;
-    }
-
-    // Traits/Interfaces
-    let trait_types = find_matching(&named_types, TRAIT_HINTS);
-    if !trait_types.is_empty() {
-        notes.push(format!("Traits/Interfaces: {}", trait_types.join(", ")));
-        patterns.trait_def = PatternGroup {
-            node_types: trait_types.clone(),
-        };
-        patterns.interface = PatternGroup {
-            node_types: trait_types,
-        };
-        matched += 1;
-    }
-
-    // Modules
-    let module_types = find_matching(&named_types, MODULE_HINTS);
-    if !module_types.is_empty() {
-        notes.push(format!("Modules: {}", module_types.join(", ")));
-        patterns.module = PatternGroup {
-            node_types: module_types,
-        };
-        matched += 1;
-    }
-
-    // Preamble (imports/includes)
-    let preamble_types = find_matching(&named_types, PREAMBLE_HINTS);
-    if !preamble_types.is_empty() {
-        notes.push(format!("Preamble: {}", preamble_types.join(", ")));
-        patterns.preamble = PatternGroup {
-            node_types: preamble_types,
-        };
-        matched += 1;
-    }
-
-    // Constants
-    let const_types = find_matching(&named_types, CONSTANT_HINTS);
-    if !const_types.is_empty() {
-        patterns.constant = PatternGroup {
-            node_types: const_types,
-        };
-        matched += 1;
-    }
-
-    // Macros
-    let macro_types = find_matching(&named_types, MACRO_HINTS);
-    if !macro_types.is_empty() {
-        patterns.macro_def = PatternGroup {
-            node_types: macro_types,
-        };
-        matched += 1;
-    }
-
-    // Type aliases
-    let type_types = find_matching(&named_types, TYPE_ALIAS_HINTS);
-    if !type_types.is_empty() {
-        patterns.type_alias = PatternGroup {
-            node_types: type_types,
-        };
-        matched += 1;
-    }
-
-    // Name node heuristic
-    if named_types.contains(&"identifier") {
-        patterns.name_node = Some("identifier".to_string());
-    } else if named_types.contains(&"name") {
-        patterns.name_node = Some("name".to_string());
-    }
-
-    // Body node heuristic
-    if named_types.contains(&"block") {
-        patterns.body_node = Some("block".to_string());
-    } else if named_types.contains(&"body") {
-        patterns.body_node = Some("body".to_string());
-    } else if named_types.contains(&"statement_block") {
-        patterns.body_node = Some("statement_block".to_string());
-    }
-
-    // Comment nodes
-    let comment_types = find_matching(&named_types, COMMENT_HINTS);
-    if !comment_types.is_empty() {
-        patterns.comment_nodes = comment_types;
-    }
-
-    // Docstring style heuristic
-    patterns.docstring_style =
-        if named_types.contains(&"string_literal") || named_types.contains(&"string") {
-            // Might have Python-style docstrings
-            DocstringStyle::PrecedingComments // safer default
-        } else {
-            DocstringStyle::PrecedingComments
-        };
+    let matched = apply_structural_patterns(&named_types, &mut patterns, &mut notes);
+    apply_node_heuristics(&named_types, &mut patterns);
 
     if matched == 0 {
         return None;
@@ -215,6 +73,145 @@ pub fn discover_patterns(node_types_json: &str) -> Option<DiscoveredPatterns> {
         confidence,
         notes,
     })
+}
+
+/// Match all structural pattern categories (function, class, method, etc.) against
+/// `named_types`. Populates `patterns` and `notes`; returns the count of matched categories.
+fn apply_structural_patterns(
+    named_types: &[&str],
+    patterns: &mut SemanticPatterns,
+    notes: &mut Vec<String>,
+) -> usize {
+    let mut matched = 0;
+
+    let fn_types = find_matching(named_types, FUNCTION_HINTS);
+    if !fn_types.is_empty() {
+        notes.push(format!("Functions: {}", fn_types.join(", ")));
+        let async_types = find_matching(named_types, ASYNC_FUNCTION_HINTS);
+        patterns.function = FunctionPatternGroup {
+            node_types: fn_types,
+            async_node_types: async_types,
+        };
+        matched += 1;
+    }
+
+    let class_types = find_matching(named_types, CLASS_HINTS);
+    if !class_types.is_empty() {
+        notes.push(format!("Classes: {}", class_types.join(", ")));
+        patterns.class = PatternGroup {
+            node_types: class_types,
+        };
+        matched += 1;
+    }
+
+    let method_types = find_matching(named_types, METHOD_HINTS);
+    if !method_types.is_empty() {
+        notes.push(format!("Methods: {}", method_types.join(", ")));
+        patterns.method = MethodPatternGroup {
+            node_types: method_types,
+            context: Some("inside_class".to_string()),
+        };
+        matched += 1;
+    }
+
+    let struct_types = find_matching(named_types, STRUCT_HINTS);
+    if !struct_types.is_empty() {
+        notes.push(format!("Structs: {}", struct_types.join(", ")));
+        patterns.struct_def = PatternGroup {
+            node_types: struct_types,
+        };
+        matched += 1;
+    }
+
+    let enum_types = find_matching(named_types, ENUM_HINTS);
+    if !enum_types.is_empty() {
+        notes.push(format!("Enums: {}", enum_types.join(", ")));
+        patterns.enum_def = PatternGroup {
+            node_types: enum_types,
+        };
+        matched += 1;
+    }
+
+    let trait_types = find_matching(named_types, TRAIT_HINTS);
+    if !trait_types.is_empty() {
+        notes.push(format!("Traits/Interfaces: {}", trait_types.join(", ")));
+        patterns.trait_def = PatternGroup {
+            node_types: trait_types.clone(),
+        };
+        patterns.interface = PatternGroup {
+            node_types: trait_types,
+        };
+        matched += 1;
+    }
+
+    let module_types = find_matching(named_types, MODULE_HINTS);
+    if !module_types.is_empty() {
+        notes.push(format!("Modules: {}", module_types.join(", ")));
+        patterns.module = PatternGroup {
+            node_types: module_types,
+        };
+        matched += 1;
+    }
+
+    let preamble_types = find_matching(named_types, PREAMBLE_HINTS);
+    if !preamble_types.is_empty() {
+        notes.push(format!("Preamble: {}", preamble_types.join(", ")));
+        patterns.preamble = PatternGroup {
+            node_types: preamble_types,
+        };
+        matched += 1;
+    }
+
+    let const_types = find_matching(named_types, CONSTANT_HINTS);
+    if !const_types.is_empty() {
+        patterns.constant = PatternGroup {
+            node_types: const_types,
+        };
+        matched += 1;
+    }
+
+    let macro_types = find_matching(named_types, MACRO_HINTS);
+    if !macro_types.is_empty() {
+        patterns.macro_def = PatternGroup {
+            node_types: macro_types,
+        };
+        matched += 1;
+    }
+
+    let type_types = find_matching(named_types, TYPE_ALIAS_HINTS);
+    if !type_types.is_empty() {
+        patterns.type_alias = PatternGroup {
+            node_types: type_types,
+        };
+        matched += 1;
+    }
+
+    matched
+}
+
+/// Apply name-node, body-node, comment, and docstring heuristics in-place.
+fn apply_node_heuristics(named_types: &[&str], patterns: &mut SemanticPatterns) {
+    if named_types.contains(&"identifier") {
+        patterns.name_node = Some("identifier".to_string());
+    } else if named_types.contains(&"name") {
+        patterns.name_node = Some("name".to_string());
+    }
+
+    if named_types.contains(&"block") {
+        patterns.body_node = Some("block".to_string());
+    } else if named_types.contains(&"body") {
+        patterns.body_node = Some("body".to_string());
+    } else if named_types.contains(&"statement_block") {
+        patterns.body_node = Some("statement_block".to_string());
+    }
+
+    let comment_types = find_matching(named_types, COMMENT_HINTS);
+    if !comment_types.is_empty() {
+        patterns.comment_nodes = comment_types;
+    }
+
+    // Always use PrecedingComments as the safer default regardless of string node presence.
+    patterns.docstring_style = DocstringStyle::PrecedingComments;
 }
 
 /// Generate a YAML string from discovered patterns.
