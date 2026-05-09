@@ -146,7 +146,7 @@ pub async fn rerank_candidates(
     let mut ranked: Vec<RankedCandidate> = Vec::with_capacity(candidates.len());
     let mut phrase_cache: HashMap<String, Vec<f32>> = HashMap::with_capacity(candidates.len());
 
-    for (candidate, embedding) in candidates.into_iter().zip(embeddings.into_iter()) {
+    for (candidate, embedding) in candidates.into_iter().zip(embeddings) {
         let dense_vec = embedding.dense.vector;
         let semantic_score = cosine_similarity(&dense_vec, parent_vector);
 
