@@ -73,6 +73,9 @@ async fn setup_populated_db(
             tenant_id: "bench-proj".to_string(),
             branch: Some("main".to_string()),
             file_path: format!("src/module_{}.rs", i),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
         });
     }
     processor.flush(file_count).await.unwrap();
@@ -122,6 +125,9 @@ fn bench_single_file_update(c: &mut Criterion) {
                     tenant_id: "bench-proj".to_string(),
                     branch: Some("main".to_string()),
                     file_path: "src/module_0.rs".to_string(),
+                    base_point: None,
+                    relative_path: None,
+                    file_hash: None,
                 });
                 black_box(processor.flush(0).await.unwrap());
             }
@@ -157,6 +163,9 @@ fn bench_single_file_update(c: &mut Criterion) {
                     tenant_id: "bench-proj".to_string(),
                     branch: Some("main".to_string()),
                     file_path: "src/module_200.rs".to_string(),
+                    base_point: None,
+                    relative_path: None,
+                    file_hash: None,
                 });
                 black_box(processor.flush(0).await.unwrap());
             }
@@ -203,6 +212,9 @@ fn bench_batch_throughput(c: &mut Criterion) {
                             tenant_id: "bench-proj".to_string(),
                             branch: Some("main".to_string()),
                             file_path: format!("src/module_{}.rs", i),
+                            base_point: None,
+                            relative_path: None,
+                            file_hash: None,
                         });
                     }
                     black_box(processor.flush(count).await.unwrap());
@@ -422,6 +434,9 @@ fn bench_db_size(c: &mut Criterion) {
                             tenant_id: "bench-proj".to_string(),
                             branch: Some("main".to_string()),
                             file_path: format!("src/module_{}.rs", i),
+                            base_point: None,
+                            relative_path: None,
+                            file_hash: None,
                         });
                     }
                     processor.flush(count).await.unwrap();
