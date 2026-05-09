@@ -1,354 +1,69 @@
-/** gRPC data message types — matches workspace_daemon.proto definitions. */
+/**
+ * gRPC data message types barrel — re-exports from service-grouped sub-modules.
+ *
+ * - grpc-types-messages-enums.ts: Shared enums
+ * - grpc-types-messages-system-collection.ts: SystemService + CollectionService
+ * - grpc-types-messages-document-project.ts: DocumentService + ProjectService
+ * - grpc-types-messages-embedding-queue-tracking.ts: EmbeddingService + QueueWriteService + TrackingWriteService
+ * - grpc-types-search-graph.ts: TextSearchService + GraphService
+ */
 
-// ── Enums ──
+export { ServiceStatus, QueueType, ServerState } from './grpc-types-messages-enums.js';
 
-export enum ServiceStatus {
-  SERVICE_STATUS_UNSPECIFIED = 0,
-  SERVICE_STATUS_HEALTHY = 1,
-  SERVICE_STATUS_DEGRADED = 2,
-  SERVICE_STATUS_UNHEALTHY = 3,
-  SERVICE_STATUS_UNAVAILABLE = 4,
-}
+export type {
+  ComponentHealth,
+  HealthCheckResponse,
+  HealthResponse,
+  SystemMetrics,
+  SystemStatusResponse,
+  Metric,
+  MetricsResponse,
+  GetEmbeddingProviderStatusResponse,
+  RefreshSignalRequest,
+  ServerStatusNotification,
+  CollectionConfig,
+  CreateCollectionRequest,
+  CreateCollectionResponse,
+  DeleteCollectionRequest,
+  CreateAliasRequest,
+  DeleteAliasRequest,
+  RenameAliasRequest,
+} from './grpc-types-messages-system-collection.js';
 
-export enum QueueType {
-  QUEUE_TYPE_UNSPECIFIED = 0,
-  INGEST_QUEUE = 1,
-  WATCHED_PROJECTS = 2,
-  WATCHED_FOLDERS = 3,
-  TOOLS_AVAILABLE = 4,
-}
+export type {
+  IngestTextRequest,
+  IngestTextResponse,
+  UpdateTextRequest,
+  UpdateTextResponse,
+  DeleteTextRequest,
+  RegisterProjectRequest,
+  RegisterProjectResponse,
+  DeprioritizeProjectRequest,
+  DeprioritizeProjectResponse,
+  GetProjectStatusRequest,
+  GetProjectStatusResponse,
+  ListProjectsRequest,
+  ProjectInfo,
+  ListProjectsResponse,
+  HeartbeatRequest,
+  HeartbeatResponse,
+} from './grpc-types-messages-document-project.js';
 
-export enum ServerState {
-  SERVER_STATE_UNSPECIFIED = 0,
-  SERVER_STATE_UP = 1,
-  SERVER_STATE_DOWN = 2,
-}
+export type {
+  EmbedTextRequest,
+  EmbedTextResponse,
+  SparseVectorRequest,
+  SparseVectorResponse,
+  EnqueueItemRequest,
+  EnqueueItemResponse,
+  LogSearchEventRequest,
+  UpdateSearchEventRequest,
+  UpsertRuleMirrorRequest,
+  DeleteRuleMirrorRequest,
+  UpsertScratchpadMirrorRequest,
+  DeleteScratchpadMirrorRequest,
+} from './grpc-types-messages-embedding-queue-tracking.js';
 
-// ── SystemService ──
-
-export interface ComponentHealth {
-  component_name: string;
-  status: ServiceStatus;
-  message: string;
-  last_check?: { seconds: number; nanos: number };
-}
-
-export interface HealthCheckResponse {
-  status: ServiceStatus;
-  components: ComponentHealth[];
-  timestamp?: { seconds: number; nanos: number };
-}
-
-export type HealthResponse = HealthCheckResponse;
-
-export interface SystemMetrics {
-  cpu_usage_percent: number;
-  memory_usage_bytes: number;
-  memory_total_bytes: number;
-  disk_usage_bytes: number;
-  disk_total_bytes: number;
-  active_connections: number;
-  pending_operations: number;
-}
-
-export interface SystemStatusResponse {
-  status: ServiceStatus;
-  metrics: SystemMetrics;
-  active_projects: string[];
-  total_documents: number;
-  total_collections: number;
-  uptime_since?: { seconds: number; nanos: number };
-}
-
-export interface Metric {
-  name: string;
-  type: string;
-  labels: Record<string, string>;
-  value: number;
-  timestamp?: { seconds: number; nanos: number };
-}
-
-export interface MetricsResponse {
-  metrics: Metric[];
-  collected_at?: { seconds: number; nanos: number };
-}
-
-export interface GetEmbeddingProviderStatusResponse {
-  provider: string;
-  model: string;
-  output_dim: number;
-  base_url: string;
-  probe_status: string;
-  probe_message: string;
-}
-
-export interface RefreshSignalRequest {
-  queue_type: QueueType;
-  lsp_languages?: string[];
-  grammar_languages?: string[];
-}
-
-export interface ServerStatusNotification {
-  state: ServerState;
-  project_name?: string;
-  project_root?: string;
-}
-
-// ── CollectionService ──
-
-export interface CollectionConfig {
-  vector_size: number;
-  distance_metric: string;
-  enable_indexing: boolean;
-  metadata_schema: Record<string, string>;
-}
-
-export interface CreateCollectionRequest {
-  collection_name: string;
-  project_id?: string;
-  config?: CollectionConfig;
-}
-
-export interface CreateCollectionResponse {
-  success: boolean;
-  error_message?: string;
-  collection_id?: string;
-}
-
-export interface DeleteCollectionRequest {
-  collection_name: string;
-  project_id?: string;
-  force?: boolean;
-}
-
-export interface CreateAliasRequest {
-  alias_name: string;
-  collection_name: string;
-}
-
-export interface DeleteAliasRequest {
-  alias_name: string;
-}
-
-export interface RenameAliasRequest {
-  old_alias_name: string;
-  new_alias_name: string;
-  collection_name: string;
-}
-
-// ── DocumentService ──
-
-export interface IngestTextRequest {
-  content: string;
-  collection_basename: string;
-  tenant_id: string;
-  document_id?: string;
-  metadata?: Record<string, string>;
-  chunk_text?: boolean;
-}
-
-export interface IngestTextResponse {
-  document_id: string;
-  success: boolean;
-  chunks_created: number;
-  error_message?: string;
-}
-
-export interface UpdateTextRequest {
-  document_id: string;
-  content: string;
-  collection_name?: string;
-  metadata?: Record<string, string>;
-}
-
-export interface UpdateTextResponse {
-  success: boolean;
-  error_message?: string;
-  updated_at?: { seconds: number; nanos: number };
-}
-
-export interface DeleteTextRequest {
-  document_id: string;
-  collection_name: string;
-}
-
-// ── ProjectService ──
-
-export interface RegisterProjectRequest {
-  path: string;
-  project_id: string;
-  name?: string;
-  git_remote?: string;
-  register_if_new?: boolean;
-  priority?: string;
-}
-
-export interface RegisterProjectResponse {
-  created: boolean;
-  project_id: string;
-  priority: string;
-  is_active: boolean;
-  newly_registered: boolean;
-  is_worktree?: boolean;
-  watch_path?: string;
-}
-
-export interface DeprioritizeProjectRequest {
-  project_id: string;
-  watch_path?: string;
-}
-
-export interface DeprioritizeProjectResponse {
-  success: boolean;
-  is_active: boolean;
-  new_priority: string;
-}
-
-export interface GetProjectStatusRequest {
-  project_id: string;
-}
-
-export interface GetProjectStatusResponse {
-  found: boolean;
-  project_id: string;
-  project_name: string;
-  project_root: string;
-  priority: string;
-  is_active: boolean;
-  last_active?: { seconds: number; nanos: number };
-  registered_at?: { seconds: number; nanos: number };
-  git_remote?: string;
-}
-
-export interface ListProjectsRequest {
-  priority_filter?: string;
-  active_only?: boolean;
-}
-
-export interface ProjectInfo {
-  project_id: string;
-  project_name: string;
-  project_root: string;
-  priority: string;
-  is_active: boolean;
-  last_active?: { seconds: number; nanos: number };
-  is_worktree?: boolean;
-}
-
-export interface ListProjectsResponse {
-  projects: ProjectInfo[];
-  total_count: number;
-}
-
-export interface HeartbeatRequest {
-  project_id: string;
-}
-
-export interface HeartbeatResponse {
-  acknowledged: boolean;
-  next_heartbeat_by?: { seconds: number; nanos: number };
-}
-
-// ── EmbeddingService ──
-
-export interface EmbedTextRequest {
-  text: string;
-  model?: string;
-}
-
-export interface EmbedTextResponse {
-  embedding: number[];
-  dimensions: number;
-  model_name: string;
-  success: boolean;
-  error_message?: string;
-}
-
-export interface SparseVectorRequest {
-  text: string;
-}
-
-export interface SparseVectorResponse {
-  indices_values: Record<number, number>;
-  vocab_size: number;
-  success: boolean;
-  error_message?: string;
-}
-
-// ── QueueWriteService ──
-
-export interface EnqueueItemRequest {
-  item_type: string;
-  op: string;
-  tenant_id: string;
-  collection: string;
-  payload_json: string;
-  branch: string;
-  metadata_json?: string;
-}
-
-export interface EnqueueItemResponse {
-  queue_id: string;
-  idempotency_key: string;
-  is_new: boolean;
-}
-
-// ── TrackingWriteService ──
-
-export interface LogSearchEventRequest {
-  id: string;
-  session_id?: string;
-  project_id?: string;
-  actor: string;
-  tool: string;
-  op: string;
-  query_text?: string;
-  filters?: string;
-  top_k?: number;
-  result_count?: number;
-  latency_ms?: number;
-  top_result_refs?: string;
-  outcome?: string;
-  parent_event_id?: string;
-}
-
-export interface UpdateSearchEventRequest {
-  event_id: string;
-  result_count: number;
-  latency_ms: number;
-  top_result_refs?: string;
-  outcome?: string;
-}
-
-export interface UpsertRuleMirrorRequest {
-  rule_id: string;
-  rule_text: string;
-  scope?: string;
-  tenant_id?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DeleteRuleMirrorRequest {
-  rule_id: string;
-}
-
-export interface UpsertScratchpadMirrorRequest {
-  scratchpad_id: string;
-  content: string;
-  title?: string;
-  tags?: string;
-  tenant_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DeleteScratchpadMirrorRequest {
-  scratchpad_id: string;
-}
-
-// ── TextSearchService + GraphService ──
-// Re-exported from grpc-types-search-graph.ts
 export type {
   TextSearchRequest,
   TextSearchResponse,
