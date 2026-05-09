@@ -174,7 +174,7 @@ fn assemble_communities(
         })
         .collect();
 
-    communities.sort_by(|a, b| b.members.len().cmp(&a.members.len()));
+    communities.sort_by_key(|c| std::cmp::Reverse(c.members.len()));
     for (i, c) in communities.iter_mut().enumerate() {
         c.community_id = i as u32;
     }
