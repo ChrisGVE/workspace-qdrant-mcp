@@ -264,7 +264,7 @@ When introducing or modifying shared data structures, always use wqm-common.";
         let updates = build_payload_updates(&header, "2026-04-20T12:00:00Z");
 
         assert_eq!(updates.get("scope").unwrap(), "global");
-        assert!(updates.get("project_id").is_none());
+        assert!(!updates.contains_key("project_id"));
     }
 
     #[tokio::test]

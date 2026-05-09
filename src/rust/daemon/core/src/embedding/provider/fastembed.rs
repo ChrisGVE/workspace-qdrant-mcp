@@ -163,7 +163,7 @@ impl DenseProvider for FastEmbedProvider {
 
         let mut out = Vec::with_capacity(texts.len());
         for chunk in texts.chunks(self.batch_size) {
-            let docs: Vec<&str> = chunk.iter().copied().collect();
+            let docs: Vec<&str> = chunk.to_vec();
             let embed_start = Instant::now();
             let vectors = model
                 .embed(docs, None)

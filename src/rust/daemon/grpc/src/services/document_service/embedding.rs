@@ -142,11 +142,7 @@ pub(crate) async fn generate_sparse_vector(text: &str) -> Result<HashMap<u32, f3
 
         let sparse = bm25_guard.generate_sparse_vector(&tokens);
 
-        sparse
-            .indices
-            .into_iter()
-            .zip(sparse.values.into_iter())
-            .collect()
+        sparse.indices.into_iter().zip(sparse.values).collect()
     };
 
     debug!(

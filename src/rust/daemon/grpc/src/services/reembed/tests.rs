@@ -2,7 +2,7 @@ use super::recreator::collection_reembed_idempotency_key;
 use super::*;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tonic::Status;
@@ -466,6 +466,3 @@ fn idempotency_key_is_deterministic_and_32_chars() {
     assert_eq!(k1.len(), 32);
     assert_ne!(k1, collection_reembed_idempotency_key("libraries"));
 }
-
-// Suppress "unused" warnings on test-only counter when not needed.
-const _ASSERT_AT: AtomicUsize = AtomicUsize::new(0);

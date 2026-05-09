@@ -237,8 +237,8 @@ async fn test_enqueue_dequeue_updates_prometheus_counters() {
 
     // Global METRICS is shared across parallel tests, so only assert the
     // counter moved forward by at least the operations we performed here.
-    assert!(enqueued_after >= enqueued_before + 1);
-    assert!(dequeued_after >= dequeued_before + 1);
+    assert!(enqueued_after > enqueued_before);
+    assert!(dequeued_after > dequeued_before);
 }
 
 /// issue-64 task 4: depth query returns grouped (item_type, status) counts.

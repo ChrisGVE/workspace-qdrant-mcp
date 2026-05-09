@@ -213,6 +213,6 @@ mod tests {
         let root = tmp();
         let trie = EligibilityTrie::build(root.path(), true).unwrap();
         assert!(!trie.is_empty());
-        assert!(trie.len() >= 1); // at least the root
+        assert!(!trie.is_empty()); // at least the root
     }
 }

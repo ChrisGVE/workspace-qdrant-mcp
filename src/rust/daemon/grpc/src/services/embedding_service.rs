@@ -138,11 +138,7 @@ impl EmbeddingServiceImpl {
             let mut bm25_guard = self.bm25.write().await;
             bm25_guard.add_document(&tokens);
             let sparse = bm25_guard.generate_sparse_vector(&tokens);
-            sparse
-                .indices
-                .into_iter()
-                .zip(sparse.values.into_iter())
-                .collect()
+            sparse.indices.into_iter().zip(sparse.values).collect()
         };
 
         debug!(
