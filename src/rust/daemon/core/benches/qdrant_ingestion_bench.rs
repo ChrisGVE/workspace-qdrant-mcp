@@ -50,6 +50,8 @@ use std::time::{Duration, Instant};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use uuid::Uuid;
 
+use workspace_qdrant_core::config::EmbeddingSettings;
+use workspace_qdrant_core::embedding::build_dense_provider;
 use workspace_qdrant_core::{
     DocumentPoint, EmbeddingConfig, EmbeddingGenerator, StorageClient, StorageConfig,
 };
@@ -319,8 +321,13 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
 
     // --- Initialize embedding model ---
     let embedding_config = EmbeddingConfig::default();
+    let mut provider_settings = EmbeddingSettings::default();
+    provider_settings.provider = "fastembed".to_string();
+    let dense_provider =
+        build_dense_provider(&provider_settings, None).expect("Failed to build dense provider");
     let embedding_gen = Arc::new(
-        EmbeddingGenerator::new(embedding_config).expect("Failed to create embedding generator"),
+        EmbeddingGenerator::new(embedding_config, dense_provider)
+            .expect("Failed to create embedding generator"),
     );
 
     eprintln!("Warming up embedding model...");
@@ -545,8 +552,13 @@ fn chunk_size_optimization_benchmark(c: &mut Criterion) {
 
     // --- Initialize embedding model ---
     let embedding_config = EmbeddingConfig::default();
+    let mut provider_settings = EmbeddingSettings::default();
+    provider_settings.provider = "fastembed".to_string();
+    let dense_provider =
+        build_dense_provider(&provider_settings, None).expect("Failed to build dense provider");
     let embedding_gen = Arc::new(
-        EmbeddingGenerator::new(embedding_config).expect("Failed to create embedding generator"),
+        EmbeddingGenerator::new(embedding_config, dense_provider)
+            .expect("Failed to create embedding generator"),
     );
 
     // Warm up
