@@ -1,0 +1,26 @@
+#!/bin/sh
+# Pre-remove script for wqm-cli.
+#
+# Stop the memexd unit if it is running so we don't yank the binary
+# out from under a live process. The unit may be enabled per-user
+# (--user) or system-wide; only the system-wide instance is reachable
+# from this hook, so we restrict the stop to the system instance and
+# leave per-user instances to systemd's own teardown on session end.
+
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl stop memexd.service >/dev/null 2>&1 || true
+        fi
+        ;;
+    failed-upgrade)
+        ;;
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

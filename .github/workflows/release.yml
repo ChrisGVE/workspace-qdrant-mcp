@@ -295,6 +295,33 @@ jobs:
           & artifacts/wqm.exe --version
           Write-Host "Smoke tests passed"
 
+      # Build a Debian package for amd64/arm64 Linux. cargo-deb reads
+      # [package.metadata.deb] from src/rust/cli/Cargo.toml; we
+      # pre-position both binaries under src/rust/target/release/ so
+      # the asset list in the manifest resolves correctly under
+      # cross-compiled targets.
+      - name: Install cargo-deb
+        if: runner.os == 'Linux' && !matrix.skip_binaries && (matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu')
+        shell: bash
+        run: cargo install cargo-deb --version 2.5.0 --locked
+
+      - name: Build .deb package
+        if: runner.os == 'Linux' && !matrix.skip_binaries && (matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu')
+        shell: bash
+        run: |
+          mkdir -p src/rust/target/release
+          cp src/rust/target/${{ matrix.target }}/release/wqm src/rust/target/release/wqm
+          cp src/rust/target/${{ matrix.target }}/release/memexd src/rust/target/release/memexd
+          deb_arch=$(case "${{ matrix.target }}" in
+            x86_64-unknown-linux-gnu)  echo amd64 ;;
+            aarch64-unknown-linux-gnu) echo arm64 ;;
+          esac)
+          cargo deb --no-build -p wqm-cli --target ${{ matrix.target }} \
+            --output "workspace-qdrant-mcp_${{ github.ref_name }}_${deb_arch}.deb"
+          sha256sum "workspace-qdrant-mcp_${{ github.ref_name }}_${deb_arch}.deb" \
+            | awk '{print $1}' \
+            > "workspace-qdrant-mcp_${{ github.ref_name }}_${deb_arch}.deb.sha256"
+
       # Create individual binary files for direct download (used by wqm update)
       - name: Prepare individual binaries (Unix)
         if: runner.os != 'Windows' && !matrix.skip_binaries
@@ -340,6 +367,8 @@ jobs:
             wqm-${{ matrix.target }}.sha256
             wqm-common-node.*.node
             wqm-common-node.*.node.sha256
+            workspace-qdrant-mcp_*.deb
+            workspace-qdrant-mcp_*.deb.sha256
 
       - name: Upload artifact (Unix, napi-only)
         if: runner.os != 'Windows' && matrix.skip_binaries
@@ -380,8 +409,8 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          # Checksum for archives
-          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} \; > checksums.txt
+          # Checksum for archives + .deb packages
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" \) -exec sha256sum {} \; > checksums.txt
           cat checksums.txt
 
       - name: Create Release
@@ -390,6 +419,8 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            artifacts/**/*.deb
+            artifacts/**/*.deb.sha256
             artifacts/**/memexd-*
             artifacts/**/wqm-*
             artifacts/**/wqm-common-node.*.node

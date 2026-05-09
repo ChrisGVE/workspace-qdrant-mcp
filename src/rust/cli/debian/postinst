@@ -1,0 +1,25 @@
+#!/bin/sh
+# Post-install script for wqm-cli.
+#
+# Reload systemd so the freshly-installed memexd.service unit is
+# discoverable. We don't enable or start anything automatically —
+# users opt in via `wqm service install` (per-user) or
+# `systemctl --user enable memexd` (system-wide opt-in).
+
+set -e
+
+case "$1" in
+    configure)
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
