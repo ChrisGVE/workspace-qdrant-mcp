@@ -160,8 +160,15 @@ impl ServiceView {
         ])
         .split(area);
 
-        // Daemon status
-        let daemon_indicator = if self.status.daemon_reachable {
+        frame.render_widget(self.render_daemon_panel(), chunks[0]);
+        frame.render_widget(self.render_qdrant_panel(), chunks[1]);
+        frame.render_widget(self.render_queue_panel(), chunks[2]);
+        frame.render_widget(self.render_hints_panel(), chunks[3]);
+    }
+
+    /// Build the Daemon (memexd) status panel.
+    fn render_daemon_panel(&self) -> Paragraph<'_> {
+        let indicator = if self.status.daemon_reachable {
             Span::styled(
                 format!("{} Running", theme::GUTTER_SYNC),
                 Style::default().fg(theme::COLOR_SUCCESS),
@@ -172,18 +179,16 @@ impl ServiceView {
                 Style::default().fg(theme::COLOR_ERROR),
             )
         };
-
-        let daemon_block_style = if !self.status.daemon_reachable {
+        let block_style = if !self.status.daemon_reachable {
             theme::alarm_style()
         } else {
             Style::default()
         };
-
-        let daemon_lines = vec![
+        let lines = vec![
             Line::from(""),
             Line::from(vec![
                 Span::styled("  Status:   ", Style::default().fg(theme::COLOR_MUTED)),
-                daemon_indicator,
+                indicator,
             ]),
             Line::from(vec![
                 Span::styled("  Version:  ", Style::default().fg(theme::COLOR_MUTED)),
@@ -208,18 +213,18 @@ impl ServiceView {
             ]),
             Line::from(""),
         ];
-
-        let daemon = Paragraph::new(daemon_lines).block(
+        Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Daemon (memexd) ")
                 .title_style(Style::default().add_modifier(Modifier::BOLD))
-                .style(daemon_block_style),
-        );
-        frame.render_widget(daemon, chunks[0]);
+                .style(block_style),
+        )
+    }
 
-        // Qdrant status
-        let qdrant_indicator = if self.status.qdrant_reachable {
+    /// Build the Qdrant status panel.
+    fn render_qdrant_panel(&self) -> Paragraph<'_> {
+        let indicator = if self.status.qdrant_reachable {
             Span::styled(
                 format!("{} Connected", theme::GUTTER_SYNC),
                 Style::default().fg(theme::COLOR_SUCCESS),
@@ -230,18 +235,16 @@ impl ServiceView {
                 Style::default().fg(theme::COLOR_ERROR),
             )
         };
-
-        let qdrant_block_style = if !self.status.qdrant_reachable {
+        let block_style = if !self.status.qdrant_reachable {
             theme::alarm_style()
         } else {
             Style::default()
         };
-
-        let qdrant_lines = vec![
+        let lines = vec![
             Line::from(""),
             Line::from(vec![
                 Span::styled("  Status:   ", Style::default().fg(theme::COLOR_MUTED)),
-                qdrant_indicator,
+                indicator,
             ]),
             Line::from(vec![
                 Span::styled("  URL:      ", Style::default().fg(theme::COLOR_MUTED)),
@@ -249,24 +252,23 @@ impl ServiceView {
             ]),
             Line::from(""),
         ];
-
-        let qdrant = Paragraph::new(qdrant_lines).block(
+        Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Qdrant ")
                 .title_style(Style::default().add_modifier(Modifier::BOLD))
-                .style(qdrant_block_style),
-        );
-        frame.render_widget(qdrant, chunks[1]);
+                .style(block_style),
+        )
+    }
 
-        // Queue summary
+    /// Build the Queue Summary panel.
+    fn render_queue_panel(&self) -> Paragraph<'_> {
         let failed_style = if self.status.queue_failed > 0 {
             Style::default().fg(theme::COLOR_ERROR)
         } else {
             Style::default().fg(theme::COLOR_DIM)
         };
-
-        let queue_lines = vec![
+        let lines = vec![
             Line::from(""),
             Line::from(vec![
                 Span::styled("  Total:    ", Style::default().fg(theme::COLOR_MUTED)),
@@ -288,33 +290,29 @@ impl ServiceView {
             ]),
             Line::from(""),
         ];
-
-        let queue = Paragraph::new(queue_lines).block(
+        Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Queue Summary ")
                 .title_style(Style::default().add_modifier(Modifier::BOLD)),
-        );
-        frame.render_widget(queue, chunks[2]);
+        )
+    }
 
-        // Hints + last command message
-        let mut hint_spans: Vec<Span> = vec![
+    /// Build the hints + last-command-message panel.
+    fn render_hints_panel(&self) -> Paragraph<'_> {
+        let mut spans: Vec<Span> = vec![
             Span::styled("  p ", Style::default().fg(theme::COLOR_ACCENT)),
             Span::styled("Pause watchers  ", Style::default().fg(theme::COLOR_DIM)),
             Span::styled("r ", Style::default().fg(theme::COLOR_ACCENT)),
             Span::styled("Resume watchers", Style::default().fg(theme::COLOR_DIM)),
         ];
-
         if let Some(ref msg) = self.last_message {
-            hint_spans.push(Span::styled(
+            spans.push(Span::styled(
                 format!("  | {msg}"),
                 Style::default().fg(theme::COLOR_WARNING),
             ));
         }
-
-        let hints =
-            Paragraph::new(Line::from(hint_spans)).block(Block::default().borders(Borders::ALL));
-        frame.render_widget(hints, chunks[3]);
+        Paragraph::new(Line::from(spans)).block(Block::default().borders(Borders::ALL))
     }
 }
 
