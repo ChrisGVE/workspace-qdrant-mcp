@@ -129,7 +129,6 @@ pub(crate) async fn scan_library_directory(
             folder_path
         )));
     }
-
     if !library_root.is_dir() {
         return Err(UnifiedProcessorError::InvalidPayload(format!(
             "Library path is not a directory: {}",
@@ -146,18 +145,43 @@ pub(crate) async fn scan_library_directory(
         folder_path, item.tenant_id
     );
 
+    let start_time = std::time::Instant::now();
+    let (files_queued, files_excluded, errors) =
+        walk_and_enqueue(item, library_root, queue_manager, allowed_extensions).await?;
+
+    update_last_scan(item, queue_manager).await;
+
+    info!(
+        "Library scan complete: {} files queued, {} excluded, {} errors in {:?} (library={})",
+        files_queued,
+        files_excluded,
+        errors,
+        start_time.elapsed(),
+        folder_path
+    );
+
+    Ok(())
+}
+
+/// Walk the library directory tree and enqueue each eligible file.
+///
+/// Returns `(files_queued, files_excluded, errors)`.
+async fn walk_and_enqueue(
+    item: &UnifiedQueueItem,
+    library_root: &Path,
+    queue_manager: &Arc<QueueManager>,
+    allowed_extensions: &Arc<AllowedExtensions>,
+) -> UnifiedProcessorResult<(u64, u64, u64)> {
     let mut files_queued = 0u64;
     let mut files_excluded = 0u64;
     let mut errors = 0u64;
-    let start_time = std::time::Instant::now();
 
     for entry in WalkDir::new(library_root)
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
             if e.file_type().is_dir() && e.depth() > 0 {
-                let dir_name = e.file_name().to_string_lossy();
-                !should_exclude_directory(&dir_name)
+                !should_exclude_directory(&e.file_name().to_string_lossy())
             } else {
                 true
             }
@@ -165,105 +189,123 @@ pub(crate) async fn scan_library_directory(
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
-
         if !path.is_file() {
             continue;
         }
 
-        let rel_path = path
-            .strip_prefix(library_root)
-            .unwrap_or(path)
-            .to_string_lossy();
-
-        if should_exclude_file(&rel_path) {
-            files_excluded += 1;
-            continue;
-        }
-
-        let abs_path = path.to_string_lossy();
-        if should_exclude_file(&abs_path) {
-            files_excluded += 1;
-            continue;
-        }
-
-        if !allowed_extensions.is_allowed(&abs_path, &item.collection) {
-            files_excluded += 1;
-            continue;
-        }
-
-        let metadata = match path.metadata() {
-            Ok(m) => m,
-            Err(e) => {
-                warn!("Failed to get metadata for {}: {}", abs_path, e);
-                errors += 1;
-                continue;
-            }
-        };
-
-        const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
-        if metadata.len() > MAX_FILE_SIZE {
-            debug!(
-                "Skipping large file: {} ({} bytes)",
-                abs_path,
-                metadata.len()
-            );
-            files_excluded += 1;
-            continue;
-        }
-
-        let file_type = classify_file_type(path);
-
-        let file_payload = FilePayload {
-            file_path: abs_path.to_string(),
-            file_type: Some(file_type.as_str().to_string()),
-            file_hash: None,
-            size_bytes: Some(metadata.len()),
-            old_path: None,
-        };
-
-        let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to serialize FilePayload: {}",
-                e
-            ))
-        })?;
-
-        match queue_manager
-            .enqueue_unified(
-                ItemType::File,
-                QueueOperation::Add,
-                &item.tenant_id,
-                &item.collection,
-                &payload_json,
-                Some(""), // No branch for libraries
-                None,
-            )
-            .await
+        match enqueue_library_file(item, path, library_root, queue_manager, allowed_extensions)
+            .await?
         {
-            Ok((queue_id, is_new)) => {
-                if is_new {
-                    files_queued += 1;
-                    debug!(
-                        "Queued library file for ingestion: {} (queue_id={})",
-                        abs_path, queue_id
-                    );
-                } else {
-                    debug!("Library file already in queue (deduplicated): {}", abs_path);
+            FileEnqueueResult::Queued => {
+                files_queued += 1;
+                if files_queued % 100 == 0 {
+                    tokio::task::yield_now().await;
                 }
             }
-            Err(e) => {
-                warn!("Failed to queue library file {}: {}", abs_path, e);
-                errors += 1;
-            }
-        }
-
-        if files_queued % 100 == 0 && files_queued > 0 {
-            tokio::task::yield_now().await;
+            FileEnqueueResult::Excluded => files_excluded += 1,
+            FileEnqueueResult::Error => errors += 1,
+            FileEnqueueResult::Deduplicated => {}
         }
     }
 
-    // Update last_scan timestamp for this library's watch_folder
-    let update_result = sqlx::query(
+    Ok((files_queued, files_excluded, errors))
+}
+
+/// Result of attempting to enqueue a single library file.
+enum FileEnqueueResult {
+    Queued,
+    Excluded,
+    Deduplicated,
+    Error,
+}
+
+/// Evaluate a single file entry: apply filters, build payload, and enqueue.
+///
+/// Returns `Err` only for hard failures (serialization); transient I/O issues
+/// (metadata read, enqueue) are counted as `Error` and logged.
+async fn enqueue_library_file(
+    item: &UnifiedQueueItem,
+    path: &Path,
+    library_root: &Path,
+    queue_manager: &Arc<QueueManager>,
+    allowed_extensions: &Arc<AllowedExtensions>,
+) -> UnifiedProcessorResult<FileEnqueueResult> {
+    let rel_path = path
+        .strip_prefix(library_root)
+        .unwrap_or(path)
+        .to_string_lossy();
+    let abs_path = path.to_string_lossy();
+
+    if should_exclude_file(&rel_path) || should_exclude_file(&abs_path) {
+        return Ok(FileEnqueueResult::Excluded);
+    }
+    if !allowed_extensions.is_allowed(&abs_path, &item.collection) {
+        return Ok(FileEnqueueResult::Excluded);
+    }
+
+    let metadata = match path.metadata() {
+        Ok(m) => m,
+        Err(e) => {
+            warn!("Failed to get metadata for {}: {}", abs_path, e);
+            return Ok(FileEnqueueResult::Error);
+        }
+    };
+
+    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+    if metadata.len() > MAX_FILE_SIZE {
+        debug!(
+            "Skipping large file: {} ({} bytes)",
+            abs_path,
+            metadata.len()
+        );
+        return Ok(FileEnqueueResult::Excluded);
+    }
+
+    let file_payload = FilePayload {
+        file_path: abs_path.to_string(),
+        file_type: Some(classify_file_type(path).as_str().to_string()),
+        file_hash: None,
+        size_bytes: Some(metadata.len()),
+        old_path: None,
+    };
+
+    let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!("Failed to serialize FilePayload: {}", e))
+    })?;
+
+    match queue_manager
+        .enqueue_unified(
+            ItemType::File,
+            QueueOperation::Add,
+            &item.tenant_id,
+            &item.collection,
+            &payload_json,
+            Some(""),
+            None,
+        )
+        .await
+    {
+        Ok((queue_id, true)) => {
+            debug!(
+                "Queued library file for ingestion: {} (queue_id={})",
+                abs_path, queue_id
+            );
+            Ok(FileEnqueueResult::Queued)
+        }
+        Ok((_, false)) => {
+            debug!("Library file already in queue (deduplicated): {}", abs_path);
+            Ok(FileEnqueueResult::Deduplicated)
+        }
+        Err(e) => {
+            warn!("Failed to queue library file {}: {}", abs_path, e);
+            Ok(FileEnqueueResult::Error)
+        }
+    }
+}
+
+/// Update `last_scan` timestamp on the library's watch_folder row (best-effort).
+async fn update_last_scan(item: &UnifiedQueueItem, queue_manager: &Arc<QueueManager>) {
+    let result = sqlx::query(
         "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
          WHERE tenant_id = ?1 AND collection = ?2",
@@ -273,18 +315,10 @@ pub(crate) async fn scan_library_directory(
     .execute(queue_manager.pool())
     .await;
 
-    if let Err(e) = update_result {
+    if let Err(e) = result {
         warn!(
             "Failed to update last_scan for library {}: {}",
             item.tenant_id, e
         );
     }
-
-    let elapsed = start_time.elapsed();
-    info!(
-        "Library scan complete: {} files queued, {} excluded, {} errors in {:?} (library={})",
-        files_queued, files_excluded, errors, elapsed, folder_path
-    );
-
-    Ok(())
 }
