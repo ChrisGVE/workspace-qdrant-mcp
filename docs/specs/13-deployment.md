@@ -543,6 +543,34 @@ Start-Process -NoNewWindow memexd.exe
 
 > **Note:** Windows service management requires Administrator privileges. The service runs as LocalSystem by default.
 
+**SCM registration details:**
+
+`wqm service install` registers `memexd.exe` with the Windows Service Control Manager via the `windows-service` 0.7 crate. The service is created as:
+
+- **Service type**: `OWN_PROCESS` (one binary per service)
+- **Start type**: `AUTO_START` (starts at boot)
+- **Account**: `LocalSystem` (default)
+- **Service name**: `memexd`
+
+When the SCM launches the binary, `memexd.exe` calls `service_dispatcher::start` first; on `ERROR_FAILED_SERVICE_CONTROLLER_CONNECT` (raw errno 1063, "not started by SCM") it falls through to the normal interactive entry point. The SCM control handler accepts `Stop` and `Shutdown`, forwarding them to the daemon's tokio shutdown channel via a `OnceLock<Notify>`.
+
+**Manual fallback with `sc.exe`:**
+
+If `wqm service install` is unavailable, the same registration can be performed manually:
+
+```powershell
+# Create
+sc.exe create memexd binPath= "C:\path\to\memexd.exe" start= auto type= own DisplayName= "Workspace Qdrant MCP Daemon"
+
+# Start / stop / status
+sc.exe start memexd
+sc.exe stop memexd
+sc.exe query memexd
+
+# Remove
+sc.exe delete memexd
+```
+
 #### Health Checks
 
 ```bash
