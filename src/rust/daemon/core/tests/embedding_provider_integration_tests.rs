@@ -97,7 +97,7 @@ async fn embed_batch_returns_in_input_order_and_normalized() {
 
     let texts = ["alpha", "beta"];
     let results = provider
-        .embed(&texts.iter().copied().collect::<Vec<_>>())
+        .embed(&texts.to_vec())
         .await
         .expect("embed must succeed");
 
@@ -171,7 +171,7 @@ async fn embed_chunks_batches_above_remote_batch_size() {
 
     let texts = ["a", "b", "c", "d", "e"];
     let results = provider
-        .embed(&texts.iter().copied().collect::<Vec<_>>())
+        .embed(&texts.to_vec())
         .await
         .expect("embed must succeed across multiple batches");
     assert_eq!(results.len(), 5);

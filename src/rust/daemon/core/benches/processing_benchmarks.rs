@@ -4,7 +4,6 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::io::Write;
-use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::NamedTempFile;
 
