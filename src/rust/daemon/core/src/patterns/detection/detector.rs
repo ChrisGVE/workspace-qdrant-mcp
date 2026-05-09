@@ -55,7 +55,7 @@ impl LanguageDetector {
             .collect();
 
         // Sort by shebang length (descending) for more specific matches first
-        shebang_patterns.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        shebang_patterns.sort_by_key(|p| std::cmp::Reverse(p.0.len()));
 
         // Clone keyword patterns
         let keyword_patterns = config.content_signatures.keyword_patterns.clone();

@@ -269,7 +269,7 @@ impl ProjectDetector {
 
         // Convert to sorted list
         let mut languages: Vec<(String, usize)> = language_counts.into_iter().collect();
-        languages.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by count descending
+        languages.sort_by_key(|(_, count)| std::cmp::Reverse(*count)); // Sort by count descending
 
         let language_names: Vec<String> = languages.iter().map(|(lang, _)| lang.clone()).collect();
 
