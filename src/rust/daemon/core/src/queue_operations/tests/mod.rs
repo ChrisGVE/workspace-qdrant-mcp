@@ -13,7 +13,8 @@ mod cascade_priority_tests;
 mod concurrency_tests;
 mod destination_tests;
 mod enqueue_dequeue_tests;
-mod failure_retry_tests;
+mod failure_tests;
+mod retry_tests;
 mod stats_cleanup_tests;
 mod validation_tests;
 
