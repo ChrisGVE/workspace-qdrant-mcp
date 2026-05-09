@@ -18,6 +18,7 @@ pub const COLOR_WARNING: Color = Color::Yellow;
 pub const COLOR_ERROR: Color = Color::Red;
 
 /// Blue — informational, in-progress, updating.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub const COLOR_INFO: Color = Color::Blue;
 
 /// Cyan — accent for counts, highlights.
@@ -41,16 +42,19 @@ pub const COLOR_BG: Color = Color::Black;
 pub const COLOR_ALARM_BG: Color = Color::Rgb(60, 0, 0);
 
 /// Muted/dimmed background for paused items.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub const COLOR_PAUSED_BG: Color = Color::Rgb(30, 30, 30);
 
 // ─── Composite styles ───────────────────────────────────────────────────────
 
 /// Style for the tab bar title ("Workspace Qdrant MCP").
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub fn title_style() -> Style {
     Style::default().fg(COLOR_FG).add_modifier(Modifier::BOLD)
 }
 
 /// Style for the active tab label.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub fn tab_active_style() -> Style {
     Style::default()
         .fg(COLOR_BG)
@@ -59,21 +63,25 @@ pub fn tab_active_style() -> Style {
 }
 
 /// Style for inactive tab labels.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub fn tab_inactive_style() -> Style {
     Style::default().fg(COLOR_MUTED)
 }
 
 /// Style for tab number indicators.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub fn tab_number_style() -> Style {
     Style::default().fg(COLOR_WARNING)
 }
 
 /// Style for tab separators.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub fn tab_separator_style() -> Style {
     Style::default().fg(COLOR_MUTED)
 }
 
 /// Style for help key labels.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub fn help_key_style() -> Style {
     Style::default().fg(COLOR_WARNING)
 }
@@ -111,6 +119,7 @@ pub fn alarm_style() -> Style {
 }
 
 /// Style for paused items — dimmed background.
+#[allow(dead_code)] // reserved: TUI design-language parity with output/style.rs
 pub fn paused_style() -> Style {
     Style::default().fg(COLOR_DIM).bg(COLOR_PAUSED_BG)
 }

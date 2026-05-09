@@ -16,8 +16,9 @@ pub enum Event {
     Key(KeyEvent),
     /// A periodic tick for UI updates.
     Tick,
-    /// The terminal was resized to (columns, rows).
-    Resize(u16, u16),
+    /// The terminal was resized; ratatui handles the new size on the
+    /// next draw, so the event is a notification only.
+    Resize,
 }
 
 /// Polls crossterm events on a background thread and sends them
@@ -62,7 +63,7 @@ impl EventHandler {
             let event = if has_event {
                 match event::read() {
                     Ok(event::Event::Key(key)) => Some(Event::Key(key)),
-                    Ok(event::Event::Resize(cols, rows)) => Some(Event::Resize(cols, rows)),
+                    Ok(event::Event::Resize(_, _)) => Some(Event::Resize),
                     _ => None,
                 }
             } else {
@@ -100,13 +101,8 @@ mod tests {
 
     #[test]
     fn event_resize_variant() {
-        let ev = Event::Resize(80, 24);
-        if let Event::Resize(cols, rows) = ev {
-            assert_eq!(cols, 80);
-            assert_eq!(rows, 24);
-        } else {
-            panic!("expected Resize variant");
-        }
+        let ev = Event::Resize;
+        assert!(matches!(ev, Event::Resize));
     }
 
     #[test]
@@ -115,9 +111,6 @@ mod tests {
         let handler = EventHandler::new(Duration::from_millis(10));
         let ev = handler.next().expect("should receive an event");
         // In a test environment without a terminal, we expect ticks
-        assert!(matches!(
-            ev,
-            Event::Tick | Event::Key(_) | Event::Resize(_, _)
-        ));
+        assert!(matches!(ev, Event::Tick | Event::Key(_) | Event::Resize));
     }
 }

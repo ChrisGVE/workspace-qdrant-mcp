@@ -126,7 +126,6 @@ pub struct AsyncDashboardData {
 /// Complete data snapshot rendered by the dashboard.
 #[derive(Debug, Clone)]
 pub struct DashboardData {
-    pub db_connected: bool,
     pub queue_pending: i64,
     pub queue_in_progress: i64,
     pub queue_failed: i64,
@@ -141,7 +140,6 @@ pub struct DashboardData {
 impl Default for DashboardData {
     fn default() -> Self {
         Self {
-            db_connected: false,
             queue_pending: 0,
             queue_in_progress: 0,
             queue_failed: 0,
@@ -349,7 +347,6 @@ mod tests {
     #[test]
     fn default_dashboard_data() {
         let d = DashboardData::default();
-        assert!(!d.db_connected);
         assert!(d.projects.is_empty());
         assert!(d.errors.is_empty());
     }
@@ -357,7 +354,6 @@ mod tests {
     #[test]
     fn merge_async_updates_counts() {
         let mut data = DashboardData {
-            db_connected: true,
             projects: vec![ProjectSummaryRow {
                 tenant_id: "t1".into(),
                 name: "proj".into(),

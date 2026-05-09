@@ -444,13 +444,13 @@ impl App {
     fn handle_service_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Char('p') | KeyCode::Char('P') => {
-                let result = super::super::commands::pause_watchers();
-                self.service_view().last_message = Some(result.message);
+                let msg = super::super::commands::pause_watchers();
+                self.service_view().last_message = Some(msg);
                 true
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
-                let result = super::super::commands::resume_watchers();
-                self.service_view().last_message = Some(result.message);
+                let msg = super::super::commands::resume_watchers();
+                self.service_view().last_message = Some(msg);
                 true
             }
             _ => false,

@@ -15,10 +15,6 @@ pub struct QueueStats {
 }
 
 impl QueueStats {
-    pub fn total(&self) -> usize {
-        self.pending + self.in_progress + self.done + self.failed
-    }
-
     /// Assess queue health: healthy / degraded / unhealthy.
     ///
     /// - **Healthy**: no failed items, oldest pending < 1 hour
@@ -236,7 +232,10 @@ mod tests {
     fn queue_stats_empty() {
         let conn = setup_test_db();
         let stats = get_queue_stats(&conn).unwrap();
-        assert_eq!(stats.total(), 0);
+        assert_eq!(stats.pending, 0);
+        assert_eq!(stats.in_progress, 0);
+        assert_eq!(stats.done, 0);
+        assert_eq!(stats.failed, 0);
     }
 
     #[test]
@@ -253,7 +252,6 @@ mod tests {
         assert_eq!(stats.pending, 2);
         assert_eq!(stats.done, 1);
         assert_eq!(stats.failed, 1);
-        assert_eq!(stats.total(), 4);
     }
 
     #[test]
@@ -271,7 +269,6 @@ mod tests {
         assert_eq!(stats.in_progress, 1);
         assert_eq!(stats.done, 1);
         assert_eq!(stats.failed, 1);
-        assert_eq!(stats.total(), 4);
     }
 
     #[test]

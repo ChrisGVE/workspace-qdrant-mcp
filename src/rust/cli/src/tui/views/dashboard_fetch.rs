@@ -19,10 +19,7 @@ pub fn fetch_dashboard_data() -> DashboardData {
         Err(_) => return DashboardData::default(),
     };
 
-    let mut data = DashboardData {
-        db_connected: true,
-        ..DashboardData::default()
-    };
+    let mut data = DashboardData::default();
 
     fetch_queue_stats(&conn, &mut data);
     fetch_projects(&conn, &mut data);

@@ -5,8 +5,6 @@ mod render;
 
 use std::time::Duration;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
 use super::event::{Event, EventHandler};
 use super::terminal;
 use super::views::dashboard::Dashboard;
@@ -170,7 +168,7 @@ impl App {
 
             match events.next() {
                 Ok(Event::Key(key)) => self.handle_key(key),
-                Ok(Event::Resize(_, _)) => {} // ratatui handles resize on next draw
+                Ok(Event::Resize) => {} // ratatui handles resize on next draw
                 Ok(Event::Tick) => self.on_tick(),
                 Err(_) => self.running = false,
             }
@@ -184,6 +182,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn app_starts_on_dashboard() {

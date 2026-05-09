@@ -74,6 +74,7 @@ impl QueueBrowser {
     }
 
     /// Returns the current status filter.
+    #[cfg(test)]
     pub fn filter(&self) -> StatusFilter {
         self.filter
     }
