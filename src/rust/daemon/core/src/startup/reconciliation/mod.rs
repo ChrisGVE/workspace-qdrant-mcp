@@ -350,4 +350,35 @@ pub async fn reconcile_all_ignore_rules(
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    mod clean_stale_state;
+    mod validate_watch_folders;
+
+    use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::SqlitePool;
+    use std::time::Duration;
+
+    use crate::schema_version::SchemaManager;
+
+    pub(crate) async fn create_test_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool")
+    }
+
+    pub(crate) async fn setup_schema(pool: &SqlitePool) {
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(pool)
+            .await
+            .unwrap();
+
+        let manager = SchemaManager::new(pool.clone());
+        manager
+            .run_migrations()
+            .await
+            .expect("Failed to run schema migrations");
+    }
+}

@@ -1,39 +1,9 @@
-//! Tests for startup reconciliation.
+//! Tests for `clean_stale_state`.
 
-use super::*;
-use sqlx::sqlite::SqlitePoolOptions;
-use std::time::Duration;
+use sqlx::Row;
 
-use crate::schema_version::SchemaManager;
-
-/// Create an in-memory SQLite pool for testing.
-async fn create_test_pool() -> SqlitePool {
-    SqlitePoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory SQLite pool")
-}
-
-/// Run schema migrations to create all tables.
-async fn setup_schema(pool: &SqlitePool) {
-    // Enable foreign keys
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(pool)
-        .await
-        .unwrap();
-
-    let manager = SchemaManager::new(pool.clone());
-    manager
-        .run_migrations()
-        .await
-        .expect("Failed to run schema migrations");
-}
-
-// -----------------------------------------------------------------------
-// clean_stale_state tests
-// -----------------------------------------------------------------------
+use super::super::clean_stale_state;
+use super::{create_test_pool, setup_schema};
 
 #[tokio::test]
 async fn test_clean_stale_state_resets_in_progress() {
@@ -181,15 +151,12 @@ async fn test_clean_stale_state_removes_tracked_files_missing_on_disk() {
     let pool = create_test_pool().await;
     setup_schema(&pool).await;
 
-    // Create a temp directory to act as a valid watch folder path
     let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let watch_path = tmp_dir.path().to_str().unwrap();
 
-    // Create a real file inside the temp dir
     let real_file = tmp_dir.path().join("exists.rs");
     std::fs::write(&real_file, "fn main() {}").unwrap();
 
-    // Insert a watch folder with the temp directory path
     sqlx::query(
         "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
          VALUES ('w1', ?1, 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
@@ -199,19 +166,21 @@ async fn test_clean_stale_state_removes_tracked_files_missing_on_disk() {
     .await
     .unwrap();
 
-    // Insert a tracked file that exists on disk
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at) \
-         VALUES ('w1', 'exists.rs', '2025-01-01T00:00:00Z', 'hash1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files \
+         (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at) \
+         VALUES ('w1', 'exists.rs', '2025-01-01T00:00:00Z', 'hash1', \
+         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
     .await
     .unwrap();
 
-    // Insert a tracked file that does NOT exist on disk
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at) \
-         VALUES ('w1', 'gone.rs', '2025-01-01T00:00:00Z', 'hash2', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files \
+         (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at) \
+         VALUES ('w1', 'gone.rs', '2025-01-01T00:00:00Z', 'hash2', \
+         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
     .await
@@ -226,7 +195,6 @@ async fn test_clean_stale_state_removes_tracked_files_missing_on_disk() {
         "Should remove 1 stale tracked file"
     );
 
-    // Verify existing file is still tracked
     let remaining: i32 =
         sqlx::query_scalar("SELECT COUNT(*) FROM tracked_files WHERE file_path = 'exists.rs'")
             .fetch_one(&pool)
@@ -234,7 +202,6 @@ async fn test_clean_stale_state_removes_tracked_files_missing_on_disk() {
             .unwrap();
     assert_eq!(remaining, 1);
 
-    // Verify gone file is removed
     let gone: i32 =
         sqlx::query_scalar("SELECT COUNT(*) FROM tracked_files WHERE file_path = 'gone.rs'")
             .fetch_one(&pool)
@@ -248,7 +215,6 @@ async fn test_clean_stale_state_removes_orphan_chunks() {
     let pool = create_test_pool().await;
     setup_schema(&pool).await;
 
-    // Insert a watch folder
     sqlx::query(
         "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
          VALUES ('w1', '/tmp/nonexistent-test-dir-512', 'projects', 't1', \
@@ -258,11 +224,11 @@ async fn test_clean_stale_state_removes_orphan_chunks() {
     .await
     .unwrap();
 
-    // Insert a tracked file
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at) \
+        "INSERT INTO tracked_files \
+         (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at) \
          VALUES ('w1', 'file.rs', '2025-01-01T00:00:00Z', 'hash1', \
-         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
     .await
@@ -274,7 +240,6 @@ async fn test_clean_stale_state_removes_orphan_chunks() {
             .await
             .unwrap();
 
-    // Insert a valid chunk referencing the file
     sqlx::query(
         "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash, created_at) \
          VALUES (?1, 'point-valid', 0, 'chash1', '2025-01-01T00:00:00Z')",
@@ -284,8 +249,7 @@ async fn test_clean_stale_state_removes_orphan_chunks() {
     .await
     .unwrap();
 
-    // Now delete the tracked file directly (bypassing CASCADE by disabling foreign keys)
-    // to simulate an orphan chunk scenario.
+    // Delete tracked file without CASCADE to simulate orphan chunk.
     sqlx::query("PRAGMA foreign_keys = OFF")
         .execute(&pool)
         .await
@@ -300,7 +264,6 @@ async fn test_clean_stale_state_removes_orphan_chunks() {
         .await
         .unwrap();
 
-    // Verify the chunk is still there (orphaned)
     let chunk_count_before: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM qdrant_chunks")
         .fetch_one(&pool)
         .await
@@ -326,128 +289,11 @@ async fn test_clean_stale_state_removes_orphan_chunks() {
     assert_eq!(chunk_count_after, 0, "Orphan chunk should be removed");
 }
 
-// -----------------------------------------------------------------------
-// validate_watch_folders tests
-// -----------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_validate_watch_folders_deactivates_invalid() {
-    let pool = create_test_pool().await;
-    setup_schema(&pool).await;
-
-    // Insert a watch folder with a path that does not exist
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, enabled, \
-         created_at, updated_at) \
-         VALUES ('w_gone', '/tmp/nonexistent-path-task-512-test', 'projects', 't1', 1, 1, \
-         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let stats = validate_watch_folders(&pool)
-        .await
-        .expect("validate_watch_folders failed");
-
-    assert_eq!(stats.folders_checked, 1);
-    assert_eq!(stats.folders_deactivated, 1);
-    assert_eq!(stats.folders_valid, 0);
-
-    // Verify the folder is now inactive
-    let is_active: bool =
-        sqlx::query_scalar("SELECT is_active FROM watch_folders WHERE watch_id = 'w_gone'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(!is_active, "Watch folder should be deactivated");
-}
-
-#[tokio::test]
-async fn test_validate_watch_folders_keeps_valid() {
-    let pool = create_test_pool().await;
-    setup_schema(&pool).await;
-
-    // Create a temp directory to act as a valid watch folder path
-    let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    let watch_path = tmp_dir.path().to_str().unwrap();
-
-    // Insert a watch folder pointing to the temp directory
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, enabled, \
-         created_at, updated_at) \
-         VALUES ('w_valid', ?1, 'projects', 't1', 1, 1, \
-         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-    )
-    .bind(watch_path)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let stats = validate_watch_folders(&pool)
-        .await
-        .expect("validate_watch_folders failed");
-
-    assert_eq!(stats.folders_checked, 1);
-    assert_eq!(stats.folders_deactivated, 0);
-    assert_eq!(stats.folders_valid, 1);
-
-    // Verify the folder is still active
-    let is_active: bool =
-        sqlx::query_scalar("SELECT is_active FROM watch_folders WHERE watch_id = 'w_valid'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(is_active, "Watch folder should remain active");
-}
-
-#[tokio::test]
-async fn test_validate_watch_folders_mixed() {
-    let pool = create_test_pool().await;
-    setup_schema(&pool).await;
-
-    // Create a temp directory
-    let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    let valid_path = tmp_dir.path().to_str().unwrap();
-
-    // Insert a valid watch folder
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, enabled, \
-         created_at, updated_at) \
-         VALUES ('w_ok', ?1, 'projects', 't1', 1, 1, \
-         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-    )
-    .bind(valid_path)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Insert an invalid watch folder
-    sqlx::query(
-        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, enabled, \
-         created_at, updated_at) \
-         VALUES ('w_bad', '/tmp/definitely-does-not-exist-512', 'libraries', 'lib1', 0, 1, \
-         '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let stats = validate_watch_folders(&pool)
-        .await
-        .expect("validate_watch_folders failed");
-
-    assert_eq!(stats.folders_checked, 2);
-    assert_eq!(stats.folders_deactivated, 1);
-    assert_eq!(stats.folders_valid, 1);
-}
-
 #[tokio::test]
 async fn test_clean_stale_state_empty_tables() {
     let pool = create_test_pool().await;
     setup_schema(&pool).await;
 
-    // Run on completely empty tables
     let stats = clean_stale_state(&pool)
         .await
         .expect("clean_stale_state failed");
@@ -476,12 +322,10 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
     .unwrap();
 
     // Insert a failed queue item for t1 (has watch_folder → should NOT be removed)
-    // Use recent updated_at so step 2 (purge old done/failed) doesn't delete it
     sqlx::query(
         "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
          idempotency_key) \
-         VALUES ('q_valid', 'file', 'add', 't1', 'projects', 'failed', \
-         'key_valid')",
+         VALUES ('q_valid', 'file', 'add', 't1', 'projects', 'failed', 'key_valid')",
     )
     .execute(&pool)
     .await
@@ -508,7 +352,7 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
     .await
     .unwrap();
 
-    // Insert an in_progress item for t_gone (should NOT be touched — only failed/pending)
+    // Insert an in_progress item for t_gone (step 1 resets to pending, step 3 purges it)
     sqlx::query(
         "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
          idempotency_key, updated_at) \
@@ -519,13 +363,11 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
     .await
     .unwrap();
 
-    // Insert a doc item for t_gone (should NOT be touched — only file items)
-    // Use recent updated_at so step 2 doesn't delete it
+    // Insert a doc item for t_gone (should NOT be touched — only file items purged)
     sqlx::query(
         "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
          idempotency_key) \
-         VALUES ('q_doc', 'doc', 'add', 't_gone', 'projects', 'failed', \
-         'key_doc')",
+         VALUES ('q_doc', 'doc', 'add', 't_gone', 'projects', 'failed', 'key_doc')",
     )
     .execute(&pool)
     .await
@@ -540,7 +382,6 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
         "Should remove 2 orphan tenant items (failed + pending file items for t_gone)"
     );
 
-    // Verify orphan items are gone
     let orphan_count: i32 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM unified_queue WHERE queue_id IN ('q_orphan1', 'q_orphan2')",
     )
@@ -549,7 +390,6 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
     .unwrap();
     assert_eq!(orphan_count, 0, "Orphan tenant items should be deleted");
 
-    // Verify valid tenant item still exists
     let valid_count: i32 =
         sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE queue_id = 'q_valid'")
             .fetch_one(&pool)
@@ -557,10 +397,7 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
             .unwrap();
     assert_eq!(valid_count, 1, "Valid tenant item should remain");
 
-    // Verify in_progress item for t_gone was reset (by step 1) but not deleted by step 3
-    // Step 1 resets it to pending, then step 3 would delete it since t_gone has no watch_folder
-    // Actually: step 1 runs first → resets to pending; step 3 runs after → deletes pending+failed for missing tenants
-    // So q_inprog gets reset to pending by step 1, then deleted by step 3
+    // Step 1 resets q_inprog to pending; step 3 then purges it (orphan tenant).
     let inprog_count: i32 =
         sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE queue_id = 'q_inprog'")
             .fetch_one(&pool)
@@ -571,7 +408,6 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
         "in_progress item for orphan tenant should be reset then purged"
     );
 
-    // Verify doc item still exists (only file items are purged)
     let doc_count: i32 =
         sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE queue_id = 'q_doc'")
             .fetch_one(&pool)
@@ -581,18 +417,4 @@ async fn test_clean_stale_state_purges_orphan_tenant_items() {
         doc_count, 1,
         "Doc items should not be purged by orphan tenant cleanup"
     );
-}
-
-#[tokio::test]
-async fn test_validate_watch_folders_empty() {
-    let pool = create_test_pool().await;
-    setup_schema(&pool).await;
-
-    let stats = validate_watch_folders(&pool)
-        .await
-        .expect("validate_watch_folders failed");
-
-    assert_eq!(stats.folders_checked, 0);
-    assert_eq!(stats.folders_deactivated, 0);
-    assert_eq!(stats.folders_valid, 0);
 }
