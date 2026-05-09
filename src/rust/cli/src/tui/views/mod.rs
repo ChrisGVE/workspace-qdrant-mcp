@@ -10,6 +10,7 @@ pub mod dashboard_popups;
 pub mod libraries;
 pub mod libraries_data;
 pub mod logs;
+pub mod logs_data;
 pub mod projects;
 pub mod projects_data;
 pub mod queue;
