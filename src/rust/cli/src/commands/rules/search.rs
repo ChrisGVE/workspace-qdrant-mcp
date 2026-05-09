@@ -10,7 +10,7 @@ use crate::output;
 
 use super::helpers::{
     build_qdrant_client, build_scope_filter, format_title_with_project, load_project_names,
-    payload_str, qdrant_url, RuleRow, ScrollResponse,
+    payload_str, qdrant_url, RuleRow,
 };
 use wqm_common::schema::qdrant::rules as rules_schema;
 

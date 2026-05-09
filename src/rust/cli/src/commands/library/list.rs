@@ -248,7 +248,7 @@ fn render_library_table(rows: &[LibraryRowData], width: usize, verbose: bool) {
     let mut builder = Builder::default();
 
     // Headers
-    let mut headers: Vec<String> = vec![
+    let headers: Vec<String> = vec![
         "Name".into(),
         "Path".into(),
         "Mode".into(),
@@ -263,7 +263,7 @@ fn render_library_table(rows: &[LibraryRowData], width: usize, verbose: bool) {
 
     // Data rows
     for row in rows {
-        let mut record: Vec<String> = vec![
+        let record: Vec<String> = vec![
             row.name.clone(),
             row.path.clone(),
             row.mode.clone(),

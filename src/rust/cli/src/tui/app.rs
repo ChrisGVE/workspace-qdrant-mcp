@@ -6,11 +6,10 @@ mod render;
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::Frame;
 
 use super::event::{Event, EventHandler};
 use super::terminal;
-use super::views::dashboard::{Dashboard, FocusedCell};
+use super::views::dashboard::Dashboard;
 use super::views::libraries::LibraryBrowser;
 use super::views::logs::LogViewer;
 use super::views::projects::ProjectBrowser;

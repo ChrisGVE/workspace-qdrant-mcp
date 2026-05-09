@@ -6,7 +6,6 @@
 //! handling — without touching any real network endpoint.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::{json, Value};
 use wiremock::matchers::{header, method, path};

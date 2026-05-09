@@ -1,6 +1,5 @@
 //! Shared helpers for library subcommands
 
-use anyhow::Result;
 use clap::ValueEnum;
 
 use crate::grpc::client::DaemonClient;
