@@ -132,8 +132,53 @@ async fn rebalance_collection(
     dry_run: bool,
     min_growth_pct: f64,
 ) -> Result<u64> {
-    // Read corpus statistics.
-    let (current_n, last_corrected_n): (i64, i64) = conn
+    let Some((current_n, last_corrected_n)) =
+        check_growth_threshold(conn, collection, min_growth_pct)?
+    else {
+        return Ok(0);
+    };
+
+    let df_map = load_df_map(conn, collection)?;
+    if df_map.is_empty() {
+        output::info(format!(
+            "  No vocabulary entries for '{}' — skipping",
+            collection
+        ));
+        return Ok(0);
+    }
+    output::info(format!("  Loaded {} term entries", df_map.len()));
+
+    let total_updated =
+        scroll_and_correct(storage_client, collection, current_n, &df_map, dry_run).await?;
+
+    output::info(format!(
+        "  '{}': {} point(s) {}",
+        collection,
+        total_updated,
+        if dry_run {
+            "would be updated"
+        } else {
+            "updated"
+        }
+    ));
+
+    if !dry_run && total_updated > 0 {
+        persist_corrected_n(collection, current_n, last_corrected_n).await?;
+    }
+
+    Ok(total_updated)
+}
+
+/// Read corpus statistics and check against the growth threshold.
+///
+/// Returns `Some((current_n, last_corrected_n))` when correction should proceed,
+/// or `None` when the threshold is not met.
+fn check_growth_threshold(
+    conn: &rusqlite::Connection,
+    collection: &str,
+    min_growth_pct: f64,
+) -> Result<Option<(u64, u64)>> {
+    let (current_n_raw, last_corrected_n_raw): (i64, i64) = conn
         .query_row(
             "SELECT total_documents, last_corrected_n \
              FROM corpus_statistics WHERE collection = ?1",
@@ -142,15 +187,14 @@ async fn rebalance_collection(
         )
         .context("Failed to read corpus_statistics")?;
 
-    let current_n = current_n as u64;
-    let last_corrected_n = last_corrected_n as u64;
+    let current_n = current_n_raw as u64;
+    let last_corrected_n = last_corrected_n_raw as u64;
 
     output::info(format!(
         "Collection '{}': current_n={}, last_corrected_n={}",
         collection, current_n, last_corrected_n
     ));
 
-    // Check growth threshold.
     if last_corrected_n > 0 {
         let growth = (current_n as f64 - last_corrected_n as f64) / last_corrected_n as f64 * 100.0;
         if growth < min_growth_pct {
@@ -158,7 +202,7 @@ async fn rebalance_collection(
                 "  Growth {:.1}% < {:.1}% threshold — skipping",
                 growth, min_growth_pct
             ));
-            return Ok(0);
+            return Ok(None);
         }
         output::info(format!(
             "  Growth {:.1}% — proceeding with correction",
@@ -166,35 +210,33 @@ async fn rebalance_collection(
         ));
     }
 
-    // Load term_id → df mapping for this collection.
-    let df_map: HashMap<u32, u64> = {
-        let mut stmt = conn
-            .prepare(
-                "SELECT term_id, document_count \
-                 FROM sparse_vocabulary WHERE collection = ?1",
-            )
-            .context("Failed to prepare sparse_vocabulary query")?;
-        let rows = stmt
-            .query_map(rusqlite::params![collection], |row| {
-                Ok((row.get::<_, i64>(0)? as u32, row.get::<_, i64>(1)? as u64))
-            })
-            .context("Failed to read sparse_vocabulary")?;
-        // Collect eagerly so the iterator (borrowing stmt) drops before stmt.
-        rows.collect::<Result<HashMap<_, _>, _>>()
-            .context("Failed to collect df_map")?
-    };
+    Ok(Some((current_n, last_corrected_n)))
+}
 
-    if df_map.is_empty() {
-        output::info(format!(
-            "  No vocabulary entries for '{}' — skipping",
-            collection
-        ));
-        return Ok(0);
-    }
+/// Load the term_id → document_frequency map for a collection from SQLite.
+fn load_df_map(conn: &rusqlite::Connection, collection: &str) -> Result<HashMap<u32, u64>> {
+    let mut stmt = conn
+        .prepare("SELECT term_id, document_count FROM sparse_vocabulary WHERE collection = ?1")
+        .context("Failed to prepare sparse_vocabulary query")?;
+    let rows = stmt
+        .query_map(rusqlite::params![collection], |row| {
+            Ok((row.get::<_, i64>(0)? as u32, row.get::<_, i64>(1)? as u64))
+        })
+        .context("Failed to read sparse_vocabulary")?;
+    rows.collect::<Result<HashMap<_, _>, _>>()
+        .context("Failed to collect df_map")
+}
 
-    output::info(format!("  Loaded {} term entries", df_map.len()));
-
-    // Scroll through Qdrant points (with sparse vectors) and apply corrections.
+/// Scroll all Qdrant points in `collection` and apply IDF correction factors.
+///
+/// Returns the total number of points updated (or that would be updated in dry-run).
+async fn scroll_and_correct(
+    storage_client: &workspace_qdrant_core::storage::StorageClient,
+    collection: &str,
+    current_n: u64,
+    df_map: &HashMap<u32, u64>,
+    dry_run: bool,
+) -> Result<u64> {
     let batch_size = 200u32;
     let mut offset: Option<String> = None;
     let mut total_updated = 0u64;
@@ -211,54 +253,20 @@ async fn rebalance_collection(
         }
 
         page += 1;
-        let mut batch_updates: Vec<(String, HashMap<u32, f32>)> = Vec::new();
-        let mut updated_epochs: Vec<(String, u64)> = Vec::new();
-
-        for point in &points {
-            // Read idf_epoch from payload.
-            let old_n = match point.idf_epoch {
-                Some(n) if n > 0 && n != current_n => n,
-                _ => continue, // no epoch or already up to date
-            };
-
-            // Extract sparse vector.
-            let sparse_map = match &point.sparse_vector {
-                Some(m) if !m.is_empty() => m.clone(),
-                _ => continue,
-            };
-
-            // Apply per-term correction.
-            let corrected: HashMap<u32, f32> = sparse_map
-                .into_iter()
-                .map(|(term_id, val)| {
-                    let df = df_map.get(&term_id).copied().unwrap_or(1);
-                    let factor = idf_correction(old_n, current_n, df);
-                    (term_id, val * factor)
-                })
-                .collect();
-
-            batch_updates.push((point.id.clone(), corrected));
-            updated_epochs.push((point.id.clone(), current_n));
-        }
-
+        let (batch_updates, updated_epochs) = build_correction_batch(&points, current_n, df_map);
         let updated_in_batch = batch_updates.len() as u64;
 
         if !dry_run && !batch_updates.is_empty() {
-            // Update sparse vectors.
             storage_client
                 .update_named_sparse_vectors(collection, batch_updates)
                 .await
                 .context("Failed to update sparse vectors")?;
-
-            // Update idf_epoch in payload for each corrected point.
-            // Use set_payload on a per-point-ID filter.
             for (pid, new_epoch) in updated_epochs {
                 let _ = update_idf_epoch_payload(storage_client, collection, &pid, new_epoch).await;
             }
         }
 
         total_updated += updated_in_batch;
-
         if page % 10 == 0 {
             output::info(format!(
                 "  Page {}: {} corrected so far",
@@ -272,34 +280,60 @@ async fn rebalance_collection(
         }
     }
 
-    output::info(format!(
-        "  '{}': {} point(s) {}",
-        collection,
-        total_updated,
-        if dry_run {
-            "would be updated"
-        } else {
-            "updated"
-        }
-    ));
+    Ok(total_updated)
+}
 
-    // Update last_corrected_n via daemon gRPC (not in dry-run).
-    if !dry_run && total_updated > 0 {
-        use crate::grpc::ensure_daemon_available;
-        use crate::grpc::proto::RebalanceIdfRequest;
+/// Build per-point correction vectors and epoch updates for one scroll page.
+fn build_correction_batch(
+    points: &[workspace_qdrant_core::storage::SparsePointData],
+    current_n: u64,
+    df_map: &HashMap<u32, u64>,
+) -> (Vec<(String, HashMap<u32, f32>)>, Vec<(String, u64)>) {
+    let mut batch_updates = Vec::new();
+    let mut updated_epochs = Vec::new();
 
-        let mut grpc_client = ensure_daemon_available().await?;
-        grpc_client
-            .admin_write()
-            .rebalance_idf(RebalanceIdfRequest {
-                collection: collection.to_string(),
-                last_corrected_n: current_n as i64,
+    for point in points {
+        let old_n = match point.idf_epoch {
+            Some(n) if n > 0 && n != current_n => n,
+            _ => continue,
+        };
+        let sparse_map = match &point.sparse_vector {
+            Some(m) if !m.is_empty() => m.clone(),
+            _ => continue,
+        };
+        let corrected: HashMap<u32, f32> = sparse_map
+            .into_iter()
+            .map(|(term_id, val)| {
+                let df = df_map.get(&term_id).copied().unwrap_or(1);
+                (term_id, val * idf_correction(old_n, current_n, df))
             })
-            .await
-            .context("Failed to update last_corrected_n via daemon")?;
+            .collect();
+        batch_updates.push((point.id.clone(), corrected));
+        updated_epochs.push((point.id.clone(), current_n));
     }
 
-    Ok(total_updated)
+    (batch_updates, updated_epochs)
+}
+
+/// Persist `last_corrected_n` via daemon gRPC after a successful correction run.
+async fn persist_corrected_n(
+    collection: &str,
+    current_n: u64,
+    _last_corrected_n: u64,
+) -> Result<()> {
+    use crate::grpc::ensure_daemon_available;
+    use crate::grpc::proto::RebalanceIdfRequest;
+
+    let mut grpc_client = ensure_daemon_available().await?;
+    grpc_client
+        .admin_write()
+        .rebalance_idf(RebalanceIdfRequest {
+            collection: collection.to_string(),
+            last_corrected_n: current_n as i64,
+        })
+        .await
+        .context("Failed to update last_corrected_n via daemon")?;
+    Ok(())
 }
 
 /// Update the `idf_epoch` payload field on a single point (best-effort).

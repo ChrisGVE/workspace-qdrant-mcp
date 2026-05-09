@@ -35,5 +35,5 @@ pub use qdrant_circuit_breaker::QdrantCircuitBreaker;
 
 pub use types::{
     BatchStats, CollectionInfoResult, DocumentPoint, HybridSearchMode, HybridSearchParams,
-    MultiTenantInitResult, SearchParams, SearchResult, StorageError,
+    MultiTenantInitResult, SearchParams, SearchResult, SparsePointData, StorageError,
 };
