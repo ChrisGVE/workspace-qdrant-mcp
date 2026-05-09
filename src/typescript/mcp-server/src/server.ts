@@ -14,7 +14,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import type { ServerConfig } from './types/index.js';
-import { logInfo, logError, logDebug, logToolCall } from './utils/logger.js';
+import { logInfo, logError, logDebug } from './utils/logger.js';
 import {
   SERVER_NAME,
   SERVER_VERSION,
@@ -40,27 +40,12 @@ import type { AuthConfig } from './auth-middleware.js';
 import { loadAuthConfig, requireAuth } from './auth-middleware.js';
 
 import { buildServerComponents } from './server-factory.js';
-import { TENANT_GLOBAL } from './constants/tenants.js';
 import type { ServerComponents } from './server-factory.js';
 import { getToolDefinitions } from './tool-definitions/index.js';
-import {
-  buildSearchOptions,
-  buildRetrieveOptions,
-  buildRuleOptions,
-  buildStoreOptions,
-  buildGrepOptions,
-  buildListOptions,
-} from './tool-builders/index.js';
-import { storeUrl, storeScratchpad } from './store-handlers.js';
-import { handleEmbedding } from './tools/embedding.js';
-import {
-  initializeSession,
-  registerProjectFromTool,
-  startHeartbeat,
-  sendHeartbeat,
-  cleanup,
-} from './session-lifecycle.js';
-import { withToolMetrics, recordSessionStart, recordSessionEnd } from './telemetry/metrics.js';
+import { initializeSession, startHeartbeat, sendHeartbeat, cleanup } from './session-lifecycle.js';
+import { recordSessionStart, recordSessionEnd } from './telemetry/metrics.js';
+import { dispatchToolCall } from './tool-dispatcher.js';
+import { seedDefaultRule } from './rule-seeder.js';
 
 /**
  * Workspace Qdrant MCP Server
@@ -140,71 +125,7 @@ export class WorkspaceQdrantMcpServer {
     toolName: string,
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
-    const startTime = Date.now();
-    const {
-      searchTool,
-      retrieveTool,
-      rulesTool,
-      storeTool,
-      grepTool,
-      listTool,
-      healthMonitor,
-      daemonClient,
-      stateManager,
-    } = this.components;
-
-    // Implicit heartbeat — fire-and-forget to avoid latency
-    sendHeartbeat(this.sessionState, daemonClient);
-
-    // Unknown tool check — outside metrics wrapper to avoid recording unknown names
-    const knownTools = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'];
-    if (!knownTools.includes(toolName)) {
-      logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });
-      return { content: [{ type: 'text', text: `Unknown tool: ${toolName}` }], isError: true };
-    }
-
-    try {
-      const result = await withToolMetrics(toolName, async () => {
-        switch (toolName) {
-          case 'search': {
-            const searchResult = await searchTool.search(buildSearchOptions(args));
-            return healthMonitor.augmentSearchResults({ success: true, ...searchResult });
-          }
-          case 'retrieve':
-            return retrieveTool.retrieve(buildRetrieveOptions(args));
-          case 'rules':
-            return rulesTool.execute(buildRuleOptions(args));
-          case 'store': {
-            const storeType = (args?.['type'] as string) ?? 'library';
-            if (storeType === 'project') {
-              return registerProjectFromTool(args, this.sessionState, daemonClient);
-            } else if (storeType === 'url') {
-              return storeUrl(args, stateManager, this.sessionState);
-            } else if (storeType === 'scratchpad') {
-              return storeScratchpad(args, stateManager, this.sessionState);
-            } else {
-              return storeTool.store(buildStoreOptions(args, this.sessionState));
-            }
-          }
-          case 'grep':
-            return grepTool.grep(buildGrepOptions(args));
-          case 'list':
-            return listTool.list(buildListOptions(args));
-          case 'embedding':
-            return handleEmbedding(args, daemonClient);
-          default:
-            // Unreachable: knownTools guard above covers all cases
-            throw new Error(`Unexpected tool: ${toolName}`);
-        }
-      });
-
-      logToolCall(toolName, Date.now() - startTime, true);
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logToolCall(toolName, Date.now() - startTime, false, { error: errorMessage });
-      return { content: [{ type: 'text', text: `Error: ${errorMessage}` }], isError: true };
-    }
+    return dispatchToolCall(toolName, args, this.components, this.sessionState);
   }
 
   async start(): Promise<void> {
@@ -271,39 +192,8 @@ export class WorkspaceQdrantMcpServer {
     recordSessionEnd();
   }
 
-  /**
-   * Seed a default "search-first" rule if the rules collection is empty.
-   * Only runs once per fresh installation; skipped if any rule already exists.
-   */
   private async seedDefaultRule(): Promise<void> {
-    const { rulesTool } = this.components;
-    try {
-      const listResult = await rulesTool.execute({ action: 'list', scope: TENANT_GLOBAL });
-      if (!listResult.success || (listResult.rules && listResult.rules.length > 0)) {
-        return; // Rules exist or list failed — skip seeding
-      }
-
-      const addResult = await rulesTool.execute({
-        action: 'add',
-        label: 'search-first',
-        title: 'Always search before answering',
-        content: [
-          'When asked about the codebase, project structure, library documentation,',
-          'or any topic that might be covered in the indexed knowledge base,',
-          'ALWAYS use the workspace-qdrant search tool first.',
-          'Do not rely on training data for project-specific questions.',
-          'Use scope="project" for code questions and includeLibraries=true for broader knowledge queries.',
-        ].join(' '),
-        scope: TENANT_GLOBAL,
-        priority: 100,
-      });
-
-      if (addResult.success) {
-        logInfo('Created default search-first behavioral rule');
-      }
-    } catch (error) {
-      logDebug('Skipped default rule seeding', { reason: String(error) });
-    }
+    return seedDefaultRule(this.components.rulesTool);
   }
 
   // ---- Accessors ----
