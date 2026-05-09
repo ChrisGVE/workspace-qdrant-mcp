@@ -290,7 +290,7 @@ impl GraphStore for SqliteGraphStore {
             all_impacted.extend(impacted);
         }
 
-        all_impacted.sort_by(|a, b| a.distance.cmp(&b.distance));
+        all_impacted.sort_by_key(|n| n.distance);
         let mut seen = std::collections::HashSet::new();
         all_impacted.retain(|n| seen.insert(n.node_id.clone()));
 
