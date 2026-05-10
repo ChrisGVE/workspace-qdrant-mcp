@@ -36,7 +36,6 @@ fn current_git_branch(path: &str) -> Option<String> {
 
 pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
     let (project_id, auto_detected) = resolve_project_id_or_cwd_quiet(project)?;
-    let locale = NumberLocale::default();
 
     canvas::print_title("Project Status");
     canvas::print_blank();
@@ -46,114 +45,11 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
             let request = GetProjectStatusRequest {
                 project_id: project_id.clone(),
             };
-
             match client.project().get_project_status(request).await {
                 Ok(response) => {
                     let status = response.into_inner();
-
                     if status.found {
-                        // Section 1: Project Identity
-                        let mut builder = ColumnarBuilder::new()
-                            .kv("Project Name", &status.project_name)
-                            .kv(
-                                "Detection Method",
-                                if auto_detected {
-                                    "current working directory"
-                                } else {
-                                    "user argument"
-                                },
-                            );
-
-                        // If CWD differs from project path, show both
-                        if let Ok(cwd) = std::env::current_dir() {
-                            let cwd_str = cwd.to_string_lossy().to_string();
-                            if cwd_str != status.project_root {
-                                builder = builder.kv("Current Directory", format_path(&cwd_str));
-                                if status.is_worktree {
-                                    builder = builder.kv("Worktree", "yes");
-                                }
-                            }
-                        }
-
-                        builder = builder
-                            .kv("Project Path", format_path(&status.project_root))
-                            .kv("Project Id", &status.project_id);
-
-                        if let Some(remote) = &status.git_remote {
-                            builder = builder.kv("Git Remote", remote);
-                        }
-
-                        if let Some(branch) = current_git_branch(&status.project_root) {
-                            builder = builder.kv("Active Branch", branch);
-                        }
-
-                        if status.is_worktree {
-                            if let Some(main_path) = &status.main_worktree_path {
-                                builder = builder.kv("Main Working Tree", format_path(main_path));
-                            }
-                        }
-
-                        // Section 2: Content and Database Status
-                        builder = builder.section(Some("Project Content and Database Status"));
-
-                        // Get file stats from canonical queries
-                        let (stats, languages) = match connect_readonly() {
-                            Ok(conn) => {
-                                let s = queries::get_project_file_stats(&conn, &project_id)
-                                    .unwrap_or_default();
-                                let l = queries::get_languages(&conn, &project_id, "projects")
-                                    .unwrap_or_default();
-                                (s, l)
-                            }
-                            Err(_) => (queries::ReconcileStats::default(), Vec::new()),
-                        };
-
-                        if !languages.is_empty() {
-                            builder = builder.kv("Languages", languages.join(", "));
-                        }
-
-                        builder = builder
-                            .kv_gutter(
-                                "Chunks in Database",
-                                format_usize(stats.chunk_count, &locale),
-                                Gutter::None,
-                            )
-                            .kv_gutter(
-                                "Tracked Files",
-                                format_usize(stats.tracked_files, &locale),
-                                Gutter::None,
-                            )
-                            .kv_gutter(
-                                "Files in Sync",
-                                format_usize(stats.in_sync, &locale),
-                                Gutter::Sync,
-                            )
-                            .kv_gutter(
-                                "Files to Add",
-                                format_usize(stats.to_add, &locale),
-                                Gutter::Add,
-                            )
-                            .kv_gutter(
-                                "Files to Update",
-                                format_usize(stats.to_update, &locale),
-                                Gutter::Update,
-                            )
-                            .kv_gutter(
-                                "Files to Remove",
-                                format_usize(stats.to_remove, &locale),
-                                Gutter::Remove,
-                            );
-
-                        builder.render();
-
-                        output::status_line(
-                            "Status",
-                            if status.is_active {
-                                ServiceStatus::Active
-                            } else {
-                                ServiceStatus::Inactive
-                            },
-                        );
+                        render_found_project(&status, &project_id, auto_detected);
                     } else {
                         ColumnarBuilder::new()
                             .kv("Project Id", &project_id)
@@ -163,9 +59,7 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
                         output::info("Register with: wqm project register");
                     }
                 }
-                Err(e) => {
-                    output::warning(format!("Could not get status: {}", e));
-                }
+                Err(e) => output::warning(format!("Could not get status: {}", e)),
             }
         }
         Err(_) => {
@@ -177,4 +71,106 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn render_found_project(
+    status: &crate::grpc::proto::GetProjectStatusResponse,
+    project_id: &str,
+    auto_detected: bool,
+) {
+    let locale = NumberLocale::default();
+
+    let mut builder = ColumnarBuilder::new()
+        .kv("Project Name", &status.project_name)
+        .kv(
+            "Detection Method",
+            if auto_detected {
+                "current working directory"
+            } else {
+                "user argument"
+            },
+        );
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let cwd_str = cwd.to_string_lossy().to_string();
+        if cwd_str != status.project_root {
+            builder = builder.kv("Current Directory", format_path(&cwd_str));
+            if status.is_worktree {
+                builder = builder.kv("Worktree", "yes");
+            }
+        }
+    }
+
+    builder = builder
+        .kv("Project Path", format_path(&status.project_root))
+        .kv("Project Id", &status.project_id);
+
+    if let Some(remote) = &status.git_remote {
+        builder = builder.kv("Git Remote", remote);
+    }
+    if let Some(branch) = current_git_branch(&status.project_root) {
+        builder = builder.kv("Active Branch", branch);
+    }
+    if status.is_worktree {
+        if let Some(main_path) = &status.main_worktree_path {
+            builder = builder.kv("Main Working Tree", format_path(main_path));
+        }
+    }
+
+    builder = builder.section(Some("Project Content and Database Status"));
+
+    let (stats, languages) = match connect_readonly() {
+        Ok(conn) => {
+            let s = queries::get_project_file_stats(&conn, project_id).unwrap_or_default();
+            let l = queries::get_languages(&conn, project_id, "projects").unwrap_or_default();
+            (s, l)
+        }
+        Err(_) => (queries::ReconcileStats::default(), Vec::new()),
+    };
+
+    if !languages.is_empty() {
+        builder = builder.kv("Languages", languages.join(", "));
+    }
+
+    builder
+        .kv_gutter(
+            "Chunks in Database",
+            format_usize(stats.chunk_count, &locale),
+            Gutter::None,
+        )
+        .kv_gutter(
+            "Tracked Files",
+            format_usize(stats.tracked_files, &locale),
+            Gutter::None,
+        )
+        .kv_gutter(
+            "Files in Sync",
+            format_usize(stats.in_sync, &locale),
+            Gutter::Sync,
+        )
+        .kv_gutter(
+            "Files to Add",
+            format_usize(stats.to_add, &locale),
+            Gutter::Add,
+        )
+        .kv_gutter(
+            "Files to Update",
+            format_usize(stats.to_update, &locale),
+            Gutter::Update,
+        )
+        .kv_gutter(
+            "Files to Remove",
+            format_usize(stats.to_remove, &locale),
+            Gutter::Remove,
+        )
+        .render();
+
+    output::status_line(
+        "Status",
+        if status.is_active {
+            ServiceStatus::Active
+        } else {
+            ServiceStatus::Inactive
+        },
+    );
 }

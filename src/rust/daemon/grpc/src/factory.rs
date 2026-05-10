@@ -17,6 +17,9 @@ use crate::services::{
 };
 use crate::{GrpcError, GrpcServer, ServerConfig};
 
+type LayerStack =
+    tower::layer::util::Stack<crate::metrics_layer::MetricsLayer, tower::layer::util::Identity>;
+
 impl GrpcServer {
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         log_debug("GrpcServer::start() called");
@@ -197,15 +200,7 @@ impl GrpcServer {
 
     async fn configure_transport(
         &self,
-    ) -> Result<
-        tonic::transport::server::Server<
-            tower::layer::util::Stack<
-                crate::metrics_layer::MetricsLayer,
-                tower::layer::util::Identity,
-            >,
-        >,
-        GrpcError,
-    > {
+    ) -> Result<tonic::transport::server::Server<LayerStack>, GrpcError> {
         let mut server_builder = Server::builder()
             .timeout(self.config.timeout_config.request_timeout)
             .concurrency_limit_per_connection(
@@ -225,12 +220,7 @@ impl GrpcServer {
     #[allow(clippy::too_many_arguments)]
     async fn serve(
         &mut self,
-        mut server_builder: tonic::transport::server::Server<
-            tower::layer::util::Stack<
-                crate::metrics_layer::MetricsLayer,
-                tower::layer::util::Identity,
-            >,
-        >,
+        mut server_builder: tonic::transport::server::Server<LayerStack>,
         system_service: SystemServiceImpl,
         collection_service: CollectionServiceImpl,
         document_service: DocumentServiceImpl,
@@ -240,111 +230,46 @@ impl GrpcServer {
     ) -> Result<(), GrpcError> {
         use crate::proto;
 
-        // Register core services
-        let system_svc = proto::system_service_server::SystemServiceServer::new(system_service);
-        let collection_svc =
-            proto::collection_service_server::CollectionServiceServer::new(collection_service);
-        let document_svc =
-            proto::document_service_server::DocumentServiceServer::new(document_service);
-        let embedding_svc =
-            proto::embedding_service_server::EmbeddingServiceServer::new(embedding_service);
-
         let mut router = server_builder
-            .add_service(system_svc)
-            .add_service(collection_svc)
-            .add_service(document_svc)
-            .add_service(embedding_svc);
+            .add_service(proto::system_service_server::SystemServiceServer::new(
+                system_service,
+            ))
+            .add_service(
+                proto::collection_service_server::CollectionServiceServer::new(collection_service),
+            )
+            .add_service(proto::document_service_server::DocumentServiceServer::new(
+                document_service,
+            ))
+            .add_service(
+                proto::embedding_service_server::EmbeddingServiceServer::new(embedding_service),
+            );
 
-        // Conditionally add ProjectService
         if let Some(project_svc_impl) = project_service {
             project_svc_impl.start_deferred_shutdown_monitor();
-            let project_svc =
-                proto::project_service_server::ProjectServiceServer::new(project_svc_impl);
             tracing::info!(
                 "Registering ProjectService gRPC endpoint with deferred shutdown monitor"
             );
-            router = router.add_service(project_svc);
+            router = router.add_service(proto::project_service_server::ProjectServiceServer::new(
+                project_svc_impl,
+            ));
         }
-
-        // Conditionally add TextSearchService
         if let Some(search_db) = self.search_db.take() {
-            let text_search_svc_impl = TextSearchServiceImpl::new(search_db);
-            let text_search_svc = proto::text_search_service_server::TextSearchServiceServer::new(
-                text_search_svc_impl,
-            );
             tracing::info!("Registering TextSearchService gRPC endpoint");
-            router = router.add_service(text_search_svc);
+            router = router.add_service(
+                proto::text_search_service_server::TextSearchServiceServer::new(
+                    TextSearchServiceImpl::new(search_db),
+                ),
+            );
         }
-
-        // Conditionally add GraphService
         if let Some(graph_store) = self.graph_store.take() {
-            let graph_svc_impl = crate::services::GraphServiceImpl::new(graph_store);
-            let graph_svc = proto::graph_service_server::GraphServiceServer::new(graph_svc_impl);
             tracing::info!("Registering GraphService gRPC endpoint");
-            router = router.add_service(graph_svc);
+            router = router.add_service(proto::graph_service_server::GraphServiceServer::new(
+                crate::services::GraphServiceImpl::new(graph_store),
+            ));
         }
 
-        // Register write services (daemon-exclusive SQLite mutations via WriteActor)
-        if let Some(write_handle) = self.resolve_write_actor() {
-            let queue_write_svc = proto::queue_write_service_server::QueueWriteServiceServer::new(
-                QueueWriteServiceImpl::new(write_handle.clone()),
-            );
-            let watch_write_svc = proto::watch_write_service_server::WatchWriteServiceServer::new(
-                WatchWriteServiceImpl::new(write_handle.clone()),
-            );
-            let library_write_svc =
-                proto::library_write_service_server::LibraryWriteServiceServer::new(
-                    LibraryWriteServiceImpl::new(write_handle.clone()),
-                );
-            let tracking_write_svc =
-                proto::tracking_write_service_server::TrackingWriteServiceServer::new(
-                    TrackingWriteServiceImpl::new(write_handle.clone()),
-                );
-            let mut admin_impl = AdminWriteServiceImpl::new(write_handle);
-            if let (Some(settings), Some(provider), Some(pool), Some(pause_flag)) = (
-                self.embedding_settings.clone(),
-                self.dense_provider.clone(),
-                self.db_pool.clone(),
-                self.pause_flag.clone(),
-            ) {
-                let storage_for_reembed = self
-                    .storage_client
-                    .clone()
-                    .unwrap_or_else(|| Arc::clone(&local_storage_client));
-                let ctx = Arc::new(crate::services::reembed::ReembedContext {
-                    settings,
-                    provider,
-                    storage_client: storage_for_reembed,
-                    pool,
-                    pause_flag,
-                });
-                admin_impl = admin_impl.with_reembed_context(ctx);
-                tracing::info!("AdminWriteService TriggerReembed wiring complete");
-            } else {
-                tracing::warn!(
-                    "AdminWriteService TriggerReembed NOT wired: missing one of \
-                     (embedding_settings, dense_provider, db_pool, pause_flag)"
-                );
-            }
-            let admin_write_svc =
-                proto::admin_write_service_server::AdminWriteServiceServer::new(admin_impl);
-            router = router
-                .add_service(queue_write_svc)
-                .add_service(watch_write_svc)
-                .add_service(library_write_svc)
-                .add_service(tracking_write_svc)
-                .add_service(admin_write_svc);
-            tracing::info!(
-                "Registered 5 write services via WriteActor for serialized SQLite mutations"
-            );
-        } else {
-            tracing::warn!(
-                "Write services NOT registered: no db_pool or write_actor available. \
-                 Queue, watch, library, tracking, and admin mutations will be unavailable."
-            );
-        }
+        router = self.register_write_services(router, &local_storage_client);
 
-        // Start server with graceful shutdown
         let addr = self.config.bind_addr;
         match self.shutdown_signal.take() {
             Some(shutdown) => {
@@ -364,6 +289,77 @@ impl GrpcServer {
 
         tracing::info!("gRPC server stopped");
         Ok(())
+    }
+
+    fn register_write_services(
+        &mut self,
+        router: tonic::transport::server::Router<LayerStack>,
+        local_storage_client: &Arc<StorageClient>,
+    ) -> tonic::transport::server::Router<LayerStack> {
+        use crate::proto;
+
+        let Some(write_handle) = self.resolve_write_actor() else {
+            tracing::warn!(
+                "Write services NOT registered: no db_pool or write_actor available. \
+                 Queue, watch, library, tracking, and admin mutations will be unavailable."
+            );
+            return router;
+        };
+
+        let mut admin_impl = AdminWriteServiceImpl::new(write_handle.clone());
+        if let (Some(settings), Some(provider), Some(pool), Some(pause_flag)) = (
+            self.embedding_settings.clone(),
+            self.dense_provider.clone(),
+            self.db_pool.clone(),
+            self.pause_flag.clone(),
+        ) {
+            let storage_for_reembed = self
+                .storage_client
+                .clone()
+                .unwrap_or_else(|| Arc::clone(local_storage_client));
+            let ctx = Arc::new(crate::services::reembed::ReembedContext {
+                settings,
+                provider,
+                storage_client: storage_for_reembed,
+                pool,
+                pause_flag,
+            });
+            admin_impl = admin_impl.with_reembed_context(ctx);
+            tracing::info!("AdminWriteService TriggerReembed wiring complete");
+        } else {
+            tracing::warn!(
+                "AdminWriteService TriggerReembed NOT wired: missing one of \
+                 (embedding_settings, dense_provider, db_pool, pause_flag)"
+            );
+        }
+
+        tracing::info!(
+            "Registered 5 write services via WriteActor for serialized SQLite mutations"
+        );
+        router
+            .add_service(
+                proto::queue_write_service_server::QueueWriteServiceServer::new(
+                    QueueWriteServiceImpl::new(write_handle.clone()),
+                ),
+            )
+            .add_service(
+                proto::watch_write_service_server::WatchWriteServiceServer::new(
+                    WatchWriteServiceImpl::new(write_handle.clone()),
+                ),
+            )
+            .add_service(
+                proto::library_write_service_server::LibraryWriteServiceServer::new(
+                    LibraryWriteServiceImpl::new(write_handle.clone()),
+                ),
+            )
+            .add_service(
+                proto::tracking_write_service_server::TrackingWriteServiceServer::new(
+                    TrackingWriteServiceImpl::new(write_handle),
+                ),
+            )
+            .add_service(
+                proto::admin_write_service_server::AdminWriteServiceServer::new(admin_impl),
+            )
     }
 }
 

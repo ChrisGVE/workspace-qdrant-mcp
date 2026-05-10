@@ -32,45 +32,12 @@ pub(super) async fn run_keyword_extraction(
         .collect();
     let is_code = document_content.document_type.is_code();
     let language = document_content.document_type.language();
-
-    // Fetch corpus size and build DF lookup from lexicon (Task 17)
-    let corpus_size = ctx.lexicon_manager.corpus_size(&item.collection).await;
     let full_text = chunk_texts.join("\n");
 
-    // Build per-document DF lookup for unique terms in this document.
-    // Use a single batch call to acquire the lexicon read lock once for all terms
-    // instead of N individual async calls.
-    let unique_terms: std::collections::HashSet<String> = full_text
-        .split_whitespace()
-        .map(|w| {
-            w.to_lowercase()
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_string()
-        })
-        .filter(|w| w.len() >= 2)
-        .collect();
-    let df_lookup = ctx
-        .lexicon_manager
-        .document_frequencies_batch(&item.collection, &unique_terms)
-        .await;
+    let (corpus_size, df_lookup, unique_terms) =
+        fetch_lexicon_data(ctx, &item.collection, &full_text).await;
 
-    // Fetch co-occurrence centrality scores for code files (Task 31)
-    let centrality_scores = if is_code {
-        let mut cache = ctx.cooccurrence_cache.lock().await;
-        match cache
-            .get_or_compute(&ctx.pool, &item.tenant_id, &item.collection)
-            .await
-        {
-            Ok(scores) if !scores.is_empty() => Some(scores),
-            Ok(_) => None,
-            Err(e) => {
-                warn!("Failed to fetch centrality scores: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let centrality_scores = fetch_centrality_scores(ctx, item, is_code).await;
 
     let pipeline_input = PipelineInput {
         file_path,
@@ -93,18 +60,91 @@ pub(super) async fn run_keyword_extraction(
     )
     .await;
 
-    let extraction_ms = extraction_start.elapsed().as_millis();
     info!(
         "Keyword/tag extraction completed in {}ms: {} keywords, {} tags, {} structural tags (corpus_size={})",
-        extraction_ms,
+        extraction_start.elapsed().as_millis(),
         extraction.keywords.len(),
         extraction.tags.len(),
         extraction.structural_tags.len(),
         corpus_size,
     );
 
-    // Update lexicon with this document's terms (Task 17)
-    let tokens: Vec<String> = unique_terms.into_iter().collect();
+    update_lexicon_and_graph(
+        ctx,
+        item,
+        is_code,
+        language,
+        &full_text,
+        &unique_terms,
+        &pipeline_config,
+    )
+    .await;
+    inject_extraction_results(&extraction, points);
+
+    Some(extraction)
+}
+
+async fn fetch_lexicon_data(
+    ctx: &ProcessingContext,
+    collection: &str,
+    full_text: &str,
+) -> (
+    u64,
+    std::collections::HashMap<String, u64>,
+    std::collections::HashSet<String>,
+) {
+    let corpus_size = ctx.lexicon_manager.corpus_size(collection).await;
+
+    let unique_terms: std::collections::HashSet<String> = full_text
+        .split_whitespace()
+        .map(|w| {
+            w.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
+        .filter(|w| w.len() >= 2)
+        .collect();
+
+    let df_lookup = ctx
+        .lexicon_manager
+        .document_frequencies_batch(collection, &unique_terms)
+        .await;
+
+    (corpus_size, df_lookup, unique_terms)
+}
+
+async fn fetch_centrality_scores(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    is_code: bool,
+) -> Option<std::collections::HashMap<String, f64>> {
+    if !is_code {
+        return None;
+    }
+    let mut cache = ctx.cooccurrence_cache.lock().await;
+    match cache
+        .get_or_compute(&ctx.pool, &item.tenant_id, &item.collection)
+        .await
+    {
+        Ok(scores) if !scores.is_empty() => Some(scores),
+        Ok(_) => None,
+        Err(e) => {
+            warn!("Failed to fetch centrality scores: {}", e);
+            None
+        }
+    }
+}
+
+async fn update_lexicon_and_graph(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    is_code: bool,
+    language: Option<&str>,
+    full_text: &str,
+    unique_terms: &std::collections::HashSet<String>,
+    pipeline_config: &crate::keyword_extraction::pipeline::PipelineConfig,
+) {
+    let tokens: Vec<String> = unique_terms.iter().cloned().collect();
     if let Err(e) = ctx
         .lexicon_manager
         .add_document(&item.collection, &tokens)
@@ -113,11 +153,10 @@ pub(super) async fn run_keyword_extraction(
         warn!("Failed to update lexicon for {}: {}", item.collection, e);
     }
 
-    // Update co-occurrence graph with symbols from this file (Task 31)
     if is_code {
         if let Some(lang) = language {
             let symbols =
-                cooccurrence_graph::extract_symbols(&full_text, lang, &pipeline_config.lsp);
+                cooccurrence_graph::extract_symbols(full_text, lang, &pipeline_config.lsp);
             if symbols.len() >= 2 {
                 if let Err(e) = cooccurrence_graph::update_graph(
                     &ctx.pool,
@@ -132,8 +171,9 @@ pub(super) async fn run_keyword_extraction(
             }
         }
     }
+}
 
-    // Inject extraction results into all point payloads
+fn inject_extraction_results(extraction: &ExtractionResult, points: &mut [DocumentPoint]) {
     let kw_phrases = extraction.keyword_phrases();
     let tag_phrases = extraction.tag_phrases();
     let struct_map = extraction.structural_tags_map();
@@ -161,6 +201,4 @@ pub(super) async fn run_keyword_extraction(
                 .insert("keyword_baskets".to_string(), serde_json::json!(basket_map));
         }
     }
-
-    Some(extraction)
 }
