@@ -317,7 +317,7 @@ pub async fn initialize(
     )
     .await;
 
-    let mut uqp = attach_optional_components(
+    let uqp = attach_optional_components(
         uqp,
         lsp_manager,
         &allowed_extensions,
@@ -326,23 +326,8 @@ pub async fn initialize(
         watch_refresh_signal,
     );
 
-    // Adaptive resources + health monitoring
-    // Pass the queue depth counter so the manager can detect Active Processing mode
-    // (user present + queue has work → boost to Active profile).
-    let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
-    let adaptive_config = AdaptiveResourceConfig::from_resource_limits(&config.resource_limits);
-    let queue_depth = uqp.queue_depth();
-    let adaptive_manager = AdaptiveResourceManager::start(
-        adaptive_config,
-        &config.resource_limits,
-        adaptive_shutdown_token.clone(),
-        queue_depth,
-    );
-    let adaptive_state = adaptive_manager.state();
-    uqp = uqp.with_adaptive_resources(adaptive_manager.subscribe());
-
-    let queue_health = Arc::new(QueueProcessorHealth::new());
-    uqp = uqp.with_queue_health(Arc::clone(&queue_health));
+    let (uqp, adaptive_shutdown_token, adaptive_state, queue_health) =
+        attach_adaptive_and_health(config, uqp);
 
     info!(
         "Unified queue processor configured (batch_size={}, poll_interval={}ms, worker_id={})",
@@ -360,6 +345,31 @@ pub async fn initialize(
         mirror_storage,
         dense_provider,
     })
+}
+
+fn attach_adaptive_and_health(
+    config: &Config,
+    uqp: UnifiedQueueProcessor,
+) -> (
+    UnifiedQueueProcessor,
+    tokio_util::sync::CancellationToken,
+    Arc<AdaptiveResourceState>,
+    Arc<QueueProcessorHealth>,
+) {
+    let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
+    let adaptive_config = AdaptiveResourceConfig::from_resource_limits(&config.resource_limits);
+    let queue_depth = uqp.queue_depth();
+    let adaptive_manager = AdaptiveResourceManager::start(
+        adaptive_config,
+        &config.resource_limits,
+        adaptive_shutdown_token.clone(),
+        queue_depth,
+    );
+    let adaptive_state = adaptive_manager.state();
+    let uqp = uqp.with_adaptive_resources(adaptive_manager.subscribe());
+    let queue_health = Arc::new(QueueProcessorHealth::new());
+    let uqp = uqp.with_queue_health(Arc::clone(&queue_health));
+    (uqp, adaptive_shutdown_token, adaptive_state, queue_health)
 }
 
 /// Recover stale leases, apply warmup delay, and start the queue processor.

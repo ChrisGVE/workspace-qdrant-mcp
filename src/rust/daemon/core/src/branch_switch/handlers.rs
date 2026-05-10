@@ -6,7 +6,7 @@ use std::path::Path;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
-use crate::git::{diff_tree, GitEvent, GitEventType};
+use crate::git::{diff_tree, FileChange, GitEvent, GitEventType};
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::QueueOperation;
 use crate::watching_queue::get_current_branch;
@@ -48,7 +48,7 @@ pub async fn handle_git_event(
             .await
         }
         GitEventType::Reset => {
-            // Reset can change arbitrary files — enqueue a full scan
+            // Reset can change arbitrary files -- enqueue a full scan
             info!(
                 "Git reset detected for {}, enqueueing full scan",
                 event.watch_folder_id
@@ -87,25 +87,60 @@ async fn handle_branch_switch(
         old_branch, new_branch, event.watch_folder_id, &event.old_sha, &event.new_sha
     );
 
-    // Get changed files between old and new commits via diff-tree
     let changes = diff_tree(root, &event.old_sha, &event.new_sha)
         .map_err(|e| format!("diff_tree failed: {}", e))?;
 
     let changed_paths: HashSet<String> = changes.iter().map(|c| c.path.clone()).collect();
-
     let mut stats = BranchSwitchStats::default();
 
     // 1. Batch update unchanged files: update branch in tracked_files
-    //    These files have identical content — only the branch metadata changes.
-    match batch_update_branch(
+    apply_batch_branch_update(
         pool,
         &event.watch_folder_id,
         old_branch,
         new_branch,
         &changed_paths,
+        &mut stats,
     )
-    .await
-    {
+    .await;
+
+    // 2. Enqueue changed files for re-ingestion
+    enqueue_all_changed_files(
+        queue_manager,
+        &changes,
+        tenant_id,
+        collection,
+        project_root,
+        new_branch,
+        &mut stats,
+    )
+    .await;
+
+    // 3. Update last_commit_hash in watch_folders
+    if let Err(e) = update_last_commit_hash(pool, &event.watch_folder_id, &event.new_sha).await {
+        warn!("Failed to update last_commit_hash: {}", e);
+        stats.errors += 1;
+    }
+
+    info!(
+        "Branch switch complete for {}: {} batch-updated, {} changed, {} added, {} deleted, {} errors",
+        event.watch_folder_id, stats.batch_updated, stats.enqueued_changed,
+        stats.enqueued_added, stats.enqueued_deleted, stats.errors
+    );
+
+    Ok(stats)
+}
+
+/// Apply the batch branch update for unchanged files.
+async fn apply_batch_branch_update(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    old_branch: &str,
+    new_branch: &str,
+    changed_paths: &HashSet<String>,
+    stats: &mut BranchSwitchStats,
+) {
+    match batch_update_branch(pool, watch_folder_id, old_branch, new_branch, changed_paths).await {
         Ok(count) => {
             stats.batch_updated = count;
             if count > 0 {
@@ -120,16 +155,26 @@ async fn handle_branch_switch(
             stats.errors += 1;
         }
     }
+}
 
-    // 2. Enqueue changed files for re-ingestion
-    for change in &changes {
+/// Enqueue all changed files for re-ingestion and accumulate stats.
+async fn enqueue_all_changed_files(
+    queue_manager: &QueueManager,
+    changes: &[FileChange],
+    tenant_id: &str,
+    collection: &str,
+    project_root: &str,
+    branch: &str,
+    stats: &mut BranchSwitchStats,
+) {
+    for change in changes {
         let result = enqueue_changed_file(
             queue_manager,
             change,
             tenant_id,
             collection,
             project_root,
-            new_branch,
+            branch,
         )
         .await;
         match result {
@@ -145,20 +190,6 @@ async fn handle_branch_switch(
             }
         }
     }
-
-    // 3. Update last_commit_hash in watch_folders
-    if let Err(e) = update_last_commit_hash(pool, &event.watch_folder_id, &event.new_sha).await {
-        warn!("Failed to update last_commit_hash: {}", e);
-        stats.errors += 1;
-    }
-
-    info!(
-        "Branch switch complete for {}: {} batch-updated, {} changed, {} added, {} deleted, {} errors",
-        event.watch_folder_id, stats.batch_updated, stats.enqueued_changed,
-        stats.enqueued_added, stats.enqueued_deleted, stats.errors
-    );
-
-    Ok(stats)
 }
 
 /// Handle a new commit on the same branch: diff-tree vs parent, enqueue changed files.
@@ -183,29 +214,16 @@ async fn handle_new_commit(
 
     let mut stats = BranchSwitchStats::default();
 
-    for change in &changes {
-        let result = enqueue_changed_file(
-            queue_manager,
-            change,
-            tenant_id,
-            collection,
-            project_root,
-            branch,
-        )
-        .await;
-        match result {
-            Ok(op) => match op {
-                QueueOperation::Update => stats.enqueued_changed += 1,
-                QueueOperation::Add => stats.enqueued_added += 1,
-                QueueOperation::Delete => stats.enqueued_deleted += 1,
-                _ => {}
-            },
-            Err(e) => {
-                warn!("Failed to enqueue changed file {}: {}", change.path, e);
-                stats.errors += 1;
-            }
-        }
-    }
+    enqueue_all_changed_files(
+        queue_manager,
+        &changes,
+        tenant_id,
+        collection,
+        project_root,
+        branch,
+        &mut stats,
+    )
+    .await;
 
     // Update last_commit_hash
     if let Err(e) = update_last_commit_hash(pool, &event.watch_folder_id, &event.new_sha).await {

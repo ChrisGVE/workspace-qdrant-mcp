@@ -72,50 +72,14 @@ impl UnifiedQueueProcessor {
         );
 
         loop {
-            Self::apply_warmup_transition(&config, &warmup_state, &embedding_semaphore, &mut state);
-
-            if cancellation_token.is_cancelled() {
-                info!("Unified queue shutdown signal received");
-                break;
-            }
-
-            Self::apply_adaptive_scaling(
+            if Self::run_poll_cycle(
                 &config,
-                &mut resource_profile_rx,
-                &embedding_semaphore,
-                &mut state,
-            );
-
-            if let Some(ref h) = queue_health {
-                h.record_poll();
-            }
-
-            if Self::handle_memory_pressure(&config, poll_interval).await {
-                continue;
-            }
-
-            if Self::handle_circuit_breaker(&config, &queue_manager, &storage_client).await {
-                continue;
-            }
-
-            Self::update_queue_depth_metrics(
-                &queue_manager,
-                &metrics,
-                &queue_health,
-                &queue_depth_counter,
-            )
-            .await;
-
-            Self::record_oldest_pending_age(&queue_manager).await;
-
-            let should_continue = Self::handle_dequeue_result(
-                &fairness_scheduler,
-                &config,
-                &queue_manager,
                 &cancellation_token,
+                &fairness_scheduler,
+                &queue_manager,
+                &storage_client,
                 &document_processor,
                 &embedding_generator,
-                &storage_client,
                 &lsp_manager,
                 &embedding_semaphore,
                 &allowed_extensions,
@@ -127,21 +91,156 @@ impl UnifiedQueueProcessor {
                 &ingestion_limits,
                 &metrics,
                 &queue_health,
-                &resource_profile_rx,
+                &queue_depth_counter,
                 &warmup_state,
+                &mut resource_profile_rx,
                 &mut state,
                 poll_interval,
+                metrics_log_interval,
             )
-            .await;
-            if should_continue {
-                continue;
+            .await
+            {
+                break;
             }
-
-            Self::maybe_log_metrics(&metrics, &mut state, metrics_log_interval).await;
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_poll_cycle(
+        config: &UnifiedProcessorConfig,
+        cancellation_token: &CancellationToken,
+        fairness_scheduler: &Arc<FairnessScheduler>,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+        allowed_extensions: &Arc<AllowedExtensions>,
+        lexicon_manager: &Arc<LexiconManager>,
+        search_db: &Option<Arc<SearchDbManager>>,
+        graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        watch_refresh_signal: &Option<Arc<tokio::sync::Notify>>,
+        grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
+        ingestion_limits: &Arc<IngestionLimitsConfig>,
+        metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
+        queue_health: &Option<Arc<QueueProcessorHealth>>,
+        queue_depth_counter: &Arc<std::sync::atomic::AtomicUsize>,
+        warmup_state: &Arc<WarmupState>,
+        resource_profile_rx: &mut Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+        state: &mut LoopState,
+        poll_interval: Duration,
+        metrics_log_interval: ChronoDuration,
+    ) -> bool {
+        Self::apply_warmup_transition(config, warmup_state, embedding_semaphore, state);
+        if cancellation_token.is_cancelled() {
+            info!("Unified queue shutdown signal received");
+            return true;
+        }
+        Self::apply_adaptive_scaling(config, resource_profile_rx, embedding_semaphore, state);
+        if let Some(ref h) = queue_health {
+            h.record_poll();
+        }
+        if Self::handle_memory_pressure(config, poll_interval).await {
+            return false;
+        }
+        if Self::handle_circuit_breaker(config, queue_manager, storage_client).await {
+            return false;
+        }
+        Self::update_queue_depth_metrics(queue_manager, metrics, queue_health, queue_depth_counter)
+            .await;
+        Self::record_oldest_pending_age(queue_manager).await;
+        if !Self::run_loop_iteration(
+            fairness_scheduler,
+            config,
+            queue_manager,
+            cancellation_token,
+            document_processor,
+            embedding_generator,
+            storage_client,
+            lsp_manager,
+            embedding_semaphore,
+            allowed_extensions,
+            lexicon_manager,
+            search_db,
+            graph_store,
+            watch_refresh_signal,
+            grammar_manager,
+            ingestion_limits,
+            metrics,
+            queue_health,
+            resource_profile_rx,
+            warmup_state,
+            state,
+            poll_interval,
+            metrics_log_interval,
+        )
+        .await
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        false
+    }
+
+    /// Execute one dequeue-dispatch-sleep cycle, returning `true` if the caller should `continue`.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_loop_iteration(
+        fairness_scheduler: &Arc<FairnessScheduler>,
+        config: &UnifiedProcessorConfig,
+        queue_manager: &QueueManager,
+        cancellation_token: &CancellationToken,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+        allowed_extensions: &Arc<AllowedExtensions>,
+        lexicon_manager: &Arc<LexiconManager>,
+        search_db: &Option<Arc<SearchDbManager>>,
+        graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        watch_refresh_signal: &Option<Arc<tokio::sync::Notify>>,
+        grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
+        ingestion_limits: &Arc<IngestionLimitsConfig>,
+        metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
+        queue_health: &Option<Arc<QueueProcessorHealth>>,
+        resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+        warmup_state: &Arc<WarmupState>,
+        state: &mut LoopState,
+        poll_interval: Duration,
+        metrics_log_interval: ChronoDuration,
+    ) -> bool {
+        let should_continue = Self::handle_dequeue_result(
+            fairness_scheduler,
+            config,
+            queue_manager,
+            cancellation_token,
+            document_processor,
+            embedding_generator,
+            storage_client,
+            lsp_manager,
+            embedding_semaphore,
+            allowed_extensions,
+            lexicon_manager,
+            search_db,
+            graph_store,
+            watch_refresh_signal,
+            grammar_manager,
+            ingestion_limits,
+            metrics,
+            queue_health,
+            resource_profile_rx,
+            warmup_state,
+            state,
+            poll_interval,
+        )
+        .await;
+        if should_continue {
+            return true;
+        }
+        Self::maybe_log_metrics(metrics, state, metrics_log_interval).await;
+        false
     }
 
     /// Record the age of the oldest pending queue item into metrics.
@@ -154,7 +253,6 @@ impl UnifiedQueueProcessor {
     }
 
     /// Dequeue the next batch and dispatch to idle work, batch processing, or error handling.
-    ///
     /// Returns `true` when the main loop should `continue` (skip the metrics/sleep tail).
     #[allow(clippy::too_many_arguments)]
     async fn handle_dequeue_result(
@@ -201,22 +299,12 @@ impl UnifiedQueueProcessor {
                 true
             }
             Ok(items) => {
-                state.maintenance_scheduler.cancel_active();
-                state.idle_since = None;
-                info!(
-                    "Dequeued {} unified queue items for processing",
-                    items.len()
-                );
-                if cancellation_token.is_cancelled() {
-                    warn!("Shutdown requested, stopping unified batch processing");
-                    // Caller cannot propagate Ok(()) directly; returning false
-                    // lets the outer loop see the cancellation on next iteration.
-                    return false;
-                }
-                match process_batch(
+                Self::dispatch_nonempty_batch(
                     items,
+                    state,
                     config,
                     queue_manager,
+                    cancellation_token,
                     document_processor,
                     embedding_generator,
                     storage_client,
@@ -231,18 +319,10 @@ impl UnifiedQueueProcessor {
                     ingestion_limits,
                     metrics,
                     queue_health,
-                    cancellation_token,
                     resource_profile_rx,
                     warmup_state,
                 )
                 .await
-                {
-                    Err(()) => false,
-                    Ok(tenants) => {
-                        update_tenant_activity(&tenants, queue_manager).await;
-                        false
-                    }
-                }
             }
             Err(e) => {
                 error!("Failed to dequeue unified batch: {}", e);
@@ -250,6 +330,72 @@ impl UnifiedQueueProcessor {
                     h.record_error();
                 }
                 tokio::time::sleep(poll_interval).await;
+                false
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn dispatch_nonempty_batch(
+        items: Vec<crate::unified_queue_schema::UnifiedQueueItem>,
+        state: &mut LoopState,
+        config: &UnifiedProcessorConfig,
+        queue_manager: &QueueManager,
+        cancellation_token: &CancellationToken,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+        allowed_extensions: &Arc<AllowedExtensions>,
+        lexicon_manager: &Arc<LexiconManager>,
+        search_db: &Option<Arc<SearchDbManager>>,
+        graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        watch_refresh_signal: &Option<Arc<tokio::sync::Notify>>,
+        grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
+        ingestion_limits: &Arc<IngestionLimitsConfig>,
+        metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
+        queue_health: &Option<Arc<QueueProcessorHealth>>,
+        resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+        warmup_state: &Arc<WarmupState>,
+    ) -> bool {
+        state.maintenance_scheduler.cancel_active();
+        state.idle_since = None;
+        info!(
+            "Dequeued {} unified queue items for processing",
+            items.len()
+        );
+        if cancellation_token.is_cancelled() {
+            warn!("Shutdown requested, stopping unified batch processing");
+            return false;
+        }
+        match process_batch(
+            items,
+            config,
+            queue_manager,
+            document_processor,
+            embedding_generator,
+            storage_client,
+            lsp_manager,
+            embedding_semaphore,
+            allowed_extensions,
+            lexicon_manager,
+            search_db,
+            graph_store,
+            watch_refresh_signal,
+            grammar_manager,
+            ingestion_limits,
+            metrics,
+            queue_health,
+            cancellation_token,
+            resource_profile_rx,
+            warmup_state,
+        )
+        .await
+        {
+            Err(()) => false,
+            Ok(tenants) => {
+                update_tenant_activity(&tenants, queue_manager).await;
                 false
             }
         }

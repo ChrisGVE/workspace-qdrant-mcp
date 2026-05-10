@@ -155,63 +155,7 @@ pub async fn backfill_rules_payload(
     let now = wqm_common::timestamps::now_utc();
 
     for point in &points {
-        let content = extract_str(point, "content").unwrap_or_default();
-        if !needs_backfill(point, &content) {
-            stats.already_ok += 1;
-            continue;
-        }
-
-        let Some(header) = parse_rule_header(&content) else {
-            stats.unparseable += 1;
-            continue;
-        };
-        let Some(label) = header.label().map(str::to_string) else {
-            stats.unparseable += 1;
-            continue;
-        };
-
-        let Some(point_id) = extract_point_id_str(point) else {
-            warn!("[backfill:rules-payload] Point has no ID — skipping");
-            stats.errors += 1;
-            continue;
-        };
-
-        let updates = build_payload_updates(&header, &now);
-        let (scope_val, _) = header.split_scope();
-        let tenant_id = extract_str(point, "tenant_id")
-            .unwrap_or_else(|| wqm_common::constants::TENANT_GLOBAL.to_string());
-
-        match storage
-            .set_payload_on_point("rules", &point_id, updates)
-            .await
-        {
-            Ok(()) => {
-                stats.backfilled += 1;
-                info!(
-                    "[backfill:rules-payload] Restored payload for label={} (point={})",
-                    label, point_id
-                );
-            }
-            Err(e) => {
-                warn!(
-                    "[backfill:rules-payload] set_payload failed for point={}: {}",
-                    point_id, e
-                );
-                stats.errors += 1;
-                continue;
-            }
-        }
-
-        match upsert_mirror_row(pool, &label, &header.body, &scope_val, &tenant_id, &now).await {
-            Ok(()) => stats.mirror_upserts += 1,
-            Err(e) => {
-                warn!(
-                    "[backfill:rules-payload] mirror upsert failed for label={}: {}",
-                    label, e
-                );
-                stats.errors += 1;
-            }
-        }
+        backfill_single_point(point, storage, pool, &mut stats, &now).await;
     }
 
     info!(
@@ -226,6 +170,71 @@ pub async fn backfill_rules_payload(
     );
 
     Ok(stats)
+}
+
+async fn backfill_single_point(
+    point: &RetrievedPoint,
+    storage: &Arc<StorageClient>,
+    pool: &SqlitePool,
+    stats: &mut BackfillStats,
+    now: &str,
+) {
+    let content = extract_str(point, "content").unwrap_or_default();
+    if !needs_backfill(point, &content) {
+        stats.already_ok += 1;
+        return;
+    }
+
+    let Some(header) = parse_rule_header(&content) else {
+        stats.unparseable += 1;
+        return;
+    };
+    let Some(label) = header.label().map(str::to_string) else {
+        stats.unparseable += 1;
+        return;
+    };
+    let Some(point_id) = extract_point_id_str(point) else {
+        warn!("[backfill:rules-payload] Point has no ID — skipping");
+        stats.errors += 1;
+        return;
+    };
+
+    let updates = build_payload_updates(&header, now);
+    let (scope_val, _) = header.split_scope();
+    let tenant_id = extract_str(point, "tenant_id")
+        .unwrap_or_else(|| wqm_common::constants::TENANT_GLOBAL.to_string());
+
+    match storage
+        .set_payload_on_point("rules", &point_id, updates)
+        .await
+    {
+        Ok(()) => {
+            stats.backfilled += 1;
+            info!(
+                "[backfill:rules-payload] Restored payload for label={} (point={})",
+                label, point_id
+            );
+        }
+        Err(e) => {
+            warn!(
+                "[backfill:rules-payload] set_payload failed for point={}: {}",
+                point_id, e
+            );
+            stats.errors += 1;
+            return;
+        }
+    }
+
+    match upsert_mirror_row(pool, &label, &header.body, &scope_val, &tenant_id, now).await {
+        Ok(()) => stats.mirror_upserts += 1,
+        Err(e) => {
+            warn!(
+                "[backfill:rules-payload] mirror upsert failed for label={}: {}",
+                label, e
+            );
+            stats.errors += 1;
+        }
+    }
 }
 
 #[cfg(test)]

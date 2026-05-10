@@ -87,11 +87,24 @@ define_windows_service!(ffi_service_main, service_main);
 /// StartPending → Running, runs the async daemon to completion, then
 /// transitions Stopped.
 fn service_main(_args: Vec<OsString>) {
-    let notify = scm_shutdown_signal();
+    let status_handle = match register_handler_and_start_pending() {
+        Some(h) => h,
+        None => return,
+    };
 
-    // Control-code handler. Forwards Stop / Shutdown into the async
-    // shutdown notify; any other code is left unhandled (which the SCM
-    // surfaces as `ERROR_NOT_HANDLED`).
+    let rt = match build_tokio_runtime(&status_handle) {
+        Some(rt) => rt,
+        None => return,
+    };
+
+    run_daemon_under_scm(rt, status_handle);
+}
+
+/// Register the SCM control handler and signal StartPending.
+/// Returns `None` if registration fails (caller should return).
+fn register_handler_and_start_pending(
+) -> Option<windows_service::service_control_handler::ServiceStatusHandle> {
+    let notify = scm_shutdown_signal();
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         match control_event {
             ServiceControl::Stop | ServiceControl::Shutdown => {
@@ -108,7 +121,7 @@ fn service_main(_args: Vec<OsString>) {
         Ok(h) => h,
         Err(e) => {
             error!("Failed to register SCM control handler: {}", e);
-            return;
+            return None;
         }
     };
 
@@ -123,19 +136,20 @@ fn service_main(_args: Vec<OsString>) {
     }) {
         warn!("Failed to set StartPending status: {}", e);
     }
+    Some(status_handle)
+}
 
-    // Build a multi-threaded tokio runtime and run the daemon. The
-    // daemon's existing `shutdown::wait_for_signal` is extended on
-    // Windows to also await `scm_shutdown_signal()` (see
-    // shutdown.rs).
-    let rt = match tokio::runtime::Builder::new_multi_thread()
+/// Build multi-threaded tokio runtime; mark service Stopped and return `None` on failure.
+fn build_tokio_runtime(
+    status_handle: &windows_service::service_control_handler::ServiceStatusHandle,
+) -> Option<tokio::runtime::Runtime> {
+    match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
-        Ok(rt) => rt,
+        Ok(rt) => Some(rt),
         Err(e) => {
             error!("Failed to build tokio runtime for SCM service: {}", e);
-            // Mark stopped + bail.
             let _ = status_handle.set_service_status(ServiceStatus {
                 service_type: SERVICE_TYPE,
                 current_state: ServiceState::Stopped,
@@ -145,10 +159,16 @@ fn service_main(_args: Vec<OsString>) {
                 wait_hint: Duration::ZERO,
                 process_id: None,
             });
-            return;
+            None
         }
-    };
+    }
+}
 
+/// Set Running, block on the async daemon, then set Stopped.
+fn run_daemon_under_scm(
+    rt: tokio::runtime::Runtime,
+    status_handle: windows_service::service_control_handler::ServiceStatusHandle,
+) {
     if let Err(e) = status_handle.set_service_status(ServiceStatus {
         service_type: SERVICE_TYPE,
         current_state: ServiceState::Running,
@@ -170,8 +190,6 @@ fn service_main(_args: Vec<OsString>) {
             Ok(c) => c,
             Err(e) => return Err(e),
         };
-        // Logging is initialised here as well — under SCM there is no
-        // foreground console, so the foreground flag is forced false.
         crate::startup::init_logging_with_telemetry(
             &args.log_level,
             false,

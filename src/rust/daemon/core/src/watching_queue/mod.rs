@@ -8,6 +8,7 @@ mod error_state;
 mod error_types;
 mod file_watcher;
 mod file_watcher_ops;
+mod file_watcher_ops_helpers;
 mod ignore_watch;
 mod manager;
 mod manager_ops;

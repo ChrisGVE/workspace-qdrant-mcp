@@ -183,6 +183,38 @@ fn build_chunk_tuples(chunk_records: &[ChunkRecord]) -> Vec<ChunkTuple> {
         .collect()
 }
 
+struct FileTrackMeta<'a> {
+    file_mtime: String,
+    language: Option<String>,
+    chunking_method: Option<&'a str>,
+    extension: Option<String>,
+    is_test: bool,
+}
+
+fn build_file_track_meta<'a>(
+    file_path: &Path,
+    document_content: &DocumentContent,
+    treesitter_status: ProcessingStatus,
+) -> FileTrackMeta<'a> {
+    let file_mtime = tracked_files_schema::get_file_mtime(file_path)
+        .unwrap_or_else(|_| wqm_common::timestamps::now_utc());
+    let language = document_content.metadata.get("language").cloned();
+    let chunking_method = if treesitter_status == ProcessingStatus::Done {
+        Some("tree_sitter")
+    } else {
+        Some("text")
+    };
+    let extension = get_extension_for_storage(file_path);
+    let is_test = is_test_file(file_path);
+    FileTrackMeta {
+        file_mtime,
+        language,
+        chunking_method,
+        extension,
+        is_test,
+    }
+}
+
 /// Execute the SQLite transaction that records tracked_files + qdrant_chunks.
 ///
 /// Returns the `file_id` assigned to this file.
@@ -204,16 +236,7 @@ async fn run_tracking_transaction(
     payload_file_type: Option<&str>,
     component: Option<&str>,
 ) -> Result<i64, UnifiedProcessorError> {
-    let file_mtime = tracked_files_schema::get_file_mtime(file_path)
-        .unwrap_or_else(|_| wqm_common::timestamps::now_utc());
-    let language = document_content.metadata.get("language").cloned();
-    let chunking_method = if treesitter_status == ProcessingStatus::Done {
-        Some("tree_sitter")
-    } else {
-        Some("text")
-    };
-    let extension = get_extension_for_storage(file_path);
-    let is_test = is_test_file(file_path);
+    let meta = build_file_track_meta(file_path, document_content, treesitter_status);
 
     let mut tx = pool.begin().await.map_err(|e| {
         UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
@@ -224,10 +247,10 @@ async fn run_tracking_transaction(
             upsert_existing_tracked_file(
                 &mut tx,
                 existing_file,
-                &file_mtime,
+                &meta.file_mtime,
                 file_hash,
                 chunk_count,
-                chunking_method,
+                meta.chunking_method,
                 lsp_status,
                 treesitter_status,
                 base_point,
@@ -242,15 +265,15 @@ async fn run_tracking_transaction(
                 watch_folder_id,
                 relative_path,
                 payload_file_type,
-                language.as_deref(),
-                &file_mtime,
+                meta.language.as_deref(),
+                &meta.file_mtime,
                 file_hash,
                 chunk_count,
-                chunking_method,
+                meta.chunking_method,
                 lsp_status,
                 treesitter_status,
-                extension.as_deref(),
-                is_test,
+                meta.extension.as_deref(),
+                meta.is_test,
                 base_point,
                 component,
             )

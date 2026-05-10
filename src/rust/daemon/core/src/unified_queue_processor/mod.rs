@@ -360,61 +360,101 @@ impl UnifiedQueueProcessor {
         let grammar_manager = self.grammar_manager.clone();
         let ingestion_limits = self.ingestion_limits.clone();
 
-        // Mark as running in health state
         if let Some(ref h) = queue_health {
             h.set_running(true);
         }
 
-        let task_handle = tokio::spawn(async move {
-            // Start background persistence task (off-loads SQLite writes from hot path)
-            lexicon_manager.start_background_persister().await;
-
-            // One-time cleanup of junk BM25 terms from sparse_vocabulary (Task 22)
-            if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
-                warn!(
-                    "Failed to clean junk terms from sparse_vocabulary: {} (non-critical)",
-                    e
-                );
-            }
-
-            if let Err(e) = Self::processing_loop(
-                queue_manager,
-                config,
-                fairness_scheduler,
-                metrics,
-                cancellation_token.clone(),
-                document_processor,
-                embedding_generator,
-                storage_client,
-                lsp_manager,
-                embedding_semaphore,
-                allowed_extensions,
-                lexicon_manager,
-                warmup_state,
-                queue_health.clone(),
-                resource_profile_rx,
-                queue_depth_counter,
-                search_db,
-                graph_store,
-                watch_refresh_signal,
-                grammar_manager,
-                ingestion_limits,
-            )
-            .await
-            {
-                error!("Unified processing loop failed: {}", e);
-            }
-
-            // Mark as stopped in health state
-            if let Some(ref h) = queue_health {
-                h.set_running(false);
-            }
-            info!("Unified queue processor stopped");
-        });
+        let task_handle = tokio::spawn(Self::run_processing_task(
+            queue_manager,
+            config,
+            fairness_scheduler,
+            metrics,
+            cancellation_token,
+            document_processor,
+            embedding_generator,
+            storage_client,
+            lsp_manager,
+            embedding_semaphore,
+            allowed_extensions,
+            lexicon_manager,
+            warmup_state,
+            queue_health,
+            resource_profile_rx,
+            queue_depth_counter,
+            search_db,
+            graph_store,
+            watch_refresh_signal,
+            grammar_manager,
+            ingestion_limits,
+        ));
 
         self.task_handle = Some(task_handle);
         info!("Unified queue processor started successfully");
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_processing_task(
+        queue_manager: QueueManager,
+        config: UnifiedProcessorConfig,
+        fairness_scheduler: Arc<FairnessScheduler>,
+        metrics: Arc<RwLock<UnifiedProcessingMetrics>>,
+        cancellation_token: CancellationToken,
+        document_processor: Arc<DocumentProcessor>,
+        embedding_generator: Arc<EmbeddingGenerator>,
+        storage_client: Arc<StorageClient>,
+        lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: Arc<tokio::sync::Semaphore>,
+        allowed_extensions: Arc<AllowedExtensions>,
+        lexicon_manager: Arc<LexiconManager>,
+        warmup_state: Arc<WarmupState>,
+        queue_health: Option<Arc<QueueProcessorHealth>>,
+        resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+        queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
+        search_db: Option<Arc<SearchDbManager>>,
+        graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
+        grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
+        ingestion_limits: Arc<IngestionLimitsConfig>,
+    ) {
+        lexicon_manager.start_background_persister().await;
+        if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
+            warn!(
+                "Failed to clean junk terms from sparse_vocabulary: {} (non-critical)",
+                e
+            );
+        }
+        if let Err(e) = Self::processing_loop(
+            queue_manager,
+            config,
+            fairness_scheduler,
+            metrics,
+            cancellation_token,
+            document_processor,
+            embedding_generator,
+            storage_client,
+            lsp_manager,
+            embedding_semaphore,
+            allowed_extensions,
+            lexicon_manager,
+            warmup_state,
+            queue_health.clone(),
+            resource_profile_rx,
+            queue_depth_counter,
+            search_db,
+            graph_store,
+            watch_refresh_signal,
+            grammar_manager,
+            ingestion_limits,
+        )
+        .await
+        {
+            error!("Unified processing loop failed: {}", e);
+        }
+        if let Some(ref h) = queue_health {
+            h.set_running(false);
+        }
+        info!("Unified queue processor stopped");
     }
 
     /// Stop the background processing loop gracefully

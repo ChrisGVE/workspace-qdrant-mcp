@@ -1,6 +1,6 @@
 //! FtsBatchProcessor: adaptive batch/single-file processing for code_lines.
 //!
-//! FTS5 index is maintained incrementally — individual rows are inserted/deleted
+//! FTS5 index is maintained incrementally -- individual rows are inserted/deleted
 //! in the FTS index inline with code_lines changes, avoiding expensive full rebuilds.
 
 use tracing::{debug, info};
@@ -17,7 +17,7 @@ use super::{BatchStats, FileChange, FtsBatchConfig};
 /// Accumulates file changes and flushes them either individually (single-file mode)
 /// or as a batch (batch mode) depending on queue depth.
 ///
-/// FTS5 updates are performed incrementally within each transaction —
+/// FTS5 updates are performed incrementally within each transaction --
 /// no full rebuild is needed after processing.
 pub struct FtsBatchProcessor<'a> {
     search_db: &'a SearchDbManager,
@@ -100,12 +100,6 @@ impl<'a> FtsBatchProcessor<'a> {
     }
 
     /// Process all file changes in a single batch transaction.
-    ///
-    /// 1. Compute diffs for all files
-    /// 2. BEGIN TRANSACTION
-    /// 3. Apply all INSERT/UPDATE/DELETE to code_lines (with inline FTS5 updates)
-    /// 4. Upsert file_metadata for all files
-    /// 5. COMMIT
     async fn process_batch(&self, changes: Vec<FileChange>) -> Result<BatchStats, SearchDbError> {
         let pool = self.search_db.pool();
         let mut stats = BatchStats::default();
@@ -119,7 +113,6 @@ impl<'a> FtsBatchProcessor<'a> {
         }
 
         // Phase 2: Apply all changes in a single transaction
-        // (diff_apply handles FTS5 incrementally within the transaction)
         let mut tx = pool.begin().await?;
 
         for (change, diff) in &file_diffs {
@@ -133,32 +126,15 @@ impl<'a> FtsBatchProcessor<'a> {
             stats.lines_unchanged += file_stats.lines_unchanged;
             stats.files_processed += 1;
 
-            // Upsert file_metadata for search scoping
-            sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-                .bind(change.file_id)
-                .bind(&change.tenant_id)
-                .bind(&change.branch)
-                .bind(&change.file_path)
-                .bind(&change.base_point)
-                .bind(&change.relative_path)
-                .bind(&change.file_hash)
-                .execute(&mut *tx)
-                .await?;
+            upsert_file_metadata(&mut tx, change).await?;
         }
 
         tx.commit().await?;
 
         // Phase 3: Check if any files need rebalancing (outside transaction)
         for (change, _) in &file_diffs {
-            if let Some(min_gap) = self.search_db.min_seq_gap(change.file_id).await? {
-                if SearchDbManager::needs_rebalance(min_gap) {
-                    self.search_db.rebalance_file_seqs(change.file_id).await?;
-                    stats.rebalances_triggered += 1;
-                }
-            }
+            self.maybe_rebalance(change.file_id, &mut stats).await?;
         }
-
-        // No FTS5 rebuild needed — updates were applied incrementally
 
         Ok(stats)
     }
@@ -174,25 +150,13 @@ impl<'a> FtsBatchProcessor<'a> {
         for change in changes {
             let diff = compute_line_diff(&change.old_content, &change.new_content);
 
-            // Apply diff in a per-file transaction
-            // (diff_apply handles FTS5 incrementally within the transaction)
             let mut tx = pool.begin().await?;
 
             let file_stats =
                 apply_diff_to_code_lines(&mut tx, change.file_id, &diff, &change.new_content)
                     .await?;
 
-            // Upsert file_metadata
-            sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
-                .bind(change.file_id)
-                .bind(&change.tenant_id)
-                .bind(&change.branch)
-                .bind(&change.file_path)
-                .bind(&change.base_point)
-                .bind(&change.relative_path)
-                .bind(&change.file_hash)
-                .execute(&mut *tx)
-                .await?;
+            upsert_file_metadata(&mut tx, &change).await?;
 
             tx.commit().await?;
 
@@ -202,18 +166,25 @@ impl<'a> FtsBatchProcessor<'a> {
             stats.lines_unchanged += file_stats.lines_unchanged;
             stats.files_processed += 1;
 
-            // Check rebalance per file
-            if let Some(min_gap) = self.search_db.min_seq_gap(change.file_id).await? {
-                if SearchDbManager::needs_rebalance(min_gap) {
-                    self.search_db.rebalance_file_seqs(change.file_id).await?;
-                    stats.rebalances_triggered += 1;
-                }
-            }
-
-            // No FTS5 rebuild needed — updates were applied incrementally
+            self.maybe_rebalance(change.file_id, &mut stats).await?;
         }
 
         Ok(stats)
+    }
+
+    /// Check rebalance condition for a single file and trigger if needed.
+    async fn maybe_rebalance(
+        &self,
+        file_id: i64,
+        stats: &mut BatchStats,
+    ) -> Result<(), SearchDbError> {
+        if let Some(min_gap) = self.search_db.min_seq_gap(file_id).await? {
+            if SearchDbManager::needs_rebalance(min_gap) {
+                self.search_db.rebalance_file_seqs(file_id).await?;
+                stats.rebalances_triggered += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Replace all code_lines for a file with new content (full rewrite).
@@ -238,28 +209,8 @@ impl<'a> FtsBatchProcessor<'a> {
 
         let mut tx = pool.begin().await?;
 
-        // Fetch existing rows for incremental FTS5 delete
-        let old_rows: Vec<(i64, String)> = {
-            let rows = sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
-                .bind(file_id)
-                .fetch_all(&mut *tx)
-                .await?;
-            rows.iter()
-                .map(|r| {
-                    use sqlx::Row;
-                    (r.get::<i64, _>("line_id"), r.get::<String, _>("content"))
-                })
-                .collect()
-        };
-
         // Delete old FTS5 entries incrementally
-        for (line_id, old_content) in &old_rows {
-            sqlx::query(FTS5_DELETE_ROW_SQL)
-                .bind(*line_id)
-                .bind(old_content.as_str())
-                .execute(&mut *tx)
-                .await?;
-        }
+        delete_old_fts5_entries(&mut tx, file_id).await?;
 
         // Delete existing lines for this file
         sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
@@ -268,27 +219,7 @@ impl<'a> FtsBatchProcessor<'a> {
             .await?;
 
         // Insert all new lines with standard gaps and 1-based line numbers
-        for (i, line) in lines.iter().enumerate() {
-            let seq = initial_seq(i);
-            let line_number = (i + 1) as i64;
-            let result = sqlx::query(
-                "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)",
-            )
-            .bind(file_id)
-            .bind(seq)
-            .bind(*line)
-            .bind(line_number)
-            .execute(&mut *tx)
-            .await?;
-
-            // Insert new FTS5 entry
-            let new_line_id = result.last_insert_rowid();
-            sqlx::query(FTS5_INSERT_ROW_SQL)
-                .bind(new_line_id)
-                .bind(*line)
-                .execute(&mut *tx)
-                .await?;
-        }
+        insert_new_lines(&mut tx, file_id, &lines).await?;
 
         // Upsert file_metadata
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
@@ -304,8 +235,6 @@ impl<'a> FtsBatchProcessor<'a> {
 
         tx.commit().await?;
 
-        // No FTS5 rebuild needed — updates were applied incrementally
-
         Ok(BatchStats {
             files_processed: 1,
             lines_inserted: lines.len(),
@@ -320,19 +249,7 @@ impl<'a> FtsBatchProcessor<'a> {
     pub async fn delete_file(&self, file_id: i64) -> Result<usize, SearchDbError> {
         let pool = self.search_db.pool();
 
-        // Fetch existing rows for incremental FTS5 delete
-        let old_rows: Vec<(i64, String)> = {
-            let rows = sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
-                .bind(file_id)
-                .fetch_all(pool)
-                .await?;
-            rows.iter()
-                .map(|r| {
-                    use sqlx::Row;
-                    (r.get::<i64, _>("line_id"), r.get::<String, _>("content"))
-                })
-                .collect()
-        };
+        let old_rows = fetch_fts5_rows(pool, file_id).await?;
 
         if old_rows.is_empty() {
             // Still clean up file_metadata if it exists
@@ -432,4 +349,98 @@ impl<'a> FtsBatchProcessor<'a> {
 
         Ok(total_deleted)
     }
+}
+
+/// Upsert file_metadata for search scoping within a transaction.
+async fn upsert_file_metadata(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    change: &FileChange,
+) -> Result<(), SearchDbError> {
+    sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
+        .bind(change.file_id)
+        .bind(&change.tenant_id)
+        .bind(&change.branch)
+        .bind(&change.file_path)
+        .bind(&change.base_point)
+        .bind(&change.relative_path)
+        .bind(&change.file_hash)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Fetch existing FTS5 rows (line_id, content) for incremental deletion.
+async fn fetch_fts5_rows(
+    pool: &sqlx::SqlitePool,
+    file_id: i64,
+) -> Result<Vec<(i64, String)>, SearchDbError> {
+    let rows = sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+        .bind(file_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            use sqlx::Row;
+            (r.get::<i64, _>("line_id"), r.get::<String, _>("content"))
+        })
+        .collect())
+}
+
+/// Delete old FTS5 entries incrementally for a file within a transaction.
+async fn delete_old_fts5_entries(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_id: i64,
+) -> Result<(), SearchDbError> {
+    let old_rows: Vec<(i64, String)> = {
+        let rows = sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+            .bind(file_id)
+            .fetch_all(&mut **tx)
+            .await?;
+        rows.iter()
+            .map(|r| {
+                use sqlx::Row;
+                (r.get::<i64, _>("line_id"), r.get::<String, _>("content"))
+            })
+            .collect()
+    };
+
+    for (line_id, old_content) in &old_rows {
+        sqlx::query(FTS5_DELETE_ROW_SQL)
+            .bind(*line_id)
+            .bind(old_content.as_str())
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Insert all new lines with standard gaps and 1-based line numbers,
+/// plus corresponding FTS5 entries, within a transaction.
+async fn insert_new_lines(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_id: i64,
+    lines: &[&str],
+) -> Result<(), SearchDbError> {
+    for (i, line) in lines.iter().enumerate() {
+        let seq = initial_seq(i);
+        let line_number = (i + 1) as i64;
+        let result = sqlx::query(
+            "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(file_id)
+        .bind(seq)
+        .bind(*line)
+        .bind(line_number)
+        .execute(&mut **tx)
+        .await?;
+
+        let new_line_id = result.last_insert_rowid();
+        sqlx::query(FTS5_INSERT_ROW_SQL)
+            .bind(new_line_id)
+            .bind(*line)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }

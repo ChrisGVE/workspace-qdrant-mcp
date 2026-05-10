@@ -173,52 +173,14 @@ impl PathValidator {
             .collect();
 
         for project in projects_to_check {
-            let path_exists = project.path.exists();
-
-            if path_exists {
-                // Path exists - remove from pending if it was there
-                pending.retain(|o| o.project_id != project.project_id);
-            } else {
-                // Path doesn't exist
-                if let Some(existing) = pending
-                    .iter_mut()
-                    .find(|o| o.project_id == project.project_id)
-                {
-                    // Already pending - check grace period
-                    existing.failure_count += 1;
-
-                    if existing.first_missing.elapsed() >= grace_period {
-                        // Grace period expired - confirmed orphan
-                        confirmed_orphans.push(OrphanedProject {
-                            project_id: project.project_id.clone(),
-                            path: project.path.clone(),
-                            first_missing: existing.first_missing,
-                            failure_count: existing.failure_count,
-                        });
-
-                        tracing::info!(
-                            project_id = %project.project_id,
-                            path = %project.path.display(),
-                            failures = existing.failure_count,
-                            "Project confirmed orphaned after grace period"
-                        );
-                    }
-                } else if !pending_ids.contains(&project.project_id) {
-                    // New missing path - add to pending
-                    new_pending.push(OrphanedProject {
-                        project_id: project.project_id.clone(),
-                        path: project.path.clone(),
-                        first_missing: Instant::now(),
-                        failure_count: 1,
-                    });
-
-                    tracing::warn!(
-                        project_id = %project.project_id,
-                        path = %project.path.display(),
-                        "Project path missing, starting grace period"
-                    );
-                }
-            }
+            check_project_path(
+                project,
+                &mut pending,
+                &pending_ids,
+                &mut confirmed_orphans,
+                &mut new_pending,
+                grace_period,
+            );
         }
 
         // Remove confirmed orphans from pending
@@ -257,6 +219,52 @@ impl PathValidator {
             time_since_last_validation_secs: last.elapsed().as_secs(),
             pending_orphan_count: pending.len(),
         }
+    }
+}
+
+fn check_project_path(
+    project: RegisteredProject,
+    pending: &mut Vec<OrphanedProject>,
+    pending_ids: &HashSet<String>,
+    confirmed_orphans: &mut Vec<OrphanedProject>,
+    new_pending: &mut Vec<OrphanedProject>,
+    grace_period: Duration,
+) {
+    if project.path.exists() {
+        pending.retain(|o| o.project_id != project.project_id);
+        return;
+    }
+    if let Some(existing) = pending
+        .iter_mut()
+        .find(|o| o.project_id == project.project_id)
+    {
+        existing.failure_count += 1;
+        if existing.first_missing.elapsed() >= grace_period {
+            confirmed_orphans.push(OrphanedProject {
+                project_id: project.project_id.clone(),
+                path: project.path.clone(),
+                first_missing: existing.first_missing,
+                failure_count: existing.failure_count,
+            });
+            tracing::info!(
+                project_id = %project.project_id,
+                path = %project.path.display(),
+                failures = existing.failure_count,
+                "Project confirmed orphaned after grace period"
+            );
+        }
+    } else if !pending_ids.contains(&project.project_id) {
+        new_pending.push(OrphanedProject {
+            project_id: project.project_id.clone(),
+            path: project.path.clone(),
+            first_missing: Instant::now(),
+            failure_count: 1,
+        });
+        tracing::warn!(
+            project_id = %project.project_id,
+            path = %project.path.display(),
+            "Project path missing, starting grace period"
+        );
     }
 }
 

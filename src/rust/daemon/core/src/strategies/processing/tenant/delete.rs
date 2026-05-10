@@ -52,12 +52,8 @@ pub(crate) async fn process_delete_tenant_item(
         item.tenant_id
     );
 
-    // -- Step 3: Batch-delete tracked points from Qdrant by ID --
-    let mut total_qdrant_deleted =
-        delete_tracked_qdrant_points(ctx, &points_by_collection, QDRANT_BATCH_SIZE).await?;
-
-    // -- Step 3b: Sweep libraries collection for orphaned/untracked points --
-    total_qdrant_deleted += sweep_orphaned_library_points(
+    // -- Steps 3-5: Delete all Qdrant points across all collections --
+    let total_qdrant_deleted = delete_all_qdrant_points(
         ctx,
         &item.tenant_id,
         &points_by_collection,
@@ -65,41 +61,8 @@ pub(crate) async fn process_delete_tenant_item(
     )
     .await?;
 
-    // -- Step 3c: Sweep projects collection for any remaining points --
-    // Step 3 only deletes points found via tracked_files; orphan tenants
-    // (no watch_folder/tracked_files) still have Qdrant points that need
-    // a tenant-filter scroll+delete sweep.
-    total_qdrant_deleted += delete_collection_points(
-        ctx,
-        COLLECTION_PROJECTS,
-        &item.tenant_id,
-        QDRANT_BATCH_SIZE,
-        3,
-    )
-    .await?;
-
-    // -- Steps 4-5: Handle memory (rules) and scratchpad collections --
-    for (coll, step) in [(COLLECTION_RULES, 4u8), (COLLECTION_SCRATCHPAD, 5)] {
-        total_qdrant_deleted +=
-            delete_collection_points(ctx, coll, &item.tenant_id, QDRANT_BATCH_SIZE, step).await?;
-    }
-
     // -- Step 6: SQLite cleanup in single transaction --
-    let mut tx = pool.begin().await.map_err(|e| {
-        UnifiedProcessorError::ProcessingFailed(format!(
-            "Failed to begin delete transaction: {}",
-            e
-        ))
-    })?;
-
-    sqlite_cascade_delete(&mut tx, &item.tenant_id).await;
-
-    tx.commit().await.map_err(|e| {
-        UnifiedProcessorError::ProcessingFailed(format!(
-            "Failed to commit delete transaction: {}",
-            e
-        ))
-    })?;
+    run_sqlite_cascade(pool, &item.tenant_id).await?;
 
     // -- Step 6i: FTS5 cleanup --
     cleanup_fts5(ctx, &item.tenant_id).await;
@@ -114,6 +77,53 @@ pub(crate) async fn process_delete_tenant_item(
         "Successfully deleted tenant={}: {} Qdrant points, {} tracked files (queue_id={})",
         item.tenant_id, total_qdrant_deleted, file_count, item.queue_id
     );
+
+    Ok(())
+}
+
+/// Steps 3-5: Delete all Qdrant points for a tenant across all collections.
+async fn delete_all_qdrant_points(
+    ctx: &ProcessingContext,
+    tenant_id: &str,
+    points_by_collection: &std::collections::HashMap<String, Vec<String>>,
+    batch_size: usize,
+) -> UnifiedProcessorResult<u64> {
+    let mut total = delete_tracked_qdrant_points(ctx, points_by_collection, batch_size).await?;
+
+    total +=
+        sweep_orphaned_library_points(ctx, tenant_id, points_by_collection, batch_size).await?;
+
+    // Sweep projects collection for any remaining orphan tenant points
+    total += delete_collection_points(ctx, COLLECTION_PROJECTS, tenant_id, batch_size, 3).await?;
+
+    // Steps 4-5: Handle rules and scratchpad collections
+    for (coll, step) in [(COLLECTION_RULES, 4u8), (COLLECTION_SCRATCHPAD, 5)] {
+        total += delete_collection_points(ctx, coll, tenant_id, batch_size, step).await?;
+    }
+
+    Ok(total)
+}
+
+/// Run the SQLite cascade delete inside a transaction.
+async fn run_sqlite_cascade(
+    pool: &sqlx::SqlitePool,
+    tenant_id: &str,
+) -> UnifiedProcessorResult<()> {
+    let mut tx = pool.begin().await.map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!(
+            "Failed to begin delete transaction: {}",
+            e
+        ))
+    })?;
+
+    sqlite_cascade_delete(&mut tx, tenant_id).await;
+
+    tx.commit().await.map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!(
+            "Failed to commit delete transaction: {}",
+            e
+        ))
+    })?;
 
     Ok(())
 }
@@ -316,8 +326,6 @@ async fn delete_collection_points(
 /// Deletes (in order): qdrant_chunks, tracked_files, keywords, keyword_baskets,
 /// tags, tag_hierarchy_edges, canonical_tags, watch_folders.
 async fn sqlite_cascade_delete(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, tenant_id: &str) {
-    // Table deletion specs: (step label, SQL query, table name).
-    // Order matters -- children before parents, watch_folders last.
     let cascade_steps: &[(&str, &str, &str)] = &[
         (
             "6a",

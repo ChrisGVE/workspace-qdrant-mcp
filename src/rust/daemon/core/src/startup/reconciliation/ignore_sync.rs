@@ -39,31 +39,11 @@ pub async fn reconcile_ignore_rules(
     pool: &SqlitePool,
     queue_manager: &Arc<QueueManager>,
 ) -> Result<ReconcileStats, String> {
-    // Step 1: Find the watch_folder_id for this tenant
-    let row = sqlx::query(
-        "SELECT watch_id, path FROM watch_folders \
-         WHERE tenant_id = ?1 AND collection = ?2 AND enabled = 1 LIMIT 1",
-    )
-    .bind(tenant_id)
-    .bind(collection)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("lookup_watch_folder failed: {e}"))?
-    .ok_or_else(|| {
-        format!(
-            "No watch folder for tenant={} collection={}",
-            tenant_id, collection
-        )
-    })?;
-    let watch_id: String = row.get("watch_id");
+    let watch_id = fetch_watch_id(pool, tenant_id, collection).await?;
 
-    // Step 2: Walk project tree → eligible files
     let eligible_files = walk_eligible_files(project_root)?;
-
-    // Step 3: Get currently indexed files from DB
     let indexed_files = get_indexed_file_paths(pool, &watch_id).await?;
 
-    // Step 4: Diff
     let stale: Vec<&String> = indexed_files
         .iter()
         .filter(|p| !eligible_files.contains(p.as_str()))
@@ -92,17 +72,49 @@ pub async fn reconcile_ignore_rules(
         eligible_files.len()
     );
 
+    enqueue_reconcile_ops(queue_manager, tenant_id, collection, &stale, &missing).await
+}
+
+/// Look up the watch_id for a tenant+collection combination.
+async fn fetch_watch_id(
+    pool: &SqlitePool,
+    tenant_id: &str,
+    collection: &str,
+) -> Result<String, String> {
+    let row = sqlx::query(
+        "SELECT watch_id FROM watch_folders \
+         WHERE tenant_id = ?1 AND collection = ?2 AND enabled = 1 LIMIT 1",
+    )
+    .bind(tenant_id)
+    .bind(collection)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("lookup_watch_folder failed: {e}"))?
+    .ok_or_else(|| {
+        format!(
+            "No watch folder for tenant={} collection={}",
+            tenant_id, collection
+        )
+    })?;
+    Ok(row.get("watch_id"))
+}
+
+/// Enqueue delete + add operations for stale and missing files.
+async fn enqueue_reconcile_ops(
+    queue_manager: &Arc<QueueManager>,
+    tenant_id: &str,
+    collection: &str,
+    stale: &[&String],
+    missing: &[&String],
+) -> Result<ReconcileStats, String> {
     let mut stats = ReconcileStats::default();
 
-    // Step 5/6: Batch-enqueue deletions and additions in transactions of
-    // `IGNORE_SYNC_BATCH_SIZE`. Each batch is one SQLite transaction so
-    // large projects no longer pay a lock acquisition per file (issue #59).
     stats.stale_deleted = enqueue_ignore_ops(
         queue_manager,
         tenant_id,
         collection,
         QueueOperation::Delete,
-        &stale,
+        stale,
         "ignore_rule_change",
     )
     .await;
@@ -112,7 +124,7 @@ pub async fn reconcile_ignore_rules(
         tenant_id,
         collection,
         QueueOperation::Add,
-        &missing,
+        missing,
         "ignore_reconciliation",
     )
     .await;

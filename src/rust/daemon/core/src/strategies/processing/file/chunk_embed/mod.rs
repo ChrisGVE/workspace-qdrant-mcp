@@ -348,15 +348,50 @@ async fn process_single_chunk(
         ProcessingStatus::None
     };
 
+    let output = assemble_chunk_output(
+        ctx,
+        item,
+        chunk_idx,
+        &chunk.content,
+        embedding_result,
+        point_payload,
+        chunk_type,
+        symbol_name,
+        start_line,
+        end_line,
+        lsp_status,
+        treesitter_status,
+        base_point,
+        idf_epoch,
+    )
+    .await;
+
+    Ok(output)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn assemble_chunk_output(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    chunk_idx: usize,
+    content: &str,
+    embedding_result: crate::embedding::EmbeddingResult,
+    mut point_payload: std::collections::HashMap<String, serde_json::Value>,
+    chunk_type: Option<TrackedChunkType>,
+    symbol_name: Option<String>,
+    start_line: Option<i32>,
+    end_line: Option<i32>,
+    lsp_status: ProcessingStatus,
+    treesitter_status: ProcessingStatus,
+    base_point: &str,
+    idf_epoch: u64,
+) -> ChunkOutput {
     let point_id = wqm_common::hashing::compute_point_id(base_point, chunk_idx as u32);
-    let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
+    let content_hash = tracked_files_schema::compute_content_hash(content);
 
-    // Generate sparse vector
     let (sparse, used_lexicon_bm25) =
-        generate_sparse(ctx, item, &chunk.content, &embedding_result.sparse).await;
+        generate_sparse(ctx, item, content, &embedding_result.sparse).await;
 
-    // Store corpus size at ingest time for IDF drift correction (Task 5).
-    // Only written when lexicon-backed BM25 is used.
     if used_lexicon_bm25 && idf_epoch > 0 {
         point_payload.insert("idf_epoch".to_string(), serde_json::json!(idf_epoch));
     }
@@ -368,7 +403,7 @@ async fn process_single_chunk(
         payload: point_payload,
     };
 
-    Ok(ChunkOutput {
+    ChunkOutput {
         point,
         record: ChunkRecord {
             point_id,
@@ -381,7 +416,7 @@ async fn process_single_chunk(
         },
         lsp_status,
         treesitter_status,
-    })
+    }
 }
 
 #[cfg(test)]

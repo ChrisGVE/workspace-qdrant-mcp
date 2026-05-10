@@ -287,18 +287,22 @@ impl NetworkDiscovery {
             message.service_name
         );
 
-        // Verify authentication token if required
         if self.auth_token.is_some() && message.auth_token != self.auth_token {
             warn!("Authentication failed for message from {}", sender_addr);
-            return Ok(()); // Ignore unauthorized messages
+            return Ok(());
         }
 
+        self.dispatch_message(message, sender_addr).await;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    async fn dispatch_message(&self, message: DiscoveryMessage, sender_addr: SocketAddr) {
         match message.message_type {
-            DiscoveryMessageType::ServiceAnnouncement => {
+            DiscoveryMessageType::ServiceAnnouncement | DiscoveryMessageType::DiscoveryResponse => {
                 if let DiscoveryPayload::ServiceInfo(service_info) = message.payload {
                     self._cache_discovered_service(&message.service_name, service_info.clone())
                         .await;
-
                     let _ = self.event_sender.send(DiscoveryEvent::ServiceDiscovered {
                         service_name: message.service_name.clone(),
                         service_info,
@@ -308,44 +312,7 @@ impl NetworkDiscovery {
 
             DiscoveryMessageType::DiscoveryRequest => {
                 debug!("Received discovery request from {}", sender_addr);
-
-                if let DiscoveryPayload::Request { service_names, .. } = &message.payload {
-                    let local = self.local_services.read().await;
-
-                    // Respond with matching local services
-                    for (name, info) in local.iter() {
-                        // If service_names is empty, respond with all; otherwise filter
-                        if service_names.is_empty() || service_names.contains(name) {
-                            let response = DiscoveryMessage {
-                                message_type: DiscoveryMessageType::DiscoveryResponse,
-                                service_name: name.clone(),
-                                timestamp: current_iso_timestamp(),
-                                payload: DiscoveryPayload::ServiceInfo(info.clone()),
-                                auth_token: self.auth_token.clone(),
-                            };
-
-                            if let Err(e) = self.send_message_to(&response, sender_addr).await {
-                                warn!(
-                                    "Failed to send discovery response to {}: {}",
-                                    sender_addr, e
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            DiscoveryMessageType::DiscoveryResponse => {
-                // Handle discovery response (same as announcement)
-                if let DiscoveryPayload::ServiceInfo(service_info) = message.payload {
-                    self._cache_discovered_service(&message.service_name, service_info.clone())
-                        .await;
-
-                    let _ = self.event_sender.send(DiscoveryEvent::ServiceDiscovered {
-                        service_name: message.service_name.clone(),
-                        service_info,
-                    });
-                }
+                self.handle_discovery_request(&message, sender_addr).await;
             }
 
             DiscoveryMessageType::HealthPing => {
@@ -365,8 +332,30 @@ impl NetworkDiscovery {
                 });
             }
         }
+    }
 
-        Ok(())
+    #[allow(dead_code)]
+    async fn handle_discovery_request(&self, message: &DiscoveryMessage, sender_addr: SocketAddr) {
+        if let DiscoveryPayload::Request { service_names, .. } = &message.payload {
+            let local = self.local_services.read().await;
+            for (name, info) in local.iter() {
+                if service_names.is_empty() || service_names.contains(name) {
+                    let response = DiscoveryMessage {
+                        message_type: DiscoveryMessageType::DiscoveryResponse,
+                        service_name: name.clone(),
+                        timestamp: current_iso_timestamp(),
+                        payload: DiscoveryPayload::ServiceInfo(info.clone()),
+                        auth_token: self.auth_token.clone(),
+                    };
+                    if let Err(e) = self.send_message_to(&response, sender_addr).await {
+                        warn!(
+                            "Failed to send discovery response to {}: {}",
+                            sender_addr, e
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Cache a discovered service

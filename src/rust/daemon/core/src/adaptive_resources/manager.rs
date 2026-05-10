@@ -137,43 +137,17 @@ async fn run_adaptive_loop(
                     evaluate_ramp_down(&mut sys_state, &config, ramp_down_step, burst_hold);
                 }
 
-                // Active Processing Mode overlay: when user is present (not idle) and the
-                // state machine is at Normal (no idle ramp-up), boost to Active profile if
-                // the queue has pending work. The state machine level stays at Normal so
-                // ramp-up/ramp-down logic is unaffected.
-                let queue_has_work = queue_depth
-                    .as_ref()
-                    .map_or(false, |c| c.load(Ordering::Relaxed) > 0);
-                let effective_level = if !user_is_idle
-                    && sys_state.level == ResourceLevel::Normal
-                    && queue_has_work
-                {
-                    ResourceLevel::Active
-                } else {
-                    sys_state.level
-                };
-
-                let new_profile = profile_for_level(
-                    effective_level, &profiles.normal, &profiles.active,
-                    &profiles.elevated, &profiles.burst,
+                let effective_level = compute_effective_level(&sys_state, user_is_idle, &queue_depth);
+                current_profile = apply_profile_update(
+                    &state, &tx, &mut mode_tracker,
+                    &profiles, old_level, &sys_state,
+                    effective_level, idle_secs, current_profile,
                 );
-                let new_mode = ResourceMode::from(effective_level);
-                state.set_mode(new_mode);
-                state.set_profile(&new_profile);
-                mode_tracker.on_mode_change(effective_level, idle_secs);
-
-                if new_profile != current_profile {
-                    if old_level != sys_state.level || effective_level != sys_state.level {
-                        info!("Profile changed: embeddings {} -> {}, delay {}ms -> {}ms",
-                            current_profile.max_concurrent_embeddings, new_profile.max_concurrent_embeddings,
-                            current_profile.inter_item_delay_ms, new_profile.inter_item_delay_ms);
-                    }
-                    let _ = tx.send(new_profile);
-                    current_profile = new_profile;
-                }
 
                 heartbeat_counter += 1;
                 if heartbeat_counter % heartbeat_interval == 0 {
+                    let new_profile = profile_for_level(effective_level, &profiles.normal, &profiles.active, &profiles.elevated, &profiles.burst);
+                    let new_mode = ResourceMode::from(effective_level);
                     info!("Adaptive resources heartbeat: level={:?}, effective={:?}, mode={}, idle={:.0}s, cpu_pressure={}, embeddings={}, delay={}ms",
                         sys_state.level, effective_level, new_mode.as_str(), idle_secs, !cpu_ok,
                         new_profile.max_concurrent_embeddings, new_profile.inter_item_delay_ms);
@@ -183,6 +157,64 @@ async fn run_adaptive_loop(
                 }
             }
         }
+    }
+}
+
+/// Compute the effective resource level, applying the Active Processing Mode overlay.
+fn compute_effective_level(
+    sys_state: &SystemState,
+    user_is_idle: bool,
+    queue_depth: &Option<Arc<AtomicUsize>>,
+) -> ResourceLevel {
+    let queue_has_work = queue_depth
+        .as_ref()
+        .map_or(false, |c| c.load(Ordering::Relaxed) > 0);
+    if !user_is_idle && sys_state.level == ResourceLevel::Normal && queue_has_work {
+        ResourceLevel::Active
+    } else {
+        sys_state.level
+    }
+}
+
+/// Apply profile change to state/channel and return the new current profile.
+#[allow(clippy::too_many_arguments)]
+fn apply_profile_update(
+    state: &Arc<AdaptiveResourceState>,
+    tx: &watch::Sender<ResourceProfile>,
+    mode_tracker: &mut crate::idle_history::ModeTracker,
+    profiles: &Profiles,
+    old_level: ResourceLevel,
+    sys_state: &SystemState,
+    effective_level: ResourceLevel,
+    idle_secs: f64,
+    current_profile: ResourceProfile,
+) -> ResourceProfile {
+    let new_profile = profile_for_level(
+        effective_level,
+        &profiles.normal,
+        &profiles.active,
+        &profiles.elevated,
+        &profiles.burst,
+    );
+    let new_mode = ResourceMode::from(effective_level);
+    state.set_mode(new_mode);
+    state.set_profile(&new_profile);
+    mode_tracker.on_mode_change(effective_level, idle_secs);
+
+    if new_profile != current_profile {
+        if old_level != sys_state.level || effective_level != sys_state.level {
+            info!(
+                "Profile changed: embeddings {} -> {}, delay {}ms -> {}ms",
+                current_profile.max_concurrent_embeddings,
+                new_profile.max_concurrent_embeddings,
+                current_profile.inter_item_delay_ms,
+                new_profile.inter_item_delay_ms
+            );
+        }
+        let _ = tx.send(new_profile);
+        new_profile
+    } else {
+        current_profile
     }
 }
 

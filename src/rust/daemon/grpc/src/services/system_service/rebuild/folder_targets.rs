@@ -14,43 +14,14 @@ pub(super) async fn rebuild_watch_folders(
         return;
     };
 
-    // Fetch watch folders for the given collection (and optional tenant)
-    let folders: Vec<(String, String, String)> = if let Some(tid) = tenant_id {
-        match sqlx::query_as::<_, (String, String, String)>(
-            "SELECT watch_id, tenant_id, path FROM watch_folders \
-             WHERE collection = ?1 AND tenant_id = ?2 AND enabled = 1",
-        )
-        .bind(collection)
-        .bind(tid)
-        .fetch_all(pool)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!(
-                    "[rebuild:{}] Failed to fetch watch folders: {}",
-                    collection, e
-                );
-                return;
-            }
-        }
-    } else {
-        match sqlx::query_as::<_, (String, String, String)>(
-            "SELECT watch_id, tenant_id, path FROM watch_folders \
-             WHERE collection = ?1 AND enabled = 1",
-        )
-        .bind(collection)
-        .fetch_all(pool)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!(
-                    "[rebuild:{}] Failed to fetch watch folders: {}",
-                    collection, e
-                );
-                return;
-            }
+    let folders = match fetch_enabled_watch_folders(pool, collection, tenant_id).await {
+        Ok(f) => f,
+        Err(e) => {
+            error!(
+                "[rebuild:{}] Failed to fetch watch folders: {}",
+                collection, e
+            );
+            return;
         }
     };
 
@@ -95,6 +66,31 @@ pub(super) async fn rebuild_watch_folders(
         "[rebuild:{}] Enqueued {} scan operations for watch folders",
         collection, enqueued
     );
+}
+
+async fn fetch_enabled_watch_folders(
+    pool: &sqlx::SqlitePool,
+    collection: &str,
+    tenant_id: Option<&str>,
+) -> Result<Vec<(String, String, String)>, sqlx::Error> {
+    if let Some(tid) = tenant_id {
+        sqlx::query_as::<_, (String, String, String)>(
+            "SELECT watch_id, tenant_id, path FROM watch_folders \
+             WHERE collection = ?1 AND tenant_id = ?2 AND enabled = 1",
+        )
+        .bind(collection)
+        .bind(tid)
+        .fetch_all(pool)
+        .await
+    } else {
+        sqlx::query_as::<_, (String, String, String)>(
+            "SELECT watch_id, tenant_id, path FROM watch_folders \
+             WHERE collection = ?1 AND enabled = 1",
+        )
+        .bind(collection)
+        .fetch_all(pool)
+        .await
+    }
 }
 
 /// Re-detect and assign workspace components to tracked files.

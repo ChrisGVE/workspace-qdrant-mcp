@@ -34,7 +34,6 @@ pub(super) async fn execute_update_deletion(
 ) -> UnifiedProcessorResult<()> {
     let preamble_start = Instant::now();
 
-    // Compute new base_point for comparison
     let new_base_point = wqm_common::hashing::compute_base_point(
         &item.tenant_id,
         &item.branch,
@@ -42,26 +41,8 @@ pub(super) async fn execute_update_deletion(
         new_hash,
     );
 
-    // Reference-counted deletion: check if another watch folder still references the old base_point
-    let delete_old = if let Some(ref old_bp) = existing.base_point {
-        let has_refs = ctx
-            .queue_manager
-            .has_other_references(old_bp, watch_folder_id)
-            .await
-            .unwrap_or(false);
-        if has_refs {
-            info!(
-                "Old base_point {} still referenced by another watch folder, skipping Qdrant deletion",
-                old_bp
-            );
-        }
-        !has_refs
-    } else {
-        // No old base_point recorded -- safe to delete by filter
-        true
-    };
+    let delete_old = resolve_delete_old(ctx, existing, watch_folder_id).await;
 
-    // Build and store QueueDecision for retry-safe execution
     let decision = wqm_common::queue_types::QueueDecision {
         delete_old,
         old_base_point: existing.base_point.clone(),
@@ -76,10 +57,8 @@ pub(super) async fn execute_update_deletion(
         .await
     {
         warn!("Failed to store QueueDecision for {}: {}", item.queue_id, e);
-        // Non-fatal: proceed without stored decision
     }
 
-    // Execute old point deletion only if no other references
     if delete_old {
         let old_point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
             .await
@@ -91,9 +70,41 @@ pub(super) async fn execute_update_deletion(
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
     }
-    // Old chunk records will be cleaned up atomically in the transaction below
 
-    // Record update_preamble timing
+    record_preamble_timing(pool, item, payload, preamble_start).await;
+    Ok(())
+}
+
+/// Determine whether old Qdrant points should be deleted (reference-counted).
+async fn resolve_delete_old(
+    ctx: &ProcessingContext,
+    existing: &tracked_files_schema::TrackedFile,
+    watch_folder_id: &str,
+) -> bool {
+    if let Some(ref old_bp) = existing.base_point {
+        let has_refs = ctx
+            .queue_manager
+            .has_other_references(old_bp, watch_folder_id)
+            .await
+            .unwrap_or(false);
+        if has_refs {
+            info!(
+                "Old base_point {} still referenced by another watch folder, skipping Qdrant deletion",
+                old_bp
+            );
+        }
+        !has_refs
+    } else {
+        true
+    }
+}
+
+async fn record_preamble_timing(
+    pool: &SqlitePool,
+    item: &UnifiedQueueItem,
+    payload: &FilePayload,
+    preamble_start: Instant,
+) {
     let detected_language = detect_language(std::path::Path::new(&payload.file_path));
     processing_timings::record_timings(
         pool,
@@ -109,6 +120,4 @@ pub(super) async fn execute_update_deletion(
         }],
     )
     .await;
-
-    Ok(())
 }

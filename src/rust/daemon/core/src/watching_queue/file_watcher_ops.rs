@@ -7,7 +7,7 @@ use std::time::Duration;
 use notify::EventKind;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::interval;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::file_classification::classify_file_type;
@@ -19,8 +19,10 @@ use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation as Unifi
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use super::error_state::WatchErrorTracker;
-use super::error_types::ErrorCategory;
 use super::file_watcher::FileWatcherQueue;
+use super::file_watcher_ops_helpers::{
+    handle_enqueue_error, record_retry_exhaustion, should_filter_debounced_event,
+};
 use super::throttle::QueueThrottleState;
 use super::types::{
     get_current_branch, CompiledPatterns, EventDebouncer, FileEvent, WatchConfig, WatchType,
@@ -242,39 +244,8 @@ impl FileWatcherQueue {
             debouncer_lock.get_ready_events()
         };
         for event in ready_events {
-            // Check exclusion patterns (Task 518)
-            if !matches!(event.event_kind, EventKind::Remove(_)) {
-                if should_exclude_file(&event.path.to_string_lossy()) {
-                    continue;
-                }
-            }
-            // Check allowlist via route_file() (Task 511/567)
-            if !matches!(event.event_kind, EventKind::Remove(_)) {
-                let collection_for_check = {
-                    let config_lock = config.read().await;
-                    match config_lock.watch_type {
-                        WatchType::Library => "libraries",
-                        WatchType::Project => "projects",
-                    }
-                    .to_string()
-                };
-                if matches!(
-                    allowed_extensions.route_file(
-                        &event.path.to_string_lossy(),
-                        &collection_for_check,
-                        ""
-                    ),
-                    FileRoute::Excluded
-                ) {
-                    continue;
-                }
-            }
-            // Double-check patterns
-            {
-                let patterns_lock = patterns.read().await;
-                if !patterns_lock.should_process(&event.path) {
-                    continue;
-                }
+            if should_filter_debounced_event(&event, config, allowed_extensions, patterns).await {
+                continue;
             }
             Self::enqueue_file_operation(
                 event,
@@ -543,38 +514,20 @@ impl FileWatcherQueue {
                     tokio::time::sleep(Duration::from_millis(delay)).await;
                 }
                 Err(ref e) => {
-                    let mut count = queue_errors.lock().await;
-                    *count += 1;
-                    let error_msg = e.to_string();
-                    let error_category = ErrorCategory::categorize_str(&error_msg);
-                    if attempt == MAX_RETRIES - 1 || error_category == ErrorCategory::Permanent {
-                        let backoff_delay = error_tracker.record_error(watch_id, &error_msg).await;
-                        let health_status = error_tracker.get_health_status(watch_id).await;
-                        error!("Failed to enqueue: {} (attempt {}/{}, category={}, health={}, backoff_ms={})",
-                            e, attempt + 1, MAX_RETRIES,
-                            error_category.as_str(), health_status.as_str(), backoff_delay);
-                    } else {
-                        error!(
-                            "Failed to enqueue: {} (attempt {}/{})",
-                            e,
-                            attempt + 1,
-                            MAX_RETRIES
-                        );
-                    }
+                    handle_enqueue_error(
+                        e,
+                        error_tracker,
+                        watch_id,
+                        attempt,
+                        MAX_RETRIES,
+                        queue_errors,
+                    )
+                    .await;
                     return;
                 }
             }
         }
 
-        let error_msg = format!("Failed after {} retries", MAX_RETRIES);
-        let _backoff_delay = error_tracker.record_error(watch_id, &error_msg).await;
-        let health_status = error_tracker.get_health_status(watch_id).await;
-        let mut count = queue_errors.lock().await;
-        *count += 1;
-        error!(
-            "Enqueue failed after {} retries (watch health: {})",
-            MAX_RETRIES,
-            health_status.as_str()
-        );
+        record_retry_exhaustion(error_tracker, watch_id, queue_errors, MAX_RETRIES).await;
     }
 }

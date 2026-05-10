@@ -46,7 +46,7 @@ pub async fn scrape_all(
 ) -> Result<ScrapedData> {
     let mut data = ScrapedData::default();
 
-    // ── LANGUAGES (backbone) ────────────────────────────────────────
+    // Languages (backbone)
     if is_enabled("linguist", source_filter) {
         match scrape_linguist().await {
             Ok(languages) => {
@@ -61,103 +61,85 @@ pub async fn scrape_all(
         }
     }
 
-    // ── GRAMMARS (tier 1-3) ─────────────────────────────────────────
-    // Tier 1: tree-sitter-grammars org (curated)
-    if is_enabled("ts-grammars", source_filter) {
-        match scrape_ts_grammars_org(github_token).await {
-            Ok(grammars) => {
-                tracing::info!(count = grammars.len(), "ts-grammars: fetched grammars");
-                data.grammars.extend(grammars);
-            }
-            Err(e) => {
-                let msg = format!("ts-grammars scrape failed: {e}");
-                tracing::warn!("{msg}");
-                data.warnings.push(msg);
-            }
-        }
-    }
+    // Grammars (tier 1-3)
+    scrape_grammar_sources(source_filter, github_token, &mut data).await;
 
-    // Tier 2: tree-sitter wiki List-of-parsers
-    if is_enabled("ts-wiki", source_filter) {
-        match scrape_ts_wiki().await {
-            Ok(grammars) => {
-                tracing::info!(count = grammars.len(), "ts-wiki: fetched grammars");
-                data.grammars.extend(grammars);
-            }
-            Err(e) => {
-                let msg = format!("ts-wiki scrape failed: {e}");
-                tracing::warn!("{msg}");
-                data.warnings.push(msg);
-            }
-        }
-    }
-
-    // Tier 3: nvim-treesitter lockfile
-    if is_enabled("nvim-treesitter", source_filter) {
-        match scrape_nvim_treesitter().await {
-            Ok(grammars) => {
-                tracing::info!(count = grammars.len(), "nvim-treesitter: fetched grammars");
-                data.grammars.extend(grammars);
-            }
-            Err(e) => {
-                let msg = format!("nvim-treesitter scrape failed: {e}");
-                tracing::warn!("{msg}");
-                data.warnings.push(msg);
-            }
-        }
-    }
-
-    // ── LSP SERVERS (tier 1-3) ──────────────────────────────────────
-    // Tier 1a: Microsoft LSP implementors
-    if is_enabled("microsoft-lsp", source_filter) {
-        match scrape_microsoft_lsp().await {
-            Ok(servers) => {
-                tracing::info!(count = servers.len(), "microsoft-lsp: fetched LSP servers");
-                data.lsp_servers.extend(servers);
-            }
-            Err(e) => {
-                let msg = format!("microsoft-lsp scrape failed: {e}");
-                tracing::warn!("{msg}");
-                data.warnings.push(msg);
-            }
-        }
-    }
-
-    // Tier 1b: langserver.org
-    if is_enabled("langserver-org", source_filter) {
-        match scrape_langserver_org().await {
-            Ok(servers) => {
-                tracing::info!(count = servers.len(), "langserver-org: fetched LSP servers");
-                data.lsp_servers.extend(servers);
-            }
-            Err(e) => {
-                let msg = format!("langserver-org scrape failed: {e}");
-                tracing::warn!("{msg}");
-                data.warnings.push(msg);
-            }
-        }
-    }
-
-    // Tier 3: mason-registry
-    if is_enabled("mason", source_filter) {
-        match scrape_mason().await {
-            Ok(servers) => {
-                tracing::info!(count = servers.len(), "mason: fetched LSP servers");
-                data.lsp_servers.extend(servers);
-            }
-            Err(e) => {
-                let msg = format!("mason scrape failed: {e}");
-                tracing::warn!("{msg}");
-                data.warnings.push(msg);
-            }
-        }
-    }
+    // LSP servers (tier 1-3)
+    scrape_lsp_sources(source_filter, &mut data).await;
 
     if data.languages.is_empty() && data.grammars.is_empty() && data.lsp_servers.is_empty() {
-        anyhow::bail!("All sources failed — no data scraped");
+        anyhow::bail!("All sources failed -- no data scraped");
     }
 
     Ok(data)
+}
+
+/// Scrape grammar entries from all enabled grammar providers.
+async fn scrape_grammar_sources(
+    source_filter: Option<&[String]>,
+    github_token: Option<&str>,
+    data: &mut ScrapedData,
+) {
+    let sources: &[(&str, &str)] = &[
+        ("ts-grammars", "ts-grammars"),
+        ("ts-wiki", "ts-wiki"),
+        ("nvim-treesitter", "nvim-treesitter"),
+    ];
+
+    for &(name, label) in sources {
+        if !is_enabled(name, source_filter) {
+            continue;
+        }
+        let result = match name {
+            "ts-grammars" => scrape_ts_grammars_org(github_token).await,
+            "ts-wiki" => scrape_ts_wiki().await,
+            "nvim-treesitter" => scrape_nvim_treesitter().await,
+            _ => continue,
+        };
+        match result {
+            Ok(grammars) => {
+                tracing::info!(count = grammars.len(), "{label}: fetched grammars");
+                data.grammars.extend(grammars);
+            }
+            Err(e) => {
+                let msg = format!("{label} scrape failed: {e}");
+                tracing::warn!("{msg}");
+                data.warnings.push(msg);
+            }
+        }
+    }
+}
+
+/// Scrape LSP server entries from all enabled LSP providers.
+async fn scrape_lsp_sources(source_filter: Option<&[String]>, data: &mut ScrapedData) {
+    let sources: &[(&str, &str)] = &[
+        ("microsoft-lsp", "microsoft-lsp"),
+        ("langserver-org", "langserver-org"),
+        ("mason", "mason"),
+    ];
+
+    for &(name, label) in sources {
+        if !is_enabled(name, source_filter) {
+            continue;
+        }
+        let result = match name {
+            "microsoft-lsp" => scrape_microsoft_lsp().await,
+            "langserver-org" => scrape_langserver_org().await,
+            "mason" => scrape_mason().await,
+            _ => continue,
+        };
+        match result {
+            Ok(servers) => {
+                tracing::info!(count = servers.len(), "{label}: fetched LSP servers");
+                data.lsp_servers.extend(servers);
+            }
+            Err(e) => {
+                let msg = format!("{label} scrape failed: {e}");
+                tracing::warn!("{msg}");
+                data.warnings.push(msg);
+            }
+        }
+    }
 }
 
 /// Scrape language identity from GitHub Linguist.
@@ -368,7 +350,7 @@ async fn scrape_microsoft_lsp() -> Result<Vec<LspEntry>> {
 
 /// Fallback: scrape Microsoft LSP implementors HTML page.
 async fn scrape_microsoft_lsp_html() -> Result<Vec<LspEntry>> {
-    // This is a placeholder — HTML parsing is complex and fragile.
+    // This is a placeholder -- HTML parsing is complex and fragile.
     // Return empty for now; mason-registry provides adequate LSP coverage.
     tracing::info!("Microsoft LSP HTML fallback not implemented, skipping");
     Ok(Vec::new())
@@ -464,7 +446,7 @@ pub fn available_sources() -> &'static [&'static str] {
     ALL_SOURCES
 }
 
-// ── Trait import for provider methods ──────────────────────────────
+// -- Trait import for provider methods --
 use workspace_qdrant_core::language_registry::provider::LanguageSourceProvider;
 
 #[cfg(test)]

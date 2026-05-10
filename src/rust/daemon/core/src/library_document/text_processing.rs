@@ -78,7 +78,6 @@ pub(super) fn split_markdown_text(text: &str) -> Result<Vec<StructuralUnit>, Lib
     let mut section_index = 0usize;
     let mut in_frontmatter = false;
     for (line_idx, line) in text.lines().enumerate() {
-        // Handle YAML frontmatter
         if line_idx == 0 && line.trim() == "---" {
             in_frontmatter = true;
             continue;
@@ -90,28 +89,14 @@ pub(super) fn split_markdown_text(text: &str) -> Result<Vec<StructuralUnit>, Lib
             continue;
         }
 
-        // Check for ATX headings
         if let Some(heading) = parse_atx_heading(line) {
-            // Flush previous section
-            if !current_text.is_empty() || current_title.is_some() {
-                let cleaned = clean_text(&current_text);
-                if !cleaned.is_empty() {
-                    let mut locator = serde_json::json!({
-                        "section_index": section_index,
-                        "heading_level": current_level,
-                    });
-                    if let Some(ref title) = current_title {
-                        locator["title"] = serde_json::Value::String(title.clone());
-                    }
-                    units.push(StructuralUnit {
-                        unit_type: "markdown_section".to_string(),
-                        unit_locator: locator,
-                        text: cleaned,
-                        title: current_title.take(),
-                    });
-                    section_index += 1;
-                }
-            }
+            flush_markdown_section(
+                &mut units,
+                &mut current_title,
+                current_level,
+                &mut current_text,
+                &mut section_index,
+            );
             current_title = Some(heading.title);
             current_level = heading.level;
             current_text.clear();
@@ -125,8 +110,54 @@ pub(super) fn split_markdown_text(text: &str) -> Result<Vec<StructuralUnit>, Lib
         }
     }
 
-    // Flush final section
-    let cleaned = clean_text(&current_text);
+    flush_final_markdown_section(
+        &mut units,
+        current_title,
+        current_level,
+        &current_text,
+        section_index,
+    );
+
+    debug!("Markdown split into {} sections", units.len());
+    Ok(units)
+}
+
+fn flush_markdown_section(
+    units: &mut Vec<StructuralUnit>,
+    current_title: &mut Option<String>,
+    current_level: usize,
+    current_text: &mut String,
+    section_index: &mut usize,
+) {
+    if !current_text.is_empty() || current_title.is_some() {
+        let cleaned = clean_text(current_text);
+        if !cleaned.is_empty() {
+            let mut locator = serde_json::json!({
+                "section_index": *section_index,
+                "heading_level": current_level,
+            });
+            if let Some(ref title) = current_title {
+                locator["title"] = serde_json::Value::String(title.clone());
+            }
+            units.push(StructuralUnit {
+                unit_type: "markdown_section".to_string(),
+                unit_locator: locator,
+                text: cleaned,
+                title: current_title.take(),
+            });
+            *section_index += 1;
+        }
+    }
+}
+
+fn flush_final_markdown_section(
+    units: &mut Vec<StructuralUnit>,
+    current_title: Option<String>,
+    current_level: usize,
+    current_text: &str,
+    section_index: usize,
+) {
+    let cleaned = clean_text(current_text);
     if !cleaned.is_empty() || current_title.is_some() {
         let actual_text = if cleaned.is_empty() {
             current_title.clone().unwrap_or_default()
@@ -134,7 +165,6 @@ pub(super) fn split_markdown_text(text: &str) -> Result<Vec<StructuralUnit>, Lib
             cleaned
         };
         if !actual_text.is_empty() {
-            // If we never encountered any headings, use text_section type
             let unit_type = if section_index == 0 && current_title.is_none() {
                 UNIT_TYPE_TEXT_SECTION.to_string()
             } else {
@@ -144,7 +174,7 @@ pub(super) fn split_markdown_text(text: &str) -> Result<Vec<StructuralUnit>, Lib
                 "section_index": section_index,
                 "heading_level": current_level,
             });
-            if let Some(ref title) = current_title {
+            if let Some(ref title) = &current_title {
                 locator["title"] = serde_json::Value::String(title.clone());
             }
             units.push(StructuralUnit {
@@ -155,9 +185,6 @@ pub(super) fn split_markdown_text(text: &str) -> Result<Vec<StructuralUnit>, Lib
             });
         }
     }
-
-    debug!("Markdown split into {} sections", units.len());
-    Ok(units)
 }
 
 /// Split text into paragraph-group sections.
@@ -277,7 +304,6 @@ pub(super) fn strip_rtf_control_codes(rtf: &str) -> String {
         match chars[i] {
             '{' => {
                 brace_depth += 1;
-                // Check if this is a special group to skip
                 let rest: String = chars[i..].iter().take(20).collect();
                 if rest.contains("\\fonttbl")
                     || rest.contains("\\colortbl")
@@ -296,48 +322,7 @@ pub(super) fn strip_rtf_control_codes(rtf: &str) -> String {
                 i += 1;
             }
             '\\' if !skip_group => {
-                i += 1;
-                if i >= chars.len() {
-                    break;
-                }
-                match chars[i] {
-                    '\n' | '\r' => {
-                        i += 1;
-                    }
-                    '\'' => {
-                        // Hex escape: \'XX
-                        i += 1;
-                        if i + 1 < chars.len() {
-                            let hex: String = chars[i..i + 2].iter().collect();
-                            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                                text.push(byte as char);
-                            }
-                            i += 2;
-                        }
-                    }
-                    _ => {
-                        // Control word — skip until space or non-alpha
-                        let mut word = String::new();
-                        while i < chars.len() && chars[i].is_ascii_alphabetic() {
-                            word.push(chars[i]);
-                            i += 1;
-                        }
-                        // Skip optional numeric parameter
-                        while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
-                            i += 1;
-                        }
-                        // Skip trailing space delimiter
-                        if i < chars.len() && chars[i] == ' ' {
-                            i += 1;
-                        }
-                        // Translate known control words
-                        match word.as_str() {
-                            "par" | "line" => text.push('\n'),
-                            "tab" => text.push('\t'),
-                            _ => {}
-                        }
-                    }
-                }
+                i = process_rtf_backslash(&chars, i + 1, &mut text);
             }
             _ if !skip_group => {
                 text.push(chars[i]);
@@ -350,6 +335,46 @@ pub(super) fn strip_rtf_control_codes(rtf: &str) -> String {
     }
 
     text
+}
+
+fn process_rtf_backslash(chars: &[char], mut i: usize, text: &mut String) -> usize {
+    if i >= chars.len() {
+        return i;
+    }
+    match chars[i] {
+        '\n' | '\r' => {
+            i += 1;
+        }
+        '\'' => {
+            i += 1;
+            if i + 1 < chars.len() {
+                let hex: String = chars[i..i + 2].iter().collect();
+                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                    text.push(byte as char);
+                }
+                i += 2;
+            }
+        }
+        _ => {
+            let mut word = String::new();
+            while i < chars.len() && chars[i].is_ascii_alphabetic() {
+                word.push(chars[i]);
+                i += 1;
+            }
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '-') {
+                i += 1;
+            }
+            if i < chars.len() && chars[i] == ' ' {
+                i += 1;
+            }
+            match word.as_str() {
+                "par" | "line" => text.push('\n'),
+                "tab" => text.push('\t'),
+                _ => {}
+            }
+        }
+    }
+    i
 }
 
 #[cfg(test)]

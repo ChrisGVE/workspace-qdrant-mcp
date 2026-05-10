@@ -188,33 +188,43 @@ impl ProjectServiceImpl {
                 })
             }
             RegistrationAction::WorktreeAutoRegistered { result } => {
-                let WorktreeResult::Registered {
-                    canonical_path,
-                    is_high_priority: hp,
-                } = result
-                else {
-                    unreachable!("WorktreeAutoRegistered always contains Registered variant")
-                };
-                if hp {
-                    self.activate_new_project(&project_id, &canonical_path)
-                        .await;
-                }
-                self.signal_watch_refresh(&project_id);
-                Ok(RegisterProjectResponse {
-                    created: true,
-                    project_id,
-                    priority: if hp {
-                        "high".to_string()
-                    } else {
-                        effective_priority.to_string()
-                    },
-                    is_active: hp,
-                    newly_registered: true,
-                    is_worktree: true,
-                    watch_path: Some(canonical_path),
-                })
+                self.handle_worktree_registered(result, project_id, effective_priority)
+                    .await
             }
         }
+    }
+
+    async fn handle_worktree_registered(
+        &self,
+        result: WorktreeResult,
+        project_id: String,
+        effective_priority: &str,
+    ) -> Result<RegisterProjectResponse, Status> {
+        let WorktreeResult::Registered {
+            canonical_path,
+            is_high_priority: hp,
+        } = result
+        else {
+            unreachable!("WorktreeAutoRegistered always contains Registered variant")
+        };
+        if hp {
+            self.activate_new_project(&project_id, &canonical_path)
+                .await;
+        }
+        self.signal_watch_refresh(&project_id);
+        Ok(RegisterProjectResponse {
+            created: true,
+            project_id,
+            priority: if hp {
+                "high".to_string()
+            } else {
+                effective_priority.to_string()
+            },
+            is_active: hp,
+            newly_registered: true,
+            is_worktree: true,
+            watch_path: Some(canonical_path),
+        })
     }
 
     /// Signal WatchManager to refresh watch configuration

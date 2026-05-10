@@ -32,7 +32,6 @@ pub(crate) async fn cleanup_excluded_files(
 ) -> UnifiedProcessorResult<u64> {
     let pool = queue_manager.pool();
 
-    // Look up watch_folder for this project
     let watch_info =
         tracked_files_schema::lookup_watch_folder(pool, &item.tenant_id, &item.collection)
             .await
@@ -46,7 +45,6 @@ pub(crate) async fn cleanup_excluded_files(
     let (watch_folder_id, base_path) = match &watch_info {
         Some((wid, bp)) => (wid.as_str(), bp.as_str()),
         None => {
-            // No watch_folder -- fall back to Qdrant scroll for backward compatibility
             debug!(
                 "No watch_folder for tenant_id={}, falling back to Qdrant scroll for cleanup",
                 item.tenant_id
@@ -62,7 +60,25 @@ pub(crate) async fn cleanup_excluded_files(
         }
     };
 
-    // Query tracked_files for all files in this project (fast SQLite query)
+    cleanup_tracked_files(
+        item,
+        queue_manager,
+        allowed_extensions,
+        watch_folder_id,
+        base_path,
+    )
+    .await
+}
+
+async fn cleanup_tracked_files(
+    item: &UnifiedQueueItem,
+    queue_manager: &Arc<QueueManager>,
+    allowed_extensions: &Arc<AllowedExtensions>,
+    watch_folder_id: &str,
+    base_path: &str,
+) -> UnifiedProcessorResult<u64> {
+    let pool = queue_manager.pool();
+
     let tracked_files = tracked_files_schema::get_tracked_file_paths(pool, watch_folder_id)
         .await
         .map_err(|e| {
@@ -85,16 +101,13 @@ pub(crate) async fn cleanup_excluded_files(
     );
 
     let mut files_cleaned = 0u64;
-
     for (_file_id, rel_path, _branch) in &tracked_files {
         let abs_path = Path::new(base_path).join(rel_path);
         let should_clean = should_exclude_file(rel_path)
             || !allowed_extensions.is_allowed(&abs_path.to_string_lossy(), &item.collection);
-
         if !should_clean {
             continue;
         }
-
         let abs_path_str = abs_path.to_string_lossy().to_string();
         if enqueue_file_for_deletion(item, &abs_path_str, queue_manager).await? {
             files_cleaned += 1;
@@ -104,14 +117,12 @@ pub(crate) async fn cleanup_excluded_files(
             );
         }
     }
-
     if files_cleaned > 0 {
         info!(
             "Queued {} excluded files for deletion (watch_folder_id={})",
             files_cleaned, watch_folder_id
         );
     }
-
     Ok(files_cleaned)
 }
 

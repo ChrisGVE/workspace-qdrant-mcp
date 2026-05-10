@@ -151,12 +151,10 @@ async fn run_ingest_pipeline(
 ) -> UnifiedProcessorResult<()> {
     let mut timings: Vec<PhaseTiming> = Vec::new();
 
-    // Detect language for timing records (with gitattributes override)
     let overrides = component::get_gitattributes(ctx, base_path).await;
     let detected_language =
         crate::tree_sitter::detect_language_with_overrides(file_path, relative_path, &overrides);
 
-    // Phase 0: grammar availability + Phase 1: parse
     let provider =
         grammar::ensure_grammar_available(ctx, file_path, relative_path, &overrides).await;
     let (document_content, file_document_id, file_hash, base_point) = parse_document(
@@ -170,7 +168,6 @@ async fn run_ingest_pipeline(
     )
     .await?;
 
-    // Phases 2–5: embed → keyword/graph → component → collect results
     let (points, chunk_records, lsp_status, treesitter_status) = run_middle_phases(
         ctx,
         item,
@@ -188,7 +185,6 @@ async fn run_ingest_pipeline(
     )
     .await?;
 
-    // Phase 6: Qdrant upsert + tracked_files + mark qdrant done
     let file_id = upsert_and_mark_done(
         ctx,
         item,
@@ -208,8 +204,7 @@ async fn run_ingest_pipeline(
     )
     .await?;
 
-    // Phase 7: FTS5 search index
-    update_search_index(
+    finish_pipeline(
         ctx,
         item,
         pool,
@@ -218,17 +213,45 @@ async fn run_ingest_pipeline(
         &base_point,
         relative_path,
         &file_hash,
+        detected_language,
         &mut timings,
     )
     .await;
 
-    record_pipeline_timings(pool, item, detected_language, &timings).await;
+    Ok(())
+}
 
+/// FTS5 indexing + timing record + success log (phases 7 and final).
+#[allow(clippy::too_many_arguments)]
+async fn finish_pipeline(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &SqlitePool,
+    file_id: i64,
+    payload: &FilePayload,
+    base_point: &str,
+    relative_path: &str,
+    file_hash: &str,
+    detected_language: Option<&'static str>,
+    timings: &mut Vec<PhaseTiming>,
+) {
+    update_search_index(
+        ctx,
+        item,
+        pool,
+        file_id,
+        payload,
+        base_point,
+        relative_path,
+        file_hash,
+        timings,
+    )
+    .await;
+    record_pipeline_timings(pool, item, detected_language, timings).await;
     info!(
         "Successfully processed file item {} ({})",
         item.queue_id, payload.file_path
     );
-    Ok(())
 }
 
 /// Phases 2–5: embed chunks, extract keywords/graph, inject component.

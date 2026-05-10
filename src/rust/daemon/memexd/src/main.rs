@@ -123,11 +123,56 @@ async fn run_daemon(
     )
     .await?;
 
-    // Phase 5a: Embedding-dim consistency guard.
-    //
-    // Refuse to start when the active provider's `output_dim` disagrees with
-    // the dim of the existing `projects` collection. `--bootstrap-reembed`
-    // suppresses the guard for provider migration. See PRD §6.5.
+    // Phase 5a-5b: Dimension consistency + health monitor
+    check_dim_and_start_health_monitor(&daemon_config, &args, &mut qc).await?;
+
+    // Phase 6: gRPC server + queue start + recovery
+    let embedding_settings = Arc::new(daemon_config.embedding.clone());
+    bg_handles.grpc_handle = Some(wire_grpc(
+        &args,
+        &db_handles,
+        &qc,
+        &lsp_manager,
+        &watch_refresh_signal,
+        embedding_settings,
+    )?);
+    queue_init::start_processor(&mut qc.unified_queue_processor, &daemon_config).await?;
+    queue_init::spawn_recovery_tasks(
+        &qc.unified_queue_processor,
+        &qc.allowed_extensions,
+        &qc.mirror_storage,
+        &daemon_config,
+    );
+
+    let _ignore_reconcile_handle =
+        database::spawn_background_reconciliation(db_handles.queue_pool.clone());
+
+    // Phase 6b: File watching + hierarchy
+    let (watch_manager, hierarchy_cancel) =
+        start_watchers_and_hierarchy(&qc, &watch_refresh_signal).await;
+
+    info!(
+        "memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.",
+        args.grpc_port
+    );
+
+    // Phase 7: Wait for shutdown signal, then clean up
+    if let Err(e) = shutdown::wait_for_signal().await {
+        error!("Error in signal handling: {}", e);
+    }
+    shutdown::stop_watchers(&watch_manager).await;
+    shutdown::stop_queue_processor(&mut qc.unified_queue_processor).await;
+    shutdown::stop_lsp(lsp_manager).await;
+    shutdown::abort_background_tasks(bg_handles, qc.adaptive_shutdown_token, hierarchy_cancel);
+    Ok(())
+}
+
+/// Phase 5a-5b: Verify embedding dimension consistency and start health monitor.
+async fn check_dim_and_start_health_monitor(
+    daemon_config: &DaemonConfig,
+    args: &DaemonArgs,
+    qc: &mut queue_init::QueueComponents,
+) -> Result<(), Box<dyn std::error::Error>> {
     let active_dim = daemon_config.embedding.output_dim;
     if let Err(e) = workspace_qdrant_core::specs::check_dim_consistency(
         &qc.mirror_storage,
@@ -156,7 +201,6 @@ async fn run_daemon(
         return Err(Box::new(e));
     }
 
-    // Phase 5b: Background dense-provider health probe loop.
     let health_monitor = workspace_qdrant_core::embedding::provider::ProviderHealthMonitor::new(
         Arc::clone(&qc.dense_provider),
         std::time::Duration::from_secs(
@@ -166,52 +210,22 @@ async fn run_daemon(
     let health_monitor_token = qc.adaptive_shutdown_token.child_token();
     tokio::spawn(async move { health_monitor.run(health_monitor_token).await });
 
-    // Phase 6: gRPC server + queue start + recovery
-    let embedding_settings = Arc::new(daemon_config.embedding.clone());
-    bg_handles.grpc_handle = Some(wire_grpc(
-        &args,
-        &db_handles,
-        &qc,
-        &lsp_manager,
-        &watch_refresh_signal,
-        embedding_settings,
-    )?);
-    queue_init::start_processor(&mut qc.unified_queue_processor, &daemon_config).await?;
-    queue_init::spawn_recovery_tasks(
-        &qc.unified_queue_processor,
-        &qc.allowed_extensions,
-        &qc.mirror_storage,
-        &daemon_config,
-    );
+    Ok(())
+}
 
-    // gRPC is serving — run the slow ignore-rule reconciliation in the
-    // background so projects with many files no longer delay readiness
-    // (issue #59).
-    let _ignore_reconcile_handle =
-        database::spawn_background_reconciliation(db_handles.queue_pool.clone());
-
-    // Phase 6b: File watching + hierarchy
-    let watch_manager = start_file_watchers(&qc, &watch_refresh_signal).await;
+/// Phase 6b: Start file watchers, git event consumer, and hierarchy builder.
+async fn start_watchers_and_hierarchy(
+    qc: &queue_init::QueueComponents,
+    watch_refresh_signal: &Arc<Notify>,
+) -> (Arc<WatchManager>, tokio_util::sync::CancellationToken) {
+    let watch_manager = start_file_watchers(qc, watch_refresh_signal).await;
     spawn_git_event_consumer(&qc.unified_queue_processor, &watch_manager);
     let hierarchy_cancel = tokio_util::sync::CancellationToken::new();
     let _hierarchy_handle =
         Arc::clone(&qc.hierarchy_builder).start_scheduled(hierarchy_cancel.clone());
     info!("Canonical tag hierarchy rebuild scheduled (nightly at 2 AM)");
     spawn_hierarchy_bootstrap(&qc.hierarchy_builder);
-    info!(
-        "memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.",
-        args.grpc_port
-    );
-
-    // Phase 7: Wait for shutdown signal, then clean up
-    if let Err(e) = shutdown::wait_for_signal().await {
-        error!("Error in signal handling: {}", e);
-    }
-    shutdown::stop_watchers(&watch_manager).await;
-    shutdown::stop_queue_processor(&mut qc.unified_queue_processor).await;
-    shutdown::stop_lsp(lsp_manager).await;
-    shutdown::abort_background_tasks(bg_handles, qc.adaptive_shutdown_token, hierarchy_cancel);
-    Ok(())
+    (watch_manager, hierarchy_cancel)
 }
 
 /// Start file watchers for all enabled watch folders.
@@ -380,7 +394,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let args = startup::parse_args()?;
     // Load config first so we can honor the OTLP settings during
     // subscriber initialization. Config loading uses tracing calls that are
-    // dropped until the subscriber is installed — acceptable tradeoff for
+    // dropped until the subscriber is installed -- acceptable tradeoff for
     // getting OTLP export on `#[instrument]` spans right from startup.
     let config = startup::load_config(&args).map_err(|e| {
         error!("Failed to load configuration: {}", e);

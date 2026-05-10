@@ -356,16 +356,33 @@ where
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()));
     let disable_ansi = determine_disable_ansi(daemon_mode, config.force_disable_ansi);
-    let registry = Registry::default();
 
-    // Install the OTel layer first so the bound `L: Layer<Registry>` holds
-    // regardless of how many other layers sit above it. Filters applied by
-    // later `.with()` calls still apply to the OTel layer's event flow.
+    install_registry_layers(&config, otel_layer, env_filter, disable_ansi, daemon_mode)?;
+
+    info!(config = ?config, "Logging system initialized");
+    for (key, value) in &config.global_fields {
+        tracing::Span::current().record(key.as_str(), value.as_str());
+    }
+
+    Ok(())
+}
+
+fn install_registry_layers<L>(
+    config: &LoggingConfig,
+    otel_layer: Option<L>,
+    env_filter: EnvFilter,
+    disable_ansi: bool,
+    daemon_mode: bool,
+) -> Result<(), WorkspaceError>
+where
+    L: Layer<Registry> + Send + Sync + 'static,
+{
+    let registry = Registry::default();
     if config.console_output && config.file_logging {
         let log_file_path = config.log_file_path.as_ref().ok_or_else(|| {
             WorkspaceError::configuration("File logging enabled but no log file path specified")
         })?;
-        let non_blocking = build_non_blocking_writer(log_file_path, &config)?;
+        let non_blocking = build_non_blocking_writer(log_file_path, config)?;
         let console_layer = build_console_layer(config.json_format, disable_ansi);
         let file_layer = fmt::layer()
             .json()
@@ -391,7 +408,7 @@ where
         let log_file_path = config.log_file_path.as_ref().ok_or_else(|| {
             WorkspaceError::configuration("File logging enabled but no log file path specified")
         })?;
-        let non_blocking = build_non_blocking_writer(log_file_path, &config)?;
+        let non_blocking = build_non_blocking_writer(log_file_path, config)?;
         let file_layer = fmt::layer()
             .json()
             .with_writer(non_blocking)
@@ -415,12 +432,6 @@ where
     } else {
         registry.with(otel_layer).with(env_filter).init();
     }
-
-    info!(config = ?config, "Logging system initialized");
-    for (key, value) in &config.global_fields {
-        tracing::Span::current().record(key.as_str(), value.as_str());
-    }
-
     Ok(())
 }
 

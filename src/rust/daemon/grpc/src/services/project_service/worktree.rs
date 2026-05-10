@@ -93,18 +93,44 @@ impl ProjectServiceImpl {
             }
         };
 
-        // Canonicalize the worktree path
         let canonical_path =
             std::fs::canonicalize(effective_path).unwrap_or_else(|_| effective_path.to_path_buf());
         let canonical_str = canonical_path.to_string_lossy().to_string();
 
-        // Create the worktree watch folder record
+        self.store_worktree_record(
+            &canonical_str,
+            &main_tenant_id,
+            &main_record,
+            git_status.commit_hash,
+            is_high_priority,
+        )
+        .await?;
+
+        info!(
+            "Auto-registering worktree: {} for project {}",
+            canonical_str, main_tenant_id
+        );
+
+        Ok(WorktreeResult::Registered {
+            canonical_path: canonical_str,
+            is_high_priority,
+        })
+    }
+
+    async fn store_worktree_record(
+        &self,
+        canonical_str: &str,
+        main_tenant_id: &str,
+        main_record: &WatchFolderRecord,
+        commit_hash: Option<String>,
+        is_high_priority: bool,
+    ) -> Result<(), Status> {
         let now = Utc::now();
-        let worktree_record = WatchFolderRecord {
+        let record = WatchFolderRecord {
             watch_id: Uuid::new_v4().to_string(),
-            path: canonical_str.clone(),
+            path: canonical_str.to_string(),
             collection: COLLECTION_PROJECTS.to_string(),
-            tenant_id: main_tenant_id.clone(),
+            tenant_id: main_tenant_id.to_string(),
             parent_watch_id: None,
             submodule_path: None,
             git_remote_url: main_record.git_remote_url.clone(),
@@ -115,7 +141,7 @@ impl ProjectServiceImpl {
             is_paused: false,
             pause_start_time: None,
             is_archived: false,
-            last_commit_hash: git_status.commit_hash,
+            last_commit_hash: commit_hash,
             is_git_tracked: true,
             is_worktree: true,
             main_worktree_watch_id: Some(main_record.watch_id.clone()),
@@ -127,25 +153,13 @@ impl ProjectServiceImpl {
             updated_at: now,
             last_scan: None,
         };
-
-        // Insert the worktree record
         self.state_manager
-            .store_watch_folder(&worktree_record)
+            .store_watch_folder(&record)
             .await
             .map_err(|e| {
                 error!("Failed to store worktree watch folder: {e}");
                 Status::internal(format!("Failed to store worktree watch folder: {e}"))
-            })?;
-
-        info!(
-            "Auto-registering worktree: {} for project {}",
-            canonical_str, main_tenant_id
-        );
-
-        Ok(WorktreeResult::Registered {
-            canonical_path: canonical_str,
-            is_high_priority,
-        })
+            })
     }
 
     /// Find a watch folder entry by tenant_id in the projects collection.

@@ -130,6 +130,45 @@ pub(crate) fn map_storage_error(err: StorageError) -> Status {
     }
 }
 
+/// Build a single DocumentPoint from chunk content and metadata.
+async fn build_document_point(
+    chunk_content: &str,
+    chunk_index: usize,
+    total_chunks: usize,
+    document_id: &str,
+    metadata: &HashMap<String, String>,
+    created_at: &str,
+) -> Result<DocumentPoint, Status> {
+    let dense_embedding = embedding::generate_embedding(chunk_content).await?;
+    let sparse_vector = embedding::generate_sparse_vector(chunk_content).await?;
+    let sparse_option = if sparse_vector.is_empty() {
+        None
+    } else {
+        Some(sparse_vector)
+    };
+
+    let mut chunk_metadata: HashMap<String, serde_json::Value> = metadata
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+        .collect();
+
+    chunk_metadata.insert("document_id".to_string(), serde_json::json!(document_id));
+    chunk_metadata.insert("chunk_index".to_string(), serde_json::json!(chunk_index));
+    chunk_metadata.insert("total_chunks".to_string(), serde_json::json!(total_chunks));
+    chunk_metadata.insert("created_at".to_string(), serde_json::json!(created_at));
+    chunk_metadata.insert("content".to_string(), serde_json::json!(chunk_content));
+
+    let namespace = Uuid::parse_str(document_id).unwrap_or_else(|_| Uuid::new_v4());
+    let point_id = Uuid::new_v5(&namespace, chunk_index.to_string().as_bytes()).to_string();
+
+    Ok(DocumentPoint {
+        id: point_id,
+        dense_vector: dense_embedding,
+        sparse_vector: sparse_option,
+        payload: chunk_metadata,
+    })
+}
+
 /// Process text ingestion: chunk, embed, and store.
 pub(crate) async fn ingest_text_internal(
     storage_client: &Arc<StorageClient>,
@@ -155,49 +194,19 @@ pub(crate) async fn ingest_text_internal(
         total_chunks, do_chunk
     );
 
-    let mut document_points = Vec::new();
     let created_at = timestamps::now_utc();
+    let mut document_points = Vec::new();
 
     for (chunk_content, chunk_index) in chunks {
-        let dense_embedding = embedding::generate_embedding(&chunk_content).await?;
-
-        let sparse_vector = embedding::generate_sparse_vector(&chunk_content).await?;
-        let sparse_option = if sparse_vector.is_empty() {
-            None
-        } else {
-            Some(sparse_vector)
-        };
-
-        let mut chunk_metadata: HashMap<String, serde_json::Value> = metadata
-            .iter()
-            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-            .collect();
-
-        chunk_metadata.insert(
-            "document_id".to_string(),
-            serde_json::json!(document_id.clone()),
-        );
-        chunk_metadata.insert("chunk_index".to_string(), serde_json::json!(chunk_index));
-        chunk_metadata.insert("total_chunks".to_string(), serde_json::json!(total_chunks));
-        chunk_metadata.insert(
-            "created_at".to_string(),
-            serde_json::json!(created_at.clone()),
-        );
-        chunk_metadata.insert(
-            "content".to_string(),
-            serde_json::json!(chunk_content.clone()),
-        );
-
-        let namespace = Uuid::parse_str(&document_id).unwrap_or_else(|_| Uuid::new_v4());
-        let point_id = Uuid::new_v5(&namespace, chunk_index.to_string().as_bytes()).to_string();
-
-        let point = DocumentPoint {
-            id: point_id,
-            dense_vector: dense_embedding,
-            sparse_vector: sparse_option,
-            payload: chunk_metadata,
-        };
-
+        let point = build_document_point(
+            &chunk_content,
+            chunk_index,
+            total_chunks,
+            &document_id,
+            &metadata,
+            &created_at,
+        )
+        .await?;
         document_points.push(point);
     }
 
@@ -217,11 +226,9 @@ pub(crate) async fn ingest_text_internal(
                 "Successfully inserted {} chunks ({} successful, {} failed)",
                 stats.total_points, stats.successful, stats.failed
             );
-
             if stats.failed > 0 {
                 warn!("{} chunks failed to insert", stats.failed);
             }
-
             Ok(IngestTextResponse {
                 document_id: document_id.clone(),
                 success: stats.failed == 0,

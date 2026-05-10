@@ -59,34 +59,17 @@ pub async fn search_exact(
         options.path_glob,
     );
 
-    // Pre-compute owned bindings (temporary strings must outlive the query borrow)
-    let instr_pattern = if options.case_insensitive {
-        pattern.to_lowercase()
-    } else {
-        pattern.to_string()
-    };
-    let path_prefix_arg = effective_options
-        .path_prefix
-        .as_ref()
-        .map(|p| format!("{}%", p));
-
-    let mut query = sqlx::query(&sql);
-    if use_fts {
-        query = query.bind(fts5_pattern.as_ref().unwrap());
-    }
-    query = query.bind(&instr_pattern);
-    if let Some(ref tid) = effective_options.tenant_id {
-        query = query.bind(tid);
-    }
-    if let Some(ref branch) = effective_options.branch {
-        query = query.bind(branch);
-    }
-    if let Some(ref prefix_arg) = path_prefix_arg {
-        query = query.bind(prefix_arg);
-    }
-
-    let (matches, truncated) =
-        collect_matches(search_db.pool(), query, &glob_matcher, options.max_results).await?;
+    let (matches, truncated) = run_bound_query(
+        search_db,
+        pattern,
+        &effective_options,
+        &fts5_pattern,
+        use_fts,
+        &sql,
+        &glob_matcher,
+        options,
+    )
+    .await?;
 
     let mut matches = matches;
     if options.context_lines > 0 {
@@ -109,6 +92,45 @@ pub async fn search_exact(
         query_time_ms,
         search_engine: "fts5".to_string(),
     })
+}
+
+/// Bind query parameters and execute the FTS5 search, returning matches + truncation flag.
+#[allow(clippy::too_many_arguments)]
+async fn run_bound_query(
+    search_db: &SearchDbManager,
+    pattern: &str,
+    effective_options: &SearchOptions,
+    fts5_pattern: &Option<String>,
+    use_fts: bool,
+    sql: &str,
+    glob_matcher: &Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
+    options: &SearchOptions,
+) -> Result<(Vec<SearchMatch>, bool), SearchDbError> {
+    let instr_pattern = if options.case_insensitive {
+        pattern.to_lowercase()
+    } else {
+        pattern.to_string()
+    };
+    let path_prefix_arg = effective_options
+        .path_prefix
+        .as_ref()
+        .map(|p| format!("{}%", p));
+
+    let mut query = sqlx::query(sql);
+    if use_fts {
+        query = query.bind(fts5_pattern.as_ref().unwrap());
+    }
+    query = query.bind(&instr_pattern);
+    if let Some(ref tid) = effective_options.tenant_id {
+        query = query.bind(tid);
+    }
+    if let Some(ref branch) = effective_options.branch {
+        query = query.bind(branch);
+    }
+    if let Some(ref prefix_arg) = path_prefix_arg {
+        query = query.bind(prefix_arg);
+    }
+    collect_matches(search_db.pool(), query, glob_matcher, options.max_results).await
 }
 
 /// Stream SQL rows, apply the glob filter, and collect into `SearchMatch` values.
