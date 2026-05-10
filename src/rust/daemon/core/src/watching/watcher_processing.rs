@@ -277,83 +277,26 @@ impl FileWatcher {
         drop(config_lock);
 
         for event in events {
-            let start_time = Instant::now();
-
-            match event.event_kind {
-                EventKind::Create(_) | EventKind::Modify(_) => {
-                    if !event.path.exists() || !event.path.is_file() {
-                        continue;
-                    }
-
-                    let source = match task_priority {
-                        TaskPriority::ProjectWatching => TaskSource::ProjectWatcher {
-                            project_path: event
-                                .path
-                                .parent()
-                                .unwrap_or_else(|| Path::new("/"))
-                                .to_string_lossy()
-                                .to_string(),
-                        },
-                        TaskPriority::BackgroundWatching => TaskSource::BackgroundWatcher {
-                            folder_path: event
-                                .path
-                                .parent()
-                                .unwrap_or_else(|| Path::new("/"))
-                                .to_string_lossy()
-                                .to_string(),
-                        },
-                        _ => TaskSource::Generic {
-                            operation: "file_watching".to_string(),
-                        },
-                    };
-
-                    let branch = event
-                        .path
-                        .parent()
-                        .map(|p| crate::watching_queue::get_current_branch(p))
-                        .unwrap_or_else(|| "main".to_string());
-
-                    let payload = TaskPayload::ProcessDocument {
-                        file_path: event.path.clone(),
-                        collection: default_collection.clone(),
-                        branch,
-                    };
-
-                    match task_submitter
-                        .submit_task(task_priority, source, payload, None)
-                        .await
-                    {
-                        Ok(_) => {
-                            let mut stats_lock = stats.lock().await;
-                            stats_lock.tasks_submitted += 1;
-                            stats_lock.events_processed += 1;
-                            tracing::debug!(
-                                "Submitted processing task for: {}",
-                                event.path.display()
-                            );
-
-                            if telemetry_enabled {
-                                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
-                                let file_size = event.size.unwrap_or(0);
-                                drop(stats_lock);
-                                let mut telemetry_lock = telemetry_tracker.lock().await;
-                                telemetry_lock.record_latency(latency_ms);
-                                telemetry_lock.record_file_processed(file_size);
-                            }
-                        }
-                        Err(e) => {
-                            let mut stats_lock = stats.lock().await;
-                            stats_lock.errors += 1;
-                            tracing::error!(
-                                "Failed to submit processing task for {}: {}",
-                                event.path.display(),
-                                e
-                            );
-                        }
-                    }
-                }
-                _ => {}
+            if !matches!(
+                event.event_kind,
+                EventKind::Create(_) | EventKind::Modify(_)
+            ) {
+                continue;
             }
+            if !event.path.exists() || !event.path.is_file() {
+                continue;
+            }
+
+            submit_single_task(
+                &event,
+                task_priority,
+                &default_collection,
+                telemetry_enabled,
+                task_submitter,
+                stats,
+                telemetry_tracker,
+            )
+            .await;
         }
     }
 
@@ -383,6 +326,87 @@ impl FileWatcher {
     pub(super) async fn cleanup_old_events(debouncer: &Arc<Mutex<EventDebouncer>>) {
         let mut debouncer_lock = debouncer.lock().await;
         debouncer_lock.cleanup(Duration::from_secs(3600));
+    }
+}
+
+/// Build the task source from the event priority and path.
+fn build_task_source(event: &FileEvent, task_priority: TaskPriority) -> TaskSource {
+    match task_priority {
+        TaskPriority::ProjectWatching => TaskSource::ProjectWatcher {
+            project_path: event
+                .path
+                .parent()
+                .unwrap_or_else(|| Path::new("/"))
+                .to_string_lossy()
+                .to_string(),
+        },
+        TaskPriority::BackgroundWatching => TaskSource::BackgroundWatcher {
+            folder_path: event
+                .path
+                .parent()
+                .unwrap_or_else(|| Path::new("/"))
+                .to_string_lossy()
+                .to_string(),
+        },
+        _ => TaskSource::Generic {
+            operation: "file_watching".to_string(),
+        },
+    }
+}
+
+/// Submit a single create/modify event as a processing task.
+async fn submit_single_task(
+    event: &FileEvent,
+    task_priority: TaskPriority,
+    default_collection: &str,
+    telemetry_enabled: bool,
+    task_submitter: &TaskSubmitter,
+    stats: &Arc<Mutex<WatchingStats>>,
+    telemetry_tracker: &Arc<Mutex<TelemetryTracker>>,
+) {
+    let start_time = Instant::now();
+    let source = build_task_source(event, task_priority);
+
+    let branch = event
+        .path
+        .parent()
+        .map(|p| crate::watching_queue::get_current_branch(p))
+        .unwrap_or_else(|| "main".to_string());
+
+    let payload = TaskPayload::ProcessDocument {
+        file_path: event.path.clone(),
+        collection: default_collection.to_string(),
+        branch,
+    };
+
+    match task_submitter
+        .submit_task(task_priority, source, payload, None)
+        .await
+    {
+        Ok(_) => {
+            let mut stats_lock = stats.lock().await;
+            stats_lock.tasks_submitted += 1;
+            stats_lock.events_processed += 1;
+            tracing::debug!("Submitted processing task for: {}", event.path.display());
+
+            if telemetry_enabled {
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                let file_size = event.size.unwrap_or(0);
+                drop(stats_lock);
+                let mut telemetry_lock = telemetry_tracker.lock().await;
+                telemetry_lock.record_latency(latency_ms);
+                telemetry_lock.record_file_processed(file_size);
+            }
+        }
+        Err(e) => {
+            let mut stats_lock = stats.lock().await;
+            stats_lock.errors += 1;
+            tracing::error!(
+                "Failed to submit processing task for {}: {}",
+                event.path.display(),
+                e
+            );
+        }
     }
 }
 

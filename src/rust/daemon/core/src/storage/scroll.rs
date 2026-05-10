@@ -170,7 +170,7 @@ impl StorageClient {
         batch_size: u32,
         offset_cursor: Option<String>,
     ) -> Result<(Vec<SparsePointData>, Option<String>), StorageError> {
-        use qdrant_client::qdrant::{point_id, value, vector_output, vectors_output, PointId};
+        use qdrant_client::qdrant::{point_id, PointId};
 
         // Decode opaque string cursor back to PointId (UUID only).
         let offset: Option<PointId> = offset_cursor.map(|s| PointId {
@@ -202,61 +202,13 @@ impl StorageClient {
             })
             .await?;
 
-        // Convert raw RetrievedPoints into SparsePointData.
         let points = response
             .result
             .into_iter()
-            .filter_map(|p| {
-                // Extract UUID string.
-                let id = match p.id.as_ref()?.point_id_options.as_ref()? {
-                    point_id::PointIdOptions::Uuid(uuid) => uuid.clone(),
-                    point_id::PointIdOptions::Num(n) => n.to_string(),
-                };
-
-                // Extract optional idf_epoch from payload.
-                let idf_epoch = p.payload.get("idf_epoch").and_then(|v| match &v.kind {
-                    Some(value::Kind::IntegerValue(n)) => Some(*n as u64),
-                    Some(value::Kind::DoubleValue(f)) => Some(*f as u64),
-                    _ => None,
-                });
-
-                // Extract sparse vector (may be absent for SPLADE or old points).
-                let sparse_vector =
-                    p.vectors
-                        .as_ref()
-                        .and_then(|vout| match &vout.vectors_options {
-                            Some(vectors_output::VectorsOptions::Vectors(named)) => {
-                                let sv_out = named.vectors.get("sparse")?;
-                                match &sv_out.vector {
-                                    Some(vector_output::Vector::Sparse(sv)) => Some(
-                                        sv.indices
-                                            .iter()
-                                            .zip(sv.values.iter())
-                                            .map(|(&i, &v)| (i, v))
-                                            .collect(),
-                                    ),
-                                    _ => None,
-                                }
-                            }
-                            _ => None,
-                        });
-
-                Some(SparsePointData {
-                    id,
-                    idf_epoch,
-                    sparse_vector,
-                })
-            })
+            .filter_map(convert_retrieved_to_sparse_point)
             .collect();
 
-        // Encode next-page offset as UUID string cursor.
-        let next_cursor = response
-            .next_page_offset
-            .and_then(|pid| match pid.point_id_options {
-                Some(point_id::PointIdOptions::Uuid(uuid)) => Some(uuid),
-                Some(point_id::PointIdOptions::Num(n)) => Some(n.to_string()),
-                None => None,
-            });
+        let next_cursor = extract_next_cursor(response.next_page_offset);
 
         Ok((points, next_cursor))
     }
@@ -296,4 +248,58 @@ impl StorageClient {
 
         Ok(response.result)
     }
+}
+
+/// Convert a single `RetrievedPoint` into a `SparsePointData`.
+fn convert_retrieved_to_sparse_point(
+    p: qdrant_client::qdrant::RetrievedPoint,
+) -> Option<SparsePointData> {
+    use qdrant_client::qdrant::{point_id, value, vector_output, vectors_output};
+
+    let id = match p.id.as_ref()?.point_id_options.as_ref()? {
+        point_id::PointIdOptions::Uuid(uuid) => uuid.clone(),
+        point_id::PointIdOptions::Num(n) => n.to_string(),
+    };
+
+    let idf_epoch = p.payload.get("idf_epoch").and_then(|v| match &v.kind {
+        Some(value::Kind::IntegerValue(n)) => Some(*n as u64),
+        Some(value::Kind::DoubleValue(f)) => Some(*f as u64),
+        _ => None,
+    });
+
+    let sparse_vector = p
+        .vectors
+        .as_ref()
+        .and_then(|vout| match &vout.vectors_options {
+            Some(vectors_output::VectorsOptions::Vectors(named)) => {
+                let sv_out = named.vectors.get("sparse")?;
+                match &sv_out.vector {
+                    Some(vector_output::Vector::Sparse(sv)) => Some(
+                        sv.indices
+                            .iter()
+                            .zip(sv.values.iter())
+                            .map(|(&i, &v)| (i, v))
+                            .collect(),
+                    ),
+                    _ => None,
+                }
+            }
+            _ => None,
+        });
+
+    Some(SparsePointData {
+        id,
+        idf_epoch,
+        sparse_vector,
+    })
+}
+
+/// Encode next-page offset as UUID string cursor.
+fn extract_next_cursor(next_page_offset: Option<qdrant_client::qdrant::PointId>) -> Option<String> {
+    use qdrant_client::qdrant::point_id;
+    next_page_offset.and_then(|pid| match pid.point_id_options {
+        Some(point_id::PointIdOptions::Uuid(uuid)) => Some(uuid),
+        Some(point_id::PointIdOptions::Num(n)) => Some(n.to_string()),
+        None => None,
+    })
 }

@@ -24,8 +24,8 @@ use crate::unified_queue_schema::{
 /// - Directories: check exclusion + mtime, enqueue `(Folder, Scan)`
 /// - Directories with `.git`: submodule detection, enqueue `(Tenant, Add)`
 ///
-/// `last_scan` is an ISO 8601 timestamp string. Entries with mtime ≤ this
-/// value are skipped — they are unchanged since the previous scan. Pass
+/// `last_scan` is an ISO 8601 timestamp string. Entries with mtime <= this
+/// value are skipped -- they are unchanged since the previous scan. Pass
 /// `None` for a full scan (first-time or forced rescan).
 ///
 /// Returns `(files_queued, dirs_queued, files_excluded, errors)`.
@@ -41,11 +41,7 @@ pub(crate) async fn scan_directory_single_level(
     let mut files_excluded = 0u64;
     let mut errors = 0u64;
 
-    // Parse baseline once; comparison is O(1) per entry.
     let baseline: Option<SystemTime> = last_scan.and_then(parse_iso8601_to_system_time);
-
-    // Gate 0: build per-directory ignore matcher from .gitignore + .wqmignore.
-    // Returns None when neither file exists (fast path).
     let ignore_matcher = ProjectIgnoreMatcher::for_dir(dir_path, None);
 
     let entries = std::fs::read_dir(dir_path).map_err(|e| {
@@ -77,16 +73,9 @@ pub(crate) async fn scan_directory_single_level(
         };
 
         if file_type.is_dir() {
-            // Gate 0: .gitignore / .wqmignore exclusion
-            if let Some(ref m) = ignore_matcher {
-                if m.is_ignored(&path, true) {
-                    debug!(
-                        "Gate 0: directory excluded by ignore file: {}",
-                        path.display()
-                    );
-                    files_excluded += 1;
-                    continue;
-                }
+            if is_ignored_by_matcher(&ignore_matcher, &path, true) {
+                files_excluded += 1;
+                continue;
             }
             dirs_queued += process_directory_entry(
                 &path,
@@ -98,13 +87,9 @@ pub(crate) async fn scan_directory_single_level(
             )
             .await;
         } else if file_type.is_file() {
-            // Gate 0: .gitignore / .wqmignore exclusion
-            if let Some(ref m) = ignore_matcher {
-                if m.is_ignored(&path, false) {
-                    debug!("Gate 0: file excluded by ignore file: {}", path.display());
-                    files_excluded += 1;
-                    continue;
-                }
+            if is_ignored_by_matcher(&ignore_matcher, &path, false) {
+                files_excluded += 1;
+                continue;
             }
             files_queued += process_file_entry(
                 &path,
@@ -121,6 +106,26 @@ pub(crate) async fn scan_directory_single_level(
     }
 
     Ok((files_queued, dirs_queued, files_excluded, errors))
+}
+
+/// Check if a path is ignored by the project-level ignore matcher.
+fn is_ignored_by_matcher(
+    ignore_matcher: &Option<ProjectIgnoreMatcher>,
+    path: &Path,
+    is_dir: bool,
+) -> bool {
+    if let Some(ref m) = ignore_matcher {
+        if m.is_ignored(path, is_dir) {
+            let label = if is_dir { "directory" } else { "file" };
+            debug!(
+                "Gate 0: {} excluded by ignore file: {}",
+                label,
+                path.display()
+            );
+            return true;
+        }
+    }
+    false
 }
 
 /// Parse an ISO 8601 / RFC 3339 timestamp string into a `SystemTime`.
@@ -246,10 +251,13 @@ async fn enqueue_subdirectory(
     }
 }
 
+/// Maximum file size (100 MB) for scan ingestion.
+const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+
 /// Process a single file entry encountered during scan.
 ///
 /// `baseline` is the parsed mtime pruning threshold: files with
-/// `mtime ≤ baseline` are skipped as unchanged.
+/// `mtime <= baseline` are skipped as unchanged.
 ///
 /// Returns 1 if the file was enqueued, 0 otherwise.
 async fn process_file_entry(
@@ -263,19 +271,16 @@ async fn process_file_entry(
 ) -> u64 {
     let abs_path = path.to_string_lossy();
 
-    // Check exclusion rules
     if should_exclude_file(&abs_path) {
         *files_excluded += 1;
         return 0;
     }
 
-    // Check file type allowlist
     if !allowed_extensions.is_allowed(&abs_path, &item.collection) {
         *files_excluded += 1;
         return 0;
     }
 
-    // Get file metadata
     let metadata = match path.metadata() {
         Ok(m) => m,
         Err(e) => {
@@ -285,18 +290,12 @@ async fn process_file_entry(
         }
     };
 
-    // mtime pruning: skip files that haven't changed since the last scan.
-    // On metadata error we fall through and include the file (safe default).
-    if let Some(bl) = baseline {
-        if metadata.modified().map(|m| m <= *bl).unwrap_or(false) {
-            debug!("mtime prune: skipping unchanged file {}", abs_path);
-            *files_excluded += 1;
-            return 0;
-        }
+    if should_prune_by_mtime(baseline, &metadata) {
+        debug!("mtime prune: skipping unchanged file {}", abs_path);
+        *files_excluded += 1;
+        return 0;
     }
 
-    // Skip files that are too large (100MB limit)
-    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
     if metadata.len() > MAX_FILE_SIZE {
         debug!(
             "Skipping large file: {} ({} bytes)",
@@ -307,6 +306,27 @@ async fn process_file_entry(
         return 0;
     }
 
+    enqueue_scanned_file(path, &abs_path, &metadata, item, queue_manager, errors).await
+}
+
+/// Check mtime pruning: returns `true` if the file is unchanged since baseline.
+fn should_prune_by_mtime(baseline: Option<&SystemTime>, metadata: &std::fs::Metadata) -> bool {
+    if let Some(bl) = baseline {
+        metadata.modified().map(|m| m <= *bl).unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+/// Build the file payload and enqueue the file. Returns 1 on success, 0 on failure.
+async fn enqueue_scanned_file(
+    path: &Path,
+    abs_path: &std::borrow::Cow<'_, str>,
+    metadata: &std::fs::Metadata,
+    item: &UnifiedQueueItem,
+    queue_manager: &Arc<QueueManager>,
+    errors: &mut u64,
+) -> u64 {
     let file_type_class = classify_file_type(path);
     let file_payload = FilePayload {
         file_path: abs_path.to_string(),

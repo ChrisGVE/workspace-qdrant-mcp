@@ -28,69 +28,84 @@ pub(crate) fn add_lsp_enrichment_to_payload(
         return;
     }
 
-    // Add references (limited to avoid huge payloads)
-    if !enrichment.references.is_empty() {
-        let refs: Vec<_> = enrichment
-            .references
-            .iter()
-            .take(20)
-            .map(|r| {
-                serde_json::json!({
-                    "file": r.file,
-                    "line": r.line,
-                    "column": r.column
-                })
+    add_references(payload, enrichment);
+    add_type_info(payload, enrichment);
+    add_imports(payload, enrichment);
+    add_definition(payload, enrichment);
+}
+
+/// Add references (limited to 20 to avoid huge payloads).
+fn add_references(payload: &mut HashMap<String, serde_json::Value>, enrichment: &LspEnrichment) {
+    if enrichment.references.is_empty() {
+        return;
+    }
+    let refs: Vec<_> = enrichment
+        .references
+        .iter()
+        .take(20)
+        .map(|r| {
+            serde_json::json!({
+                "file": r.file,
+                "line": r.line,
+                "column": r.column
             })
-            .collect();
-        payload.insert("lsp_references".to_string(), serde_json::json!(refs));
+        })
+        .collect();
+    payload.insert("lsp_references".to_string(), serde_json::json!(refs));
+    payload.insert(
+        "lsp_references_count".to_string(),
+        serde_json::json!(enrichment.references.len()),
+    );
+}
+
+/// Add type info with optional documentation (truncated at 500 chars).
+fn add_type_info(payload: &mut HashMap<String, serde_json::Value>, enrichment: &LspEnrichment) {
+    let Some(type_info) = &enrichment.type_info else {
+        return;
+    };
+    payload.insert(
+        "lsp_type_signature".to_string(),
+        serde_json::json!(type_info.type_signature),
+    );
+    payload.insert(
+        "lsp_type_kind".to_string(),
+        serde_json::json!(type_info.kind),
+    );
+    if let Some(doc) = &type_info.documentation {
+        let truncated = if doc.len() > 500 {
+            format!("{}...", &doc[..500])
+        } else {
+            doc.clone()
+        };
         payload.insert(
-            "lsp_references_count".to_string(),
-            serde_json::json!(enrichment.references.len()),
+            "lsp_type_documentation".to_string(),
+            serde_json::json!(truncated),
         );
     }
+}
 
-    // Add type info
-    if let Some(type_info) = &enrichment.type_info {
-        payload.insert(
-            "lsp_type_signature".to_string(),
-            serde_json::json!(type_info.type_signature),
-        );
-        payload.insert(
-            "lsp_type_kind".to_string(),
-            serde_json::json!(type_info.kind),
-        );
-        if let Some(doc) = &type_info.documentation {
-            // Truncate long docs
-            let truncated = if doc.len() > 500 {
-                format!("{}...", &doc[..500])
-            } else {
-                doc.clone()
-            };
-            payload.insert(
-                "lsp_type_documentation".to_string(),
-                serde_json::json!(truncated),
-            );
-        }
+/// Add resolved imports.
+fn add_imports(payload: &mut HashMap<String, serde_json::Value>, enrichment: &LspEnrichment) {
+    if enrichment.resolved_imports.is_empty() {
+        return;
     }
-
-    // Add resolved imports
-    if !enrichment.resolved_imports.is_empty() {
-        let imports: Vec<_> = enrichment
-            .resolved_imports
-            .iter()
-            .map(|imp| {
-                serde_json::json!({
-                    "name": imp.import_name,
-                    "target_file": imp.target_file,
-                    "is_stdlib": imp.is_stdlib,
-                    "resolved": imp.resolved
-                })
+    let imports: Vec<_> = enrichment
+        .resolved_imports
+        .iter()
+        .map(|imp| {
+            serde_json::json!({
+                "name": imp.import_name,
+                "target_file": imp.target_file,
+                "is_stdlib": imp.is_stdlib,
+                "resolved": imp.resolved
             })
-            .collect();
-        payload.insert("lsp_imports".to_string(), serde_json::json!(imports));
-    }
+        })
+        .collect();
+    payload.insert("lsp_imports".to_string(), serde_json::json!(imports));
+}
 
-    // Add definition location
+/// Add definition location.
+fn add_definition(payload: &mut HashMap<String, serde_json::Value>, enrichment: &LspEnrichment) {
     if let Some(def) = &enrichment.definition {
         payload.insert(
             "lsp_definition".to_string(),

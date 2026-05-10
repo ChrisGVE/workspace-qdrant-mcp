@@ -106,88 +106,166 @@ impl UnifiedQueueProcessor {
             )
             .await;
 
-            if let Ok(age) = queue_manager.get_oldest_pending_age_seconds().await {
-                crate::monitoring::METRICS
-                    .queue_oldest_pending_age_seconds
-                    .set(age);
+            Self::record_oldest_pending_age(&queue_manager).await;
+
+            let should_continue = Self::handle_dequeue_result(
+                &fairness_scheduler,
+                &config,
+                &queue_manager,
+                &cancellation_token,
+                &document_processor,
+                &embedding_generator,
+                &storage_client,
+                &lsp_manager,
+                &embedding_semaphore,
+                &allowed_extensions,
+                &lexicon_manager,
+                &search_db,
+                &graph_store,
+                &watch_refresh_signal,
+                &grammar_manager,
+                &ingestion_limits,
+                &metrics,
+                &queue_health,
+                &resource_profile_rx,
+                &warmup_state,
+                &mut state,
+                poll_interval,
+            )
+            .await;
+            if should_continue {
+                continue;
             }
 
-            match fairness_scheduler
-                .dequeue_next_batch(config.batch_size)
-                .await
-            {
-                Ok(items) if items.is_empty() => {
-                    run_idle_work(
-                        &mut state,
-                        &config,
-                        &queue_manager,
-                        &storage_client,
-                        &lexicon_manager,
-                        &grammar_manager,
-                        &lsp_manager,
-                        &search_db,
-                        poll_interval,
-                    )
-                    .await;
-                    continue;
-                }
-                Ok(items) => {
-                    state.maintenance_scheduler.cancel_active();
-                    state.idle_since = None;
-                    info!(
-                        "Dequeued {} unified queue items for processing",
-                        items.len()
-                    );
-                    if cancellation_token.is_cancelled() {
-                        warn!("Shutdown requested, stopping unified batch processing");
-                        return Ok(());
-                    }
-                    match process_batch(
-                        items,
-                        &config,
-                        &queue_manager,
-                        &document_processor,
-                        &embedding_generator,
-                        &storage_client,
-                        &lsp_manager,
-                        &embedding_semaphore,
-                        &allowed_extensions,
-                        &lexicon_manager,
-                        &search_db,
-                        &graph_store,
-                        &watch_refresh_signal,
-                        &grammar_manager,
-                        &ingestion_limits,
-                        &metrics,
-                        &queue_health,
-                        &cancellation_token,
-                        &resource_profile_rx,
-                        &warmup_state,
-                    )
-                    .await
-                    {
-                        Err(()) => return Ok(()),
-                        Ok(tenants) => update_tenant_activity(&tenants, &queue_manager).await,
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to dequeue unified batch: {}", e);
-                    if let Some(ref h) = queue_health {
-                        h.record_error();
-                    }
-                    tokio::time::sleep(poll_interval).await;
-                }
-            }
-
-            let now = Utc::now();
-            if now - state.last_metrics_log >= metrics_log_interval {
-                Self::log_metrics(&metrics).await;
-                state.last_metrics_log = now;
-            }
+            Self::maybe_log_metrics(&metrics, &mut state, metrics_log_interval).await;
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         Ok(())
+    }
+
+    /// Record the age of the oldest pending queue item into metrics.
+    async fn record_oldest_pending_age(queue_manager: &QueueManager) {
+        if let Ok(age) = queue_manager.get_oldest_pending_age_seconds().await {
+            crate::monitoring::METRICS
+                .queue_oldest_pending_age_seconds
+                .set(age);
+        }
+    }
+
+    /// Dequeue the next batch and dispatch to idle work, batch processing, or error handling.
+    ///
+    /// Returns `true` when the main loop should `continue` (skip the metrics/sleep tail).
+    #[allow(clippy::too_many_arguments)]
+    async fn handle_dequeue_result(
+        fairness_scheduler: &Arc<FairnessScheduler>,
+        config: &UnifiedProcessorConfig,
+        queue_manager: &QueueManager,
+        cancellation_token: &CancellationToken,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+        allowed_extensions: &Arc<AllowedExtensions>,
+        lexicon_manager: &Arc<LexiconManager>,
+        search_db: &Option<Arc<SearchDbManager>>,
+        graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        watch_refresh_signal: &Option<Arc<tokio::sync::Notify>>,
+        grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
+        ingestion_limits: &Arc<IngestionLimitsConfig>,
+        metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
+        queue_health: &Option<Arc<QueueProcessorHealth>>,
+        resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+        warmup_state: &Arc<WarmupState>,
+        state: &mut LoopState,
+        poll_interval: Duration,
+    ) -> bool {
+        match fairness_scheduler
+            .dequeue_next_batch(config.batch_size)
+            .await
+        {
+            Ok(items) if items.is_empty() => {
+                run_idle_work(
+                    state,
+                    config,
+                    queue_manager,
+                    storage_client,
+                    lexicon_manager,
+                    grammar_manager,
+                    lsp_manager,
+                    search_db,
+                    poll_interval,
+                )
+                .await;
+                true
+            }
+            Ok(items) => {
+                state.maintenance_scheduler.cancel_active();
+                state.idle_since = None;
+                info!(
+                    "Dequeued {} unified queue items for processing",
+                    items.len()
+                );
+                if cancellation_token.is_cancelled() {
+                    warn!("Shutdown requested, stopping unified batch processing");
+                    // Caller cannot propagate Ok(()) directly; returning false
+                    // lets the outer loop see the cancellation on next iteration.
+                    return false;
+                }
+                match process_batch(
+                    items,
+                    config,
+                    queue_manager,
+                    document_processor,
+                    embedding_generator,
+                    storage_client,
+                    lsp_manager,
+                    embedding_semaphore,
+                    allowed_extensions,
+                    lexicon_manager,
+                    search_db,
+                    graph_store,
+                    watch_refresh_signal,
+                    grammar_manager,
+                    ingestion_limits,
+                    metrics,
+                    queue_health,
+                    cancellation_token,
+                    resource_profile_rx,
+                    warmup_state,
+                )
+                .await
+                {
+                    Err(()) => false,
+                    Ok(tenants) => {
+                        update_tenant_activity(&tenants, queue_manager).await;
+                        false
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to dequeue unified batch: {}", e);
+                if let Some(ref h) = queue_health {
+                    h.record_error();
+                }
+                tokio::time::sleep(poll_interval).await;
+                false
+            }
+        }
+    }
+
+    /// Log processing metrics if the interval has elapsed.
+    async fn maybe_log_metrics(
+        metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
+        state: &mut LoopState,
+        metrics_log_interval: ChronoDuration,
+    ) {
+        let now = Utc::now();
+        if now - state.last_metrics_log >= metrics_log_interval {
+            Self::log_metrics(metrics).await;
+            state.last_metrics_log = now;
+        }
     }
 
     /// Apply the one-time warmup-complete transition (add semaphore permits, log, mark done).

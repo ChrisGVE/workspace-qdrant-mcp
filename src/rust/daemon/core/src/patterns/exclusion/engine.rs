@@ -14,6 +14,77 @@ static EXCLUSION_ENGINE: Lazy<Result<ExclusionEngine, String>> = Lazy::new(|| {
     ExclusionEngine::new().map_err(|e| format!("Failed to initialize exclusion engine: {}", e))
 });
 
+/// Accumulated pattern storage used during engine construction.
+struct PatternSets {
+    exact_matches: HashSet<String>,
+    prefix_patterns: Vec<String>,
+    suffix_patterns: Vec<String>,
+    contains_patterns: Vec<String>,
+    all_rules: Vec<ExclusionRule>,
+}
+
+impl PatternSets {
+    fn new() -> Self {
+        Self {
+            exact_matches: HashSet::new(),
+            prefix_patterns: Vec::new(),
+            suffix_patterns: Vec::new(),
+            contains_patterns: Vec::new(),
+            all_rules: Vec::new(),
+        }
+    }
+
+    /// Register a slice of patterns under a single category.
+    fn register(
+        &mut self,
+        patterns: &[String],
+        category: ExclusionCategory,
+        reason: &str,
+        case_sensitive: bool,
+    ) {
+        for pattern in patterns {
+            let rule = ExclusionRule {
+                pattern: pattern.clone(),
+                category: category.clone(),
+                reason: reason.to_string(),
+                is_regex: false,
+                case_sensitive,
+            };
+            classify_and_store_pattern(
+                pattern,
+                &rule,
+                &mut self.exact_matches,
+                &mut self.prefix_patterns,
+                &mut self.suffix_patterns,
+                &mut self.contains_patterns,
+            );
+            self.all_rules.push(rule);
+        }
+    }
+
+    /// Register critical patterns with per-entry reasons.
+    fn register_critical(&mut self) {
+        for (pattern, reason) in get_critical_exclusion_patterns() {
+            let rule = ExclusionRule {
+                pattern: pattern.clone(),
+                category: ExclusionCategory::Critical,
+                reason,
+                is_regex: false,
+                case_sensitive: true,
+            };
+            classify_and_store_pattern(
+                &pattern,
+                &rule,
+                &mut self.exact_matches,
+                &mut self.prefix_patterns,
+                &mut self.suffix_patterns,
+                &mut self.contains_patterns,
+            );
+            self.all_rules.push(rule);
+        }
+    }
+}
+
 /// High-performance exclusion engine
 #[derive(Debug)]
 pub struct ExclusionEngine {
@@ -31,94 +102,50 @@ impl ExclusionEngine {
     pub fn new() -> ComprehensiveResult<Self> {
         let comprehensive = ComprehensivePatternManager::new()?;
         let config = comprehensive.config();
-
-        let mut exact_matches = HashSet::new();
-        let mut prefix_patterns = Vec::new();
-        let mut suffix_patterns = Vec::new();
-        let mut contains_patterns = Vec::new();
-        let mut all_rules = Vec::new();
-
         let exclusions = &config.exclusion_patterns;
 
-        register_patterns(
+        let mut sets = PatternSets::new();
+
+        sets.register(
             &exclusions.version_control,
             ExclusionCategory::VersionControl,
             "Version control metadata",
             true,
-            &mut exact_matches,
-            &mut prefix_patterns,
-            &mut suffix_patterns,
-            &mut contains_patterns,
-            &mut all_rules,
         );
-        register_patterns(
+        sets.register(
             &exclusions.build_outputs,
             ExclusionCategory::BuildArtifacts,
             "Build artifacts and generated files",
             false,
-            &mut exact_matches,
-            &mut prefix_patterns,
-            &mut suffix_patterns,
-            &mut contains_patterns,
-            &mut all_rules,
         );
-        register_patterns(
+        sets.register(
             &exclusions.cache_directories,
             ExclusionCategory::Cache,
             "Cache and temporary files",
             false,
-            &mut exact_matches,
-            &mut prefix_patterns,
-            &mut suffix_patterns,
-            &mut contains_patterns,
-            &mut all_rules,
         );
-        register_patterns(
+        sets.register(
             &exclusions.ide_files,
             ExclusionCategory::IdeFiles,
             "IDE and editor configuration",
             false,
-            &mut exact_matches,
-            &mut prefix_patterns,
-            &mut suffix_patterns,
-            &mut contains_patterns,
-            &mut all_rules,
         );
-
-        // Critical patterns have per-entry reasons; handle them separately
-        for (pattern, reason) in get_critical_exclusion_patterns() {
-            let rule = ExclusionRule {
-                pattern: pattern.clone(),
-                category: ExclusionCategory::Critical,
-                reason,
-                is_regex: false,
-                case_sensitive: true,
-            };
-            classify_and_store_pattern(
-                &pattern,
-                &rule,
-                &mut exact_matches,
-                &mut prefix_patterns,
-                &mut suffix_patterns,
-                &mut contains_patterns,
-            );
-            all_rules.push(rule);
-        }
+        sets.register_critical();
 
         tracing::debug!(
             "Exclusion engine initialized: {} exact, {} prefix, {} suffix, {} contains patterns",
-            exact_matches.len(),
-            prefix_patterns.len(),
-            suffix_patterns.len(),
-            contains_patterns.len()
+            sets.exact_matches.len(),
+            sets.prefix_patterns.len(),
+            sets.suffix_patterns.len(),
+            sets.contains_patterns.len()
         );
 
         Ok(Self {
-            exact_matches,
-            prefix_patterns,
-            suffix_patterns,
-            contains_patterns,
-            all_rules,
+            exact_matches: sets.exact_matches,
+            prefix_patterns: sets.prefix_patterns,
+            suffix_patterns: sets.suffix_patterns,
+            contains_patterns: sets.contains_patterns,
+            all_rules: sets.all_rules,
         })
     }
 
@@ -345,38 +372,5 @@ impl ExclusionEngine {
             _ => {}
         }
         None
-    }
-}
-
-/// Register a slice of patterns under a single category into the lookup structures.
-#[allow(clippy::too_many_arguments)]
-fn register_patterns(
-    patterns: &[String],
-    category: ExclusionCategory,
-    reason: &str,
-    case_sensitive: bool,
-    exact_matches: &mut HashSet<String>,
-    prefix_patterns: &mut Vec<String>,
-    suffix_patterns: &mut Vec<String>,
-    contains_patterns: &mut Vec<String>,
-    all_rules: &mut Vec<ExclusionRule>,
-) {
-    for pattern in patterns {
-        let rule = ExclusionRule {
-            pattern: pattern.clone(),
-            category: category.clone(),
-            reason: reason.to_string(),
-            is_regex: false,
-            case_sensitive,
-        };
-        classify_and_store_pattern(
-            pattern,
-            &rule,
-            exact_matches,
-            prefix_patterns,
-            suffix_patterns,
-            contains_patterns,
-        );
-        all_rules.push(rule);
     }
 }

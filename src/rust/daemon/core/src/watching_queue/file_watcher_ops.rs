@@ -104,64 +104,24 @@ impl FileWatcherQueue {
             *count += 1;
         }
 
-        // Intercept .gitignore / .wqmignore changes → trigger reconciliation
-        if let Some(name) = event.path.file_name().and_then(|n| n.to_str()) {
-            if name == ".gitignore" || name == ".wqmignore" {
-                if matches!(
-                    event.event_kind,
-                    EventKind::Create(_) | EventKind::Modify(_)
-                ) {
-                    Self::handle_ignore_file_change(
-                        &event.path,
-                        config,
-                        queue_manager,
-                        events_processed,
-                    )
-                    .await;
-                }
-                return; // Don't process ignore files as regular files
-            }
-        }
-
-        // Check exclusion patterns FIRST (Task 518)
-        if !matches!(event.event_kind, EventKind::Remove(_)) {
-            let file_path_str = event.path.to_string_lossy();
-            if should_exclude_file(&file_path_str) {
-                let mut count = events_filtered.lock().await;
-                *count += 1;
-                return;
-            }
-        }
-
-        // Check allowlist via route_file() before pattern matching (Task 511/567)
-        if !matches!(event.event_kind, EventKind::Remove(_)) {
-            let collection_for_check = {
-                let config_lock = config.read().await;
-                match config_lock.watch_type {
-                    WatchType::Library => "libraries",
-                    WatchType::Project => "projects",
-                }
-                .to_string()
-            };
-            let file_path_str = event.path.to_string_lossy();
-            if matches!(
-                allowed_extensions.route_file(&file_path_str, &collection_for_check, ""),
-                FileRoute::Excluded
-            ) {
-                let mut count = events_filtered.lock().await;
-                *count += 1;
-                return;
-            }
-        }
-
-        // Check patterns
+        // Intercept .gitignore / .wqmignore changes -> trigger reconciliation
+        if Self::handle_ignore_file_if_applicable(&event, config, queue_manager, events_processed)
+            .await
         {
-            let patterns_lock = patterns.read().await;
-            if !patterns_lock.should_process(&event.path) {
-                let mut count = events_filtered.lock().await;
-                *count += 1;
-                return;
-            }
+            return;
+        }
+
+        // Apply pre-enqueue filters (exclusion, allowlist, patterns)
+        if Self::should_filter_event(
+            &event,
+            config,
+            allowed_extensions,
+            patterns,
+            events_filtered,
+        )
+        .await
+        {
+            return;
         }
 
         // Add to debouncer
@@ -183,6 +143,84 @@ impl FileWatcherQueue {
             )
             .await;
         }
+    }
+
+    /// Check if the event targets a .gitignore / .wqmignore file and handle it.
+    /// Returns `true` if the event was consumed (caller should return early).
+    async fn handle_ignore_file_if_applicable(
+        event: &FileEvent,
+        config: &Arc<RwLock<WatchConfig>>,
+        queue_manager: &Arc<QueueManager>,
+        events_processed: &Arc<Mutex<u64>>,
+    ) -> bool {
+        if let Some(name) = event.path.file_name().and_then(|n| n.to_str()) {
+            if name == ".gitignore" || name == ".wqmignore" {
+                if matches!(
+                    event.event_kind,
+                    EventKind::Create(_) | EventKind::Modify(_)
+                ) {
+                    Self::handle_ignore_file_change(
+                        &event.path,
+                        config,
+                        queue_manager,
+                        events_processed,
+                    )
+                    .await;
+                }
+                return true; // Don't process ignore files as regular files
+            }
+        }
+        false
+    }
+
+    /// Apply exclusion, allowlist, and pattern filters to an event.
+    /// Returns `true` if the event should be filtered out (skipped).
+    async fn should_filter_event(
+        event: &FileEvent,
+        config: &Arc<RwLock<WatchConfig>>,
+        allowed_extensions: &Arc<AllowedExtensions>,
+        patterns: &Arc<RwLock<CompiledPatterns>>,
+        events_filtered: &Arc<Mutex<u64>>,
+    ) -> bool {
+        if !matches!(event.event_kind, EventKind::Remove(_)) {
+            let file_path_str = event.path.to_string_lossy();
+            if should_exclude_file(&file_path_str) {
+                let mut count = events_filtered.lock().await;
+                *count += 1;
+                return true;
+            }
+        }
+
+        if !matches!(event.event_kind, EventKind::Remove(_)) {
+            let collection_for_check = {
+                let config_lock = config.read().await;
+                match config_lock.watch_type {
+                    WatchType::Library => "libraries",
+                    WatchType::Project => "projects",
+                }
+                .to_string()
+            };
+            let file_path_str = event.path.to_string_lossy();
+            if matches!(
+                allowed_extensions.route_file(&file_path_str, &collection_for_check, ""),
+                FileRoute::Excluded
+            ) {
+                let mut count = events_filtered.lock().await;
+                *count += 1;
+                return true;
+            }
+        }
+
+        {
+            let patterns_lock = patterns.read().await;
+            if !patterns_lock.should_process(&event.path) {
+                let mut count = events_filtered.lock().await;
+                *count += 1;
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Process debounced events

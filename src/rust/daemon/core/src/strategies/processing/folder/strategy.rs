@@ -76,89 +76,19 @@ pub(crate) async fn process_folder_item(
     );
 
     let payload: FolderPayload = parse_payload(item)?;
-
-    // last_scan from the payload provides the mtime baseline for pruning.
-    // For Add/Update (force-rescan) we ignore it so all files are re-examined.
     let last_scan_for_scan = payload.last_scan.as_deref();
 
     match item.op {
-        QueueOperation::Scan => {
-            // For project collection, use progressive single-level scan
-            if item.collection == COLLECTION_PROJECTS {
-                let dir_path = std::path::Path::new(&payload.folder_path);
-                if !dir_path.is_dir() {
-                    warn!(
-                        "Folder scan target is not a directory: {}",
-                        payload.folder_path
-                    );
-                    return Ok(());
-                }
-                let (files, dirs, excluded, errs) = scan_directory_single_level(
-                    dir_path,
-                    item,
-                    &ctx.queue_manager,
-                    &ctx.allowed_extensions,
-                    last_scan_for_scan,
-                )
-                .await?;
-                info!(
-                    "Folder scan: {} files, {} subdirs enqueued, {} excluded, {} errors ({})",
-                    files, dirs, excluded, errs, payload.folder_path
-                );
-                Ok(())
-            } else {
-                crate::strategies::processing::tenant::scan_library_directory(
-                    item,
-                    &payload.folder_path,
-                    &ctx.queue_manager,
-                    &ctx.storage_client,
-                    &ctx.allowed_extensions,
-                )
-                .await
-            }
-        }
+        QueueOperation::Scan => dispatch_scan(ctx, item, &payload, last_scan_for_scan).await,
         QueueOperation::Delete => process_folder_delete(item, &payload, &ctx.queue_manager).await,
         QueueOperation::Update | QueueOperation::Add => {
-            // Folder update/add is a forced rescan — no mtime pruning.
             info!(
                 "Folder {:?} operation treated as rescan for: {}",
                 item.op, payload.folder_path
             );
-            if item.collection == COLLECTION_PROJECTS {
-                let dir_path = std::path::Path::new(&payload.folder_path);
-                if !dir_path.is_dir() {
-                    warn!(
-                        "Folder scan target is not a directory: {}",
-                        payload.folder_path
-                    );
-                    return Ok(());
-                }
-                let (files, dirs, excluded, errs) = scan_directory_single_level(
-                    dir_path,
-                    item,
-                    &ctx.queue_manager,
-                    &ctx.allowed_extensions,
-                    None, // forced rescan: no pruning
-                )
-                .await?;
-                info!(
-                    "Folder rescan: {} files, {} subdirs, {} excluded, {} errors ({})",
-                    files, dirs, excluded, errs, payload.folder_path
-                );
-                Ok(())
-            } else {
-                crate::strategies::processing::tenant::scan_library_directory(
-                    item,
-                    &payload.folder_path,
-                    &ctx.queue_manager,
-                    &ctx.storage_client,
-                    &ctx.allowed_extensions,
-                )
-                .await
-            }
+            dispatch_scan(ctx, item, &payload, None).await
         }
         QueueOperation::Rename => {
-            // Folder rename: not yet implemented
             info!(
                 "Folder rename not yet implemented for queue_id={}",
                 item.queue_id
@@ -166,12 +96,59 @@ pub(crate) async fn process_folder_item(
             Ok(())
         }
         _ => {
-            // Uplift, Reset not valid for folders
             warn!(
                 "Unsupported operation {:?} for folder item {}",
                 item.op, item.queue_id
             );
             Ok(())
         }
+    }
+}
+
+/// Dispatch a scan operation to either the project or library handler.
+///
+/// `last_scan` controls mtime pruning: `None` forces a full rescan.
+async fn dispatch_scan(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    payload: &FolderPayload,
+    last_scan: Option<&str>,
+) -> UnifiedProcessorResult<()> {
+    if item.collection == COLLECTION_PROJECTS {
+        let dir_path = std::path::Path::new(&payload.folder_path);
+        if !dir_path.is_dir() {
+            warn!(
+                "Folder scan target is not a directory: {}",
+                payload.folder_path
+            );
+            return Ok(());
+        }
+        let (files, dirs, excluded, errs) = scan_directory_single_level(
+            dir_path,
+            item,
+            &ctx.queue_manager,
+            &ctx.allowed_extensions,
+            last_scan,
+        )
+        .await?;
+        let label = if last_scan.is_some() {
+            "scan"
+        } else {
+            "rescan"
+        };
+        info!(
+            "Folder {}: {} files, {} subdirs enqueued, {} excluded, {} errors ({})",
+            label, files, dirs, excluded, errs, payload.folder_path
+        );
+        Ok(())
+    } else {
+        crate::strategies::processing::tenant::scan_library_directory(
+            item,
+            &payload.folder_path,
+            &ctx.queue_manager,
+            &ctx.storage_client,
+            &ctx.allowed_extensions,
+        )
+        .await
     }
 }
