@@ -17,10 +17,12 @@ use super::commands::*;
 /// Channel buffer size for write commands.
 const CHANNEL_BUFFER: usize = 1024;
 
-fn send_result<T>(tx: oneshot::Sender<WriteResult<T>>, result: WriteResult<T>, name: &str) {
-    if tx.send(result).is_err() {
-        warn!("{name} response dropped: client disconnected");
-    }
+macro_rules! dispatch {
+    ($self:expr, $method:ident ( $($arg:expr),* ), $tx:expr) => {
+        if $tx.send($self.$method( $($arg),* ).await).is_err() {
+            warn!(concat!(stringify!($method), " response dropped: client disconnected"));
+        }
+    };
 }
 
 /// The actor task that processes write commands sequentially.
@@ -56,111 +58,66 @@ impl WriteActor {
 
     async fn handle_command(&self, cmd: WriteCommand) {
         match cmd {
-            // ── QueueWriteService ──────────────────────────────────
-            WriteCommand::EnqueueItem { data, tx } => {
-                send_result(tx, self.exec_enqueue_item(data).await, "EnqueueItem")
+            WriteCommand::EnqueueItem { data, tx } => dispatch!(self, exec_enqueue_item(data), tx),
+            WriteCommand::RetryAll { tx } => dispatch!(self, exec_retry_all(), tx),
+            WriteCommand::RetryItem { data, tx } => dispatch!(self, exec_retry_item(data), tx),
+            WriteCommand::CleanQueue { data, tx } => dispatch!(self, exec_clean_queue(data), tx),
+            WriteCommand::CancelItems { data, tx } => dispatch!(self, exec_cancel_items(data), tx),
+            WriteCommand::RemoveItem { data, tx } => dispatch!(self, exec_remove_item(data), tx),
+            WriteCommand::CleanQueueByCollection { data, tx } => {
+                dispatch!(self, exec_clean_queue_by_collection(data), tx)
             }
-            WriteCommand::RetryAll { tx } => {
-                send_result(tx, self.exec_retry_all().await, "RetryAll")
-            }
-            WriteCommand::RetryItem { data, tx } => {
-                send_result(tx, self.exec_retry_item(data).await, "RetryItem")
-            }
-            WriteCommand::CleanQueue { data, tx } => {
-                send_result(tx, self.exec_clean_queue(data).await, "CleanQueue")
-            }
-            WriteCommand::CancelItems { data, tx } => {
-                send_result(tx, self.exec_cancel_items(data).await, "CancelItems")
-            }
-            WriteCommand::RemoveItem { data, tx } => {
-                send_result(tx, self.exec_remove_item(data).await, "RemoveItem")
-            }
-            WriteCommand::CleanQueueByCollection { data, tx } => send_result(
-                tx,
-                self.exec_clean_queue_by_collection(data).await,
-                "CleanQueueByCollection",
-            ),
-
-            // ── WatchWriteService ──────────────────────────────────
-            WriteCommand::PauseWatchers { tx } => {
-                send_result(tx, self.exec_pause_watchers().await, "PauseWatchers")
-            }
-            WriteCommand::ResumeWatchers { tx } => {
-                send_result(tx, self.exec_resume_watchers().await, "ResumeWatchers")
-            }
-            WriteCommand::EnableWatch { data, tx } => {
-                send_result(tx, self.exec_enable_watch(data).await, "EnableWatch")
-            }
+            WriteCommand::PauseWatchers { tx } => dispatch!(self, exec_pause_watchers(), tx),
+            WriteCommand::ResumeWatchers { tx } => dispatch!(self, exec_resume_watchers(), tx),
+            WriteCommand::EnableWatch { data, tx } => dispatch!(self, exec_enable_watch(data), tx),
             WriteCommand::DisableWatch { data, tx } => {
-                send_result(tx, self.exec_disable_watch(data).await, "DisableWatch")
+                dispatch!(self, exec_disable_watch(data), tx)
             }
             WriteCommand::ArchiveWatch { data, tx } => {
-                send_result(tx, self.exec_archive_watch(data).await, "ArchiveWatch")
+                dispatch!(self, exec_archive_watch(data), tx)
             }
             WriteCommand::UnarchiveWatch { data, tx } => {
-                send_result(tx, self.exec_unarchive_watch(data).await, "UnarchiveWatch")
+                dispatch!(self, exec_unarchive_watch(data), tx)
             }
-
-            // ── LibraryWriteService ────────────────────────────────
-            WriteCommand::AddLibrary { data, tx } => {
-                send_result(tx, self.exec_add_library(data).await, "AddLibrary")
-            }
+            WriteCommand::AddLibrary { data, tx } => dispatch!(self, exec_add_library(data), tx),
             WriteCommand::RemoveLibrary { data, tx } => {
-                send_result(tx, self.exec_remove_library(data).await, "RemoveLibrary")
+                dispatch!(self, exec_remove_library(data), tx)
             }
             WriteCommand::WatchLibrary { data, tx } => {
-                send_result(tx, self.exec_watch_library(data).await, "WatchLibrary")
+                dispatch!(self, exec_watch_library(data), tx)
             }
             WriteCommand::UnwatchLibrary { data, tx } => {
-                send_result(tx, self.exec_unwatch_library(data).await, "UnwatchLibrary")
+                dispatch!(self, exec_unwatch_library(data), tx)
             }
-            WriteCommand::ConfigureLibrary { data, tx } => send_result(
-                tx,
-                self.exec_configure_library(data).await,
-                "ConfigureLibrary",
-            ),
+            WriteCommand::ConfigureLibrary { data, tx } => {
+                dispatch!(self, exec_configure_library(data), tx)
+            }
             WriteCommand::SetIncremental { data, tx } => {
-                send_result(tx, self.exec_set_incremental(data).await, "SetIncremental")
+                dispatch!(self, exec_set_incremental(data), tx)
             }
-
-            // ── TrackingWriteService ───────────────────────────────
             WriteCommand::LogSearchEvent { data, tx } => {
-                send_result(tx, self.exec_log_search_event(data).await, "LogSearchEvent")
+                dispatch!(self, exec_log_search_event(data), tx)
             }
-            WriteCommand::UpdateSearchEvent { data, tx } => send_result(
-                tx,
-                self.exec_update_search_event(data).await,
-                "UpdateSearchEvent",
-            ),
-            WriteCommand::UpsertRuleMirror { data, tx } => send_result(
-                tx,
-                self.exec_upsert_rule_mirror(data).await,
-                "UpsertRuleMirror",
-            ),
-            WriteCommand::DeleteRuleMirror { data, tx } => send_result(
-                tx,
-                self.exec_delete_rule_mirror(data).await,
-                "DeleteRuleMirror",
-            ),
-            WriteCommand::UpsertScratchpadMirror { data, tx } => send_result(
-                tx,
-                self.exec_upsert_scratchpad_mirror(data).await,
-                "UpsertScratchpadMirror",
-            ),
-            WriteCommand::DeleteScratchpadMirror { data, tx } => send_result(
-                tx,
-                self.exec_delete_scratchpad_mirror(data).await,
-                "DeleteScratchpadMirror",
-            ),
-
-            // ── AdminWriteService ──────────────────────────────────
-            WriteCommand::RenameTenantAdmin { data, tx } => send_result(
-                tx,
-                self.exec_rename_tenant_admin(data).await,
-                "RenameTenantAdmin",
-            ),
+            WriteCommand::UpdateSearchEvent { data, tx } => {
+                dispatch!(self, exec_update_search_event(data), tx)
+            }
+            WriteCommand::UpsertRuleMirror { data, tx } => {
+                dispatch!(self, exec_upsert_rule_mirror(data), tx)
+            }
+            WriteCommand::DeleteRuleMirror { data, tx } => {
+                dispatch!(self, exec_delete_rule_mirror(data), tx)
+            }
+            WriteCommand::UpsertScratchpadMirror { data, tx } => {
+                dispatch!(self, exec_upsert_scratchpad_mirror(data), tx)
+            }
+            WriteCommand::DeleteScratchpadMirror { data, tx } => {
+                dispatch!(self, exec_delete_scratchpad_mirror(data), tx)
+            }
+            WriteCommand::RenameTenantAdmin { data, tx } => {
+                dispatch!(self, exec_rename_tenant_admin(data), tx)
+            }
             WriteCommand::RebalanceIdf { data, tx } => {
-                send_result(tx, self.exec_rebalance_idf(data).await, "RebalanceIdf")
+                dispatch!(self, exec_rebalance_idf(data), tx)
             }
         }
     }
