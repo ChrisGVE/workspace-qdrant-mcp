@@ -34,9 +34,10 @@ struct ChunkOutput {
 
 /// Embed all chunks from a document, building Qdrant points and chunk records.
 ///
-/// For each chunk: generates dense + sparse embeddings, constructs the full
-/// payload map, applies LSP enrichment when available, and tracks chunk metadata
-/// for SQLite `qdrant_chunks`.
+/// Dense embeddings are batched into a single provider call (the provider
+/// handles sub-chunking by `remote_batch_size` internally). Per-chunk work
+/// (sparse vectors, LSP enrichment, payload construction) runs sequentially
+/// after the batch returns.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn embed_chunks(
     ctx: &ProcessingContext,
@@ -49,22 +50,55 @@ pub(super) async fn embed_chunks(
     file_hash: &str,
     file_type: Option<&str>,
 ) -> Result<EmbedResult, UnifiedProcessorError> {
-    // Check if LSP enrichment is available for this project
     let (is_project_active, lsp_mgr_guard) = check_lsp_availability(ctx, item, file_path).await;
 
+    let embedding_start = std::time::Instant::now();
+    let idf_epoch = ctx.lexicon_manager.corpus_size(&item.collection).await;
+
+    // Batch-embed all chunk texts in one provider call.
+    let chunk_texts: Vec<String> = document_content
+        .chunks
+        .iter()
+        .map(|c| c.content.clone())
+        .collect();
+
+    let _permit = ctx
+        .embedding_semaphore
+        .acquire()
+        .await
+        .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
+
+    let batch_results = ctx
+        .embedding_generator
+        .generate_embeddings_batch(&chunk_texts, "default")
+        .await
+        .map_err(|e| {
+            use crate::embedding::EmbeddingError;
+            match e {
+                EmbeddingError::TemporarilyUnavailable { .. } => {
+                    UnifiedProcessorError::EmbeddingUnavailable(e.to_string())
+                }
+                _ => UnifiedProcessorError::Embedding(e.to_string()),
+            }
+        })?;
+
+    drop(_permit);
+
+    // Per-chunk: build payload, sparse vectors, LSP enrichment, assemble point.
     let mut lsp_status = ProcessingStatus::None;
     let mut treesitter_status = ProcessingStatus::None;
     let mut points = Vec::new();
     let mut chunk_records = Vec::new();
-    let embedding_start = std::time::Instant::now();
 
-    // Capture corpus size once before the loop so all chunks in this document
-    // share the same idf_epoch, enabling consistent IDF drift correction later.
-    let idf_epoch = ctx.lexicon_manager.corpus_size(&item.collection).await;
-
-    for (chunk_idx, chunk) in document_content.chunks.iter().enumerate() {
-        let output = process_single_chunk(
-            ctx,
+    for (chunk_idx, (chunk, embedding_result)) in document_content
+        .chunks
+        .iter()
+        .zip(batch_results.into_iter())
+        .enumerate()
+    {
+        let mut point_payload = build_chunk_payload(
+            &chunk.content,
+            chunk.chunk_index,
             item,
             document_content,
             file_path,
@@ -73,13 +107,49 @@ pub(super) async fn embed_chunks(
             base_point,
             file_hash,
             file_type,
+            &chunk.metadata,
+        );
+
+        let (symbol_name, start_line, end_line, chunk_type) = extract_chunk_metadata(chunk);
+
+        let ts_status = if chunk.metadata.contains_key("chunk_type") {
+            ProcessingStatus::Done
+        } else {
+            ProcessingStatus::None
+        };
+
+        let chunk_lsp_status = if let Some(lsp_mgr) = &lsp_mgr_guard {
+            apply_lsp_enrichment(
+                item,
+                file_path,
+                chunk_idx,
+                &chunk.metadata,
+                is_project_active,
+                lsp_mgr,
+                &mut point_payload,
+            )
+            .await
+        } else {
+            ProcessingStatus::None
+        };
+
+        let output = assemble_chunk_output(
+            ctx,
+            item,
             chunk_idx,
-            chunk,
-            is_project_active,
-            &lsp_mgr_guard,
+            &chunk.content,
+            embedding_result,
+            point_payload,
+            chunk_type,
+            symbol_name,
+            start_line,
+            end_line,
+            chunk_lsp_status,
+            ts_status,
+            base_point,
             idf_epoch,
         )
-        .await?;
+        .await;
 
         if output.lsp_status != ProcessingStatus::None {
             lsp_status = output.lsp_status;
@@ -237,33 +307,6 @@ async fn apply_lsp_enrichment(
     }
 }
 
-/// Generate the dense embedding for a chunk (semaphore-gated).
-async fn generate_dense_embedding(
-    ctx: &ProcessingContext,
-    chunk_content: &str,
-) -> Result<crate::embedding::EmbeddingResult, UnifiedProcessorError> {
-    let _permit = ctx
-        .embedding_semaphore
-        .acquire()
-        .await
-        .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
-    let result = ctx
-        .embedding_generator
-        .generate_embedding(chunk_content, "bge-small-en-v1.5")
-        .await
-        .map_err(|e| {
-            use crate::embedding::EmbeddingError;
-            match e {
-                EmbeddingError::TemporarilyUnavailable { .. } => {
-                    UnifiedProcessorError::EmbeddingUnavailable(e.to_string())
-                }
-                _ => UnifiedProcessorError::Embedding(e.to_string()),
-            }
-        })?;
-    drop(_permit);
-    Ok(result)
-}
-
 /// Extract chunk metadata fields for the tracking record.
 fn extract_chunk_metadata(
     chunk: &crate::TextChunk,
@@ -287,86 +330,6 @@ fn extract_chunk_metadata(
         .get("chunk_type")
         .and_then(|s| TrackedChunkType::from_str(s));
     (symbol_name, start_line, end_line, chunk_type)
-}
-
-/// Process a single document chunk: generate embeddings, build payload,
-/// apply LSP enrichment, and produce the assembled point + tracking record.
-#[allow(clippy::too_many_arguments)]
-async fn process_single_chunk(
-    ctx: &ProcessingContext,
-    item: &UnifiedQueueItem,
-    document_content: &DocumentContent,
-    file_path: &Path,
-    file_document_id: &str,
-    relative_path: &str,
-    base_point: &str,
-    file_hash: &str,
-    file_type: Option<&str>,
-    chunk_idx: usize,
-    chunk: &crate::TextChunk,
-    is_project_active: bool,
-    lsp_mgr_guard: &Option<std::sync::Arc<tokio::sync::RwLock<crate::lsp::LanguageServerManager>>>,
-    idf_epoch: u64,
-) -> Result<ChunkOutput, UnifiedProcessorError> {
-    let embedding_result = generate_dense_embedding(ctx, &chunk.content).await?;
-
-    let mut point_payload = build_chunk_payload(
-        &chunk.content,
-        chunk.chunk_index,
-        item,
-        document_content,
-        file_path,
-        file_document_id,
-        relative_path,
-        base_point,
-        file_hash,
-        file_type,
-        &chunk.metadata,
-    );
-
-    let (symbol_name, start_line, end_line, chunk_type) = extract_chunk_metadata(chunk);
-
-    let treesitter_status = if chunk.metadata.contains_key("chunk_type") {
-        ProcessingStatus::Done
-    } else {
-        ProcessingStatus::None
-    };
-
-    // Apply LSP enrichment when available
-    let lsp_status = if let Some(lsp_mgr) = lsp_mgr_guard {
-        apply_lsp_enrichment(
-            item,
-            file_path,
-            chunk_idx,
-            &chunk.metadata,
-            is_project_active,
-            lsp_mgr,
-            &mut point_payload,
-        )
-        .await
-    } else {
-        ProcessingStatus::None
-    };
-
-    let output = assemble_chunk_output(
-        ctx,
-        item,
-        chunk_idx,
-        &chunk.content,
-        embedding_result,
-        point_payload,
-        chunk_type,
-        symbol_name,
-        start_line,
-        end_line,
-        lsp_status,
-        treesitter_status,
-        base_point,
-        idf_epoch,
-    )
-    .await;
-
-    Ok(output)
 }
 
 #[allow(clippy::too_many_arguments)]

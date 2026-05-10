@@ -177,17 +177,24 @@ impl IngestionEngine {
         base_point: &str,
     ) -> std::result::Result<(Vec<crate::storage::DocumentPoint>, u128), ProcessingError> {
         let embed_start = Instant::now();
+
+        let chunk_texts: Vec<String> = content.chunks.iter().map(|c| c.content.clone()).collect();
+
+        let batch_results = self
+            .embedding_generator
+            .generate_embeddings_batch(&chunk_texts, "default")
+            .await
+            .map_err(|e| {
+                ProcessingError::Processing(format!("Embedding generation failed: {}", e))
+            })?;
+
         let mut points = Vec::with_capacity(content.chunks.len());
-
-        for (chunk_idx, chunk) in content.chunks.iter().enumerate() {
-            let embedding_result = self
-                .embedding_generator
-                .generate_embedding(&chunk.content, "bge-small-en-v1.5")
-                .await
-                .map_err(|e| {
-                    ProcessingError::Processing(format!("Embedding generation failed: {}", e))
-                })?;
-
+        for (chunk_idx, (chunk, embedding_result)) in content
+            .chunks
+            .iter()
+            .zip(batch_results.into_iter())
+            .enumerate()
+        {
             let payload = build_chunk_payload(
                 chunk,
                 path_str,

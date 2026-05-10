@@ -157,10 +157,90 @@ impl EmbeddingGenerator {
     ) -> Result<Vec<EmbeddingResult>, EmbeddingError> {
         let batch_start = Instant::now();
         let batch_size = texts.len();
-        let mut results = Vec::with_capacity(batch_size);
-        for text in texts {
-            results.push(self.generate_embedding(text, model_name).await?);
+        if batch_size == 0 {
+            return Ok(Vec::new());
         }
+
+        // Partition into cache hits and misses.
+        let mut dense_results: Vec<Option<DenseEmbedding>> = vec![None; batch_size];
+        let mut miss_indices: Vec<usize> = Vec::new();
+        let mut miss_texts: Vec<&str> = Vec::new();
+
+        for (i, text) in texts.iter().enumerate() {
+            if let Some(cached) = self.phrase_cache.get(text).await {
+                dense_results[i] = Some(DenseEmbedding {
+                    vector: cached,
+                    model_name: self.dense_provider.provider_label().to_string(),
+                    sequence_length: text.len(),
+                });
+            } else {
+                miss_indices.push(i);
+                miss_texts.push(text.as_str());
+            }
+        }
+
+        // Batch-embed all cache misses in one provider call (provider handles
+        // sub-chunking by remote_batch_size internally).
+        if !miss_texts.is_empty() {
+            let embed_start = Instant::now();
+            let embeddings = self.dense_provider.embed(&miss_texts).await?;
+            let embed_ms = embed_start.elapsed().as_millis();
+
+            if embeddings.len() != miss_texts.len() {
+                return Err(EmbeddingError::GenerationError {
+                    message: format!(
+                        "Provider returned {} embeddings for {} inputs",
+                        embeddings.len(),
+                        miss_texts.len()
+                    ),
+                });
+            }
+
+            info!(
+                miss_count = miss_texts.len(),
+                cache_hits = batch_size - miss_texts.len(),
+                dim = embeddings.first().map(|e| e.vector.len()).unwrap_or(0),
+                embed_ms = embed_ms,
+                provider = self.dense_provider.metrics_label(),
+                "dense batch embedded"
+            );
+
+            for (j, dense) in embeddings.into_iter().enumerate() {
+                let idx = miss_indices[j];
+                self.phrase_cache
+                    .put(&texts[idx], dense.vector.clone())
+                    .await;
+                dense_results[idx] = Some(dense);
+            }
+        }
+
+        // Generate sparse vectors and assemble results.
+        let mut results = Vec::with_capacity(batch_size);
+        for (i, text) in texts.iter().enumerate() {
+            let dense = dense_results[i].take().expect("all dense slots populated");
+
+            let tokens = tokenize_for_bm25(text);
+            let sparse = {
+                let mut bm25 = self.bm25.lock().await;
+                bm25.add_document(&tokens);
+                bm25.generate_sparse_vector(&tokens)
+            };
+
+            let text_hash = {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                text.hash(&mut hasher);
+                hasher.finish()
+            };
+
+            results.push(EmbeddingResult {
+                text_hash,
+                dense,
+                sparse,
+                generated_at: chrono::Utc::now(),
+            });
+        }
+
         let batch_ms = batch_start.elapsed().as_millis();
         let per_item_ms = if batch_size > 0 {
             batch_ms / batch_size as u128
