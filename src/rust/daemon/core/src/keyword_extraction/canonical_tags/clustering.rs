@@ -91,6 +91,18 @@ pub(super) fn cluster_tags(
     }
 
     // Compute pairwise similarity matrix
+    let sim_matrix = build_similarity_matrix(tags);
+
+    // Agglomerative clustering with average linkage
+    let (active, cluster_members) = agglomerative_cluster(n, threshold, &sim_matrix);
+
+    // Build output from active clusters
+    build_cluster_output(tags, &active, &cluster_members, &sim_matrix, level)
+}
+
+/// Compute a symmetric pairwise similarity matrix from tag centroids.
+fn build_similarity_matrix(tags: &[CanonicalTag]) -> Vec<Vec<f64>> {
+    let n = tags.len();
     let mut sim_matrix = vec![vec![0.0f64; n]; n];
     for i in 0..n {
         for j in (i + 1)..n {
@@ -99,8 +111,16 @@ pub(super) fn cluster_tags(
             sim_matrix[j][i] = sim;
         }
     }
+    sim_matrix
+}
 
-    // Agglomerative clustering with average linkage
+/// Run agglomerative clustering with average linkage, merging clusters whose
+/// similarity exceeds `threshold`. Returns `(active, cluster_members)`.
+fn agglomerative_cluster(
+    n: usize,
+    threshold: f64,
+    sim_matrix: &[Vec<f64>],
+) -> (Vec<bool>, Vec<Vec<usize>>) {
     let mut cluster_id: Vec<usize> = (0..n).collect();
     let mut active: Vec<bool> = vec![true; n];
     let mut cluster_members: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
@@ -118,9 +138,8 @@ pub(super) fn cluster_tags(
                 if !active[j] {
                     continue;
                 }
-                // Average linkage: mean similarity between all pairs
                 let avg_sim =
-                    average_linkage_sim(&cluster_members[i], &cluster_members[j], &sim_matrix);
+                    average_linkage_sim(&cluster_members[i], &cluster_members[j], sim_matrix);
                 if avg_sim > best_sim {
                     best_sim = avg_sim;
                     best_pair = (i, j);
@@ -129,7 +148,6 @@ pub(super) fn cluster_tags(
         }
 
         if best_sim < threshold || best_pair == (0, 0) && n > 1 {
-            // Check if we found any valid pair
             if best_sim < threshold {
                 break;
             }
@@ -141,12 +159,10 @@ pub(super) fn cluster_tags(
         cluster_members[a].extend(members_b);
         active[b] = false;
 
-        // Update cluster assignments
         for &m in &cluster_members[a] {
             cluster_id[m] = a;
         }
 
-        // Check if only one active cluster remains
         if active.iter().filter(|&&a| a).count() <= 1 {
             break;
         }
@@ -156,13 +172,25 @@ pub(super) fn cluster_tags(
     // the final result is built from active cluster indices directly.
     let _ = cluster_id;
 
-    // Build output from active clusters
+    (active, cluster_members)
+}
+
+/// Build canonical-tag output from active cluster groups, setting parent links
+/// on the input tags.
+fn build_cluster_output(
+    tags: &mut [CanonicalTag],
+    active: &[bool],
+    cluster_members: &[Vec<usize>],
+    _sim_matrix: &[Vec<f64>],
+    level: u8,
+) -> Vec<CanonicalTag> {
+    let n = active.len();
     let mut result = Vec::new();
+
     for i in 0..n {
         if !active[i] {
             continue;
         }
-
         let members = &cluster_members[i];
         if members.is_empty() {
             continue;
@@ -171,18 +199,7 @@ pub(super) fn cluster_tags(
         let centroid = compute_centroid(members.iter().map(|&m| &tags[m].centroid));
         let total_docs: u32 = members.iter().map(|&m| tags[m].doc_count).sum();
 
-        // Choose label: member closest to centroid
-        let label_idx = members
-            .iter()
-            .max_by(|&&a, &&b| {
-                let sim_a = cosine_similarity(&tags[a].centroid, &centroid);
-                let sim_b = cosine_similarity(&tags[b].centroid, &centroid);
-                sim_a
-                    .partial_cmp(&sim_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .copied()
-            .unwrap_or(members[0]);
+        let label_idx = closest_to_centroid(members, tags, &centroid);
 
         let label = tags[label_idx].label.clone();
         let aliases: Vec<String> = members
@@ -192,8 +209,6 @@ pub(super) fn cluster_tags(
             .collect();
 
         let parent_idx = result.len();
-
-        // Set parent_index and parent_similarity on each input tag
         for &m in members {
             tags[m].parent_index = Some(parent_idx);
             tags[m].parent_similarity = Some(cosine_similarity(&tags[m].centroid, &centroid));
@@ -211,6 +226,21 @@ pub(super) fn cluster_tags(
     }
 
     result
+}
+
+/// Find the member whose centroid is closest to the given centroid.
+fn closest_to_centroid(members: &[usize], tags: &[CanonicalTag], centroid: &[f32]) -> usize {
+    members
+        .iter()
+        .max_by(|&&a, &&b| {
+            let sim_a = cosine_similarity(&tags[a].centroid, centroid);
+            let sim_b = cosine_similarity(&tags[b].centroid, centroid);
+            sim_a
+                .partial_cmp(&sim_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .copied()
+        .unwrap_or(members[0])
 }
 
 /// Compute average linkage similarity between two clusters.

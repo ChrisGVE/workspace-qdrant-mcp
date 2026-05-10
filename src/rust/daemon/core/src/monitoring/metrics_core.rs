@@ -173,134 +173,218 @@ pub struct DaemonMetrics {
     pub qdrant_request_errors_total: IntCounterVec,
 }
 
+/// Intermediate struct holding all created metrics before registration.
+struct CreatedMetrics {
+    active_sessions: IntGaugeVec,
+    total_sessions: IntCounterVec,
+    session_duration_seconds: HistogramVec,
+    queue_depth: IntGaugeVec,
+    queue_processing_time_seconds: HistogramVec,
+    queue_items_processed_total: IntCounterVec,
+    tenant_documents_total: IntGaugeVec,
+    tenant_search_requests_total: IntCounterVec,
+    tenant_storage_bytes: GaugeVec,
+    uptime_seconds: GaugeVec,
+    ingestion_errors_total: IntCounterVec,
+    heartbeat_latency_seconds: HistogramVec,
+    watch_errors_total: IntCounterVec,
+    watch_consecutive_errors: IntGaugeVec,
+    watch_health_status: IntGaugeVec,
+    watches_in_backoff: IntGaugeVec,
+    watch_recovery_time_seconds: HistogramVec,
+    watch_events_throttled_total: IntCounterVec,
+    unified_queue_depth: IntGaugeVec,
+    unified_queue_processing_time_seconds: HistogramVec,
+    unified_queue_items_total: IntCounterVec,
+    unified_queue_enqueues_total: IntCounterVec,
+    unified_queue_dequeues_total: IntCounterVec,
+    unified_queue_stale_items: IntGaugeVec,
+    unified_queue_retries_total: IntCounterVec,
+    queue_oldest_pending_age_seconds: IntGauge,
+    watcher_events_total: IntCounterVec,
+    watcher_coalesced_total: IntCounterVec,
+    grpc_requests_total: IntCounterVec,
+    grpc_request_duration_seconds: HistogramVec,
+    embedding_duration_seconds: HistogramVec,
+    embedding_batch_size: HistogramVec,
+    sqlite_query_duration_seconds: HistogramVec,
+    qdrant_request_duration_seconds: HistogramVec,
+    qdrant_request_errors_total: IntCounterVec,
+}
+
+/// Create all metric instances from subsystem factories.
+fn create_all_metrics() -> CreatedMetrics {
+    let (active_sessions, total_sessions, session_duration_seconds) = create_session_metrics();
+    let (queue_depth, queue_processing_time_seconds, queue_items_processed_total) =
+        create_queue_metrics();
+    let (tenant_documents_total, tenant_search_requests_total, tenant_storage_bytes) =
+        create_tenant_metrics();
+    let (uptime_seconds, ingestion_errors_total, heartbeat_latency_seconds) =
+        create_system_metrics();
+    let (
+        watch_errors_total,
+        watch_consecutive_errors,
+        watch_health_status,
+        watches_in_backoff,
+        watch_recovery_time_seconds,
+        watch_events_throttled_total,
+    ) = create_watch_metrics();
+    let (
+        unified_queue_depth,
+        unified_queue_processing_time_seconds,
+        unified_queue_items_total,
+        unified_queue_enqueues_total,
+        unified_queue_dequeues_total,
+        unified_queue_stale_items,
+        unified_queue_retries_total,
+    ) = create_unified_queue_metrics();
+    let (
+        watcher_events_total,
+        watcher_coalesced_total,
+        grpc_requests_total,
+        grpc_request_duration_seconds,
+    ) = create_telemetry_extension_metrics();
+    let (
+        embedding_duration_seconds,
+        embedding_batch_size,
+        sqlite_query_duration_seconds,
+        qdrant_request_duration_seconds,
+        qdrant_request_errors_total,
+    ) = create_dependency_metrics();
+
+    let queue_oldest_pending_age_seconds = IntGauge::new(
+        "wqm_queue_oldest_pending_age_seconds",
+        "Age in seconds of the oldest pending queue item",
+    )
+    .expect("metric can be created");
+
+    CreatedMetrics {
+        active_sessions,
+        total_sessions,
+        session_duration_seconds,
+        queue_depth,
+        queue_processing_time_seconds,
+        queue_items_processed_total,
+        tenant_documents_total,
+        tenant_search_requests_total,
+        tenant_storage_bytes,
+        uptime_seconds,
+        ingestion_errors_total,
+        heartbeat_latency_seconds,
+        watch_errors_total,
+        watch_consecutive_errors,
+        watch_health_status,
+        watches_in_backoff,
+        watch_recovery_time_seconds,
+        watch_events_throttled_total,
+        unified_queue_depth,
+        unified_queue_processing_time_seconds,
+        unified_queue_items_total,
+        unified_queue_enqueues_total,
+        unified_queue_dequeues_total,
+        unified_queue_stale_items,
+        unified_queue_retries_total,
+        queue_oldest_pending_age_seconds,
+        watcher_events_total,
+        watcher_coalesced_total,
+        grpc_requests_total,
+        grpc_request_duration_seconds,
+        embedding_duration_seconds,
+        embedding_batch_size,
+        sqlite_query_duration_seconds,
+        qdrant_request_duration_seconds,
+        qdrant_request_errors_total,
+    }
+}
+
+/// Register all metrics with the given registry.
+fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
+    register_all(
+        registry,
+        vec![
+            Box::new(m.active_sessions.clone()),
+            Box::new(m.total_sessions.clone()),
+            Box::new(m.session_duration_seconds.clone()),
+            Box::new(m.queue_depth.clone()),
+            Box::new(m.queue_processing_time_seconds.clone()),
+            Box::new(m.queue_items_processed_total.clone()),
+            Box::new(m.tenant_documents_total.clone()),
+            Box::new(m.tenant_search_requests_total.clone()),
+            Box::new(m.tenant_storage_bytes.clone()),
+            Box::new(m.uptime_seconds.clone()),
+            Box::new(m.ingestion_errors_total.clone()),
+            Box::new(m.heartbeat_latency_seconds.clone()),
+            Box::new(m.watch_errors_total.clone()),
+            Box::new(m.watch_consecutive_errors.clone()),
+            Box::new(m.watch_health_status.clone()),
+            Box::new(m.watches_in_backoff.clone()),
+            Box::new(m.watch_recovery_time_seconds.clone()),
+            Box::new(m.watch_events_throttled_total.clone()),
+            Box::new(m.unified_queue_depth.clone()),
+            Box::new(m.unified_queue_processing_time_seconds.clone()),
+            Box::new(m.unified_queue_items_total.clone()),
+            Box::new(m.unified_queue_enqueues_total.clone()),
+            Box::new(m.unified_queue_dequeues_total.clone()),
+            Box::new(m.unified_queue_stale_items.clone()),
+            Box::new(m.unified_queue_retries_total.clone()),
+            Box::new(m.queue_oldest_pending_age_seconds.clone()),
+            Box::new(m.watcher_events_total.clone()),
+            Box::new(m.watcher_coalesced_total.clone()),
+            Box::new(m.grpc_requests_total.clone()),
+            Box::new(m.grpc_request_duration_seconds.clone()),
+            Box::new(m.embedding_duration_seconds.clone()),
+            Box::new(m.embedding_batch_size.clone()),
+            Box::new(m.sqlite_query_duration_seconds.clone()),
+            Box::new(m.qdrant_request_duration_seconds.clone()),
+            Box::new(m.qdrant_request_errors_total.clone()),
+        ],
+    );
+}
+
 impl DaemonMetrics {
     /// Create a new metrics collector
     pub fn new() -> Self {
         let registry = Registry::new();
-
-        let (active_sessions, total_sessions, session_duration_seconds) = create_session_metrics();
-        let (queue_depth, queue_processing_time_seconds, queue_items_processed_total) =
-            create_queue_metrics();
-        let (tenant_documents_total, tenant_search_requests_total, tenant_storage_bytes) =
-            create_tenant_metrics();
-        let (uptime_seconds, ingestion_errors_total, heartbeat_latency_seconds) =
-            create_system_metrics();
-        let (
-            watch_errors_total,
-            watch_consecutive_errors,
-            watch_health_status,
-            watches_in_backoff,
-            watch_recovery_time_seconds,
-            watch_events_throttled_total,
-        ) = create_watch_metrics();
-        let (
-            unified_queue_depth,
-            unified_queue_processing_time_seconds,
-            unified_queue_items_total,
-            unified_queue_enqueues_total,
-            unified_queue_dequeues_total,
-            unified_queue_stale_items,
-            unified_queue_retries_total,
-        ) = create_unified_queue_metrics();
-        let (
-            watcher_events_total,
-            watcher_coalesced_total,
-            grpc_requests_total,
-            grpc_request_duration_seconds,
-        ) = create_telemetry_extension_metrics();
-        let (
-            embedding_duration_seconds,
-            embedding_batch_size,
-            sqlite_query_duration_seconds,
-            qdrant_request_duration_seconds,
-            qdrant_request_errors_total,
-        ) = create_dependency_metrics();
-
-        // Scalar gauge: oldest pending queue item age in seconds
-        let queue_oldest_pending_age_seconds = IntGauge::new(
-            "wqm_queue_oldest_pending_age_seconds",
-            "Age in seconds of the oldest pending queue item",
-        )
-        .expect("metric can be created");
-
-        register_all(
-            &registry,
-            vec![
-                Box::new(active_sessions.clone()),
-                Box::new(total_sessions.clone()),
-                Box::new(session_duration_seconds.clone()),
-                Box::new(queue_depth.clone()),
-                Box::new(queue_processing_time_seconds.clone()),
-                Box::new(queue_items_processed_total.clone()),
-                Box::new(tenant_documents_total.clone()),
-                Box::new(tenant_search_requests_total.clone()),
-                Box::new(tenant_storage_bytes.clone()),
-                Box::new(uptime_seconds.clone()),
-                Box::new(ingestion_errors_total.clone()),
-                Box::new(heartbeat_latency_seconds.clone()),
-                Box::new(watch_errors_total.clone()),
-                Box::new(watch_consecutive_errors.clone()),
-                Box::new(watch_health_status.clone()),
-                Box::new(watches_in_backoff.clone()),
-                Box::new(watch_recovery_time_seconds.clone()),
-                Box::new(watch_events_throttled_total.clone()),
-                Box::new(unified_queue_depth.clone()),
-                Box::new(unified_queue_processing_time_seconds.clone()),
-                Box::new(unified_queue_items_total.clone()),
-                Box::new(unified_queue_enqueues_total.clone()),
-                Box::new(unified_queue_dequeues_total.clone()),
-                Box::new(unified_queue_stale_items.clone()),
-                Box::new(unified_queue_retries_total.clone()),
-                Box::new(queue_oldest_pending_age_seconds.clone()),
-                Box::new(watcher_events_total.clone()),
-                Box::new(watcher_coalesced_total.clone()),
-                Box::new(grpc_requests_total.clone()),
-                Box::new(grpc_request_duration_seconds.clone()),
-                Box::new(embedding_duration_seconds.clone()),
-                Box::new(embedding_batch_size.clone()),
-                Box::new(sqlite_query_duration_seconds.clone()),
-                Box::new(qdrant_request_duration_seconds.clone()),
-                Box::new(qdrant_request_errors_total.clone()),
-            ],
-        );
+        let m = create_all_metrics();
+        register_metrics(&registry, &m);
 
         Self {
             registry,
-            active_sessions,
-            total_sessions,
-            session_duration_seconds,
-            queue_depth,
-            queue_processing_time_seconds,
-            queue_items_processed_total,
-            tenant_documents_total,
-            tenant_search_requests_total,
-            tenant_storage_bytes,
-            uptime_seconds,
-            ingestion_errors_total,
-            heartbeat_latency_seconds,
-            watch_errors_total,
-            watch_consecutive_errors,
-            watch_health_status,
-            watches_in_backoff,
-            watch_recovery_time_seconds,
-            watch_events_throttled_total,
-            unified_queue_depth,
-            unified_queue_processing_time_seconds,
-            unified_queue_items_total,
-            unified_queue_enqueues_total,
-            unified_queue_dequeues_total,
-            unified_queue_stale_items,
-            unified_queue_retries_total,
-            queue_oldest_pending_age_seconds,
-            watcher_events_total,
-            watcher_coalesced_total,
-            grpc_requests_total,
-            grpc_request_duration_seconds,
-            embedding_duration_seconds,
-            embedding_batch_size,
-            sqlite_query_duration_seconds,
-            qdrant_request_duration_seconds,
-            qdrant_request_errors_total,
+            active_sessions: m.active_sessions,
+            total_sessions: m.total_sessions,
+            session_duration_seconds: m.session_duration_seconds,
+            queue_depth: m.queue_depth,
+            queue_processing_time_seconds: m.queue_processing_time_seconds,
+            queue_items_processed_total: m.queue_items_processed_total,
+            tenant_documents_total: m.tenant_documents_total,
+            tenant_search_requests_total: m.tenant_search_requests_total,
+            tenant_storage_bytes: m.tenant_storage_bytes,
+            uptime_seconds: m.uptime_seconds,
+            ingestion_errors_total: m.ingestion_errors_total,
+            heartbeat_latency_seconds: m.heartbeat_latency_seconds,
+            watch_errors_total: m.watch_errors_total,
+            watch_consecutive_errors: m.watch_consecutive_errors,
+            watch_health_status: m.watch_health_status,
+            watches_in_backoff: m.watches_in_backoff,
+            watch_recovery_time_seconds: m.watch_recovery_time_seconds,
+            watch_events_throttled_total: m.watch_events_throttled_total,
+            unified_queue_depth: m.unified_queue_depth,
+            unified_queue_processing_time_seconds: m.unified_queue_processing_time_seconds,
+            unified_queue_items_total: m.unified_queue_items_total,
+            unified_queue_enqueues_total: m.unified_queue_enqueues_total,
+            unified_queue_dequeues_total: m.unified_queue_dequeues_total,
+            unified_queue_stale_items: m.unified_queue_stale_items,
+            unified_queue_retries_total: m.unified_queue_retries_total,
+            queue_oldest_pending_age_seconds: m.queue_oldest_pending_age_seconds,
+            watcher_events_total: m.watcher_events_total,
+            watcher_coalesced_total: m.watcher_coalesced_total,
+            grpc_requests_total: m.grpc_requests_total,
+            grpc_request_duration_seconds: m.grpc_request_duration_seconds,
+            embedding_duration_seconds: m.embedding_duration_seconds,
+            embedding_batch_size: m.embedding_batch_size,
+            sqlite_query_duration_seconds: m.sqlite_query_duration_seconds,
+            qdrant_request_duration_seconds: m.qdrant_request_duration_seconds,
+            qdrant_request_errors_total: m.qdrant_request_errors_total,
         }
     }
 

@@ -6,6 +6,48 @@ use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp};
 
 use super::{QueueError, QueueManager, QueueResult};
 
+/// Check that `payload[field]` is a non-empty string.
+fn has_non_empty_string(payload: &serde_json::Value, field: &str) -> bool {
+    payload.get(field).map_or(false, |v| {
+        v.is_string() && !v.as_str().unwrap_or("").is_empty()
+    })
+}
+
+/// Check that `payload[field]` is a string (may be empty).
+fn has_string(payload: &serde_json::Value, field: &str) -> bool {
+    payload.get(field).map_or(false, |v| v.is_string())
+}
+
+/// Validate a required non-empty string field, returning an error if missing.
+fn require_non_empty(payload: &serde_json::Value, item_type: &str, field: &str) -> QueueResult<()> {
+    if !has_non_empty_string(payload, field) {
+        error!(
+            "Queue validation failed: {} item missing '{}' in payload",
+            item_type, field
+        );
+        return Err(QueueError::MissingPayloadField {
+            item_type: item_type.to_string(),
+            field: field.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Validate a required string field (may be empty), returning an error if missing.
+fn require_string(payload: &serde_json::Value, item_type: &str, field: &str) -> QueueResult<()> {
+    if !has_string(payload, field) {
+        error!(
+            "Queue validation failed: {} item missing '{}' in payload",
+            item_type, field
+        );
+        return Err(QueueError::MissingPayloadField {
+            item_type: item_type.to_string(),
+            field: field.to_string(),
+        });
+    }
+    Ok(())
+}
+
 impl QueueManager {
     /// Validate payload contains required fields for the given item type (Task 46)
     ///
@@ -17,51 +59,15 @@ impl QueueManager {
     ) -> QueueResult<()> {
         match item_type {
             ItemType::File => {
-                if !payload.get("file_path").map_or(false, |v| {
-                    v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                }) {
-                    error!("Queue validation failed: file item missing 'file_path' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "file".to_string(),
-                        field: "file_path".to_string(),
-                    });
-                }
+                require_non_empty(payload, "file", "file_path")?;
                 if op == UnifiedOp::Rename {
-                    if !payload.get("old_path").map_or(false, |v| {
-                        v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                    }) {
-                        error!(
-                            "Queue validation failed: file rename missing 'old_path' in payload"
-                        );
-                        return Err(QueueError::MissingPayloadField {
-                            item_type: "file".to_string(),
-                            field: "old_path".to_string(),
-                        });
-                    }
+                    require_non_empty(payload, "file", "old_path")?;
                 }
             }
             ItemType::Folder => {
-                if !payload.get("folder_path").map_or(false, |v| {
-                    v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                }) {
-                    error!("Queue validation failed: folder item missing 'folder_path' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "folder".to_string(),
-                        field: "folder_path".to_string(),
-                    });
-                }
+                require_non_empty(payload, "folder", "folder_path")?;
                 if op == UnifiedOp::Rename {
-                    if !payload.get("old_path").map_or(false, |v| {
-                        v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                    }) {
-                        error!(
-                            "Queue validation failed: folder rename missing 'old_path' in payload"
-                        );
-                        return Err(QueueError::MissingPayloadField {
-                            item_type: "folder".to_string(),
-                            field: "old_path".to_string(),
-                        });
-                    }
+                    require_non_empty(payload, "folder", "old_path")?;
                 }
             }
             ItemType::Tenant => {
@@ -70,73 +76,27 @@ impl QueueManager {
                 // For delete ops, tenant_id is sufficient (already in queue item)
                 // For rename ops, need old_tenant_id
                 if op == UnifiedOp::Rename {
-                    if !payload.get("old_tenant_id").map_or(false, |v| {
-                        v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                    }) {
-                        error!("Queue validation failed: tenant rename missing 'old_tenant_id'");
-                        return Err(QueueError::MissingPayloadField {
-                            item_type: "tenant".to_string(),
-                            field: "old_tenant_id".to_string(),
-                        });
-                    }
+                    require_non_empty(payload, "tenant", "old_tenant_id")?;
                 }
                 // For add/scan ops on projects, project_root is needed
                 // For add ops on libraries, library_name is needed
                 // These are validated contextually in the processor
             }
             ItemType::Doc => {
-                if !payload.get("document_id").map_or(false, |v| {
-                    v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                }) {
-                    error!("Queue validation failed: doc item missing 'document_id' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "doc".to_string(),
-                        field: "document_id".to_string(),
-                    });
-                }
+                require_non_empty(payload, "doc", "document_id")?;
             }
             ItemType::Text => {
                 // Text items must have a 'content' field (can be empty string for some operations)
-                if !payload.get("content").map_or(false, |v| v.is_string()) {
-                    error!("Queue validation failed: text item missing 'content' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "text".to_string(),
-                        field: "content".to_string(),
-                    });
-                }
+                require_string(payload, "text", "content")?;
             }
             ItemType::Website => {
-                if !payload.get("url").map_or(false, |v| {
-                    v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                }) {
-                    error!("Queue validation failed: website item missing 'url' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "website".to_string(),
-                        field: "url".to_string(),
-                    });
-                }
+                require_non_empty(payload, "website", "url")?;
             }
             ItemType::Collection => {
-                if !payload.get("collection_name").map_or(false, |v| {
-                    v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                }) {
-                    error!("Queue validation failed: collection item missing 'collection_name' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "collection".to_string(),
-                        field: "collection_name".to_string(),
-                    });
-                }
+                require_non_empty(payload, "collection", "collection_name")?;
             }
             ItemType::Url => {
-                if !payload.get("url").map_or(false, |v| {
-                    v.is_string() && !v.as_str().unwrap_or("").is_empty()
-                }) {
-                    error!("Queue validation failed: url item missing 'url' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "url".to_string(),
-                        field: "url".to_string(),
-                    });
-                }
+                require_non_empty(payload, "url", "url")?;
             }
         }
         Ok(())
