@@ -17,6 +17,12 @@ use super::commands::*;
 /// Channel buffer size for write commands.
 const CHANNEL_BUFFER: usize = 1024;
 
+fn send_result<T>(tx: oneshot::Sender<WriteResult<T>>, result: WriteResult<T>, name: &str) {
+    if tx.send(result).is_err() {
+        warn!("{name} response dropped: client disconnected");
+    }
+}
+
 /// The actor task that processes write commands sequentially.
 pub struct WriteActor {
     rx: mpsc::Receiver<WriteCommand>,
@@ -52,174 +58,109 @@ impl WriteActor {
         match cmd {
             // ── QueueWriteService ──────────────────────────────────
             WriteCommand::EnqueueItem { data, tx } => {
-                let result = self.exec_enqueue_item(data).await;
-                if tx.send(result).is_err() {
-                    warn!("EnqueueItem response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_enqueue_item(data).await, "EnqueueItem")
             }
             WriteCommand::RetryAll { tx } => {
-                let result = self.exec_retry_all().await;
-                if tx.send(result).is_err() {
-                    warn!("RetryAll response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_retry_all().await, "RetryAll")
             }
             WriteCommand::RetryItem { data, tx } => {
-                let result = self.exec_retry_item(data).await;
-                if tx.send(result).is_err() {
-                    warn!("RetryItem response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_retry_item(data).await, "RetryItem")
             }
             WriteCommand::CleanQueue { data, tx } => {
-                let result = self.exec_clean_queue(data).await;
-                if tx.send(result).is_err() {
-                    warn!("CleanQueue response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_clean_queue(data).await, "CleanQueue")
             }
             WriteCommand::CancelItems { data, tx } => {
-                let result = self.exec_cancel_items(data).await;
-                if tx.send(result).is_err() {
-                    warn!("CancelItems response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_cancel_items(data).await, "CancelItems")
             }
             WriteCommand::RemoveItem { data, tx } => {
-                let result = self.exec_remove_item(data).await;
-                if tx.send(result).is_err() {
-                    warn!("RemoveItem response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_remove_item(data).await, "RemoveItem")
             }
-            WriteCommand::CleanQueueByCollection { data, tx } => {
-                let result = self.exec_clean_queue_by_collection(data).await;
-                if tx.send(result).is_err() {
-                    warn!("CleanQueueByCollection response dropped: client disconnected");
-                }
-            }
+            WriteCommand::CleanQueueByCollection { data, tx } => send_result(
+                tx,
+                self.exec_clean_queue_by_collection(data).await,
+                "CleanQueueByCollection",
+            ),
 
             // ── WatchWriteService ──────────────────────────────────
             WriteCommand::PauseWatchers { tx } => {
-                let result = self.exec_pause_watchers().await;
-                if tx.send(result).is_err() {
-                    warn!("PauseWatchers response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_pause_watchers().await, "PauseWatchers")
             }
             WriteCommand::ResumeWatchers { tx } => {
-                let result = self.exec_resume_watchers().await;
-                if tx.send(result).is_err() {
-                    warn!("ResumeWatchers response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_resume_watchers().await, "ResumeWatchers")
             }
             WriteCommand::EnableWatch { data, tx } => {
-                let result = self.exec_enable_watch(data).await;
-                if tx.send(result).is_err() {
-                    warn!("EnableWatch response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_enable_watch(data).await, "EnableWatch")
             }
             WriteCommand::DisableWatch { data, tx } => {
-                let result = self.exec_disable_watch(data).await;
-                if tx.send(result).is_err() {
-                    warn!("DisableWatch response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_disable_watch(data).await, "DisableWatch")
             }
             WriteCommand::ArchiveWatch { data, tx } => {
-                let result = self.exec_archive_watch(data).await;
-                if tx.send(result).is_err() {
-                    warn!("ArchiveWatch response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_archive_watch(data).await, "ArchiveWatch")
             }
             WriteCommand::UnarchiveWatch { data, tx } => {
-                let result = self.exec_unarchive_watch(data).await;
-                if tx.send(result).is_err() {
-                    warn!("UnarchiveWatch response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_unarchive_watch(data).await, "UnarchiveWatch")
             }
 
             // ── LibraryWriteService ────────────────────────────────
             WriteCommand::AddLibrary { data, tx } => {
-                let result = self.exec_add_library(data).await;
-                if tx.send(result).is_err() {
-                    warn!("AddLibrary response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_add_library(data).await, "AddLibrary")
             }
             WriteCommand::RemoveLibrary { data, tx } => {
-                let result = self.exec_remove_library(data).await;
-                if tx.send(result).is_err() {
-                    warn!("RemoveLibrary response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_remove_library(data).await, "RemoveLibrary")
             }
             WriteCommand::WatchLibrary { data, tx } => {
-                let result = self.exec_watch_library(data).await;
-                if tx.send(result).is_err() {
-                    warn!("WatchLibrary response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_watch_library(data).await, "WatchLibrary")
             }
             WriteCommand::UnwatchLibrary { data, tx } => {
-                let result = self.exec_unwatch_library(data).await;
-                if tx.send(result).is_err() {
-                    warn!("UnwatchLibrary response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_unwatch_library(data).await, "UnwatchLibrary")
             }
-            WriteCommand::ConfigureLibrary { data, tx } => {
-                let result = self.exec_configure_library(data).await;
-                if tx.send(result).is_err() {
-                    warn!("ConfigureLibrary response dropped: client disconnected");
-                }
-            }
+            WriteCommand::ConfigureLibrary { data, tx } => send_result(
+                tx,
+                self.exec_configure_library(data).await,
+                "ConfigureLibrary",
+            ),
             WriteCommand::SetIncremental { data, tx } => {
-                let result = self.exec_set_incremental(data).await;
-                if tx.send(result).is_err() {
-                    warn!("SetIncremental response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_set_incremental(data).await, "SetIncremental")
             }
 
             // ── TrackingWriteService ───────────────────────────────
             WriteCommand::LogSearchEvent { data, tx } => {
-                let result = self.exec_log_search_event(data).await;
-                if tx.send(result).is_err() {
-                    warn!("LogSearchEvent response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_log_search_event(data).await, "LogSearchEvent")
             }
-            WriteCommand::UpdateSearchEvent { data, tx } => {
-                let result = self.exec_update_search_event(data).await;
-                if tx.send(result).is_err() {
-                    warn!("UpdateSearchEvent response dropped: client disconnected");
-                }
-            }
-            WriteCommand::UpsertRuleMirror { data, tx } => {
-                let result = self.exec_upsert_rule_mirror(data).await;
-                if tx.send(result).is_err() {
-                    warn!("UpsertRuleMirror response dropped: client disconnected");
-                }
-            }
-            WriteCommand::DeleteRuleMirror { data, tx } => {
-                let result = self.exec_delete_rule_mirror(data).await;
-                if tx.send(result).is_err() {
-                    warn!("DeleteRuleMirror response dropped: client disconnected");
-                }
-            }
-            WriteCommand::UpsertScratchpadMirror { data, tx } => {
-                let result = self.exec_upsert_scratchpad_mirror(data).await;
-                if tx.send(result).is_err() {
-                    warn!("UpsertScratchpadMirror response dropped: client disconnected");
-                }
-            }
-            WriteCommand::DeleteScratchpadMirror { data, tx } => {
-                let result = self.exec_delete_scratchpad_mirror(data).await;
-                if tx.send(result).is_err() {
-                    warn!("DeleteScratchpadMirror response dropped: client disconnected");
-                }
-            }
+            WriteCommand::UpdateSearchEvent { data, tx } => send_result(
+                tx,
+                self.exec_update_search_event(data).await,
+                "UpdateSearchEvent",
+            ),
+            WriteCommand::UpsertRuleMirror { data, tx } => send_result(
+                tx,
+                self.exec_upsert_rule_mirror(data).await,
+                "UpsertRuleMirror",
+            ),
+            WriteCommand::DeleteRuleMirror { data, tx } => send_result(
+                tx,
+                self.exec_delete_rule_mirror(data).await,
+                "DeleteRuleMirror",
+            ),
+            WriteCommand::UpsertScratchpadMirror { data, tx } => send_result(
+                tx,
+                self.exec_upsert_scratchpad_mirror(data).await,
+                "UpsertScratchpadMirror",
+            ),
+            WriteCommand::DeleteScratchpadMirror { data, tx } => send_result(
+                tx,
+                self.exec_delete_scratchpad_mirror(data).await,
+                "DeleteScratchpadMirror",
+            ),
 
             // ── AdminWriteService ──────────────────────────────────
-            WriteCommand::RenameTenantAdmin { data, tx } => {
-                let result = self.exec_rename_tenant_admin(data).await;
-                if tx.send(result).is_err() {
-                    warn!("RenameTenantAdmin response dropped: client disconnected");
-                }
-            }
+            WriteCommand::RenameTenantAdmin { data, tx } => send_result(
+                tx,
+                self.exec_rename_tenant_admin(data).await,
+                "RenameTenantAdmin",
+            ),
             WriteCommand::RebalanceIdf { data, tx } => {
-                let result = self.exec_rebalance_idf(data).await;
-                if tx.send(result).is_err() {
-                    warn!("RebalanceIdf response dropped: client disconnected");
-                }
+                send_result(tx, self.exec_rebalance_idf(data).await, "RebalanceIdf")
             }
         }
     }

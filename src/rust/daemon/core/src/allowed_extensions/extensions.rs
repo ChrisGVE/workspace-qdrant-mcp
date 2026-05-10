@@ -15,6 +15,148 @@ pub(super) const LIBRARY_ROUTED_EXTENSIONS: &[&str] = &[
     ".key", ".odp", ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
 ];
 
+/// Source code, config, and documentation extensions allowed in project collections.
+const PROJECT_EXTENSION_LIST: &[&str] = &[
+    // Rust
+    ".rs",
+    // Python
+    ".py",
+    // JavaScript / TypeScript
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".mts",
+    ".cts",
+    // Go
+    ".go",
+    // Java / JVM
+    ".java",
+    ".kt",
+    ".scala",
+    ".groovy",
+    ".clj",
+    ".cljs",
+    // C / C++
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    // Swift
+    ".swift",
+    // Ruby
+    ".rb",
+    // Lua
+    ".lua",
+    // Shell
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    // Config / Data
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".xml",
+    // Spreadsheets and data
+    ".csv",
+    ".tsv",
+    // Notebooks
+    ".ipynb",
+    // Web
+    ".html",
+    ".css",
+    ".scss",
+    ".less",
+    ".vue",
+    ".svelte",
+    ".astro",
+    // SQL / GraphQL / Proto
+    ".sql",
+    ".graphql",
+    ".proto",
+    // Documentation
+    ".md",
+    ".txt",
+    ".rst",
+    ".tex",
+    // Elixir / Erlang
+    ".ex",
+    ".exs",
+    ".erl",
+    ".hrl",
+    // Haskell / ML / Elm
+    ".hs",
+    ".ml",
+    ".mli",
+    ".elm",
+    // R (.r and .R kept separate for case-insensitive matching)
+    ".r",
+    ".R",
+    // Dart
+    ".dart",
+    // .NET
+    ".cs",
+    ".fs",
+    ".vb",
+    // Perl / PHP
+    ".pl",
+    ".pm",
+    ".php",
+    // Nix
+    ".nix",
+    // Lean
+    ".lean",
+    // Zig
+    ".zig",
+    // Nim
+    ".nim",
+    // V / Odin / D
+    ".v",
+    ".odin",
+    ".d",
+    // Fortran
+    ".f90",
+    ".f95",
+    // Pascal
+    ".pas",
+    // COBOL
+    ".cob",
+    ".cbl",
+    // Build / CI files (by extension)
+    ".dockerfile",
+    ".makefile",
+    ".cmake",
+    ".mk",
+    // PowerShell / Batch
+    ".ps1",
+    ".bat",
+    ".cmd",
+    // Text processing
+    ".awk",
+    ".sed",
+    // Build tool configs
+    ".sbt",
+    ".gradle",
+    ".pom",
+];
+
+/// Document/reference formats added only to the library allowlist.
+/// library_extensions = project_extensions ∪ LIBRARY_ONLY_EXTENSION_LIST
+const LIBRARY_ONLY_EXTENSION_LIST: &[&str] = &[
+    // Documents
+    ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt", // Ebooks
+    ".mobi", ".chm", // Presentations
+    ".pptx", ".ppt", ".pages", ".key", ".odp",
+    // Spreadsheets (formats not already in project set)
+    ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
+    // Web (variant not in project set)
+    ".htm",
+];
+
 /// Two-tier allowlist of file extensions for project and library ingestion.
 ///
 /// The library set is a superset of the project set: `library_extensions ⊇ project_extensions`.
@@ -33,152 +175,15 @@ pub struct AllowedExtensions {
 
 impl Default for AllowedExtensions {
     fn default() -> Self {
-        let project_extensions: HashSet<String> = [
-            // Rust
-            ".rs",
-            // Python
-            ".py",
-            // JavaScript / TypeScript
-            ".js",
-            ".ts",
-            ".tsx",
-            ".jsx",
-            ".mjs",
-            ".cjs",
-            ".mts",
-            ".cts",
-            // Go
-            ".go",
-            // Java / JVM
-            ".java",
-            ".kt",
-            ".scala",
-            ".groovy",
-            ".clj",
-            ".cljs",
-            // C / C++
-            ".c",
-            ".cpp",
-            ".h",
-            ".hpp",
-            // Swift
-            ".swift",
-            // Ruby
-            ".rb",
-            // Lua
-            ".lua",
-            // Shell
-            ".sh",
-            ".bash",
-            ".zsh",
-            ".fish",
-            // Config / Data
-            ".toml",
-            ".yaml",
-            ".yml",
-            ".json",
-            ".xml",
-            // Spreadsheets and data
-            ".csv",
-            ".tsv",
-            // Notebooks
-            ".ipynb",
-            // Web
-            ".html",
-            ".css",
-            ".scss",
-            ".less",
-            ".vue",
-            ".svelte",
-            ".astro",
-            // SQL / GraphQL / Proto
-            ".sql",
-            ".graphql",
-            ".proto",
-            // Documentation
-            ".md",
-            ".txt",
-            ".rst",
-            ".tex",
-            // Elixir / Erlang
-            ".ex",
-            ".exs",
-            ".erl",
-            ".hrl",
-            // Haskell / ML / Elm
-            ".hs",
-            ".ml",
-            ".mli",
-            ".elm",
-            // R
-            ".r",
-            ".R", // note: kept separate for case-insensitive matching
-            // Dart
-            ".dart",
-            // .NET
-            ".cs",
-            ".fs",
-            ".vb",
-            // Perl / PHP
-            ".pl",
-            ".pm",
-            ".php",
-            // Nix
-            ".nix",
-            // Lean
-            ".lean",
-            // Zig
-            ".zig",
-            // Nim
-            ".nim",
-            // V / Odin / D
-            ".v",
-            ".odin",
-            ".d",
-            // Fortran
-            ".f90",
-            ".f95",
-            // Pascal
-            ".pas",
-            // COBOL
-            ".cob",
-            ".cbl",
-            // Build / CI files (by extension)
-            ".dockerfile",
-            ".makefile",
-            ".cmake",
-            ".mk",
-            // PowerShell / Batch
-            ".ps1",
-            ".bat",
-            ".cmd",
-            // Text processing
-            ".awk",
-            ".sed",
-            // Build tool configs
-            ".sbt",
-            ".gradle",
-            ".pom",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+        let project_extensions: HashSet<String> = PROJECT_EXTENSION_LIST
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
-        // Library-only extensions: document/reference formats not in project set.
-        // library_extensions = project_extensions ∪ library_only_extensions
-        let library_only: HashSet<String> = [
-            // Documents
-            ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt", // Ebooks
-            ".mobi", ".chm", // Presentations
-            ".pptx", ".ppt", ".pages", ".key", ".odp",
-            // Spreadsheets (formats not already in project_extensions)
-            ".xlsx", ".xls", ".ods", ".numbers", ".parquet",
-            // Web (variant not in project set)
-            ".htm",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+        let library_only: HashSet<String> = LIBRARY_ONLY_EXTENSION_LIST
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
         let mut library_extensions = project_extensions.clone();
         library_extensions.extend(library_only);

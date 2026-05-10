@@ -62,20 +62,12 @@ impl ProjectServiceImpl {
         &self,
         req: RegisterProjectRequest,
     ) -> Result<RegisterProjectResponse, Status> {
-        // `wqm project activate` sends an empty path because activation only
-        // needs a project_id — a registered project already has its path on
-        // file. Accept either path or project_id; reject only when both are
-        // missing (issue #70).
         if req.path.is_empty() && req.project_id.is_empty() {
             return Err(Status::invalid_argument(
                 "either path or project_id must be supplied",
             ));
         }
 
-        // Resolve the git repository root so that subfolder registrations
-        // use the correct project root and tenant ID. When `path` is empty
-        // (activation path) we skip this step and carry an empty effective
-        // path — downstream code only uses it for new registrations.
         let (effective_path, effective_path_str) = if req.path.is_empty() {
             (PathBuf::new(), String::new())
         } else {
@@ -87,8 +79,6 @@ impl ProjectServiceImpl {
             (p, s)
         };
 
-        // Detect git remote from the resolved path when the request lacks one.
-        // Skip detection when no path is provided (activation flow).
         let effective_git_remote = if req.git_remote.as_ref().map_or(true, |r| r.is_empty()) {
             if effective_path.as_os_str().is_empty() {
                 None
@@ -118,11 +108,28 @@ impl ProjectServiceImpl {
             .determine_registration_action(&project_id, &req, is_high_priority, &effective_path)
             .await?;
 
-        // Look up worktree metadata for existing entries
         let watch_meta = self
             .lookup_watch_metadata(&project_id, &effective_path_str)
             .await;
 
+        self.apply_registration_action(
+            action,
+            project_id,
+            &effective_path_str,
+            effective_priority,
+            watch_meta,
+        )
+        .await
+    }
+
+    async fn apply_registration_action(
+        &self,
+        action: RegistrationAction,
+        project_id: String,
+        effective_path_str: &str,
+        effective_priority: &str,
+        watch_meta: super::worktree::WatchMetadata,
+    ) -> Result<RegisterProjectResponse, Status> {
         match action {
             RegistrationAction::NotFoundSkipped => {
                 info!(
@@ -140,8 +147,7 @@ impl ProjectServiceImpl {
                 })
             }
             RegistrationAction::ExistingActivated => {
-                // register_session already incremented is_active; only run side effects
-                self.activate_project_side_effects(&project_id, &effective_path_str)
+                self.activate_project_side_effects(&project_id, effective_path_str)
                     .await;
                 self.signal_watch_refresh(&project_id);
                 Ok(RegisterProjectResponse {
@@ -167,7 +173,7 @@ impl ProjectServiceImpl {
                 is_high_priority: hp,
             } => {
                 if hp {
-                    self.activate_new_project(&project_id, &effective_path_str)
+                    self.activate_new_project(&project_id, effective_path_str)
                         .await;
                 }
                 self.signal_watch_refresh(&project_id);
@@ -182,32 +188,31 @@ impl ProjectServiceImpl {
                 })
             }
             RegistrationAction::WorktreeAutoRegistered { result } => {
-                if let WorktreeResult::Registered {
+                let WorktreeResult::Registered {
                     canonical_path,
                     is_high_priority: hp,
                 } = result
-                {
-                    if hp {
-                        self.activate_new_project(&project_id, &canonical_path)
-                            .await;
-                    }
-                    self.signal_watch_refresh(&project_id);
-                    Ok(RegisterProjectResponse {
-                        created: true,
-                        project_id,
-                        priority: if hp {
-                            "high".to_string()
-                        } else {
-                            effective_priority.to_string()
-                        },
-                        is_active: hp,
-                        newly_registered: true,
-                        is_worktree: true,
-                        watch_path: Some(canonical_path),
-                    })
-                } else {
+                else {
                     unreachable!("WorktreeAutoRegistered always contains Registered variant")
+                };
+                if hp {
+                    self.activate_new_project(&project_id, &canonical_path)
+                        .await;
                 }
+                self.signal_watch_refresh(&project_id);
+                Ok(RegisterProjectResponse {
+                    created: true,
+                    project_id,
+                    priority: if hp {
+                        "high".to_string()
+                    } else {
+                        effective_priority.to_string()
+                    },
+                    is_active: hp,
+                    newly_registered: true,
+                    is_worktree: true,
+                    watch_path: Some(canonical_path),
+                })
             }
         }
     }
