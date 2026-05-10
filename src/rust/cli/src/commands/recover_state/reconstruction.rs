@@ -80,16 +80,7 @@ pub(super) fn reconstruct_library_state(
 ) -> Result<ReconstructStats> {
     let now = wqm_common::timestamps::now_utc();
 
-    // Group by library_name (tenant field for libraries)
-    let mut library_groups: BTreeMap<String, Vec<&serde_json::Value>> = BTreeMap::new();
-    for point in points {
-        let library_name = point["payload"]["library_name"]
-            .as_str()
-            .or_else(|| point["payload"]["tenant_id"].as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        library_groups.entry(library_name).or_default().push(point);
-    }
+    let library_groups = group_points_by_library(points);
 
     let mut watch_folders_created = 0u64;
     let mut tracked_files_created = 0u64;
@@ -101,8 +92,6 @@ pub(super) fn reconstruct_library_state(
 
     for (library_name, points) in &library_groups {
         let watch_id = Uuid::new_v4().to_string();
-
-        // Libraries don't have file paths — use a placeholder directory
         let lib_path = format!("/recovered-libraries/{}", library_name);
 
         tx.execute(
@@ -114,50 +103,10 @@ pub(super) fn reconstruct_library_state(
         .context("Failed to insert library watch_folder")?;
         watch_folders_created += 1;
 
-        // Group by document_id for tracked files
-        let mut doc_groups: BTreeMap<String, Vec<&serde_json::Value>> = BTreeMap::new();
-        for point in points {
-            let doc_id = point["payload"]["document_id"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
-            doc_groups.entry(doc_id).or_default().push(point);
-        }
+        let doc_groups = group_points_by_document(points);
 
         for (doc_id, doc_points) in &doc_groups {
-            let first = doc_points[0];
-            let file_path = first["payload"]["file_path"]
-                .as_str()
-                .or_else(|| first["payload"]["source_url"].as_str())
-                .unwrap_or(doc_id)
-                .to_string();
-            let file_hash = first["payload"]["file_hash"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
-            let branch = first["payload"]["branch"]
-                .as_str()
-                .unwrap_or("main")
-                .to_string();
-
-            let result = tx
-                .execute(
-                    "INSERT OR IGNORE INTO tracked_files \
-                 (watch_folder_id, file_path, branch, file_mtime, file_hash, chunk_count, \
-                  collection, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'libraries', ?7, ?8)",
-                    params![
-                        watch_id,
-                        file_path,
-                        branch,
-                        now,
-                        file_hash,
-                        doc_points.len() as i64,
-                        now,
-                        now
-                    ],
-                )
-                .context("Failed to insert library tracked_file")?;
+            let result = insert_library_tracked_file(&tx, &watch_id, doc_id, &doc_points, &now)?;
 
             if result == 0 {
                 continue;
@@ -166,23 +115,7 @@ pub(super) fn reconstruct_library_state(
             let file_id = tx.last_insert_rowid();
             tracked_files_created += 1;
 
-            for point in doc_points {
-                let Some(point_id_str) = extract_point_id(point) else {
-                    continue;
-                };
-                let chunk_index = point["payload"]["chunk_index"].as_u64().unwrap_or(0) as i64;
-                let content = point["payload"]["content"].as_str().unwrap_or("");
-                let content_hash = wqm_common::hashing::compute_content_hash(content);
-
-                tx.execute(
-                    "INSERT OR IGNORE INTO qdrant_chunks \
-                     (file_id, point_id, chunk_index, content_hash, created_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![file_id, point_id_str, chunk_index, &content_hash[..32], now],
-                )
-                .context("Failed to insert library qdrant_chunk")?;
-                chunks_created += 1;
-            }
+            chunks_created += insert_library_chunks(&tx, file_id, &doc_points, &now)?;
         }
     }
 
@@ -194,6 +127,109 @@ pub(super) fn reconstruct_library_state(
         tracked_files: tracked_files_created,
         chunks: chunks_created,
     })
+}
+
+/// Group library points by `library_name` (tenant field for libraries).
+fn group_points_by_library<'a>(
+    points: &'a [serde_json::Value],
+) -> BTreeMap<String, Vec<&'a serde_json::Value>> {
+    let mut groups: BTreeMap<String, Vec<&serde_json::Value>> = BTreeMap::new();
+    for point in points {
+        let library_name = point["payload"]["library_name"]
+            .as_str()
+            .or_else(|| point["payload"]["tenant_id"].as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        groups.entry(library_name).or_default().push(point);
+    }
+    groups
+}
+
+/// Group points within a library by `document_id`.
+fn group_points_by_document<'a>(
+    points: &[&'a serde_json::Value],
+) -> BTreeMap<String, Vec<&'a serde_json::Value>> {
+    let mut groups: BTreeMap<String, Vec<&serde_json::Value>> = BTreeMap::new();
+    for point in points {
+        let doc_id = point["payload"]["document_id"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+        groups.entry(doc_id).or_default().push(point);
+    }
+    groups
+}
+
+/// Insert a tracked_file row for a library document.
+/// Returns the number of rows inserted (0 = duplicate, 1 = inserted).
+fn insert_library_tracked_file(
+    tx: &rusqlite::Transaction<'_>,
+    watch_id: &str,
+    doc_id: &str,
+    doc_points: &[&serde_json::Value],
+    now: &str,
+) -> Result<usize> {
+    let first = doc_points[0];
+    let file_path = first["payload"]["file_path"]
+        .as_str()
+        .or_else(|| first["payload"]["source_url"].as_str())
+        .unwrap_or(doc_id)
+        .to_string();
+    let file_hash = first["payload"]["file_hash"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let branch = first["payload"]["branch"]
+        .as_str()
+        .unwrap_or("main")
+        .to_string();
+
+    tx.execute(
+        "INSERT OR IGNORE INTO tracked_files \
+         (watch_folder_id, file_path, branch, file_mtime, file_hash, chunk_count, \
+          collection, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'libraries', ?7, ?8)",
+        params![
+            watch_id,
+            file_path,
+            branch,
+            now,
+            file_hash,
+            doc_points.len() as i64,
+            now,
+            now
+        ],
+    )
+    .context("Failed to insert library tracked_file")
+}
+
+/// Insert qdrant_chunks for a library document.
+/// Returns the number of chunks inserted.
+fn insert_library_chunks(
+    tx: &rusqlite::Transaction<'_>,
+    file_id: i64,
+    doc_points: &[&serde_json::Value],
+    now: &str,
+) -> Result<u64> {
+    let mut count = 0u64;
+    for point in doc_points {
+        let Some(point_id_str) = extract_point_id(point) else {
+            continue;
+        };
+        let chunk_index = point["payload"]["chunk_index"].as_u64().unwrap_or(0) as i64;
+        let content = point["payload"]["content"].as_str().unwrap_or("");
+        let content_hash = wqm_common::hashing::compute_content_hash(content);
+
+        tx.execute(
+            "INSERT OR IGNORE INTO qdrant_chunks \
+             (file_id, point_id, chunk_index, content_hash, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![file_id, point_id_str, chunk_index, &content_hash[..32], now],
+        )
+        .context("Failed to insert library qdrant_chunk")?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 /// Reconstruct rules_mirror from rules collection points. Returns the number of rows inserted.

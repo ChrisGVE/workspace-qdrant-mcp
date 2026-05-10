@@ -1,5 +1,7 @@
 //! Show detailed information about a specific rule by label.
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 
 use wqm_common::schema::qdrant::rules as rules_schema;
@@ -65,29 +67,40 @@ pub async fn rule_info(label: &str, json: bool) -> Result<()> {
     };
 
     if json {
-        let rule = RuleJson {
-            label: payload_str(payload, rules_schema::LABEL.name),
-            title: payload_str(payload, rules_schema::TITLE.name),
-            content: payload_str(payload, rules_schema::CONTENT.name),
-            scope: payload_str(payload, rules_schema::SCOPE.name),
-            project_id: payload
-                .get(rules_schema::PROJECT_ID.name)
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            source_type: payload_str(payload, rules_schema::SOURCE_TYPE.name),
-            priority: payload_u32(payload, rules_schema::PRIORITY.name),
-            tags: payload
-                .get(rules_schema::TAGS.name)
-                .and_then(|v| v.as_str())
-                .map(|s| s.split(',').map(String::from).collect())
-                .unwrap_or_default(),
-            created_at: payload_str(payload, rules_schema::CREATED_AT.name),
-            updated_at: payload_str(payload, rules_schema::UPDATED_AT.name),
-        };
-        output::print_json(&rule);
-        return Ok(());
+        print_rule_json(payload);
+    } else {
+        print_rule_human(label, payload);
     }
 
+    Ok(())
+}
+
+/// Print rule as JSON.
+fn print_rule_json(payload: &serde_json::Value) {
+    let rule = RuleJson {
+        label: payload_str(payload, rules_schema::LABEL.name),
+        title: payload_str(payload, rules_schema::TITLE.name),
+        content: payload_str(payload, rules_schema::CONTENT.name),
+        scope: payload_str(payload, rules_schema::SCOPE.name),
+        project_id: payload
+            .get(rules_schema::PROJECT_ID.name)
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        source_type: payload_str(payload, rules_schema::SOURCE_TYPE.name),
+        priority: payload_u32(payload, rules_schema::PRIORITY.name),
+        tags: payload
+            .get(rules_schema::TAGS.name)
+            .and_then(|v| v.as_str())
+            .map(|s| s.split(',').map(String::from).collect())
+            .unwrap_or_default(),
+        created_at: payload_str(payload, rules_schema::CREATED_AT.name),
+        updated_at: payload_str(payload, rules_schema::UPDATED_AT.name),
+    };
+    output::print_json(&rule);
+}
+
+/// Print rule in human-readable columnar format.
+fn print_rule_human(label: &str, payload: &serde_json::Value) {
     let project_names = load_project_names();
 
     output::section(format!("Rule: {}", label));
@@ -95,13 +108,7 @@ pub async fn rule_info(label: &str, json: bool) -> Result<()> {
     output::kv("Title", payload_str(payload, rules_schema::TITLE.name));
     output::kv("Scope", payload_str(payload, rules_schema::SCOPE.name));
 
-    if let Some(pid) = payload
-        .get(rules_schema::PROJECT_ID.name)
-        .and_then(|v| v.as_str())
-    {
-        let name = project_names.get(pid).map(|n| n.as_str()).unwrap_or(pid);
-        output::kv("Project", name);
-    }
+    print_project_field(payload, &project_names);
 
     output::kv("Type", payload_str(payload, rules_schema::SOURCE_TYPE.name));
 
@@ -128,6 +135,15 @@ pub async fn rule_info(label: &str, json: bool) -> Result<()> {
     output::separator();
     output::section("Content");
     println!("{}", payload_str(payload, rules_schema::CONTENT.name));
+}
 
-    Ok(())
+/// Print the project field with name resolution.
+fn print_project_field(payload: &serde_json::Value, project_names: &HashMap<String, String>) {
+    if let Some(pid) = payload
+        .get(rules_schema::PROJECT_ID.name)
+        .and_then(|v| v.as_str())
+    {
+        let name = project_names.get(pid).map(|n| n.as_str()).unwrap_or(pid);
+        output::kv("Project", name);
+    }
 }

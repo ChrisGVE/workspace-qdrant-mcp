@@ -289,18 +289,14 @@ fn print_verbose(
         )
         .collect();
 
-    if json {
-        output::print_json(&display_items);
-    } else if script {
-        output::print_script(&display_items, !no_headers);
-    } else {
-        output::print_table_auto(&display_items);
-        output::summary(output::summary_line(
-            display_items.len(),
-            total,
-            "queue items",
-        ));
-    }
+    render_output(
+        &display_items,
+        total,
+        "queue items",
+        json,
+        script,
+        no_headers,
+    );
 }
 
 fn print_with_id(
@@ -311,7 +307,6 @@ fn print_with_id(
     script: bool,
     no_headers: bool,
 ) {
-    // Show the Error column when any item in the result set has a non-empty error_message
     let has_errors = items
         .iter()
         .any(|(_, _, _, _, _, _, _, _, _, _, _, err)| err.is_some());
@@ -319,95 +314,65 @@ fn print_with_id(
     if has_errors {
         let display_items: Vec<QueueListItemWithError> = items
             .iter()
-            .map(
-                |(
-                    queue_id,
-                    _idempotency_key,
-                    item_type,
-                    op,
-                    _collection,
-                    status,
-                    created_at,
-                    retry_count,
-                    _worker_id,
-                    tenant_id,
-                    payload_json,
-                    error_message,
-                )| {
-                    QueueListItemWithError {
-                        queue_id: short_id(queue_id),
-                        project: resolve_project_name(tenant_id, tenant_names),
-                        object: extract_object(item_type, payload_json),
-                        item_type: item_type.clone(),
-                        op: op.clone(),
-                        status: format_status(status),
-                        age: format_relative_time(created_at),
-                        retry_count: *retry_count,
-                        error_message: error_message
-                            .as_deref()
-                            .map(|e| truncate_str(e, ERROR_TRUNCATE_LEN))
-                            .unwrap_or_default(),
-                    }
-                },
-            )
+            .map(|row| map_row_with_id_error(row, tenant_names))
             .collect();
-
-        if json {
-            output::print_json(&display_items);
-        } else if script {
-            output::print_script(&display_items, !no_headers);
-        } else {
-            output::print_table_auto(&display_items);
-            output::summary(output::summary_line(
-                display_items.len(),
-                total,
-                "queue items",
-            ));
-        }
+        render_output(
+            &display_items,
+            total,
+            "queue items",
+            json,
+            script,
+            no_headers,
+        );
     } else {
         let display_items: Vec<QueueListItem> = items
             .iter()
-            .map(
-                |(
-                    queue_id,
-                    _idempotency_key,
-                    item_type,
-                    op,
-                    _collection,
-                    status,
-                    created_at,
-                    retry_count,
-                    _worker_id,
-                    tenant_id,
-                    payload_json,
-                    _error_message,
-                )| {
-                    QueueListItem {
-                        queue_id: short_id(queue_id),
-                        project: resolve_project_name(tenant_id, tenant_names),
-                        object: extract_object(item_type, payload_json),
-                        item_type: item_type.clone(),
-                        op: op.clone(),
-                        status: format_status(status),
-                        age: format_relative_time(created_at),
-                        retry_count: *retry_count,
-                    }
-                },
-            )
+            .map(|row| map_row_with_id(row, tenant_names))
             .collect();
+        render_output(
+            &display_items,
+            total,
+            "queue items",
+            json,
+            script,
+            no_headers,
+        );
+    }
+}
 
-        if json {
-            output::print_json(&display_items);
-        } else if script {
-            output::print_script(&display_items, !no_headers);
-        } else {
-            output::print_table_auto(&display_items);
-            output::summary(output::summary_line(
-                display_items.len(),
-                total,
-                "queue items",
-            ));
-        }
+/// Map a row tuple to a `QueueListItem` (no error column).
+fn map_row_with_id(row: &RowTuple, tenant_names: &HashMap<String, String>) -> QueueListItem {
+    QueueListItem {
+        queue_id: short_id(&row.0),
+        project: resolve_project_name(&row.9, tenant_names),
+        object: extract_object(&row.2, &row.10),
+        item_type: row.2.clone(),
+        op: row.3.clone(),
+        status: format_status(&row.5),
+        age: format_relative_time(&row.6),
+        retry_count: row.7,
+    }
+}
+
+/// Map a row tuple to a `QueueListItemWithError`.
+fn map_row_with_id_error(
+    row: &RowTuple,
+    tenant_names: &HashMap<String, String>,
+) -> QueueListItemWithError {
+    QueueListItemWithError {
+        queue_id: short_id(&row.0),
+        project: resolve_project_name(&row.9, tenant_names),
+        object: extract_object(&row.2, &row.10),
+        item_type: row.2.clone(),
+        op: row.3.clone(),
+        status: format_status(&row.5),
+        age: format_relative_time(&row.6),
+        retry_count: row.7,
+        error_message: row
+            .11
+            .as_deref()
+            .map(|e| truncate_str(e, ERROR_TRUNCATE_LEN))
+            .unwrap_or_default(),
     }
 }
 
@@ -419,7 +384,6 @@ fn print_compact(
     script: bool,
     no_headers: bool,
 ) {
-    // Show the Error column when any item in the result set has a non-empty error_message
     let has_errors = items
         .iter()
         .any(|(_, _, _, _, _, _, _, _, _, _, _, err)| err.is_some());
@@ -469,18 +433,14 @@ fn print_compact_plain(
         )
         .collect();
 
-    if json {
-        output::print_json(&display_items);
-    } else if script {
-        output::print_script(&display_items, !no_headers);
-    } else {
-        output::print_table_auto(&display_items);
-        output::summary(output::summary_line(
-            display_items.len(),
-            total,
-            "queue items",
-        ));
-    }
+    render_output(
+        &display_items,
+        total,
+        "queue items",
+        json,
+        script,
+        no_headers,
+    );
 }
 
 fn print_compact_with_error(
@@ -525,16 +485,33 @@ fn print_compact_with_error(
         )
         .collect();
 
+    render_output(
+        &display_items,
+        total,
+        "queue items",
+        json,
+        script,
+        no_headers,
+    );
+}
+
+/// Shared rendering for any display item type that implements the required traits.
+fn render_output<T>(
+    items: &[T],
+    total: usize,
+    label: &str,
+    json: bool,
+    script: bool,
+    no_headers: bool,
+) where
+    T: serde::Serialize + tabled::Tabled + output::ColumnHints,
+{
     if json {
-        output::print_json(&display_items);
+        output::print_json(items);
     } else if script {
-        output::print_script(&display_items, !no_headers);
+        output::print_script(items, !no_headers);
     } else {
-        output::print_table_auto(&display_items);
-        output::summary(output::summary_line(
-            display_items.len(),
-            total,
-            "queue items",
-        ));
+        output::print_table_auto(items);
+        output::summary(output::summary_line(items.len(), total, label));
     }
 }

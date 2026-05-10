@@ -13,9 +13,23 @@ pub(super) async fn search_entries(
     project: Option<String>,
     limit: usize,
 ) -> Result<()> {
+    let project_names = crate::commands::tenant::load_project_names();
+    let embedding = generate_embedding(query).await?;
+    let points = search_qdrant(&embedding, project.as_deref(), limit).await?;
+
+    if points.is_empty() {
+        output::info("No matching scratchpad entries found.");
+        return Ok(());
+    }
+
+    print_search_results(query, project.as_deref(), &points, &project_names);
+    Ok(())
+}
+
+/// Generate an embedding vector for the query text via the daemon.
+async fn generate_embedding(query: &str) -> Result<Vec<f32>> {
     use crate::grpc::proto::EmbedTextRequest;
 
-    let project_names = crate::commands::tenant::load_project_names();
     let mut daemon = crate::grpc::ensure_daemon_available().await?;
 
     let embed_response = daemon
@@ -35,17 +49,26 @@ pub(super) async fn search_entries(
         );
     }
 
+    Ok(embed_response.embedding)
+}
+
+/// Search the scratchpad collection in Qdrant with the given embedding.
+async fn search_qdrant(
+    embedding: &[f32],
+    project: Option<&str>,
+    limit: usize,
+) -> Result<Vec<serde_json::Value>> {
     let client = build_qdrant_client()?;
     let collection = wqm_common::constants::COLLECTION_SCRATCHPAD;
     let url = format!("{}/collections/{}/points/search", qdrant_url(), collection);
 
     let mut body = serde_json::json!({
-        "vector": embed_response.embedding,
+        "vector": embedding,
         "limit": limit,
         "with_payload": true,
     });
 
-    if let Some(ref proj) = project {
+    if let Some(proj) = project {
         let tenant_id = resolve_tenant_id(Some(proj))?;
         body["filter"] = serde_json::json!({
             "must": [{ "key": "tenant_id", "match": { "value": tenant_id } }]
@@ -63,8 +86,7 @@ pub(super) async fn search_entries(
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
         if status.as_u16() == 404 {
-            output::info("Scratchpad collection does not exist yet.");
-            return Ok(());
+            return Ok(Vec::new());
         }
         anyhow::bail!("Qdrant search failed ({}): {}", status, text);
     }
@@ -74,19 +96,19 @@ pub(super) async fn search_entries(
         .await
         .context("Failed to parse search response")?;
 
-    let points = json["result"]
-        .as_array()
-        .map(|a| a.as_slice())
-        .unwrap_or(&[]);
+    Ok(json["result"].as_array().cloned().unwrap_or_default())
+}
 
-    if points.is_empty() {
-        output::info("No matching scratchpad entries found.");
-        return Ok(());
-    }
-
+/// Display search results as a table.
+fn print_search_results(
+    query: &str,
+    project: Option<&str>,
+    points: &[serde_json::Value],
+    project_names: &std::collections::HashMap<String, String>,
+) {
     output::section("Scratchpad Search Results");
     output::kv("Query", query);
-    if let Some(p) = &project {
+    if let Some(p) = project {
         output::kv("Project", p);
     }
     output::separator();
@@ -98,7 +120,7 @@ pub(super) async fn search_entries(
             title: payload_str(payload, "title"),
             tenant_id: crate::commands::tenant::resolve_tenant_name(
                 &payload_str(payload, "tenant_id"),
-                &project_names,
+                project_names,
             ),
             tags: payload_tags(payload).join(", "),
             created_at: wqm_common::timestamp_fmt::format_local(&payload_str(
@@ -111,6 +133,4 @@ pub(super) async fn search_entries(
     let count = rows.len();
     output::print_table_auto(&rows);
     output::summary(output::summary_line(count, count, "results"));
-
-    Ok(())
 }

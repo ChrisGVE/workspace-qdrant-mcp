@@ -51,7 +51,16 @@ pub(super) fn show_tree(tenant_id: &str, collection: &str) -> Result<()> {
     ));
     println!();
 
+    print_root_hierarchy(&nodes);
+    print_orphans(&nodes);
+
+    Ok(())
+}
+
+/// Print the rooted tree hierarchy (levels 1-3).
+fn print_root_hierarchy(nodes: &[TreeNode]) {
     let roots: Vec<&TreeNode> = nodes.iter().filter(|n| n.level == 1).collect();
+
     for (i, root) in roots.iter().enumerate() {
         let is_last_root = i == roots.len() - 1;
         let prefix = if is_last_root {
@@ -66,35 +75,42 @@ pub(super) fn show_tree(tenant_id: &str, collection: &str) -> Result<()> {
             .filter(|n| n.level == 2 && n.parent_id == Some(root.id))
             .collect();
 
-        for (j, child) in children.iter().enumerate() {
-            let is_last_child = j == children.len() - 1;
-            let indent = if is_last_root { "    " } else { "│   " };
-            let child_prefix = if is_last_child {
+        let indent = if is_last_root { "    " } else { "│   " };
+        print_children(nodes, &children, indent);
+    }
+}
+
+/// Print level-2 children and their level-3 grandchildren.
+fn print_children(nodes: &[TreeNode], children: &[&TreeNode], root_indent: &str) {
+    for (j, child) in children.iter().enumerate() {
+        let is_last_child = j == children.len() - 1;
+        let child_prefix = if is_last_child {
+            "└── "
+        } else {
+            "├── "
+        };
+        println!("{}{}{} (L2)", root_indent, child_prefix, child.name);
+
+        let grandchildren: Vec<&TreeNode> = nodes
+            .iter()
+            .filter(|n| n.level == 3 && n.parent_id == Some(child.id))
+            .collect();
+
+        let gc_indent2 = if is_last_child { "    " } else { "│   " };
+        for (k, gc) in grandchildren.iter().enumerate() {
+            let is_last_gc = k == grandchildren.len() - 1;
+            let gc_prefix = if is_last_gc {
                 "└── "
             } else {
                 "├── "
             };
-            println!("{}{}{} (L2)", indent, child_prefix, child.name);
-
-            let grandchildren: Vec<&TreeNode> = nodes
-                .iter()
-                .filter(|n| n.level == 3 && n.parent_id == Some(child.id))
-                .collect();
-
-            for (k, gc) in grandchildren.iter().enumerate() {
-                let is_last_gc = k == grandchildren.len() - 1;
-                let gc_indent = if is_last_root { "    " } else { "│   " };
-                let gc_indent2 = if is_last_child { "    " } else { "│   " };
-                let gc_prefix = if is_last_gc {
-                    "└── "
-                } else {
-                    "├── "
-                };
-                println!("{}{}{}{}", gc_indent, gc_indent2, gc_prefix, gc.name);
-            }
+            println!("{}{}{}{}", root_indent, gc_indent2, gc_prefix, gc.name);
         }
     }
+}
 
+/// Print orphaned (unlinked) level 2 and level 3 tags, if any.
+fn print_orphans(nodes: &[TreeNode]) {
     let orphan_l2: Vec<&TreeNode> = nodes
         .iter()
         .filter(|n| n.level == 2 && n.parent_id.is_none())
@@ -118,6 +134,4 @@ pub(super) fn show_tree(tenant_id: &str, collection: &str) -> Result<()> {
             println!("  - {}", n.name);
         }
     }
-
-    Ok(())
 }

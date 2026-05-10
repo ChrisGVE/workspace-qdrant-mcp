@@ -3,6 +3,8 @@
 use anyhow::Result;
 use colored::Colorize;
 
+use workspace_qdrant_core::language_registry::types::{LanguageDefinition, LanguageType};
+
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
@@ -123,10 +125,6 @@ fn check_single_language(
 
 /// Show detailed information about a specific language.
 pub async fn language_info(language: &str) -> Result<()> {
-    use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::language_registry::types::LanguageType;
-    use workspace_qdrant_core::tree_sitter::GrammarManager;
-
     let def = match find_language(language) {
         Some(d) => d,
         None => {
@@ -138,7 +136,15 @@ pub async fn language_info(language: &str) -> Result<()> {
 
     output::section(format!("Language: {}", def.language));
 
-    // Identity
+    print_identity_section(&def);
+    print_grammar_section(&def);
+    print_semantic_patterns_section(&def);
+    print_lsp_servers_section(&def);
+
+    Ok(())
+}
+
+fn print_identity_section(def: &LanguageDefinition) {
     println!("{}", "Identity".cyan().bold());
     output::kv("  Name", &def.language);
     output::kv("  ID", &def.id());
@@ -156,8 +162,12 @@ pub async fn language_info(language: &str) -> Result<()> {
     };
     output::kv("  Type", type_label);
     println!();
+}
 
-    // Grammar
+fn print_grammar_section(def: &LanguageDefinition) {
+    use workspace_qdrant_core::config::GrammarConfig;
+    use workspace_qdrant_core::tree_sitter::GrammarManager;
+
     println!("{}", "Grammar".cyan().bold());
     if def.grammar.sources.is_empty() {
         println!("  No grammar sources configured");
@@ -186,8 +196,9 @@ pub async fn language_info(language: &str) -> Result<()> {
         }
     }
     println!();
+}
 
-    // Semantic Patterns
+fn print_semantic_patterns_section(def: &LanguageDefinition) {
     println!("{}", "Semantic Patterns".cyan().bold());
     if let Some(ref patterns) = def.semantic_patterns {
         let docstyle = format!("{:?}", patterns.docstring_style);
@@ -216,8 +227,9 @@ pub async fn language_info(language: &str) -> Result<()> {
         println!("  Not configured (text chunking fallback)");
     }
     println!();
+}
 
-    // LSP Servers
+fn print_lsp_servers_section(def: &LanguageDefinition) {
     println!("{}", "LSP Servers".cyan().bold());
     if def.lsp_servers.is_empty() {
         println!("  No LSP servers configured");
@@ -248,8 +260,6 @@ pub async fn language_info(language: &str) -> Result<()> {
             }
         }
     }
-
-    Ok(())
 }
 
 /// Refresh language registry from upstream providers.

@@ -17,7 +17,7 @@ use crate::output::{self};
 
 use super::perf_data::{
     apply_sort, fmt_thousands, fmt_thousands_f, format_avg_cell, parse_group_by, parse_sort,
-    truncate_key, GroupStats,
+    truncate_key, GroupStats, SortSpec,
 };
 use super::perf_queries::{
     build_tenant_name_map, dimension_label, query_grouped_stats, query_queue_depth,
@@ -65,6 +65,44 @@ pub async fn execute(
     sort: Option<String>,
     collection: Option<String>,
 ) -> Result<()> {
+    let conn = open_timings_db(&collection)?;
+    let cutoff = format!("-{} hours", window_hours as i64);
+    let coll_filter = collection.as_deref();
+
+    let total_items = query_total_items(&conn, &cutoff, coll_filter);
+
+    if total_items == 0 {
+        output::info(format!(
+            "No processing timings in the last {} hours.",
+            window_hours
+        ));
+        return Ok(());
+    }
+
+    let queue_depth = query_queue_depth(&conn);
+    let dimensions = parse_group_by(group_by.as_deref())?;
+    let sort_spec = parse_sort(sort.as_deref())?;
+
+    let tenant_names = build_tenant_name_map(&conn);
+    let valid_tenants: HashSet<String> = tenant_names.keys().cloned().collect();
+
+    dispatch_output(
+        &conn,
+        &cutoff,
+        &dimensions,
+        &sort_spec,
+        &tenant_names,
+        &valid_tenants,
+        coll_filter,
+        json,
+        total_items,
+        queue_depth,
+        window_hours,
+    )
+}
+
+/// Open the database and validate the timings table exists.
+fn open_timings_db(collection: &Option<String>) -> Result<rusqlite::Connection> {
     let db_path = crate::config::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
@@ -88,10 +126,9 @@ pub async fn execute(
         .unwrap_or(false);
 
     if !table_exists {
-        output::warning(
-            "No processing_timings table found. Daemon may not have recorded any timings yet.",
+        anyhow::bail!(
+            "No processing_timings table found. Daemon may not have recorded any timings yet."
         );
-        return Ok(());
     }
 
     if let Some(ref c) = collection {
@@ -101,51 +138,29 @@ pub async fn execute(
         }
     }
 
-    let cutoff = format!("-{} hours", window_hours as i64);
-    let coll_filter = collection.as_deref();
+    Ok(conn)
+}
 
-    let total_items = query_total_items(&conn, &cutoff, coll_filter);
-
-    if total_items == 0 {
-        output::info(format!(
-            "No processing timings in the last {} hours.",
-            window_hours
-        ));
-        return Ok(());
-    }
-
-    let queue_depth = query_queue_depth(&conn);
-    let dimensions = parse_group_by(group_by.as_deref())?;
-    let sort_spec = parse_sort(sort.as_deref())?;
-
-    let tenant_names = build_tenant_name_map(&conn);
-    let valid_tenants: HashSet<String> = tenant_names.keys().cloned().collect();
-
-    if dimensions.is_empty() {
-        let mut stats = query_grouped_stats(
-            &conn,
-            &cutoff,
-            "phase",
-            &tenant_names,
-            &valid_tenants,
-            coll_filter,
-        )?;
-        apply_sort(&mut stats, &sort_spec);
-        if json {
-            print_json_grouped(&stats, total_items, queue_depth, window_hours);
-        } else {
-            print_table_grouped(&stats, total_items, queue_depth, window_hours);
-        }
-    } else if dimensions.len() == 1 {
-        let mut stats = query_grouped_stats(
-            &conn,
-            &cutoff,
-            &dimensions[0],
-            &tenant_names,
-            &valid_tenants,
-            coll_filter,
-        )?;
-        apply_sort(&mut stats, &sort_spec);
+/// Dispatch to single-level or two-level output.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_output(
+    conn: &rusqlite::Connection,
+    cutoff: &str,
+    dimensions: &[String],
+    sort_spec: &Option<SortSpec>,
+    tenant_names: &std::collections::HashMap<String, String>,
+    valid_tenants: &HashSet<String>,
+    coll_filter: Option<&str>,
+    json: bool,
+    total_items: i64,
+    queue_depth: i64,
+    window_hours: f64,
+) -> Result<()> {
+    if dimensions.len() <= 1 {
+        let dim = dimensions.first().map_or("phase", |d| d.as_str());
+        let mut stats =
+            query_grouped_stats(conn, cutoff, dim, tenant_names, valid_tenants, coll_filter)?;
+        apply_sort(&mut stats, sort_spec);
         if json {
             print_json_grouped(&stats, total_items, queue_depth, window_hours);
         } else {
@@ -153,16 +168,16 @@ pub async fn execute(
         }
     } else {
         let mut stats = query_two_level_stats(
-            &conn,
-            &cutoff,
+            conn,
+            cutoff,
             &dimensions[0],
             &dimensions[1],
-            &tenant_names,
-            &valid_tenants,
+            tenant_names,
+            valid_tenants,
             coll_filter,
         )?;
         for (_, sub) in &mut stats {
-            apply_sort(sub, &sort_spec);
+            apply_sort(sub, sort_spec);
         }
         let label1 = dimension_label(&dimensions[0]);
         if json {

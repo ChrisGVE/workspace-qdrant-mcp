@@ -353,50 +353,17 @@ impl ColumnarBuilder {
                     literal_key,
                     annotation,
                 } => {
-                    let base_indent = effective_depth * self.indent;
-                    let gutter_str = gutter.colored();
-                    let indent_str = " ".repeat(base_indent);
-                    let display_key = if *literal_key {
-                        key.clone()
-                    } else {
-                        title_case(key)
-                    };
-                    let key_with_colon = format!("{display_key}:");
-                    let key_display_width = Gutter::WIDTH
-                        + base_indent
-                        + UnicodeWidthStr::width(key_with_colon.as_str());
-                    let padding = max_key_width.saturating_sub(key_display_width);
-
-                    // Core KV line width (visible chars)
-                    let core_width =
-                        key_display_width + padding + 1 + strip_ansi(value).chars().count();
-
-                    if let Some(ann) = annotation {
-                        // Right-align annotation to content_width
-                        let ann_width = ann.chars().count();
-                        let gap = content_width.saturating_sub(core_width + ann_width);
-                        println!(
-                            "{gutter_str} {indent_str}{}{} {value}{}{}",
-                            key_with_colon.bold(),
-                            " ".repeat(padding),
-                            " ".repeat(gap),
-                            ann.dimmed(),
-                        );
-                    } else {
-                        println!(
-                            "{gutter_str} {indent_str}{}{} {value}",
-                            key_with_colon.bold(),
-                            " ".repeat(padding),
-                        );
-                    }
-
-                    if *underline {
-                        // Underline from under the key through the last
-                        // digit of the value, indented to match the key.
-                        let lead = Gutter::WIDTH + base_indent;
-                        let dash_width = content_width.saturating_sub(lead);
-                        println!("{}{}", " ".repeat(lead), "─".repeat(dash_width).dimmed());
-                    }
+                    self.render_kv(
+                        key,
+                        value,
+                        gutter,
+                        *underline,
+                        *literal_key,
+                        annotation.as_deref(),
+                        effective_depth,
+                        max_key_width,
+                        content_width,
+                    );
                 }
                 ColumnarEntry::Section { header } => {
                     print_sized_dim_separator(content_width);
@@ -407,27 +374,7 @@ impl ColumnarBuilder {
                     effective_depth = base_depth + 1;
                 }
                 ColumnarEntry::Nested { key, entries } => {
-                    if key.is_empty() {
-                        // Anonymous nested group — skip key line, just indent children
-                        self.render_entries(
-                            entries,
-                            effective_depth + 1,
-                            max_key_width,
-                            content_width,
-                        );
-                    } else {
-                        let base_indent = effective_depth * self.indent;
-                        let gutter_str = Gutter::None.colored();
-                        let indent_str = " ".repeat(base_indent);
-                        let titled_key = title_case(key);
-                        println!("{gutter_str} {indent_str}{}:", titled_key.bold());
-                        self.render_entries(
-                            entries,
-                            effective_depth + 1,
-                            max_key_width,
-                            content_width,
-                        );
-                    }
+                    self.render_nested(key, entries, effective_depth, max_key_width, content_width);
                 }
                 ColumnarEntry::Raw { text, gutter } => {
                     let base_indent = effective_depth * self.indent;
@@ -436,6 +383,82 @@ impl ColumnarBuilder {
                     println!("{gutter_str} {indent_str}{text}");
                 }
             }
+        }
+    }
+
+    /// Render a single key-value entry line.
+    #[allow(clippy::too_many_arguments)]
+    fn render_kv(
+        &self,
+        key: &str,
+        value: &str,
+        gutter: &Gutter,
+        underline: bool,
+        literal_key: bool,
+        annotation: Option<&str>,
+        depth: usize,
+        max_key_width: usize,
+        content_width: usize,
+    ) {
+        let base_indent = depth * self.indent;
+        let gutter_str = gutter.colored();
+        let indent_str = " ".repeat(base_indent);
+        let display_key = if literal_key {
+            key.to_string()
+        } else {
+            title_case(key)
+        };
+        let key_with_colon = format!("{display_key}:");
+        let key_display_width =
+            Gutter::WIDTH + base_indent + UnicodeWidthStr::width(key_with_colon.as_str());
+        let padding = max_key_width.saturating_sub(key_display_width);
+
+        let core_width = key_display_width + padding + 1 + strip_ansi(value).chars().count();
+
+        if let Some(ann) = annotation {
+            let ann_width = ann.chars().count();
+            let gap = content_width.saturating_sub(core_width + ann_width);
+            println!(
+                "{gutter_str} {indent_str}{}{} {value}{}{}",
+                key_with_colon.bold(),
+                " ".repeat(padding),
+                " ".repeat(gap),
+                ann.dimmed(),
+            );
+        } else {
+            println!(
+                "{gutter_str} {indent_str}{}{} {value}",
+                key_with_colon.bold(),
+                " ".repeat(padding),
+            );
+        }
+
+        if underline {
+            let lead = Gutter::WIDTH + base_indent;
+            let dash_width = content_width.saturating_sub(lead);
+            println!("{}{}", " ".repeat(lead), "─".repeat(dash_width).dimmed());
+        }
+    }
+
+    /// Render a nested group entry.
+    fn render_nested(
+        &self,
+        key: &str,
+        entries: &[ColumnarEntry],
+        depth: usize,
+        max_key_width: usize,
+        content_width: usize,
+    ) {
+        if key.is_empty() {
+            // Anonymous nested group — skip key line, just indent children
+            self.render_entries(entries, depth + 1, max_key_width, content_width);
+        } else {
+            let base_indent = depth * self.indent;
+            let gutter_str = Gutter::None.colored();
+            let indent_str = " ".repeat(base_indent);
+            let titled_key = title_case(key);
+            println!("{gutter_str} {indent_str}{}:", titled_key.bold());
+            self.render_entries(entries, depth + 1, max_key_width, content_width);
         }
     }
 }

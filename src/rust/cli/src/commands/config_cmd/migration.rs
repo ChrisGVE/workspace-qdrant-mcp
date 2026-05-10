@@ -124,11 +124,9 @@ pub(super) async fn migrate_config(
     let current_config = wqm_common::paths::find_config_file();
     let current_db = wqm_common::paths::get_database_path().ok();
 
-    // Determine what will happen
     output::section("Configuration Migration Plan");
 
     let already_at_target = current_config.as_ref().is_some_and(|p| p == target_config);
-
     if already_at_target {
         output::success(format!(
             "Configuration is already at {}",
@@ -137,8 +135,40 @@ pub(super) async fn migrate_config(
         return Ok(());
     }
 
-    // Show dry-run summary
-    match &current_config {
+    print_migration_plan(target_config, &current_config, target_data_dir, &current_db);
+    output::separator();
+
+    if !output::confirm("Proceed with migration?") {
+        output::info("Aborted.");
+        return Ok(());
+    }
+
+    let daemon_was_running = is_daemon_running().await;
+    if daemon_was_running {
+        stop_daemon().await?;
+    }
+
+    execute_config_migration(target_config, &current_config)?;
+    execute_db_migration(target_data_dir, &current_db)?;
+
+    if daemon_was_running {
+        start_daemon().await?;
+    }
+
+    output::separator();
+    output::success("Configuration migration complete");
+
+    Ok(())
+}
+
+/// Print the dry-run migration plan.
+fn print_migration_plan(
+    target_config: &Path,
+    current_config: &Option<std::path::PathBuf>,
+    target_data_dir: Option<&Path>,
+    current_db: &Option<std::path::PathBuf>,
+) {
+    match current_config {
         Some(source) => {
             output::kv("Current config", source.display().to_string());
             output::kv("Target config", target_config.display().to_string());
@@ -151,8 +181,7 @@ pub(super) async fn migrate_config(
         }
     }
 
-    // Show database migration plan if applicable
-    if let (Some(data_dir), Some(db_path)) = (target_data_dir, &current_db) {
+    if let (Some(data_dir), Some(db_path)) = (target_data_dir, current_db) {
         if db_path.exists() {
             let target_db = data_dir.join("state.db");
             let db_already_there = db_path == &target_db;
@@ -163,23 +192,14 @@ pub(super) async fn migrate_config(
             }
         }
     }
+}
 
-    output::separator();
-
-    // Ask for confirmation
-    if !output::confirm("Proceed with migration?") {
-        output::info("Aborted.");
-        return Ok(());
-    }
-
-    // Stop daemon
-    let daemon_was_running = is_daemon_running().await;
-    if daemon_was_running {
-        stop_daemon().await?;
-    }
-
-    // Execute migration
-    match &current_config {
+/// Move or create the config file at the target location.
+fn execute_config_migration(
+    target_config: &Path,
+    current_config: &Option<std::path::PathBuf>,
+) -> Result<()> {
+    match current_config {
         Some(source) => {
             move_file(source, target_config)?;
             output::success(format!(
@@ -207,9 +227,15 @@ pub(super) async fn migrate_config(
             ));
         }
     }
+    Ok(())
+}
 
-    // Copy database if target data dir is different
-    if let (Some(data_dir), Some(db_path)) = (target_data_dir, &current_db) {
+/// Copy the database if the target data directory differs from current.
+fn execute_db_migration(
+    target_data_dir: Option<&Path>,
+    current_db: &Option<std::path::PathBuf>,
+) -> Result<()> {
+    if let (Some(data_dir), Some(db_path)) = (target_data_dir, current_db) {
         if db_path.exists() {
             let target_db = data_dir.join("state.db");
             if db_path != &target_db && !target_db.exists() {
@@ -222,14 +248,5 @@ pub(super) async fn migrate_config(
             }
         }
     }
-
-    // Restart daemon if it was running
-    if daemon_was_running {
-        start_daemon().await?;
-    }
-
-    output::separator();
-    output::success("Configuration migration complete");
-
     Ok(())
 }

@@ -6,7 +6,7 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::language_registry::types::LanguageType;
+use workspace_qdrant_core::language_registry::types::{LanguageDefinition, LanguageType};
 use workspace_qdrant_core::lsp::detection::editor_paths::DetectionSource;
 use workspace_qdrant_core::tree_sitter::GrammarManager;
 
@@ -53,109 +53,26 @@ pub async fn list_languages(
     output::separator();
 
     let daemon_connected = DaemonClient::connect_default().await.is_ok();
-    if daemon_connected {
-        output::status_line("Daemon", ServiceStatus::Healthy);
+    let status = if daemon_connected {
+        ServiceStatus::Healthy
     } else {
-        output::status_line("Daemon", ServiceStatus::Unhealthy);
-    }
+        ServiceStatus::Unhealthy
+    };
+    output::status_line("Daemon", status);
     output::separator();
 
-    // Load registry definitions
     let mut defs = load_definitions();
-
-    // Filter by category/type
-    if let Some(ref cat) = category {
-        let type_filter = match cat.to_lowercase().as_str() {
-            "programming" | "prog" => Some(LanguageType::Programming),
-            "markup" | "mark" => Some(LanguageType::Markup),
-            "data" | "config" => Some(LanguageType::Data),
-            "prose" => Some(LanguageType::Prose),
-            _ => {
-                output::warning(format!(
-                    "Unknown category '{cat}'. Valid: programming, markup, data, prose"
-                ));
-                None
-            }
-        };
-        if let Some(lt) = type_filter {
-            defs.retain(|d| d.language_type == lt);
-        }
-    }
-
+    filter_by_category(&mut defs, &category);
     defs.sort_by_key(|d| d.language.to_lowercase());
 
-    // Detect installed components
     let detected_servers = detect_available_servers();
     let config = GrammarConfig::default();
     let manager = GrammarManager::new(config.clone());
     let cached_grammars = manager.cached_languages().unwrap_or_default();
 
-    let mut rows: Vec<LanguageRow> = Vec::new();
-
-    for def in &defs {
-        let lang_id = def.id();
-
-        // Grammar status
-        let grammar = if cached_grammars.contains(&lang_id) {
-            format!("{}", "Cached".blue())
-        } else if def.has_grammar() {
-            format!("{}", "Available".yellow())
-        } else {
-            format!("{}", "None".dimmed())
-        };
-
-        // LSP status
-        let has_lsp_detected = detected_servers
-            .iter()
-            .any(|(l, _, _, _)| l.to_lowercase() == def.language.to_lowercase());
-        let lsp = if has_lsp_detected {
-            format!("{}", "Detected".green())
-        } else if def.has_lsp() {
-            format!("{}", "Available".yellow())
-        } else {
-            format!("{}", "None".dimmed())
-        };
-
-        // Filter for installed-only mode
-        if installed {
-            let has_cached = cached_grammars.contains(&lang_id);
-            if !has_cached && !has_lsp_detected {
-                continue;
-            }
-        }
-
-        // Extensions (show first 3)
-        let exts: String = def
-            .extensions
-            .iter()
-            .take(3)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ");
-        let extensions = if def.extensions.len() > 3 {
-            format!("{exts}…")
-        } else {
-            exts
-        };
-
-        let lang_type = match def.language_type {
-            LanguageType::Programming => "prog".to_string(),
-            LanguageType::Markup => "markup".to_string(),
-            LanguageType::Data => "data".to_string(),
-            LanguageType::Prose => "prose".to_string(),
-        };
-
-        rows.push(LanguageRow {
-            language: def.language.clone(),
-            extensions,
-            grammar,
-            lsp,
-            lang_type,
-        });
-    }
+    let rows = build_language_rows(&defs, &cached_grammars, &detected_servers, installed);
 
     if verbose {
-        // Print table then verbose details underneath
         output::print_table_auto(&rows);
         println!();
         print_verbose_details(&defs, &cached_grammars, &detected_servers, installed);
@@ -173,9 +90,116 @@ pub async fn list_languages(
     Ok(())
 }
 
+/// Filter definitions by language category/type.
+fn filter_by_category(defs: &mut Vec<LanguageDefinition>, category: &Option<String>) {
+    let Some(cat) = category else { return };
+    let type_filter = match cat.to_lowercase().as_str() {
+        "programming" | "prog" => Some(LanguageType::Programming),
+        "markup" | "mark" => Some(LanguageType::Markup),
+        "data" | "config" => Some(LanguageType::Data),
+        "prose" => Some(LanguageType::Prose),
+        _ => {
+            output::warning(format!(
+                "Unknown category '{cat}'. Valid: programming, markup, data, prose"
+            ));
+            None
+        }
+    };
+    if let Some(lt) = type_filter {
+        defs.retain(|d| d.language_type == lt);
+    }
+}
+
+/// Build table rows from language definitions.
+fn build_language_rows(
+    defs: &[LanguageDefinition],
+    cached_grammars: &[String],
+    detected_servers: &[(String, String, String, DetectionSource)],
+    installed: bool,
+) -> Vec<LanguageRow> {
+    let mut rows = Vec::new();
+
+    for def in defs {
+        let lang_id = def.id();
+
+        let grammar = format_grammar_cell(def, cached_grammars, &lang_id);
+        let (lsp, has_lsp_detected) = format_lsp_cell(def, detected_servers);
+
+        if installed {
+            let has_cached = cached_grammars.contains(&lang_id);
+            if !has_cached && !has_lsp_detected {
+                continue;
+            }
+        }
+
+        let extensions = format_extensions(&def.extensions);
+        let lang_type = format_language_type(&def.language_type);
+
+        rows.push(LanguageRow {
+            language: def.language.clone(),
+            extensions,
+            grammar,
+            lsp,
+            lang_type,
+        });
+    }
+
+    rows
+}
+
+fn format_grammar_cell(def: &LanguageDefinition, cached: &[String], lang_id: &str) -> String {
+    if cached.contains(&lang_id.to_string()) {
+        format!("{}", "Cached".blue())
+    } else if def.has_grammar() {
+        format!("{}", "Available".yellow())
+    } else {
+        format!("{}", "None".dimmed())
+    }
+}
+
+fn format_lsp_cell(
+    def: &LanguageDefinition,
+    detected_servers: &[(String, String, String, DetectionSource)],
+) -> (String, bool) {
+    let has_lsp_detected = detected_servers
+        .iter()
+        .any(|(l, _, _, _)| l.to_lowercase() == def.language.to_lowercase());
+    let lsp = if has_lsp_detected {
+        format!("{}", "Detected".green())
+    } else if def.has_lsp() {
+        format!("{}", "Available".yellow())
+    } else {
+        format!("{}", "None".dimmed())
+    };
+    (lsp, has_lsp_detected)
+}
+
+fn format_extensions(extensions: &[String]) -> String {
+    let exts: String = extensions
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if extensions.len() > 3 {
+        format!("{exts}…")
+    } else {
+        exts
+    }
+}
+
+fn format_language_type(lang_type: &LanguageType) -> String {
+    match lang_type {
+        LanguageType::Programming => "prog".to_string(),
+        LanguageType::Markup => "markup".to_string(),
+        LanguageType::Data => "data".to_string(),
+        LanguageType::Prose => "prose".to_string(),
+    }
+}
+
 /// Print verbose details for each language (aliases, semantic patterns, LSP paths).
 fn print_verbose_details(
-    defs: &[workspace_qdrant_core::language_registry::types::LanguageDefinition],
+    defs: &[LanguageDefinition],
     cached_grammars: &[String],
     detected_servers: &[(String, String, String, DetectionSource)],
     installed: bool,

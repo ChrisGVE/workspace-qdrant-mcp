@@ -10,6 +10,7 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use workspace_qdrant_core::config::GrammarConfig;
+use workspace_qdrant_core::language_registry::types::LanguageDefinition;
 use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
 
 use crate::output::{self, ColumnHints};
@@ -79,10 +80,18 @@ pub async fn query_language(language: &str) -> Result<()> {
 
     output::section(format!("Language: {}", def.language));
 
-    // Identity
+    print_query_identity(&def, &lang_id);
+    print_query_grammar_sources(&def, &lang_id, &manager);
+    print_query_lsp_servers(&def, &lang_id);
+    print_query_user_preference(&lang_id, &prefs);
+
+    Ok(())
+}
+
+fn print_query_identity(def: &LanguageDefinition, lang_id: &str) {
     println!("{}", "Identity".cyan().bold());
     output::kv("  Name", &def.language);
-    output::kv("  ID", &lang_id);
+    output::kv("  ID", lang_id);
     if !def.aliases.is_empty() {
         output::kv("  Aliases", &def.aliases.join(", "));
     }
@@ -91,13 +100,14 @@ pub async fn query_language(language: &str) -> Result<()> {
     }
     output::kv("  Type", format!("{}", def.language_type));
     println!();
+}
 
-    // Grammar sources
+fn print_query_grammar_sources(def: &LanguageDefinition, lang_id: &str, manager: &GrammarManager) {
     println!("{}", "Grammar Sources".cyan().bold());
-    let grammar_status = manager.grammar_status(&lang_id);
+    let grammar_status = manager.grammar_status(lang_id);
     output::kv("  Status", format_grammar_verbose(grammar_status));
 
-    let resolved_grammar = preferences::resolve_grammar(&lang_id);
+    let resolved_grammar = preferences::resolve_grammar(lang_id);
     if let Some(ref repo) = resolved_grammar {
         output::kv("  Active", repo);
     }
@@ -130,10 +140,11 @@ pub async fn query_language(language: &str) -> Result<()> {
         println!("  {}", "Requires C++ compiler for scanner".dimmed());
     }
     println!();
+}
 
-    // LSP servers
+fn print_query_lsp_servers(def: &LanguageDefinition, lang_id: &str) {
     println!("{}", "LSP Servers".cyan().bold());
-    let resolved_lsp = preferences::resolve_lsp(&lang_id);
+    let resolved_lsp = preferences::resolve_lsp(lang_id);
 
     if def.lsp_servers.is_empty() {
         println!("  No LSP servers configured");
@@ -156,24 +167,23 @@ pub async fn query_language(language: &str) -> Result<()> {
                 "  {} {} ({}) — {} [priority: {}]",
                 marker, server.name, server.binary, status_str, server.priority
             );
-            if !server.install_methods.is_empty() {
-                for method in &server.install_methods {
-                    let available = which_cmd(&method.manager).is_some();
-                    let icon = if available {
-                        "▸".green().to_string()
-                    } else {
-                        "▸".dimmed().to_string()
-                    };
-                    println!("      {} {}: {}", icon, method.manager, method.command);
-                }
+            for method in &server.install_methods {
+                let available = which_cmd(&method.manager).is_some();
+                let icon = if available {
+                    "▸".green().to_string()
+                } else {
+                    "▸".dimmed().to_string()
+                };
+                println!("      {} {}: {}", icon, method.manager, method.command);
             }
         }
     }
     println!();
+}
 
-    // User preference
+fn print_query_user_preference(lang_id: &str, prefs: &preferences::LanguagePreferences) {
     println!("{}", "User Preference".cyan().bold());
-    if let Some(pref) = prefs.languages.get(&lang_id) {
+    if let Some(pref) = prefs.languages.get(lang_id) {
         if let Some(ref l) = pref.lsp {
             output::kv("  LSP", l);
         }
@@ -186,8 +196,6 @@ pub async fn query_language(language: &str) -> Result<()> {
             "  Set with: wqm language preferences set <lang> --lsp <server> --grammar <repo>",
         );
     }
-
-    Ok(())
 }
 
 // ── Formatting helpers ───────────────────────────────────────────────
@@ -212,9 +220,7 @@ fn format_grammar_verbose(status: GrammarStatus) -> String {
     }
 }
 
-fn format_lsp_status(
-    def: &workspace_qdrant_core::language_registry::types::LanguageDefinition,
-) -> String {
+fn format_lsp_status(def: &LanguageDefinition) -> String {
     if def.lsp_servers.is_empty() {
         return format!("{} n/a", "-".dimmed());
     }

@@ -74,9 +74,49 @@ pub(super) async fn list_projects(
         queries::get_all_document_counts(&conn, COLLECTION_PROJECTS).unwrap_or_default();
 
     let locale = NumberLocale::default();
-    let mut rows: Vec<ProjectRowData> = Vec::new();
+    let mut rows = build_project_rows(&conn, &projects, &doc_counts, active_only, verbose, &locale);
 
-    for proj in &projects {
+    // Sort: Active first, then by name (case-insensitive)
+    rows.sort_by(|a, b| {
+        a.status
+            .cmp(&b.status)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    let total = rows.len();
+    let width = terminal_width();
+
+    let show_created = width >= WIDTH_CREATED;
+    let show_last_scan = width >= WIDTH_LAST_SCAN;
+    let show_last_activity = width >= WIDTH_LAST_ACTIVITY;
+
+    render_project_table(
+        &rows,
+        width,
+        verbose,
+        show_created,
+        show_last_scan,
+        show_last_activity,
+    );
+
+    let summary = format!("{} projects", total);
+    print_table_summary(&summary);
+
+    Ok(())
+}
+
+/// Build row data from project records.
+fn build_project_rows(
+    conn: &rusqlite::Connection,
+    projects: &[queries::ProjectInfo],
+    doc_counts: &std::collections::HashMap<String, queries::DocumentCounts>,
+    active_only: bool,
+    verbose: bool,
+    locale: &NumberLocale,
+) -> Vec<ProjectRowData> {
+    let mut rows = Vec::new();
+
+    for proj in projects {
         if active_only && !proj.is_active {
             continue;
         }
@@ -96,14 +136,14 @@ pub(super) async fn list_projects(
 
         let counts = doc_counts.get(&proj.tenant_id);
         let docs = counts
-            .map(|c| format_usize(c.tracked_files, &locale))
+            .map(|c| format_usize(c.tracked_files, locale))
             .unwrap_or_else(|| "0".to_string());
         let chunks = counts
-            .map(|c| format_usize(c.chunk_count, &locale))
+            .map(|c| format_usize(c.chunk_count, locale))
             .unwrap_or_else(|| "0".to_string());
 
         let languages = if verbose {
-            queries::get_languages(&conn, &proj.tenant_id, COLLECTION_PROJECTS)
+            queries::get_languages(conn, &proj.tenant_id, COLLECTION_PROJECTS)
                 .unwrap_or_default()
                 .join(", ")
         } else {
@@ -143,34 +183,7 @@ pub(super) async fn list_projects(
         });
     }
 
-    // Sort: Active first, then by name (case-insensitive)
-    rows.sort_by(|a, b| {
-        a.status
-            .cmp(&b.status)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-
-    let total = rows.len();
-    let width = terminal_width();
-
-    // Determine which optional columns to show (rule 14: fill large gaps)
-    let show_created = width >= WIDTH_CREATED;
-    let show_last_scan = width >= WIDTH_LAST_SCAN;
-    let show_last_activity = width >= WIDTH_LAST_ACTIVITY;
-
-    render_project_table(
-        &rows,
-        width,
-        verbose,
-        show_created,
-        show_last_scan,
-        show_last_activity,
-    );
-
-    let summary = format!("{} projects", total);
-    print_table_summary(&summary);
-
-    Ok(())
+    rows
 }
 
 /// Render the project table with dynamic columns and gutter prefix.
@@ -188,20 +201,65 @@ fn render_project_table(
 
     let table_width = width.saturating_sub(Gutter::SYMBOL_WIDTH);
 
-    // Build table with dynamic columns
-    let mut builder = Builder::default();
+    let (headers, numeric_cols) =
+        build_headers(verbose, show_created, show_last_scan, show_last_activity);
 
-    // Track which column indices are numeric for right-alignment
+    let mut builder = Builder::default();
+    builder.push_record(headers);
+
+    for row in rows {
+        builder.push_record(build_data_record(
+            row,
+            verbose,
+            show_created,
+            show_last_scan,
+            show_last_activity,
+        ));
+    }
+
+    let mut table = builder.build();
+
+    // Style: borderless with header separator
+    let style = Style::blank().horizontals([(1, HorizontalLine::new('─').intersection('─'))]);
+    table
+        .with(style)
+        .with(Modify::new(Rows::first()).with(Color::BOLD));
+
+    // Right-align numeric columns
+    for &col in &numeric_cols {
+        table.with(Modify::new(Columns::single(col)).with(Alignment::right()));
+    }
+
+    // Width management: wrap then even spread
+    table.with(
+        Width::wrap(table_width)
+            .priority::<PriorityMax>()
+            .keep_words(),
+    );
+    table.with(Width::increase(table_width).priority::<ExpandEven>());
+
+    render_gutter_lines(&table.to_string(), rows, width);
+
+    // Closing separator
+    println!("{}", "─".repeat(width));
+}
+
+/// Build header row and track which column indices are numeric.
+fn build_headers(
+    verbose: bool,
+    show_created: bool,
+    show_last_scan: bool,
+    show_last_activity: bool,
+) -> (Vec<String>, Vec<usize>) {
+    let mut headers: Vec<String> = Vec::new();
     let mut numeric_cols: Vec<usize> = Vec::new();
     let mut col_idx = 0usize;
 
-    // Header row
-    let mut headers: Vec<String> = Vec::new();
     headers.push("Name".into());
-    col_idx += 1; // 0
+    col_idx += 1;
     if verbose {
         headers.push("Id".into());
-        col_idx += 1; // 1
+        col_idx += 1;
     }
     headers.push("Path".into());
     col_idx += 1;
@@ -232,71 +290,55 @@ fn render_project_table(
         col_idx += 1;
     }
     let _ = col_idx;
-    builder.push_record(headers);
 
-    // Data rows
-    for row in rows {
-        let mut record: Vec<String> = Vec::new();
-        record.push(row.name.clone());
-        if verbose {
-            record.push(row.tenant_id.clone());
-        }
-        record.push(row.path.clone());
-        record.push(row.status.clone());
-        if verbose {
-            record.push(row.languages.clone());
-        }
-        record.push(row.documents.clone());
-        if verbose {
-            record.push(row.chunks.clone());
-        }
-        if show_created {
-            record.push(row.created.clone());
-        }
-        if show_last_scan {
-            record.push(row.last_scan.clone());
-        }
-        if show_last_activity {
-            record.push(row.last_activity.clone());
-        }
-        builder.push_record(record);
+    (headers, numeric_cols)
+}
+
+/// Build a data record for a single row.
+fn build_data_record(
+    row: &ProjectRowData,
+    verbose: bool,
+    show_created: bool,
+    show_last_scan: bool,
+    show_last_activity: bool,
+) -> Vec<String> {
+    let mut record: Vec<String> = Vec::new();
+    record.push(row.name.clone());
+    if verbose {
+        record.push(row.tenant_id.clone());
     }
-
-    let mut table = builder.build();
-
-    // Style: borderless with header separator
-    let style = Style::blank().horizontals([(1, HorizontalLine::new('─').intersection('─'))]);
-    table
-        .with(style)
-        .with(Modify::new(Rows::first()).with(Color::BOLD));
-
-    // Right-align numeric columns
-    for &col in &numeric_cols {
-        table.with(Modify::new(Columns::single(col)).with(Alignment::right()));
+    record.push(row.path.clone());
+    record.push(row.status.clone());
+    if verbose {
+        record.push(row.languages.clone());
     }
+    record.push(row.documents.clone());
+    if verbose {
+        record.push(row.chunks.clone());
+    }
+    if show_created {
+        record.push(row.created.clone());
+    }
+    if show_last_scan {
+        record.push(row.last_scan.clone());
+    }
+    if show_last_activity {
+        record.push(row.last_activity.clone());
+    }
+    record
+}
 
-    // Width management: wrap then even spread
-    table.with(
-        Width::wrap(table_width)
-            .priority::<PriorityMax>()
-            .keep_words(),
-    );
-    table.with(Width::increase(table_width).priority::<ExpandEven>());
-
-    let output = table.to_string();
+/// Render table output with gutter prefixes on each line.
+fn render_gutter_lines(output: &str, rows: &[ProjectRowData], width: usize) {
     let lines: Vec<&str> = output.lines().collect();
-
-    // Render with gutter prefix
     let mut data_row_idx = 0;
+
     for (i, line) in lines.iter().enumerate() {
         if i == 0 {
-            // Header row
             println!("{}{line}", Gutter::None.colored());
         } else if line.chars().all(|c| c == '─' || c == ' ') {
-            // Separator line — extend to full width
             println!("{}", "─".repeat(width));
         } else {
-            // Data row
             let g = rows
                 .get(data_row_idx)
                 .map(|r| r.gutter)
@@ -305,7 +347,4 @@ fn render_project_table(
             data_row_idx += 1;
         }
     }
-
-    // Closing separator
-    println!("{}", "─".repeat(width));
 }
