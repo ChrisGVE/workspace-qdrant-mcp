@@ -14,6 +14,7 @@ path = "src/main.rs"
 # Internal dependencies
 workspace-qdrant-core = { path = "../core", default-features = false }
 workspace-qdrant-grpc = { path = "../grpc" }
+wqm-common = { path = "../../common" }
 
 # CLI and argument parsing
 clap = { version = "4.5", features = ["derive", "string"] }

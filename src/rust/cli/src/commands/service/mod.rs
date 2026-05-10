@@ -54,7 +54,7 @@ enum ServiceCommand {
 
     /// Uninstall the daemon system service
     Uninstall {
-        /// Also remove data directory (~/.workspace-qdrant/)
+        /// Also remove data directory (~/.local/share/workspace-qdrant/)
         #[arg(long)]
         remove_data: bool,
     },

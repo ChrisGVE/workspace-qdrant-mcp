@@ -3591,6 +3591,7 @@ dependencies = [
  "windows-service",
  "workspace-qdrant-core",
  "workspace-qdrant-grpc",
+ "wqm-common",
 ]
 
 [[package]]

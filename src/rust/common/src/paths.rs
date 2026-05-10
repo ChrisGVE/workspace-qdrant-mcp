@@ -1,18 +1,30 @@
-//! Canonical path resolution for configuration, database, and config directory
+//! XDG-compliant path resolution for workspace-qdrant.
 //!
-//! This module provides the ONE canonical config search cascade used by all
-//! components (daemon, CLI, MCP server). No project-local config is searched.
+//! Single source of truth for all filesystem paths. Every component (daemon,
+//! CLI, MCP server) MUST use these functions — never hardcode directory names.
 //!
-//! Config precedence:
-//! 1. `WQM_CONFIG_PATH` environment variable (explicit override)
-//! 2. `~/.workspace-qdrant/config.yaml` (user home)
-//! 3. `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` (XDG; defaults to `~/.config`)
-//! 4. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS only)
+//! Layout (macOS, no env overrides):
+//!   Config: ~/.config/workspace-qdrant/           (config.yaml, cli-config.toml)
+//!   Data:   ~/.local/share/workspace-qdrant/      (state.db, search.db, graph.db)
+//!   Cache:  ~/.cache/workspace-qdrant/            (grammars/, models/)
+//!   Logs:   ~/Library/Logs/workspace-qdrant/
+//!
+//! Environment overrides (highest priority):
+//!   WQM_CONFIG_PATH  — explicit config file path
+//!   WQM_CONFIG_DIR   — config directory
+//!   WQM_DATA_DIR     — data directory
+//!   WQM_CACHE_DIR    — cache directory
+//!   WQM_DATABASE_PATH — explicit database file path
+//!   WQM_LOG_DIR      — log directory
+//!
+//! XDG variables ($XDG_CONFIG_HOME, $XDG_DATA_HOME, $XDG_CACHE_HOME) are
+//! respected on all platforms.
 
 use std::env;
 use std::path::PathBuf;
 
-/// Error type for path resolution failures
+const DIR_NAME: &str = "workspace-qdrant";
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigPathError {
     #[error("could not determine home directory")]
@@ -22,53 +34,72 @@ pub enum ConfigPathError {
     DatabaseNotFound { path: PathBuf },
 }
 
-/// Get the canonical config search paths (in priority order).
+// ---------------------------------------------------------------------------
+// Core directory functions
+// ---------------------------------------------------------------------------
+
+/// Config directory: settings files that the user edits.
 ///
-/// Returns all potential config file paths that should be checked.
-/// The first existing file wins.
+/// Precedence: `WQM_CONFIG_DIR` > `XDG_CONFIG_HOME` > `~/.config`
+pub fn get_config_dir() -> Result<PathBuf, ConfigPathError> {
+    if let Ok(dir) = env::var("WQM_CONFIG_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+    let base = env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| {
+            dirs::home_dir()
+                .map(|h| h.join(".config"))
+                .ok_or(ConfigPathError::NoHomeDirectory)
+        })?;
+    Ok(base.join(DIR_NAME))
+}
+
+/// Data directory: databases and runtime state the daemon owns.
 ///
-/// No project-local `.workspace-qdrant.yaml` is searched.
+/// Precedence: `WQM_DATA_DIR` > `XDG_DATA_HOME` > `~/.local/share`
+pub fn get_data_dir() -> Result<PathBuf, ConfigPathError> {
+    if let Ok(dir) = env::var("WQM_DATA_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+    let base = env::var("XDG_DATA_HOME").map(PathBuf::from).or_else(|_| {
+        dirs::home_dir()
+            .map(|h| h.join(".local").join("share"))
+            .ok_or(ConfigPathError::NoHomeDirectory)
+    })?;
+    Ok(base.join(DIR_NAME))
+}
+
+/// Cache directory: re-downloadable artifacts (grammars, models).
+///
+/// Precedence: `WQM_CACHE_DIR` > `XDG_CACHE_HOME` > `~/.cache`
+pub fn get_cache_dir() -> Result<PathBuf, ConfigPathError> {
+    if let Ok(dir) = env::var("WQM_CACHE_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+    let base = env::var("XDG_CACHE_HOME").map(PathBuf::from).or_else(|_| {
+        dirs::home_dir()
+            .map(|h| h.join(".cache"))
+            .ok_or(ConfigPathError::NoHomeDirectory)
+    })?;
+    Ok(base.join(DIR_NAME))
+}
+
+// ---------------------------------------------------------------------------
+// Config file resolution
+// ---------------------------------------------------------------------------
+
+/// Config search paths (priority order). First existing file wins.
 pub fn get_config_search_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
-    // 1. Explicit path via environment variable (highest priority)
-    if let Ok(explicit_path) = std::env::var("WQM_CONFIG_PATH") {
+    if let Ok(explicit_path) = env::var("WQM_CONFIG_PATH") {
         paths.push(PathBuf::from(explicit_path));
     }
 
-    // 2. User home config: ~/.workspace-qdrant/config.yaml
-    if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(".workspace-qdrant").join("config.yaml"));
-        paths.push(home.join(".workspace-qdrant").join("config.yml"));
-    }
-
-    // 3. XDG config: $XDG_CONFIG_HOME/workspace-qdrant/config.yaml
-    //    On macOS, dirs::config_dir() returns ~/Library/Application Support,
-    //    so we manually check for ~/.config as the XDG equivalent.
-    #[cfg(target_os = "macos")]
-    if let Some(home) = dirs::home_dir() {
-        let xdg_dir = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join(".config"));
-        paths.push(xdg_dir.join("workspace-qdrant").join("config.yaml"));
-        paths.push(xdg_dir.join("workspace-qdrant").join("config.yml"));
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    if let Some(config_dir) = dirs::config_dir() {
-        paths.push(config_dir.join("workspace-qdrant").join("config.yaml"));
-        paths.push(config_dir.join("workspace-qdrant").join("config.yml"));
-    }
-
-    // 4. macOS Application Support
-    #[cfg(target_os = "macos")]
-    if let Some(home) = dirs::home_dir() {
-        paths.push(
-            home.join("Library")
-                .join("Application Support")
-                .join("workspace-qdrant")
-                .join("config.yaml"),
-        );
+    if let Ok(config_dir) = get_config_dir() {
+        paths.push(config_dir.join("config.yaml"));
+        paths.push(config_dir.join("config.yml"));
     }
 
     paths
@@ -81,53 +112,39 @@ pub fn find_config_file() -> Option<PathBuf> {
         .find(|path| path.exists())
 }
 
-/// Get the config directory path (`~/.workspace-qdrant/`).
-pub fn get_config_dir() -> Result<PathBuf, ConfigPathError> {
-    dirs::home_dir()
-        .map(|home| home.join(".workspace-qdrant"))
-        .ok_or(ConfigPathError::NoHomeDirectory)
-}
+// ---------------------------------------------------------------------------
+// Database paths
+// ---------------------------------------------------------------------------
 
-/// Get the canonical database path (`~/.workspace-qdrant/state.db`).
+/// Canonical state database path.
 ///
-/// Checks `WQM_DATABASE_PATH` environment variable first, then falls back
-/// to the canonical path.
+/// Precedence: `WQM_DATABASE_PATH` > `<data_dir>/state.db`
 pub fn get_database_path() -> Result<PathBuf, ConfigPathError> {
-    if let Ok(path) = std::env::var("WQM_DATABASE_PATH") {
+    if let Ok(path) = env::var("WQM_DATABASE_PATH") {
         return Ok(PathBuf::from(path));
     }
-
-    dirs::home_dir()
-        .map(|home| home.join(".workspace-qdrant").join("state.db"))
-        .ok_or(ConfigPathError::NoHomeDirectory)
+    get_data_dir().map(|d| d.join("state.db"))
 }
 
-/// Get the database path, checking if it exists.
-///
-/// Returns an error with a helpful message if the database doesn't exist,
-/// indicating the user should start the daemon first.
+/// Database path, verified to exist.
 pub fn get_database_path_checked() -> Result<PathBuf, ConfigPathError> {
     let path = get_database_path()?;
-
     if !path.exists() {
         return Err(ConfigPathError::DatabaseNotFound { path });
     }
-
     Ok(path)
 }
 
-/// Returns the canonical OS-specific log directory for workspace-qdrant logs.
+// ---------------------------------------------------------------------------
+// Log directory
+// ---------------------------------------------------------------------------
+
+/// Canonical log directory.
 ///
-/// Precedence:
-/// 1. `WQM_LOG_DIR` environment variable (explicit override)
-/// 2. Platform-specific default:
-///    - Linux: `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`)
-///    - macOS: `~/Library/Logs/workspace-qdrant/`
-///    - Windows: `%LOCALAPPDATA%\workspace-qdrant\logs\`
-///
-/// Falls back to a temp directory if home cannot be determined.
+/// Precedence: `WQM_LOG_DIR` > platform-specific default.
+///   - macOS: `~/Library/Logs/workspace-qdrant/`
+///   - Linux: `$XDG_STATE_HOME/workspace-qdrant/logs/`
 pub fn get_canonical_log_dir() -> PathBuf {
-    // WQM_LOG_DIR takes highest precedence
     if let Ok(custom_dir) = env::var("WQM_LOG_DIR") {
         return PathBuf::from(custom_dir);
     }
@@ -142,7 +159,7 @@ pub fn get_canonical_log_dir() -> PathBuf {
                     .join(".local")
                     .join("state")
             })
-            .join("workspace-qdrant")
+            .join(DIR_NAME)
             .join("logs")
     }
 
@@ -152,14 +169,14 @@ pub fn get_canonical_log_dir() -> PathBuf {
             .unwrap_or_else(env::temp_dir)
             .join("Library")
             .join("Logs")
-            .join("workspace-qdrant")
+            .join(DIR_NAME)
     }
 
     #[cfg(target_os = "windows")]
     {
         dirs::data_local_dir()
             .unwrap_or_else(env::temp_dir)
-            .join("workspace-qdrant")
+            .join(DIR_NAME)
             .join("logs")
     }
 
@@ -167,9 +184,25 @@ pub fn get_canonical_log_dir() -> PathBuf {
     {
         dirs::home_dir()
             .unwrap_or_else(env::temp_dir)
-            .join(".workspace-qdrant")
+            .join(".local")
+            .join("share")
+            .join(DIR_NAME)
             .join("logs")
     }
+}
+
+// ---------------------------------------------------------------------------
+// Convenience helpers
+// ---------------------------------------------------------------------------
+
+/// Grammar cache directory (inside cache dir).
+pub fn get_grammar_cache_dir() -> Result<PathBuf, ConfigPathError> {
+    get_cache_dir().map(|d| d.join("grammars"))
+}
+
+/// Model cache directory (inside cache dir).
+pub fn get_model_cache_dir() -> Result<PathBuf, ConfigPathError> {
+    get_cache_dir().map(|d| d.join("models"))
 }
 
 #[cfg(test)]
@@ -177,39 +210,32 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// Mutex to serialize tests that manipulate environment variables.
-    /// Rust runs tests in parallel; concurrent set_var/remove_var is a race.
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_get_config_search_paths_no_env() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_CONFIG_PATH").ok();
-        std::env::remove_var("WQM_CONFIG_PATH");
+        let prev_config = env::var("WQM_CONFIG_PATH").ok();
+        let prev_dir = env::var("WQM_CONFIG_DIR").ok();
+        env::remove_var("WQM_CONFIG_PATH");
+        env::remove_var("WQM_CONFIG_DIR");
 
         let paths = get_config_search_paths();
-
         assert!(!paths.is_empty());
 
         let first = &paths[0];
         assert!(
-            first.to_string_lossy().contains(".workspace-qdrant"),
-            "First path should be under .workspace-qdrant: {:?}",
+            first.to_string_lossy().contains("workspace-qdrant"),
+            "First path should be under workspace-qdrant: {:?}",
             first
         );
 
-        for p in &paths {
-            let s = p.to_string_lossy();
-            assert!(
-                !s.ends_with(".workspace-qdrant.yaml") && !s.ends_with(".workspace-qdrant.yml"),
-                "Should not search project-local config: {:?}",
-                p
-            );
+        if let Some(val) = prev_config {
+            env::set_var("WQM_CONFIG_PATH", val);
         }
-
-        if let Some(val) = prev {
-            std::env::set_var("WQM_CONFIG_PATH", val);
+        if let Some(val) = prev_dir {
+            env::set_var("WQM_CONFIG_DIR", val);
         }
     }
 
@@ -217,15 +243,15 @@ mod tests {
     fn test_get_config_search_paths_with_env() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_CONFIG_PATH").ok();
-        std::env::set_var("WQM_CONFIG_PATH", "/custom/config.yaml");
+        let prev = env::var("WQM_CONFIG_PATH").ok();
+        env::set_var("WQM_CONFIG_PATH", "/custom/config.yaml");
 
         let paths = get_config_search_paths();
         assert_eq!(paths[0], PathBuf::from("/custom/config.yaml"));
 
         match prev {
-            Some(val) => std::env::set_var("WQM_CONFIG_PATH", val),
-            None => std::env::remove_var("WQM_CONFIG_PATH"),
+            Some(val) => env::set_var("WQM_CONFIG_PATH", val),
+            None => env::remove_var("WQM_CONFIG_PATH"),
         }
     }
 
@@ -233,14 +259,14 @@ mod tests {
     fn test_find_config_file_nonexistent() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_CONFIG_PATH").ok();
-        std::env::set_var("WQM_CONFIG_PATH", "/nonexistent/path/config.yaml");
+        let prev = env::var("WQM_CONFIG_PATH").ok();
+        env::set_var("WQM_CONFIG_PATH", "/nonexistent/path/config.yaml");
 
         let _ = find_config_file();
 
         match prev {
-            Some(val) => std::env::set_var("WQM_CONFIG_PATH", val),
-            None => std::env::remove_var("WQM_CONFIG_PATH"),
+            Some(val) => env::set_var("WQM_CONFIG_PATH", val),
+            None => env::remove_var("WQM_CONFIG_PATH"),
         }
     }
 
@@ -252,41 +278,84 @@ mod tests {
         let config_path = temp_dir.path().join("config.yaml");
         std::fs::write(&config_path, "# test config").unwrap();
 
-        let prev = std::env::var("WQM_CONFIG_PATH").ok();
-        std::env::set_var("WQM_CONFIG_PATH", config_path.to_str().unwrap());
+        let prev = env::var("WQM_CONFIG_PATH").ok();
+        env::set_var("WQM_CONFIG_PATH", config_path.to_str().unwrap());
 
         let found = find_config_file();
         assert_eq!(found.unwrap(), config_path);
 
         match prev {
-            Some(val) => std::env::set_var("WQM_CONFIG_PATH", val),
-            None => std::env::remove_var("WQM_CONFIG_PATH"),
+            Some(val) => env::set_var("WQM_CONFIG_PATH", val),
+            None => env::remove_var("WQM_CONFIG_PATH"),
         }
     }
 
     #[test]
     fn test_get_config_dir() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev = env::var("WQM_CONFIG_DIR").ok();
+        env::remove_var("WQM_CONFIG_DIR");
+
         let dir = get_config_dir();
         assert!(dir.is_ok());
         let path = dir.unwrap();
-        assert!(path.to_string_lossy().ends_with(".workspace-qdrant"));
+        assert!(path.to_string_lossy().contains("workspace-qdrant"));
+
+        if let Some(val) = prev {
+            env::set_var("WQM_CONFIG_DIR", val);
+        }
+    }
+
+    #[test]
+    fn test_get_data_dir() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev = env::var("WQM_DATA_DIR").ok();
+        env::remove_var("WQM_DATA_DIR");
+
+        let dir = get_data_dir();
+        assert!(dir.is_ok());
+        let path = dir.unwrap();
+        assert!(path.to_string_lossy().contains("workspace-qdrant"));
+
+        if let Some(val) = prev {
+            env::set_var("WQM_DATA_DIR", val);
+        }
+    }
+
+    #[test]
+    fn test_get_cache_dir() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev = env::var("WQM_CACHE_DIR").ok();
+        env::remove_var("WQM_CACHE_DIR");
+
+        let dir = get_cache_dir();
+        assert!(dir.is_ok());
+        let path = dir.unwrap();
+        assert!(path.to_string_lossy().contains("workspace-qdrant"));
+
+        if let Some(val) = prev {
+            env::set_var("WQM_CACHE_DIR", val);
+        }
     }
 
     #[test]
     fn test_get_database_path() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_DATABASE_PATH").ok();
-        std::env::remove_var("WQM_DATABASE_PATH");
+        let prev = env::var("WQM_DATABASE_PATH").ok();
+        env::remove_var("WQM_DATABASE_PATH");
 
         let result = get_database_path();
         assert!(result.is_ok());
         let path = result.unwrap();
-        assert!(path.to_string_lossy().contains(".workspace-qdrant"));
+        assert!(path.to_string_lossy().contains("workspace-qdrant"));
         assert!(path.to_string_lossy().ends_with("state.db"));
 
         if let Some(val) = prev {
-            std::env::set_var("WQM_DATABASE_PATH", val);
+            env::set_var("WQM_DATABASE_PATH", val);
         }
     }
 
@@ -294,15 +363,15 @@ mod tests {
     fn test_get_database_path_env_override() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_DATABASE_PATH").ok();
-        std::env::set_var("WQM_DATABASE_PATH", "/custom/path/state.db");
+        let prev = env::var("WQM_DATABASE_PATH").ok();
+        env::set_var("WQM_DATABASE_PATH", "/custom/path/state.db");
 
         let result = get_database_path();
         assert_eq!(result.unwrap(), PathBuf::from("/custom/path/state.db"));
 
         match prev {
-            Some(val) => std::env::set_var("WQM_DATABASE_PATH", val),
-            None => std::env::remove_var("WQM_DATABASE_PATH"),
+            Some(val) => env::set_var("WQM_DATABASE_PATH", val),
+            None => env::remove_var("WQM_DATABASE_PATH"),
         }
     }
 
@@ -310,8 +379,8 @@ mod tests {
     fn test_get_database_path_checked_missing() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_DATABASE_PATH").ok();
-        std::env::set_var(
+        let prev = env::var("WQM_DATABASE_PATH").ok();
+        env::set_var(
             "WQM_DATABASE_PATH",
             "/nonexistent/path/that/does/not/exist/state.db",
         );
@@ -322,8 +391,8 @@ mod tests {
         assert!(err.to_string().contains("run daemon first"));
 
         match prev {
-            Some(val) => std::env::set_var("WQM_DATABASE_PATH", val),
-            None => std::env::remove_var("WQM_DATABASE_PATH"),
+            Some(val) => env::set_var("WQM_DATABASE_PATH", val),
+            None => env::remove_var("WQM_DATABASE_PATH"),
         }
     }
 
@@ -342,15 +411,15 @@ mod tests {
     fn test_get_canonical_log_dir_env_override() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_LOG_DIR").ok();
-        std::env::set_var("WQM_LOG_DIR", "/custom/log/dir");
+        let prev = env::var("WQM_LOG_DIR").ok();
+        env::set_var("WQM_LOG_DIR", "/custom/log/dir");
 
         let dir = get_canonical_log_dir();
         assert_eq!(dir, PathBuf::from("/custom/log/dir"));
 
         match prev {
-            Some(val) => std::env::set_var("WQM_LOG_DIR", val),
-            None => std::env::remove_var("WQM_LOG_DIR"),
+            Some(val) => env::set_var("WQM_LOG_DIR", val),
+            None => env::remove_var("WQM_LOG_DIR"),
         }
     }
 
@@ -358,8 +427,8 @@ mod tests {
     fn test_get_canonical_log_dir_default() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
-        let prev = std::env::var("WQM_LOG_DIR").ok();
-        std::env::remove_var("WQM_LOG_DIR");
+        let prev = env::var("WQM_LOG_DIR").ok();
+        env::remove_var("WQM_LOG_DIR");
 
         let dir = get_canonical_log_dir();
         let dir_str = dir.to_string_lossy();
@@ -378,8 +447,60 @@ mod tests {
         );
 
         match prev {
-            Some(val) => std::env::set_var("WQM_LOG_DIR", val),
-            None => std::env::remove_var("WQM_LOG_DIR"),
+            Some(val) => env::set_var("WQM_LOG_DIR", val),
+            None => env::remove_var("WQM_LOG_DIR"),
+        }
+    }
+
+    #[test]
+    fn test_env_overrides() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev_config = env::var("WQM_CONFIG_DIR").ok();
+        let prev_data = env::var("WQM_DATA_DIR").ok();
+        let prev_cache = env::var("WQM_CACHE_DIR").ok();
+
+        env::set_var("WQM_CONFIG_DIR", "/override/config");
+        env::set_var("WQM_DATA_DIR", "/override/data");
+        env::set_var("WQM_CACHE_DIR", "/override/cache");
+
+        assert_eq!(get_config_dir().unwrap(), PathBuf::from("/override/config"));
+        assert_eq!(get_data_dir().unwrap(), PathBuf::from("/override/data"));
+        assert_eq!(get_cache_dir().unwrap(), PathBuf::from("/override/cache"));
+
+        match prev_config {
+            Some(val) => env::set_var("WQM_CONFIG_DIR", val),
+            None => env::remove_var("WQM_CONFIG_DIR"),
+        }
+        match prev_data {
+            Some(val) => env::set_var("WQM_DATA_DIR", val),
+            None => env::remove_var("WQM_DATA_DIR"),
+        }
+        match prev_cache {
+            Some(val) => env::set_var("WQM_CACHE_DIR", val),
+            None => env::remove_var("WQM_CACHE_DIR"),
+        }
+    }
+
+    #[test]
+    fn test_grammar_and_model_cache_dirs() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev = env::var("WQM_CACHE_DIR").ok();
+        env::set_var("WQM_CACHE_DIR", "/test/cache");
+
+        assert_eq!(
+            get_grammar_cache_dir().unwrap(),
+            PathBuf::from("/test/cache/grammars")
+        );
+        assert_eq!(
+            get_model_cache_dir().unwrap(),
+            PathBuf::from("/test/cache/models")
+        );
+
+        match prev {
+            Some(val) => env::set_var("WQM_CACHE_DIR", val),
+            None => env::remove_var("WQM_CACHE_DIR"),
         }
     }
 }

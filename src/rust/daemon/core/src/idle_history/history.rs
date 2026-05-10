@@ -25,7 +25,7 @@ pub struct IdleHistory {
 impl IdleHistory {
     /// Create a new IdleHistory with default settings.
     ///
-    /// File: `~/.workspace-qdrant/idle_history.jsonl`
+    /// File: `<config_dir>/idle_history.jsonl`
     /// Rotation: 7 days
     /// Flip-flop threshold: 10 transitions/hour
     pub fn new() -> Option<Self> {

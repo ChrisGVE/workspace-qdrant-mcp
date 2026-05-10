@@ -418,6 +418,9 @@ pub fn remove_pid_file(pid_file: &Path) {
 }
 
 /// Warn if the stale legacy directory from the old Python MCP server exists.
+///
+/// The old Python MCP server used `~/.workspace-qdrant-mcp`; all state now
+/// lives under XDG-compliant paths resolved by `wqm_common::paths`.
 pub fn check_stale_legacy_directory() {
     if let Ok(home) = std::env::var("HOME") {
         let legacy_dir = PathBuf::from(&home).join(".workspace-qdrant-mcp");

@@ -14,7 +14,7 @@ use super::errors::OcrError;
 pub struct OcrResult {
     /// Extracted text content.
     pub text: String,
-    /// Mean confidence score (0.0–1.0). Higher is better.
+    /// Mean confidence score (0.0-1.0). Higher is better.
     pub confidence: f32,
 }
 
@@ -25,7 +25,7 @@ pub struct OcrConfig {
     pub tessdata_path: PathBuf,
     /// Tesseract language code (e.g. "eng").
     pub language: String,
-    /// Minimum confidence to accept OCR output (0.0–1.0).
+    /// Minimum confidence to accept OCR output (0.0-1.0).
     pub min_confidence: f32,
 }
 
@@ -103,7 +103,7 @@ impl OcrEngine {
             .get_utf8_text()
             .map_err(|e| OcrError::ExtractionFailed(format!("text extraction failed: {e}")))?;
 
-        // mean_text_conf returns 0–100 integer
+        // mean_text_conf returns 0-100 integer
         let raw_confidence = lt.mean_text_conf();
         let confidence = (raw_confidence as f32) / 100.0;
 
@@ -144,7 +144,7 @@ impl OcrEngine {
 /// 1. `TESSDATA_PREFIX` environment variable
 /// 2. Homebrew location: `/usr/local/share/tessdata`
 /// 3. Linux default: `/usr/share/tesseract-ocr/5/tessdata`
-/// 4. Fallback: `~/.workspace-qdrant/tesseract`
+/// 4. Fallback: `<cache_dir>/tesseract` (via `wqm_common::paths::get_cache_dir`)
 fn default_tessdata_path() -> PathBuf {
     if let Ok(prefix) = std::env::var("TESSDATA_PREFIX") {
         let p = PathBuf::from(&prefix);
@@ -168,11 +168,10 @@ fn default_tessdata_path() -> PathBuf {
         }
     }
 
-    // Fallback to user-local directory
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".workspace-qdrant")
-        .join("tesseract")
+    // Fallback to user-local cache directory
+    wqm_common::paths::get_cache_dir()
+        .map(|d| d.join("tesseract"))
+        .unwrap_or_else(|_| PathBuf::from("/tmp/workspace-qdrant/tesseract"))
 }
 
 #[cfg(test)]

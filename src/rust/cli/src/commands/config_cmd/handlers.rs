@@ -3,8 +3,6 @@
 //! Each function here corresponds to one of the `ConfigCommand` variants:
 //! `generate`, `default`, `xdg`, `show`, and `path`.
 
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
 use colored::Colorize;
 
@@ -18,10 +16,10 @@ pub(super) fn generate() -> Result<()> {
     Ok(())
 }
 
-/// Move config to ~/.workspace-qdrant/ (default location).
+/// Move config to ~/.config/workspace-qdrant/ (default location).
 pub(super) async fn move_to_default() -> Result<()> {
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    let target_dir = home.join(".workspace-qdrant");
+    let target_dir =
+        wqm_common::paths::get_config_dir().context("Could not determine config directory")?;
     let target_config = target_dir.join("config.yaml");
 
     migrate_config(&target_config, Some(&target_dir)).await
@@ -31,7 +29,7 @@ pub(super) async fn move_to_default() -> Result<()> {
 pub(super) async fn move_to_xdg() -> Result<()> {
     // Resolve XDG_CONFIG_HOME
     let xdg_config_home = match std::env::var("XDG_CONFIG_HOME") {
-        Ok(val) if !val.is_empty() => PathBuf::from(val),
+        Ok(val) if !val.is_empty() => std::path::PathBuf::from(val),
         _ => {
             // Check if we're on macOS — XDG is not standard on macOS
             #[cfg(target_os = "macos")]
@@ -51,7 +49,7 @@ pub(super) async fn move_to_xdg() -> Result<()> {
 
     // Resolve XDG_DATA_HOME for database/state
     let xdg_data_home = match std::env::var("XDG_DATA_HOME") {
-        Ok(val) if !val.is_empty() => PathBuf::from(val),
+        Ok(val) if !val.is_empty() => std::path::PathBuf::from(val),
         _ => {
             let home = dirs::home_dir().context("Could not determine home directory")?;
             home.join(".local").join("share")
@@ -119,7 +117,14 @@ pub(super) fn show_path() -> Result<()> {
     if active.is_none() {
         output::separator();
         output::info("No config file found. Using built-in defaults.");
-        output::info("Run `wqm config generate > ~/.workspace-qdrant/config.yaml` to create one.");
+        let config_path = wqm_common::paths::get_config_dir()
+            .map(|d| d.join("config.yaml").display().to_string())
+            .map(|p| home_to_tilde(&p))
+            .unwrap_or_else(|_| "<config_dir>/config.yaml".to_string());
+        output::info(format!(
+            "Run `wqm config generate > {}` to create one.",
+            config_path
+        ));
     }
 
     output::separator();

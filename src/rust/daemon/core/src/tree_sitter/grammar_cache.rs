@@ -3,7 +3,7 @@
 //! This module manages the directory structure for dynamically loaded tree-sitter grammars:
 //!
 //! ```text
-//! ~/.workspace-qdrant/grammars/
+//! <cache_dir>/grammars/
 //! └── <platform>/                         # e.g., x86_64-apple-darwin
 //!     └── <tree_sitter_version>/          # e.g., 0.24.0
 //!         └── <language>/                 # e.g., rust
@@ -67,7 +67,7 @@ impl GrammarMetadata {
 /// Directory structure for grammar cache.
 #[derive(Debug, Clone)]
 pub struct GrammarCachePaths {
-    /// Root directory for grammar cache (default: ~/.workspace-qdrant/grammars)
+    /// Root directory for grammar cache (resolved via `wqm_common::paths::get_grammar_cache_dir`)
     pub root: PathBuf,
     /// Current platform triple
     pub platform: String,
@@ -78,10 +78,8 @@ pub struct GrammarCachePaths {
 impl GrammarCachePaths {
     /// Create paths with default root directory.
     pub fn new(tree_sitter_version: impl Into<String>) -> Self {
-        let root = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".workspace-qdrant")
-            .join("grammars");
+        let root = wqm_common::paths::get_grammar_cache_dir()
+            .unwrap_or_else(|_| PathBuf::from("/tmp/workspace-qdrant/grammars"));
 
         Self {
             root,

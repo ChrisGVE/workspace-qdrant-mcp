@@ -14,10 +14,9 @@ pub struct LadybugConfig {
 
 impl Default for LadybugConfig {
     fn default() -> Self {
-        let db_path = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".workspace-qdrant")
-            .join("graph");
+        let db_path = wqm_common::paths::get_data_dir()
+            .map(|d| d.join("graph"))
+            .unwrap_or_else(|_| PathBuf::from("/tmp/workspace-qdrant/graph"));
         Self {
             db_path,
             buffer_pool_size: 0, // auto-detect

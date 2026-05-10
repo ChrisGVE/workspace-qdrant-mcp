@@ -164,7 +164,8 @@ fn default_grammar_idle_timeout() -> u64 {
     1800
 } // 30 minutes
 fn default_grammar_cache_dir() -> PathBuf {
-    PathBuf::from("~/.workspace-qdrant/grammars")
+    wqm_common::paths::get_grammar_cache_dir()
+        .unwrap_or_else(|_| PathBuf::from("/tmp/workspace-qdrant/grammars"))
 }
 fn default_required_grammars() -> Vec<String> {
     vec![]
@@ -183,7 +184,7 @@ fn default_download_base_url() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrammarConfig {
     /// Directory for storing grammar shared libraries
-    /// Default: ~/.workspace-qdrant/grammars
+    /// Default: `<cache_dir>/grammars` (see `wqm_common::paths::get_grammar_cache_dir`)
     #[serde(default = "default_grammar_cache_dir")]
     pub cache_dir: PathBuf,
 
@@ -364,9 +365,13 @@ mod tests {
     #[test]
     fn test_grammar_config_defaults() {
         let config = GrammarConfig::default();
-        assert_eq!(
-            config.cache_dir,
-            PathBuf::from("~/.workspace-qdrant/grammars")
+        // The default cache_dir should resolve via wqm_common::paths and
+        // end with "grammars" (the exact prefix depends on the environment).
+        let cache_str = config.cache_dir.to_string_lossy();
+        assert!(
+            cache_str.ends_with("grammars"),
+            "Default cache_dir should end with 'grammars': {:?}",
+            config.cache_dir
         );
         assert!(
             config.required.is_empty(),

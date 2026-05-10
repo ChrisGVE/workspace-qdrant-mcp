@@ -1,124 +1,122 @@
 /**
- * Platform-specific path utilities for workspace-qdrant-mcp
+ * XDG-compliant path utilities for workspace-qdrant-mcp.
+ *
+ * Single source of truth — never hardcode directory names elsewhere.
+ *
+ * Layout (macOS, no env overrides):
+ *   Config: ~/.config/workspace-qdrant/
+ *   Data:   ~/.local/share/workspace-qdrant/
+ *   Cache:  ~/.cache/workspace-qdrant/
+ *   Logs:   ~/Library/Logs/workspace-qdrant/
  */
 
 import { join } from 'node:path';
 import { platform, homedir, tmpdir } from 'node:os';
 import { mkdirSync, existsSync } from 'node:fs';
 
+const DIR_NAME = 'workspace-qdrant';
+
 /**
- * Returns the canonical OS-specific log directory for workspace-qdrant logs.
+ * Config directory: user-editable settings files.
  *
- * Precedence:
- * 1. `WQM_LOG_DIR` environment variable (explicit override)
- * 2. Platform-specific default:
- *    - Linux: $XDG_STATE_HOME/workspace-qdrant/logs/ (default: ~/.local/state/workspace-qdrant/logs/)
- *    - macOS: ~/Library/Logs/workspace-qdrant/
- *    - Windows: %LOCALAPPDATA%\workspace-qdrant\logs\
+ * Precedence: WQM_CONFIG_DIR > XDG_CONFIG_HOME > ~/.config
+ */
+export function getConfigDirectory(): string {
+  if (process.env['WQM_CONFIG_DIR']) {
+    return process.env['WQM_CONFIG_DIR'];
+  }
+  const home = homedir() || tmpdir();
+  const xdgConfigHome = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
+  return join(xdgConfigHome, DIR_NAME);
+}
+
+/**
+ * Data directory: databases and runtime state the daemon owns.
  *
- * Falls back to temp directory if home cannot be determined.
+ * Precedence: WQM_DATA_DIR > XDG_DATA_HOME > ~/.local/share
+ */
+export function getDataDirectory(): string {
+  if (process.env['WQM_DATA_DIR']) {
+    return process.env['WQM_DATA_DIR'];
+  }
+  const home = homedir() || tmpdir();
+  const xdgDataHome = process.env['XDG_DATA_HOME'] ?? join(home, '.local', 'share');
+  return join(xdgDataHome, DIR_NAME);
+}
+
+/**
+ * Cache directory: re-downloadable artifacts (grammars, models).
+ *
+ * Precedence: WQM_CACHE_DIR > XDG_CACHE_HOME > ~/.cache
+ */
+export function getCacheDirectory(): string {
+  if (process.env['WQM_CACHE_DIR']) {
+    return process.env['WQM_CACHE_DIR'];
+  }
+  const home = homedir() || tmpdir();
+  const xdgCacheHome = process.env['XDG_CACHE_HOME'] ?? join(home, '.cache');
+  return join(xdgCacheHome, DIR_NAME);
+}
+
+/**
+ * Canonical log directory.
+ *
+ * Precedence: WQM_LOG_DIR > platform-specific default.
  */
 export function getLogDirectory(): string {
-  // WQM_LOG_DIR takes highest precedence
-  const customDir = process.env['WQM_LOG_DIR'];
-  if (customDir) {
-    return customDir;
+  if (process.env['WQM_LOG_DIR']) {
+    return process.env['WQM_LOG_DIR'];
   }
 
   const home = homedir() || tmpdir();
   const currentPlatform = platform();
 
-  let logDir: string;
-
   switch (currentPlatform) {
     case 'linux': {
-      // Follow XDG Base Directory Specification
       const xdgStateHome = process.env['XDG_STATE_HOME'] ?? join(home, '.local', 'state');
-      logDir = join(xdgStateHome, 'workspace-qdrant', 'logs');
-      break;
+      return join(xdgStateHome, DIR_NAME, 'logs');
     }
-
-    case 'darwin': {
-      // macOS uses ~/Library/Logs for application logs
-      logDir = join(home, 'Library', 'Logs', 'workspace-qdrant');
-      break;
-    }
-
+    case 'darwin':
+      return join(home, 'Library', 'Logs', DIR_NAME);
     case 'win32': {
-      // Windows uses %LOCALAPPDATA%
       const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-      logDir = join(localAppData, 'workspace-qdrant', 'logs');
-      break;
+      return join(localAppData, DIR_NAME, 'logs');
     }
-
-    default: {
-      // Fallback for other platforms
-      logDir = join(home, '.workspace-qdrant', 'logs');
-      break;
-    }
+    default:
+      return join(getDataDirectory(), 'logs');
   }
+}
 
-  return logDir;
+/**
+ * Canonical database path.
+ *
+ * Precedence: WQM_DATABASE_PATH > <data_dir>/state.db
+ */
+export function getDatabasePath(): string {
+  if (process.env['WQM_DATABASE_PATH']) {
+    return process.env['WQM_DATABASE_PATH'];
+  }
+  return join(getDataDirectory(), 'state.db');
 }
 
 /**
  * Ensures the log directory exists, creating it if necessary.
- * Returns true if directory exists or was created, false on error.
  */
 export function ensureLogDirectory(): boolean {
   const logDir = getLogDirectory();
-
   try {
     if (!existsSync(logDir)) {
       mkdirSync(logDir, { recursive: true });
     }
     return true;
   } catch {
-    // Log directory creation failed - will fall back to stderr
     return false;
   }
 }
 
 /**
- * Returns the full path to the MCP server log file.
+ * Full path to the MCP server log file.
  */
 export function getMcpServerLogPath(): string {
   return join(getLogDirectory(), 'mcp-server.jsonl');
-}
-
-/**
- * Returns the canonical config directory for workspace-qdrant.
- *
- * Platform-specific paths:
- * - Linux: $XDG_CONFIG_HOME/workspace-qdrant/ (default: ~/.config/workspace-qdrant/)
- * - Windows: %LOCALAPPDATA%\workspace-qdrant\ (default: AppData\Local\workspace-qdrant\)
- * - macOS/other: ~/.workspace-qdrant/
- */
-export function getConfigDirectory(): string {
-  const home = homedir() || tmpdir();
-  const currentPlatform = platform();
-
-  if (currentPlatform === 'linux') {
-    const xdgConfigHome = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
-    return join(xdgConfigHome, 'workspace-qdrant');
-  }
-
-  if (currentPlatform === 'win32') {
-    const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
-    return join(localAppData, 'workspace-qdrant');
-  }
-
-  return join(home, '.workspace-qdrant');
-}
-
-/**
- * Returns the canonical state directory for workspace-qdrant (SQLite database, etc).
- * Note: On Linux, config and state are in different directories per XDG spec.
- */
-export function getStateDirectory(): string {
-  const home = homedir() || tmpdir();
-
-  // State directory is always ~/.workspace-qdrant regardless of platform
-  // This matches the Rust daemon's database path
-  return join(home, '.workspace-qdrant');
 }

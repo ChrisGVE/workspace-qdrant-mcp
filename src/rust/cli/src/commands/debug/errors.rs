@@ -118,9 +118,7 @@ pub async fn queue_errors(count: usize, operation: Option<String>) -> Result<()>
     output::separator();
 
     // Query unified queue for failed items
-    let db_path = dirs::home_dir()
-        .map(|h| h.join(".workspace-qdrant/state.db"))
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+    let db_path = wqm_common::paths::get_database_path().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if !db_path.exists() {
         output::warning("Database not found - daemon may not have been started");

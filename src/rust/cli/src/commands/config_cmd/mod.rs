@@ -35,7 +35,7 @@ enum ConfigCommand {
     Show,
     /// Output the default daemon YAML configuration to stdout
     Generate,
-    /// Move daemon configuration to ~/.workspace-qdrant/ (default location)
+    /// Move daemon configuration to ~/.config/workspace-qdrant/ (default location)
     Default,
     /// Move daemon configuration to XDG directories
     Xdg,

@@ -2,6 +2,7 @@
 // Re-generate with: npx tsx scripts/generate-config-defaults.ts
 
 import type { ServerConfig } from './config.js';
+import { getDatabasePath } from '../utils/paths.js';
 
 /**
  * Default configuration values extracted from the canonical YAML source.
@@ -11,8 +12,7 @@ import type { ServerConfig } from './config.js';
  */
 export const DEFAULT_CONFIG: ServerConfig = {
   database: {
-    // Not in YAML — platform-specific, resolved at runtime by getStateDirectory()
-    path: '~/.workspace-qdrant/state.db',
+    path: getDatabasePath(),
   },
   qdrant: {
     url: "http://localhost:6333",

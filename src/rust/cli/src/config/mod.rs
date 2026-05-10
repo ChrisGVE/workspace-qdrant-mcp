@@ -24,7 +24,7 @@ pub use wqm_common::paths::{
     ConfigPathError as DatabasePathError,
 };
 
-/// Get the config file path (~/.workspace-qdrant/config.yaml)
+/// Get the config file path (~/.config/workspace-qdrant/config.yaml)
 pub fn get_config_file_path() -> Result<std::path::PathBuf, DatabasePathError> {
     get_config_dir().map(|dir| dir.join("config.yaml"))
 }

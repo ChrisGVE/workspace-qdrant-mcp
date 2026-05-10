@@ -31,8 +31,9 @@ describe('Generated DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.collections.rulesCollectionName).toBe('rules');
   });
 
-  it('should have database path as platform-specific default', () => {
-    expect(DEFAULT_CONFIG.database.path).toBe('~/.workspace-qdrant/state.db');
+  it('should have database path resolved from XDG data dir', () => {
+    expect(DEFAULT_CONFIG.database.path).toContain('workspace-qdrant');
+    expect(DEFAULT_CONFIG.database.path).toMatch(/state\.db$/);
   });
 
   it('should have watching patterns and ignorePatterns as arrays', () => {

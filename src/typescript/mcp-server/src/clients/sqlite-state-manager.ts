@@ -11,8 +11,7 @@
 
 import Database, { type Database as DatabaseType } from 'better-sqlite3';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { getDatabasePath } from '../utils/paths.js';
 
 import type {
   UnifiedQueueItem,
@@ -71,8 +70,7 @@ export type {
   ListTrackedFilesOptions,
 } from './tracked-files-queries/index.js';
 
-// Default database path
-const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');
+const DEFAULT_DB_PATH = getDatabasePath();
 
 export interface SqliteStateManagerConfig {
   dbPath?: string;

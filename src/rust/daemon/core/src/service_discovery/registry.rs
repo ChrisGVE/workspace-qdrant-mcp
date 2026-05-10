@@ -136,20 +136,16 @@ impl ServiceRegistry {
         Ok(Self { registry_path })
     }
 
-    /// Get default registry path (~/.workspace-qdrant/services.json)
+    /// Get default registry path (`<data_dir>/services.json`)
     fn default_registry_path() -> Result<PathBuf, RegistryError> {
-        let home_dir = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .map_err(|_| {
-                RegistryError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Unable to determine home directory",
-                ))
-            })?;
+        let data_dir = wqm_common::paths::get_data_dir().map_err(|e| {
+            RegistryError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Unable to determine data directory: {e}"),
+            ))
+        })?;
 
-        Ok(PathBuf::from(home_dir)
-            .join(".workspace-qdrant")
-            .join("services.json"))
+        Ok(data_dir.join("services.json"))
     }
 
     /// Register a service in the registry

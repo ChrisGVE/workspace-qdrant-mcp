@@ -49,7 +49,7 @@ pub struct RebalanceResult {
 
 /// Derive the search.db path from the state.db path.
 ///
-/// Given `~/.workspace-qdrant/state.db`, returns `~/.workspace-qdrant/search.db`.
+/// Given `<data_dir>/state.db`, returns `<data_dir>/search.db`.
 pub fn search_db_path_from_state(state_db_path: &Path) -> PathBuf {
     let parent = state_db_path.parent().unwrap_or(Path::new("."));
     if parent.as_os_str().is_empty() {

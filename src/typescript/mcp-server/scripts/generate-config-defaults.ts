@@ -29,11 +29,16 @@ function durationToMs(value: string | number): number {
   if (!match) throw new Error(`Cannot parse duration: "${value}"`);
   const num = parseFloat(match[1]!);
   switch (match[2]) {
-    case 'ms': return num;
-    case 's':  return num * 1_000;
-    case 'm':  return num * 60_000;
-    case 'h':  return num * 3_600_000;
-    default:   throw new Error(`Unknown unit in duration: "${value}"`);
+    case 'ms':
+      return num;
+    case 's':
+      return num * 1_000;
+    case 'm':
+      return num * 60_000;
+    case 'h':
+      return num * 3_600_000;
+    default:
+      throw new Error(`Unknown unit in duration: "${value}"`);
   }
 }
 
@@ -61,19 +66,19 @@ const yaml = parseYaml(yamlContent) as Record<string, unknown>;
 
 // --- Extract values with validation ---
 
-const qdrantUrl       = get(yaml, 'qdrant.url') as string | undefined;
-const qdrantTimeout   = get(yaml, 'qdrant.timeout') as string | number | undefined;
-const grpcPort        = get(yaml, 'grpc.port') as number | undefined;
-const pollIntervalMs  = get(yaml, 'queue_processor.poll_interval_ms') as number | undefined;
-const batchSize       = get(yaml, 'queue_processor.batch_size') as number | undefined;
-const rulesCollName   = get(yaml, 'workspace.rules_collection_name') as string | undefined;
+const qdrantUrl = get(yaml, 'qdrant.url') as string | undefined;
+const qdrantTimeout = get(yaml, 'qdrant.timeout') as string | number | undefined;
+const grpcPort = get(yaml, 'grpc.port') as number | undefined;
+const pollIntervalMs = get(yaml, 'queue_processor.poll_interval_ms') as number | undefined;
+const batchSize = get(yaml, 'queue_processor.batch_size') as number | undefined;
+const rulesCollName = get(yaml, 'workspace.rules_collection_name') as string | undefined;
 
-const maxLabelLen     = get(yaml, 'workspace.rules_limits.max_label_length') as number | undefined;
-const maxTitleLen     = get(yaml, 'workspace.rules_limits.max_title_length') as number | undefined;
-const maxTagLen       = get(yaml, 'workspace.rules_limits.max_tag_length') as number | undefined;
-const maxTagsPerRule  = get(yaml, 'workspace.rules_limits.max_tags_per_rule') as number | undefined;
+const maxLabelLen = get(yaml, 'workspace.rules_limits.max_label_length') as number | undefined;
+const maxTitleLen = get(yaml, 'workspace.rules_limits.max_title_length') as number | undefined;
+const maxTagLen = get(yaml, 'workspace.rules_limits.max_tag_length') as number | undefined;
+const maxTagsPerRule = get(yaml, 'workspace.rules_limits.max_tags_per_rule') as number | undefined;
 
-const excludeDirs     = get(yaml, 'watching.exclude_directories') as string[] | undefined;
+const excludeDirs = get(yaml, 'watching.exclude_directories') as string[] | undefined;
 const excludePatterns = get(yaml, 'watching.exclude_patterns') as string[] | undefined;
 
 // Build ignore patterns from exclude_directories + exclude_patterns
@@ -84,15 +89,15 @@ const ignorePatterns: string[] = [
 
 // Validate required fields
 const errors: string[] = [];
-if (qdrantUrl === undefined)      errors.push('qdrant.url');
-if (qdrantTimeout === undefined)  errors.push('qdrant.timeout');
-if (grpcPort === undefined)       errors.push('grpc.port');
+if (qdrantUrl === undefined) errors.push('qdrant.url');
+if (qdrantTimeout === undefined) errors.push('qdrant.timeout');
+if (grpcPort === undefined) errors.push('grpc.port');
 if (pollIntervalMs === undefined) errors.push('queue_processor.poll_interval_ms');
-if (batchSize === undefined)      errors.push('queue_processor.batch_size');
-if (rulesCollName === undefined)  errors.push('workspace.rules_collection_name');
-if (maxLabelLen === undefined)    errors.push('workspace.rules_limits.max_label_length');
-if (maxTitleLen === undefined)    errors.push('workspace.rules_limits.max_title_length');
-if (maxTagLen === undefined)      errors.push('workspace.rules_limits.max_tag_length');
+if (batchSize === undefined) errors.push('queue_processor.batch_size');
+if (rulesCollName === undefined) errors.push('workspace.rules_collection_name');
+if (maxLabelLen === undefined) errors.push('workspace.rules_limits.max_label_length');
+if (maxTitleLen === undefined) errors.push('workspace.rules_limits.max_title_length');
+if (maxTagLen === undefined) errors.push('workspace.rules_limits.max_tag_length');
 if (maxTagsPerRule === undefined) errors.push('workspace.rules_limits.max_tags_per_rule');
 
 if (errors.length > 0) {
@@ -108,6 +113,7 @@ const output = `// AUTO-GENERATED from assets/default_configuration.yaml — do 
 // Re-generate with: npx tsx scripts/generate-config-defaults.ts
 
 import type { ServerConfig } from './config.js';
+import { getDatabasePath } from '../utils/paths.js';
 
 /**
  * Default configuration values extracted from the canonical YAML source.
@@ -117,8 +123,7 @@ import type { ServerConfig } from './config.js';
  */
 export const DEFAULT_CONFIG: ServerConfig = {
   database: {
-    // Not in YAML — platform-specific, resolved at runtime by getStateDirectory()
-    path: '~/.workspace-qdrant/state.db',
+    path: getDatabasePath(),
   },
   qdrant: {
     url: ${JSON.stringify(qdrantUrl)},

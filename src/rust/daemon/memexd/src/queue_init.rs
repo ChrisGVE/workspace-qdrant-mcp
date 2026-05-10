@@ -68,17 +68,16 @@ pub async fn setup_ipc_server(
     Ok(ipc_server)
 }
 
-/// Resolve the model cache directory, falling back to `~/.workspace-qdrant/models`.
+/// Resolve the model cache directory, falling back to the XDG-compliant cache path.
 ///
-/// Uses the same `$HOME/.workspace-qdrant/` convention as the database path so
-/// the daemon always has an absolute, writable location — regardless of the
-/// working directory launchd assigns.  The directory is created if absent.
+/// Uses `wqm_common::paths::get_model_cache_dir()` for the default location
+/// (`~/.cache/workspace-qdrant/models`) so the daemon always has an absolute,
+/// writable location — regardless of the working directory launchd assigns.
+/// The directory is created if absent.
 fn resolve_model_cache_dir(configured: Option<std::path::PathBuf>) -> std::path::PathBuf {
     let dir = configured.unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        std::path::PathBuf::from(home)
-            .join(".workspace-qdrant")
-            .join("models")
+        wqm_common::paths::get_model_cache_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/workspace-qdrant-models"))
     });
     if let Err(e) = std::fs::create_dir_all(&dir) {
         warn!(

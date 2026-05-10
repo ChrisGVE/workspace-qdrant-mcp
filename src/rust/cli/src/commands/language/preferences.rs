@@ -1,6 +1,6 @@
 //! `language preferences` subcommand — manage per-language overrides.
 //!
-//! Preferences are stored in `~/.workspace-qdrant/language_preferences.yaml`.
+//! Preferences are stored in `~/.config/workspace-qdrant/language_preferences.yaml`.
 //! Resolution order: user preference → registry default (highest tier) → fallback.
 
 use std::collections::BTreeMap;

@@ -147,9 +147,8 @@ fn uninstall_systemd() -> Result<()> {
 }
 
 fn remove_data_directories() -> Result<()> {
-    let data_dir = dirs::home_dir()
-        .context("Could not find home directory")?
-        .join(".workspace-qdrant");
+    let data_dir =
+        wqm_common::paths::get_data_dir().context("Could not determine data directory")?;
     if data_dir.exists() {
         std::fs::remove_dir_all(&data_dir)
             .with_context(|| format!("Failed to remove data: {}", data_dir.display()))?;

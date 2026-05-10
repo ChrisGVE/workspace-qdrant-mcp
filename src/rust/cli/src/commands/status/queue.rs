@@ -35,10 +35,13 @@ pub async fn queue(verbose: bool) -> Result<()> {
                     output::separator();
                     output::info("Queue Details:");
                     output::info("  (Queue items stored in SQLite unified_queue table)");
-                    output::info(
-                        "  Use: sqlite3 ~/.workspace-qdrant/state.db \
-                             'SELECT * FROM unified_queue'",
-                    );
+                    let db_hint = wqm_common::paths::get_database_path()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| "<data_dir>/state.db".to_string());
+                    output::info(format!(
+                        "  Use: sqlite3 {} 'SELECT * FROM unified_queue'",
+                        db_hint
+                    ));
                 }
             }
             Err(e) => {

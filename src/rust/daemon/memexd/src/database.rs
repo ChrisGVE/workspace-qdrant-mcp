@@ -37,8 +37,8 @@ pub async fn create_pool_and_migrate(
     config: &Config,
 ) -> Result<SqlitePool, Box<dyn std::error::Error>> {
     let db_path = config.database_path.clone().unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        PathBuf::from(format!("{}/.workspace-qdrant/state.db", home))
+        wqm_common::paths::get_database_path()
+            .unwrap_or_else(|_| PathBuf::from("/tmp/workspace-qdrant-state.db"))
     });
 
     // Ensure parent directory exists
@@ -245,9 +245,9 @@ pub async fn initialize_all(
 
 /// Derive the state.db path (best-effort: re-read from environment).
 fn get_state_db_path(_pool: &SqlitePool) -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     if let Ok(override_path) = std::env::var("WQM_DATABASE_PATH") {
         return PathBuf::from(override_path);
     }
-    PathBuf::from(format!("{}/.workspace-qdrant/state.db", home))
+    wqm_common::paths::get_database_path()
+        .unwrap_or_else(|_| PathBuf::from("/tmp/workspace-qdrant-state.db"))
 }

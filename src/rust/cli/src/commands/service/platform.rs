@@ -95,23 +95,7 @@ pub fn install_dir() -> Result<PathBuf> {
 
 /// Get the canonical log directory for the daemon
 pub fn log_directory() -> Result<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let home = dirs::home_dir().context("Could not determine home directory")?;
-        Ok(home.join("Library/Logs/workspace-qdrant"))
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let base = std::env::var("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".local/state"));
-        Ok(base.join("workspace-qdrant/logs"))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let home = dirs::home_dir().context("Could not determine home directory")?;
-        Ok(home.join(".workspace-qdrant/logs"))
-    }
+    Ok(wqm_common::paths::get_canonical_log_dir())
 }
 
 /// Generate macOS launchd plist content (without metrics port).
