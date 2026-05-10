@@ -144,6 +144,30 @@ export class GrepTool {
       }
     }
 
+    return this.executeSearch(
+      pattern,
+      regex,
+      caseSensitive,
+      contextLines,
+      maxResults,
+      tenantId,
+      branch,
+      pathGlob,
+      startTime
+    );
+  }
+
+  private async executeSearch(
+    pattern: string,
+    regex: boolean,
+    caseSensitive: boolean,
+    contextLines: number,
+    maxResults: number,
+    tenantId: string | undefined,
+    branch: string | undefined,
+    pathGlob: string | undefined,
+    startTime: number
+  ): Promise<GrepResponse> {
     try {
       const request = buildGrepRequest(
         pattern,

@@ -91,8 +91,19 @@ export class ListFilesTool {
       );
     }
 
-    const projectResult = this.stateManager.getProjectById(projectId);
-    const projectPath = projectResult.data?.project_path ?? null;
+    return this.buildListResult(options, projectId, watchFolderId, basePath, format, depth, limit);
+  }
+
+  private buildListResult(
+    options: ListOptions,
+    projectId: string,
+    watchFolderId: string,
+    basePath: string,
+    format: ListFormat,
+    depth: number,
+    limit: number
+  ): ListResponse {
+    const projectPath = this.stateManager.getProjectById(projectId).data?.project_path ?? null;
 
     const { files, totalMatching } = this.queryFiles(options, watchFolderId, basePath);
     if (!files) return errorResponse('Database unavailable', basePath, format);
@@ -101,6 +112,30 @@ export class ListFilesTool {
     const filteredFiles = filterFilesByComponent(files, options.component, components);
     const submodules = this.stateManager.listSubmodules(watchFolderId).data;
 
+    return this.assembleResponse(
+      filteredFiles,
+      submodules,
+      basePath,
+      format,
+      depth,
+      limit,
+      totalMatching,
+      projectPath,
+      componentSummaries
+    );
+  }
+
+  private assembleResponse(
+    filteredFiles: TrackedFileEntry[],
+    submodules: SubmoduleEntry[],
+    basePath: string,
+    format: ListFormat,
+    depth: number,
+    limit: number,
+    totalMatching: number,
+    projectPath: string | null,
+    componentSummaries: ComponentSummary[] | undefined
+  ): ListResponse {
     const { listing, renderedCount } = renderFiles(
       filteredFiles,
       submodules,

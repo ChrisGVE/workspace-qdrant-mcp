@@ -142,6 +142,17 @@ export async function storeScratchpad(
   const tenantId = sessionState.projectId || TENANT_GLOBAL;
   const payload = buildScratchpadPayload(content, title, tags);
 
+  return enqueueScratchpadEntry(stateManager, payload, tenantId, content, title, tags);
+}
+
+async function enqueueScratchpadEntry(
+  stateManager: SqliteStateManager,
+  payload: Record<string, unknown>,
+  tenantId: string,
+  content: string,
+  title: string | undefined,
+  tags: string[]
+): Promise<StoreResult> {
   try {
     const result = await stateManager.enqueueUnified(
       'text',

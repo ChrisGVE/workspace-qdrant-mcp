@@ -108,6 +108,17 @@ export async function searchExact(
     queryText: options.query,
   });
 
+  return executeAndLogSearch(daemonClient, stateManager, options, tenantId, eventId, startTime);
+}
+
+async function executeAndLogSearch(
+  daemonClient: DaemonClient,
+  stateManager: SqliteStateManager,
+  options: SearchOptions,
+  tenantId: string | undefined,
+  eventId: string,
+  startTime: number
+): Promise<SearchResponse> {
   try {
     const request = buildExactSearchRequest(options, tenantId);
     const response = await daemonClient.textSearch(request);
