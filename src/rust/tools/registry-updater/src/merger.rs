@@ -67,34 +67,7 @@ pub fn merge_all(scraped: &ScrapedData) -> Result<Vec<LanguageDefinition>> {
             lsp_servers: Vec::new(),
             sources: SourceMetadata::default(),
         });
-
-        // Deduplicate by repo
-        let already_has = def.grammar.sources.iter().any(|s| s.repo == grammar.repo);
-        if !already_has {
-            def.grammar.sources.push(GrammarSourceEntry {
-                repo: grammar.repo.clone(),
-                origin: None,
-                quality: grammar.quality,
-            });
-        }
-
-        // Set build metadata (last writer wins, higher-quality sources preferred)
-        if grammar.has_cpp_scanner {
-            def.grammar.has_cpp_scanner = true;
-        }
-        if grammar.src_subdir.is_some() {
-            def.grammar.src_subdir.clone_from(&grammar.src_subdir);
-        }
-        if grammar.symbol_name.is_some() {
-            def.grammar.symbol_name.clone_from(&grammar.symbol_name);
-        }
-        if grammar.archive_branch.is_some() {
-            def.grammar
-                .archive_branch
-                .clone_from(&grammar.archive_branch);
-        }
-
-        def.sources.grammar = Some("scraped".to_string());
+        merge_grammar_entry(def, grammar);
     }
 
     // Step 3: Add LSP servers
@@ -135,6 +108,37 @@ pub fn merge_all(scraped: &ScrapedData) -> Result<Vec<LanguageDefinition>> {
     result.sort_by_key(|d| d.language.to_lowercase());
 
     Ok(result)
+}
+
+fn merge_grammar_entry(
+    def: &mut LanguageDefinition,
+    grammar: &workspace_qdrant_core::language_registry::types::GrammarEntry,
+) {
+    let already_has = def.grammar.sources.iter().any(|s| s.repo == grammar.repo);
+    if !already_has {
+        def.grammar.sources.push(GrammarSourceEntry {
+            repo: grammar.repo.clone(),
+            origin: None,
+            quality: grammar.quality,
+        });
+    }
+
+    if grammar.has_cpp_scanner {
+        def.grammar.has_cpp_scanner = true;
+    }
+    if grammar.src_subdir.is_some() {
+        def.grammar.src_subdir.clone_from(&grammar.src_subdir);
+    }
+    if grammar.symbol_name.is_some() {
+        def.grammar.symbol_name.clone_from(&grammar.symbol_name);
+    }
+    if grammar.archive_branch.is_some() {
+        def.grammar
+            .archive_branch
+            .clone_from(&grammar.archive_branch);
+    }
+
+    def.sources.grammar = Some("scraped".to_string());
 }
 
 /// Compare generated definitions against the current registry YAML file.

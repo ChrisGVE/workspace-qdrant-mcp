@@ -31,6 +31,31 @@ impl ColumnHints for LibrarySearchRow {
     }
 }
 
+fn build_search_row(payload: &serde_json::Value) -> LibrarySearchRow {
+    let content = payload
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let preview = if content.len() > 120 {
+        format!("{}...", &content[..117])
+    } else {
+        content.to_string()
+    };
+    LibrarySearchRow {
+        library: payload
+            .get("library_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-")
+            .to_string(),
+        title: payload
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-")
+            .to_string(),
+        content: preview,
+    }
+}
+
 /// Build a reqwest client with optional Qdrant API key.
 fn build_qdrant_client() -> Result<reqwest::Client> {
     let mut headers = reqwest::header::HeaderMap::new();
@@ -126,30 +151,7 @@ pub async fn search_library(query: &str, library: Option<String>, limit: usize) 
     let rows: Vec<LibrarySearchRow> = points
         .iter()
         .filter_map(|p| p.get("payload"))
-        .map(|payload| {
-            let content = payload
-                .get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let preview = if content.len() > 120 {
-                format!("{}...", &content[..117])
-            } else {
-                content.to_string()
-            };
-            LibrarySearchRow {
-                library: payload
-                    .get("library_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                title: payload
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                content: preview,
-            }
-        })
+        .map(build_search_row)
         .collect();
 
     let count = rows.len();

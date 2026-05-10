@@ -234,29 +234,15 @@ pub fn query_two_level_stats(
 
         let display_key = resolve_group_key(dim1, raw_key1, tenant_names);
 
-        let sql2 = format!(
-            "SELECT COALESCE({col2}, '') as grp2, COUNT(*) \
-             FROM processing_timings \
-             WHERE created_at > datetime('now', ?1) AND COALESCE({col1}, '') = ?2{coll_clause2} \
-             GROUP BY grp2 ORDER BY grp2"
-        );
-        let mut stmt2 = conn.prepare(&sql2)?;
-        let sub_groups: Vec<(String, i64)> = if coll_params.is_empty() {
-            stmt2
-                .query_map(rusqlite::params![cutoff, raw_key1], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                })?
-                .filter_map(|r| r.ok())
-                .collect()
-        } else {
-            stmt2
-                .query_map(
-                    rusqlite::params![cutoff, raw_key1, &coll_params[0]],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-                )?
-                .filter_map(|r| r.ok())
-                .collect()
-        };
+        let sub_groups = query_sub_groups(
+            conn,
+            cutoff,
+            col1,
+            raw_key1,
+            col2,
+            &coll_clause2,
+            &coll_params,
+        )?;
 
         let mut sub_stats = Vec::new();
         for (raw_key2, _count) in &sub_groups {
@@ -291,6 +277,41 @@ pub fn query_two_level_stats(
     }
 
     Ok(results)
+}
+
+fn query_sub_groups(
+    conn: &rusqlite::Connection,
+    cutoff: &str,
+    col1: &str,
+    raw_key1: &str,
+    col2: &str,
+    coll_clause2: &str,
+    coll_params: &[String],
+) -> Result<Vec<(String, i64)>> {
+    let sql2 = format!(
+        "SELECT COALESCE({col2}, '') as grp2, COUNT(*) \
+         FROM processing_timings \
+         WHERE created_at > datetime('now', ?1) AND COALESCE({col1}, '') = ?2{coll_clause2} \
+         GROUP BY grp2 ORDER BY grp2"
+    );
+    let mut stmt2 = conn.prepare(&sql2)?;
+    let sub_groups: Vec<(String, i64)> = if coll_params.is_empty() {
+        stmt2
+            .query_map(rusqlite::params![cutoff, raw_key1], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect()
+    } else {
+        stmt2
+            .query_map(
+                rusqlite::params![cutoff, raw_key1, &coll_params[0]],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )?
+            .filter_map(|r| r.ok())
+            .collect()
+    };
+    Ok(sub_groups)
 }
 
 // ─── Duration fetchers ───────────────────────────────────────────────────────

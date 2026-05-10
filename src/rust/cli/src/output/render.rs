@@ -43,6 +43,38 @@ pub fn print_table_summary(text: &str) {
     println!("  {}", text.dimmed());
 }
 
+fn apply_width_management(
+    table: &mut tabled::Table,
+    table_width: usize,
+    hints: &[usize],
+    col_mins: Option<Vec<usize>>,
+) {
+    if let Some(col_mins) = col_mins {
+        CONTENT_COLUMNS.with(|cc| {
+            *cc.borrow_mut() = hints.to_vec();
+        });
+        COLUMN_MIN_WIDTHS.with(|cmw| {
+            *cmw.borrow_mut() = col_mins;
+        });
+
+        table.with(
+            Width::wrap(table_width)
+                .priority::<ShrinkCategoricalFirst>()
+                .keep_words(),
+        );
+
+        CONTENT_COLUMNS.with(|cc| cc.borrow_mut().clear());
+        COLUMN_MIN_WIDTHS.with(|cmw| cmw.borrow_mut().clear());
+    } else {
+        table.with(
+            Width::wrap(table_width)
+                .priority::<PriorityMax>()
+                .keep_words(),
+        );
+    }
+    table.with(Width::increase(table_width).priority::<ExpandEven>());
+}
+
 /// Compute column min widths from a slice of references.
 fn compute_column_min_widths_from_refs<T: Tabled>(
     data: &[&T],
@@ -119,33 +151,7 @@ pub fn render_table<T: Tabled + ColumnHints>(rows: &[GutterRow<T>], summary: Opt
         table.with(Modify::new(Columns::single(col_idx)).with(Alignment::right()));
     }
 
-    // Apply width management: shrink content columns first when too wide,
-    // but distribute extra width evenly across ALL columns (rule 14: even spread).
-    if let Some(col_mins) = col_mins {
-        CONTENT_COLUMNS.with(|cc| {
-            *cc.borrow_mut() = hints.to_vec();
-        });
-        COLUMN_MIN_WIDTHS.with(|cmw| {
-            *cmw.borrow_mut() = col_mins;
-        });
-
-        table.with(
-            Width::wrap(table_width)
-                .priority::<ShrinkCategoricalFirst>()
-                .keep_words(),
-        );
-
-        CONTENT_COLUMNS.with(|cc| cc.borrow_mut().clear());
-        COLUMN_MIN_WIDTHS.with(|cmw| cmw.borrow_mut().clear());
-    } else {
-        table.with(
-            Width::wrap(table_width)
-                .priority::<PriorityMax>()
-                .keep_words(),
-        );
-    }
-    // Even spread: distribute extra width across all columns (rule 14)
-    table.with(Width::increase(table_width).priority::<ExpandEven>());
+    apply_width_management(&mut table, table_width, hints, col_mins);
 
     let output = table.to_string();
     let lines: Vec<&str> = output.lines().collect();

@@ -78,50 +78,17 @@ pub async fn language_projects(gaps_only: bool) -> Result<()> {
         let display_name = abbreviate_project(name, root);
 
         for (lang_id, count) in &languages {
-            let grammar_status = manager.grammar_status(lang_id);
-            let grammar_ok = matches!(
-                grammar_status,
-                GrammarStatus::Loaded | GrammarStatus::Cached
-            );
-
-            let lsp_ok = defs
-                .iter()
-                .find(|d| d.id() == *lang_id)
-                .map(|d| d.lsp_servers.iter().any(|s| which_cmd(&s.binary).is_some()))
-                .unwrap_or(false);
-
-            let has_gap = !grammar_ok || !lsp_ok;
-            if gaps_only && !has_gap {
-                continue;
+            if let Some(row) = build_lang_row(
+                lang_id,
+                *count,
+                &display_name,
+                &manager,
+                &defs,
+                gaps_only,
+                &mut total_gaps,
+            ) {
+                rows.push(row);
             }
-            if has_gap {
-                total_gaps += 1;
-            }
-
-            let grammar_str = if grammar_ok {
-                format!("{} ok", "~".green())
-            } else {
-                format!("{} missing", "x".red())
-            };
-
-            let lsp_str = if lsp_ok {
-                format!("{} ok", "~".green())
-            } else {
-                let has_config = defs.iter().any(|d| d.id() == *lang_id && d.has_lsp());
-                if has_config {
-                    format!("{} missing", "x".red())
-                } else {
-                    format!("{} n/a", "-".dimmed())
-                }
-            };
-
-            rows.push(ProjectLangRow {
-                project: display_name.clone(),
-                language: lang_id.clone(),
-                file_count: count.to_string(),
-                grammar: grammar_str,
-                lsp: lsp_str,
-            });
         }
     }
 
@@ -143,6 +110,62 @@ pub async fn language_projects(gaps_only: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_lang_row(
+    lang_id: &str,
+    count: usize,
+    display_name: &str,
+    manager: &GrammarManager,
+    defs: &[workspace_qdrant_core::language_registry::types::LanguageDefinition],
+    gaps_only: bool,
+    total_gaps: &mut usize,
+) -> Option<ProjectLangRow> {
+    let grammar_status = manager.grammar_status(lang_id);
+    let grammar_ok = matches!(
+        grammar_status,
+        GrammarStatus::Loaded | GrammarStatus::Cached
+    );
+
+    let lsp_ok = defs
+        .iter()
+        .find(|d| d.id() == lang_id)
+        .map(|d| d.lsp_servers.iter().any(|s| which_cmd(&s.binary).is_some()))
+        .unwrap_or(false);
+
+    let has_gap = !grammar_ok || !lsp_ok;
+    if gaps_only && !has_gap {
+        return None;
+    }
+    if has_gap {
+        *total_gaps += 1;
+    }
+
+    let grammar_str = if grammar_ok {
+        format!("{} ok", "~".green())
+    } else {
+        format!("{} missing", "x".red())
+    };
+
+    let lsp_str = if lsp_ok {
+        format!("{} ok", "~".green())
+    } else {
+        let has_config = defs.iter().any(|d| d.id() == lang_id && d.has_lsp());
+        if has_config {
+            format!("{} missing", "x".red())
+        } else {
+            format!("{} n/a", "-".dimmed())
+        }
+    };
+
+    Some(ProjectLangRow {
+        project: display_name.to_string(),
+        language: lang_id.to_string(),
+        file_count: count.to_string(),
+        grammar: grammar_str,
+        lsp: lsp_str,
+    })
 }
 
 /// Fetch project list from the daemon via gRPC.

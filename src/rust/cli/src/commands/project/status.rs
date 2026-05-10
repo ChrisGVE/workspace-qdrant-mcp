@@ -73,6 +73,60 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+fn render_content_stats(
+    mut builder: crate::output::columnar::ColumnarBuilder,
+    project_id: &str,
+    locale: &NumberLocale,
+) {
+    builder = builder.section(Some("Project Content and Database Status"));
+
+    let (stats, languages) = match connect_readonly() {
+        Ok(conn) => {
+            let s = queries::get_project_file_stats(&conn, project_id).unwrap_or_default();
+            let l = queries::get_languages(&conn, project_id, "projects").unwrap_or_default();
+            (s, l)
+        }
+        Err(_) => (queries::ReconcileStats::default(), Vec::new()),
+    };
+
+    if !languages.is_empty() {
+        builder = builder.kv("Languages", languages.join(", "));
+    }
+
+    builder
+        .kv_gutter(
+            "Chunks in Database",
+            format_usize(stats.chunk_count, locale),
+            Gutter::None,
+        )
+        .kv_gutter(
+            "Tracked Files",
+            format_usize(stats.tracked_files, locale),
+            Gutter::None,
+        )
+        .kv_gutter(
+            "Files in Sync",
+            format_usize(stats.in_sync, locale),
+            Gutter::Sync,
+        )
+        .kv_gutter(
+            "Files to Add",
+            format_usize(stats.to_add, locale),
+            Gutter::Add,
+        )
+        .kv_gutter(
+            "Files to Update",
+            format_usize(stats.to_update, locale),
+            Gutter::Update,
+        )
+        .kv_gutter(
+            "Files to Remove",
+            format_usize(stats.to_remove, locale),
+            Gutter::Remove,
+        )
+        .render();
+}
+
 fn render_found_project(
     status: &crate::grpc::proto::GetProjectStatusResponse,
     project_id: &str,
@@ -117,53 +171,7 @@ fn render_found_project(
         }
     }
 
-    builder = builder.section(Some("Project Content and Database Status"));
-
-    let (stats, languages) = match connect_readonly() {
-        Ok(conn) => {
-            let s = queries::get_project_file_stats(&conn, project_id).unwrap_or_default();
-            let l = queries::get_languages(&conn, project_id, "projects").unwrap_or_default();
-            (s, l)
-        }
-        Err(_) => (queries::ReconcileStats::default(), Vec::new()),
-    };
-
-    if !languages.is_empty() {
-        builder = builder.kv("Languages", languages.join(", "));
-    }
-
-    builder
-        .kv_gutter(
-            "Chunks in Database",
-            format_usize(stats.chunk_count, &locale),
-            Gutter::None,
-        )
-        .kv_gutter(
-            "Tracked Files",
-            format_usize(stats.tracked_files, &locale),
-            Gutter::None,
-        )
-        .kv_gutter(
-            "Files in Sync",
-            format_usize(stats.in_sync, &locale),
-            Gutter::Sync,
-        )
-        .kv_gutter(
-            "Files to Add",
-            format_usize(stats.to_add, &locale),
-            Gutter::Add,
-        )
-        .kv_gutter(
-            "Files to Update",
-            format_usize(stats.to_update, &locale),
-            Gutter::Update,
-        )
-        .kv_gutter(
-            "Files to Remove",
-            format_usize(stats.to_remove, &locale),
-            Gutter::Remove,
-        )
-        .render();
+    render_content_stats(builder, project_id, &locale);
 
     output::status_line(
         "Status",

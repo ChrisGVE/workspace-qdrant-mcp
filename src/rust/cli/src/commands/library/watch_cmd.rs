@@ -13,6 +13,58 @@ use crate::grpc::proto::{
 use crate::output;
 use crate::output::style::home_to_tilde;
 
+async fn enqueue_scan_and_notify(
+    client: &mut crate::grpc::client::DaemonClient,
+    tag: &str,
+    abs_path_str: &str,
+    patterns: &[String],
+) {
+    let payload_json = serde_json::json!({
+        "folder_path": abs_path_str,
+        "recursive": true,
+        "patterns": patterns,
+    })
+    .to_string();
+
+    match client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "folder".to_string(),
+            op: "scan".to_string(),
+            tenant_id: tag.to_string(),
+            collection: COLLECTION_LIBRARIES.to_string(),
+            payload_json,
+            branch: String::new(),
+            metadata_json: None,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.is_new {
+                output::success("Library scan queued for ingestion");
+            } else {
+                output::info("Library scan already queued");
+            }
+        }
+        Err(e) => {
+            output::warning(format!("Could not queue library scan: {}", e));
+        }
+    }
+
+    if let Ok(_resp) = client
+        .system()
+        .send_refresh_signal(RefreshSignalRequest {
+            queue_type: QueueType::WatchedFolders as i32,
+            lsp_languages: vec![],
+            grammar_languages: vec![],
+        })
+        .await
+    {
+        output::success("Daemon notified - it will start watching shortly");
+    }
+}
+
 /// Watch a library path for changes
 pub async fn execute(
     tag: &str,
@@ -60,52 +112,7 @@ pub async fn execute(
     };
     output::kv("  Patterns", format!("{}", effective_patterns.len()));
 
-    // Enqueue folder scan via daemon
-    let payload_json = serde_json::json!({
-        "folder_path": abs_path_str,
-        "recursive": true,
-        "patterns": effective_patterns,
-    })
-    .to_string();
-
-    match client
-        .queue_write()
-        .enqueue_item(EnqueueItemRequest {
-            item_type: "folder".to_string(),
-            op: "scan".to_string(),
-            tenant_id: tag.to_string(),
-            collection: COLLECTION_LIBRARIES.to_string(),
-            payload_json,
-            branch: String::new(),
-            metadata_json: None,
-        })
-        .await
-    {
-        Ok(resp) => {
-            let inner = resp.into_inner();
-            if inner.is_new {
-                output::success("Library scan queued for ingestion");
-            } else {
-                output::info("Library scan already queued");
-            }
-        }
-        Err(e) => {
-            output::warning(format!("Could not queue library scan: {}", e));
-        }
-    }
-
-    // Signal daemon to start watching
-    if let Ok(_resp) = client
-        .system()
-        .send_refresh_signal(RefreshSignalRequest {
-            queue_type: QueueType::WatchedFolders as i32,
-            lsp_languages: vec![],
-            grammar_languages: vec![],
-        })
-        .await
-    {
-        output::success("Daemon notified - it will start watching shortly");
-    }
+    enqueue_scan_and_notify(&mut client, tag, &abs_path_str, &effective_patterns).await;
 
     Ok(())
 }

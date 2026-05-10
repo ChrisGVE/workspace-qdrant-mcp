@@ -8,6 +8,49 @@ use crate::output;
 
 use super::detect::{detect_branch, detect_tenant_id};
 
+async fn enqueue_url_and_notify(
+    client: &mut crate::grpc::client::DaemonClient,
+    tenant_id: &str,
+    collection: &str,
+    payload_json: &str,
+    branch: &str,
+) {
+    match client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "url".to_string(),
+            op: "add".to_string(),
+            tenant_id: tenant_id.to_string(),
+            collection: collection.to_string(),
+            payload_json: payload_json.to_string(),
+            branch: branch.to_string(),
+            metadata_json: None,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.is_new {
+                output::success("URL queued for ingestion");
+                output::kv("Queue ID", &inner.queue_id);
+                output::kv("Status", "pending");
+            } else {
+                output::warning("URL already queued (duplicate)");
+                output::kv("Idempotency Key", &inner.idempotency_key);
+            }
+            let request = RefreshSignalRequest {
+                queue_type: QueueType::IngestQueue as i32,
+                lsp_languages: vec![],
+                grammar_languages: vec![],
+            };
+            let _ = client.system().send_refresh_signal(request).await;
+        }
+        Err(e) => {
+            output::error(format!("Failed to enqueue URL: {}", e));
+        }
+    }
+}
+
 pub async fn ingest_url(
     url: &str,
     collection: Option<String>,
@@ -64,42 +107,14 @@ pub async fn ingest_url(
 
     let mut client = ensure_daemon_available().await?;
 
-    match client
-        .queue_write()
-        .enqueue_item(EnqueueItemRequest {
-            item_type: "url".to_string(),
-            op: "add".to_string(),
-            tenant_id: tenant_id.to_string(),
-            collection: target_collection.to_string(),
-            payload_json,
-            branch: branch.to_string(),
-            metadata_json: None,
-        })
-        .await
-    {
-        Ok(resp) => {
-            let inner = resp.into_inner();
-            if inner.is_new {
-                output::success("URL queued for ingestion");
-                output::kv("Queue ID", &inner.queue_id);
-                output::kv("Status", "pending");
-            } else {
-                output::warning("URL already queued (duplicate)");
-                output::kv("Idempotency Key", &inner.idempotency_key);
-            }
-
-            // Signal daemon to process queue
-            let request = RefreshSignalRequest {
-                queue_type: QueueType::IngestQueue as i32,
-                lsp_languages: vec![],
-                grammar_languages: vec![],
-            };
-            let _ = client.system().send_refresh_signal(request).await;
-        }
-        Err(e) => {
-            output::error(format!("Failed to enqueue URL: {}", e));
-        }
-    }
+    enqueue_url_and_notify(
+        &mut client,
+        &tenant_id,
+        &target_collection,
+        &payload_json,
+        &branch,
+    )
+    .await;
 
     Ok(())
 }

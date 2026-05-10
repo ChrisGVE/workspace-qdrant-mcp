@@ -11,6 +11,40 @@ use crate::grpc::proto::{
 };
 use crate::output;
 
+async fn queue_vector_deletion(client: &mut crate::grpc::client::DaemonClient, tag: &str) {
+    output::info("Queueing vector deletion...");
+    let payload_json = serde_json::json!({ "tenant_id_to_delete": tag }).to_string();
+
+    match client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "tenant".to_string(),
+            op: "delete".to_string(),
+            tenant_id: tag.to_string(),
+            collection: COLLECTION_LIBRARIES.to_string(),
+            payload_json,
+            branch: String::new(),
+            metadata_json: None,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.is_new {
+                output::success(format!(
+                    "Vector deletion queued (queue_id: {})",
+                    inner.queue_id
+                ));
+            } else {
+                output::info("Vector deletion already queued (duplicate)");
+            }
+        }
+        Err(e) => {
+            output::warning(format!("Could not queue vector deletion: {}", e));
+        }
+    }
+}
+
 /// Remove a library (deletes watch config AND queues vector deletion)
 pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
     output::section(format!("Remove Library: {}", tag));
@@ -56,38 +90,7 @@ pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
     }
     output::success(format!("Removed watch config for '{}'", tag));
 
-    // Queue Qdrant vector deletion via daemon
-    output::info("Queueing vector deletion...");
-    let payload_json = serde_json::json!({ "tenant_id_to_delete": tag }).to_string();
-
-    match client
-        .queue_write()
-        .enqueue_item(EnqueueItemRequest {
-            item_type: "tenant".to_string(),
-            op: "delete".to_string(),
-            tenant_id: tag.to_string(),
-            collection: COLLECTION_LIBRARIES.to_string(),
-            payload_json,
-            branch: String::new(),
-            metadata_json: None,
-        })
-        .await
-    {
-        Ok(resp) => {
-            let inner = resp.into_inner();
-            if inner.is_new {
-                output::success(format!(
-                    "Vector deletion queued (queue_id: {})",
-                    inner.queue_id
-                ));
-            } else {
-                output::info("Vector deletion already queued (duplicate)");
-            }
-        }
-        Err(e) => {
-            output::warning(format!("Could not queue vector deletion: {}", e));
-        }
-    }
+    queue_vector_deletion(&mut client, tag).await;
 
     // Signal daemon to refresh watch configuration
     if let Ok(resp) = client

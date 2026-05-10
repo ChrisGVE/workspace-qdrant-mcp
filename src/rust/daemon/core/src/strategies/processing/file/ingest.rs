@@ -1,6 +1,4 @@
-//! File content ingestion pipeline.
-//!
-//! Shared by both add and update paths (after update preamble completes).
+//! File content ingestion pipeline — shared by add and update paths.
 //! Orchestrates: document parsing → embedding → keyword extraction → graph
 //! extraction → component detection → Qdrant upsert → FTS5 indexing.
 

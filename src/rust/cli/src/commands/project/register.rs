@@ -10,6 +10,54 @@ use crate::output;
 
 use super::resolver::calculate_project_id;
 
+async fn call_daemon_register(
+    abs_path: std::path::PathBuf,
+    project_id: String,
+    project_name: String,
+    git_remote: Option<String>,
+) {
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            let request = RegisterProjectRequest {
+                path: abs_path.display().to_string(),
+                project_id: project_id.clone(),
+                name: Some(project_name),
+                git_remote,
+                register_if_new: true,
+                priority: None,
+            };
+
+            match client.project().register_project(request).await {
+                Ok(response) => {
+                    let result = response.into_inner();
+                    if result.created {
+                        output::success("Project registered successfully");
+                    } else {
+                        output::info("Project already registered");
+                    }
+                    output::kv("Active", if result.is_active { "Yes" } else { "No" });
+                    if result.is_worktree {
+                        output::info(format!(
+                            "Note: This path is a git worktree. \
+                             It is indexed under project {}",
+                            result.project_id
+                        ));
+                        if let Some(watch_path) = &result.watch_path {
+                            output::kv("Watch Path", watch_path);
+                        }
+                    }
+                }
+                Err(e) => {
+                    output::error(format!("Failed to register project: {}", e));
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Daemon not running. Start with: wqm service start");
+        }
+    }
+}
+
 pub(super) async fn register_project(
     path: Option<PathBuf>,
     name: Option<String>,
@@ -68,46 +116,7 @@ pub(super) async fn register_project(
         return Ok(());
     }
 
-    match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            let request = RegisterProjectRequest {
-                path: abs_path.display().to_string(),
-                project_id: project_id.clone(),
-                name: Some(project_name),
-                git_remote,
-                register_if_new: true,
-                priority: None, // CLI registers at NORMAL priority
-            };
-
-            match client.project().register_project(request).await {
-                Ok(response) => {
-                    let result = response.into_inner();
-                    if result.created {
-                        output::success("Project registered successfully");
-                    } else {
-                        output::info("Project already registered");
-                    }
-                    output::kv("Active", if result.is_active { "Yes" } else { "No" });
-                    if result.is_worktree {
-                        output::info(format!(
-                            "Note: This path is a git worktree. \
-                             It is indexed under project {}",
-                            result.project_id
-                        ));
-                        if let Some(watch_path) = &result.watch_path {
-                            output::kv("Watch Path", watch_path);
-                        }
-                    }
-                }
-                Err(e) => {
-                    output::error(format!("Failed to register project: {}", e));
-                }
-            }
-        }
-        Err(_) => {
-            output::error("Daemon not running. Start with: wqm service start");
-        }
-    }
+    call_daemon_register(abs_path, project_id, project_name, git_remote).await;
 
     Ok(())
 }

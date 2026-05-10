@@ -143,11 +143,21 @@ impl RuleBrowser {
         );
         frame.render_widget(summary, chunks[0]);
 
-        // Table
+        self.render_rules_table(frame, chunks[1]);
+
+        // Detail popup
+        if self.detail_open {
+            if let Some(rule) = self.items.get(self.selected) {
+                self.draw_detail_popup(frame, area, rule);
+            }
+        }
+    }
+
+    fn render_rules_table(&self, frame: &mut Frame, area: Rect) {
         let header =
             Row::new(vec!["  Scope", "Rule Text", "Updated"]).style(theme::table_header_style());
 
-        let visible_height = chunks[1].height.saturating_sub(2) as usize;
+        let visible_height = area.height.saturating_sub(2) as usize;
         let start = if self.selected >= visible_height {
             self.selected - visible_height + 1
         } else {
@@ -168,16 +178,13 @@ impl RuleBrowser {
                 } else {
                     format!("{}:{}", rule.scope, truncate_str(&rule.tenant_id, 12))
                 };
-
                 let text_preview = truncate_str(&rule.rule_text, 60);
                 let updated = format_short_date(&rule.updated_at);
-
                 let style = if i == self.selected {
                     theme::selected_row_style()
                 } else {
                     Style::default()
                 };
-
                 Row::new(vec![format!("  {}", scope_display), text_preview, updated]).style(style)
             })
             .collect();
@@ -192,14 +199,7 @@ impl RuleBrowser {
             .header(header)
             .block(Block::default().borders(Borders::ALL));
 
-        frame.render_widget(table, chunks[1]);
-
-        // Detail popup
-        if self.detail_open {
-            if let Some(rule) = self.items.get(self.selected) {
-                self.draw_detail_popup(frame, area, rule);
-            }
-        }
+        frame.render_widget(table, area);
     }
 
     fn draw_detail_popup(&self, frame: &mut Frame, area: Rect, rule: &RuleRow) {

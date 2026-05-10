@@ -40,6 +40,38 @@ impl ColumnHints for IdleHistoryRow {
     }
 }
 
+fn print_analysis_summary(entries: &[Entry], hours: f64) {
+    let transitions_per_hour = entries.len() as f64 / hours;
+    let avg_duration = entries
+        .iter()
+        .map(|e| e.duration_in_previous_secs)
+        .sum::<f64>()
+        / entries.len() as f64;
+    let short_count = entries
+        .iter()
+        .filter(|e| e.duration_in_previous_secs < 30.0)
+        .count();
+    let is_flip_flopping = transitions_per_hour > 10.0;
+
+    output::separator();
+    output::kv(
+        "Rate",
+        format!("{:.1} transitions/hr", transitions_per_hour),
+    );
+    output::kv(
+        "Avg mode duration",
+        wqm_common::duration_fmt::format_duration(avg_duration, 0),
+    );
+    output::kv("Short (<30s)", short_count.to_string());
+
+    if is_flip_flopping {
+        output::separator();
+        output::warning("Flip-flop detected! Consider increasing idle_cooloff_polls in config.");
+        let recommended = ((transitions_per_hour / 10.0).ceil() as u32).saturating_sub(1);
+        output::kv("Recommended +cooloff", format!("+{} polls", recommended));
+    }
+}
+
 /// Show idle state transition history and flip-flop analysis
 pub fn execute(hours: f64, script: bool, no_headers: bool) -> Result<()> {
     let config_dir = wqm_common::paths::get_config_dir().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -76,36 +108,7 @@ pub fn execute(hours: f64, script: bool, no_headers: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Analysis
-    let transitions_per_hour = entries.len() as f64 / hours;
-    let avg_duration = entries
-        .iter()
-        .map(|e| e.duration_in_previous_secs)
-        .sum::<f64>()
-        / entries.len() as f64;
-    let short_count = entries
-        .iter()
-        .filter(|e| e.duration_in_previous_secs < 30.0)
-        .count();
-    let is_flip_flopping = transitions_per_hour > 10.0;
-
-    output::separator();
-    output::kv(
-        "Rate",
-        format!("{:.1} transitions/hr", transitions_per_hour),
-    );
-    output::kv(
-        "Avg mode duration",
-        wqm_common::duration_fmt::format_duration(avg_duration, 0),
-    );
-    output::kv("Short (<30s)", short_count.to_string());
-
-    if is_flip_flopping {
-        output::separator();
-        output::warning("Flip-flop detected! Consider increasing idle_cooloff_polls in config.");
-        let recommended = ((transitions_per_hour / 10.0).ceil() as u32).saturating_sub(1);
-        output::kv("Recommended +cooloff", format!("+{} polls", recommended));
-    }
+    print_analysis_summary(&entries, hours);
 
     // Show last 20 transitions in a table
     let tail: Vec<&Entry> = entries

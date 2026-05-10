@@ -14,6 +14,48 @@ use super::helpers::{
 };
 use wqm_common::schema::qdrant::rules as rules_schema;
 
+async fn search_rules_qdrant(
+    embedding: &[f32],
+    scope: &Option<String>,
+    limit: usize,
+) -> Result<serde_json::Value> {
+    let client = build_qdrant_client()?;
+    let collection = wqm_common::constants::COLLECTION_RULES;
+    let url = format!("{}/collections/{}/points/search", qdrant_url(), collection);
+
+    let mut body = serde_json::json!({
+        "vector": embedding,
+        "limit": limit,
+        "with_payload": true,
+    });
+
+    if let Some(ref scope_str) = scope {
+        body["filter"] = build_scope_filter(scope_str);
+    }
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .context("Failed to search Qdrant")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 404 {
+            output::info("Rules collection does not exist yet. No rules stored.");
+            return Ok(serde_json::json!({"result": []}));
+        }
+        anyhow::bail!("Qdrant search failed ({}): {}", status, text);
+    }
+
+    response
+        .json()
+        .await
+        .context("Failed to parse Qdrant search response")
+}
+
 /// Search rules using semantic similarity via daemon embedding + Qdrant.
 pub async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Result<()> {
     // Generate embedding for the query via daemon
@@ -36,43 +78,7 @@ pub async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> R
         );
     }
 
-    // Search Qdrant rules collection with the embedding vector
-    let client = build_qdrant_client()?;
-    let collection = wqm_common::constants::COLLECTION_RULES;
-    let url = format!("{}/collections/{}/points/search", qdrant_url(), collection);
-
-    let mut body = serde_json::json!({
-        "vector": embed_response.embedding,
-        "limit": limit,
-        "with_payload": true,
-    });
-
-    if let Some(ref scope_str) = scope {
-        body["filter"] = build_scope_filter(scope_str);
-    }
-
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .context("Failed to search Qdrant")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        if status.as_u16() == 404 {
-            output::info("Rules collection does not exist yet. No rules stored.");
-            return Ok(());
-        }
-        anyhow::bail!("Qdrant search failed ({}): {}", status, text);
-    }
-
-    // Parse Qdrant search response (similar to scroll but with score)
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse Qdrant search response")?;
+    let json = search_rules_qdrant(&embed_response.embedding, &scope, limit).await?;
 
     let points = json["result"]
         .as_array()

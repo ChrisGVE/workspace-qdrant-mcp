@@ -55,65 +55,7 @@ pub async fn lsp_install(language: &str) -> Result<()> {
         }
     }
 
-    // Not installed — show install options filtered by available package managers
-    output::info("No LSP server found. Install options:");
-    output::separator();
-
-    let mut option_num = 0;
-
-    for server in &def.lsp_servers {
-        if server.install_methods.is_empty() {
-            continue;
-        }
-
-        let available_methods: Vec<_> = server
-            .install_methods
-            .iter()
-            .filter(|m| which_cmd(&m.manager).is_some())
-            .collect();
-
-        let unavailable_methods: Vec<_> = server
-            .install_methods
-            .iter()
-            .filter(|m| which_cmd(&m.manager).is_none())
-            .collect();
-
-        if !available_methods.is_empty() {
-            println!("  {} ({})", server.name.bold(), server.binary);
-            for method in &available_methods {
-                option_num += 1;
-                println!("    {}. {} {}", option_num, "▸".green(), method.command);
-            }
-            if !unavailable_methods.is_empty() {
-                for method in &unavailable_methods {
-                    println!(
-                        "       {} {} (requires {})",
-                        "▸".dimmed(),
-                        method.command.dimmed(),
-                        method.manager.dimmed()
-                    );
-                }
-            }
-            println!();
-        } else {
-            // No available managers — show all methods dimmed
-            println!("  {} ({})", server.name.bold(), server.binary);
-            for method in &server.install_methods {
-                println!(
-                    "    {} {} (requires {})",
-                    "▸".dimmed(),
-                    method.command.dimmed(),
-                    method.manager
-                );
-            }
-            println!();
-        }
-    }
-
-    if option_num == 0 {
-        output::info("No package managers found for the available install methods.");
-        output::info("Install the LSP server manually and ensure it's on your PATH.");
-    }
+    show_install_options(&def.lsp_servers);
 
     Ok(())
 }
@@ -297,6 +239,68 @@ pub async fn lsp_search(language: &str) -> Result<()> {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn show_install_options(
+    lsp_servers: &[workspace_qdrant_core::language_registry::types::LspServerEntry],
+) {
+    output::info("No LSP server found. Install options:");
+    output::separator();
+
+    let mut option_num = 0;
+
+    for server in lsp_servers {
+        if server.install_methods.is_empty() {
+            continue;
+        }
+
+        let available_methods: Vec<_> = server
+            .install_methods
+            .iter()
+            .filter(|m| which_cmd(&m.manager).is_some())
+            .collect();
+
+        let unavailable_methods: Vec<_> = server
+            .install_methods
+            .iter()
+            .filter(|m| which_cmd(&m.manager).is_none())
+            .collect();
+
+        if !available_methods.is_empty() {
+            println!("  {} ({})", server.name.bold(), server.binary);
+            for method in &available_methods {
+                option_num += 1;
+                println!("    {}. {} {}", option_num, "▸".green(), method.command);
+            }
+            if !unavailable_methods.is_empty() {
+                for method in &unavailable_methods {
+                    println!(
+                        "       {} {} (requires {})",
+                        "▸".dimmed(),
+                        method.command.dimmed(),
+                        method.manager.dimmed()
+                    );
+                }
+            }
+            println!();
+        } else {
+            println!("  {} ({})", server.name.bold(), server.binary);
+            for method in &server.install_methods {
+                println!(
+                    "    {} {} (requires {})",
+                    "▸".dimmed(),
+                    method.command.dimmed(),
+                    method.manager
+                );
+            }
+            println!();
+        }
+    }
+
+    if option_num == 0 {
+        output::info("No package managers found for the available install methods.");
+        output::info("Install the LSP server manually and ensure it's on your PATH.");
+    }
+}
 
 /// Infer an uninstall command from an install command.
 fn infer_uninstall(install_cmd: &str) -> String {
