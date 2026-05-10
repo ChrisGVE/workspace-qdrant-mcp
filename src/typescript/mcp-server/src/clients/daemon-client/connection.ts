@@ -131,20 +131,12 @@ export class DaemonClientBase {
     return this.connectionState.connected;
   }
 
-  async connect(): Promise<void> {
-    const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
-      keepCase: true,
-      longs: String,
-      enums: Number,
-      defaults: true,
-      oneofs: true,
-      includeDirs: [join(__dirname, '..', '..', 'proto')],
-    });
-
-    const proto = grpc.loadPackageDefinition(packageDefinition) as unknown as ProtoGrpcType;
-    const address = `${this.host}:${this.port}`;
-    const credentials = grpc.credentials.createInsecure();
-
+  /** Instantiate all gRPC service clients from the loaded proto. */
+  private instantiateClients(
+    proto: ProtoGrpcType,
+    address: string,
+    credentials: grpc.ChannelCredentials
+  ): void {
     this.systemClient = new proto.workspace_daemon.SystemService(
       address,
       credentials
@@ -177,6 +169,23 @@ export class DaemonClientBase {
       address,
       credentials
     ) as unknown as TrackingWriteServiceClient;
+  }
+
+  async connect(): Promise<void> {
+    const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+      keepCase: true,
+      longs: String,
+      enums: Number,
+      defaults: true,
+      oneofs: true,
+      includeDirs: [join(__dirname, '..', '..', 'proto')],
+    });
+
+    const proto = grpc.loadPackageDefinition(packageDefinition) as unknown as ProtoGrpcType;
+    const address = `${this.host}:${this.port}`;
+    const credentials = grpc.credentials.createInsecure();
+
+    this.instantiateClients(proto, address, credentials);
 
     try {
       await (this as unknown as { healthCheck(): Promise<HealthCheckResponse> }).healthCheck();

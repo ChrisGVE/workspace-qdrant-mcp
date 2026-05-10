@@ -55,6 +55,28 @@ export interface McpHttpServerHandle {
  * bound and the server will accept requests. The caller keeps the returned
  * handle so it can be closed on shutdown.
  */
+/** Create and bind the Node HTTP(S) server, resolving when the port is ready. */
+async function createBoundHttpServer(
+  options: HttpTransportOptions,
+  requestHandler: (req: IncomingMessage, res: ServerResponse) => void
+): Promise<{ httpServer: NodeHttpServer; tlsEnabled: boolean }> {
+  const tlsEnabled = options.tls !== undefined;
+  const httpServer: NodeHttpServer = tlsEnabled
+    ? (createHttpsServer(
+        loadTlsCredentials(options.tls!),
+        requestHandler
+      ) as unknown as NodeHttpServer)
+    : createHttpServer(requestHandler);
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(options.port, options.host, () => {
+      httpServer.off('error', reject);
+      resolve();
+    });
+  });
+  return { httpServer, tlsEnabled };
+}
+
 export async function startMcpHttpServer(
   mcpServer: McpServer,
   options: HttpTransportOptions,
@@ -64,34 +86,17 @@ export async function startMcpHttpServer(
     sessionIdGenerator: (): string => randomUUID(),
   });
 
-  // Attach the transport to the MCP server (registers message handlers).
   // Cast through Transport: StreamableHTTPServerTransport's optional-property
   // signatures do not line up with `exactOptionalPropertyTypes` inference
   // against the base interface, but the runtime contract is satisfied.
   await mcpServer.connect(transport as unknown as Transport);
 
   const authMiddleware = createAuthMiddleware(authConfig);
-
   const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
     void handleRequest(req, res, transport, options.path, authMiddleware);
   };
 
-  const tlsEnabled = options.tls !== undefined;
-  const httpServer: NodeHttpServer = tlsEnabled
-    ? // Node's https.Server extends http.Server — safe to type through it.
-      (createHttpsServer(
-        loadTlsCredentials(options.tls!),
-        requestHandler
-      ) as unknown as NodeHttpServer)
-    : createHttpServer(requestHandler);
-
-  await new Promise<void>((resolve, reject) => {
-    httpServer.once('error', reject);
-    httpServer.listen(options.port, options.host, () => {
-      httpServer.off('error', reject);
-      resolve();
-    });
-  });
+  const { httpServer, tlsEnabled } = await createBoundHttpServer(options, requestHandler);
 
   logInfo('MCP HTTP transport listening', {
     host: options.host,
@@ -148,42 +153,12 @@ export async function stopMcpHttpServer(handle: McpHttpServerHandle): Promise<vo
   logInfo('MCP HTTP transport stopped');
 }
 
-async function handleRequest(
+/** Dispatch to the MCP transport, writing 500 on unexpected errors. */
+async function dispatchToTransport(
   req: IncomingMessage,
   res: ServerResponse,
-  transport: StreamableHTTPServerTransport,
-  mcpPath: string,
-  authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean }
+  transport: StreamableHTTPServerTransport
 ): Promise<void> {
-  // Record the final status once, no matter which branch terminates the
-  // response. Hooking `res.writeHead` keeps middleware + handler + SDK
-  // transport code paths consistent without threading a recorder through
-  // each of them.
-  instrumentHttpResponse(req, res);
-
-  // Liveness probe: always 200, no auth. Intentionally narrow — only exact
-  // match on `/healthz` GET. Anything else goes through auth.
-  if (req.url === '/healthz' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('ok');
-    return;
-  }
-
-  // Auth + rate-limit + CORS. Middleware writes its own terminal response on
-  // failure (401 / 429 / 204 for preflight) and tells us whether to proceed.
-  const decision = authMiddleware(req, res);
-  if (!decision.authorized) {
-    return;
-  }
-
-  // StreamableHTTP uses a single endpoint (default `/mcp`) for POST/GET/DELETE.
-  const urlPath = (req.url ?? '').split('?')[0];
-  if (urlPath !== mcpPath) {
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
-    return;
-  }
-
   try {
     await transport.handleRequest(req, res);
   } catch (error) {
@@ -193,6 +168,34 @@ async function handleRequest(
       res.end('Internal Server Error');
     }
   }
+}
+
+async function handleRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  transport: StreamableHTTPServerTransport,
+  mcpPath: string,
+  authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean }
+): Promise<void> {
+  instrumentHttpResponse(req, res);
+
+  if (req.url === '/healthz' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+    return;
+  }
+
+  const decision = authMiddleware(req, res);
+  if (!decision.authorized) return;
+
+  const urlPath = (req.url ?? '').split('?')[0];
+  if (urlPath !== mcpPath) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+    return;
+  }
+
+  await dispatchToTransport(req, res, transport);
 }
 
 /**

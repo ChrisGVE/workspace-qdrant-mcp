@@ -100,7 +100,6 @@ export class StoreTool {
       metadata = {},
     } = options;
 
-    // Validate content
     if (!content?.trim()) {
       return {
         success: false,
@@ -110,51 +109,13 @@ export class StoreTool {
       };
     }
 
-    // Determine tenant_id and library_name based on mode
-    let tenantId: string;
-    let libraryLabel: string;
+    const tenantResult = this.resolveTenant(forProject, projectId, libraryName);
+    if ('error' in tenantResult) return tenantResult.error;
+    const { tenantId, libraryLabel } = tenantResult;
 
-    if (forProject) {
-      // Project-scoped library: tenant_id = projectId, library_name = explicit or generated
-      if (!projectId?.trim()) {
-        return {
-          success: false,
-          collection: LIBRARIES_COLLECTION,
-          message: 'No active project detected. forProject requires an active project session.',
-          fallback_mode: 'unified_queue',
-        };
-      }
-      tenantId = projectId.trim();
-      libraryLabel = libraryName?.trim() || 'project-refs';
-    } else {
-      // Standalone library: tenant_id = libraryName (required)
-      if (!libraryName?.trim()) {
-        return {
-          success: false,
-          collection: LIBRARIES_COLLECTION,
-          message:
-            'libraryName is required - this tool stores to the libraries collection only. For project content, use file watching (daemon handles this automatically).',
-          fallback_mode: 'unified_queue',
-        };
-      }
-      tenantId = libraryName.trim();
-      libraryLabel = tenantId;
-    }
-
-    // Generate document ID using content hash for idempotency
     const documentId = this.generateDocumentId(content, tenantId);
+    const fullMetadata = this.buildStoreMetadata(metadata, sourceType, title, url, filePath);
 
-    // Build metadata
-    const fullMetadata: Record<string, string> = {
-      ...metadata,
-      [FIELD_SOURCE_TYPE]: sourceType,
-    };
-
-    if (title) fullMetadata[FIELD_TITLE] = title;
-    if (url) fullMetadata['url'] = url;
-    if (filePath) fullMetadata[FIELD_FILE_PATH] = filePath;
-
-    // Per ADR-002: ONLY queue the operation, never call daemon directly
     try {
       const queueResult = await this.queueStoreOperation({
         content,
@@ -164,7 +125,6 @@ export class StoreTool {
         metadata: fullMetadata,
         sourceType,
       });
-
       return {
         success: true,
         documentId,
@@ -174,14 +134,59 @@ export class StoreTool {
         queue_id: queueResult.queueId,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
         collection: LIBRARIES_COLLECTION,
-        message: `Failed to queue content: ${errorMessage}`,
+        message: `Failed to queue content: ${error instanceof Error ? error.message : 'Unknown error'}`,
         fallback_mode: 'unified_queue',
       };
     }
+  }
+
+  private resolveTenant(
+    forProject: boolean,
+    projectId: string | undefined,
+    libraryName: string | undefined
+  ): { tenantId: string; libraryLabel: string } | { error: StoreResponse } {
+    if (forProject) {
+      if (!projectId?.trim()) {
+        return {
+          error: {
+            success: false,
+            collection: LIBRARIES_COLLECTION,
+            message: 'No active project detected. forProject requires an active project session.',
+            fallback_mode: 'unified_queue',
+          },
+        };
+      }
+      return { tenantId: projectId.trim(), libraryLabel: libraryName?.trim() || 'project-refs' };
+    }
+    if (!libraryName?.trim()) {
+      return {
+        error: {
+          success: false,
+          collection: LIBRARIES_COLLECTION,
+          message:
+            'libraryName is required - this tool stores to the libraries collection only. For project content, use file watching (daemon handles this automatically).',
+          fallback_mode: 'unified_queue',
+        },
+      };
+    }
+    return { tenantId: libraryName.trim(), libraryLabel: libraryName.trim() };
+  }
+
+  private buildStoreMetadata(
+    metadata: Record<string, string>,
+    sourceType: SourceType,
+    title: string | undefined,
+    url: string | undefined,
+    filePath: string | undefined
+  ): Record<string, string> {
+    const full: Record<string, string> = { ...metadata, [FIELD_SOURCE_TYPE]: sourceType };
+    if (title) full[FIELD_TITLE] = title;
+    if (url) full['url'] = url;
+    if (filePath) full[FIELD_FILE_PATH] = filePath;
+    return full;
   }
 
   /**

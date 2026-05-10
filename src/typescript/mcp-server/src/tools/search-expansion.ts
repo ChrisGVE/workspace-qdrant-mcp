@@ -5,6 +5,40 @@
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 
+/** Collect unique expansion keywords from tag baskets across all collections. */
+function collectTagKeywords(
+  stateManager: SqliteStateManager,
+  query: string,
+  collections: string[],
+  tenantId: string | undefined,
+  maxKeywords: number
+): string[] {
+  const allKeywords = new Set<string>();
+  for (const coll of collections) {
+    const matchingTags = stateManager.getMatchingTags(query, coll, tenantId);
+    if (matchingTags.length === 0) continue;
+    const baskets = stateManager.getKeywordBasketsForTags(matchingTags.map((t) => t.tagId));
+    for (const basket of baskets) {
+      for (const kw of basket.keywords) allKeywords.add(kw);
+    }
+  }
+  return Array.from(allKeywords).slice(0, maxKeywords);
+}
+
+/** Merge an expansion sparse vector into the original at reduced weight (no-overwrite). */
+function mergeSparseVectors(
+  original: Record<number, number>,
+  expansion: Record<number, number>,
+  weight: number
+): Record<number, number> {
+  const merged = { ...original };
+  for (const [indexStr, value] of Object.entries(expansion)) {
+    const index = Number(indexStr);
+    if (!(index in merged)) merged[index] = value * weight;
+  }
+  return merged;
+}
+
 /**
  * Expand sparse vector with keywords from matching tag baskets.
  *
@@ -21,54 +55,23 @@ export async function expandSparseWithTags(
   collections: string[],
   expansionWeight: number,
   maxExpandedKeywords: number,
-  tenantId?: string,
+  tenantId?: string
 ): Promise<Record<number, number>> {
   try {
-    // Collect expanded keywords from all searched collections
-    const allKeywords = new Set<string>();
+    const keywords = collectTagKeywords(
+      stateManager,
+      query,
+      collections,
+      tenantId,
+      maxExpandedKeywords
+    );
+    if (keywords.length === 0) return originalSparse;
 
-    for (const coll of collections) {
-      const matchingTags = stateManager.getMatchingTags(query, coll, tenantId);
-      if (matchingTags.length === 0) continue;
+    const expansionResponse = await daemonClient.generateSparseVector({ text: keywords.join(' ') });
+    if (!expansionResponse.success || !expansionResponse.indices_values) return originalSparse;
 
-      const tagIds = matchingTags.map((t) => t.tagId);
-      const baskets = stateManager.getKeywordBasketsForTags(tagIds);
-
-      for (const basket of baskets) {
-        for (const kw of basket.keywords) {
-          allKeywords.add(kw);
-        }
-      }
-    }
-
-    if (allKeywords.size === 0) return originalSparse;
-
-    // Limit expanded keywords
-    const expandedKeywords = Array.from(allKeywords).slice(0, maxExpandedKeywords);
-
-    // Generate sparse vector for expanded keywords
-    const expansionText = expandedKeywords.join(' ');
-    const expansionResponse = await daemonClient.generateSparseVector({ text: expansionText });
-    if (!expansionResponse.success || !expansionResponse.indices_values) {
-      return originalSparse;
-    }
-
-    // Merge: add expansion terms at reduced weight
-    const merged = { ...originalSparse };
-    for (const [indexStr, value] of Object.entries(expansionResponse.indices_values)) {
-      const index = Number(indexStr);
-      const weightedValue = value * expansionWeight;
-
-      if (index in merged) {
-        // Original term already present - keep original weight (don't dilute exact match)
-        continue;
-      }
-      merged[index] = weightedValue;
-    }
-
-    return merged;
+    return mergeSparseVectors(originalSparse, expansionResponse.indices_values, expansionWeight);
   } catch {
-    // Expansion is best-effort; never block search
     return originalSparse;
   }
 }

@@ -138,6 +138,35 @@ export interface SearchAllCollectionsParams {
   scoreThreshold: number;
 }
 
+/** Build SearchCollectionParams for one collection in a fan-out search. */
+function buildCollectionSearchParams(
+  coll: string,
+  params: SearchAllCollectionsParams
+): SearchCollectionParams {
+  const filterParams: FilterParams = {
+    collection: coll,
+    scope: params.scope,
+    projectId: params.currentProjectId,
+    branch: params.branch,
+    fileType: params.fileType,
+    libraryName: params.libraryName,
+    tag: params.tag,
+    tags: params.tags,
+    pathGlob: params.options.pathGlob,
+    component: params.options.component,
+    basePoints: coll === PROJECTS_COLLECTION ? params.basePoints : undefined,
+  };
+  return {
+    collection: coll,
+    mode: params.mode,
+    denseEmbedding: params.denseEmbedding,
+    sparseVector: params.sparseVector,
+    filter: buildFilter(filterParams),
+    limit: params.limit * 2,
+    scoreThreshold: params.scoreThreshold,
+  };
+}
+
 /** Search all target collections and collect results, tolerating partial failures. */
 export async function searchAllCollections(
   qdrantClient: QdrantClient,
@@ -147,53 +176,15 @@ export async function searchAllCollections(
   status: 'ok' | 'uncertain';
   statusReason: string | undefined;
 }> {
-  const {
-    collectionsToSearch,
-    scope,
-    currentProjectId,
-    basePoints,
-    branch,
-    fileType,
-    libraryName,
-    tag,
-    tags,
-    options,
-    mode,
-    denseEmbedding,
-    sparseVector,
-    limit,
-    scoreThreshold,
-  } = params;
-
   const allResults: SearchResult[] = [];
   let status: 'ok' | 'uncertain' = 'ok';
   let statusReason: string | undefined;
 
-  for (const coll of collectionsToSearch) {
+  for (const coll of params.collectionsToSearch) {
     try {
-      const filterParams: FilterParams = {
-        collection: coll,
-        scope,
-        projectId: currentProjectId,
-        branch,
-        fileType,
-        libraryName,
-        tag,
-        tags,
-        pathGlob: options.pathGlob,
-        component: options.component,
-        basePoints: coll === PROJECTS_COLLECTION ? basePoints : undefined,
-      };
-      const searchParams: SearchCollectionParams = {
-        collection: coll,
-        mode,
-        denseEmbedding,
-        sparseVector,
-        filter: buildFilter(filterParams),
-        limit: limit * 2,
-        scoreThreshold,
-      };
-      allResults.push(...(await searchCollection(qdrantClient, searchParams)));
+      allResults.push(
+        ...(await searchCollection(qdrantClient, buildCollectionSearchParams(coll, params)))
+      );
     } catch (error) {
       status = 'uncertain';
       statusReason = `Some collections unavailable: ${error instanceof Error ? error.message : 'unknown'}`;
@@ -216,6 +207,35 @@ export interface FinalizeResultsParams {
   statusReason: string | undefined;
 }
 
+/** Record search telemetry and build the final SearchResponse. */
+function recordAndBuildResponse(
+  stateManager: SqliteStateManager,
+  finalResults: SearchResult[],
+  params: FinalizeResultsParams,
+  searchStartMs: number
+): SearchResponse {
+  const latencyMs = Date.now() - searchStartMs;
+  const topRefs = finalResults
+    .slice(0, 5)
+    .map((r) => ({ id: r.id, score: Math.round(r.score * 1000) / 1000, collection: r.collection }));
+  stateManager.updateSearchEvent(params.eventId, {
+    resultCount: finalResults.length,
+    latencyMs,
+    topResultRefs: JSON.stringify(topRefs),
+  });
+  const response: SearchResponse = {
+    results: finalResults,
+    total: finalResults.length,
+    query: params.query,
+    mode: params.mode,
+    scope: params.scope,
+    collections_searched: params.collectionsToSearch,
+    status: params.status,
+  };
+  if (params.statusReason) response.status_reason = params.statusReason;
+  return response;
+}
+
 /** Fuse, sort, expand context, update event, and assemble the final response. */
 export async function finalizeResults(
   qdrantClient: QdrantClient,
@@ -223,48 +243,12 @@ export async function finalizeResults(
   stateManager: SqliteStateManager,
   params: FinalizeResultsParams
 ): Promise<SearchResponse> {
-  const {
-    allResults,
-    mode,
-    limit,
-    options,
-    eventId,
-    searchStartMs,
-    query,
-    scope,
-    collectionsToSearch,
-    status,
-    statusReason,
-  } = params;
-
-  const fusedResults = applyRRFFusion(allResults, mode);
+  const fusedResults = applyRRFFusion(params.allResults, params.mode);
   fusedResults.sort((a, b) => b.score - a.score);
-  const finalResults = fusedResults.slice(0, limit);
+  const finalResults = fusedResults.slice(0, params.limit);
 
-  if (options.expandContext) await expandParentContext(qdrantClient, finalResults);
-  if (options.includeGraphContext) await expandGraphContext(daemonClient, finalResults);
+  if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);
+  if (params.options.includeGraphContext) await expandGraphContext(daemonClient, finalResults);
 
-  const latencyMs = Date.now() - searchStartMs;
-  const topRefs = finalResults.slice(0, 5).map((r) => ({
-    id: r.id,
-    score: Math.round(r.score * 1000) / 1000,
-    collection: r.collection,
-  }));
-  stateManager.updateSearchEvent(eventId, {
-    resultCount: finalResults.length,
-    latencyMs,
-    topResultRefs: JSON.stringify(topRefs),
-  });
-
-  const response: SearchResponse = {
-    results: finalResults,
-    total: finalResults.length,
-    query,
-    mode,
-    scope,
-    collections_searched: collectionsToSearch,
-    status,
-  };
-  if (statusReason) response.status_reason = statusReason;
-  return response;
+  return recordAndBuildResponse(stateManager, finalResults, params, params.searchStartMs);
 }

@@ -158,34 +158,76 @@ export class SearchTool {
       );
     }
 
-    const { allResults, status, statusReason } = await searchAllCollections(this.qdrantClient, {
-      collectionsToSearch,
+    return this.runSearchAndFinalize({
+      query,
+      mode,
+      limit,
+      scoreThreshold,
       scope,
-      currentProjectId,
-      basePoints,
       branch,
       fileType,
       libraryName,
       tag,
       tags,
       options,
-      mode,
+      eventId,
+      searchStartMs,
+      collectionsToSearch,
+      currentProjectId,
+      basePoints,
       denseEmbedding,
       sparseVector,
-      limit,
-      scoreThreshold,
+    });
+  }
+
+  private async runSearchAndFinalize(p: {
+    query: string;
+    mode: import('./search-types.js').SearchMode;
+    limit: number;
+    scoreThreshold: number;
+    scope: import('./search-types.js').SearchScope;
+    branch: string | undefined;
+    fileType: string | undefined;
+    libraryName: string | undefined;
+    tag: string | undefined;
+    tags: string[] | undefined;
+    options: SearchOptions;
+    eventId: string;
+    searchStartMs: number;
+    collectionsToSearch: string[];
+    currentProjectId: string | undefined;
+    basePoints: string[] | undefined;
+    denseEmbedding: number[] | undefined;
+    sparseVector: Record<number, number> | undefined;
+  }): Promise<SearchResponse> {
+    const { allResults, status, statusReason } = await searchAllCollections(this.qdrantClient, {
+      collectionsToSearch: p.collectionsToSearch,
+      scope: p.scope,
+      currentProjectId: p.currentProjectId,
+      basePoints: p.basePoints,
+      branch: p.branch,
+      fileType: p.fileType,
+      libraryName: p.libraryName,
+      tag: p.tag,
+      tags: p.tags,
+      options: p.options,
+      mode: p.mode,
+      denseEmbedding: p.denseEmbedding,
+      sparseVector: p.sparseVector,
+      limit: p.limit,
+      scoreThreshold: p.scoreThreshold,
     });
 
     return finalizeResults(this.qdrantClient, this.daemonClient, this._stateManager, {
       allResults,
-      mode,
-      limit,
-      options,
-      eventId,
-      searchStartMs,
-      query,
-      scope,
-      collectionsToSearch,
+      mode: p.mode,
+      limit: p.limit,
+      options: p.options,
+      eventId: p.eventId,
+      searchStartMs: p.searchStartMs,
+      query: p.query,
+      scope: p.scope,
+      collectionsToSearch: p.collectionsToSearch,
       status,
       statusReason,
     });

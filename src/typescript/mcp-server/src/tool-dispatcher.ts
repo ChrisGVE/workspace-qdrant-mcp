@@ -28,6 +28,21 @@ export type ToolResult = {
 
 const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'] as const;
 
+/** Dispatch the 'store' tool subtypes. */
+async function dispatchStore(
+  args: Record<string, unknown> | undefined,
+  components: ServerComponents,
+  sessionState: SessionState
+): Promise<unknown> {
+  const storeType = (args?.['type'] as string) ?? 'library';
+  if (storeType === 'project')
+    return registerProjectFromTool(args, sessionState, components.daemonClient);
+  if (storeType === 'url') return storeUrl(args, components.stateManager, sessionState);
+  if (storeType === 'scratchpad')
+    return storeScratchpad(args, components.stateManager, sessionState);
+  return components.storeTool.store(buildStoreOptions(args, sessionState));
+}
+
 /**
  * Dispatch a tool call to the appropriate handler.
  *
@@ -41,19 +56,9 @@ export async function dispatchToolCall(
   sessionState: SessionState
 ): Promise<ToolResult> {
   const startTime = Date.now();
-  const {
-    searchTool,
-    retrieveTool,
-    rulesTool,
-    storeTool,
-    grepTool,
-    listTool,
-    healthMonitor,
-    daemonClient,
-    stateManager,
-  } = components;
+  const { searchTool, retrieveTool, rulesTool, grepTool, listTool, healthMonitor, daemonClient } =
+    components;
 
-  // Implicit heartbeat — fire-and-forget to avoid latency
   sendHeartbeat(sessionState, daemonClient);
 
   if (!KNOWN_TOOLS.includes(toolName as (typeof KNOWN_TOOLS)[number])) {
@@ -72,18 +77,8 @@ export async function dispatchToolCall(
           return retrieveTool.retrieve(buildRetrieveOptions(args));
         case 'rules':
           return rulesTool.execute(buildRuleOptions(args));
-        case 'store': {
-          const storeType = (args?.['type'] as string) ?? 'library';
-          if (storeType === 'project') {
-            return registerProjectFromTool(args, sessionState, daemonClient);
-          } else if (storeType === 'url') {
-            return storeUrl(args, stateManager, sessionState);
-          } else if (storeType === 'scratchpad') {
-            return storeScratchpad(args, stateManager, sessionState);
-          } else {
-            return storeTool.store(buildStoreOptions(args, sessionState));
-          }
-        }
+        case 'store':
+          return dispatchStore(args, components, sessionState);
         case 'grep':
           return grepTool.grep(buildGrepOptions(args));
         case 'list':
@@ -91,7 +86,6 @@ export async function dispatchToolCall(
         case 'embedding':
           return handleEmbedding(args, daemonClient);
         default:
-          // Unreachable: KNOWN_TOOLS guard above covers all cases
           throw new Error(`Unexpected tool: ${toolName}`);
       }
     });

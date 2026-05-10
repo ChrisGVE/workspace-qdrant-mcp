@@ -74,59 +74,48 @@ if (isStdioMode) {
 
 let server: WorkspaceQdrantMcpServer | null = null;
 
-async function main(): Promise<void> {
-  // Load configuration
-  const config = loadConfig();
-
-  // Handle graceful shutdown
-  const shutdown = async (): Promise<void> => {
-    if (server) {
-      await server.stop();
-    }
-    if (isStdioMode) {
-      await pushMetricsOnExit();
-    }
-    process.exit(0);
+function registerSignalHandlers(shutdown: () => Promise<void>): void {
+  const handleSignal = (): void => {
+    shutdown().catch((error) => {
+      console.error('Error during shutdown:', error);
+      process.exit(1);
+    });
   };
-
-  process.on('SIGINT', () => {
-    shutdown().catch((error) => {
-      console.error('Error during shutdown:', error);
-      process.exit(1);
-    });
-  });
-
-  process.on('SIGTERM', () => {
-    shutdown().catch((error) => {
-      console.error('Error during shutdown:', error);
-      process.exit(1);
-    });
-  });
-
-  // In stdio mode, register a synchronous exit handler as a last-resort flush
-  // (covers process.exit() paths not going through the signal handlers above)
+  process.on('SIGINT', handleSignal);
+  process.on('SIGTERM', handleSignal);
   if (isStdioMode) {
     process.on('exit', () => {
-      // Synchronous only — async pushMetricsOnExit() is handled by SIGINT/SIGTERM above
       process.stderr.write('[wqm-metrics] process exit\n');
     });
   }
+}
 
-  // Create and start the MCP server
+async function createAndStartServer(
+  config: ReturnType<typeof loadConfig>
+): Promise<WorkspaceQdrantMcpServer> {
+  if (serverMode === 'http') {
+    const httpOptions = resolveHttpOptions();
+    const srv = await createServer(config, 'http', httpOptions);
+    startMetricsServer();
+    return srv;
+  }
+  return createServer(config, serverMode);
+}
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+
+  const shutdown = async (): Promise<void> => {
+    if (server) await server.stop();
+    if (isStdioMode) await pushMetricsOnExit();
+    process.exit(0);
+  };
+
+  registerSignalHandlers(shutdown);
+
   try {
-    if (serverMode === 'http') {
-      const httpOptions = resolveHttpOptions();
-      server = await createServer(config, 'http', httpOptions);
-    } else {
-      server = await createServer(config, serverMode);
-    }
+    server = await createAndStartServer(config);
 
-    // In HTTP mode, start the Prometheus /metrics endpoint on a separate port.
-    if (serverMode === 'http') {
-      startMetricsServer();
-    }
-
-    // Log startup info (only in non-stdio mode since we use stderr in stdio mode)
     const sessionState = server.getSessionState();
     if (!isStdioMode) {
       console.log('workspace-qdrant-mcp server started');
@@ -136,8 +125,6 @@ async function main(): Promise<void> {
       console.log(`Project ID: ${sessionState.projectId ?? 'none'}`);
       console.log(`Daemon connected: ${sessionState.daemonConnected}`);
     }
-
-    // Server is now running - MCP SDK handles the event loop
   } catch (error) {
     console.error('Failed to start MCP server:', error);
     process.exit(1);

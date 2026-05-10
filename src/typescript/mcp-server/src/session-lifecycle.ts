@@ -20,24 +20,14 @@ import type { SessionState } from './server-types.js';
  * Initialize session: detect project, connect daemon, start heartbeat.
  * Mutates sessionState in place.
  */
-export async function initializeSession(
+/** Detect and assign project info to session state. */
+async function detectProjectForSession(
   sessionState: SessionState,
-  daemonClient: DaemonClient,
-  projectDetector: ProjectDetector,
-  startHeartbeatFn: () => void
+  projectDetector: ProjectDetector
 ): Promise<void> {
-  sessionState.sessionId = randomUUID();
-
-  const { setSessionId } = await import('./utils/logger.js');
-  setSessionId(sessionState.sessionId);
-
-  logSessionEvent('start', { session_id: sessionState.sessionId });
-
   const cwd = process.cwd();
-  // Resolve to project root (find .git, Cargo.toml, etc.) before querying DB
   const projectRoot = projectDetector.findProjectRoot(cwd) ?? cwd;
   const projectInfo = await projectDetector.getProjectInfo(projectRoot, true);
-
   if (projectInfo) {
     sessionState.projectPath = projectInfo.projectPath;
     sessionState.projectId = projectInfo.projectId;
@@ -46,20 +36,29 @@ export async function initializeSession(
       project_id: projectInfo.projectId,
     });
   } else {
-    // Project not in DB yet, but we still know the root
     sessionState.projectPath = projectRoot;
     logDebug('Project root detected but not registered', { projectRoot, cwd });
   }
+}
+
+export async function initializeSession(
+  sessionState: SessionState,
+  daemonClient: DaemonClient,
+  projectDetector: ProjectDetector,
+  startHeartbeatFn: () => void
+): Promise<void> {
+  sessionState.sessionId = randomUUID();
+  const { setSessionId } = await import('./utils/logger.js');
+  setSessionId(sessionState.sessionId);
+  logSessionEvent('start', { session_id: sessionState.sessionId });
+
+  await detectProjectForSession(sessionState, projectDetector);
 
   try {
     await daemonClient.connect();
     sessionState.daemonConnected = true;
     logDaemonStatus(true);
-
-    if (sessionState.projectPath) {
-      await registerProject(sessionState, daemonClient);
-    }
-
+    if (sessionState.projectPath) await registerProject(sessionState, daemonClient);
     startHeartbeatFn();
   } catch (error) {
     sessionState.daemonConnected = false;
@@ -75,17 +74,34 @@ export async function initializeSession(
  * Only re-activates EXISTING projects (register_if_new: false).
  * New projects must be registered explicitly via CLI or other means.
  */
+/** Apply daemon registration response to session state. */
+function applyRegistrationResponse(
+  sessionState: SessionState,
+  response: { project_id: string; is_worktree?: boolean; watch_path?: string }
+): void {
+  if (response.project_id && !sessionState.projectId) {
+    sessionState.projectId = response.project_id;
+    logDebug('Project ID assigned by daemon', { project_id: response.project_id });
+  }
+  if (response.is_worktree) {
+    sessionState.isWorktree = true;
+    sessionState.watchPath = response.watch_path ?? sessionState.projectPath ?? null;
+    logInfo('Registered as worktree', {
+      project_path: sessionState.projectPath,
+      project_id: response.project_id,
+      watch_path: sessionState.watchPath,
+    });
+  }
+}
+
 export async function registerProject(
   sessionState: SessionState,
   daemonClient: DaemonClient
 ): Promise<void> {
-  if (!sessionState.projectPath) {
-    return;
-  }
+  if (!sessionState.projectPath) return;
 
   try {
     const gitRemote = getGitRemoteUrl(sessionState.projectPath);
-
     const response = await daemonClient.registerProject({
       path: sessionState.projectPath,
       project_id: sessionState.projectId ?? '',
@@ -103,21 +119,7 @@ export async function registerProject(
       return;
     }
 
-    if (response.project_id && !sessionState.projectId) {
-      sessionState.projectId = response.project_id;
-      logDebug('Project ID assigned by daemon', { project_id: response.project_id });
-    }
-
-    if (response.is_worktree) {
-      sessionState.isWorktree = true;
-      sessionState.watchPath = response.watch_path ?? sessionState.projectPath;
-      logInfo('Registered as worktree', {
-        project_path: sessionState.projectPath,
-        project_id: response.project_id,
-        watch_path: sessionState.watchPath,
-      });
-    }
-
+    applyRegistrationResponse(sessionState, response);
     logSessionEvent('register', {
       project_id: response.project_id,
       project_path: sessionState.projectPath,
@@ -129,9 +131,7 @@ export async function registerProject(
       watch_path: response.watch_path,
     });
   } catch (error) {
-    logError('Failed to register project', error, {
-      project_path: sessionState.projectPath,
-    });
+    logError('Failed to register project', error, { project_path: sessionState.projectPath });
   }
 }
 
@@ -153,19 +153,12 @@ export async function registerProjectFromTool(
   message: string;
 }> {
   const path = args?.['path'] as string;
-  if (!path) {
-    throw new Error('path is required for store type "project"');
-  }
-
-  if (!sessionState.daemonConnected) {
+  if (!path) throw new Error('path is required for store type "project"');
+  if (!sessionState.daemonConnected)
     throw new Error('Daemon is not connected — cannot register project');
-  }
 
-  // Resolve to git root in case a subfolder path was provided
   const resolvedPath = findGitRoot(path) ?? path;
-
   const name = (args?.['name'] as string) ?? resolvedPath.split('/').pop() ?? 'unknown';
-
   const gitRemote = getGitRemoteUrl(resolvedPath);
 
   const response = await daemonClient.registerProject({

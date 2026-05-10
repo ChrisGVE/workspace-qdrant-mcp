@@ -27,6 +27,33 @@ function buildListFilter(
   return mustConditions.length > 0 ? { must: mustConditions } : undefined;
 }
 
+/** Map a Qdrant point payload to a Rule object. */
+function pointToRule(point: {
+  id: string | number;
+  payload?: Record<string, unknown> | null;
+}): Rule {
+  const rule: Rule = {
+    id: String(point.id),
+    content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
+    scope: (point.payload?.['scope'] as RuleScope) ?? TENANT_GLOBAL,
+  };
+  const label = point.payload?.['label'] as string | undefined;
+  if (label) rule.label = label;
+  const pid = point.payload?.[FIELD_PROJECT_ID] as string | undefined;
+  if (pid) rule.projectId = pid;
+  const title = point.payload?.[FIELD_TITLE] as string | undefined;
+  if (title) rule.title = title;
+  const tagsStr = point.payload?.['tags'] as string | undefined;
+  if (tagsStr) rule.tags = tagsStr.split(',');
+  const priorityRaw = point.payload?.['priority'];
+  if (priorityRaw !== undefined && priorityRaw !== null) rule.priority = Number(priorityRaw);
+  const createdAt = point.payload?.['created_at'] as string | undefined;
+  if (createdAt) rule.createdAt = createdAt;
+  const updatedAt = point.payload?.['updated_at'] as string | undefined;
+  if (updatedAt) rule.updatedAt = updatedAt;
+  return rule;
+}
+
 /** List rules by scope from Qdrant, with rules_mirror fallback. */
 export async function listRules(
   qdrantClient: QdrantClient,
@@ -38,8 +65,7 @@ export async function listRules(
 
   let resolvedProjectId = projectId;
   if (scope === 'project' && !resolvedProjectId) {
-    const cwd = process.cwd();
-    const projectInfo = await projectDetector.getProjectInfo(cwd, false);
+    const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
     resolvedProjectId = projectInfo?.projectId;
   }
 
@@ -53,46 +79,8 @@ export async function listRules(
     if (filter) scrollRequest.filter = filter;
 
     const scrollResult = await qdrantClient.scroll(RULES_COLLECTION, scrollRequest);
-
-    const rules: Rule[] = scrollResult.points.map((point) => {
-      const rule: Rule = {
-        id: String(point.id),
-        content: (point.payload?.[FIELD_CONTENT] as string) ?? '',
-        scope: (point.payload?.['scope'] as RuleScope) ?? TENANT_GLOBAL,
-      };
-
-      const label = point.payload?.['label'] as string | undefined;
-      if (label) rule.label = label;
-
-      const pid = point.payload?.[FIELD_PROJECT_ID] as string | undefined;
-      if (pid) rule.projectId = pid;
-
-      const title = point.payload?.[FIELD_TITLE] as string | undefined;
-      if (title) rule.title = title;
-
-      const tagsStr = point.payload?.['tags'] as string | undefined;
-      if (tagsStr) rule.tags = tagsStr.split(',');
-
-      const priorityRaw = point.payload?.['priority'];
-      if (priorityRaw !== undefined && priorityRaw !== null) {
-        rule.priority = Number(priorityRaw);
-      }
-
-      const createdAt = point.payload?.['created_at'] as string | undefined;
-      if (createdAt) rule.createdAt = createdAt;
-
-      const updatedAt = point.payload?.['updated_at'] as string | undefined;
-      if (updatedAt) rule.updatedAt = updatedAt;
-
-      return rule;
-    });
-
-    return {
-      success: true,
-      action: 'list',
-      rules,
-      message: `Found ${rules.length} rule(s)`,
-    };
+    const rules: Rule[] = scrollResult.points.map(pointToRule);
+    return { success: true, action: 'list', rules, message: `Found ${rules.length} rule(s)` };
   } catch (error) {
     // Qdrant unavailable — fall back to rules_mirror
     try {
@@ -109,7 +97,6 @@ export async function listRules(
           if (row.tenantId) rule.projectId = row.tenantId;
           return rule;
         });
-
         return {
           success: true,
           action: 'list',
@@ -120,7 +107,6 @@ export async function listRules(
     } catch {
       // rules_mirror also unavailable
     }
-
     return {
       success: false,
       action: 'list',

@@ -123,6 +123,54 @@ function gaugeToOtlp(family: PromMetricFamily): Record<string, unknown> {
   };
 }
 
+type BucketGroup = {
+  labels: Record<string, string>;
+  buckets: Array<{ le: number; count: number }>;
+  sum: number;
+  count: number;
+};
+
+/** Group histogram metric values by non-le label fingerprint. */
+function groupHistogramValues(
+  values: PromMetricValue[],
+  familyName: string
+): Map<string, BucketGroup> {
+  const groups = new Map<string, BucketGroup>();
+  for (const v of values) {
+    const baseLabels: Record<string, string> = {};
+    for (const [k, val] of Object.entries(v.labels)) {
+      if (k !== 'le') baseLabels[k] = val;
+    }
+    const fingerprint = JSON.stringify(baseLabels);
+    if (!groups.has(fingerprint))
+      groups.set(fingerprint, { labels: baseLabels, buckets: [], sum: 0, count: 0 });
+    const g = groups.get(fingerprint)!;
+    const metricName = v.metricName ?? familyName;
+    if (metricName.endsWith('_sum')) g.sum = v.value;
+    else if (metricName.endsWith('_count')) g.count = v.value;
+    else if (v.labels['le'] !== undefined) {
+      const le = v.labels['le'] === '+Inf' ? Infinity : parseFloat(v.labels['le'] ?? '0');
+      g.buckets.push({ le, count: v.value });
+    }
+  }
+  return groups;
+}
+
+/** Convert a single BucketGroup to an OTLP histogram data point. */
+function bucketGroupToDataPoint(g: BucketGroup, nowNs: string): Record<string, unknown> {
+  const sorted = g.buckets.filter((b) => isFinite(b.le)).sort((a, b) => a.le - b.le);
+  const infBucket = g.buckets.find((b) => !isFinite(b.le));
+  return {
+    attributes: labelsToAttributes(g.labels),
+    startTimeUnixNano: '0',
+    timeUnixNano: nowNs,
+    count: String(g.count),
+    sum: g.sum,
+    explicitBounds: sorted.map((b) => b.le),
+    bucketCounts: [...sorted.map((b) => b.count), infBucket?.count ?? g.count].map(String),
+  };
+}
+
 /**
  * Build OTLP Histogram from a prom-client histogram family.
  *
@@ -132,65 +180,12 @@ function gaugeToOtlp(family: PromMetricFamily): Record<string, unknown> {
  */
 function histogramToOtlp(family: PromMetricFamily): Record<string, unknown> {
   const nowNs = msToNs(Date.now());
-
-  // Group values by non-le label fingerprint
-  type BucketGroup = {
-    labels: Record<string, string>;
-    buckets: Array<{ le: number; count: number }>;
-    sum: number;
-    count: number;
-  };
-  const groups = new Map<string, BucketGroup>();
-
-  for (const v of family.values) {
-    const baseLabels: Record<string, string> = {};
-    for (const [k, val] of Object.entries(v.labels)) {
-      if (k !== 'le') baseLabels[k] = val;
-    }
-    const fingerprint = JSON.stringify(baseLabels);
-
-    if (!groups.has(fingerprint)) {
-      groups.set(fingerprint, { labels: baseLabels, buckets: [], sum: 0, count: 0 });
-    }
-    const g = groups.get(fingerprint)!;
-
-    const metricName = v.metricName ?? family.name;
-    if (metricName.endsWith('_sum')) {
-      g.sum = v.value;
-    } else if (metricName.endsWith('_count')) {
-      g.count = v.value;
-    } else if (v.labels['le'] !== undefined) {
-      const le = v.labels['le'] === '+Inf' ? Infinity : parseFloat(v.labels['le'] ?? '0');
-      g.buckets.push({ le, count: v.value });
-    }
-  }
-
-  const dataPoints = Array.from(groups.values()).map((g) => {
-    // Sort finite bounds, exclude +Inf (becomes bucketCounts tail)
-    const sorted = g.buckets.filter((b) => isFinite(b.le)).sort((a, b) => a.le - b.le);
-    const infBucket = g.buckets.find((b) => !isFinite(b.le));
-
-    const explicitBounds = sorted.map((b) => b.le);
-    const bucketCounts = [...sorted.map((b) => b.count), infBucket?.count ?? g.count];
-
-    return {
-      attributes: labelsToAttributes(g.labels),
-      startTimeUnixNano: '0',
-      timeUnixNano: nowNs,
-      count: String(g.count),
-      sum: g.sum,
-      explicitBounds,
-      bucketCounts: bucketCounts.map(String),
-    };
-  });
-
+  const groups = groupHistogramValues(family.values, family.name);
+  const dataPoints = Array.from(groups.values()).map((g) => bucketGroupToDataPoint(g, nowNs));
   return {
     name: family.name,
     description: family.help,
-    histogram: {
-      dataPoints,
-      aggregationTemporality: 2, // AGGREGATION_TEMPORALITY_CUMULATIVE
-    },
+    histogram: { dataPoints, aggregationTemporality: 2 },
   };
 }
 

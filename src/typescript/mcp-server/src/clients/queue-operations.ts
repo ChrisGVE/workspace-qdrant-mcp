@@ -45,6 +45,44 @@ function validateEnqueueParams(
   if (priority < 0 || priority > 10) throw new Error('Priority must be between 0 and 10');
 }
 
+/** Build the gRPC enqueue request object. */
+function buildEnqueueRequest(
+  itemType: QueueItemType,
+  op: QueueOperation,
+  tenantId: string,
+  collection: string,
+  payload: Record<string, unknown>,
+  branch: string,
+  metadata?: Record<string, unknown>
+): {
+  item_type: string;
+  op: string;
+  tenant_id: string;
+  collection: string;
+  payload_json: string;
+  branch: string;
+  metadata_json?: string;
+} {
+  const request: {
+    item_type: string;
+    op: string;
+    tenant_id: string;
+    collection: string;
+    payload_json: string;
+    branch: string;
+    metadata_json?: string;
+  } = {
+    item_type: itemType,
+    op,
+    tenant_id: tenantId,
+    collection,
+    payload_json: JSON.stringify(payload, Object.keys(payload).sort()),
+    branch,
+  };
+  if (metadata) request.metadata_json = JSON.stringify(metadata);
+  return request;
+}
+
 /**
  * Enqueue an item to the unified queue via daemon gRPC.
  *
@@ -74,23 +112,15 @@ export async function enqueueUnified(
   validateEnqueueParams(itemType, op, tenantId, collection, priority);
 
   try {
-    const request: {
-      item_type: string;
-      op: string;
-      tenant_id: string;
-      collection: string;
-      payload_json: string;
-      branch: string;
-      metadata_json?: string;
-    } = {
-      item_type: itemType,
-      op: op,
-      tenant_id: tenantId,
-      collection: collection,
-      payload_json: JSON.stringify(payload, Object.keys(payload).sort()),
-      branch: branch,
-    };
-    if (metadata) request.metadata_json = JSON.stringify(metadata);
+    const request = buildEnqueueRequest(
+      itemType,
+      op,
+      tenantId,
+      collection,
+      payload,
+      branch,
+      metadata
+    );
     const response = await daemonClient.enqueueItem(request);
     return {
       data: {

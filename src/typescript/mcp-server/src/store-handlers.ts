@@ -17,44 +17,12 @@ type StoreResult = {
   collection: string;
 };
 
-/**
- * Store a URL for daemon-side fetch and ingestion.
- *
- * Queues the URL as item_type 'url' in the unified queue.
- * The daemon will fetch the page, extract text, generate embeddings,
- * and store in Qdrant.
- *
- * Note: URL-sourced scratchpad entries cannot be mirrored to
- * scratchpad_mirror because the content is fetched by the daemon
- * later — this is an accepted limitation.
- */
-export async function storeUrl(
-  args: Record<string, unknown> | undefined,
-  stateManager: SqliteStateManager,
-  sessionState: Pick<SessionState, 'projectId'>
-): Promise<StoreResult> {
-  const url = args?.['url'] as string;
-  if (!url?.trim()) {
-    return {
-      success: false,
-      message: 'url is required when type is "url"',
-      collection: '',
-    };
-  }
-
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return {
-      success: false,
-      message: 'url must start with http:// or https://',
-      collection: '',
-    };
-  }
-
-  const libraryName = args?.['libraryName'] as string | undefined;
-  const title = args?.['title'] as string | undefined;
-  const collection = libraryName ? 'libraries' : COLLECTION_SCRATCHPAD;
-  const tenantId = libraryName?.trim() || sessionState.projectId || TENANT_GLOBAL;
-
+/** Build the URL queue payload. */
+function buildUrlPayload(
+  url: string,
+  libraryName: string | undefined,
+  title: string | undefined
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     url: url.trim(),
     crawl: false,
@@ -63,6 +31,32 @@ export async function storeUrl(
   };
   if (libraryName) payload['library_name'] = libraryName.trim();
   if (title) payload['title'] = title;
+  return payload;
+}
+
+/**
+ * Store a URL for daemon-side fetch and ingestion.
+ *
+ * Queues the URL as item_type 'url' in the unified queue.
+ * The daemon will fetch the page, extract text, generate embeddings,
+ * and store in Qdrant.
+ */
+export async function storeUrl(
+  args: Record<string, unknown> | undefined,
+  stateManager: SqliteStateManager,
+  sessionState: Pick<SessionState, 'projectId'>
+): Promise<StoreResult> {
+  const url = args?.['url'] as string;
+  if (!url?.trim())
+    return { success: false, message: 'url is required when type is "url"', collection: '' };
+  if (!url.startsWith('http://') && !url.startsWith('https://'))
+    return { success: false, message: 'url must start with http:// or https://', collection: '' };
+
+  const libraryName = args?.['libraryName'] as string | undefined;
+  const title = args?.['title'] as string | undefined;
+  const collection = libraryName ? 'libraries' : COLLECTION_SCRATCHPAD;
+  const tenantId = libraryName?.trim() || sessionState.projectId || TENANT_GLOBAL;
+  const payload = buildUrlPayload(url, libraryName, title);
 
   try {
     const result = await stateManager.enqueueUnified(
@@ -75,15 +69,8 @@ export async function storeUrl(
       'main',
       { source: 'mcp_store_url' }
     );
-
-    if (result.status !== 'ok' || !result.data) {
-      return {
-        success: false,
-        message: result.message ?? 'Failed to enqueue URL',
-        collection,
-      };
-    }
-
+    if (result.status !== 'ok' || !result.data)
+      return { success: false, message: result.message ?? 'Failed to enqueue URL', collection };
     return {
       success: true,
       message: `URL queued for fetch and ingestion (${collection}/${tenantId})`,
@@ -91,13 +78,32 @@ export async function storeUrl(
       collection,
     };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
     return {
       success: false,
-      message: `Failed to queue URL: ${msg}`,
+      message: `Failed to queue URL: ${error instanceof Error ? error.message : String(error)}`,
       collection,
     };
   }
+}
+
+/** Write a scratchpad entry to the local mirror (fire-and-forget). */
+function writeScratchpadMirror(
+  stateManager: SqliteStateManager,
+  content: string,
+  title: string | undefined,
+  tags: string[],
+  tenantId: string
+): void {
+  const now = utcNow();
+  stateManager.upsertScratchpadMirror({
+    scratchpadId: randomUUID(),
+    title: title?.trim() ?? null,
+    content: content.trim(),
+    tags: JSON.stringify(tags),
+    tenantId,
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 /**
@@ -112,22 +118,18 @@ export async function storeScratchpad(
   sessionState: Pick<SessionState, 'projectId'>
 ): Promise<StoreResult> {
   const content = args?.['content'] as string;
-  if (!content?.trim()) {
+  if (!content?.trim())
     return {
       success: false,
       message: 'content is required when type is "scratchpad"',
       collection: COLLECTION_SCRATCHPAD,
     };
-  }
 
   const title = args?.['title'] as string | undefined;
   const tags = (args?.['tags'] as string[] | undefined) ?? [];
   const tenantId = sessionState.projectId || TENANT_GLOBAL;
 
-  const payload: Record<string, unknown> = {
-    content: content.trim(),
-    source_type: 'scratchpad',
-  };
+  const payload: Record<string, unknown> = { content: content.trim(), source_type: 'scratchpad' };
   if (title?.trim()) payload['title'] = title.trim();
   if (tags.length > 0) payload['tags'] = tags;
 
@@ -142,27 +144,14 @@ export async function storeScratchpad(
       'main',
       { source: 'mcp_store_scratchpad' }
     );
-
-    if (result.status !== 'ok' || !result.data) {
+    if (result.status !== 'ok' || !result.data)
       return {
         success: false,
         message: result.message ?? 'Failed to enqueue scratchpad entry',
         collection: COLLECTION_SCRATCHPAD,
       };
-    }
 
-    // Mirror to scratchpad_mirror for rebuild recovery (fire-and-forget)
-    const now = utcNow();
-    stateManager.upsertScratchpadMirror({
-      scratchpadId: randomUUID(),
-      title: title?.trim() ?? null,
-      content: content.trim(),
-      tags: JSON.stringify(tags),
-      tenantId,
-      createdAt: now,
-      updatedAt: now,
-    });
-
+    writeScratchpadMirror(stateManager, content, title, tags, tenantId);
     return {
       success: true,
       message: `Scratchpad entry queued for processing (${tenantId})`,
@@ -170,10 +159,9 @@ export async function storeScratchpad(
       collection: COLLECTION_SCRATCHPAD,
     };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
     return {
       success: false,
-      message: `Failed to queue scratchpad entry: ${msg}`,
+      message: `Failed to queue scratchpad entry: ${error instanceof Error ? error.message : String(error)}`,
       collection: COLLECTION_SCRATCHPAD,
     };
   }

@@ -43,6 +43,48 @@ export interface GrepResponse {
   message?: string;
 }
 
+/** Build the text search request object for the daemon. */
+function buildGrepRequest(
+  pattern: string,
+  regex: boolean,
+  caseSensitive: boolean,
+  contextLines: number,
+  maxResults: number,
+  tenantId: string | undefined,
+  branch: string | undefined,
+  pathGlob: string | undefined
+): {
+  pattern: string;
+  regex: boolean;
+  case_sensitive: boolean;
+  context_lines: number;
+  max_results: number;
+  tenant_id?: string;
+  branch?: string;
+  path_glob?: string;
+} {
+  const request: {
+    pattern: string;
+    regex: boolean;
+    case_sensitive: boolean;
+    context_lines: number;
+    max_results: number;
+    tenant_id?: string;
+    branch?: string;
+    path_glob?: string;
+  } = {
+    pattern,
+    regex,
+    case_sensitive: caseSensitive,
+    context_lines: contextLines,
+    max_results: maxResults,
+  };
+  if (tenantId) request.tenant_id = tenantId;
+  if (branch) request.branch = branch;
+  if (pathGlob) request.path_glob = pathGlob;
+  return request;
+}
+
 /**
  * Grep tool for FTS5-based code search
  */
@@ -84,7 +126,6 @@ export class GrepTool {
 
     const startTime = Date.now();
 
-    // Resolve tenant_id based on scope
     let tenantId: string | undefined;
     if (scope === 'project') {
       tenantId = projectId ?? (await this.resolveProjectId());
@@ -101,29 +142,17 @@ export class GrepTool {
     }
 
     try {
-      // Build request conditionally to satisfy exactOptionalPropertyTypes
-      const request: {
-        pattern: string;
-        regex: boolean;
-        case_sensitive: boolean;
-        context_lines: number;
-        max_results: number;
-        tenant_id?: string;
-        branch?: string;
-        path_glob?: string;
-      } = {
+      const request = buildGrepRequest(
         pattern,
         regex,
-        case_sensitive: caseSensitive,
-        context_lines: contextLines,
-        max_results: maxResults,
-      };
-      if (tenantId) request.tenant_id = tenantId;
-      if (branch) request.branch = branch;
-      if (pathGlob) request.path_glob = pathGlob;
-
+        caseSensitive,
+        contextLines,
+        maxResults,
+        tenantId,
+        branch,
+        pathGlob
+      );
       const response = await this.daemonClient.textSearch(request);
-
       const matches: GrepMatch[] = response.matches.map((m: TextSearchMatch) => ({
         file: m.file_path,
         line: m.line_number,
@@ -131,7 +160,6 @@ export class GrepTool {
         context_before: m.context_before ?? [],
         context_after: m.context_after ?? [],
       }));
-
       return {
         success: true,
         matches,

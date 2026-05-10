@@ -11,6 +11,32 @@ import { TENANT_GLOBAL } from './constants/tenants.js';
 
 export type { Rule };
 
+/** Build a RulesTool instance from config. */
+function buildRulesTool(config: ReturnType<typeof loadConfig>): RulesTool {
+  const daemonClient = new DaemonClient({ port: config.daemon.grpcPort, timeoutMs: 5000 });
+  const stateManager = new SqliteStateManager({
+    dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
+  });
+  stateManager.setDaemonClient(daemonClient);
+  stateManager.initialize();
+  const projectDetector = new ProjectDetector();
+  const rulesToolConfig = {
+    qdrantUrl: config.qdrant?.url ?? 'http://localhost:6333',
+    qdrantTimeout: 5000,
+  } as { qdrantUrl: string; qdrantApiKey?: string; qdrantTimeout?: number };
+  if (config.qdrant?.apiKey) rulesToolConfig.qdrantApiKey = config.qdrant.apiKey;
+  return new RulesTool(rulesToolConfig, daemonClient, stateManager, projectDetector);
+}
+
+/** Comparator: sort rules by priority desc then creation date desc. */
+function ruleComparator(a: Rule, b: Rule): number {
+  const priorityDiff = (b.priority ?? 0) - (a.priority ?? 0);
+  if (priorityDiff !== 0) return priorityDiff;
+  const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+  const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+  return bDate - aDate;
+}
+
 /**
  * Fetch rules from Qdrant via RulesTool.
  * Fetches both global and project-specific rules (if project detected).
@@ -21,31 +47,9 @@ export async function fetchRules(
   config: ReturnType<typeof loadConfig>
 ): Promise<Rule[]> {
   const rules: Rule[] = [];
-
   try {
-    const daemonClient = new DaemonClient({
-      port: config.daemon.grpcPort,
-      timeoutMs: 5000,
-    });
+    const rulesTool = buildRulesTool(config);
 
-    const stateManager = new SqliteStateManager({
-      dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
-    });
-    stateManager.setDaemonClient(daemonClient);
-    stateManager.initialize();
-
-    const projectDetector = new ProjectDetector();
-    const rulesToolConfig = {
-      qdrantUrl: config.qdrant?.url ?? 'http://localhost:6333',
-      qdrantTimeout: 5000,
-    } as { qdrantUrl: string; qdrantApiKey?: string; qdrantTimeout?: number };
-    if (config.qdrant?.apiKey) {
-      rulesToolConfig.qdrantApiKey = config.qdrant.apiKey;
-    }
-
-    const rulesTool = new RulesTool(rulesToolConfig, daemonClient, stateManager, projectDetector);
-
-    // Fetch global rules
     const globalResponse = await rulesTool.execute({
       action: 'list',
       scope: TENANT_GLOBAL,
@@ -56,7 +60,6 @@ export async function fetchRules(
       console.log(`[Agent] Fetched ${globalResponse.rules.length} global rule(s)`);
     }
 
-    // Fetch project-specific rules
     if (projectId) {
       const projectResponse = await rulesTool.execute({
         action: 'list',
@@ -72,15 +75,7 @@ export async function fetchRules(
       }
     }
 
-    // Sort by priority (highest first), then by creation date (newest first)
-    rules.sort((a, b) => {
-      const priorityDiff = (b.priority ?? 0) - (a.priority ?? 0);
-      if (priorityDiff !== 0) return priorityDiff;
-      const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bDate - aDate;
-    });
-
+    rules.sort(ruleComparator);
     console.log(`[Agent] Total rules fetched: ${rules.length}`);
     return rules;
   } catch (error) {

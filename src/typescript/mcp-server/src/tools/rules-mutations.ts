@@ -34,6 +34,38 @@ function isConnectivityError(err: unknown): boolean {
   );
 }
 
+/** Map a RuleAction to a queue operation string. */
+function ruleActionToQueueOp(action: RuleAction): 'add' | 'update' | 'delete' {
+  if (action === 'update') return 'update';
+  if (action === 'remove') return 'delete';
+  return 'add';
+}
+
+/** Build the queue payload for a rule operation. */
+function buildRulePayload(operation: {
+  action: RuleAction;
+  label?: string;
+  content?: string;
+  scope?: RuleScope;
+  projectId?: string;
+  title?: string;
+  tags?: string[];
+  priority?: number;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    label: operation.label,
+    action: operation.action,
+    [FIELD_SOURCE_TYPE]: 'rule',
+  };
+  if (operation.content) payload[FIELD_CONTENT] = operation.content;
+  if (operation.scope) payload['scope'] = operation.scope;
+  if (operation.projectId) payload[FIELD_PROJECT_ID] = operation.projectId;
+  if (operation.title) payload[FIELD_TITLE] = operation.title;
+  if (operation.tags) payload['tags'] = operation.tags;
+  if (operation.priority !== undefined) payload['priority'] = operation.priority;
+  return payload;
+}
+
 /** Queue a rule operation for daemon processing via unified_queue. */
 async function queueRuleOperation(
   stateManager: SqliteStateManager,
@@ -48,32 +80,8 @@ async function queueRuleOperation(
     priority?: number;
   }
 ): Promise<{ queueId: string }> {
-  const payload: Record<string, unknown> = {
-    label: operation.label,
-    action: operation.action,
-    [FIELD_SOURCE_TYPE]: 'rule',
-  };
-  if (operation.content) payload[FIELD_CONTENT] = operation.content;
-  if (operation.scope) payload['scope'] = operation.scope;
-  if (operation.projectId) payload[FIELD_PROJECT_ID] = operation.projectId;
-  if (operation.title) payload[FIELD_TITLE] = operation.title;
-  if (operation.tags) payload['tags'] = operation.tags;
-  if (operation.priority !== undefined) payload['priority'] = operation.priority;
-
-  let op: 'add' | 'update' | 'delete';
-  switch (operation.action) {
-    case 'add':
-      op = 'add';
-      break;
-    case 'update':
-      op = 'update';
-      break;
-    case 'remove':
-      op = 'delete';
-      break;
-    default:
-      op = 'add';
-  }
+  const payload = buildRulePayload(operation);
+  const op = ruleActionToQueueOp(operation.action);
 
   const result = await stateManager.enqueueUnified(
     'text',
@@ -90,6 +98,51 @@ async function queueRuleOperation(
     throw new Error(result.message ?? 'Failed to enqueue operation');
   }
   return { queueId: result.data.queueId };
+}
+
+/** Upsert a rule into the local SQLite mirror. */
+function upsertMirror(
+  stateManager: SqliteStateManager,
+  label: string,
+  content: string,
+  scope: RuleScope | null,
+  tenantId: string | null
+): void {
+  const now = utcNow();
+  stateManager.upsertRulesMirror({
+    ruleId: label,
+    ruleText: content,
+    scope,
+    tenantId,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/** Resolve the project ID for a project-scoped rule. Returns an error response if unresolvable. */
+async function resolveProjectScopeId(
+  scope: RuleScope,
+  projectId: string | undefined,
+  projectDetector: ProjectDetector
+): Promise<{ resolvedProjectId: string | undefined; error?: RuleResponse }> {
+  let resolvedProjectId = projectId;
+  if (scope === 'project' && !resolvedProjectId) {
+    const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+    resolvedProjectId = projectInfo?.projectId;
+  }
+  if (scope === 'project' && !resolvedProjectId) {
+    return {
+      resolvedProjectId: undefined,
+      error: {
+        success: false,
+        action: 'add',
+        message:
+          'Project-scoped rule requested but the current directory is not a registered project. ' +
+          'Run `wqm project watch <path>` first, or pass `projectId` explicitly, or set `scope: "global"`.',
+      },
+    };
+  }
+  return { resolvedProjectId };
 }
 
 /** Add a new rule. */
@@ -113,25 +166,12 @@ export async function addRule(
     };
   }
 
-  let resolvedProjectId = projectId;
-  if (scope === 'project' && !resolvedProjectId) {
-    const cwd = process.cwd();
-    const projectInfo = await projectDetector.getProjectInfo(cwd, false);
-    resolvedProjectId = projectInfo?.projectId;
-  }
-
-  // Don't silently fall back to the global tenant when a project rule was
-  // requested but the project isn't tracked — the rule would end up
-  // misfiled and the caller would never know. Tell them instead.
-  if (scope === 'project' && !resolvedProjectId) {
-    return {
-      success: false,
-      action: 'add',
-      message:
-        'Project-scoped rule requested but the current directory is not a registered project. ' +
-        'Run `wqm project watch <path>` first, or pass `projectId` explicitly, or set `scope: "global"`.',
-    };
-  }
+  const { resolvedProjectId, error } = await resolveProjectScopeId(
+    scope,
+    projectId,
+    projectDetector
+  );
+  if (error) return error;
 
   const label = options.label.trim();
   const metadata: Record<string, string> = { scope, rule_type: 'behavioral', label };
@@ -140,12 +180,7 @@ export async function addRule(
   if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
   if (priority !== undefined) metadata['priority'] = String(priority);
 
-  // Try daemon first.
-  //
-  // The daemon requires `document_id` to be a valid UUID (see #57). The
-  // human-readable label lives in payload metadata; retrieval goes
-  // through the label payload field. The SQLite mirror is still keyed
-  // by label so it stays in sync with the Qdrant payload on rebuild.
+  // Try daemon first. The daemon requires `document_id` to be a valid UUID (see #57).
   try {
     const response = await daemonClient.ingestText({
       content,
@@ -154,26 +189,11 @@ export async function addRule(
       document_id: randomUUID(),
       metadata,
     });
-
     if (response.success) {
-      const now = utcNow();
-      stateManager.upsertRulesMirror({
-        ruleId: label,
-        ruleText: content,
-        scope: scope ?? null,
-        tenantId: resolvedProjectId ?? null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      return {
-        success: true,
-        action: 'add',
-        label,
-        message: 'Rule added successfully',
-      };
+      upsertMirror(stateManager, label, content, scope ?? null, resolvedProjectId ?? null);
+      return { success: true, action: 'add', label, message: 'Rule added successfully' };
     }
   } catch (err: unknown) {
-    // Only fall back to queue for connectivity errors; rethrow others
     if (!isConnectivityError(err)) throw err;
   }
 
@@ -194,16 +214,7 @@ export async function addRule(
   if (priority !== undefined) queueOp.priority = priority;
 
   const queueResult = await queueRuleOperation(stateManager, queueOp);
-
-  const now = utcNow();
-  stateManager.upsertRulesMirror({
-    ruleId: label,
-    ruleText: content,
-    scope: scope ?? null,
-    tenantId: resolvedProjectId ?? null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  upsertMirror(stateManager, label, content, scope ?? null, resolvedProjectId ?? null);
 
   return {
     success: true,
@@ -243,20 +254,11 @@ export async function updateRule(
       document_id: label,
       metadata,
     });
-
     if (response.success) {
-      stateManager.upsertRulesMirror({
-        ruleId: label,
-        ruleText: content,
-        scope: null,
-        tenantId: null,
-        createdAt: utcNow(),
-        updatedAt: utcNow(),
-      });
+      upsertMirror(stateManager, label, content, null, null);
       return { success: true, action: 'update', label, message: 'Rule updated successfully' };
     }
   } catch (err: unknown) {
-    // Only fall back to queue for connectivity errors; rethrow others
     if (!isConnectivityError(err)) throw err;
   }
 
@@ -273,15 +275,7 @@ export async function updateRule(
   if (priority !== undefined) updateOp.priority = priority;
 
   const queueResult = await queueRuleOperation(stateManager, updateOp);
-
-  stateManager.upsertRulesMirror({
-    ruleId: label,
-    ruleText: content,
-    scope: null,
-    tenantId: null,
-    createdAt: utcNow(),
-    updatedAt: utcNow(),
-  });
+  upsertMirror(stateManager, label, content, null, null);
 
   return {
     success: true,

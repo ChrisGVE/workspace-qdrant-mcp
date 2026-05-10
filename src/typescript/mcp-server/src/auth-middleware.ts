@@ -115,6 +115,69 @@ export function requireAuth(config: AuthConfig): void {
 }
 
 /**
+ * Apply CORS headers and handle OPTIONS preflight. Returns `false` if the
+ * request was fully handled (preflight) and the caller should stop processing.
+ */
+function applyCors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  corsOrigins: string[]
+): { corsAllowed: boolean; handled: boolean } {
+  const origin = (req.headers['origin'] as string | undefined) ?? '';
+  const corsAllowed = corsOrigins.includes(origin);
+  if (corsAllowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  if (req.method === 'OPTIONS') {
+    if (corsAllowed) {
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Authorization, Content-Type, Accept, Mcp-Session-Id'
+      );
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+    res.writeHead(204);
+    res.end();
+    return { corsAllowed, handled: true };
+  }
+  return { corsAllowed, handled: false };
+}
+
+/** Check bearer token validity. Returns an AuthDecision or null to continue. */
+function checkBearer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  token: string | null,
+  clientIp: string
+): AuthDecision | null {
+  const presented = extractBearer(req.headers['authorization'] as string | undefined);
+  if (presented === null) {
+    writeUnauthorized(res, 'Missing or malformed Authorization header');
+    logDebug('HTTP auth rejected: missing bearer', { clientIp });
+    recordHttpAuthFailure('missing_header');
+    return { authorized: false };
+  }
+  if (token === null) {
+    writeUnauthorized(res, 'Server is not configured for authentication');
+    recordHttpAuthFailure('not_configured');
+    return { authorized: false };
+  }
+  if (!constantTimeEquals(presented, token)) {
+    writeUnauthorized(res, 'Invalid token');
+    logDebug('HTTP auth rejected: token mismatch', {
+      clientIp,
+      presentedDigest: tokenDigest(presented),
+    });
+    recordHttpAuthFailure('invalid_token');
+    return { authorized: false };
+  }
+  return null;
+}
+
+/**
  * Build a per-request middleware closure. The returned function inspects the
  * request, applies CORS/rate-limit/auth checks in that order, and returns
  * whether the caller should proceed.
@@ -125,77 +188,20 @@ export function createAuthMiddleware(
   const limiter = new SlidingWindowLimiter(config.rateLimitPerMin, RATE_LIMIT_WINDOW_MS);
 
   return (req: IncomingMessage, res: ServerResponse): AuthDecision => {
-    // CORS preflight and header injection run before auth so browser-origin
-    // policies are honoured even on denied requests (otherwise the browser
-    // never surfaces the 401 to the page script).
-    const origin = (req.headers['origin'] as string | undefined) ?? '';
-    const corsAllowed = config.corsOrigins.includes(origin);
-    if (corsAllowed) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-    }
+    const { handled } = applyCors(req, res, config.corsOrigins);
+    if (handled) return { authorized: false };
 
-    if (req.method === 'OPTIONS') {
-      // Preflight: short-circuit before auth. Browsers do not attach the
-      // Authorization header to preflights.
-      if (!corsAllowed) {
-        res.writeHead(204);
-        res.end();
-        return { authorized: false };
-      }
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-      res.setHeader(
-        'Access-Control-Allow-Headers',
-        'Authorization, Content-Type, Accept, Mcp-Session-Id'
-      );
-      res.setHeader('Access-Control-Max-Age', '600');
-      res.writeHead(204);
-      res.end();
-      return { authorized: false };
-    }
-
-    // Rate limit by source IP. Prefer the socket address — trust
-    // `X-Forwarded-For` only when an operator places a proxy in front of us
-    // and explicitly maps it (deferred until we add proxy support).
     const clientIp = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
     if (!limiter.allow(clientIp)) {
-      res.writeHead(429, {
-        'Content-Type': 'text/plain',
-        'Retry-After': '60',
-      });
+      res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '60' });
       res.end('Too Many Requests');
       logDebug('HTTP rate limit exceeded', { clientIp });
       recordHttpRateLimited();
       return { authorized: false };
     }
 
-    // Bearer token check. Absent or malformed header → 401.
-    const rawAuth = req.headers['authorization'] as string | undefined;
-    const presented = extractBearer(rawAuth);
-    if (presented === null) {
-      writeUnauthorized(res, 'Missing or malformed Authorization header');
-      logDebug('HTTP auth rejected: missing bearer', { clientIp });
-      recordHttpAuthFailure('missing_header');
-      return { authorized: false };
-    }
-
-    if (config.token === null) {
-      // `requireAuth` should have caught this at startup; belt-and-braces.
-      writeUnauthorized(res, 'Server is not configured for authentication');
-      recordHttpAuthFailure('not_configured');
-      return { authorized: false };
-    }
-
-    if (!constantTimeEquals(presented, config.token)) {
-      writeUnauthorized(res, 'Invalid token');
-      logDebug('HTTP auth rejected: token mismatch', {
-        clientIp,
-        presentedDigest: tokenDigest(presented),
-      });
-      recordHttpAuthFailure('invalid_token');
-      return { authorized: false };
-    }
+    const bearerDecision = checkBearer(req, res, config.token, clientIp);
+    if (bearerDecision !== null) return bearerDecision;
 
     return { authorized: true };
   };
