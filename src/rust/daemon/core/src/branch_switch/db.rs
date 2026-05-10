@@ -19,7 +19,32 @@ pub async fn batch_update_branch(
 ) -> Result<u64, String> {
     let now = timestamps::now_utc();
 
-    // Get all tracked files on the old branch for this watch folder
+    let (tenant_id, files) = fetch_branch_data(pool, watch_folder_id, old_branch).await?;
+
+    if files.is_empty() {
+        return Ok(0);
+    }
+
+    // Pre-compute (file_id, new_base_point) for unchanged files
+    let updates = compute_unchanged_updates(&files, changed_paths, &tenant_id, new_branch);
+
+    if updates.is_empty() {
+        return Ok(0);
+    }
+
+    let updated = updates.len() as u64;
+
+    execute_batch_update(pool, &updates, new_branch, &now).await?;
+
+    Ok(updated)
+}
+
+/// Fetch tenant_id and tracked files for the given watch folder and branch.
+async fn fetch_branch_data(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    old_branch: &str,
+) -> Result<(String, Vec<(i64, String, String, Option<String>)>), String> {
     let files: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
         "SELECT file_id, file_path, COALESCE(file_hash, ''), relative_path
          FROM tracked_files
@@ -32,10 +57,9 @@ pub async fn batch_update_branch(
     .map_err(|e| format!("Failed to query tracked files: {}", e))?;
 
     if files.is_empty() {
-        return Ok(0);
+        return Ok((String::new(), files));
     }
 
-    // Look up tenant_id for base_point computation
     let tenant_id: String =
         sqlx::query_scalar("SELECT tenant_id FROM watch_folders WHERE watch_id = ?1")
             .bind(watch_folder_id)
@@ -43,24 +67,35 @@ pub async fn batch_update_branch(
             .await
             .map_err(|e| format!("Failed to query tenant_id: {}", e))?;
 
-    // Pre-compute (file_id, new_base_point) for unchanged files
+    Ok((tenant_id, files))
+}
+
+/// Compute new base_points for unchanged files.
+fn compute_unchanged_updates(
+    files: &[(i64, String, String, Option<String>)],
+    changed_paths: &HashSet<String>,
+    tenant_id: &str,
+    new_branch: &str,
+) -> Vec<(i64, String)> {
     let mut updates: Vec<(i64, String)> = Vec::new();
-    for (file_id, file_path, file_hash, relative_path) in &files {
+    for (file_id, file_path, file_hash, relative_path) in files {
         let rel = relative_path.as_deref().unwrap_or(file_path);
         if changed_paths.contains(rel) || changed_paths.contains(file_path.as_str()) {
             continue;
         }
-        let new_bp =
-            wqm_common::hashing::compute_base_point(&tenant_id, new_branch, rel, file_hash);
+        let new_bp = wqm_common::hashing::compute_base_point(tenant_id, new_branch, rel, file_hash);
         updates.push((*file_id, new_bp));
     }
+    updates
+}
 
-    if updates.is_empty() {
-        return Ok(0);
-    }
-
-    let updated = updates.len() as u64;
-
+/// Execute the batch update within a transaction using a temp table join.
+async fn execute_batch_update(
+    pool: &SqlitePool,
+    updates: &[(i64, String)],
+    new_branch: &str,
+    now: &str,
+) -> Result<(), String> {
     let mut tx = pool
         .begin()
         .await
@@ -80,23 +115,7 @@ pub async fn batch_update_branch(
         .map_err(|e| format!("Failed to clear temp table: {}", e))?;
 
     // Batch-insert into temp table (chunks of 200 to stay under SQLite's 999 param limit)
-    const CHUNK_SIZE: usize = 200;
-    for chunk in updates.chunks(CHUNK_SIZE) {
-        let placeholders: Vec<String> = (0..chunk.len())
-            .map(|i| format!("(?{}, ?{})", i * 2 + 1, i * 2 + 2))
-            .collect();
-        let insert_sql = format!(
-            "INSERT INTO _bp_update(file_id, base_point) VALUES {}",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query(&insert_sql);
-        for (file_id, base_point) in chunk {
-            q = q.bind(file_id).bind(base_point);
-        }
-        q.execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to batch-insert temp data: {}", e))?;
-    }
+    insert_temp_batches(updates, &mut tx).await?;
 
     // Single join-update replaces N individual UPDATEs
     sqlx::query(
@@ -106,7 +125,7 @@ pub async fn batch_update_branch(
          WHERE tracked_files.file_id = _bp_update.file_id",
     )
     .bind(new_branch)
-    .bind(&now)
+    .bind(now)
     .execute(&mut *tx)
     .await
     .map_err(|e| format!("Failed to batch-update branch: {}", e))?;
@@ -120,7 +139,32 @@ pub async fn batch_update_branch(
         .await
         .map_err(|e| format!("Failed to commit batch branch update: {}", e))?;
 
-    Ok(updated)
+    Ok(())
+}
+
+/// Batch-insert update pairs into the temp table in chunks.
+async fn insert_temp_batches(
+    updates: &[(i64, String)],
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<(), String> {
+    const CHUNK_SIZE: usize = 200;
+    for chunk in updates.chunks(CHUNK_SIZE) {
+        let placeholders: Vec<String> = (0..chunk.len())
+            .map(|i| format!("(?{}, ?{})", i * 2 + 1, i * 2 + 2))
+            .collect();
+        let insert_sql = format!(
+            "INSERT INTO _bp_update(file_id, base_point) VALUES {}",
+            placeholders.join(", ")
+        );
+        let mut q = sqlx::query(&insert_sql);
+        for (file_id, base_point) in chunk {
+            q = q.bind(file_id).bind(base_point);
+        }
+        q.execute(&mut **tx)
+            .await
+            .map_err(|e| format!("Failed to batch-insert temp data: {}", e))?;
+    }
+    Ok(())
 }
 
 /// Update last_commit_hash in watch_folders.

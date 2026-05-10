@@ -358,35 +358,26 @@ impl FileWatcher {
 
     /// Process existing files in a directory (for initial scan)
     async fn process_existing_files(&self, root_path: &Path) -> Result<(), WatchingError> {
-        const YIELD_INTERVAL_MS: u64 = 10;
-        const PROGRESS_REPORT_INTERVAL_S: u64 = 5;
-        const BATCH_SIZE: usize = 50;
-
         let config = self.config.read().await;
         let patterns = self.patterns.read().await;
         let walker = build_walker(root_path, &config);
 
-        let mut file_count = 0usize;
-        let mut filtered_count = 0usize;
-        let start_time = Instant::now();
-        let mut last_yield = Instant::now();
-        let mut last_progress = Instant::now();
-        let mut batch_buffer: Vec<FileEvent> = Vec::with_capacity(BATCH_SIZE);
+        let mut scan = InitialScanState::new();
 
         for entry in walker {
             match entry {
                 Ok(entry) => {
                     let path = entry.path();
-                    if !accept_file(path, &patterns, &config, &mut filtered_count) {
+                    if !accept_file(path, &patterns, &config, &mut scan.filtered_count) {
                         continue;
                     }
 
-                    batch_buffer.push(make_file_event(path));
-                    file_count += 1;
+                    scan.batch_buffer.push(make_file_event(path));
+                    scan.file_count += 1;
 
-                    if batch_buffer.len() >= BATCH_SIZE {
+                    if scan.batch_buffer.len() >= InitialScanState::BATCH_SIZE {
                         Self::submit_batch_directly(
-                            &batch_buffer,
+                            &scan.batch_buffer,
                             &self.batcher,
                             &self.config,
                             &self.task_submitter,
@@ -394,32 +385,19 @@ impl FileWatcher {
                             &self.telemetry_tracker,
                         )
                         .await;
-                        batch_buffer.clear();
+                        scan.batch_buffer.clear();
                     }
 
-                    let now = Instant::now();
-                    if now.duration_since(last_yield) >= Duration::from_millis(YIELD_INTERVAL_MS) {
-                        tokio::task::yield_now().await;
-                        last_yield = now;
-                    }
-                    if now.duration_since(last_progress)
-                        >= Duration::from_secs(PROGRESS_REPORT_INTERVAL_S)
-                    {
-                        let rate = file_count as f64 / start_time.elapsed().as_secs_f64();
-                        tracing::info!(
-                            "Initial scan progress: {} files processed, {} filtered ({:.1} files/sec)",
-                            file_count, filtered_count, rate
-                        );
-                        last_progress = now;
-                    }
+                    scan.maybe_yield_and_report().await;
                 }
                 Err(e) => tracing::warn!("Error walking directory {}: {}", root_path.display(), e),
             }
         }
 
-        if !batch_buffer.is_empty() {
+        // Submit remaining events
+        if !scan.batch_buffer.is_empty() {
             Self::submit_batch_directly(
-                &batch_buffer,
+                &scan.batch_buffer,
                 &self.batcher,
                 &self.config,
                 &self.task_submitter,
@@ -445,21 +423,73 @@ impl FileWatcher {
             .await;
         }
 
-        let elapsed = start_time.elapsed();
+        scan.log_completion();
+
+        Ok(())
+    }
+}
+
+/// Tracks state during the initial file scan.
+struct InitialScanState {
+    file_count: usize,
+    filtered_count: usize,
+    start_time: Instant,
+    last_yield: Instant,
+    last_progress: Instant,
+    batch_buffer: Vec<FileEvent>,
+}
+
+impl InitialScanState {
+    const YIELD_INTERVAL_MS: u64 = 10;
+    const PROGRESS_REPORT_INTERVAL_S: u64 = 5;
+    const BATCH_SIZE: usize = 50;
+
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            file_count: 0,
+            filtered_count: 0,
+            start_time: now,
+            last_yield: now,
+            last_progress: now,
+            batch_buffer: Vec::with_capacity(Self::BATCH_SIZE),
+        }
+    }
+
+    async fn maybe_yield_and_report(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_yield) >= Duration::from_millis(Self::YIELD_INTERVAL_MS) {
+            tokio::task::yield_now().await;
+            self.last_yield = now;
+        }
+        if now.duration_since(self.last_progress)
+            >= Duration::from_secs(Self::PROGRESS_REPORT_INTERVAL_S)
+        {
+            let rate = self.file_count as f64 / self.start_time.elapsed().as_secs_f64();
+            tracing::info!(
+                "Initial scan progress: {} files processed, {} filtered ({:.1} files/sec)",
+                self.file_count,
+                self.filtered_count,
+                rate
+            );
+            self.last_progress = now;
+        }
+    }
+
+    fn log_completion(&self) {
+        let elapsed = self.start_time.elapsed();
         let rate = if elapsed.as_secs() > 0 {
-            file_count as f64 / elapsed.as_secs_f64()
+            self.file_count as f64 / elapsed.as_secs_f64()
         } else {
             0.0
         };
         tracing::info!(
             "Initial file scan complete: {} files processed, {} filtered in {:?} ({:.1} files/sec)",
-            file_count,
-            filtered_count,
+            self.file_count,
+            self.filtered_count,
             elapsed,
             rate
         );
-
-        Ok(())
     }
 }
 

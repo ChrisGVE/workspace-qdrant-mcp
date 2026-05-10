@@ -32,6 +32,47 @@ pub(super) async fn compile_grammar(
     }
 
     // Collect source files
+    let (c_sources, cpp_sources) = collect_sources(src_dir, parser_c);
+
+    let cc = cc_path.ok_or(DownloadError::NoCompiler)?;
+    let mut object_files = Vec::new();
+
+    // Compile C sources
+    compile_c_sources(
+        language,
+        &c_sources,
+        work_dir,
+        cc,
+        src_dir,
+        &mut object_files,
+    )?;
+
+    // Compile C++ sources
+    compile_cpp_sources(
+        language,
+        &cpp_sources,
+        work_dir,
+        cxx_path,
+        src_dir,
+        &mut object_files,
+    )?;
+
+    // Link into shared library — prefer C++ linker when C++ sources present
+    link_shared_library(
+        language,
+        &cpp_sources,
+        cc,
+        cxx_path,
+        &object_files,
+        &output_path,
+    )?;
+
+    info!(language, path = %output_path.display(), "Grammar compiled successfully");
+    Ok(output_path)
+}
+
+/// Collect C and C++ source files from the source directory.
+fn collect_sources(src_dir: &Path, parser_c: PathBuf) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut c_sources = vec![parser_c];
     let mut cpp_sources = Vec::new();
 
@@ -44,10 +85,18 @@ pub(super) async fn compile_grammar(
         c_sources.push(scanner_c);
     }
 
-    let cc = cc_path.ok_or(DownloadError::NoCompiler)?;
-    let mut object_files = Vec::new();
+    (c_sources, cpp_sources)
+}
 
-    // Compile C sources
+/// Compile all C source files to object files.
+fn compile_c_sources(
+    language: &str,
+    c_sources: &[PathBuf],
+    work_dir: &Path,
+    cc: &PathBuf,
+    src_dir: &Path,
+    object_files: &mut Vec<PathBuf>,
+) -> DownloadResult<()> {
     for (i, src) in c_sources.iter().enumerate() {
         let obj = work_dir.join(format!("c_{}.o", i));
         let status = Command::new(cc)
@@ -66,31 +115,52 @@ pub(super) async fn compile_grammar(
         }
         object_files.push(obj);
     }
+    Ok(())
+}
 
-    // Compile C++ sources
-    if !cpp_sources.is_empty() {
-        let cxx = cxx_path.ok_or(DownloadError::NoCompiler)?;
-        for (i, src) in cpp_sources.iter().enumerate() {
-            let obj = work_dir.join(format!("cpp_{}.o", i));
-            let status = Command::new(cxx)
-                .args(compile_cxx_args(src, &obj, src_dir))
-                .status()
-                .map_err(|e| DownloadError::CompilationFailed {
-                    language: language.to_string(),
-                    message: format!("Failed to run C++ compiler: {}", e),
-                })?;
-
-            if !status.success() {
-                return Err(DownloadError::CompilationFailed {
-                    language: language.to_string(),
-                    message: format!("C++ compilation failed for {}", src.display()),
-                });
-            }
-            object_files.push(obj);
-        }
+/// Compile all C++ source files to object files.
+fn compile_cpp_sources(
+    language: &str,
+    cpp_sources: &[PathBuf],
+    work_dir: &Path,
+    cxx_path: Option<&PathBuf>,
+    src_dir: &Path,
+    object_files: &mut Vec<PathBuf>,
+) -> DownloadResult<()> {
+    if cpp_sources.is_empty() {
+        return Ok(());
     }
+    let cxx = cxx_path.ok_or(DownloadError::NoCompiler)?;
+    for (i, src) in cpp_sources.iter().enumerate() {
+        let obj = work_dir.join(format!("cpp_{}.o", i));
+        let status = Command::new(cxx)
+            .args(compile_cxx_args(src, &obj, src_dir))
+            .status()
+            .map_err(|e| DownloadError::CompilationFailed {
+                language: language.to_string(),
+                message: format!("Failed to run C++ compiler: {}", e),
+            })?;
 
-    // Link into shared library — prefer C++ linker when C++ sources present
+        if !status.success() {
+            return Err(DownloadError::CompilationFailed {
+                language: language.to_string(),
+                message: format!("C++ compilation failed for {}", src.display()),
+            });
+        }
+        object_files.push(obj);
+    }
+    Ok(())
+}
+
+/// Link object files into a shared library.
+fn link_shared_library(
+    language: &str,
+    cpp_sources: &[PathBuf],
+    cc: &PathBuf,
+    cxx_path: Option<&PathBuf>,
+    object_files: &[PathBuf],
+    output_path: &Path,
+) -> DownloadResult<()> {
     let linker = if !cpp_sources.is_empty() {
         cxx_path.ok_or(DownloadError::NoCompiler)?
     } else {
@@ -98,7 +168,7 @@ pub(super) async fn compile_grammar(
     };
 
     let status = Command::new(linker)
-        .args(link_args(&object_files, &output_path))
+        .args(link_args(object_files, output_path))
         .status()
         .map_err(|e| DownloadError::CompilationFailed {
             language: language.to_string(),
@@ -111,9 +181,7 @@ pub(super) async fn compile_grammar(
             message: "Linking failed".to_string(),
         });
     }
-
-    info!(language, path = %output_path.display(), "Grammar compiled successfully");
-    Ok(output_path)
+    Ok(())
 }
 
 /// Build C compiler arguments for compiling a source file to an object file.

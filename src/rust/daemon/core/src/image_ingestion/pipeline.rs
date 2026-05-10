@@ -83,13 +83,29 @@ pub(super) fn process_image_batch(
     config: &ImageIngestionConfig,
     stats: &mut ImageIngestionStats,
 ) -> Vec<DocumentPoint> {
-    let mut points = Vec::new();
+    let eligible = filter_and_thumbnail(batch, config, stats);
 
-    // First pass: filter by size and generate thumbnails
-    let mut eligible: Vec<(usize, &EmbeddedImage, crate::thumbnail::ThumbnailResult)> = Vec::new();
+    if eligible.is_empty() {
+        return Vec::new();
+    }
+
+    let embeddings = match encode_batch(&eligible, clip_encoder, stats) {
+        Some(embs) => embs,
+        None => return Vec::new(),
+    };
+
+    build_document_points(eligible, embeddings, source, stats)
+}
+
+/// First pass: filter by size and generate thumbnails for eligible images.
+fn filter_and_thumbnail<'a>(
+    batch: &'a [EmbeddedImage],
+    config: &ImageIngestionConfig,
+    stats: &mut ImageIngestionStats,
+) -> Vec<(usize, &'a EmbeddedImage, crate::thumbnail::ThumbnailResult)> {
+    let mut eligible = Vec::new();
 
     for (batch_idx, img) in batch.iter().enumerate() {
-        // Try to decode to get real dimensions if not in metadata
         let thumb = match thumbnail::generate_thumbnail(&img.bytes) {
             Ok(t) => t,
             Err(e) => {
@@ -103,7 +119,6 @@ pub(super) fn process_image_batch(
             }
         };
 
-        // Check minimum size
         if thumb.width < config.min_width || thumb.height < config.min_height {
             stats.skipped += 1;
             continue;
@@ -112,11 +127,15 @@ pub(super) fn process_image_batch(
         eligible.push((batch_idx, img, thumb));
     }
 
-    if eligible.is_empty() {
-        return points;
-    }
+    eligible
+}
 
-    // Second pass: batch CLIP encode all eligible images
+/// Second pass: batch CLIP encode all eligible images.
+fn encode_batch(
+    eligible: &[(usize, &EmbeddedImage, crate::thumbnail::ThumbnailResult)],
+    clip_encoder: &ClipEncoder,
+    stats: &mut ImageIngestionStats,
+) -> Option<Vec<Vec<f32>>> {
     let byte_slices: Vec<&[u8]> = eligible
         .iter()
         .map(|(_, img, _)| img.bytes.as_slice())
@@ -127,7 +146,7 @@ pub(super) fn process_image_batch(
         Err(e) => {
             warn!(error = %e, batch_size = byte_slices.len(), "CLIP batch encoding failed");
             stats.failed += eligible.len();
-            return points;
+            return None;
         }
     };
 
@@ -138,10 +157,21 @@ pub(super) fn process_image_batch(
             "CLIP returned wrong number of embeddings"
         );
         stats.failed += eligible.len();
-        return points;
+        return None;
     }
 
-    // Third pass: build document points
+    Some(embeddings)
+}
+
+/// Third pass: build document points from eligible images and their embeddings.
+fn build_document_points(
+    eligible: Vec<(usize, &EmbeddedImage, crate::thumbnail::ThumbnailResult)>,
+    embeddings: Vec<Vec<f32>>,
+    source: &ImageSourceInfo,
+    stats: &mut ImageIngestionStats,
+) -> Vec<DocumentPoint> {
+    let mut points = Vec::new();
+
     for ((_, img, thumb), embedding) in eligible.into_iter().zip(embeddings) {
         debug_assert_eq!(
             embedding.len(),
@@ -152,29 +182,7 @@ pub(super) fn process_image_batch(
         let point_id = Uuid::new_v4().to_string();
         let timestamp = now_utc();
 
-        let mut payload = HashMap::new();
-        payload.insert(field::TENANT_ID.to_string(), json!(source.tenant_id));
-        payload.insert(field::DOCUMENT_ID.to_string(), json!(point_id));
-        payload.insert(
-            field::SOURCE_DOCUMENT_ID.to_string(),
-            json!(source.document_id),
-        );
-        payload.insert(
-            field::SOURCE_COLLECTION.to_string(),
-            json!(source.source_collection),
-        );
-        payload.insert(field::FILE_PATH.to_string(), json!(source.file_path));
-        payload.insert(field::IMAGE_WIDTH.to_string(), json!(thumb.width));
-        payload.insert(field::IMAGE_HEIGHT.to_string(), json!(thumb.height));
-        payload.insert(field::IMAGE_FORMAT.to_string(), json!(thumb.format));
-        payload.insert(field::THUMBNAIL_B64.to_string(), json!(thumb.base64));
-        payload.insert(field::IMAGE_INDEX.to_string(), json!(img.position_in_page));
-        payload.insert(field::INGESTION_TIMESTAMP.to_string(), json!(timestamp));
-
-        // Optional positional metadata
-        if let Some(page) = img.page_number {
-            payload.insert(field::PAGE_NUMBER.to_string(), json!(page));
-        }
+        let payload = build_image_payload(source, &point_id, &thumb, img, &timestamp);
 
         points.push(DocumentPoint {
             id: point_id,
@@ -186,4 +194,38 @@ pub(super) fn process_image_batch(
     }
 
     points
+}
+
+/// Build the payload map for a single image point.
+fn build_image_payload(
+    source: &ImageSourceInfo,
+    point_id: &str,
+    thumb: &crate::thumbnail::ThumbnailResult,
+    img: &EmbeddedImage,
+    timestamp: &str,
+) -> HashMap<String, serde_json::Value> {
+    let mut payload = HashMap::new();
+    payload.insert(field::TENANT_ID.to_string(), json!(source.tenant_id));
+    payload.insert(field::DOCUMENT_ID.to_string(), json!(point_id));
+    payload.insert(
+        field::SOURCE_DOCUMENT_ID.to_string(),
+        json!(source.document_id),
+    );
+    payload.insert(
+        field::SOURCE_COLLECTION.to_string(),
+        json!(source.source_collection),
+    );
+    payload.insert(field::FILE_PATH.to_string(), json!(source.file_path));
+    payload.insert(field::IMAGE_WIDTH.to_string(), json!(thumb.width));
+    payload.insert(field::IMAGE_HEIGHT.to_string(), json!(thumb.height));
+    payload.insert(field::IMAGE_FORMAT.to_string(), json!(thumb.format));
+    payload.insert(field::THUMBNAIL_B64.to_string(), json!(thumb.base64));
+    payload.insert(field::IMAGE_INDEX.to_string(), json!(img.position_in_page));
+    payload.insert(field::INGESTION_TIMESTAMP.to_string(), json!(timestamp));
+
+    if let Some(page) = img.page_number {
+        payload.insert(field::PAGE_NUMBER.to_string(), json!(page));
+    }
+
+    payload
 }

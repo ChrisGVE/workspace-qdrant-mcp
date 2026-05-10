@@ -31,23 +31,9 @@ impl FileWatcherQueue {
             .to_string_lossy()
             .to_string();
 
-        // Get current mtime
-        let mtime_unix = match std::fs::metadata(ignore_path)
-            .and_then(|m| m.modified())
-            .map(|t| {
-                t.duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64
-            }) {
-            Ok(t) => t,
-            Err(e) => {
-                debug!(
-                    "Cannot read mtime for {}: {} — skipping reconciliation",
-                    ignore_path.display(),
-                    e
-                );
-                return;
-            }
+        let mtime_unix = match read_mtime_unix(ignore_path) {
+            Some(t) => t,
+            None => return,
         };
 
         let (tenant_id, project_root, collection) = {
@@ -57,73 +43,128 @@ impl FileWatcherQueue {
 
         let project_root_str = project_root.to_string_lossy().to_string();
 
-        // Compare against stored mtime
-        match crate::ignore_mtime::get_ignore_mtime(
-            queue_manager.pool(),
-            &project_root_str,
-            &file_name,
-        )
-        .await
-        {
-            Ok(Some(stored)) if stored >= mtime_unix => {
-                debug!(
-                    "[ignore_watch] {} unchanged (stored={}, current={})",
-                    file_name, stored, mtime_unix
-                );
-                return;
-            }
-            Ok(_) => {} // Newer or first time
-            Err(e) => {
-                warn!("[ignore_watch] mtime lookup failed: {e} — proceeding");
-            }
+        if !should_reconcile(queue_manager, &project_root_str, &file_name, mtime_unix).await {
+            return;
         }
 
-        // Update stored mtime
-        if let Err(e) = crate::ignore_mtime::set_ignore_mtime(
-            queue_manager.pool(),
-            &project_root_str,
-            &file_name,
-            mtime_unix,
-        )
-        .await
-        {
-            warn!("[ignore_watch] mtime update failed: {e}");
-        }
+        update_stored_mtime(queue_manager, &project_root_str, &file_name, mtime_unix).await;
 
-        // Run reconciliation directly: diff tracked files vs eligible files,
-        // enqueue stale deletions and missing additions
-        info!(
-            "[ignore_watch] {} changed in {} — running reconciliation",
-            file_name, tenant_id
-        );
-
-        match crate::startup::reconciliation::ignore_sync::reconcile_ignore_rules(
+        run_reconciliation(
             &project_root,
             &tenant_id,
             &collection,
-            queue_manager.pool(),
             queue_manager,
+            events_processed,
         )
+        .await;
+    }
+}
+
+/// Read the file's mtime as a Unix timestamp, logging on failure.
+fn read_mtime_unix(ignore_path: &Path) -> Option<i64> {
+    match std::fs::metadata(ignore_path)
+        .and_then(|m| m.modified())
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64
+        }) {
+        Ok(t) => Some(t),
+        Err(e) => {
+            debug!(
+                "Cannot read mtime for {}: {} — skipping reconciliation",
+                ignore_path.display(),
+                e
+            );
+            None
+        }
+    }
+}
+
+/// Check whether reconciliation is needed by comparing stored mtime.
+async fn should_reconcile(
+    queue_manager: &Arc<QueueManager>,
+    project_root_str: &str,
+    file_name: &str,
+    mtime_unix: i64,
+) -> bool {
+    match crate::ignore_mtime::get_ignore_mtime(queue_manager.pool(), project_root_str, file_name)
         .await
-        {
-            Ok(stats) => {
-                let mut count = events_processed.lock().await;
-                *count += 1;
-                if stats.stale_deleted > 0 || stats.missing_added > 0 {
-                    info!(
-                        "[ignore_watch] Reconciled {}: {} stale deleted, {} missing added",
-                        tenant_id, stats.stale_deleted, stats.missing_added
-                    );
-                } else {
-                    debug!("[ignore_watch] Reconciled {}: no changes needed", tenant_id);
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "[ignore_watch] Reconciliation failed for {}: {}",
-                    tenant_id, e
+    {
+        Ok(Some(stored)) if stored >= mtime_unix => {
+            debug!(
+                "[ignore_watch] {} unchanged (stored={}, current={})",
+                file_name, stored, mtime_unix
+            );
+            false
+        }
+        Ok(_) => true, // Newer or first time
+        Err(e) => {
+            warn!("[ignore_watch] mtime lookup failed: {e} — proceeding");
+            true
+        }
+    }
+}
+
+/// Update the stored mtime for the ignore file.
+async fn update_stored_mtime(
+    queue_manager: &Arc<QueueManager>,
+    project_root_str: &str,
+    file_name: &str,
+    mtime_unix: i64,
+) {
+    if let Err(e) = crate::ignore_mtime::set_ignore_mtime(
+        queue_manager.pool(),
+        project_root_str,
+        file_name,
+        mtime_unix,
+    )
+    .await
+    {
+        warn!("[ignore_watch] mtime update failed: {e}");
+    }
+}
+
+/// Run reconciliation: diff tracked files vs eligible files,
+/// enqueue stale deletions and missing additions.
+async fn run_reconciliation(
+    project_root: &Path,
+    tenant_id: &str,
+    collection: &str,
+    queue_manager: &Arc<QueueManager>,
+    events_processed: &Arc<Mutex<u64>>,
+) {
+    info!(
+        "[ignore_watch] ignore file changed in {} — running reconciliation",
+        tenant_id
+    );
+
+    match crate::startup::reconciliation::ignore_sync::reconcile_ignore_rules(
+        project_root,
+        tenant_id,
+        collection,
+        queue_manager.pool(),
+        queue_manager,
+    )
+    .await
+    {
+        Ok(stats) => {
+            let mut count = events_processed.lock().await;
+            *count += 1;
+            if stats.stale_deleted > 0 || stats.missing_added > 0 {
+                info!(
+                    "[ignore_watch] Reconciled {}: {} stale deleted, {} missing added",
+                    tenant_id, stats.stale_deleted, stats.missing_added
                 );
+            } else {
+                debug!("[ignore_watch] Reconciled {}: no changes needed", tenant_id);
             }
+        }
+        Err(e) => {
+            warn!(
+                "[ignore_watch] Reconciliation failed for {}: {}",
+                tenant_id, e
+            );
         }
     }
 }

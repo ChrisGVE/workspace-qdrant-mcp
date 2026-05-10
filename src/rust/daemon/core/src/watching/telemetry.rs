@@ -190,72 +190,16 @@ impl TelemetryTracker {
             return None;
         }
 
-        let elapsed = self.last_collection.elapsed();
-        let elapsed_secs = elapsed.as_secs_f64();
+        let elapsed_secs = self.last_collection.elapsed().as_secs_f64();
 
         self.system.refresh_process(self.pid);
 
-        let cpu_usage_percent = if config.cpu_usage {
-            self.system
-                .process(self.pid)
-                .map(|process| process.cpu_usage() as f64)
-        } else {
-            None
-        };
-
-        let (memory_rss_mb, memory_heap_mb) = if config.memory_usage {
-            if let Some(process) = self.system.process(self.pid) {
-                let rss_mb = process.memory() as f64 / 1024.0 / 1024.0;
-                let heap_mb =
-                    (process.virtual_memory() - process.memory()) as f64 / 1024.0 / 1024.0;
-                (Some(rss_mb), Some(heap_mb))
-            } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
-
-        let (avg_latency_ms, p95_latency_ms, p99_latency_ms) = if config.latency {
-            let avg = if !self.latencies.is_empty() {
-                Some(self.latencies.iter().sum::<f64>() / self.latencies.len() as f64)
-            } else {
-                None
-            };
-            let p95 = self.calculate_percentile(95.0);
-            let p99 = self.calculate_percentile(99.0);
-            (avg, p95, p99)
-        } else {
-            (None, None, None)
-        };
-
-        let (queue_depth_avg, queue_depth_max) = if config.queue_depth {
-            let avg = if !self.queue_depth_samples.is_empty() {
-                self.queue_depth_samples.iter().sum::<usize>() as f64
-                    / self.queue_depth_samples.len() as f64
-            } else {
-                0.0
-            };
-            (avg, self.queue_depth_max)
-        } else {
-            (0.0, 0)
-        };
-
-        let (throughput_files_per_sec, throughput_bytes_per_sec) = if config.throughput {
-            let files_per_sec = if elapsed_secs > 0.0 {
-                self.files_processed_interval as f64 / elapsed_secs
-            } else {
-                0.0
-            };
-            let bytes_per_sec = if elapsed_secs > 0.0 {
-                self.bytes_processed_interval as f64 / elapsed_secs
-            } else {
-                0.0
-            };
-            (files_per_sec, bytes_per_sec)
-        } else {
-            (0.0, 0.0)
-        };
+        let cpu_usage_percent = self.collect_cpu(config);
+        let (memory_rss_mb, memory_heap_mb) = self.collect_memory(config);
+        let (avg_latency_ms, p95_latency_ms, p99_latency_ms) = self.collect_latency(config);
+        let (queue_depth_avg, queue_depth_max) = self.collect_queue_depth(config);
+        let (throughput_files_per_sec, throughput_bytes_per_sec) =
+            self.collect_throughput(config, elapsed_secs);
 
         let snapshot = TelemetrySnapshot {
             timestamp: SystemTime::now(),
@@ -272,7 +216,92 @@ impl TelemetryTracker {
             throughput_bytes_per_sec,
         };
 
-        // Reset interval counters
+        self.reset_interval_counters(config, snapshot)
+    }
+
+    /// Collect CPU usage metric.
+    fn collect_cpu(&self, config: &TelemetryConfig) -> Option<f64> {
+        if config.cpu_usage {
+            self.system
+                .process(self.pid)
+                .map(|process| process.cpu_usage() as f64)
+        } else {
+            None
+        }
+    }
+
+    /// Collect memory usage metrics (RSS, heap estimate).
+    fn collect_memory(&self, config: &TelemetryConfig) -> (Option<f64>, Option<f64>) {
+        if config.memory_usage {
+            if let Some(process) = self.system.process(self.pid) {
+                let rss_mb = process.memory() as f64 / 1024.0 / 1024.0;
+                let heap_mb =
+                    (process.virtual_memory() - process.memory()) as f64 / 1024.0 / 1024.0;
+                (Some(rss_mb), Some(heap_mb))
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        }
+    }
+
+    /// Collect latency metrics (avg, p95, p99).
+    fn collect_latency(&self, config: &TelemetryConfig) -> (Option<f64>, Option<f64>, Option<f64>) {
+        if config.latency {
+            let avg = if !self.latencies.is_empty() {
+                Some(self.latencies.iter().sum::<f64>() / self.latencies.len() as f64)
+            } else {
+                None
+            };
+            let p95 = self.calculate_percentile(95.0);
+            let p99 = self.calculate_percentile(99.0);
+            (avg, p95, p99)
+        } else {
+            (None, None, None)
+        }
+    }
+
+    /// Collect queue depth metrics (avg, max).
+    fn collect_queue_depth(&self, config: &TelemetryConfig) -> (f64, usize) {
+        if config.queue_depth {
+            let avg = if !self.queue_depth_samples.is_empty() {
+                self.queue_depth_samples.iter().sum::<usize>() as f64
+                    / self.queue_depth_samples.len() as f64
+            } else {
+                0.0
+            };
+            (avg, self.queue_depth_max)
+        } else {
+            (0.0, 0)
+        }
+    }
+
+    /// Collect throughput metrics (files/sec, bytes/sec).
+    fn collect_throughput(&self, config: &TelemetryConfig, elapsed_secs: f64) -> (f64, f64) {
+        if config.throughput {
+            let files_per_sec = if elapsed_secs > 0.0 {
+                self.files_processed_interval as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            let bytes_per_sec = if elapsed_secs > 0.0 {
+                self.bytes_processed_interval as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            (files_per_sec, bytes_per_sec)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
+    /// Reset interval counters and add snapshot to history.
+    fn reset_interval_counters(
+        &mut self,
+        config: &TelemetryConfig,
+        snapshot: TelemetrySnapshot,
+    ) -> Option<TelemetrySnapshot> {
         self.files_processed_interval = 0;
         self.bytes_processed_interval = 0;
         self.queue_depth_samples.clear();

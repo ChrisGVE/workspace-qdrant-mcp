@@ -56,69 +56,18 @@ impl UrlStrategy {
             item.queue_id, payload.url
         );
 
-        // Fetch URL content
-        let response = reqwest::get(&payload.url).await.map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to fetch URL {}: {}",
-                payload.url, e
-            ))
-        })?;
-
-        let status = response.status();
-        if !status.is_success() {
-            return Err(UnifiedProcessorError::ProcessingFailed(format!(
-                "HTTP {} for URL {}",
-                status, payload.url
-            )));
-        }
-
-        let content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("text/html")
-            .to_string();
-
-        let body = response.text().await.map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!("Failed to read response body: {}", e))
-        })?;
+        let (body, content_type) = fetch_url_content(&payload.url).await?;
 
         let is_html = content_type.contains("text/html");
-
-        // Extract title from HTML before text extraction
-        let title = payload.title.unwrap_or_else(|| {
-            if is_html {
-                // Simple title extraction: find <title>...</title>
-                let lower = body.to_lowercase();
-                if let Some(start) = lower.find("<title>") {
-                    let title_start = start + 7;
-                    if let Some(end) = lower[title_start..].find("</title>") {
-                        return body[title_start..title_start + end].trim().to_string();
-                    }
-                }
-            }
-            payload.url.clone()
-        });
-
-        // Extract text based on content type
-        let extracted_text = if is_html {
-            html2text::from_read(body.as_bytes(), 80)
-        } else {
-            body
-        };
+        let title = extract_title(&payload, &body, is_html);
+        let extracted_text = extract_text(&body, is_html);
 
         if extracted_text.trim().is_empty() {
             warn!("URL {} yielded empty content after extraction", payload.url);
             return Ok(());
         }
 
-        // Generate document ID from URL (stable across re-fetches)
-        let document_id = {
-            use sha2::{Digest, Sha256};
-            let mut hasher = Sha256::new();
-            hasher.update(payload.url.as_bytes());
-            format!("{:x}", hasher.finalize())[..32].to_string()
-        };
+        let document_id = compute_url_document_id(&payload.url);
 
         // Generate embedding (semaphore-gated)
         let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
@@ -129,20 +78,8 @@ impl UrlStrategy {
         )
         .await?;
 
-        // Build Qdrant payload
-        let mut point_payload = std::collections::HashMap::new();
-        point_payload.insert("content".to_string(), serde_json::json!(extracted_text));
-        point_payload.insert("document_id".to_string(), serde_json::json!(document_id));
-        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-        point_payload.insert("source_url".to_string(), serde_json::json!(payload.url));
-        point_payload.insert("title".to_string(), serde_json::json!(title));
-        point_payload.insert("source_type".to_string(), serde_json::json!("web"));
-        point_payload.insert("item_type".to_string(), serde_json::json!("url"));
-        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
-
-        if let Some(ref lib_name) = payload.library_name {
-            point_payload.insert("library_name".to_string(), serde_json::json!(lib_name));
-        }
+        let point_payload =
+            build_url_payload(item, &payload, &extracted_text, &document_id, &title);
 
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &payload.url, 0),
@@ -165,6 +102,92 @@ impl UrlStrategy {
 
         Ok(())
     }
+}
+
+/// Fetch URL content, returning `(body, content_type)`.
+async fn fetch_url_content(url: &str) -> UnifiedProcessorResult<(String, String)> {
+    let response = reqwest::get(url).await.map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!("Failed to fetch URL {}: {}", url, e))
+    })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(UnifiedProcessorError::ProcessingFailed(format!(
+            "HTTP {} for URL {}",
+            status, url
+        )));
+    }
+
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("text/html")
+        .to_string();
+
+    let body = response.text().await.map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!("Failed to read response body: {}", e))
+    })?;
+
+    Ok((body, content_type))
+}
+
+/// Extract a title from the payload or from the HTML body.
+fn extract_title(payload: &UrlPayload, body: &str, is_html: bool) -> String {
+    payload.title.clone().unwrap_or_else(|| {
+        if is_html {
+            let lower = body.to_lowercase();
+            if let Some(start) = lower.find("<title>") {
+                let title_start = start + 7;
+                if let Some(end) = lower[title_start..].find("</title>") {
+                    return body[title_start..title_start + end].trim().to_string();
+                }
+            }
+        }
+        payload.url.clone()
+    })
+}
+
+/// Extract text from content based on content type.
+fn extract_text(body: &str, is_html: bool) -> String {
+    if is_html {
+        html2text::from_read(body.as_bytes(), 80)
+    } else {
+        body.to_string()
+    }
+}
+
+/// Compute a stable document ID from a URL.
+fn compute_url_document_id(url: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(url.as_bytes());
+    format!("{:x}", hasher.finalize())[..32].to_string()
+}
+
+/// Build the Qdrant payload map for a URL item.
+fn build_url_payload(
+    item: &UnifiedQueueItem,
+    payload: &UrlPayload,
+    extracted_text: &str,
+    document_id: &str,
+    title: &str,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut point_payload = std::collections::HashMap::new();
+    point_payload.insert("content".to_string(), serde_json::json!(extracted_text));
+    point_payload.insert("document_id".to_string(), serde_json::json!(document_id));
+    point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+    point_payload.insert("source_url".to_string(), serde_json::json!(payload.url));
+    point_payload.insert("title".to_string(), serde_json::json!(title));
+    point_payload.insert("source_type".to_string(), serde_json::json!("web"));
+    point_payload.insert("item_type".to_string(), serde_json::json!("url"));
+    point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+
+    if let Some(ref lib_name) = payload.library_name {
+        point_payload.insert("library_name".to_string(), serde_json::json!(lib_name));
+    }
+
+    point_payload
 }
 
 #[cfg(test)]

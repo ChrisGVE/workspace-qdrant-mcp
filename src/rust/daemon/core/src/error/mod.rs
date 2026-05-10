@@ -11,6 +11,7 @@ pub use circuit_breaker::{CircuitBreaker, CircuitBreakerStatus};
 pub use monitor::{DefaultErrorMonitor, ErrorMonitor, ErrorStats};
 pub use recovery::{ErrorRecovery, ErrorRecoveryStrategy};
 
+use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 use thiserror::Error;
@@ -314,14 +315,21 @@ impl WorkspaceError {
     }
 
     /// Convert error to dictionary for structured logging
-    pub fn to_dict(&self) -> std::collections::HashMap<String, String> {
-        let mut dict = std::collections::HashMap::new();
+    pub fn to_dict(&self) -> HashMap<String, String> {
+        let mut dict = HashMap::new();
 
         dict.insert("error_type".to_string(), self.category().to_string());
         dict.insert("severity".to_string(), self.severity().to_string());
         dict.insert("retryable".to_string(), self.is_retryable().to_string());
         dict.insert("message".to_string(), self.to_string());
 
+        self.insert_variant_fields(&mut dict);
+
+        dict
+    }
+
+    /// Insert variant-specific fields into the dictionary.
+    fn insert_variant_fields(&self, dict: &mut HashMap<String, String>) {
         match self {
             Self::Configuration { message, .. } => {
                 dict.insert("config_message".to_string(), message.clone());
@@ -436,8 +444,6 @@ impl WorkspaceError {
                 dict.insert("component".to_string(), component.clone());
             }
         }
-
-        dict
     }
 }
 

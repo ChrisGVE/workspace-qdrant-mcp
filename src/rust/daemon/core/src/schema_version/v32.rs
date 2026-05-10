@@ -51,60 +51,10 @@ impl Migration for V32Migration {
             .await?;
 
         // Step 3: Create the new table with corrected constraint
-        debug!("Creating watch_folders_new with CHECK (is_active >= 0)");
-        conn.execute(
-            r#"
-            CREATE TABLE watch_folders_new (
-                watch_id TEXT PRIMARY KEY,
-                path TEXT NOT NULL UNIQUE,
-                collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
-                tenant_id TEXT NOT NULL,
-                parent_watch_id TEXT,
-                submodule_path TEXT,
-                git_remote_url TEXT,
-                remote_hash TEXT,
-                disambiguation_path TEXT,
-                is_active INTEGER DEFAULT 0 CHECK (is_active >= 0),
-                last_activity_at TEXT,
-                library_mode TEXT CHECK (library_mode IS NULL OR library_mode IN ('sync', 'incremental')),
-                follow_symlinks INTEGER DEFAULT 0 CHECK (follow_symlinks IN (0, 1)),
-                enabled INTEGER DEFAULT 1 CHECK (enabled IN (0, 1)),
-                cleanup_on_disable INTEGER DEFAULT 0 CHECK (cleanup_on_disable IN (0, 1)),
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                last_scan TEXT,
-                is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1)),
-                pause_start_time TEXT,
-                is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
-                last_commit_hash TEXT,
-                is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
-                is_worktree INTEGER DEFAULT 0 CHECK (is_worktree IN (0, 1)),
-                main_worktree_watch_id TEXT REFERENCES watch_folders_new(watch_id) ON DELETE SET NULL,
-                FOREIGN KEY (parent_watch_id) REFERENCES watch_folders_new(watch_id) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .await?;
+        create_new_table(&mut conn).await?;
 
         // Step 4: Copy all data
-        debug!("Copying data from watch_folders to watch_folders_new");
-        conn.execute(
-            r#"
-            INSERT INTO watch_folders_new
-            SELECT watch_id, path, collection, tenant_id,
-                   parent_watch_id, submodule_path,
-                   git_remote_url, remote_hash, disambiguation_path,
-                   is_active, last_activity_at,
-                   library_mode,
-                   follow_symlinks, enabled, cleanup_on_disable,
-                   created_at, updated_at, last_scan,
-                   is_paused, pause_start_time, is_archived,
-                   last_commit_hash, is_git_tracked,
-                   is_worktree, main_worktree_watch_id
-            FROM watch_folders
-            "#,
-        )
-        .await?;
+        copy_data(&mut conn).await?;
 
         // Step 5: Drop old table and rename
         debug!("Replacing watch_folders with watch_folders_new");
@@ -113,31 +63,7 @@ impl Migration for V32Migration {
             .await?;
 
         // Step 6: Recreate all indexes
-        debug!("Recreating indexes on watch_folders");
-        conn.execute("CREATE INDEX idx_watch_remote_hash ON watch_folders(remote_hash)")
-            .await?;
-        conn.execute(
-            "CREATE INDEX idx_watch_active ON watch_folders(is_active) WHERE is_active > 0",
-        )
-        .await?;
-        conn.execute("CREATE INDEX idx_watch_updated ON watch_folders(updated_at)")
-            .await?;
-        conn.execute("CREATE INDEX idx_watch_enabled ON watch_folders(enabled) WHERE enabled = 1")
-            .await?;
-        conn.execute("CREATE INDEX idx_watch_parent ON watch_folders(parent_watch_id)")
-            .await?;
-        conn.execute(
-            "CREATE INDEX idx_watch_collection_tenant ON watch_folders(collection, tenant_id)",
-        )
-        .await?;
-        conn.execute("CREATE INDEX idx_watch_path ON watch_folders(path)")
-            .await?;
-        conn.execute(
-            "CREATE INDEX idx_watch_main_worktree \
-             ON watch_folders(main_worktree_watch_id) \
-             WHERE main_worktree_watch_id IS NOT NULL",
-        )
-        .await?;
+        recreate_indexes(&mut conn).await?;
 
         // Step 7: Re-enable FK checks
         conn.execute("PRAGMA foreign_keys = ON").await?;
@@ -153,6 +79,100 @@ impl Migration for V32Migration {
     fn description(&self) -> &'static str {
         "Change is_active from boolean CHECK to counter CHECK (>= 0)"
     }
+}
+
+/// Create the replacement table with `CHECK (is_active >= 0)`.
+async fn create_new_table(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Sqlite>,
+) -> Result<(), SchemaError> {
+    debug!("Creating watch_folders_new with CHECK (is_active >= 0)");
+    conn.execute(
+        r#"
+        CREATE TABLE watch_folders_new (
+            watch_id TEXT PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE,
+            collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
+            tenant_id TEXT NOT NULL,
+            parent_watch_id TEXT,
+            submodule_path TEXT,
+            git_remote_url TEXT,
+            remote_hash TEXT,
+            disambiguation_path TEXT,
+            is_active INTEGER DEFAULT 0 CHECK (is_active >= 0),
+            last_activity_at TEXT,
+            library_mode TEXT CHECK (library_mode IS NULL OR library_mode IN ('sync', 'incremental')),
+            follow_symlinks INTEGER DEFAULT 0 CHECK (follow_symlinks IN (0, 1)),
+            enabled INTEGER DEFAULT 1 CHECK (enabled IN (0, 1)),
+            cleanup_on_disable INTEGER DEFAULT 0 CHECK (cleanup_on_disable IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_scan TEXT,
+            is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1)),
+            pause_start_time TEXT,
+            is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
+            last_commit_hash TEXT,
+            is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
+            is_worktree INTEGER DEFAULT 0 CHECK (is_worktree IN (0, 1)),
+            main_worktree_watch_id TEXT REFERENCES watch_folders_new(watch_id) ON DELETE SET NULL,
+            FOREIGN KEY (parent_watch_id) REFERENCES watch_folders_new(watch_id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Copy all data from watch_folders to watch_folders_new.
+async fn copy_data(conn: &mut sqlx::pool::PoolConnection<sqlx::Sqlite>) -> Result<(), SchemaError> {
+    debug!("Copying data from watch_folders to watch_folders_new");
+    conn.execute(
+        r#"
+        INSERT INTO watch_folders_new
+        SELECT watch_id, path, collection, tenant_id,
+               parent_watch_id, submodule_path,
+               git_remote_url, remote_hash, disambiguation_path,
+               is_active, last_activity_at,
+               library_mode,
+               follow_symlinks, enabled, cleanup_on_disable,
+               created_at, updated_at, last_scan,
+               is_paused, pause_start_time, is_archived,
+               last_commit_hash, is_git_tracked,
+               is_worktree, main_worktree_watch_id
+        FROM watch_folders
+        "#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Recreate all indexes on the watch_folders table.
+async fn recreate_indexes(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Sqlite>,
+) -> Result<(), SchemaError> {
+    debug!("Recreating indexes on watch_folders");
+    conn.execute("CREATE INDEX idx_watch_remote_hash ON watch_folders(remote_hash)")
+        .await?;
+    conn.execute("CREATE INDEX idx_watch_active ON watch_folders(is_active) WHERE is_active > 0")
+        .await?;
+    conn.execute("CREATE INDEX idx_watch_updated ON watch_folders(updated_at)")
+        .await?;
+    conn.execute("CREATE INDEX idx_watch_enabled ON watch_folders(enabled) WHERE enabled = 1")
+        .await?;
+    conn.execute("CREATE INDEX idx_watch_parent ON watch_folders(parent_watch_id)")
+        .await?;
+    conn.execute(
+        "CREATE INDEX idx_watch_collection_tenant ON watch_folders(collection, tenant_id)",
+    )
+    .await?;
+    conn.execute("CREATE INDEX idx_watch_path ON watch_folders(path)")
+        .await?;
+    conn.execute(
+        "CREATE INDEX idx_watch_main_worktree \
+         ON watch_folders(main_worktree_watch_id) \
+         WHERE main_worktree_watch_id IS NOT NULL",
+    )
+    .await?;
+    Ok(())
 }
 
 /// Fix the partial index if it uses `= 1` instead of `> 0`.

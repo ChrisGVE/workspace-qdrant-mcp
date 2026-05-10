@@ -237,6 +237,58 @@ async fn apply_lsp_enrichment(
     }
 }
 
+/// Generate the dense embedding for a chunk (semaphore-gated).
+async fn generate_dense_embedding(
+    ctx: &ProcessingContext,
+    chunk_content: &str,
+) -> Result<crate::embedding::EmbeddingResult, UnifiedProcessorError> {
+    let _permit = ctx
+        .embedding_semaphore
+        .acquire()
+        .await
+        .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
+    let result = ctx
+        .embedding_generator
+        .generate_embedding(chunk_content, "bge-small-en-v1.5")
+        .await
+        .map_err(|e| {
+            use crate::embedding::EmbeddingError;
+            match e {
+                EmbeddingError::TemporarilyUnavailable { .. } => {
+                    UnifiedProcessorError::EmbeddingUnavailable(e.to_string())
+                }
+                _ => UnifiedProcessorError::Embedding(e.to_string()),
+            }
+        })?;
+    drop(_permit);
+    Ok(result)
+}
+
+/// Extract chunk metadata fields for the tracking record.
+fn extract_chunk_metadata(
+    chunk: &crate::TextChunk,
+) -> (
+    Option<String>,
+    Option<i32>,
+    Option<i32>,
+    Option<TrackedChunkType>,
+) {
+    let symbol_name = chunk.metadata.get("symbol_name").cloned();
+    let start_line = chunk
+        .metadata
+        .get("start_line")
+        .and_then(|s| s.parse::<i32>().ok());
+    let end_line = chunk
+        .metadata
+        .get("end_line")
+        .and_then(|s| s.parse::<i32>().ok());
+    let chunk_type = chunk
+        .metadata
+        .get("chunk_type")
+        .and_then(|s| TrackedChunkType::from_str(s));
+    (symbol_name, start_line, end_line, chunk_type)
+}
+
 /// Process a single document chunk: generate embeddings, build payload,
 /// apply LSP enrichment, and produce the assembled point + tracking record.
 #[allow(clippy::too_many_arguments)]
@@ -256,26 +308,7 @@ async fn process_single_chunk(
     lsp_mgr_guard: &Option<std::sync::Arc<tokio::sync::RwLock<crate::lsp::LanguageServerManager>>>,
     idf_epoch: u64,
 ) -> Result<ChunkOutput, UnifiedProcessorError> {
-    // Semaphore-gated dense embedding generation (Task 504)
-    let _permit = ctx
-        .embedding_semaphore
-        .acquire()
-        .await
-        .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
-    let embedding_result = ctx
-        .embedding_generator
-        .generate_embedding(&chunk.content, "bge-small-en-v1.5")
-        .await
-        .map_err(|e| {
-            use crate::embedding::EmbeddingError;
-            match e {
-                EmbeddingError::TemporarilyUnavailable { .. } => {
-                    UnifiedProcessorError::EmbeddingUnavailable(e.to_string())
-                }
-                _ => UnifiedProcessorError::Embedding(e.to_string()),
-            }
-        })?;
-    drop(_permit);
+    let embedding_result = generate_dense_embedding(ctx, &chunk.content).await?;
 
     let mut point_payload = build_chunk_payload(
         &chunk.content,
@@ -291,20 +324,7 @@ async fn process_single_chunk(
         &chunk.metadata,
     );
 
-    // Extract chunk metadata for tracking record
-    let symbol_name = chunk.metadata.get("symbol_name").cloned();
-    let start_line = chunk
-        .metadata
-        .get("start_line")
-        .and_then(|s| s.parse::<i32>().ok());
-    let end_line = chunk
-        .metadata
-        .get("end_line")
-        .and_then(|s| s.parse::<i32>().ok());
-    let chunk_type = chunk
-        .metadata
-        .get("chunk_type")
-        .and_then(|s| TrackedChunkType::from_str(s));
+    let (symbol_name, start_line, end_line, chunk_type) = extract_chunk_metadata(chunk);
 
     let treesitter_status = if chunk.metadata.contains_key("chunk_type") {
         ProcessingStatus::Done

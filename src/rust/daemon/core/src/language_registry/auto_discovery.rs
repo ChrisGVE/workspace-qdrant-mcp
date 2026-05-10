@@ -84,35 +84,76 @@ fn apply_structural_patterns(
 ) -> usize {
     let mut matched = 0;
 
+    matched += apply_function_patterns(named_types, patterns, notes);
+    matched += apply_class_patterns(named_types, patterns, notes);
+    matched += apply_method_patterns(named_types, patterns, notes);
+    matched += apply_type_patterns(named_types, patterns, notes);
+    matched += apply_module_patterns(named_types, patterns, notes);
+
+    matched
+}
+
+/// Match function and async function patterns.
+fn apply_function_patterns(
+    named_types: &[&str],
+    patterns: &mut SemanticPatterns,
+    notes: &mut Vec<String>,
+) -> usize {
     let fn_types = find_matching(named_types, FUNCTION_HINTS);
-    if !fn_types.is_empty() {
-        notes.push(format!("Functions: {}", fn_types.join(", ")));
-        let async_types = find_matching(named_types, ASYNC_FUNCTION_HINTS);
-        patterns.function = FunctionPatternGroup {
-            node_types: fn_types,
-            async_node_types: async_types,
-        };
-        matched += 1;
+    if fn_types.is_empty() {
+        return 0;
     }
+    notes.push(format!("Functions: {}", fn_types.join(", ")));
+    let async_types = find_matching(named_types, ASYNC_FUNCTION_HINTS);
+    patterns.function = FunctionPatternGroup {
+        node_types: fn_types,
+        async_node_types: async_types,
+    };
+    1
+}
 
+/// Match class patterns.
+fn apply_class_patterns(
+    named_types: &[&str],
+    patterns: &mut SemanticPatterns,
+    notes: &mut Vec<String>,
+) -> usize {
     let class_types = find_matching(named_types, CLASS_HINTS);
-    if !class_types.is_empty() {
-        notes.push(format!("Classes: {}", class_types.join(", ")));
-        patterns.class = PatternGroup {
-            node_types: class_types,
-        };
-        matched += 1;
+    if class_types.is_empty() {
+        return 0;
     }
+    notes.push(format!("Classes: {}", class_types.join(", ")));
+    patterns.class = PatternGroup {
+        node_types: class_types,
+    };
+    1
+}
 
+/// Match method patterns.
+fn apply_method_patterns(
+    named_types: &[&str],
+    patterns: &mut SemanticPatterns,
+    notes: &mut Vec<String>,
+) -> usize {
     let method_types = find_matching(named_types, METHOD_HINTS);
-    if !method_types.is_empty() {
-        notes.push(format!("Methods: {}", method_types.join(", ")));
-        patterns.method = MethodPatternGroup {
-            node_types: method_types,
-            context: Some("inside_class".to_string()),
-        };
-        matched += 1;
+    if method_types.is_empty() {
+        return 0;
     }
+    notes.push(format!("Methods: {}", method_types.join(", ")));
+    patterns.method = MethodPatternGroup {
+        node_types: method_types,
+        context: Some("inside_class".to_string()),
+    };
+    1
+}
+
+/// Match struct, enum, trait/interface, constant, macro, and type alias patterns.
+fn apply_type_patterns(
+    named_types: &[&str],
+    patterns: &mut SemanticPatterns,
+    notes: &mut Vec<String>,
+) -> usize {
+    let mut matched = 0;
 
     let struct_types = find_matching(named_types, STRUCT_HINTS);
     if !struct_types.is_empty() {
@@ -144,24 +185,6 @@ fn apply_structural_patterns(
         matched += 1;
     }
 
-    let module_types = find_matching(named_types, MODULE_HINTS);
-    if !module_types.is_empty() {
-        notes.push(format!("Modules: {}", module_types.join(", ")));
-        patterns.module = PatternGroup {
-            node_types: module_types,
-        };
-        matched += 1;
-    }
-
-    let preamble_types = find_matching(named_types, PREAMBLE_HINTS);
-    if !preamble_types.is_empty() {
-        notes.push(format!("Preamble: {}", preamble_types.join(", ")));
-        patterns.preamble = PatternGroup {
-            node_types: preamble_types,
-        };
-        matched += 1;
-    }
-
     let const_types = find_matching(named_types, CONSTANT_HINTS);
     if !const_types.is_empty() {
         patterns.constant = PatternGroup {
@@ -182,6 +205,35 @@ fn apply_structural_patterns(
     if !type_types.is_empty() {
         patterns.type_alias = PatternGroup {
             node_types: type_types,
+        };
+        matched += 1;
+    }
+
+    matched
+}
+
+/// Match module and preamble patterns.
+fn apply_module_patterns(
+    named_types: &[&str],
+    patterns: &mut SemanticPatterns,
+    notes: &mut Vec<String>,
+) -> usize {
+    let mut matched = 0;
+
+    let module_types = find_matching(named_types, MODULE_HINTS);
+    if !module_types.is_empty() {
+        notes.push(format!("Modules: {}", module_types.join(", ")));
+        patterns.module = PatternGroup {
+            node_types: module_types,
+        };
+        matched += 1;
+    }
+
+    let preamble_types = find_matching(named_types, PREAMBLE_HINTS);
+    if !preamble_types.is_empty() {
+        notes.push(format!("Preamble: {}", preamble_types.join(", ")));
+        patterns.preamble = PatternGroup {
+            node_types: preamble_types,
         };
         matched += 1;
     }

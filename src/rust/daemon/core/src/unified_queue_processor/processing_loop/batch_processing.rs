@@ -65,16 +65,7 @@ pub(super) async fn process_batch(
             return Err(());
         }
 
-        // Memory pressure check between items to prevent runaway growth
-        if UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await {
-            warn!(
-                "Memory pressure during batch processing (<{}% available), pausing remaining items",
-                100u8.saturating_sub(config.max_memory_percent)
-            );
-            if let Err(e) = queue_manager.re_lease_item(&item.queue_id, 30).await {
-                warn!("Failed to re-lease item during memory pressure: {}", e);
-            }
-            tokio::time::sleep(Duration::from_secs(10)).await;
+        if check_memory_pressure_and_pause(config, queue_manager, item).await {
             break;
         }
 
@@ -126,21 +117,49 @@ pub(super) async fn process_batch(
             }
         }
 
-        // Inter-item delay (Task 504 / Task 577)
-        // Priority: warmup > adaptive profile > config default
-        let effective_delay_ms = if warmup_state.is_in_warmup() {
-            config.warmup_inter_item_delay_ms
-        } else if let Some(ref rx) = resource_profile_rx {
-            rx.borrow().inter_item_delay_ms
-        } else {
-            config.inter_item_delay_ms
-        };
-        if effective_delay_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(effective_delay_ms)).await;
-        }
+        apply_inter_item_delay(config, warmup_state, resource_profile_rx).await;
     }
 
     Ok(processed_tenants)
+}
+
+/// Check memory pressure and re-lease the item if too high, returning `true` to break.
+async fn check_memory_pressure_and_pause(
+    config: &UnifiedProcessorConfig,
+    queue_manager: &QueueManager,
+    item: &UnifiedQueueItem,
+) -> bool {
+    if !UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await {
+        return false;
+    }
+
+    warn!(
+        "Memory pressure during batch processing (<{}% available), pausing remaining items",
+        100u8.saturating_sub(config.max_memory_percent)
+    );
+    if let Err(e) = queue_manager.re_lease_item(&item.queue_id, 30).await {
+        warn!("Failed to re-lease item during memory pressure: {}", e);
+    }
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    true
+}
+
+/// Apply inter-item delay based on warmup state, adaptive profile, or config default.
+async fn apply_inter_item_delay(
+    config: &UnifiedProcessorConfig,
+    warmup_state: &Arc<WarmupState>,
+    resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+) {
+    let effective_delay_ms = if warmup_state.is_in_warmup() {
+        config.warmup_inter_item_delay_ms
+    } else if let Some(ref rx) = resource_profile_rx {
+        rx.borrow().inter_item_delay_ms
+    } else {
+        config.inter_item_delay_ms
+    };
+    if effective_delay_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(effective_delay_ms)).await;
+    }
 }
 
 /// Handles the success outcome of a single processed item.

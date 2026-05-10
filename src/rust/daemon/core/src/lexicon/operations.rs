@@ -134,41 +134,45 @@ impl LexiconManager {
         };
 
         if should_persist {
-            // Try to dispatch to background task (non-blocking).
-            // Fall back to inline persist if the background task isn't running.
-            let tx = {
-                let guard = self.persist_tx.read().await;
-                guard.clone()
-            };
-            match tx {
-                Some(sender) => {
-                    let request = PersistRequest::Persist {
-                        collection: collection.to_string(),
-                    };
-                    if let Err(e) = sender.try_send(request) {
-                        debug!(
-                            "Background persist channel full for '{}', falling back to inline: {}",
-                            collection, e
-                        );
-                        self.persist(collection).await?;
-                    } else {
-                        debug!(
-                            "Queued background persist for '{}' (threshold {} reached)",
-                            collection, AUTO_PERSIST_THRESHOLD
-                        );
-                    }
-                }
-                None => {
-                    // Background task not started — persist inline
-                    debug!(
-                        "Auto-persisting lexicon for '{}' inline (threshold {} reached)",
-                        collection, AUTO_PERSIST_THRESHOLD
-                    );
-                    self.persist(collection).await?;
-                }
-            }
+            self.auto_persist(collection).await?;
         }
 
+        Ok(())
+    }
+
+    /// Dispatch auto-persist: try background channel, fall back to inline.
+    async fn auto_persist(&self, collection: &str) -> Result<(), sqlx::Error> {
+        let tx = {
+            let guard = self.persist_tx.read().await;
+            guard.clone()
+        };
+        match tx {
+            Some(sender) => {
+                let request = PersistRequest::Persist {
+                    collection: collection.to_string(),
+                };
+                if let Err(e) = sender.try_send(request) {
+                    debug!(
+                        "Background persist channel full for '{}', falling back to inline: {}",
+                        collection, e
+                    );
+                    self.persist(collection).await?;
+                } else {
+                    debug!(
+                        "Queued background persist for '{}' (threshold {} reached)",
+                        collection, AUTO_PERSIST_THRESHOLD
+                    );
+                }
+            }
+            None => {
+                // Background task not started — persist inline
+                debug!(
+                    "Auto-persisting lexicon for '{}' inline (threshold {} reached)",
+                    collection, AUTO_PERSIST_THRESHOLD
+                );
+                self.persist(collection).await?;
+            }
+        }
         Ok(())
     }
 
@@ -195,57 +199,7 @@ impl LexiconManager {
         let mut tx = self.pool.begin().await?;
 
         if !dirty_entries.is_empty() {
-            sqlx::query(
-                "CREATE TEMP TABLE IF NOT EXISTS _vocab_batch(\
-                 term_id INTEGER, term TEXT, doc_count INTEGER)",
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            sqlx::query("DELETE FROM _vocab_batch")
-                .execute(&mut *tx)
-                .await?;
-
-            // Batch-insert dirty terms into temp table (chunks of 100 → 300 params)
-            const CHUNK_SIZE: usize = 100;
-            for chunk in dirty_entries.chunks(CHUNK_SIZE) {
-                let placeholders: Vec<String> = (0..chunk.len())
-                    .map(|i| format!("(?{}, ?{}, ?{})", i * 3 + 1, i * 3 + 2, i * 3 + 3))
-                    .collect();
-                let sql = format!(
-                    "INSERT INTO _vocab_batch(term_id, term, doc_count) VALUES {}",
-                    placeholders.join(", ")
-                );
-                let mut q = sqlx::query(&sql);
-                for (term, term_id, df) in chunk {
-                    q = q.bind(*term_id as i64).bind(term).bind(*df as i64);
-                }
-                q.execute(&mut *tx).await?;
-            }
-
-            // Update existing terms (uses UNIQUE index on (term, collection))
-            sqlx::query(
-                "UPDATE sparse_vocabulary SET document_count = b.doc_count \
-                 FROM _vocab_batch b \
-                 WHERE sparse_vocabulary.term = b.term AND sparse_vocabulary.collection = ?1",
-            )
-            .bind(collection)
-            .execute(&mut *tx)
-            .await?;
-
-            // Insert new terms (those not already present)
-            sqlx::query(
-                "INSERT OR IGNORE INTO sparse_vocabulary \
-                 (term_id, term, collection, document_count, created_at) \
-                 SELECT b.term_id, b.term, ?1, b.doc_count, ?2 FROM _vocab_batch b",
-            )
-            .bind(collection)
-            .bind(&now)
-            .execute(&mut *tx)
-            .await?;
-
-            sqlx::query("DROP TABLE IF EXISTS _vocab_batch")
-                .execute(&mut *tx)
+            self.batch_upsert_dirty_terms(&dirty_entries, collection, &now, &mut tx)
                 .await?;
         }
 
@@ -269,8 +223,86 @@ impl LexiconManager {
         dirty.insert(collection.to_string(), 0);
         drop(dirty);
 
-        // Evict hapax legomena from in-memory vocab and SQLite.
-        // Done after commit so the DELETE is independent of the upsert tx.
+        self.evict_hapax_legomena(collection).await?;
+
+        debug!(
+            "Persisted lexicon for '{}': {} dirty terms, {} total docs",
+            collection,
+            dirty_entries.len(),
+            total_docs,
+        );
+
+        Ok(())
+    }
+
+    /// Batch-upsert dirty terms via a temp table within the given transaction.
+    async fn batch_upsert_dirty_terms(
+        &self,
+        dirty_entries: &[(String, u32, u32)],
+        collection: &str,
+        now: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "CREATE TEMP TABLE IF NOT EXISTS _vocab_batch(\
+             term_id INTEGER, term TEXT, doc_count INTEGER)",
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("DELETE FROM _vocab_batch")
+            .execute(&mut **tx)
+            .await?;
+
+        // Batch-insert dirty terms into temp table (chunks of 100 → 300 params)
+        const CHUNK_SIZE: usize = 100;
+        for chunk in dirty_entries.chunks(CHUNK_SIZE) {
+            let placeholders: Vec<String> = (0..chunk.len())
+                .map(|i| format!("(?{}, ?{}, ?{})", i * 3 + 1, i * 3 + 2, i * 3 + 3))
+                .collect();
+            let sql = format!(
+                "INSERT INTO _vocab_batch(term_id, term, doc_count) VALUES {}",
+                placeholders.join(", ")
+            );
+            let mut q = sqlx::query(&sql);
+            for (term, term_id, df) in chunk {
+                q = q.bind(*term_id as i64).bind(term).bind(*df as i64);
+            }
+            q.execute(&mut **tx).await?;
+        }
+
+        // Update existing terms (uses UNIQUE index on (term, collection))
+        sqlx::query(
+            "UPDATE sparse_vocabulary SET document_count = b.doc_count \
+             FROM _vocab_batch b \
+             WHERE sparse_vocabulary.term = b.term AND sparse_vocabulary.collection = ?1",
+        )
+        .bind(collection)
+        .execute(&mut **tx)
+        .await?;
+
+        // Insert new terms (those not already present)
+        sqlx::query(
+            "INSERT OR IGNORE INTO sparse_vocabulary \
+             (term_id, term, collection, document_count, created_at) \
+             SELECT b.term_id, b.term, ?1, b.doc_count, ?2 FROM _vocab_batch b",
+        )
+        .bind(collection)
+        .bind(now)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("DROP TABLE IF EXISTS _vocab_batch")
+            .execute(&mut **tx)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Evict hapax legomena from in-memory vocab and SQLite.
+    ///
+    /// Done after commit so the DELETE is independent of the upsert tx.
+    async fn evict_hapax_legomena(&self, collection: &str) -> Result<(), sqlx::Error> {
         let evicted_count = {
             let mut instances = self.instances.write().await;
             if let Some(bm25) = instances.get_mut(collection) {
@@ -291,14 +323,6 @@ impl LexiconManager {
                 evicted_count, collection
             );
         }
-
-        debug!(
-            "Persisted lexicon for '{}': {} dirty terms, {} total docs",
-            collection,
-            dirty_entries.len(),
-            total_docs,
-        );
-
         Ok(())
     }
 
