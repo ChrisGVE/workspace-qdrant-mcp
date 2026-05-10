@@ -87,67 +87,21 @@ pub(crate) async fn cleanup_excluded_files(
     let mut files_cleaned = 0u64;
 
     for (_file_id, rel_path, _branch) in &tracked_files {
-        // Check if this file should now be excluded (pattern or allowlist)
-        let should_clean = should_exclude_file(rel_path) || {
-            let abs_path = Path::new(base_path).join(rel_path);
-            !allowed_extensions.is_allowed(&abs_path.to_string_lossy(), &item.collection)
-        };
+        let abs_path = Path::new(base_path).join(rel_path);
+        let should_clean = should_exclude_file(rel_path)
+            || !allowed_extensions.is_allowed(&abs_path.to_string_lossy(), &item.collection);
 
         if !should_clean {
             continue;
         }
 
-        // Reconstruct absolute path for the queue payload
-        let abs_path = Path::new(base_path).join(rel_path);
         let abs_path_str = abs_path.to_string_lossy().to_string();
-
-        let file_payload = FilePayload {
-            file_path: abs_path_str.clone(),
-            file_type: None,
-            file_hash: None,
-            size_bytes: None,
-            old_path: None,
-        };
-
-        let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
-            UnifiedProcessorError::ProcessingFailed(format!(
-                "Failed to serialize FilePayload for deletion: {}",
-                e
-            ))
-        })?;
-
-        match queue_manager
-            .enqueue_unified(
-                ItemType::File,
-                QueueOperation::Delete,
-                &item.tenant_id,
-                &item.collection,
-                &payload_json,
-                Some(&item.branch),
-                None,
-            )
-            .await
-        {
-            Ok((_queue_id, is_new)) => {
-                if is_new {
-                    files_cleaned += 1;
-                    debug!(
-                        "Queued excluded file for deletion: {} (rel={})",
-                        abs_path_str, rel_path
-                    );
-                } else {
-                    debug!(
-                        "Excluded file deletion already in queue (deduplicated): {}",
-                        abs_path_str
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to queue excluded file for deletion {}: {}",
-                    abs_path_str, e
-                );
-            }
+        if enqueue_file_for_deletion(item, &abs_path_str, queue_manager).await? {
+            files_cleaned += 1;
+            debug!(
+                "Queued excluded file for deletion: {} (rel={})",
+                abs_path_str, rel_path
+            );
         }
     }
 

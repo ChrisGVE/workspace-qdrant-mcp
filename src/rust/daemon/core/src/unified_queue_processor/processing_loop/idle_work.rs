@@ -36,125 +36,31 @@ pub(super) async fn run_idle_work(
     search_db: &Option<Arc<SearchDbManager>>,
     poll_interval: Duration,
 ) -> bool {
-    // Track continuous idle time for grammar update checks
     if state.idle_since.is_none() {
         state.idle_since = Some(std::time::Instant::now());
     }
 
-    // Run metadata uplift when queue is idle (Task 18)
-    let since_last = state.last_uplift_attempt.elapsed().as_secs();
-    if since_last >= state.uplift_config.min_interval_secs {
-        debug!(
-            "Queue idle — running metadata uplift pass (gen={})",
-            state.uplift_config.current_generation
-        );
-        let collections = vec!["projects".to_string(), "libraries".to_string()];
-        let stats = crate::metadata_uplift::run_uplift_pass(
-            storage_client,
-            lexicon_manager,
-            &collections,
-            &state.uplift_config,
-        )
-        .await;
-        if stats.scanned > 0 {
-            info!(
-                "Uplift pass complete: scanned={}, updated={}, skipped={}, errors={}",
-                stats.scanned, stats.updated, stats.skipped, stats.errors
-            );
-        }
-        if stats.updated == 0 && stats.errors == 0 {
-            // All points uplifted at this generation, advance
-            state.uplift_config.current_generation += 1;
-        }
-        state.last_uplift_attempt = std::time::Instant::now();
-    }
+    run_uplift_pass(state, storage_client, lexicon_manager).await;
 
     let idle_elapsed = state.idle_since.map_or(0, |t| t.elapsed().as_secs());
 
-    // Maintenance scheduler — run one batch if eligible
-    {
-        let qdrant_available = storage_client.is_qdrant_available();
-        let memory_pressure =
-            UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await;
-        let idle_state = crate::idle::IdleState::determine(
-            0, // queue is empty (we're in the empty branch)
-            qdrant_available,
-            memory_pressure,
-        );
-        if idle_state.allows_maintenance() {
-            let maint_ctx = crate::idle::MaintenanceContext {
-                pool: queue_manager.pool(),
-                storage_client,
-                search_db: search_db.as_ref(),
-                queue_manager,
-            };
-            let _ = state
-                .maintenance_scheduler
-                .tick(idle_state, idle_elapsed, &maint_ctx)
-                .await;
-        }
-    }
+    run_maintenance_tick(
+        state,
+        config,
+        queue_manager,
+        storage_client,
+        search_db,
+        idle_elapsed,
+    )
+    .await;
 
-    // Run grammar update check when idle long enough (Task 5)
     if let Some(ref gm) = grammar_manager {
         run_grammar_idle_work(state, gm, idle_elapsed).await;
     }
 
-    // Evict idle LSP servers to bound resource usage
-    if let Some(ref lsm) = lsp_manager {
-        let lsm_read = lsm.read().await;
-        let lsp_timeout = lsm_read.config.idle_timeout_secs;
-        drop(lsm_read);
-        if lsp_timeout > 0 && idle_elapsed >= lsp_timeout {
-            let timeout = Duration::from_secs(lsp_timeout);
-            let lsm_read = lsm.read().await;
-            let evicted = lsm_read.evict_idle_servers(timeout).await;
-            if !evicted.is_empty() {
-                info!(
-                    "Evicted {} idle LSP servers: {}",
-                    evicted.len(),
-                    evicted
-                        .iter()
-                        .map(|(p, l)| format!("{}:{:?}", p, l))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
-        }
-    }
-
-    // Periodic resurrection of transient failed items
-    let resurrection_interval_secs = config.failed_resurrection_interval_secs;
-    if resurrection_interval_secs > 0
-        && state.last_resurrection.elapsed().as_secs() >= resurrection_interval_secs
-    {
-        match queue_manager
-            .resurrect_failed_transient(config.max_resurrections)
-            .await
-        {
-            Ok((resurrected, exhausted)) => {
-                if resurrected > 0 || exhausted > 0 {
-                    info!(
-                        "Resurrection pass: reset {} item(s), exhausted {} item(s)",
-                        resurrected, exhausted
-                    );
-                }
-            }
-            Err(e) => {
-                warn!("Resurrection pass failed (non-fatal): {}", e);
-            }
-        }
-        state.last_resurrection = std::time::Instant::now();
-    }
-
-    // Failed item triage
-    let triage_interval_secs = config.triage_interval_secs;
-    if triage_interval_secs > 0 && state.last_triage.elapsed().as_secs() >= triage_interval_secs {
-        if let Err(e) = queue_manager.triage_failed_items().await {
-            warn!("Triage pass failed (non-fatal): {}", e);
-        }
-        state.last_triage = std::time::Instant::now();
-    }
+    evict_idle_lsp_servers(lsp_manager, idle_elapsed).await;
+    run_resurrection(state, config, queue_manager).await;
+    run_triage(state, config, queue_manager).await;
 
     debug!(
         "Unified queue is empty, waiting {}ms",
@@ -162,6 +68,128 @@ pub(super) async fn run_idle_work(
     );
     tokio::time::sleep(poll_interval).await;
     true
+}
+
+async fn run_uplift_pass(
+    state: &mut LoopState,
+    storage_client: &Arc<StorageClient>,
+    lexicon_manager: &Arc<LexiconManager>,
+) {
+    if state.last_uplift_attempt.elapsed().as_secs() < state.uplift_config.min_interval_secs {
+        return;
+    }
+    debug!(
+        "Queue idle — running metadata uplift pass (gen={})",
+        state.uplift_config.current_generation
+    );
+    let collections = vec!["projects".to_string(), "libraries".to_string()];
+    let stats = crate::metadata_uplift::run_uplift_pass(
+        storage_client,
+        lexicon_manager,
+        &collections,
+        &state.uplift_config,
+    )
+    .await;
+    if stats.scanned > 0 {
+        info!(
+            "Uplift pass complete: scanned={}, updated={}, skipped={}, errors={}",
+            stats.scanned, stats.updated, stats.skipped, stats.errors
+        );
+    }
+    if stats.updated == 0 && stats.errors == 0 {
+        state.uplift_config.current_generation += 1;
+    }
+    state.last_uplift_attempt = std::time::Instant::now();
+}
+
+async fn run_maintenance_tick(
+    state: &mut LoopState,
+    config: &UnifiedProcessorConfig,
+    queue_manager: &QueueManager,
+    storage_client: &Arc<StorageClient>,
+    search_db: &Option<Arc<SearchDbManager>>,
+    idle_elapsed: u64,
+) {
+    let qdrant_available = storage_client.is_qdrant_available();
+    let memory_pressure =
+        UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await;
+    let idle_state = crate::idle::IdleState::determine(0, qdrant_available, memory_pressure);
+    if idle_state.allows_maintenance() {
+        let maint_ctx = crate::idle::MaintenanceContext {
+            pool: queue_manager.pool(),
+            storage_client,
+            search_db: search_db.as_ref(),
+            queue_manager,
+        };
+        let _ = state
+            .maintenance_scheduler
+            .tick(idle_state, idle_elapsed, &maint_ctx)
+            .await;
+    }
+}
+
+async fn evict_idle_lsp_servers(
+    lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+    idle_elapsed: u64,
+) {
+    let Some(ref lsm) = lsp_manager else { return };
+    let lsp_timeout = lsm.read().await.config.idle_timeout_secs;
+    if lsp_timeout == 0 || idle_elapsed < lsp_timeout {
+        return;
+    }
+    let timeout = Duration::from_secs(lsp_timeout);
+    let evicted = lsm.read().await.evict_idle_servers(timeout).await;
+    if !evicted.is_empty() {
+        info!(
+            "Evicted {} idle LSP servers: {}",
+            evicted.len(),
+            evicted
+                .iter()
+                .map(|(p, l)| format!("{}:{:?}", p, l))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+}
+
+async fn run_resurrection(
+    state: &mut LoopState,
+    config: &UnifiedProcessorConfig,
+    queue_manager: &QueueManager,
+) {
+    let interval = config.failed_resurrection_interval_secs;
+    if interval == 0 || state.last_resurrection.elapsed().as_secs() < interval {
+        return;
+    }
+    match queue_manager
+        .resurrect_failed_transient(config.max_resurrections)
+        .await
+    {
+        Ok((resurrected, exhausted)) if resurrected > 0 || exhausted > 0 => {
+            info!(
+                "Resurrection pass: reset {} item(s), exhausted {} item(s)",
+                resurrected, exhausted
+            );
+        }
+        Err(e) => warn!("Resurrection pass failed (non-fatal): {}", e),
+        _ => {}
+    }
+    state.last_resurrection = std::time::Instant::now();
+}
+
+async fn run_triage(
+    state: &mut LoopState,
+    config: &UnifiedProcessorConfig,
+    queue_manager: &QueueManager,
+) {
+    let interval = config.triage_interval_secs;
+    if interval == 0 || state.last_triage.elapsed().as_secs() < interval {
+        return;
+    }
+    if let Err(e) = queue_manager.triage_failed_items().await {
+        warn!("Triage pass failed (non-fatal): {}", e);
+    }
+    state.last_triage = std::time::Instant::now();
 }
 
 /// Grammar-specific idle work: periodic version check and idle eviction.

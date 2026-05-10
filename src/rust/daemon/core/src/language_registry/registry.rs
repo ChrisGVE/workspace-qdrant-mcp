@@ -56,8 +56,6 @@ impl LanguageRegistry {
     pub async fn load(&self) -> Result<(), DaemonError> {
         let mut merged: LanguageMap = HashMap::new();
 
-        // Load from providers in priority order (lowest priority first,
-        // so higher-priority providers overwrite).
         let mut sorted_providers: Vec<&dyn LanguageSourceProvider> =
             self.providers.iter().map(|p| p.as_ref()).collect();
         sorted_providers.sort_by_key(|p| std::cmp::Reverse(p.priority()));
@@ -69,123 +67,22 @@ impl LanguageRegistry {
             let data = match provider.refresh().await {
                 Ok(d) => d,
                 Err(e) => {
-                    tracing::warn!(
-                        provider = provider.name(),
-                        error = %e,
-                        "Failed to load from provider, skipping"
-                    );
+                    tracing::warn!(provider = provider.name(), error = %e, "Failed to load from provider, skipping");
                     continue;
                 }
             };
-
-            // Merge language entries
-            for lang_entry in &data.languages {
-                let id = lang_entry.id.to_lowercase();
-                let def = merged
-                    .entry(id.clone())
-                    .or_insert_with(|| LanguageDefinition {
-                        language: lang_entry.name.clone(),
-                        aliases: Vec::new(),
-                        extensions: Vec::new(),
-                        language_type: lang_entry.language_type,
-                        grammar: Default::default(),
-                        semantic_patterns: None,
-                        lsp_servers: Vec::new(),
-                        sources: SourceMetadata::default(),
-                    });
-
-                // Higher priority provider overwrites identity fields
-                def.language = lang_entry.name.clone();
-                if !lang_entry.aliases.is_empty() {
-                    def.aliases = lang_entry.aliases.clone();
-                }
-                if !lang_entry.extensions.is_empty() {
-                    def.extensions = lang_entry.extensions.clone();
-                }
-                def.language_type = lang_entry.language_type;
-                def.sources.language = Some(provider.name().to_string());
-            }
-
-            // Merge grammar entries
-            for grammar in &data.grammars {
-                let id = grammar.language.to_lowercase();
-                let def = merged
-                    .entry(id.clone())
-                    .or_insert_with(|| LanguageDefinition {
-                        language: grammar.language.clone(),
-                        aliases: Vec::new(),
-                        extensions: Vec::new(),
-                        language_type: super::types::LanguageType::Programming,
-                        grammar: Default::default(),
-                        semantic_patterns: None,
-                        lsp_servers: Vec::new(),
-                        sources: SourceMetadata::default(),
-                    });
-
-                // Add grammar source if not already present (dedup by repo)
-                let already_has = def.grammar.sources.iter().any(|s| s.repo == grammar.repo);
-                if !already_has {
-                    def.grammar.sources.push(GrammarSourceEntry {
-                        repo: grammar.repo.clone(),
-                        origin: Some(provider.name().to_string()),
-                        quality: grammar.quality,
-                    });
-                }
-
-                // Set grammar build metadata from highest-priority provider
-                def.grammar.has_cpp_scanner = grammar.has_cpp_scanner;
-                if grammar.src_subdir.is_some() {
-                    def.grammar.src_subdir = grammar.src_subdir.clone();
-                }
-                if grammar.symbol_name.is_some() {
-                    def.grammar.symbol_name = grammar.symbol_name.clone();
-                }
-                if grammar.archive_branch.is_some() {
-                    def.grammar.archive_branch = grammar.archive_branch.clone();
-                }
-
-                def.sources.grammar = Some(provider.name().to_string());
-            }
-
-            // Merge LSP entries
-            for lsp in &data.lsp_servers {
-                let id = lsp.language.to_lowercase();
-                let def = merged
-                    .entry(id.clone())
-                    .or_insert_with(|| LanguageDefinition {
-                        language: lsp.language.clone(),
-                        aliases: Vec::new(),
-                        extensions: Vec::new(),
-                        language_type: super::types::LanguageType::Programming,
-                        grammar: Default::default(),
-                        semantic_patterns: None,
-                        lsp_servers: Vec::new(),
-                        sources: SourceMetadata::default(),
-                    });
-
-                // Dedup LSP servers by binary name
-                let already_has = def
-                    .lsp_servers
-                    .iter()
-                    .any(|s| s.binary == lsp.server.binary);
-                if !already_has {
-                    def.lsp_servers.push(lsp.server.clone());
-                }
-
-                def.sources.lsp = Some(provider.name().to_string());
-            }
+            merge_language_entries(&mut merged, &data.languages, provider.name());
+            merge_grammar_entries(&mut merged, &data.grammars, provider.name());
+            merge_lsp_entries(&mut merged, &data.lsp_servers, provider.name());
         }
 
-        // Sort grammar sources by quality (curated first)
         for def in merged.values_mut() {
             def.grammar.sources.sort_by_key(|s| s.quality);
             def.lsp_servers.sort_by_key(|s| s.priority);
         }
 
-        // Load semantic patterns from providers with full definitions
         self.load_full_definition_extras(&mut merged);
 
-        // Load user overrides last (highest precedence)
         if let Some(ref user_dir) = self.user_dir {
             self.load_user_overrides(user_dir, &mut merged).await;
         }
@@ -332,6 +229,97 @@ impl LanguageRegistry {
     /// Get the number of registered languages.
     pub async fn count(&self) -> usize {
         self.languages.read().await.len()
+    }
+}
+
+fn default_def(name: &str) -> LanguageDefinition {
+    LanguageDefinition {
+        language: name.to_string(),
+        aliases: Vec::new(),
+        extensions: Vec::new(),
+        language_type: super::types::LanguageType::Programming,
+        grammar: Default::default(),
+        semantic_patterns: None,
+        lsp_servers: Vec::new(),
+        sources: SourceMetadata::default(),
+    }
+}
+
+fn merge_language_entries(
+    merged: &mut LanguageMap,
+    entries: &[super::types::LanguageEntry],
+    provider_name: &str,
+) {
+    for entry in entries {
+        let id = entry.id.to_lowercase();
+        let def = merged.entry(id).or_insert_with(|| {
+            let mut d = default_def(&entry.name);
+            d.language_type = entry.language_type;
+            d
+        });
+        def.language = entry.name.clone();
+        if !entry.aliases.is_empty() {
+            def.aliases = entry.aliases.clone();
+        }
+        if !entry.extensions.is_empty() {
+            def.extensions = entry.extensions.clone();
+        }
+        def.language_type = entry.language_type;
+        def.sources.language = Some(provider_name.to_string());
+    }
+}
+
+fn merge_grammar_entries(
+    merged: &mut LanguageMap,
+    entries: &[super::types::GrammarEntry],
+    provider_name: &str,
+) {
+    for grammar in entries {
+        let id = grammar.language.to_lowercase();
+        let def = merged
+            .entry(id)
+            .or_insert_with(|| default_def(&grammar.language));
+
+        if !def.grammar.sources.iter().any(|s| s.repo == grammar.repo) {
+            def.grammar.sources.push(GrammarSourceEntry {
+                repo: grammar.repo.clone(),
+                origin: Some(provider_name.to_string()),
+                quality: grammar.quality,
+            });
+        }
+
+        def.grammar.has_cpp_scanner = grammar.has_cpp_scanner;
+        if grammar.src_subdir.is_some() {
+            def.grammar.src_subdir = grammar.src_subdir.clone();
+        }
+        if grammar.symbol_name.is_some() {
+            def.grammar.symbol_name = grammar.symbol_name.clone();
+        }
+        if grammar.archive_branch.is_some() {
+            def.grammar.archive_branch = grammar.archive_branch.clone();
+        }
+        def.sources.grammar = Some(provider_name.to_string());
+    }
+}
+
+fn merge_lsp_entries(
+    merged: &mut LanguageMap,
+    entries: &[super::types::LspEntry],
+    provider_name: &str,
+) {
+    for lsp in entries {
+        let id = lsp.language.to_lowercase();
+        let def = merged
+            .entry(id)
+            .or_insert_with(|| default_def(&lsp.language));
+        if !def
+            .lsp_servers
+            .iter()
+            .any(|s| s.binary == lsp.server.binary)
+        {
+            def.lsp_servers.push(lsp.server.clone());
+        }
+        def.sources.lsp = Some(provider_name.to_string());
     }
 }
 
