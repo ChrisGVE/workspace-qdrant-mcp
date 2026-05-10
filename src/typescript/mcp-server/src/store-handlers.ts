@@ -112,6 +112,18 @@ function writeScratchpadMirror(
  * After successful enqueue, also writes to scratchpad_mirror for rebuild
  * recovery. The mirror write is fire-and-forget (advisory).
  */
+/** Build the scratchpad queue payload. */
+function buildScratchpadPayload(
+  content: string,
+  title: string | undefined,
+  tags: string[]
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { content: content.trim(), source_type: 'scratchpad' };
+  if (title?.trim()) payload['title'] = title.trim();
+  if (tags.length > 0) payload['tags'] = tags;
+  return payload;
+}
+
 export async function storeScratchpad(
   args: Record<string, unknown> | undefined,
   stateManager: SqliteStateManager,
@@ -128,10 +140,7 @@ export async function storeScratchpad(
   const title = args?.['title'] as string | undefined;
   const tags = (args?.['tags'] as string[] | undefined) ?? [];
   const tenantId = sessionState.projectId || TENANT_GLOBAL;
-
-  const payload: Record<string, unknown> = { content: content.trim(), source_type: 'scratchpad' };
-  if (title?.trim()) payload['title'] = title.trim();
-  if (tags.length > 0) payload['tags'] = tags;
+  const payload = buildScratchpadPayload(content, title, tags);
 
   try {
     const result = await stateManager.enqueueUnified(

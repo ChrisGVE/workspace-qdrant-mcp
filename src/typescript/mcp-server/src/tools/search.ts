@@ -93,47 +93,16 @@ export class SearchTool {
     return this._stateManager;
   }
 
-  async search(options: SearchOptions): Promise<SearchResponse> {
-    if (options.exact) {
-      return searchExact(this.daemonClient, this._stateManager, this.projectDetector, options);
-    }
-
-    const {
-      query,
-      collection,
-      mode = 'hybrid',
-      limit = DEFAULT_LIMIT,
-      scoreThreshold = DEFAULT_SCORE_THRESHOLD,
-      scope = 'project',
-      branch,
-      fileType,
-      projectId,
-      libraryName,
-      includeLibraries = false,
-      tag,
-      tags,
-    } = options;
-
-    const eventId = randomUUID();
-    const searchStartMs = Date.now();
-    const collectionsToSearch = determineCollections(collection, scope, includeLibraries);
-
-    const { currentProjectId, basePoints } = await resolveProjectContext(
-      projectId,
-      scope,
-      this.projectDetector,
-      this._stateManager
-    );
-
-    logSearchEventPre(this._stateManager, eventId, currentProjectId, query, limit, {
-      collection,
-      scope,
-      branch,
-      fileType,
-      libraryName,
-      tag,
-    });
-
+  private async prepareEmbeddings(
+    options: SearchOptions,
+    query: string,
+    mode: import('./search-types.js').SearchMode,
+    collectionsToSearch: string[],
+    currentProjectId: string | undefined
+  ): Promise<
+    | { fallback: SearchResponse }
+    | { denseEmbedding: number[] | undefined; sparseVector: Record<number, number> | undefined }
+  > {
     const embeddings = await generateEmbeddings(
       this.daemonClient,
       this.qdrantClient,
@@ -142,10 +111,9 @@ export class SearchTool {
       options,
       collectionsToSearch
     );
-    if ('fallback' in embeddings) return embeddings.fallback;
+    if ('fallback' in embeddings) return embeddings;
     let { denseEmbedding, sparseVector } = embeddings;
-
-    if (this.enableTagExpansion && sparseVector && (mode === 'hybrid' || mode === 'keyword')) {
+    if (sparseVector && this.enableTagExpansion && (mode === 'hybrid' || mode === 'keyword')) {
       sparseVector = await expandSparseWithTags(
         this.daemonClient,
         this._stateManager,
@@ -157,77 +125,142 @@ export class SearchTool {
         currentProjectId
       );
     }
+    return { denseEmbedding, sparseVector };
+  }
 
-    return this.runSearchAndFinalize({
-      query,
+  private async resolveContextAndLog(
+    options: SearchOptions,
+    query: string,
+    limit: number,
+    scope: import('./search-types.js').SearchScope,
+    projectId: string | undefined
+  ): Promise<{
+    eventId: string;
+    searchStartMs: number;
+    currentProjectId: string | undefined;
+    basePoints: string[] | undefined;
+  }> {
+    const eventId = randomUUID();
+    const searchStartMs = Date.now();
+    const { currentProjectId, basePoints } = await resolveProjectContext(
+      projectId,
+      scope,
+      this.projectDetector,
+      this._stateManager
+    );
+    logSearchEventPre(this._stateManager, eventId, currentProjectId, query, limit, {
+      collection: options.collection,
+      scope,
+      branch: options.branch,
+      fileType: options.fileType,
+      libraryName: options.libraryName,
+      tag: options.tag,
+    });
+    return { eventId, searchStartMs, currentProjectId, basePoints };
+  }
+
+  async search(options: SearchOptions): Promise<SearchResponse> {
+    if (options.exact) {
+      return searchExact(this.daemonClient, this._stateManager, this.projectDetector, options);
+    }
+    const mode = options.mode ?? 'hybrid';
+    const limit = options.limit ?? DEFAULT_LIMIT;
+    const scope = options.scope ?? 'project';
+    const collectionsToSearch = determineCollections(
+      options.collection,
+      scope,
+      options.includeLibraries ?? false
+    );
+    const { eventId, searchStartMs, currentProjectId, basePoints } =
+      await this.resolveContextAndLog(options, options.query, limit, scope, options.projectId);
+    const embeddings = await this.prepareEmbeddings(
+      options,
+      options.query,
+      mode,
+      collectionsToSearch,
+      currentProjectId
+    );
+    if ('fallback' in embeddings) return embeddings.fallback;
+    return this.runSearchAndFinalize(
+      options,
       mode,
       limit,
-      scoreThreshold,
       scope,
-      branch,
-      fileType,
-      libraryName,
-      tag,
-      tags,
-      options,
+      collectionsToSearch,
       eventId,
       searchStartMs,
+      currentProjectId,
+      basePoints,
+      embeddings.denseEmbedding,
+      embeddings.sparseVector
+    );
+  }
+
+  private async runSearchCollections(
+    options: SearchOptions,
+    mode: import('./search-types.js').SearchMode,
+    limit: number,
+    scope: import('./search-types.js').SearchScope,
+    collectionsToSearch: string[],
+    currentProjectId: string | undefined,
+    basePoints: string[] | undefined,
+    denseEmbedding: number[] | undefined,
+    sparseVector: Record<number, number> | undefined
+  ) {
+    const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
+    return searchAllCollections(this.qdrantClient, {
+      collectionsToSearch,
+      scope,
+      currentProjectId,
+      basePoints,
+      branch: options.branch,
+      fileType: options.fileType,
+      libraryName: options.libraryName,
+      tag: options.tag,
+      tags: options.tags,
+      options,
+      mode,
+      denseEmbedding,
+      sparseVector,
+      limit,
+      scoreThreshold,
+    });
+  }
+
+  private async runSearchAndFinalize(
+    options: SearchOptions,
+    mode: import('./search-types.js').SearchMode,
+    limit: number,
+    scope: import('./search-types.js').SearchScope,
+    collectionsToSearch: string[],
+    eventId: string,
+    searchStartMs: number,
+    currentProjectId: string | undefined,
+    basePoints: string[] | undefined,
+    denseEmbedding: number[] | undefined,
+    sparseVector: Record<number, number> | undefined
+  ): Promise<SearchResponse> {
+    const { allResults, status, statusReason } = await this.runSearchCollections(
+      options,
+      mode,
+      limit,
+      scope,
       collectionsToSearch,
       currentProjectId,
       basePoints,
       denseEmbedding,
-      sparseVector,
-    });
-  }
-
-  private async runSearchAndFinalize(p: {
-    query: string;
-    mode: import('./search-types.js').SearchMode;
-    limit: number;
-    scoreThreshold: number;
-    scope: import('./search-types.js').SearchScope;
-    branch: string | undefined;
-    fileType: string | undefined;
-    libraryName: string | undefined;
-    tag: string | undefined;
-    tags: string[] | undefined;
-    options: SearchOptions;
-    eventId: string;
-    searchStartMs: number;
-    collectionsToSearch: string[];
-    currentProjectId: string | undefined;
-    basePoints: string[] | undefined;
-    denseEmbedding: number[] | undefined;
-    sparseVector: Record<number, number> | undefined;
-  }): Promise<SearchResponse> {
-    const { allResults, status, statusReason } = await searchAllCollections(this.qdrantClient, {
-      collectionsToSearch: p.collectionsToSearch,
-      scope: p.scope,
-      currentProjectId: p.currentProjectId,
-      basePoints: p.basePoints,
-      branch: p.branch,
-      fileType: p.fileType,
-      libraryName: p.libraryName,
-      tag: p.tag,
-      tags: p.tags,
-      options: p.options,
-      mode: p.mode,
-      denseEmbedding: p.denseEmbedding,
-      sparseVector: p.sparseVector,
-      limit: p.limit,
-      scoreThreshold: p.scoreThreshold,
-    });
-
+      sparseVector
+    );
     return finalizeResults(this.qdrantClient, this.daemonClient, this._stateManager, {
       allResults,
-      mode: p.mode,
-      limit: p.limit,
-      options: p.options,
-      eventId: p.eventId,
-      searchStartMs: p.searchStartMs,
-      query: p.query,
-      scope: p.scope,
-      collectionsToSearch: p.collectionsToSearch,
+      mode,
+      limit,
+      options,
+      eventId,
+      searchStartMs,
+      query: options.query,
+      scope,
+      collectionsToSearch,
       status,
       statusReason,
     });

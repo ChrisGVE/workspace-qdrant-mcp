@@ -81,12 +81,41 @@ export class StoreTool {
     this.stateManager = stateManager;
   }
 
-  /**
-   * Store content to libraries collection
-   *
-   * @param options Store options with libraryName (required)
-   * @returns StoreResponse with queue_id (content is queued, not stored immediately)
-   */
+  private async queueAndRespond(
+    content: string,
+    tenantId: string,
+    libraryLabel: string,
+    documentId: string,
+    fullMetadata: Record<string, string>,
+    sourceType: SourceType
+  ): Promise<StoreResponse> {
+    try {
+      const queueResult = await this.queueStoreOperation({
+        content,
+        tenantId,
+        libraryName: libraryLabel,
+        documentId,
+        metadata: fullMetadata,
+        sourceType,
+      });
+      return {
+        success: true,
+        documentId,
+        collection: LIBRARIES_COLLECTION,
+        message: `Content queued for processing by daemon (libraries/${tenantId})`,
+        fallback_mode: 'unified_queue',
+        queue_id: queueResult.queueId,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        collection: LIBRARIES_COLLECTION,
+        message: `Failed to queue content: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        fallback_mode: 'unified_queue',
+      };
+    }
+  }
+
   async store(options: StoreOptions): Promise<StoreResponse> {
     const {
       content,
@@ -116,31 +145,14 @@ export class StoreTool {
     const documentId = this.generateDocumentId(content, tenantId);
     const fullMetadata = this.buildStoreMetadata(metadata, sourceType, title, url, filePath);
 
-    try {
-      const queueResult = await this.queueStoreOperation({
-        content,
-        tenantId,
-        libraryName: libraryLabel,
-        documentId,
-        metadata: fullMetadata,
-        sourceType,
-      });
-      return {
-        success: true,
-        documentId,
-        collection: LIBRARIES_COLLECTION,
-        message: `Content queued for processing by daemon (libraries/${tenantId})`,
-        fallback_mode: 'unified_queue',
-        queue_id: queueResult.queueId,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        collection: LIBRARIES_COLLECTION,
-        message: `Failed to queue content: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        fallback_mode: 'unified_queue',
-      };
-    }
+    return this.queueAndRespond(
+      content,
+      tenantId,
+      libraryLabel,
+      documentId,
+      fullMetadata,
+      sourceType
+    );
   }
 
   private resolveTenant(

@@ -89,6 +89,22 @@ function buildEnqueueRequest(
  * Returns a degraded result when the daemon is unavailable rather than
  * throwing, so callers can surface a helpful message to the LLM.
  */
+/** Map a successful daemon enqueue response to a DegradedQueryResult. */
+function enqueueSuccess(response: {
+  queue_id: string;
+  is_new: boolean;
+  idempotency_key: string;
+}): DegradedQueryResult<EnqueueResult | null> {
+  return {
+    data: {
+      queueId: response.queue_id,
+      isNew: response.is_new,
+      idempotencyKey: response.idempotency_key,
+    },
+    status: 'ok',
+  };
+}
+
 export async function enqueueUnified(
   daemonClient: DaemonClient | null,
   itemType: QueueItemType,
@@ -122,14 +138,7 @@ export async function enqueueUnified(
       metadata
     );
     const response = await daemonClient.enqueueItem(request);
-    return {
-      data: {
-        queueId: response.queue_id,
-        isNew: response.is_new,
-        idempotencyKey: response.idempotency_key,
-      },
-      status: 'ok',
-    };
+    return enqueueSuccess(response);
   } catch (error) {
     return {
       data: null,

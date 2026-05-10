@@ -54,6 +54,51 @@ function pointToRule(point: {
   return rule;
 }
 
+/** Build a scroll request for the rules collection. */
+function buildScrollRequest(
+  limit: number,
+  filter: Record<string, unknown> | undefined
+): { limit: number; with_payload: boolean; filter?: Record<string, unknown> } {
+  const req: { limit: number; with_payload: boolean; filter?: Record<string, unknown> } = {
+    limit,
+    with_payload: true,
+  };
+  if (filter) req.filter = filter;
+  return req;
+}
+
+/** Attempt to read rules from the local mirror as fallback. */
+function readRulesFromMirror(
+  stateManager: SqliteStateManager,
+  scope: RuleScope,
+  resolvedProjectId: string | undefined,
+  limit: number
+): RuleResponse | null {
+  try {
+    const mirrorRows = stateManager.listRulesMirror(scope, resolvedProjectId, limit);
+    if (mirrorRows.length === 0) return null;
+    const rules: Rule[] = mirrorRows.map((row) => {
+      const rule: Rule = {
+        id: row.ruleId,
+        content: row.ruleText,
+        scope: (row.scope as RuleScope) ?? TENANT_GLOBAL,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      };
+      if (row.tenantId) rule.projectId = row.tenantId;
+      return rule;
+    });
+    return {
+      success: true,
+      action: 'list',
+      rules,
+      message: `Found ${rules.length} rule(s) from local mirror (Qdrant unavailable)`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** List rules by scope from Qdrant, with rules_mirror fallback. */
 export async function listRules(
   qdrantClient: QdrantClient,
@@ -71,42 +116,15 @@ export async function listRules(
 
   try {
     const filter = buildListFilter(scope, resolvedProjectId);
-    const scrollRequest: {
-      limit: number;
-      with_payload: boolean;
-      filter?: Record<string, unknown>;
-    } = { limit, with_payload: true };
-    if (filter) scrollRequest.filter = filter;
-
-    const scrollResult = await qdrantClient.scroll(RULES_COLLECTION, scrollRequest);
+    const scrollResult = await qdrantClient.scroll(
+      RULES_COLLECTION,
+      buildScrollRequest(limit, filter)
+    );
     const rules: Rule[] = scrollResult.points.map(pointToRule);
     return { success: true, action: 'list', rules, message: `Found ${rules.length} rule(s)` };
   } catch (error) {
-    // Qdrant unavailable — fall back to rules_mirror
-    try {
-      const mirrorRows = stateManager.listRulesMirror(scope, resolvedProjectId, limit);
-      if (mirrorRows.length > 0) {
-        const rules: Rule[] = mirrorRows.map((row) => {
-          const rule: Rule = {
-            id: row.ruleId,
-            content: row.ruleText,
-            scope: (row.scope as RuleScope) ?? TENANT_GLOBAL,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-          };
-          if (row.tenantId) rule.projectId = row.tenantId;
-          return rule;
-        });
-        return {
-          success: true,
-          action: 'list',
-          rules,
-          message: `Found ${rules.length} rule(s) from local mirror (Qdrant unavailable)`,
-        };
-      }
-    } catch {
-      // rules_mirror also unavailable
-    }
+    const mirror = readRulesFromMirror(stateManager, scope, resolvedProjectId, limit);
+    if (mirror) return mirror;
     return {
       success: false,
       action: 'list',

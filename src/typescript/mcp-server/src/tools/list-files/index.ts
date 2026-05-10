@@ -48,6 +48,29 @@ export class ListFilesTool {
     this.projectDetector = projectDetector;
   }
 
+  private buildListStats(
+    filteredFiles: TrackedFileEntry[],
+    submodules: SubmoduleEntry[],
+    basePath: string,
+    truncated: boolean,
+    totalMatching: number,
+    componentSummaries: ComponentSummary[] | undefined
+  ): ListStats {
+    const languageSet = new Set<string>();
+    for (const f of filteredFiles) {
+      if (f.language) languageSet.add(f.language);
+    }
+    const stats: ListStats = {
+      files: filteredFiles.length,
+      folders: countFolders(buildTree(filteredFiles, submodules, basePath)),
+      languages: Array.from(languageSet).sort(),
+      truncated,
+      totalMatching,
+    };
+    if (componentSummaries) stats.components = componentSummaries;
+    return stats;
+  }
+
   async list(options: ListOptions): Promise<ListResponse> {
     const format: ListFormat = options.format ?? 'tree';
     const depth = Math.min(Math.max(options.depth ?? DEFAULT_DEPTH, 1), MAX_DEPTH);
@@ -72,15 +95,11 @@ export class ListFilesTool {
     const projectPath = projectResult.data?.project_path ?? null;
 
     const { files, totalMatching } = this.queryFiles(options, watchFolderId, basePath);
-    if (!files) {
-      return errorResponse('Database unavailable', basePath, format);
-    }
+    if (!files) return errorResponse('Database unavailable', basePath, format);
 
     const { components, componentSummaries } = this.resolveComponents(watchFolderId, projectPath);
     const filteredFiles = filterFilesByComponent(files, options.component, components);
-
-    const submodulesResult = this.stateManager.listSubmodules(watchFolderId);
-    const submodules = submodulesResult.data;
+    const submodules = this.stateManager.listSubmodules(watchFolderId).data;
 
     const { listing, renderedCount } = renderFiles(
       filteredFiles,
@@ -95,27 +114,20 @@ export class ListFilesTool {
       ? `${listing}\n... (truncated, ${totalMatching} total files match)`
       : listing;
 
-    const languageSet = new Set<string>();
-    for (const f of filteredFiles) {
-      if (f.language) languageSet.add(f.language);
-    }
-
-    const stats: ListStats = {
-      files: filteredFiles.length,
-      folders: countFolders(buildTree(filteredFiles, submodules, basePath)),
-      languages: Array.from(languageSet).sort(),
-      truncated,
-      totalMatching,
-    };
-    if (componentSummaries) stats.components = componentSummaries;
-
     return {
       success: true,
       projectPath,
       basePath: basePath || '.',
       format,
       listing: finalListing,
-      stats,
+      stats: this.buildListStats(
+        filteredFiles,
+        submodules,
+        basePath,
+        truncated,
+        totalMatching,
+        componentSummaries
+      ),
     };
   }
 

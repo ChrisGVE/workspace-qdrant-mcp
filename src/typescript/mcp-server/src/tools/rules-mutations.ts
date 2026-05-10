@@ -145,6 +145,59 @@ async function resolveProjectScopeId(
   return { resolvedProjectId };
 }
 
+/** Build metadata for a new rule ingest. */
+function buildAddRuleMetadata(
+  label: string,
+  scope: RuleScope,
+  resolvedProjectId: string | undefined,
+  title: string | undefined,
+  tags: string[] | undefined,
+  priority: number | undefined
+): Record<string, string> {
+  const metadata: Record<string, string> = { scope, rule_type: 'behavioral', label };
+  if (resolvedProjectId) metadata[FIELD_PROJECT_ID] = resolvedProjectId;
+  if (title) metadata[FIELD_TITLE] = title;
+  if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
+  if (priority !== undefined) metadata['priority'] = String(priority);
+  return metadata;
+}
+
+/** Build the queue operation object for adding a rule. */
+function buildAddRuleQueueOp(
+  label: string,
+  content: string,
+  scope: RuleScope,
+  resolvedProjectId: string | undefined,
+  title: string | undefined,
+  tags: string[] | undefined,
+  priority: number | undefined
+): {
+  action: RuleAction;
+  label: string;
+  content: string;
+  scope: RuleScope;
+  projectId?: string;
+  title?: string;
+  tags?: string[];
+  priority?: number;
+} {
+  const op: {
+    action: RuleAction;
+    label: string;
+    content: string;
+    scope: RuleScope;
+    projectId?: string;
+    title?: string;
+    tags?: string[];
+    priority?: number;
+  } = { action: 'add', label, content, scope };
+  if (resolvedProjectId) op.projectId = resolvedProjectId;
+  if (title) op.title = title;
+  if (tags) op.tags = tags;
+  if (priority !== undefined) op.priority = priority;
+  return op;
+}
+
 /** Add a new rule. */
 export async function addRule(
   daemonClient: DaemonClient,
@@ -174,13 +227,8 @@ export async function addRule(
   if (error) return error;
 
   const label = options.label.trim();
-  const metadata: Record<string, string> = { scope, rule_type: 'behavioral', label };
-  if (resolvedProjectId) metadata[FIELD_PROJECT_ID] = resolvedProjectId;
-  if (title) metadata[FIELD_TITLE] = title;
-  if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
-  if (priority !== undefined) metadata['priority'] = String(priority);
+  const metadata = buildAddRuleMetadata(label, scope, resolvedProjectId, title, tags, priority);
 
-  // Try daemon first. The daemon requires `document_id` to be a valid UUID (see #57).
   try {
     const response = await daemonClient.ingestText({
       content,
@@ -197,22 +245,15 @@ export async function addRule(
     if (!isConnectivityError(err)) throw err;
   }
 
-  // Fallback: queue the operation
-  const queueOp: {
-    action: RuleAction;
-    label: string;
-    content: string;
-    scope: RuleScope;
-    projectId?: string;
-    title?: string;
-    tags?: string[];
-    priority?: number;
-  } = { action: 'add', label, content, scope };
-  if (resolvedProjectId) queueOp.projectId = resolvedProjectId;
-  if (title) queueOp.title = title;
-  if (tags) queueOp.tags = tags;
-  if (priority !== undefined) queueOp.priority = priority;
-
+  const queueOp = buildAddRuleQueueOp(
+    label,
+    content,
+    scope,
+    resolvedProjectId,
+    title,
+    tags,
+    priority
+  );
   const queueResult = await queueRuleOperation(stateManager, queueOp);
   upsertMirror(stateManager, label, content, scope ?? null, resolvedProjectId ?? null);
 
@@ -224,6 +265,49 @@ export async function addRule(
     fallback_mode: 'unified_queue',
     queue_id: queueResult.queueId,
   };
+}
+
+/** Build metadata for a rule update. */
+function buildUpdateRuleMetadata(
+  label: string,
+  title: string | undefined,
+  tags: string[] | undefined,
+  priority: number | undefined
+): Record<string, string> {
+  const metadata: Record<string, string> = { label };
+  if (title) metadata[FIELD_TITLE] = title;
+  if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
+  if (priority !== undefined) metadata['priority'] = String(priority);
+  return metadata;
+}
+
+/** Build the queue operation object for updating a rule. */
+function buildUpdateRuleQueueOp(
+  label: string,
+  content: string,
+  title: string | undefined,
+  tags: string[] | undefined,
+  priority: number | undefined
+): {
+  action: RuleAction;
+  label: string;
+  content: string;
+  title?: string;
+  tags?: string[];
+  priority?: number;
+} {
+  const op: {
+    action: RuleAction;
+    label: string;
+    content: string;
+    title?: string;
+    tags?: string[];
+    priority?: number;
+  } = { action: 'update', label, content };
+  if (title) op.title = title;
+  if (tags) op.tags = tags;
+  if (priority !== undefined) op.priority = priority;
+  return op;
 }
 
 /** Update an existing rule. */
@@ -241,10 +325,7 @@ export async function updateRule(
     return { success: false, action: 'update', message: 'Content is required for updating a rule' };
   }
 
-  const metadata: Record<string, string> = { label };
-  if (title) metadata[FIELD_TITLE] = title;
-  if (tags && tags.length > 0) metadata['tags'] = tags.join(',');
-  if (priority !== undefined) metadata['priority'] = String(priority);
+  const metadata = buildUpdateRuleMetadata(label, title, tags, priority);
 
   try {
     const response = await daemonClient.ingestText({
@@ -262,19 +343,10 @@ export async function updateRule(
     if (!isConnectivityError(err)) throw err;
   }
 
-  const updateOp: {
-    action: RuleAction;
-    label: string;
-    content: string;
-    title?: string;
-    tags?: string[];
-    priority?: number;
-  } = { action: 'update', label, content };
-  if (title) updateOp.title = title;
-  if (tags) updateOp.tags = tags;
-  if (priority !== undefined) updateOp.priority = priority;
-
-  const queueResult = await queueRuleOperation(stateManager, updateOp);
+  const queueResult = await queueRuleOperation(
+    stateManager,
+    buildUpdateRuleQueueOp(label, content, title, tags, priority)
+  );
   upsertMirror(stateManager, label, content, null, null);
 
   return {

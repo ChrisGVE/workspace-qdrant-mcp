@@ -49,6 +49,37 @@ async function dispatchStore(
  * Fires an implicit heartbeat (fire-and-forget) before dispatching so that
  * active sessions keep their daemon connection alive without adding latency.
  */
+/** Route a validated tool name to its handler and return the raw result. */
+async function routeTool(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  components: ServerComponents,
+  sessionState: SessionState
+): Promise<unknown> {
+  const { searchTool, retrieveTool, rulesTool, grepTool, listTool, healthMonitor, daemonClient } =
+    components;
+  switch (toolName) {
+    case 'search': {
+      const searchResult = await searchTool.search(buildSearchOptions(args));
+      return healthMonitor.augmentSearchResults({ success: true, ...searchResult });
+    }
+    case 'retrieve':
+      return retrieveTool.retrieve(buildRetrieveOptions(args));
+    case 'rules':
+      return rulesTool.execute(buildRuleOptions(args));
+    case 'store':
+      return dispatchStore(args, components, sessionState);
+    case 'grep':
+      return grepTool.grep(buildGrepOptions(args));
+    case 'list':
+      return listTool.list(buildListOptions(args));
+    case 'embedding':
+      return handleEmbedding(args, daemonClient);
+    default:
+      throw new Error(`Unexpected tool: ${toolName}`);
+  }
+}
+
 export async function dispatchToolCall(
   toolName: string,
   args: Record<string, unknown> | undefined,
@@ -56,10 +87,8 @@ export async function dispatchToolCall(
   sessionState: SessionState
 ): Promise<ToolResult> {
   const startTime = Date.now();
-  const { searchTool, retrieveTool, rulesTool, grepTool, listTool, healthMonitor, daemonClient } =
-    components;
 
-  sendHeartbeat(sessionState, daemonClient);
+  sendHeartbeat(sessionState, components.daemonClient);
 
   if (!KNOWN_TOOLS.includes(toolName as (typeof KNOWN_TOOLS)[number])) {
     logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });
@@ -67,29 +96,9 @@ export async function dispatchToolCall(
   }
 
   try {
-    const result = await withToolMetrics(toolName, async () => {
-      switch (toolName) {
-        case 'search': {
-          const searchResult = await searchTool.search(buildSearchOptions(args));
-          return healthMonitor.augmentSearchResults({ success: true, ...searchResult });
-        }
-        case 'retrieve':
-          return retrieveTool.retrieve(buildRetrieveOptions(args));
-        case 'rules':
-          return rulesTool.execute(buildRuleOptions(args));
-        case 'store':
-          return dispatchStore(args, components, sessionState);
-        case 'grep':
-          return grepTool.grep(buildGrepOptions(args));
-        case 'list':
-          return listTool.list(buildListOptions(args));
-        case 'embedding':
-          return handleEmbedding(args, daemonClient);
-        default:
-          throw new Error(`Unexpected tool: ${toolName}`);
-      }
-    });
-
+    const result = await withToolMetrics(toolName, () =>
+      routeTool(toolName, args, components, sessionState)
+    );
     logToolCall(toolName, Date.now() - startTime, true);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {

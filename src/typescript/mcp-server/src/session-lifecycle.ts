@@ -141,6 +141,38 @@ export async function registerProject(
  * Unlike session-start registration (register_if_new: false), this explicitly
  * registers new projects with register_if_new: true.
  */
+/** Call the daemon to register a project and log the event. */
+async function callRegisterProject(
+  daemonClient: DaemonClient,
+  resolvedPath: string,
+  name: string,
+  gitRemote: string | null
+): Promise<{
+  project_id: string;
+  created: boolean;
+  newly_registered: boolean;
+  is_active: boolean;
+  priority: string;
+}> {
+  const response = await daemonClient.registerProject({
+    path: resolvedPath,
+    project_id: '',
+    name,
+    register_if_new: true,
+    priority: 'high',
+    ...(gitRemote ? { git_remote: gitRemote } : {}),
+  });
+  logSessionEvent('register', {
+    project_id: response.project_id,
+    project_path: resolvedPath,
+    created: response.created,
+    priority: response.priority,
+    is_active: response.is_active,
+    newly_registered: response.newly_registered,
+  });
+  return response;
+}
+
 export async function registerProjectFromTool(
   args: Record<string, unknown> | undefined,
   sessionState: SessionState,
@@ -161,23 +193,7 @@ export async function registerProjectFromTool(
   const name = (args?.['name'] as string) ?? resolvedPath.split('/').pop() ?? 'unknown';
   const gitRemote = getGitRemoteUrl(resolvedPath);
 
-  const response = await daemonClient.registerProject({
-    path: resolvedPath,
-    project_id: '',
-    name,
-    register_if_new: true,
-    priority: 'high',
-    ...(gitRemote ? { git_remote: gitRemote } : {}),
-  });
-
-  logSessionEvent('register', {
-    project_id: response.project_id,
-    project_path: resolvedPath,
-    created: response.created,
-    priority: response.priority,
-    is_active: response.is_active,
-    newly_registered: response.newly_registered,
-  });
+  const response = await callRegisterProject(daemonClient, resolvedPath, name, gitRemote);
 
   return {
     success: true,

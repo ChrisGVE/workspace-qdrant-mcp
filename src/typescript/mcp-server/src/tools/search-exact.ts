@@ -9,6 +9,46 @@ import type { ProjectDetector } from '../utils/project-detector.js';
 import type { SearchOptions, SearchResult, SearchResponse } from './search-types.js';
 import { PROJECTS_COLLECTION } from './search-types.js';
 
+/** Resolve the tenant ID for an exact search from options and project detector. */
+async function resolveExactSearchTenant(
+  options: SearchOptions,
+  projectDetector: ProjectDetector
+): Promise<string | undefined> {
+  if (options.scope === 'all') return undefined;
+  if (options.projectId) return options.projectId;
+  const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+  return projectInfo?.projectId;
+}
+
+/** Map daemon text search matches to SearchResult array. */
+function mapExactResults(
+  matches: Array<{
+    file_path: string;
+    line_number: number;
+    content: string;
+    tenant_id?: string;
+    branch?: string;
+    context_before?: string[];
+    context_after?: string[];
+  }>
+): SearchResult[] {
+  return matches.map((m, idx) => ({
+    id: `${m.file_path}:${m.line_number}`,
+    score: 1.0 - idx * 0.001,
+    collection: PROJECTS_COLLECTION,
+    content: m.content,
+    metadata: {
+      file_path: m.file_path,
+      line_number: m.line_number,
+      tenant_id: m.tenant_id,
+      branch: m.branch,
+      context_before: m.context_before,
+      context_after: m.context_after,
+      _search_type: 'exact',
+    },
+  }));
+}
+
 /** Build the text search request from search options. */
 function buildExactSearchRequest(
   options: SearchOptions,
@@ -57,15 +97,7 @@ export async function searchExact(
 ): Promise<SearchResponse> {
   const startTime = Date.now();
   const eventId = randomUUID();
-
-  let tenantId: string | undefined;
-  if (options.scope !== 'all') {
-    tenantId = options.projectId;
-    if (!tenantId) {
-      const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
-      tenantId = projectInfo?.projectId;
-    }
-  }
+  const tenantId = await resolveExactSearchTenant(options, projectDetector);
 
   stateManager.logSearchEvent({
     id: eventId,
@@ -79,22 +111,7 @@ export async function searchExact(
   try {
     const request = buildExactSearchRequest(options, tenantId);
     const response = await daemonClient.textSearch(request);
-
-    const results: SearchResult[] = response.matches.map((m, idx) => ({
-      id: `${m.file_path}:${m.line_number}`,
-      score: 1.0 - idx * 0.001,
-      collection: PROJECTS_COLLECTION,
-      content: m.content,
-      metadata: {
-        file_path: m.file_path,
-        line_number: m.line_number,
-        tenant_id: m.tenant_id,
-        branch: m.branch,
-        context_before: m.context_before,
-        context_after: m.context_after,
-        _search_type: 'exact',
-      },
-    }));
+    const results = mapExactResults(response.matches);
 
     stateManager.updateSearchEvent(eventId, {
       resultCount: results.length,

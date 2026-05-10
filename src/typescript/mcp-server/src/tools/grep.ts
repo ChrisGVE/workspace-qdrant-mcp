@@ -85,6 +85,22 @@ function buildGrepRequest(
   return request;
 }
 
+/** Map daemon TextSearchMatch array to GrepMatch array. */
+function mapGrepMatches(matches: TextSearchMatch[]): GrepMatch[] {
+  return matches.map((m: TextSearchMatch) => ({
+    file: m.file_path,
+    line: m.line_number,
+    content: m.content,
+    context_before: m.context_before ?? [],
+    context_after: m.context_after ?? [],
+  }));
+}
+
+/** Build an empty failure GrepResponse. */
+function grepError(message: string, latency_ms: number): GrepResponse {
+  return { success: false, matches: [], total_matches: 0, truncated: false, latency_ms, message };
+}
+
 /**
  * Grep tool for FTS5-based code search
  */
@@ -113,16 +129,7 @@ export class GrepTool {
       projectId,
     } = options;
 
-    if (!pattern) {
-      return {
-        success: false,
-        matches: [],
-        total_matches: 0,
-        truncated: false,
-        latency_ms: 0,
-        message: 'Search pattern is required',
-      };
-    }
+    if (!pattern) return grepError('Search pattern is required', 0);
 
     const startTime = Date.now();
 
@@ -130,14 +137,10 @@ export class GrepTool {
     if (scope === 'project') {
       tenantId = projectId ?? (await this.resolveProjectId());
       if (!tenantId) {
-        return {
-          success: false,
-          matches: [],
-          total_matches: 0,
-          truncated: false,
-          latency_ms: Date.now() - startTime,
-          message: 'Could not detect project ID. Use scope "all" or provide projectId.',
-        };
+        return grepError(
+          'Could not detect project ID. Use scope "all" or provide projectId.',
+          Date.now() - startTime
+        );
       }
     }
 
@@ -153,29 +156,18 @@ export class GrepTool {
         pathGlob
       );
       const response = await this.daemonClient.textSearch(request);
-      const matches: GrepMatch[] = response.matches.map((m: TextSearchMatch) => ({
-        file: m.file_path,
-        line: m.line_number,
-        content: m.content,
-        context_before: m.context_before ?? [],
-        context_after: m.context_after ?? [],
-      }));
       return {
         success: true,
-        matches,
+        matches: mapGrepMatches(response.matches),
         total_matches: response.total_matches,
         truncated: response.truncated,
         latency_ms: Date.now() - startTime,
       };
     } catch (error) {
-      return {
-        success: false,
-        matches: [],
-        total_matches: 0,
-        truncated: false,
-        latency_ms: Date.now() - startTime,
-        message: `Grep failed: ${error instanceof Error ? error.message : 'unknown error'}`,
-      };
+      return grepError(
+        `Grep failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+        Date.now() - startTime
+      );
     }
   }
 
