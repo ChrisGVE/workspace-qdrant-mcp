@@ -26,82 +26,162 @@ import type {
 } from '../grpc-types.js';
 
 import { DaemonClientSystem } from './system-methods.js';
-import { grpcUnary } from './connection.js';
+import { grpcUnaryWithTimeout } from './connection.js';
 
 export class DaemonClientService extends DaemonClientSystem {
   // ── DocumentService ──
 
   async ingestText(request: IngestTextRequest): Promise<IngestTextResponse> {
-    return this.callWithRetry(() => grpcUnary(this.documentClient, 'ingestText', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.documentClient,
+        'ingestText',
+        request,
+        this.getMethodTimeout('ingestText')
+      )
+    );
   }
 
   // ── EmbeddingService ──
 
   async embedText(request: EmbedTextRequest): Promise<EmbedTextResponse> {
-    return this.callWithRetry(() => grpcUnary(this.embeddingClient, 'embedText', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.embeddingClient,
+        'embedText',
+        request,
+        this.getMethodTimeout('embedText')
+      )
+    );
   }
 
   async generateSparseVector(request: SparseVectorRequest): Promise<SparseVectorResponse> {
     return this.callWithRetry(() =>
-      grpcUnary(this.embeddingClient, 'generateSparseVector', request)
+      grpcUnaryWithTimeout(
+        this.embeddingClient,
+        'generateSparseVector',
+        request,
+        this.getMethodTimeout('generateSparseVector')
+      )
     );
   }
 
   // ── TextSearchService ──
 
   async textSearch(request: TextSearchRequest): Promise<TextSearchResponse> {
-    return this.callWithRetry(() => grpcUnary(this.textSearchClient, 'search', request));
+    // 'search' is the wire method name; getMethodTimeout applies the 2× ceiling.
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.textSearchClient,
+        'search',
+        request,
+        this.getMethodTimeout('search')
+      )
+    );
   }
 
   async textSearchCount(request: TextSearchRequest): Promise<TextSearchCountResponse> {
-    return this.callWithRetry(() => grpcUnary(this.textSearchClient, 'countMatches', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.textSearchClient,
+        'countMatches',
+        request,
+        this.getMethodTimeout('countMatches')
+      )
+    );
   }
 
   // ── GraphService ──
 
   async queryRelated(request: QueryRelatedRequest): Promise<QueryRelatedResponse> {
-    return this.callWithRetry(() => grpcUnary(this.graphClient, 'queryRelated', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.graphClient,
+        'queryRelated',
+        request,
+        this.getMethodTimeout('queryRelated')
+      )
+    );
   }
 
   // ── QueueWriteService ──
 
   async enqueueItem(request: EnqueueItemRequest): Promise<EnqueueItemResponse> {
-    return this.callWithRetry(() => grpcUnary(this.queueWriteClient, 'enqueueItem', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.queueWriteClient,
+        'enqueueItem',
+        request,
+        this.getMethodTimeout('enqueueItem')
+      )
+    );
   }
 
   // ── TrackingWriteService ──
 
   async logSearchEvent(request: LogSearchEventRequest): Promise<void> {
-    return this.callWithRetry(() => grpcUnary(this.trackingWriteClient, 'logSearchEvent', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.trackingWriteClient,
+        'logSearchEvent',
+        request,
+        this.getMethodTimeout('logSearchEvent')
+      )
+    );
   }
 
   async updateSearchEvent(request: UpdateSearchEventRequest): Promise<void> {
     return this.callWithRetry(() =>
-      grpcUnary(this.trackingWriteClient, 'updateSearchEvent', request)
+      grpcUnaryWithTimeout(
+        this.trackingWriteClient,
+        'updateSearchEvent',
+        request,
+        this.getMethodTimeout('updateSearchEvent')
+      )
     );
   }
 
   async upsertRuleMirror(request: UpsertRuleMirrorRequest): Promise<void> {
     return this.callWithRetry(() =>
-      grpcUnary(this.trackingWriteClient, 'upsertRuleMirror', request)
+      grpcUnaryWithTimeout(
+        this.trackingWriteClient,
+        'upsertRuleMirror',
+        request,
+        this.getMethodTimeout('upsertRuleMirror')
+      )
     );
   }
 
   async deleteRuleMirror(request: DeleteRuleMirrorRequest): Promise<void> {
     return this.callWithRetry(() =>
-      grpcUnary(this.trackingWriteClient, 'deleteRuleMirror', request)
+      grpcUnaryWithTimeout(
+        this.trackingWriteClient,
+        'deleteRuleMirror',
+        request,
+        this.getMethodTimeout('deleteRuleMirror')
+      )
     );
   }
 
   async upsertScratchpadMirror(request: UpsertScratchpadMirrorRequest): Promise<void> {
     return this.callWithRetry(() =>
-      grpcUnary(this.trackingWriteClient, 'upsertScratchpadMirror', request)
+      grpcUnaryWithTimeout(
+        this.trackingWriteClient,
+        'upsertScratchpadMirror',
+        request,
+        this.getMethodTimeout('upsertScratchpadMirror')
+      )
     );
   }
 
   async deleteScratchpadMirror(request: DeleteScratchpadMirrorRequest): Promise<void> {
     return this.callWithRetry(() =>
-      grpcUnary(this.trackingWriteClient, 'deleteScratchpadMirror', request)
+      grpcUnaryWithTimeout(
+        this.trackingWriteClient,
+        'deleteScratchpadMirror',
+        request,
+        this.getMethodTimeout('deleteScratchpadMirror')
+      )
     );
   }
 }

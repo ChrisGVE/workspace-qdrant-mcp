@@ -19,7 +19,7 @@ import type {
   HeartbeatResponse,
 } from '../grpc-types.js';
 
-import { DaemonClientBase, grpcUnary } from './connection.js';
+import { DaemonClientBase, grpcUnaryWithTimeout } from './connection.js';
 
 export class DaemonClientSystem extends DaemonClientBase {
   // ── SystemService ──
@@ -48,15 +48,26 @@ export class DaemonClientSystem extends DaemonClientBase {
   }
 
   async getStatus(): Promise<SystemStatusResponse> {
-    return this.callWithRetry(() => grpcUnary(this.systemClient, 'getStatus', {}));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(this.systemClient, 'getStatus', {}, this.getMethodTimeout('getStatus'))
+    );
   }
 
   async getMetrics(): Promise<MetricsResponse> {
-    return this.callWithRetry(() => grpcUnary(this.systemClient, 'getMetrics', {}));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(this.systemClient, 'getMetrics', {}, this.getMethodTimeout('getMetrics'))
+    );
   }
 
   async getEmbeddingProviderStatus(): Promise<GetEmbeddingProviderStatusResponse> {
-    return this.callWithRetry(() => grpcUnary(this.systemClient, 'getEmbeddingProviderStatus', {}));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.systemClient,
+        'getEmbeddingProviderStatus',
+        {},
+        this.getMethodTimeout('getEmbeddingProviderStatus')
+      )
+    );
   }
 
   async notifyServerStatus(
@@ -68,23 +79,49 @@ export class DaemonClientSystem extends DaemonClientBase {
     if (projectName !== undefined) notification.project_name = projectName;
     if (projectRoot !== undefined) notification.project_root = projectRoot;
     return this.callWithRetry(() =>
-      grpcUnary(this.systemClient, 'notifyServerStatus', notification)
+      grpcUnaryWithTimeout(
+        this.systemClient,
+        'notifyServerStatus',
+        notification,
+        this.getMethodTimeout('notifyServerStatus')
+      )
     );
   }
 
   // ── ProjectService ──
 
   async registerProject(request: RegisterProjectRequest): Promise<RegisterProjectResponse> {
-    return this.callWithRetry(() => grpcUnary(this.projectClient, 'registerProject', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'registerProject',
+        request,
+        this.getMethodTimeout('registerProject')
+      )
+    );
   }
 
   async deprioritizeProject(
     request: DeprioritizeProjectRequest
   ): Promise<DeprioritizeProjectResponse> {
-    return this.callWithRetry(() => grpcUnary(this.projectClient, 'deprioritizeProject', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'deprioritizeProject',
+        request,
+        this.getMethodTimeout('deprioritizeProject')
+      )
+    );
   }
 
   async heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse> {
-    return this.callWithRetry(() => grpcUnary(this.projectClient, 'heartbeat', request));
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'heartbeat',
+        request,
+        this.getMethodTimeout('heartbeat')
+      )
+    );
   }
 }
