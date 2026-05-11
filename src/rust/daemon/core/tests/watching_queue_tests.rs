@@ -43,7 +43,7 @@ async fn create_test_database() -> SqlitePool {
             last_error_at TEXT,
             branch TEXT DEFAULT 'main',
             metadata TEXT DEFAULT '{}',
-            file_path TEXT UNIQUE,
+            file_path TEXT,
             qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN ('pending', 'in_progress', 'done', 'failed')),
             search_status TEXT DEFAULT 'pending' CHECK (search_status IN ('pending', 'in_progress', 'done', 'failed')),
             decision_json TEXT

@@ -33,7 +33,7 @@ const CREATE_TABLE_STMTS: &[&str] = &[
         retry_count INTEGER NOT NULL DEFAULT 0,
         error_message TEXT, last_error_at TEXT,
         branch TEXT DEFAULT 'main', metadata TEXT DEFAULT '{}',
-        file_path TEXT UNIQUE
+        file_path TEXT
     )"#,
     r#"CREATE TABLE watch_folders (
         watch_id TEXT PRIMARY KEY, path TEXT NOT NULL,

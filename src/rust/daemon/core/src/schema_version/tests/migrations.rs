@@ -430,3 +430,88 @@ async fn test_v35_ddl_has_no_extra_item_types() {
         );
     }
 }
+
+// ============================================================================
+// §7.12 — Migration v36 (composite partial UNIQUE on file_path)
+// ============================================================================
+
+/// v36 rebuilds `unified_queue` so `file_path` is a plain TEXT column
+/// (no UNIQUE) and creates a composite partial UNIQUE index. Closes F-009.
+#[tokio::test]
+async fn test_v36_drops_column_unique_and_creates_composite_index() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run migrations to current version");
+
+    let queue_sql: String = sqlx::query_scalar(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='unified_queue'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        !queue_sql.contains("file_path TEXT UNIQUE"),
+        "v36 must drop the column UNIQUE on file_path; got: {}",
+        queue_sql
+    );
+
+    let composite_index: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+         WHERE type='index' AND name='idx_unified_queue_file_path_composite')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        composite_index,
+        "v36 must create idx_unified_queue_file_path_composite"
+    );
+}
+
+/// v36 allows the same `file_path` for two tenants and rejects duplicate
+/// inserts within the same `(tenant, branch, collection, item_type, op)`
+/// scope. Closes F-009.
+#[tokio::test]
+async fn test_v36_composite_unique_enforced_after_migration() {
+    let pool = create_test_pool().await;
+    let manager = SchemaManager::new(pool.clone());
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run migrations to current version");
+
+    sqlx::query(
+        "INSERT INTO unified_queue \
+             (item_type, op, tenant_id, collection, idempotency_key, branch, file_path) \
+         VALUES ('file', 'add', 't-A', 'projects', 'idem-v36-1', 'main', '/data/x.md')",
+    )
+    .execute(&pool)
+    .await
+    .expect("first row must insert");
+
+    // Same file_path, different tenant: allowed.
+    sqlx::query(
+        "INSERT INTO unified_queue \
+             (item_type, op, tenant_id, collection, idempotency_key, branch, file_path) \
+         VALUES ('file', 'add', 't-B', 'projects', 'idem-v36-2', 'main', '/data/x.md')",
+    )
+    .execute(&pool)
+    .await
+    .expect("cross-tenant insert must succeed");
+
+    // Same (tenant, branch, collection, item_type, op, file_path): rejected.
+    let err = sqlx::query(
+        "INSERT INTO unified_queue \
+             (item_type, op, tenant_id, collection, idempotency_key, branch, file_path) \
+         VALUES ('file', 'add', 't-A', 'projects', 'idem-v36-3', 'main', '/data/x.md')",
+    )
+    .execute(&pool)
+    .await;
+    assert!(
+        err.is_err(),
+        "duplicate within same scope must violate composite UNIQUE"
+    );
+}

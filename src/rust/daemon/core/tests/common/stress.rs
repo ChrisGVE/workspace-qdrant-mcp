@@ -183,7 +183,7 @@ pub async fn setup_test_db() -> (sqlx::SqlitePool, TempDir) {
             last_error_at TEXT,
             branch TEXT DEFAULT 'main',
             metadata TEXT DEFAULT '{}',
-            file_path TEXT UNIQUE
+            file_path TEXT
         )
         "#,
     )

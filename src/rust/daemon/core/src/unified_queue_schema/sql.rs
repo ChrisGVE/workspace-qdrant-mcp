@@ -35,10 +35,12 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     last_error_at TEXT,
     branch TEXT DEFAULT 'main',
     metadata TEXT DEFAULT '{}',
-    -- Task 22: Per-file deduplication
-    -- Only set for item_type='file', NULL for other types
-    -- UNIQUE constraint prevents duplicate file ingestion
-    file_path TEXT UNIQUE,
+    -- Per-file dedup column. Uniqueness is enforced by a composite
+    -- partial index (tenant_id, branch, collection, item_type, op,
+    -- file_path) WHERE file_path IS NOT NULL — NOT a global UNIQUE.
+    -- A global UNIQUE collides across tenants/branches/ops (F-009).
+    -- NULL for non-file item types.
+    file_path TEXT,
     -- State integrity: per-destination status tracking
     qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN ('pending', 'in_progress', 'done', 'failed')),
     search_status TEXT DEFAULT 'pending' CHECK (search_status IN ('pending', 'in_progress', 'done', 'failed')),
@@ -64,9 +66,15 @@ pub const CREATE_UNIFIED_QUEUE_INDEXES_SQL: &[&str] = &[
     r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_failed
        ON unified_queue(status, last_error_at DESC)
        WHERE status = 'failed'"#,
-    // Task 22: Per-file deduplication index
+    // Per-file dedup lookup index.
     r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_file_path
        ON unified_queue(file_path)
+       WHERE file_path IS NOT NULL"#,
+    // Composite uniqueness for per-file dedup. Scoped by tenant + branch +
+    // collection + item_type + op so the same file path can be enqueued for
+    // a different tenant, branch, collection, item type, or operation (F-009).
+    r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unified_queue_file_path_composite
+       ON unified_queue(tenant_id, branch, collection, item_type, op, file_path)
        WHERE file_path IS NOT NULL"#,
 ];
 

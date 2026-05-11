@@ -78,7 +78,16 @@ impl QueueManager {
             .await?;
 
         let queue_id = self
-            .resolve_queue_id(is_new, &idempotency_key, &file_path)
+            .resolve_queue_id(
+                is_new,
+                &idempotency_key,
+                item_type,
+                op,
+                tenant_id,
+                collection,
+                branch,
+                &file_path,
+            )
             .await?;
 
         self.post_enqueue_actions(
@@ -267,10 +276,24 @@ impl QueueManager {
     }
 
     /// Resolve the queue_id after INSERT OR IGNORE (handles both new and duplicate cases).
+    ///
+    /// Dedupe lookup precedence:
+    ///   1. Match `idempotency_key` (covers byte-identical payload re-enqueue).
+    ///   2. Match the composite uniqueness key
+    ///      `(tenant_id, branch, collection, item_type, op, file_path)` —
+    ///      enforced by the v36 partial UNIQUE index. The composite scope
+    ///      prevents the same file path from colliding across tenants,
+    ///      branches, collections, item types, or operations (F-009).
+    #[allow(clippy::too_many_arguments)]
     async fn resolve_queue_id(
         &self,
         is_new: bool,
         idempotency_key: &str,
+        item_type: ItemType,
+        op: UnifiedOp,
+        tenant_id: &str,
+        collection: &str,
+        branch: &str,
         file_path: &Option<String>,
     ) -> QueueResult<String> {
         if is_new {
@@ -282,7 +305,6 @@ impl QueueManager {
             .await?);
         }
 
-        // INSERT was ignored -- try idempotency_key first, then file_path
         if let Some(id) = sqlx::query_scalar::<_, String>(
             "SELECT queue_id FROM unified_queue WHERE idempotency_key = ?1",
         )
@@ -294,17 +316,23 @@ impl QueueManager {
         }
 
         if let Some(ref fp) = file_path {
-            Ok(
-                sqlx::query_scalar("SELECT queue_id FROM unified_queue WHERE file_path = ?1")
-                    .bind(fp)
-                    .fetch_one(&self.pool)
-                    .await?,
+            return Ok(sqlx::query_scalar(
+                "SELECT queue_id FROM unified_queue \
+                 WHERE tenant_id = ?1 AND branch = ?2 AND collection = ?3 \
+                       AND item_type = ?4 AND op = ?5 AND file_path = ?6",
             )
-        } else {
-            Err(QueueError::InternalError(
-                "INSERT OR IGNORE returned 0 rows but no matching idempotency_key or file_path found".to_string()
-            ))
+            .bind(tenant_id)
+            .bind(branch)
+            .bind(collection)
+            .bind(item_type.to_string())
+            .bind(op.to_string())
+            .bind(fp)
+            .fetch_one(&self.pool)
+            .await?);
         }
+        Err(QueueError::InternalError(
+            "INSERT OR IGNORE returned 0 rows but no matching idempotency_key or composite key found".to_string()
+        ))
     }
 
     /// Handle post-enqueue actions: cascade purge for deletes, or timestamp update for duplicates.

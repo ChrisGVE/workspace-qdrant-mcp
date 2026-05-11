@@ -43,12 +43,17 @@ impl WriteActor {
             &data.branch
         };
         let metadata = data.metadata_json.as_deref().unwrap_or("{}");
+        // Populate file_path for file items so the v36 composite partial
+        // UNIQUE index can dedupe equivalent enqueues from the gRPC write
+        // path (F-009).
+        let file_path = extract_file_path(item_type, &data.payload_json);
 
         let result = sqlx::query(
             r#"INSERT OR IGNORE INTO unified_queue (
                 queue_id, idempotency_key, item_type, op, tenant_id, collection,
-                status, branch, payload_json, metadata, created_at, updated_at, retry_count
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?10, 0)"#,
+                status, branch, payload_json, metadata, created_at, updated_at, retry_count,
+                file_path
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?10, 0, ?11)"#,
         )
         .bind(&queue_id)
         .bind(&idempotency_key)
@@ -60,6 +65,7 @@ impl WriteActor {
         .bind(&data.payload_json)
         .bind(metadata)
         .bind(&now)
+        .bind(&file_path)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("database error: {}", e))?;
@@ -394,6 +400,24 @@ impl WriteActor {
 
         Ok(result.rows_affected() as u32)
     }
+}
+
+/// Extract `file_path` from a JSON payload, but only for file items.
+///
+/// Used by the gRPC write path to populate the dedup column so the
+/// composite partial UNIQUE index on
+/// `(tenant_id, branch, collection, item_type, op, file_path)` enforces
+/// per-file uniqueness (F-009). Non-file items return `None`, which
+/// excludes them from the partial index.
+fn extract_file_path(item_type: ItemType, payload_json: &str) -> Option<String> {
+    if item_type != ItemType::File {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(payload_json).ok()?;
+    value
+        .get("file_path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 /// Resolve a tenant hint to (tenant_id, project_path).
