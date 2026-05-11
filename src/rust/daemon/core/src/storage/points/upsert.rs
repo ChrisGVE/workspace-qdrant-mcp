@@ -146,25 +146,97 @@ impl StorageClient {
         }
 
         let processing_time_ms = start_time.elapsed().as_millis() as u64;
-        let throughput = if processing_time_ms > 0 {
-            (successful as f64) / (processing_time_ms as f64 / 1000.0)
-        } else {
-            0.0
-        };
+        finalize_batch_result(total_points, successful, failed, processing_time_ms)
+    }
+}
 
-        let stats = BatchStats {
-            total_points,
-            successful,
-            failed,
-            processing_time_ms,
-            throughput,
-        };
+/// Build the final `Result<BatchStats, StorageError>` for a batch upsert.
+///
+/// **F-032 contract:** when `failed > 0`, return `Err(StorageError::Batch)`
+/// even when some chunks succeeded. Returning `Ok(stats)` on partial failure
+/// caused every caller (`file/ingest.rs`, `store_track.rs`, `text.rs`,
+/// `url.rs`) to treat dropped points as success and skip retry metadata.
+pub(crate) fn finalize_batch_result(
+    total_points: usize,
+    successful: usize,
+    failed: usize,
+    processing_time_ms: u64,
+) -> Result<BatchStats, StorageError> {
+    let throughput = if processing_time_ms > 0 {
+        (successful as f64) / (processing_time_ms as f64 / 1000.0)
+    } else {
+        0.0
+    };
 
-        info!(
-            "Batch insertion completed: {} successful, {} failed, {:.2} points/sec",
-            successful, failed, throughput
-        );
+    let stats = BatchStats {
+        total_points,
+        successful,
+        failed,
+        processing_time_ms,
+        throughput,
+    };
 
-        Ok(stats)
+    info!(
+        "Batch insertion completed: {} successful, {} failed, {:.2} points/sec",
+        successful, failed, throughput
+    );
+
+    if failed > 0 {
+        return Err(StorageError::Batch(format!(
+            "partial batch failure: {} of {} points failed (successful={}, time_ms={})",
+            failed, total_points, successful, processing_time_ms
+        )));
+    }
+
+    Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalize_batch_result_all_success_returns_ok() {
+        let result = finalize_batch_result(5, 5, 0, 100);
+        let stats = result.expect("all-success batch must return Ok");
+        assert_eq!(stats.total_points, 5);
+        assert_eq!(stats.successful, 5);
+        assert_eq!(stats.failed, 0);
+        assert_eq!(stats.processing_time_ms, 100);
+    }
+
+    #[test]
+    fn finalize_batch_result_empty_returns_ok() {
+        let result = finalize_batch_result(0, 0, 0, 0);
+        let stats = result.expect("empty batch must return Ok");
+        assert_eq!(stats.total_points, 0);
+        assert_eq!(stats.successful, 0);
+        assert_eq!(stats.failed, 0);
+    }
+
+    #[test]
+    fn finalize_batch_result_partial_failure_returns_err() {
+        // F-032 regression: 3 of 5 points failed mid-batch — caller must see
+        // Err, not Ok with stats.failed > 0, so retry metadata is populated.
+        let result = finalize_batch_result(5, 2, 3, 100);
+        let err = result.expect_err("partial failure must return Err");
+        match err {
+            StorageError::Batch(msg) => {
+                assert!(
+                    msg.contains("partial batch failure"),
+                    "error message should label the partial failure, got: {msg}"
+                );
+                assert!(msg.contains("3"), "must include failed count, got: {msg}");
+                assert!(msg.contains("5"), "must include total count, got: {msg}");
+            }
+            other => panic!("expected StorageError::Batch, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn finalize_batch_result_all_failed_returns_err() {
+        let result = finalize_batch_result(4, 0, 4, 50);
+        let err = result.expect_err("total failure must return Err");
+        assert!(matches!(err, StorageError::Batch(_)));
     }
 }
