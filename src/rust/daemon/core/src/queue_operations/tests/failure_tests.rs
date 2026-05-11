@@ -249,3 +249,88 @@ async fn test_re_lease_item_preserves_retry_count() {
     assert_eq!(status, "pending", "re-leased item should be pending");
     assert_eq!(retry_count, 1, "re_lease must not increment retry_count");
 }
+
+/// F-035 regression: when Qdrant delete fails during file delete processing,
+/// the tracked_files row MUST stay intact and the queue row picks up retry
+/// metadata. Previously, delete handlers logged the Qdrant error and proceeded
+/// with SQLite cleanup — stale vectors stayed retrievable in Qdrant while the
+/// local row that recorded their existence was already gone.
+#[tokio::test]
+async fn test_qdrant_delete_failure_preserves_tracked_file_and_queues_retry() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("f035_delete_failure.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+    use crate::tracked_files_schema::CREATE_TRACKED_FILES_SQL;
+    sqlx::query(CREATE_TRACKED_FILES_SQL)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool.clone());
+    manager.init_unified_queue().await.unwrap();
+
+    // Insert a watch folder + tracked file the queue handler would target.
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+         VALUES ('w-f035', '/tmp/f035', 'projects', 't-f035', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+    ).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, collection, base_point, relative_path, created_at, updated_at)
+         VALUES ('w-f035', 'src/lib.rs', 'main', '2025-01-01T00:00:00Z', 'h_f035', 'projects', 'bp_f035', 'src/lib.rs', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+    ).execute(&pool).await.unwrap();
+
+    // Enqueue a Delete operation.
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Delete,
+            "t-f035",
+            "projects",
+            r#"{"file_path":"/tmp/f035/src/lib.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Simulate the F-035 fix: handler returned Storage error from Qdrant delete
+    // before touching SQLite. The processor calls mark_unified_failed.
+    let err_msg = "[transient_resource] Qdrant delete failed for src/lib.rs (3 tracked points): connection refused";
+    manager
+        .mark_unified_failed(&queue_id, err_msg, false, 3)
+        .await
+        .unwrap();
+
+    // Queue row has retry metadata.
+    let row: (Option<String>, i32, Option<String>, Option<String>, String) = sqlx::query_as(
+        r#"SELECT error_message, retry_count, last_error_at, lease_until, status
+           FROM unified_queue WHERE queue_id = ?1"#,
+    )
+    .bind(&queue_id)
+    .fetch_one(manager.pool())
+    .await
+    .unwrap();
+    let (got_err, retry_count, last_error_at, lease_until, status) = row;
+    assert_eq!(got_err.as_deref(), Some(err_msg));
+    assert_eq!(retry_count, 1);
+    assert!(last_error_at.is_some());
+    assert!(lease_until.is_some(), "must schedule backoff for retry");
+    assert_eq!(status, "pending");
+
+    // The tracked_files row MUST still exist — Qdrant delete failed, so we
+    // must not have wiped the local record (would orphan vectors in Qdrant).
+    let tracked_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tracked_files WHERE watch_folder_id = 'w-f035' AND relative_path = 'src/lib.rs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        tracked_count, 1,
+        "tracked_files row must be preserved when Qdrant delete fails (F-035)"
+    );
+}

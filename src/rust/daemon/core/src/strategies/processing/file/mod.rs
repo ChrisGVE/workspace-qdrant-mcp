@@ -109,7 +109,10 @@ impl FileStrategy {
         }
 
         if !file_path.exists() {
-            handle_missing_file(ctx, item, pool, &watch_folder_id, &relative_path, &payload).await;
+            // F-035: handle_missing_file now returns Err if Qdrant delete failed;
+            // propagate so the queue row picks up retry metadata.
+            handle_missing_file(ctx, item, pool, &watch_folder_id, &relative_path, &payload)
+                .await?;
             return Ok(());
         }
 
@@ -209,6 +212,9 @@ fn passes_ingestion_guards(
 
 /// Handle a queue item whose file no longer exists on disk: clean up tracked
 /// records and mark both destinations done so the item is dequeued cleanly.
+///
+/// **F-035:** if Qdrant cleanup fails, returns `Err` without marking
+/// destinations done — the queue row stays for retry.
 async fn handle_missing_file(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -216,8 +222,8 @@ async fn handle_missing_file(
     watch_folder_id: &str,
     relative_path: &str,
     payload: &FilePayload,
-) {
-    delete::cleanup_missing_file(ctx, item, pool, watch_folder_id, relative_path, payload).await;
+) -> crate::unified_queue_processor::UnifiedProcessorResult<()> {
+    delete::cleanup_missing_file(ctx, item, pool, watch_folder_id, relative_path, payload).await?;
     let _ = ctx
         .queue_manager
         .update_destination_status(
@@ -238,6 +244,7 @@ async fn handle_missing_file(
         "File no longer exists, cleaned up and dequeuing: {}",
         payload.file_path
     );
+    Ok(())
 }
 
 /// Handle the Update pre-flight: hash comparison and reference-counted deletion.

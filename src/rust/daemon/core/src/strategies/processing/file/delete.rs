@@ -18,6 +18,12 @@ use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResu
 use crate::unified_queue_schema::{FilePayload, UnifiedQueueItem};
 
 /// Process file delete operation with tracked_files awareness (Task 506 + Task 519).
+///
+/// **F-035 contract:** Qdrant delete failures block SQLite cleanup and return
+/// `Err`. The tracked_files row stays intact and the queue row enters retry
+/// via `mark_unified_failed`. Without this, stale Qdrant vectors stayed
+/// retrievable after the local row was wiped, with no record that cleanup
+/// had failed.
 pub(super) async fn process_file_delete(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -51,7 +57,7 @@ pub(super) async fn process_file_delete(
             duration_ms: delete_start.elapsed().as_millis() as u64,
         });
 
-        delete_tracked_file(
+        let delete_result = delete_tracked_file(
             ctx,
             item,
             pool,
@@ -65,17 +71,25 @@ pub(super) async fn process_file_delete(
         .await;
 
         record_delete_timings(ctx, item, pool, detected_language, &timings).await;
-        return Ok(());
+        return delete_result;
     }
 
-    // Fallback: file not in tracked_files — attempt Qdrant filter delete (best-effort).
-    fallback_qdrant_delete(ctx, item, abs_file_path, delete_start, &mut timings).await;
+    // Fallback: file not in tracked_files — attempt Qdrant filter delete.
+    // F-035: a fallback Qdrant delete failure is still a real failure — the
+    // points may exist but cannot be deleted. Surface it so retry metadata is
+    // populated.
+    let fallback_result =
+        fallback_qdrant_delete(ctx, item, abs_file_path, delete_start, &mut timings).await;
     record_delete_timings(ctx, item, pool, detected_language, &timings).await;
-    Ok(())
+    fallback_result
 }
 
 /// Delete a file that is present in tracked_files: Qdrant (ref-counted), SQLite,
 /// FTS5, graph edges, and keyword extractions.
+///
+/// **F-035:** if the Qdrant delete fails, `tracked_files` row is preserved and
+/// `Err` is returned so the queue row gets retry metadata. Without this guard,
+/// stale vectors stayed in Qdrant while local tracking was already wiped.
 #[allow(clippy::too_many_arguments)]
 async fn delete_tracked_file(
     ctx: &ProcessingContext,
@@ -87,13 +101,25 @@ async fn delete_tracked_file(
     existing: &tracked_files_schema::TrackedFile,
     timings: &mut Vec<PhaseTiming>,
     delete_start: Instant,
-) {
+) -> UnifiedProcessorResult<()> {
     let delete_from_qdrant =
         check_qdrant_deletion_needed(ctx, watch_folder_id, relative_path, existing).await;
 
     let t0 = Instant::now();
     if delete_from_qdrant {
-        delete_qdrant_points(ctx, item, pool, relative_path, abs_file_path, existing).await;
+        if let Err(e) =
+            delete_qdrant_points(ctx, item, pool, relative_path, abs_file_path, existing).await
+        {
+            timings.push(PhaseTiming {
+                phase: "qdrant_delete",
+                duration_ms: t0.elapsed().as_millis() as u64,
+            });
+            warn!(
+                "Qdrant delete failed for {} — leaving tracked_files row intact and queuing retry: {}",
+                relative_path, e
+            );
+            return Err(e);
+        }
     }
     timings.push(PhaseTiming {
         phase: "qdrant_delete",
@@ -133,6 +159,7 @@ async fn delete_tracked_file(
             delete_from_qdrant
         );
     }
+    Ok(())
 }
 
 /// Determine whether Qdrant points should be deleted (reference-count check).
@@ -160,7 +187,11 @@ async fn check_qdrant_deletion_needed(
     }
 }
 
-/// Delete Qdrant points for a tracked file (best-effort).
+/// Delete Qdrant points for a tracked file.
+///
+/// **F-035:** propagate Qdrant errors so the caller can short-circuit SQLite
+/// cleanup. Returning `Ok(())` on failure silently dropped the local row
+/// while leaving the vectors retrievable in Qdrant.
 async fn delete_qdrant_points(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -168,25 +199,27 @@ async fn delete_qdrant_points(
     relative_path: &str,
     abs_file_path: &str,
     existing: &tracked_files_schema::TrackedFile,
-) {
+) -> UnifiedProcessorResult<()> {
     let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
         .await
         .unwrap_or_default();
 
-    if !point_ids.is_empty() {
-        if let Err(e) = ctx
-            .storage_client
-            .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
-            .await
-        {
-            warn!(
-                "Qdrant delete failed for {} ({} tracked points): {} — proceeding with SQLite cleanup",
+    if point_ids.is_empty() {
+        return Ok(());
+    }
+
+    ctx.storage_client
+        .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
+        .await
+        .map_err(|e| {
+            UnifiedProcessorError::Storage(format!(
+                "Qdrant delete failed for {} ({} tracked points): {}",
                 relative_path,
                 point_ids.len(),
                 e
-            );
-        }
-    }
+            ))
+        })?;
+    Ok(())
 }
 
 /// Delete the tracked_files row in a transaction. Returns `true` on success.
@@ -252,41 +285,45 @@ async fn cleanup_fts5(ctx: &ProcessingContext, existing: &tracked_files_schema::
 }
 
 /// Fallback delete when the file is not in tracked_files: attempt Qdrant filter delete.
+///
+/// **F-035:** Qdrant errors are real failures (network/auth/server fault),
+/// not "points might not exist" — the Qdrant client returns Ok with zero
+/// affected points if nothing matches the filter. Propagate Err so the
+/// caller queues a retry instead of silently swallowing the failure.
 async fn fallback_qdrant_delete(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     abs_file_path: &str,
     delete_start: Instant,
     timings: &mut Vec<PhaseTiming>,
-) {
+) -> UnifiedProcessorResult<()> {
     debug!(
         "File not in tracked_files, attempting Qdrant filter delete: {}",
         abs_file_path
     );
     let t0 = Instant::now();
-    match ctx
+    let result = ctx
         .storage_client
         .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
-        .await
-    {
+        .await;
+    timings.push(PhaseTiming {
+        phase: "qdrant_delete",
+        duration_ms: t0.elapsed().as_millis() as u64,
+    });
+    match result {
         Ok(_) => {
             info!(
                 "Deleted points for file (fallback) in {}ms: {}",
                 delete_start.elapsed().as_millis(),
                 abs_file_path
             );
+            Ok(())
         }
-        Err(e) => {
-            warn!(
-                "Qdrant fallback delete failed for {}: {} — treating as success (points may not exist)",
-                abs_file_path, e
-            );
-        }
+        Err(e) => Err(UnifiedProcessorError::Storage(format!(
+            "Qdrant fallback delete failed for {}: {}",
+            abs_file_path, e
+        ))),
     }
-    timings.push(PhaseTiming {
-        phase: "qdrant_delete",
-        duration_ms: t0.elapsed().as_millis() as u64,
-    });
 }
 
 /// Record timing data for delete operations.
@@ -312,6 +349,10 @@ async fn record_delete_timings(
 }
 
 /// Clean up tracked records and Qdrant points for a file that no longer exists on disk.
+///
+/// **F-035:** if Qdrant deletion fails, returns `Err` and leaves the
+/// tracked_files row intact. Without this, missing-file cleanup wiped the
+/// local row while Qdrant still held vectors that could surface in search.
 pub(super) async fn cleanup_missing_file(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -319,7 +360,7 @@ pub(super) async fn cleanup_missing_file(
     watch_folder_id: &str,
     relative_path: &str,
     payload: &FilePayload,
-) {
+) -> UnifiedProcessorResult<()> {
     if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
         pool,
         watch_folder_id,
@@ -338,19 +379,18 @@ pub(super) async fn cleanup_missing_file(
             .await
             .unwrap_or_default();
 
-        // Delete Qdrant points first (irreversible), scoped to tenant
+        // Delete Qdrant points first (irreversible), scoped to tenant.
+        // F-035: surface Qdrant errors so the queue row can retry with metadata.
         if !point_ids.is_empty() {
-            if let Err(e) = ctx
-                .storage_client
+            ctx.storage_client
                 .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
                 .await
-            {
-                // Qdrant deletion failed but may already be gone - log and continue cleanup
-                warn!(
-                    "Qdrant point deletion failed for missing file {}: {} (points may already be gone)",
-                    relative_path, e
-                );
-            }
+                .map_err(|e| {
+                    UnifiedProcessorError::Storage(format!(
+                        "Qdrant delete for missing file {} failed: {}",
+                        relative_path, e
+                    ))
+                })?;
         }
 
         // Clean up SQLite records in a transaction (CASCADE handles qdrant_chunks)
@@ -392,6 +432,7 @@ pub(super) async fn cleanup_missing_file(
             );
         }
     }
+    Ok(())
 }
 
 /// Handle Qdrant insert failure by cleaning up stale SQLite state.
