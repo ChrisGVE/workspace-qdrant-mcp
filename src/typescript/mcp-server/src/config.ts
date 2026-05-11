@@ -58,7 +58,7 @@ function loadConfigFromFile(filePath: string): Partial<ServerConfig> {
 }
 
 function mergeConfigs(base: ServerConfig, override: Partial<ServerConfig>): ServerConfig {
-  return {
+  const merged: ServerConfig = {
     database: { ...base.database, ...override.database },
     qdrant: { ...base.qdrant, ...override.qdrant },
     daemon: { ...base.daemon, ...override.daemon },
@@ -66,6 +66,25 @@ function mergeConfigs(base: ServerConfig, override: Partial<ServerConfig>): Serv
     collections: { ...base.collections, ...override.collections },
     environment: { ...base.environment, ...override.environment },
   };
+
+  // Merge rules block: override values win, base provides defaults.
+  if (base.rules !== undefined || override.rules !== undefined) {
+    merged.rules = {
+      ...(base.rules ?? {}),
+      ...(override.rules ?? {}),
+      limits: {
+        ...(base.rules?.limits ?? {
+          maxLabelLength: 0,
+          maxTitleLength: 0,
+          maxTagLength: 0,
+          maxTagsPerRule: 0,
+        }),
+        ...(override.rules?.limits ?? {}),
+      },
+    };
+  }
+
+  return merged;
 }
 
 function applyEnvironmentOverrides(config: ServerConfig): ServerConfig {
