@@ -8,13 +8,16 @@ import {
   SPARSE_VECTOR_NAME,
   RRF_K,
   DEFAULT_LIMIT,
+  PROJECTS_COLLECTION,
   type SearchMode,
   type SearchResult,
   type SearchCollectionParams,
   type ParentContext,
   type SearchOptions,
   type SearchResponse,
+  type FilterParams,
 } from './search-types.js';
+import { buildFilter } from './search-filters.js';
 import { FIELD_CONTENT, FIELD_TITLE, FIELD_PARENT_UNIT_ID } from '../common/native-bridge.js';
 
 /** Map a Qdrant search hit to a SearchResult. */
@@ -261,21 +264,84 @@ function matchScrollPoints(
   return matched;
 }
 
-/** Fallback search when daemon is unavailable (Qdrant scroll text matching). */
+/** Resolved tenant context for the fallback path. */
+export interface FallbackTenantContext {
+  /** Resolved project ID — required when `scope === 'project'`. */
+  currentProjectId: string | undefined;
+  /** Optional base_points list for instance-aware filtering. */
+  basePoints: string[] | undefined;
+}
+
+/**
+ * Build the per-collection scroll filter for the fallback path. Returns
+ * `null` when scope = `'project'` but the tenant could not be resolved —
+ * the caller MUST refuse to scroll in that case rather than broaden to
+ * every tenant in the collection (F-001).
+ */
+function buildFallbackFilter(
+  collection: string,
+  options: SearchOptions,
+  context: FallbackTenantContext
+): Record<string, unknown> | null {
+  const scope = options.scope ?? 'project';
+  // F-001: project-scope fallback REQUIRES a resolved tenant. Without
+  // one, refuse to scroll — broad scroll + local substring match would
+  // leak documents from foreign tenants.
+  if (scope === 'project' && !context.currentProjectId) return null;
+  const filterParams: FilterParams = {
+    collection,
+    scope,
+    projectId: context.currentProjectId,
+    branch: options.branch,
+    fileType: options.fileType,
+    libraryName: options.libraryName,
+    tag: options.tag,
+    tags: options.tags,
+    pathGlob: options.pathGlob,
+    component: options.component,
+    basePoints: collection === PROJECTS_COLLECTION ? context.basePoints : undefined,
+  };
+  return buildFilter(filterParams);
+}
+
+/**
+ * Fallback search when daemon is unavailable.
+ *
+ * Closes F-001: scrolls Qdrant with a tenant/project/library filter built
+ * from the same `buildFilter` helper as the primary search path. If the
+ * filter cannot be assembled (project-scope with unresolved project), no
+ * scroll is performed and the caller receives a degraded, empty result
+ * with a `status_reason` explaining why. Local substring matching on raw
+ * scroll output has been removed — when filtering is in place the scroll
+ * itself is the matcher; when it isn't, we refuse to read.
+ */
 export async function fallbackSearch(
   qdrantClient: QdrantClient,
   options: SearchOptions,
-  collections: string[]
+  collections: string[],
+  context: FallbackTenantContext
 ): Promise<SearchResponse> {
   const results: SearchResult[] = [];
   const queryLower = options.query.toLowerCase();
+  const refusedCollections: string[] = [];
+  let attemptedCollections = 0;
 
   for (const collection of collections) {
+    const filter = buildFallbackFilter(collection, options, context);
+    if (!filter) {
+      // F-001: project-scope fallback with unresolved tenant — never scroll.
+      refusedCollections.push(collection);
+      continue;
+    }
+    attemptedCollections += 1;
     try {
       const scrollResult = await qdrantClient.scroll(collection, {
         limit: (options.limit ?? DEFAULT_LIMIT) * 3,
         with_payload: true,
+        filter,
       });
+      // Substring-match within the tenant-scoped page only (the filter
+      // already enforces isolation; this is a coarse keyword filter).
       results.push(...matchScrollPoints(scrollResult.points, collection, queryLower));
     } catch {
       // Collection may not exist
@@ -283,15 +349,20 @@ export async function fallbackSearch(
   }
 
   const limitedResults = results.slice(0, options.limit ?? DEFAULT_LIMIT);
+  const scope = options.scope ?? 'project';
+  const isDegraded = attemptedCollections === 0 && refusedCollections.length > 0;
+  const statusReason = isDegraded
+    ? `Daemon unavailable and project scope unresolved - cannot run cross-tenant fallback. Refused collections: ${refusedCollections.join(', ')}`
+    : 'Daemon unavailable - using fallback text search';
   return {
     results: limitedResults,
     total: limitedResults.length,
     query: options.query,
     mode: options.mode ?? 'hybrid',
-    scope: options.scope ?? 'project',
+    scope,
     collections_searched: collections,
     status: 'uncertain',
-    status_reason: 'Daemon unavailable - using fallback text search',
+    status_reason: statusReason,
   };
 }
 

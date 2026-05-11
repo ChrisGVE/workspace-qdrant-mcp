@@ -98,7 +98,8 @@ export class SearchTool {
     query: string,
     mode: import('./search-types.js').SearchMode,
     collectionsToSearch: string[],
-    currentProjectId: string | undefined
+    currentProjectId: string | undefined,
+    basePoints: string[] | undefined
   ): Promise<
     | { fallback: SearchResponse }
     | { denseEmbedding: number[] | undefined; sparseVector: Record<number, number> | undefined }
@@ -109,7 +110,8 @@ export class SearchTool {
       query,
       mode,
       options,
-      collectionsToSearch
+      collectionsToSearch,
+      { currentProjectId, basePoints }
     );
     if ('fallback' in embeddings) return embeddings;
     let { denseEmbedding, sparseVector } = embeddings;
@@ -178,7 +180,8 @@ export class SearchTool {
       options.query,
       mode,
       collectionsToSearch,
-      currentProjectId
+      currentProjectId,
+      basePoints
     );
     if ('fallback' in embeddings) return embeddings.fallback;
     return this.runSearchAndFinalize(

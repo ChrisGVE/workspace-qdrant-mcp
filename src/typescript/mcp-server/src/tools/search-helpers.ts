@@ -98,7 +98,8 @@ export async function generateEmbeddings(
   query: string,
   mode: SearchMode,
   options: SearchOptions,
-  collectionsToSearch: string[]
+  collectionsToSearch: string[],
+  fallbackContext: { currentProjectId: string | undefined; basePoints: string[] | undefined }
 ): Promise<
   | { denseEmbedding: number[] | undefined; sparseVector: Record<number, number> | undefined }
   | { fallback: SearchResponse }
@@ -115,7 +116,9 @@ export async function generateEmbeddings(
       if (r.success) sparseVector = r.indices_values;
     }
   } catch {
-    return { fallback: await fallbackSearch(qdrantClient, options, collectionsToSearch) };
+    return {
+      fallback: await fallbackSearch(qdrantClient, options, collectionsToSearch, fallbackContext),
+    };
   }
   return { denseEmbedding, sparseVector };
 }
