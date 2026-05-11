@@ -60,15 +60,31 @@ impl UrlStrategy {
             return Self::handle_url_delete(ctx, item, &payload).await;
         }
 
-        let (body, content_type) = fetch_url_content(&payload.url).await?;
+        let fetched = super::url_fetch::fetch_url_secured(&payload.url, &ctx.url_ingestion)
+            .await
+            .map_err(|e| {
+                UnifiedProcessorError::ProcessingFailed(format!(
+                    "URL fetch failed ({}): {}",
+                    payload.url, e
+                ))
+            })?;
 
-        let is_html = content_type.contains("text/html");
-        let title = extract_title(&payload, &body, is_html);
-        let extracted_text = extract_text(&body, is_html);
+        let is_html = fetched.content_type.contains("text/html")
+            || fetched.content_type.contains("xhtml")
+            || fetched.content_type.contains("application/xml");
+        let title = extract_title(&payload, &fetched.body, is_html);
+        let extracted_text = extract_text(&fetched.body, is_html);
 
         if extracted_text.trim().is_empty() {
             warn!("URL {} yielded empty content after extraction", payload.url);
             return Ok(());
+        }
+
+        if fetched.truncated {
+            warn!(
+                "URL {} body truncated at {} bytes (config cap reached)",
+                payload.url, ctx.url_ingestion.max_body_bytes
+            );
         }
 
         let document_id = compute_url_document_id(&payload.url);
@@ -82,8 +98,16 @@ impl UrlStrategy {
         )
         .await?;
 
-        let point_payload =
-            build_url_payload(item, &payload, &extracted_text, &document_id, &title);
+        let point_payload = build_url_payload(
+            item,
+            &payload,
+            &extracted_text,
+            &document_id,
+            &title,
+            &fetched.final_url,
+            &fetched.content_type,
+            fetched.truncated,
+        );
 
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &payload.url, 0),
@@ -141,34 +165,6 @@ impl UrlStrategy {
     }
 }
 
-/// Fetch URL content, returning `(body, content_type)`.
-async fn fetch_url_content(url: &str) -> UnifiedProcessorResult<(String, String)> {
-    let response = reqwest::get(url).await.map_err(|e| {
-        UnifiedProcessorError::ProcessingFailed(format!("Failed to fetch URL {}: {}", url, e))
-    })?;
-
-    let status = response.status();
-    if !status.is_success() {
-        return Err(UnifiedProcessorError::ProcessingFailed(format!(
-            "HTTP {} for URL {}",
-            status, url
-        )));
-    }
-
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("text/html")
-        .to_string();
-
-    let body = response.text().await.map_err(|e| {
-        UnifiedProcessorError::ProcessingFailed(format!("Failed to read response body: {}", e))
-    })?;
-
-    Ok((body, content_type))
-}
-
 /// Extract a title from the payload or from the HTML body.
 fn extract_title(payload: &UrlPayload, body: &str, is_html: bool) -> String {
     payload.title.clone().unwrap_or_else(|| {
@@ -203,18 +199,25 @@ fn compute_url_document_id(url: &str) -> String {
 }
 
 /// Build the Qdrant payload map for a URL item.
+#[allow(clippy::too_many_arguments)]
 fn build_url_payload(
     item: &UnifiedQueueItem,
     payload: &UrlPayload,
     extracted_text: &str,
     document_id: &str,
     title: &str,
+    final_url: &str,
+    content_type: &str,
+    truncated: bool,
 ) -> std::collections::HashMap<String, serde_json::Value> {
     let mut point_payload = std::collections::HashMap::new();
     point_payload.insert("content".to_string(), serde_json::json!(extracted_text));
     point_payload.insert("document_id".to_string(), serde_json::json!(document_id));
     point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
     point_payload.insert("source_url".to_string(), serde_json::json!(payload.url));
+    point_payload.insert("final_url".to_string(), serde_json::json!(final_url));
+    point_payload.insert("content_type".to_string(), serde_json::json!(content_type));
+    point_payload.insert("truncated".to_string(), serde_json::json!(truncated));
     point_payload.insert("title".to_string(), serde_json::json!(title));
     point_payload.insert("source_type".to_string(), serde_json::json!("web"));
     point_payload.insert("item_type".to_string(), serde_json::json!("url"));
