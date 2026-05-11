@@ -7,7 +7,15 @@
 // Unified Queue Types
 // ============================================================================
 
-export type QueueItemType = 'text' | 'file' | 'url' | 'website' | 'doc' | 'folder' | 'tenant' | 'collection';
+export type QueueItemType =
+  | 'text'
+  | 'file'
+  | 'url'
+  | 'website'
+  | 'doc'
+  | 'folder'
+  | 'tenant'
+  | 'collection';
 export type QueueOperation = 'add' | 'update' | 'delete' | 'scan' | 'rename' | 'uplift' | 'reset';
 export type QueueStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
@@ -29,7 +37,7 @@ export interface UnifiedQueueItem {
   max_retries: number;
   last_error?: string;
   leased_by?: string;
-  lease_expires_at?: string;
+  lease_until?: string;
 }
 
 export interface QueueStats {

@@ -25,6 +25,27 @@ function handleTableNotFoundOrThrow<T>(
   throw error;
 }
 
+/**
+ * Deterministic JSON stringifier with recursively sorted object keys.
+ *
+ * Used to produce a stable `payload_json` for queue idempotency hashing.
+ * `JSON.stringify`'s replacer-array form only includes the listed keys at
+ * every depth, which silently drops nested fields — we cannot rely on it
+ * here (F-008).
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const sortedKeys = Object.keys(obj).sort();
+  const entries = sortedKeys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
+  return `{${entries.join(',')}}`;
+}
+
 /** Validate enqueue parameters. Throws on invalid input. */
 function validateEnqueueParams(
   itemType: QueueItemType,
@@ -76,7 +97,7 @@ function buildEnqueueRequest(
     op,
     tenant_id: tenantId,
     collection,
-    payload_json: JSON.stringify(payload, Object.keys(payload).sort()),
+    payload_json: stableStringify(payload),
     branch,
   };
   if (metadata) request.metadata_json = JSON.stringify(metadata);
@@ -169,7 +190,7 @@ function queryRawQueueStats(db: DatabaseType): QueueStats {
 
   const staleCount = db
     .prepare(
-      "SELECT COUNT(*) as count FROM unified_queue WHERE status = 'in_progress' AND lease_expires_at < datetime('now')"
+      "SELECT COUNT(*) as count FROM unified_queue WHERE status = 'in_progress' AND lease_until < datetime('now')"
     )
     .get() as { count: number };
 

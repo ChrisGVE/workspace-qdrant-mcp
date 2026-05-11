@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     max_retries INTEGER DEFAULT 3,
     last_error TEXT,
     leased_by TEXT,
-    lease_expires_at TEXT
+    lease_until TEXT
 );
 
 CREATE TABLE IF NOT EXISTS watch_folders (
