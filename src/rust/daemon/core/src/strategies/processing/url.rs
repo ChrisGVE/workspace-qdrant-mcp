@@ -89,43 +89,61 @@ impl UrlStrategy {
 
         let document_id = compute_url_document_id(&payload.url);
 
-        // Generate embedding (semaphore-gated)
-        let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
-            &ctx.embedding_generator,
-            &ctx.embedding_semaphore,
-            &extracted_text,
-            "all-MiniLM-L6-v2",
-        )
-        .await?;
+        // Chunk extracted text using shared chunker so large pages produce
+        // multiple embeddings rather than one massive vector.
+        let chunks = chunk_url_text(&extracted_text, ctx.document_processor.chunking_config());
+        let chunk_count = chunks.len();
 
-        let point_payload = build_url_payload(
-            item,
-            &payload,
-            &extracted_text,
-            &document_id,
-            &title,
-            &fetched.final_url,
-            &fetched.content_type,
-            fetched.truncated,
-        );
+        let mut points: Vec<DocumentPoint> = Vec::with_capacity(chunk_count);
+        for chunk in &chunks {
+            let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
+                &ctx.embedding_generator,
+                &ctx.embedding_semaphore,
+                &chunk.content,
+                "all-MiniLM-L6-v2",
+            )
+            .await?;
 
-        let point = DocumentPoint {
-            id: crate::generate_point_id(&item.tenant_id, &item.branch, &payload.url, 0),
-            dense_vector: embed_result.dense_vector,
-            sparse_vector: embed_result.sparse_vector,
-            payload: point_payload,
-        };
+            let point_payload = build_url_payload(
+                item,
+                &payload,
+                &chunk.content,
+                &document_id,
+                &title,
+                &fetched.final_url,
+                &fetched.content_type,
+                fetched.truncated,
+                chunk.chunk_index,
+                chunk_count,
+                chunk.start_char,
+                chunk.end_char,
+            );
 
+            points.push(DocumentPoint {
+                id: crate::generate_point_id(
+                    &item.tenant_id,
+                    &item.branch,
+                    &payload.url,
+                    chunk.chunk_index,
+                ),
+                dense_vector: embed_result.dense_vector,
+                sparse_vector: embed_result.sparse_vector,
+                payload: point_payload,
+            });
+        }
+
+        let batch_size = points.len();
         ctx.storage_client
-            .insert_points_batch(&item.collection, vec![point], Some(1))
+            .insert_points_batch(&item.collection, points, Some(batch_size.max(1)))
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         info!(
-            "Successfully processed URL item {} (url={}, content_length={})",
+            "Successfully processed URL item {} (url={}, content_length={}, chunks={})",
             item.queue_id,
             payload.url,
-            extracted_text.len()
+            extracted_text.len(),
+            chunk_count
         );
 
         Ok(())
@@ -198,20 +216,47 @@ fn compute_url_document_id(url: &str) -> String {
     format!("{:x}", hasher.finalize())[..32].to_string()
 }
 
-/// Build the Qdrant payload map for a URL item.
+/// Chunk extracted URL text. Uses the shared `chunk_text` chunker so URLs
+/// share the same paragraph-aware boundary logic as file ingestion. Empty
+/// input collapses to a single empty chunk (callers short-circuit before this).
+fn chunk_url_text(text: &str, chunking_config: &crate::ChunkingConfig) -> Vec<crate::TextChunk> {
+    let mut chunks = crate::document_processor::chunking::chunk_text(
+        text,
+        &std::collections::HashMap::new(),
+        chunking_config,
+    );
+    if chunks.is_empty() && !text.is_empty() {
+        // Defensive: if the chunker returns no output for non-empty text
+        // (paragraph-mode edge case with no `\n\n` separators), wrap it.
+        chunks.push(crate::TextChunk {
+            content: text.to_string(),
+            chunk_index: 0,
+            start_char: 0,
+            end_char: text.len(),
+            metadata: std::collections::HashMap::new(),
+        });
+    }
+    chunks
+}
+
+/// Build the Qdrant payload map for a URL chunk.
 #[allow(clippy::too_many_arguments)]
 fn build_url_payload(
     item: &UnifiedQueueItem,
     payload: &UrlPayload,
-    extracted_text: &str,
+    chunk_content: &str,
     document_id: &str,
     title: &str,
     final_url: &str,
     content_type: &str,
     truncated: bool,
+    chunk_index: usize,
+    chunk_count: usize,
+    start_char: usize,
+    end_char: usize,
 ) -> std::collections::HashMap<String, serde_json::Value> {
     let mut point_payload = std::collections::HashMap::new();
-    point_payload.insert("content".to_string(), serde_json::json!(extracted_text));
+    point_payload.insert("content".to_string(), serde_json::json!(chunk_content));
     point_payload.insert("document_id".to_string(), serde_json::json!(document_id));
     point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
     point_payload.insert("source_url".to_string(), serde_json::json!(payload.url));
@@ -222,6 +267,10 @@ fn build_url_payload(
     point_payload.insert("source_type".to_string(), serde_json::json!("web"));
     point_payload.insert("item_type".to_string(), serde_json::json!("url"));
     point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+    point_payload.insert("chunk_index".to_string(), serde_json::json!(chunk_index));
+    point_payload.insert("chunk_count".to_string(), serde_json::json!(chunk_count));
+    point_payload.insert("chunk_start".to_string(), serde_json::json!(start_char));
+    point_payload.insert("chunk_end".to_string(), serde_json::json!(end_char));
 
     if let Some(ref lib_name) = payload.library_name {
         point_payload.insert("library_name".to_string(), serde_json::json!(lib_name));
@@ -254,6 +303,38 @@ mod tests {
     fn test_url_strategy_name() {
         let strategy = UrlStrategy;
         assert_eq!(strategy.name(), "url");
+    }
+
+    /// F-030: long extracted text produces multiple chunks.
+    #[test]
+    fn test_chunk_url_text_splits_long_input() {
+        // Build text larger than default chunk_size (384 chars) with paragraph
+        // boundaries so the paragraph-aware chunker yields multiple chunks.
+        let paragraph = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(8);
+        let text = format!("{p}\n\n{p}\n\n{p}\n\n{p}\n\n{p}", p = paragraph);
+        let cfg = crate::ChunkingConfig::default();
+        let chunks = chunk_url_text(&text, &cfg);
+        assert!(
+            chunks.len() > 1,
+            "expected >1 chunk for {}-char text, got {}",
+            text.len(),
+            chunks.len()
+        );
+        // Chunk indices are contiguous from 0.
+        for (i, c) in chunks.iter().enumerate() {
+            assert_eq!(c.chunk_index, i);
+        }
+    }
+
+    /// F-030: short extracted text produces exactly one chunk.
+    #[test]
+    fn test_chunk_url_text_short_input_single_chunk() {
+        let text = "Short page content.";
+        let cfg = crate::ChunkingConfig::default();
+        let chunks = chunk_url_text(text, &cfg);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].chunk_index, 0);
+        assert_eq!(chunks[0].content, text);
     }
 
     /// F-006: URL Delete derives the same `document_id` as the Add path.
