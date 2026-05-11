@@ -242,7 +242,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid ${UID} memexd \
-    && useradd --uid ${UID} --gid ${UID} --no-create-home --shell /usr/sbin/nologin memexd
+    && useradd --uid ${UID} --gid ${UID} --create-home --shell /usr/sbin/nologin memexd \
+    && mkdir -p \
+        /home/memexd/.local/share/workspace-qdrant \
+        /home/memexd/.config/workspace-qdrant \
+        /home/memexd/.cache \
+        /home/memexd/.local/state \
+    && chown -R memexd:memexd /home/memexd
 
 # Install npm-based LSPs globally so the daemon can spawn them by name.
 # `--omit=dev` keeps the installed tree focused on runtime artefacts.
@@ -271,6 +277,7 @@ COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
 # would require installing binutils in the slim runtime image for no benefit.
 
 USER memexd
+ENV HOME=/home/memexd
 
 # gRPC service port
 EXPOSE 50051

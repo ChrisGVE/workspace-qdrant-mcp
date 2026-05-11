@@ -8,8 +8,12 @@
 #
 # One-liner equivalent:
 #   docker run -d \
-#     -e QDRANT_URL=http://host.docker.internal:6333 \
-#     -v "${HOME}/.workspace-qdrant:/home/memexd/.workspace-qdrant" \
+#     -e XDG_DATA_HOME=/home/memexd/.local/share \
+#     -e XDG_CONFIG_HOME=/home/memexd/.config \
+#     -e XDG_CACHE_HOME=/home/memexd/.cache \
+#     -e XDG_STATE_HOME=/home/memexd/.local/state \
+#     -e QDRANT_URL=http://host.docker.internal:6334 \
+#     -v "${HOME}/.local/share/workspace-qdrant:/home/memexd/.local/share/workspace-qdrant" \
 #     -v "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant" \
 #     -v "${HOME}/dev:/home/memexd/dev:ro" \
 #     -p 50051:50051 -p 9091:9091 \
@@ -27,12 +31,16 @@ services:
       - path: ../.env
         required: false
     environment:
-      - QDRANT_URL=${QDRANT_URL:-http://host.docker.internal:6333}
+      - XDG_DATA_HOME=/home/memexd/.local/share
+      - XDG_CONFIG_HOME=/home/memexd/.config
+      - XDG_CACHE_HOME=/home/memexd/.cache
+      - XDG_STATE_HOME=/home/memexd/.local/state
+      - QDRANT_URL=${QDRANT_URL:-http://host.docker.internal:6334}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
-      - WQM_DATABASE_PATH=/home/memexd/.workspace-qdrant/memexd.db
+      - WQM_DATABASE_PATH=/home/memexd/.local/share/workspace-qdrant/memexd.db
     volumes:
-      - "${HOME}/.workspace-qdrant:/home/memexd/.workspace-qdrant"
+      - "${HOME}/.local/share/workspace-qdrant:/home/memexd/.local/share/workspace-qdrant"
       - "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant"
       - "${HOME}/dev:/home/memexd/dev:ro"
     ports:

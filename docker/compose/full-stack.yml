@@ -38,12 +38,12 @@ x-restart: &restart
   restart: unless-stopped
 
 x-memexd-volumes: &memexd-volumes
-  - "${HOME}/.workspace-qdrant:/home/memexd/.workspace-qdrant"
+  - "${HOME}/.local/share/workspace-qdrant:/home/memexd/.local/share/workspace-qdrant"
   - "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant"
   - "${HOME}/dev:/home/memexd/dev:ro"
 
 x-mcp-volumes: &mcp-volumes
-  - "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant"
+  - "${HOME}/.local/share/workspace-qdrant:/home/node/.local/share/workspace-qdrant"
   - "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,11 +57,15 @@ services:
       - path: ../.env
         required: false
     environment:
-      # "qdrant" is the service name in main-docker; port 6333 is the REST/gRPC port.
-      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - XDG_DATA_HOME=/home/memexd/.local/share
+      - XDG_CONFIG_HOME=/home/memexd/.config
+      - XDG_CACHE_HOME=/home/memexd/.cache
+      - XDG_STATE_HOME=/home/memexd/.local/state
+      # "qdrant" is the service name in main-docker; port 6334 is the gRPC port.
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6334}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
-      - WQM_DATABASE_PATH=/home/memexd/.workspace-qdrant/memexd.db
+      - WQM_DATABASE_PATH=/home/memexd/.local/share/workspace-qdrant/memexd.db
     volumes: *memexd-volumes
     # No host port bindings — metrics are scraped over the shared network.
     expose:
@@ -86,7 +90,7 @@ services:
       - path: ../.env
         required: false
     environment:
-      - MEMEXD_GRPC_URL=${MEMEXD_GRPC_URL:-http://memexd:50051}
+      - WQM_DAEMON_ENDPOINT=${WQM_DAEMON_ENDPOINT:-memexd:50051}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
       - MCP_SERVER_MODE=${MCP_SERVER_MODE:-stdio}
     volumes: *mcp-volumes

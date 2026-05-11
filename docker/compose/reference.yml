@@ -68,8 +68,8 @@ services:
       - "${MEMEXD_GRPC_PORT:-50051}:50051"
       - "${MEMEXD_METRICS_PORT:-9091}:9091"
     volumes:
-      # Persistent daemon state (SQLite, queues, rules cache).
-      - ${WQM_STATE_DIR:-./state}/memexd:/home/memexd/.workspace-qdrant
+      # Persistent daemon state (SQLite, queues, rules cache) — XDG data home.
+      - ${WQM_STATE_DIR:-./state}/memexd:/home/memexd/.local/share/workspace-qdrant
       # Optional read-only config file override.
       - ${WQM_CONFIG_FILE:-/dev/null}:/etc/wqm/config.yaml:ro
       # Named volumes for caches that benefit from reuse across restarts.
@@ -81,7 +81,11 @@ services:
       # directory whose children you want indexed.
       - ${WQM_DEV_ROOT:?set WQM_DEV_ROOT in .env to your dev-root absolute path}:${WQM_DEV_ROOT}
     environment:
-      QDRANT_URL: http://qdrant:6333
+      XDG_DATA_HOME: /home/memexd/.local/share
+      XDG_CONFIG_HOME: /home/memexd/.config
+      XDG_CACHE_HOME: /home/memexd/.cache
+      XDG_STATE_HOME: /home/memexd/.local/state
+      QDRANT_URL: http://qdrant:6334
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
