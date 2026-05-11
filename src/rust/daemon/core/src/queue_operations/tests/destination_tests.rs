@@ -616,3 +616,89 @@ async fn test_mark_explicit_destination_results_preserves_done() {
     assert_eq!(qs, "done");
     assert_eq!(ss, "done");
 }
+
+/// F-033/F-034 regression: a handler that returns Ok but reported a sink
+/// failure must end up with retry metadata (error_message, retry_count,
+/// last_error_at, lease_until/backoff) — not silently stuck on `failed`
+/// status with no schedule for retry.
+#[tokio::test]
+async fn test_destination_failure_on_success_path_records_retry_metadata() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("dest_failure_metadata.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "fts-fail-tenant",
+            "projects",
+            r#"{"file_path":"/test/fts_fail.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Simulate the file-ingest pipeline: Qdrant upsert succeeded, FTS5 failed.
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
+        .await
+        .unwrap();
+    manager
+        .update_destination_status(&queue_id, "search", DestinationStatus::Failed)
+        .await
+        .unwrap();
+
+    // handler returned Ok → batch_processing runs:
+    //   mark_explicit_destination_results (no-op here, both explicit)
+    //   check_and_finalize (Failed because search_status = failed)
+    //   mark_unified_failed (must populate retry metadata)
+    manager
+        .mark_explicit_destination_results(&queue_id)
+        .await
+        .unwrap();
+    let overall = manager.check_and_finalize(&queue_id).await.unwrap();
+    assert_eq!(overall, QueueStatus::Failed);
+
+    let err_msg = "fts5 index write failed: disk full";
+    manager
+        .mark_unified_failed(&queue_id, err_msg, false, 3)
+        .await
+        .unwrap();
+
+    // Verify retry metadata is populated.
+    let row: (Option<String>, i32, Option<String>, Option<String>, String) = sqlx::query_as(
+        r#"SELECT error_message, retry_count, last_error_at, lease_until, status
+           FROM unified_queue WHERE queue_id = ?1"#,
+    )
+    .bind(&queue_id)
+    .fetch_one(manager.pool())
+    .await
+    .unwrap();
+    let (got_err, retry_count, last_error_at, lease_until, status) = row;
+    assert_eq!(
+        got_err.as_deref(),
+        Some(err_msg),
+        "error_message must be populated (F-033/F-034)"
+    );
+    assert_eq!(retry_count, 1, "retry_count must increment to 1");
+    assert!(
+        last_error_at.is_some(),
+        "last_error_at must be populated for the retry schedule"
+    );
+    assert!(
+        lease_until.is_some(),
+        "lease_until must be set so the next lease cycle picks up the retry"
+    );
+    assert_eq!(
+        status, "pending",
+        "Item must be re-set to pending for retry (not stuck on failed)"
+    );
+}
