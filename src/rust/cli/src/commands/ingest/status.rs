@@ -38,9 +38,8 @@ pub async fn ingest_status(verbose: bool) -> Result<()> {
                     if verbose {
                         output::separator();
                         output::info("Queue details stored in SQLite unified_queue table:");
-                        let db_path = dirs::data_local_dir()
-                            .map(|p| p.join("workspace-qdrant/state.db"))
-                            .unwrap_or_default();
+                        let db_path = wqm_common::paths::get_database_path()
+                            .unwrap_or_else(|_| std::path::PathBuf::from("<unknown>"));
                         output::info(format!(
                             "  sqlite3 {} 'SELECT * FROM unified_queue LIMIT 20'",
                             home_to_tilde(&db_path.display().to_string())
