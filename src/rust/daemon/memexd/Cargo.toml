@@ -40,6 +40,10 @@ libc = "0.2"
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "minwinbase", "processenv", "winbase"] }
 windows-service = "0.7"
 
+[dev-dependencies]
+tempfile = { workspace = true }
+serde_yaml_ng = { workspace = true }
+
 [features]
 default = []
 # Enable OCR support (requires Tesseract system library)

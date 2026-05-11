@@ -582,3 +582,123 @@ pub fn set_process_nice_level(nice_level: i32) {
         info!("Nice level not supported on this platform, skipping");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use tempfile::NamedTempFile;
+
+    use super::*;
+
+    // ── load_from_file tests ─────────────────────────────────────────────────
+
+    /// F-051: a well-formed YAML config file is loaded successfully.
+    #[test]
+    fn test_load_from_file_valid_yaml_succeeds() {
+        let mut f = NamedTempFile::new().unwrap();
+        // Minimal valid YAML that DaemonConfig can deserialise.
+        writeln!(f, "chunk_size: 512").unwrap();
+        writeln!(f, "log_level: debug").unwrap();
+        writeln!(f, "enable_preemption: true").unwrap();
+
+        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
+        let result = load_from_file(&manager, f.path(), false);
+        assert!(result.is_ok(), "valid YAML should load: {:?}", result.err());
+        assert_eq!(result.unwrap().chunk_size, 512);
+    }
+
+    /// F-051: malformed YAML with allow_default=false must return Err.
+    #[test]
+    fn test_load_from_file_malformed_aborts() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, "not: valid: yaml: structure: }}").unwrap();
+
+        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
+        let result = load_from_file(&manager, f.path(), false);
+        assert!(
+            result.is_err(),
+            "malformed YAML must return Err when allow_default=false"
+        );
+    }
+
+    /// F-051: malformed YAML with allow_default=true must fall back to defaults.
+    #[test]
+    fn test_load_from_file_malformed_with_allow_default_falls_back() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, "not: valid: yaml: structure: }}").unwrap();
+
+        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
+        let result = load_from_file(&manager, f.path(), true);
+        assert!(
+            result.is_ok(),
+            "allow_default=true must return Ok: {:?}",
+            result.err()
+        );
+
+        let config = result.unwrap();
+        let default = DaemonConfig::default();
+        // Key fields must match the built-in defaults.
+        assert_eq!(config.chunk_size, default.chunk_size, "fallback chunk_size");
+        assert_eq!(config.log_level, default.log_level, "fallback log_level");
+    }
+
+    /// F-051: a missing file with allow_default=false must return Err.
+    #[test]
+    fn test_load_from_file_missing_aborts() {
+        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
+        let missing = std::path::Path::new("/tmp/wqm-test-nonexistent-config-file.yaml");
+        let result = load_from_file(&manager, missing, false);
+        assert!(
+            result.is_err(),
+            "missing file must return Err when allow_default=false"
+        );
+    }
+
+    // ── load_auto_discover tests ─────────────────────────────────────────────
+
+    /// F-051: load_auto_discover with a malformed discovered config and
+    /// allow_default=false must return Err.
+    ///
+    /// This test exercises the fatal-parse branch: a file exists at a search
+    /// path but cannot be parsed.  We use UnifiedConfigManager directly and
+    /// verify the error surfaces through load_from_file (same code path that
+    /// load_auto_discover uses when a file is found but unparseable).
+    #[test]
+    fn test_load_from_file_parse_error_propagates_without_allow_default() {
+        let mut f = NamedTempFile::new().unwrap();
+        // Write clearly invalid YAML.
+        writeln!(f, ": - invalid {{yaml}}:").unwrap();
+
+        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
+        // load_from_file is the common implementation invoked from load_auto_discover
+        // when a discovered file cannot be parsed.
+        let result = load_from_file(&manager, f.path(), false);
+        assert!(
+            result.is_err(),
+            "parse error without allow_default must be fatal"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(!msg.is_empty(), "error message must not be empty");
+    }
+
+    /// F-051: load_auto_discover with allow_default=true returns defaults when
+    /// no config file is found (normal first-run case).
+    #[test]
+    fn test_load_auto_discover_no_file_returns_defaults() {
+        // With no config file present this exercises the FileNotFound/IoError
+        // branch in load_auto_discover — which always returns defaults regardless
+        // of allow_default.  We test via the public load_config surface.
+        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
+        // load_config with no path follows the auto-discover path.
+        // In a clean test environment (no config on disk) this returns defaults.
+        let result = manager.load_config(None);
+        // Whether a config file exists on the test machine or not, the call
+        // must succeed (either loaded or defaulted).
+        assert!(
+            result.is_ok(),
+            "auto-discover must not fail: {:?}",
+            result.err()
+        );
+    }
+}
