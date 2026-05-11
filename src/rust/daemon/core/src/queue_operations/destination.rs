@@ -134,25 +134,41 @@ impl QueueManager {
         Ok(())
     }
 
-    /// Ensure any destination status still pending is resolved to 'done'.
+    /// Mark destination results for items that do not use the per-destination
+    /// state machine.
     ///
-    /// Called after process_item returns Ok(()) for handlers that don't use the
-    /// per-destination state machine (orchestration-only items like Tenant/Scan,
-    /// Folder/Scan, content items, URL items, etc.). This prevents items from
-    /// getting stuck in the queue when neither qdrant_status nor search_status
-    /// was explicitly set by the handler.
+    /// **Contract (F-010, F-056):**
     ///
-    /// Statuses already set to 'done', 'failed', or 'in_progress' are preserved.
-    pub async fn ensure_destinations_resolved(&self, queue_id: &str) -> QueueResult<()> {
+    /// - **Orchestration-only items** (no `decision_json` set; e.g.
+    ///   `Tenant/Scan`, `Folder/Scan`, scratchpad inserts, single-point URL/text
+    ///   items, library content): both destination statuses are auto-resolved
+    ///   to `Done` because the handler is responsible for the entire write and
+    ///   no per-sink state was ever recorded. Returning `Ok(())` from the
+    ///   handler is sufficient proof of success.
+    ///
+    /// - **State-machine items** (`decision_json IS NOT NULL`, set via
+    ///   [`store_queue_decision`]): destination statuses are NEVER flipped by
+    ///   this helper. Handlers MUST call [`update_destination_status`]
+    ///   explicitly for every sink they write to (Qdrant, search DB). Pending
+    ///   sinks remain `pending` so [`check_and_finalize`] keeps the item
+    ///   `in_progress` and the queue processor can re-lease and retry. This
+    ///   prevents the F-010 bug where a handler that only wrote to one sink
+    ///   marked the other sink `done` without proof.
+    ///
+    /// Statuses already set to `done`, `failed`, or `in_progress` are always
+    /// preserved.
+    pub async fn mark_explicit_destination_results(&self, queue_id: &str) -> QueueResult<()> {
         let now = timestamps::now_utc();
 
         sqlx::query(
             r#"UPDATE unified_queue
                SET qdrant_status = CASE
-                       WHEN qdrant_status IS NULL OR qdrant_status = 'pending'
+                       WHEN decision_json IS NULL
+                            AND (qdrant_status IS NULL OR qdrant_status = 'pending')
                        THEN 'done' ELSE qdrant_status END,
                    search_status = CASE
-                       WHEN search_status IS NULL OR search_status = 'pending'
+                       WHEN decision_json IS NULL
+                            AND (search_status IS NULL OR search_status = 'pending')
                        THEN 'done' ELSE search_status END,
                    updated_at = ?1
                WHERE queue_id = ?2"#,

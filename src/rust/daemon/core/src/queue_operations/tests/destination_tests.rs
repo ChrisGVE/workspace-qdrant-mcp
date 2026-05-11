@@ -366,7 +366,7 @@ async fn test_check_and_finalize_nonexistent_item() {
 }
 
 #[tokio::test]
-async fn test_ensure_destinations_resolved_both_pending() {
+async fn test_mark_explicit_destination_results_orchestration_item() {
     let temp_dir = tempdir().unwrap();
     let db_path = temp_dir.path().join("resolve_pending.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
@@ -392,7 +392,7 @@ async fn test_ensure_destinations_resolved_both_pending() {
 
     // Both statuses start as pending -- ensure_destinations_resolved should set both to done
     manager
-        .ensure_destinations_resolved(&queue_id)
+        .mark_explicit_destination_results(&queue_id)
         .await
         .unwrap();
 
@@ -417,7 +417,11 @@ async fn test_ensure_destinations_resolved_both_pending() {
 }
 
 #[tokio::test]
-async fn test_ensure_destinations_resolved_preserves_explicit_status() {
+async fn test_mark_explicit_destination_results_preserves_failed_state_machine() {
+    // F-010/F-056: items that registered a QueueDecision (state-machine
+    // semantics) must NOT have pending sinks flipped to done. Only explicitly
+    // marked sinks count; pending sinks remain pending so the queue processor
+    // keeps the item for the next lease cycle.
     let temp_dir = tempdir().unwrap();
     let db_path = temp_dir.path().join("resolve_preserve.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
@@ -441,15 +445,29 @@ async fn test_ensure_destinations_resolved_preserves_explicit_status() {
         .await
         .unwrap();
 
+    // Mark this item as state-machine driven by storing a decision.
+    let decision = wqm_common::queue_types::QueueDecision {
+        delete_old: false,
+        old_base_point: None,
+        new_base_point: "bp_new".to_string(),
+        old_file_hash: None,
+        new_file_hash: "h_new".to_string(),
+    };
+    manager
+        .store_queue_decision(&queue_id, &decision)
+        .await
+        .unwrap();
+
     // Explicitly set qdrant to failed, leave search as pending
     manager
         .update_destination_status(&queue_id, "qdrant", DestinationStatus::Failed)
         .await
         .unwrap();
 
-    // ensure_destinations_resolved should preserve failed qdrant, resolve pending search
+    // mark_explicit_destination_results must preserve both: failed qdrant AND
+    // pending search (state-machine items don't auto-resolve pending).
     manager
-        .ensure_destinations_resolved(&queue_id)
+        .mark_explicit_destination_results(&queue_id)
         .await
         .unwrap();
 
@@ -466,7 +484,10 @@ async fn test_ensure_destinations_resolved_preserves_explicit_status() {
             .await
             .unwrap();
     assert_eq!(qs, "failed", "Failed status must be preserved");
-    assert_eq!(ss, "done", "Pending status must be resolved to done");
+    assert_eq!(
+        ss, "pending",
+        "State-machine pending sink must stay pending (F-010)"
+    );
 
     // check_and_finalize should now return Failed (qdrant is failed)
     let status = manager.check_and_finalize(&queue_id).await.unwrap();
@@ -474,7 +495,73 @@ async fn test_ensure_destinations_resolved_preserves_explicit_status() {
 }
 
 #[tokio::test]
-async fn test_ensure_destinations_resolved_preserves_done() {
+async fn test_mark_explicit_destination_results_state_machine_pending_stays_pending() {
+    // F-010 regression: a state-machine handler that only wrote to qdrant
+    // (search left pending) must NOT have search flipped to done.
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("resolve_pending_state.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Update,
+            "tenant-sm",
+            "projects",
+            r#"{"file_path":"/test/sm.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let decision = wqm_common::queue_types::QueueDecision {
+        delete_old: false,
+        old_base_point: None,
+        new_base_point: "bp_sm".to_string(),
+        old_file_hash: None,
+        new_file_hash: "h_sm".to_string(),
+    };
+    manager
+        .store_queue_decision(&queue_id, &decision)
+        .await
+        .unwrap();
+
+    // Handler only wrote qdrant; never touched search.
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
+        .await
+        .unwrap();
+
+    manager
+        .mark_explicit_destination_results(&queue_id)
+        .await
+        .unwrap();
+
+    let ss: String =
+        sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        ss, "pending",
+        "Untouched search sink must stay pending; helper must not flip it to done"
+    );
+
+    // check_and_finalize must NOT mark the row done — overall stays in_progress.
+    let status = manager.check_and_finalize(&queue_id).await.unwrap();
+    assert_eq!(status, QueueStatus::InProgress);
+}
+
+#[tokio::test]
+async fn test_mark_explicit_destination_results_preserves_done() {
     let temp_dir = tempdir().unwrap();
     let db_path = temp_dir.path().join("resolve_done.db");
     let config = QueueConnectionConfig::with_database_path(&db_path);
@@ -510,7 +597,7 @@ async fn test_ensure_destinations_resolved_preserves_done() {
 
     // ensure_destinations_resolved should be a no-op
     manager
-        .ensure_destinations_resolved(&queue_id)
+        .mark_explicit_destination_results(&queue_id)
         .await
         .unwrap();
 

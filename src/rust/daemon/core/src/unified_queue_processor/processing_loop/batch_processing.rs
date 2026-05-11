@@ -100,6 +100,7 @@ pub(super) async fn process_batch(
                     watch_refresh_signal,
                     &item_type_str,
                     &mut processed_tenants,
+                    config,
                 )
                 .await;
             }
@@ -173,6 +174,7 @@ async fn handle_item_success(
     watch_refresh_signal: &Option<Arc<tokio::sync::Notify>>,
     item_type_str: &str,
     processed_tenants: &mut HashSet<String>,
+    config: &UnifiedProcessorConfig,
 ) {
     let processing_time = start_time.elapsed().as_millis() as u64;
     METRICS.unified_queue_item_processed(
@@ -182,25 +184,53 @@ async fn handle_item_success(
         start_time.elapsed().as_secs_f64(),
     );
 
-    // Per-destination state machine (Task 6): resolve unset destination statuses.
+    // Per-destination state machine (F-010, F-056): only auto-resolve
+    // destination statuses for orchestration-only items (decision_json IS NULL).
+    // Items that opted into the state machine via store_queue_decision must
+    // set every destination status explicitly — pending sinks remain pending.
     let _ = queue_manager
-        .ensure_destinations_resolved(&item.queue_id)
+        .mark_explicit_destination_results(&item.queue_id)
         .await;
 
-    // Delete only when fully resolved.
+    // Resolve overall status. For state-machine items with pending sinks the
+    // helper will return InProgress and the item remains in the queue for the
+    // next lease cycle.
     let overall = queue_manager
         .check_and_finalize(&item.queue_id)
         .await
         .unwrap_or(QueueStatus::Done);
-    if overall == QueueStatus::Done {
-        if let Err(e) = queue_manager.delete_unified_item(&item.queue_id).await {
-            error!("Failed to delete item {} from queue: {}", item.queue_id, e);
+    match overall {
+        QueueStatus::Done => {
+            if let Err(e) = queue_manager.delete_unified_item(&item.queue_id).await {
+                error!("Failed to delete item {} from queue: {}", item.queue_id, e);
+            }
         }
-    } else {
-        debug!(
-            "Item {} not fully resolved (status={:?}), keeping in queue",
-            item.queue_id, overall
-        );
+        QueueStatus::Failed => {
+            // F-033/F-034: a destination explicitly reported failure even though
+            // the handler returned Ok. Promote to mark_unified_failed so retry
+            // metadata (retry_count, error_message, backoff via lease_until)
+            // is populated; without this, the row would stay `failed` with no
+            // way to surface or schedule a retry.
+            let err_msg = format!(
+                "destination failure on success path (qdrant_status/search_status reported failed) for item={} type={:?}",
+                item.queue_id, item.item_type
+            );
+            if let Err(mark_err) = queue_manager
+                .mark_unified_failed(&item.queue_id, &err_msg, false, config.max_retries)
+                .await
+            {
+                error!(
+                    "Failed to record destination-failure retry metadata for {}: {}",
+                    item.queue_id, mark_err
+                );
+            }
+        }
+        QueueStatus::InProgress | QueueStatus::Pending => {
+            debug!(
+                "Item {} not fully resolved (status={:?}), keeping in queue",
+                item.queue_id, overall
+            );
+        }
     }
 
     UnifiedQueueProcessor::update_metrics_success(metrics, item_type_str, processing_time).await;
