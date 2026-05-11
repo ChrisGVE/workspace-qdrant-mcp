@@ -8,9 +8,7 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use wqm_common::cli_profiles::{
-    ensure_cli_config, save_cli_config, CliConfigFile, Profile,
-};
+use wqm_common::cli_profiles::{ensure_cli_config, save_cli_config, CliConfigFile, Profile};
 
 use crate::output;
 use crate::output::style::home_to_tilde;
