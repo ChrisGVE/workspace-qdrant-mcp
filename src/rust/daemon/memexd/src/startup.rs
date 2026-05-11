@@ -39,6 +39,11 @@ pub struct DaemonArgs {
     pub metrics_port: Option<u16>,
     /// Allow startup despite dim mismatch (used during provider migration only).
     pub bootstrap_reembed: bool,
+    /// Fall back to built-in defaults on config parse error instead of aborting.
+    ///
+    /// Without this flag a malformed config file is fatal. With it the daemon
+    /// logs a warning and continues with `DaemonConfig::default()`.
+    pub allow_default: bool,
 }
 
 impl Default for DaemonArgs {
@@ -53,6 +58,7 @@ impl Default for DaemonArgs {
             project_id: None,
             metrics_port: None,
             bootstrap_reembed: false,
+            allow_default: false,
         }
     }
 }
@@ -142,6 +148,16 @@ fn build_cli(is_daemon: bool) -> Command {
                 )
                 .action(clap::ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("allow-default")
+                .long("allow-default")
+                .help(
+                    "Fall back to built-in defaults when the config file is \
+                     malformed instead of exiting non-zero. A warning is logged \
+                     when this fallback is triggered.",
+                )
+                .action(clap::ArgAction::SetTrue),
+        )
 }
 
 /// Parse command-line arguments with graceful error handling.
@@ -188,6 +204,7 @@ pub fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
         project_id: matches.get_one::<String>("project-id").cloned(),
         metrics_port: matches.get_one::<u16>("metrics-port").copied(),
         bootstrap_reembed: matches.get_flag("bootstrap-reembed"),
+        allow_default: matches.get_flag("allow-default"),
     })
 }
 
@@ -436,13 +453,17 @@ pub fn check_stale_legacy_directory() {
 }
 
 /// Load configuration from file or auto-discover defaults.
+///
+/// When `args.allow_default` is false (default) a config parse error is fatal
+/// and the function returns `Err`. When true the daemon logs a warning and
+/// falls back to built-in defaults.
 pub fn load_config(args: &DaemonArgs) -> Result<DaemonConfig, Box<dyn std::error::Error>> {
     let is_daemon_mode = detect_daemon_mode();
     let config_manager = UnifiedConfigManager::new(None::<PathBuf>);
 
     let daemon_config = match &args.config_file {
-        Some(config_path) => load_from_file(&config_manager, config_path)?,
-        None => load_auto_discover(&config_manager, is_daemon_mode),
+        Some(config_path) => load_from_file(&config_manager, config_path, args.allow_default)?,
+        None => load_auto_discover(&config_manager, is_daemon_mode, args.allow_default)?,
     };
 
     if let Some(port) = args.port {
@@ -453,9 +474,14 @@ pub fn load_config(args: &DaemonArgs) -> Result<DaemonConfig, Box<dyn std::error
 }
 
 /// Load config from an explicit file path.
+///
+/// When `allow_default` is false, any parse error (including YAML syntax
+/// errors) is returned as `Err`. When true, parse errors fall back to
+/// built-in defaults with a warning log.
 fn load_from_file(
     config_manager: &UnifiedConfigManager,
     config_path: &Path,
+    allow_default: bool,
 ) -> Result<DaemonConfig, Box<dyn std::error::Error>> {
     info!("Loading configuration from {}", config_path.display());
     match config_manager.load_config(Some(config_path)) {
@@ -468,26 +494,67 @@ fn load_from_file(
             Err(format!("Configuration file not found: {}", path.display()).into())
         }
         Err(e) => {
-            error!("Configuration loading error: {}", e);
-            Err(format!("Configuration loading error: {}", e).into())
+            if allow_default {
+                warn!(
+                    "Configuration parse error (falling back to defaults): {}",
+                    e
+                );
+                Ok(DaemonConfig::default())
+            } else {
+                error!(
+                    "Configuration parse error: {} — use --allow-default to fall back to \
+                     built-in defaults",
+                    e
+                );
+                Err(format!("Configuration parse error: {}", e).into())
+            }
         }
     }
 }
 
 /// Auto-discover config or fall back to defaults.
-fn load_auto_discover(config_manager: &UnifiedConfigManager, is_daemon_mode: bool) -> DaemonConfig {
+///
+/// When `allow_default` is false, a parse error on a discovered config file
+/// is fatal. When true the daemon logs a warning and uses built-in defaults.
+fn load_auto_discover(
+    config_manager: &UnifiedConfigManager,
+    is_daemon_mode: bool,
+    allow_default: bool,
+) -> Result<DaemonConfig, Box<dyn std::error::Error>> {
     info!("Auto-discovering configuration files");
     match config_manager.load_config(None) {
         Ok(daemon_config) => {
             info!("Configuration auto-discovered");
-            daemon_config
+            Ok(daemon_config)
         }
-        Err(_) => {
-            info!("Using default configuration");
-            if is_daemon_mode {
+        Err(UnifiedConfigError::FileNotFound(_)) | Err(UnifiedConfigError::IoError(_)) => {
+            // No config found — this is expected; use defaults silently.
+            info!("No configuration file found; using built-in defaults");
+            Ok(if is_daemon_mode {
                 DaemonConfig::daemon_mode()
             } else {
                 DaemonConfig::default()
+            })
+        }
+        Err(e) => {
+            // A config file was found but could not be parsed.
+            if allow_default {
+                warn!(
+                    "Configuration parse error (falling back to defaults): {}",
+                    e
+                );
+                Ok(if is_daemon_mode {
+                    DaemonConfig::daemon_mode()
+                } else {
+                    DaemonConfig::default()
+                })
+            } else {
+                error!(
+                    "Configuration parse error: {} — use --allow-default to fall back to \
+                     built-in defaults",
+                    e
+                );
+                Err(format!("Configuration parse error: {}", e).into())
             }
         }
     }
