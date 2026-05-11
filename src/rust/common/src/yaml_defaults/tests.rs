@@ -100,7 +100,10 @@ fn test_lsp_defaults() {
 #[test]
 fn test_grammars_defaults() {
     let config = &*DEFAULT_YAML_CONFIG;
-    assert_eq!(config.grammars.cache_dir, "~/.workspace-qdrant/grammars");
+    assert_eq!(
+        config.grammars.cache_dir,
+        "~/.cache/workspace-qdrant/grammars"
+    );
     assert!(
         config.grammars.required.is_empty(),
         "Default required should be empty"
@@ -239,4 +242,75 @@ fn test_tagging_tier3_defaults() {
     assert!((config.tagging.tier3.temperature - 0.3).abs() < 1e-6);
     assert_eq!(config.tagging.tier3.total_budget_secs, 60);
     assert_eq!(config.tagging.tier3.max_consecutive_failures, 2);
+}
+
+/// Round-trip: parse a minimal YAML snippet into YamlConfig twice and confirm
+/// both parses yield identical key values. Validates that serde deserialization
+/// is stable and deterministic across repeated calls.
+#[test]
+fn test_yaml_config_round_trip() {
+    let snippet = r#"
+qdrant:
+  url: "https://example.qdrant.io:6334"
+  timeout: "10s"
+grpc:
+  port: 12345
+queue_processor:
+  batch_size: 99
+embedding:
+  model: "my-custom-model"
+grammars:
+  cache_dir: "~/.cache/workspace-qdrant/grammars"
+"#;
+
+    let first: YamlConfig = serde_yaml_ng::from_str(snippet).expect("first parse must succeed");
+    let second: YamlConfig = serde_yaml_ng::from_str(snippet).expect("second parse must succeed");
+
+    assert_eq!(first.qdrant.url, "https://example.qdrant.io:6334");
+    assert_eq!(first.grpc.port, 12345);
+    assert_eq!(first.queue_processor.batch_size, 99);
+    assert_eq!(first.embedding.model, "my-custom-model");
+    assert_eq!(
+        first.grammars.cache_dir,
+        "~/.cache/workspace-qdrant/grammars"
+    );
+    assert_eq!(first.qdrant.url, second.qdrant.url);
+    assert_eq!(first.grpc.port, second.grpc.port);
+    assert_eq!(
+        first.queue_processor.batch_size,
+        second.queue_processor.batch_size
+    );
+}
+
+/// Malformed YAML must return an Err — not panic or produce a default value.
+#[test]
+fn test_malformed_yaml_returns_err() {
+    let bad_yaml = "qdrant: {url: [unclosed";
+    let result: Result<YamlConfig, _> = serde_yaml_ng::from_str(bad_yaml);
+    assert!(result.is_err(), "Malformed YAML should return Err, not Ok");
+}
+
+/// Completely invalid (non-YAML) input must also return an Err.
+#[test]
+fn test_invalid_input_returns_err() {
+    let not_yaml = "\x00\x01\x02binary garbage \u{FFFD}";
+    let result: Result<YamlConfig, _> = serde_yaml_ng::from_str(not_yaml);
+    assert!(result.is_err(), "Non-YAML input should return Err, not Ok");
+}
+
+/// The grammars cache_dir default must use the XDG cache path, not the legacy
+/// ~/.workspace-qdrant root directory.
+#[test]
+fn test_grammars_cache_dir_is_xdg() {
+    let config: YamlConfig = serde_yaml_ng::from_str(DEFAULT_YAML).expect("YAML should parse");
+    assert!(
+        config.grammars.cache_dir.contains(".cache"),
+        "cache_dir must be under ~/.cache (XDG): {}",
+        config.grammars.cache_dir
+    );
+    assert!(
+        !config.grammars.cache_dir.starts_with("~/.workspace-qdrant"),
+        "cache_dir must not use legacy root: {}",
+        config.grammars.cache_dir
+    );
 }

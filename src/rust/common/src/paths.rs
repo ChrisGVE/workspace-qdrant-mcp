@@ -503,4 +503,98 @@ mod tests {
             None => env::remove_var("WQM_CACHE_DIR"),
         }
     }
+
+    /// Config paths must never contain the legacy `~/.workspace-qdrant` segment
+    /// (pre-XDG layout). All returned paths use XDG base directories.
+    #[test]
+    fn test_no_legacy_workspace_qdrant_segment_in_config_paths() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev_path = env::var("WQM_CONFIG_PATH").ok();
+        let prev_dir = env::var("WQM_CONFIG_DIR").ok();
+        let prev_xdg = env::var("XDG_CONFIG_HOME").ok();
+        env::remove_var("WQM_CONFIG_PATH");
+        env::remove_var("WQM_CONFIG_DIR");
+        env::remove_var("XDG_CONFIG_HOME");
+
+        for p in get_config_search_paths() {
+            let s = p.to_string_lossy();
+            // A legacy path would look like /home/user/.workspace-qdrant/...
+            // The new paths look like /home/user/.config/workspace-qdrant/...
+            assert!(
+                !s.contains("/.workspace-qdrant/"),
+                "Config search path must not use legacy segment: {s}"
+            );
+        }
+
+        if let Some(v) = prev_path {
+            env::set_var("WQM_CONFIG_PATH", v);
+        }
+        if let Some(v) = prev_dir {
+            env::set_var("WQM_CONFIG_DIR", v);
+        }
+        if let Some(v) = prev_xdg {
+            env::set_var("XDG_CONFIG_HOME", v);
+        }
+    }
+
+    /// Data dir must not contain the legacy `~/.workspace-qdrant` root segment.
+    #[test]
+    fn test_no_legacy_workspace_qdrant_segment_in_data_dir() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev_data = env::var("WQM_DATA_DIR").ok();
+        let prev_xdg = env::var("XDG_DATA_HOME").ok();
+        env::remove_var("WQM_DATA_DIR");
+        env::remove_var("XDG_DATA_HOME");
+
+        let path = get_data_dir().unwrap();
+        let s = path.to_string_lossy();
+        assert!(
+            !s.contains("/.workspace-qdrant/") && !s.ends_with("/.workspace-qdrant"),
+            "Data dir must not use legacy segment: {s}"
+        );
+        // Must use .local/share layout
+        assert!(
+            s.contains(".local/share") || s.contains("XDG"),
+            "Data dir should be under .local/share (or XDG override): {s}"
+        );
+
+        if let Some(v) = prev_data {
+            env::set_var("WQM_DATA_DIR", v);
+        }
+        if let Some(v) = prev_xdg {
+            env::set_var("XDG_DATA_HOME", v);
+        }
+    }
+
+    /// Database path must not be the legacy `~/.workspace-qdrant/state.db`.
+    #[test]
+    fn test_no_legacy_workspace_qdrant_segment_in_database_path() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        let prev_db = env::var("WQM_DATABASE_PATH").ok();
+        let prev_data = env::var("WQM_DATA_DIR").ok();
+        let prev_xdg = env::var("XDG_DATA_HOME").ok();
+        env::remove_var("WQM_DATABASE_PATH");
+        env::remove_var("WQM_DATA_DIR");
+        env::remove_var("XDG_DATA_HOME");
+
+        let path = get_database_path().unwrap();
+        let s = path.to_string_lossy();
+        assert!(
+            !s.contains("/.workspace-qdrant/state.db") || s.contains(".local/share"),
+            "Database path must not be the legacy ~/.workspace-qdrant/state.db: {s}"
+        );
+
+        if let Some(v) = prev_db {
+            env::set_var("WQM_DATABASE_PATH", v);
+        }
+        if let Some(v) = prev_data {
+            env::set_var("WQM_DATA_DIR", v);
+        }
+        if let Some(v) = prev_xdg {
+            env::set_var("XDG_DATA_HOME", v);
+        }
+    }
 }
