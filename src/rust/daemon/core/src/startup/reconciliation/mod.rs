@@ -154,6 +154,10 @@ async fn reset_in_progress_items(pool: &SqlitePool) -> Result<u64, String> {
 /// `needs_reconcile = 1` AND there are no other pending or in-progress queue
 /// items for that file path. Removing such a failed row would silently discard
 /// the only signal that the file needs repair (F-043).
+///
+/// Note: `max_retries` was dropped from `unified_queue` in schema migration
+/// v27 (centralised in daemon config). The exemption applies to any failed row
+/// that is the sole repair record, regardless of its `retry_count`.
 async fn purge_old_completed_items(pool: &SqlitePool) -> Result<u64, String> {
     info!("Cleaning old done/failed queue items...");
     let result = sqlx::query(
@@ -162,7 +166,6 @@ async fn purge_old_completed_items(pool: &SqlitePool) -> Result<u64, String> {
          AND updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days') \
          AND NOT ( \
              status = 'failed' \
-             AND retry_count >= max_retries \
              AND EXISTS ( \
                  SELECT 1 FROM tracked_files tf \
                  JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
