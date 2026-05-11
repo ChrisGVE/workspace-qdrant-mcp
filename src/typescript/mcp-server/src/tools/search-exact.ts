@@ -9,15 +9,30 @@ import type { ProjectDetector } from '../utils/project-detector.js';
 import type { SearchOptions, SearchResult, SearchResponse } from './search-types.js';
 import { PROJECTS_COLLECTION } from './search-types.js';
 
-/** Resolve the tenant ID for an exact search from options and project detector. */
+/**
+ * Resolution outcome for exact-search tenant scoping.
+ *
+ * Closes F-004: project-scope exact search MUST refuse to run when no
+ * tenant can be resolved — without a tenant the daemon's FTS query
+ * builder drops the `fm.tenant_id = ?` clause and broadens to every
+ * tenant in the FTS index.
+ */
+type ExactSearchTenantResolution =
+  | { kind: 'tenant'; tenantId: string }
+  | { kind: 'unscoped' } // explicit `scope: 'all'` — caller asked for global FTS
+  | { kind: 'unresolved' }; // project-scope but no tenant could be found
+
 async function resolveExactSearchTenant(
   options: SearchOptions,
   projectDetector: ProjectDetector
-): Promise<string | undefined> {
-  if (options.scope === 'all') return undefined;
-  if (options.projectId) return options.projectId;
+): Promise<ExactSearchTenantResolution> {
+  if (options.scope === 'all') return { kind: 'unscoped' };
+  if (options.projectId) return { kind: 'tenant', tenantId: options.projectId };
   const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
-  return projectInfo?.projectId;
+  if (projectInfo?.projectId) {
+    return { kind: 'tenant', tenantId: projectInfo.projectId };
+  }
+  return { kind: 'unresolved' };
 }
 
 /** Map daemon text search matches to SearchResult array. */
@@ -85,6 +100,24 @@ function buildExactSearchRequest(
   return request;
 }
 
+/** Build the response returned when project-scope exact search has no
+ * resolvable tenant. Closes F-004 (no broadening to all FTS tenants). */
+function unresolvedTenantResponse(options: SearchOptions): SearchResponse {
+  return {
+    results: [],
+    total: 0,
+    query: options.query,
+    mode: 'keyword',
+    scope: options.scope ?? 'project',
+    collections_searched: [],
+    status: 'uncertain',
+    status_reason:
+      'Project scope requested but no project could be resolved. ' +
+      'Pass `projectId` explicitly, run from a registered project directory, ' +
+      'or set `scope: "all"` to search across every indexed tenant.',
+  };
+}
+
 /**
  * Execute FTS5 exact/substring search via daemon's TextSearchService.
  * Maps TextSearchResponse to the standard SearchResponse format.
@@ -97,8 +130,28 @@ export async function searchExact(
 ): Promise<SearchResponse> {
   const startTime = Date.now();
   const eventId = randomUUID();
-  const tenantId = await resolveExactSearchTenant(options, projectDetector);
+  const resolution = await resolveExactSearchTenant(options, projectDetector);
 
+  if (resolution.kind === 'unresolved') {
+    // F-004: refuse to broaden to every tenant in the FTS index. The
+    // pre-fix code path omitted `tenant_id` from the daemon request and
+    // the Rust query builder then dropped its `fm.tenant_id = ?`
+    // clause, returning cross-tenant matches.
+    stateManager.logSearchEvent({
+      id: eventId,
+      actor: 'claude',
+      tool: 'mcp_qdrant',
+      op: 'search_exact',
+      queryText: options.query,
+    });
+    stateManager.updateSearchEvent(eventId, {
+      resultCount: 0,
+      latencyMs: Date.now() - startTime,
+    });
+    return unresolvedTenantResponse(options);
+  }
+
+  const tenantId = resolution.kind === 'tenant' ? resolution.tenantId : undefined;
   stateManager.logSearchEvent({
     id: eventId,
     projectId: tenantId,
