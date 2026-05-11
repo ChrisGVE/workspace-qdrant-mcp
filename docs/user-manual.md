@@ -67,7 +67,7 @@ wqm admin health       # Daemon and Qdrant connectivity
 
 ### Config file
 
-All components share one config file at `~/.workspace-qdrant/config.yaml`. You only need to create this file to override defaults — workspace-qdrant works out of the box with local Qdrant.
+All components share one config file at `~/.config/workspace-qdrant/config.yaml` (XDG `$XDG_CONFIG_HOME`). You only need to create this file to override defaults — workspace-qdrant works out of the box with local Qdrant.
 
 **Qdrant Cloud example:**
 
@@ -92,7 +92,7 @@ Environment variables override config file values:
 |----------|---------|---------|
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | — | API key for Qdrant Cloud |
-| `WQM_DATABASE_PATH` | `~/.workspace-qdrant/state.db` | SQLite database location |
+| `WQM_DATABASE_PATH` | `~/.local/share/workspace-qdrant/state.db` | SQLite database location |
 | `WQM_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARN, ERROR) |
 | `WQM_DAEMON_ADDR` | `http://127.0.0.1:50051` | Daemon gRPC address |
 

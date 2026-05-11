@@ -486,13 +486,13 @@ If any component reports unhealthy, see the troubleshooting section in [docs/spe
 
 On first run, the daemon creates the SQLite database automatically:
 
-- **macOS/Linux:** `~/.workspace-qdrant/state.db`
-- **Windows:** `%APPDATA%\workspace-qdrant\state.db`
+- **macOS/Linux:** `~/.local/share/workspace-qdrant/state.db` (XDG `$XDG_DATA_HOME`)
+- **Windows:** `%LOCALAPPDATA%\workspace-qdrant\state.db`
 
 Generate and inspect the default configuration file:
 
 ```bash
-wqm config init    # Write default config to ~/.workspace-qdrant/config.yaml
+wqm config generate > ~/.config/workspace-qdrant/config.yaml   # Write daemon defaults
 wqm config show    # Display active configuration
 wqm config edit    # Open config in $EDITOR
 ```

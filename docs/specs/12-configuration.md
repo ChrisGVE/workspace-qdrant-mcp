@@ -7,12 +7,11 @@
 **Configuration file search order (first found wins, identical across all components):**
 
 1. `WQM_CONFIG_PATH` environment variable (explicit override)
-2. `~/.workspace-qdrant/config.yaml` (or `.yml`)
-3. `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` (or `.yml`; defaults to `~/.config`)
-4. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS only)
-5. `%APPDATA%\workspace-qdrant\config.yaml` (Windows only)
+2. `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` (or `.yml`; defaults to `~/.config`)
+3. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS only)
+4. `%APPDATA%\workspace-qdrant\config.yaml` (Windows only)
 
-No project-local `.workspace-qdrant.yaml` is searched. All components use the same cascade.
+No project-local config file is searched. All components use the same cascade.
 
 **Built-in defaults:** The configuration template (`assets/default_configuration.yaml`) defines all default values. User configuration only needs to specify overrides.
 
@@ -24,12 +23,13 @@ This ensures defaults are always in sync with the binary version without requiri
 
 #### Directory Organization
 
-The `~/.workspace-qdrant/` directory is for **configuration and state only**, not logs:
+XDG-compliant paths (configuration and state only, not logs):
 
-| Directory | Purpose | XDG Equivalent |
-|-----------|---------|----------------|
-| `~/.workspace-qdrant/config.yaml` | Configuration file | `$XDG_CONFIG_HOME/workspace-qdrant/` |
-| `~/.workspace-qdrant/state.db` | SQLite database | `$XDG_DATA_HOME/workspace-qdrant/` |
+| Path | Purpose |
+|------|---------|
+| `~/.config/workspace-qdrant/config.yaml` | Configuration file (`$XDG_CONFIG_HOME`) |
+| `~/.local/share/workspace-qdrant/state.db` | SQLite database (`$XDG_DATA_HOME`) |
+| `~/.cache/workspace-qdrant/grammars/` | Tree-sitter grammar cache (`$XDG_CACHE_HOME`) |
 
 **Logs use OS-canonical paths** (see [Logging and Observability](13-deployment.md#logging-and-observability)):
 
@@ -39,7 +39,7 @@ The `~/.workspace-qdrant/` directory is for **configuration and state only**, no
 | macOS | `~/Library/Logs/workspace-qdrant/` |
 | Windows | `%LOCALAPPDATA%\workspace-qdrant\logs\` |
 
-**XDG Base Directory compliance (Linux):** If `$XDG_CONFIG_HOME` is set, configuration searches `$XDG_CONFIG_HOME/workspace-qdrant/` before `~/.workspace-qdrant/`.
+**XDG Base Directory compliance:** All paths follow XDG spec. `$XDG_CONFIG_HOME` defaults to `~/.config`, `$XDG_DATA_HOME` to `~/.local/share`, `$XDG_CACHE_HOME` to `~/.cache`.
 
 ### Environment Variables
 
@@ -48,7 +48,7 @@ Environment variables override configuration file values:
 | Variable            | Description                        | Default                            |
 | ------------------- | ---------------------------------- | ---------------------------------- |
 | `WQM_CONFIG_PATH`   | Explicit config file path          | None (uses search order)           |
-| `WQM_DATABASE_PATH` | Override database location         | `~/.workspace-qdrant/state.db`     |
+| `WQM_DATABASE_PATH` | Override database location         | `~/.local/share/workspace-qdrant/state.db` |
 | `QDRANT_URL`        | Qdrant server URL                  | `http://localhost:6333`            |
 | `QDRANT_API_KEY`    | Qdrant API key                     | None                               |
 | `FASTEMBED_MODEL`   | Embedding model                    | `all-MiniLM-L6-v2`                 |
@@ -64,7 +64,7 @@ The unified configuration file contains all settings. The following shows every 
 ```yaml
 # Database configuration
 database:
-  path: ~/.workspace-qdrant/state.db
+  path: ~/.local/share/workspace-qdrant/state.db
 
 # Qdrant connection
 qdrant:
@@ -192,7 +192,7 @@ lsp:
 
 # Tree-sitter grammar configuration
 grammars:
-  cache_dir: ~/.workspace-qdrant/grammars
+  cache_dir: ~/.cache/workspace-qdrant/grammars
   required: [rust, python, javascript, typescript, go, java, c, cpp]
   auto_download: true
   tree_sitter_version: "0.24"
@@ -311,7 +311,7 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 
 ### SQLite Database
 
-**Path:** `~/.workspace-qdrant/state.db`
+**Path:** `~/.local/share/workspace-qdrant/state.db` (XDG `$XDG_DATA_HOME`)
 
 **Owner:** Rust daemon (memexd) - see [ADR-003](../adr/ADR-003-daemon-owns-sqlite.md)
 
@@ -366,7 +366,7 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 
 The search DB (`search.db`) is a **separate SQLite database** from `state.db`, dedicated to full-text search via FTS5 virtual tables. It provides the `workspace-qdrant/grep` MCP tool with fast pattern-matching search across all indexed code. For the full functional specification of text search (dispatch strategy, caching, scope filtering), see [09-search-instrumentation.md § Text Search](09-search-instrumentation.md#text-search-grep-tool).
 
-**Path:** `~/.workspace-qdrant/search.db`
+**Path:** `~/.local/share/workspace-qdrant/search.db` (XDG `$XDG_DATA_HOME`)
 
 **Owner:** Rust daemon (memexd) — same ownership model as state.db
 

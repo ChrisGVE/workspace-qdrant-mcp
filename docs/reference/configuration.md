@@ -13,18 +13,16 @@ Configuration is entirely optional. All defaults are embedded in the binaries. A
 | Priority | Path | Notes |
 |----------|------|-------|
 | 1 | Path specified in `WQM_CONFIG_PATH` | Explicit override |
-| 2 | `~/.workspace-qdrant/config.yaml` | Primary location (macOS/Linux) |
-| 2 | `~/.workspace-qdrant/config.yml` | Alternate extension |
-| 3 | `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` | XDG (Linux; defaults to `~/.config`) |
-| 4 | `~/Library/Application Support/workspace-qdrant/config.yaml` | macOS secondary |
-| 5 | `%APPDATA%\workspace-qdrant\config.yaml` | Windows |
+| 2 | `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` | XDG (defaults to `~/.config`) |
+| 3 | `~/Library/Application Support/workspace-qdrant/config.yaml` | macOS secondary |
+| 4 | `%APPDATA%\workspace-qdrant\config.yaml` | Windows |
 
 No project-local configuration file is searched. All components use the same search cascade.
 
 ### Generate the default configuration file
 
 ```bash
-wqm config generate  > ~/.workspace-qdrant/config.yaml   # Write embedded daemon defaults
+wqm config generate  > ~/.config/workspace-qdrant/config.yaml   # Write embedded daemon defaults
 wqm config yaml-show                                     # Print merged daemon YAML config
 wqm config path                                          # Show which config file is active
 ```
@@ -51,12 +49,12 @@ profile value.
 
 ## Data Directories
 
-| Path | Purpose | XDG Equivalent |
-|------|---------|----------------|
-| `~/.workspace-qdrant/config.yaml` | Configuration | `$XDG_CONFIG_HOME/workspace-qdrant/` |
-| `~/.workspace-qdrant/state.db` | SQLite state database | `$XDG_DATA_HOME/workspace-qdrant/` |
-| `~/.workspace-qdrant/search.db` | FTS5 full-text search database | `$XDG_DATA_HOME/workspace-qdrant/` |
-| `~/.workspace-qdrant/grammars/` | Tree-sitter grammar cache | — |
+| Path | Purpose |
+|------|---------|
+| `~/.config/workspace-qdrant/config.yaml` | Configuration (XDG `$XDG_CONFIG_HOME`) |
+| `~/.local/share/workspace-qdrant/state.db` | SQLite state database (XDG `$XDG_DATA_HOME`) |
+| `~/.local/share/workspace-qdrant/search.db` | FTS5 full-text search database (XDG `$XDG_DATA_HOME`) |
+| `~/.cache/workspace-qdrant/grammars/` | Tree-sitter grammar cache (XDG `$XDG_CACHE_HOME`) |
 
 ### Log directories (OS-canonical, separate from config)
 
@@ -75,7 +73,7 @@ Environment variables override the equivalent values in the configuration file.
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `WQM_CONFIG_PATH` | string | — | Absolute path to config file (bypasses search order) |
-| `WQM_DATABASE_PATH` | string | `~/.workspace-qdrant/state.db` | Override SQLite database path |
+| `WQM_DATABASE_PATH` | string | `~/.local/share/workspace-qdrant/state.db` | Override SQLite database path |
 | `QDRANT_URL` | string | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | string | — | Qdrant API key (required for secured instances) |
 | `FASTEMBED_MODEL` | string | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model identifier |
@@ -279,7 +277,7 @@ Tree-sitter grammar cache settings.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `cache_dir` | string | `~/.workspace-qdrant/grammars` | Local directory for compiled grammar files |
+| `cache_dir` | string | `~/.cache/workspace-qdrant/grammars` | Local directory for compiled grammar files |
 | `required` | array | `[]` | Grammars to pre-download on startup (empty = on-demand via auto_download) |
 | `auto_download` | bool | `true` | Automatically download missing grammars |
 | `tree_sitter_version` | string | `"0.24"` | Tree-sitter ABI version to target |
