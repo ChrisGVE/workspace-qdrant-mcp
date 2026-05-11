@@ -43,6 +43,11 @@ pub(super) async fn enqueue_progressive_scan(
 }
 
 /// Enqueue a file operation (ingest, update, or delete).
+///
+/// Returns `is_new`: `true` if a new queue item was inserted, `false` if an
+/// existing item with the same composite key was found (idempotent dedup).
+/// Callers that need to defer side-effects (e.g. clearing `needs_reconcile`)
+/// until the item is actually in-flight should check `is_new` before acting.
 pub(super) async fn enqueue_file_op(
     queue_manager: &QueueManager,
     tenant_id: &str,
@@ -50,7 +55,7 @@ pub(super) async fn enqueue_file_op(
     abs_file_path: &str,
     op: QueueOperation,
     metadata: Option<&str>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let file_type = if op != QueueOperation::Delete {
         Some(
             classify_file_type(Path::new(abs_file_path))
@@ -85,6 +90,6 @@ pub(super) async fn enqueue_file_op(
             metadata,
         )
         .await
-        .map(|_| ())
+        .map(|(_, is_new)| is_new)
         .map_err(|e| format!("Failed to enqueue: {}", e))
 }

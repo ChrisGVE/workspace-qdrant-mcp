@@ -142,14 +142,26 @@ impl QueueManager {
         Ok((resurrected, exhausted))
     }
 
-    /// Delete a unified queue item after successful processing
+    /// Delete a unified queue item after successful processing.
     ///
     /// Per docs/specs/04-write-path.md:
     /// "On success: DELETE items from queue"
     ///
     /// This is the correct method for handling successfully processed items.
     /// Use this instead of mark_unified_done.
+    ///
+    /// F-020: After deleting the queue item, clears the `needs_reconcile` flag
+    /// on the matching `tracked_files` row (if any). The flag is set during
+    /// startup recovery to signal that a file needs re-ingestion; it must only
+    /// be cleared after the repair intent has been durably executed.
     pub async fn delete_unified_item(&self, queue_id: &str) -> QueueResult<bool> {
+        // Look up the file_path before deleting so we can clear needs_reconcile.
+        let file_path: Option<String> =
+            sqlx::query_scalar("SELECT file_path FROM unified_queue WHERE queue_id = ?1")
+                .bind(queue_id)
+                .fetch_optional(&self.pool)
+                .await?;
+
         let result = sqlx::query("DELETE FROM unified_queue WHERE queue_id = ?1")
             .bind(queue_id)
             .execute(&self.pool)
@@ -163,11 +175,61 @@ impl QueueManager {
                 queue_id
             );
             METRICS.queue_item_processed("unified", "deleted", 0.0);
+
+            // F-020: clear needs_reconcile for the matching tracked_files row.
+            // The absolute file path stored in unified_queue.file_path must
+            // match wf.path || '/' || tf.file_path. SQLite's rtrim+replace is
+            // not needed here — a direct equality check on the concatenation is
+            // sufficient and index-friendly via idx_tracked_files_path.
+            if let Some(ref abs_path) = file_path {
+                if let Err(e) = self.clear_needs_reconcile_for_file(abs_path).await {
+                    // Non-fatal: the file was processed; the flag will be
+                    // picked up again on the next reconciliation pass.
+                    warn!(
+                        "Failed to clear needs_reconcile after item {} completed: {}",
+                        queue_id, e
+                    );
+                }
+            }
         } else {
             warn!("Failed to delete unified item: {} (not found)", queue_id);
         }
 
         Ok(deleted)
+    }
+
+    /// Clear `needs_reconcile` on the `tracked_files` row whose absolute path
+    /// matches `abs_file_path` (F-020).
+    ///
+    /// The absolute path is reconstructed as `watch_folders.path || '/' ||
+    /// tracked_files.file_path` and compared against the stored queue
+    /// `file_path`.
+    async fn clear_needs_reconcile_for_file(&self, abs_file_path: &str) -> QueueResult<()> {
+        let now = wqm_common::timestamps::now_utc();
+        let rows = sqlx::query(
+            "UPDATE tracked_files \
+             SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1 \
+             WHERE needs_reconcile = 1 \
+               AND file_id IN ( \
+                   SELECT tf.file_id \
+                   FROM tracked_files tf \
+                   JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+                   WHERE wf.path || '/' || tf.file_path = ?2 \
+               )",
+        )
+        .bind(&now)
+        .bind(abs_file_path)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+
+        if rows > 0 {
+            debug!(
+                "Cleared needs_reconcile for {} after queue completion: {}",
+                rows, abs_file_path
+            );
+        }
+        Ok(())
     }
 
     /// Purge all pending and in-progress queue items for a tenant.

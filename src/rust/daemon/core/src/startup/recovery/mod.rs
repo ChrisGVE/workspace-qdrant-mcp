@@ -312,7 +312,7 @@ async fn process_tracked_file(
         )
         .await
         {
-            Ok(()) => {
+            Ok(_is_new) => {
                 stats.files_to_delete += 1;
                 return 1;
             }
@@ -335,7 +335,7 @@ async fn process_tracked_file(
         )
         .await
         {
-            Ok(()) => {
+            Ok(_is_new) => {
                 stats.files_newly_excluded += 1;
                 return 1;
             }

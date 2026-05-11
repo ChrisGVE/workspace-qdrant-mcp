@@ -4,7 +4,6 @@ use std::path::Path;
 
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
-use wqm_common::timestamps;
 
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
@@ -17,6 +16,11 @@ use super::types::FullRecoveryStats;
 ///
 /// For each flagged file, look up its watch_folder to get routing info,
 /// then re-queue it for ingestion.
+///
+/// The `needs_reconcile` flag is NOT cleared here (F-020). It is deferred
+/// until the enqueued queue item completes successfully (i.e. is deleted from
+/// the unified_queue by `delete_unified_item`). This prevents silent loss of
+/// repair intent if the daemon crashes between enqueue and processing.
 pub(super) async fn reconcile_flagged_files(
     pool: &SqlitePool,
     queue_manager: &QueueManager,
@@ -43,7 +47,15 @@ pub(super) async fn reconcile_flagged_files(
     }
 }
 
-/// Reconcile a single flagged file: look up watch folder, re-queue, clear flag.
+/// Reconcile a single flagged file: look up watch folder and re-queue.
+///
+/// The `needs_reconcile` flag is left set regardless of whether the enqueue
+/// succeeded or was deduplicated (F-020):
+/// - If `is_new=true`: item enqueued; flag cleared when the item completes.
+/// - If `is_new=false`: an identical item is already in flight; flag stays set
+///   until that prior item completes.
+/// - If watch folder is missing: flag cleared immediately (file is orphaned;
+///   no repair is possible).
 async fn reconcile_single_file(
     pool: &SqlitePool,
     queue_manager: &QueueManager,
@@ -64,7 +76,9 @@ async fn reconcile_single_file(
                 "Watch folder {} not found for reconcile file_id={}, clearing flag",
                 file.watch_folder_id, file.file_id
             );
-            let _ = clear_reconcile_flag(pool, file.file_id).await;
+            // Watch folder gone: no repair possible, clear the flag so this
+            // file does not block future reconciliation passes.
+            let _ = clear_reconcile_flag_direct(pool, file.file_id).await;
             stats.reconcile_errors += 1;
             return;
         }
@@ -85,7 +99,7 @@ async fn reconcile_single_file(
         QueueOperation::Delete
     };
 
-    if let Err(e) = enqueue_file_op(
+    match enqueue_file_op(
         queue_manager,
         &tenant_id,
         &collection,
@@ -95,34 +109,42 @@ async fn reconcile_single_file(
     )
     .await
     {
-        warn!(
-            "Failed to re-queue reconcile file {}: {}",
-            file.file_path, e
-        );
-        stats.reconcile_errors += 1;
-        return;
-    }
-
-    if let Err(e) = clear_reconcile_flag(pool, file.file_id).await {
-        warn!(
-            "Failed to clear reconcile flag for file_id={}: {}",
-            file.file_id, e
-        );
-        stats.reconcile_errors += 1;
-    } else {
-        info!(
-            "Reconciled file_id={} ({}): re-queued for {}",
-            file.file_id,
-            file.file_path,
-            op.as_str()
-        );
-        stats.reconciled += 1;
+        Ok(is_new) => {
+            // F-020: do NOT clear needs_reconcile here. The flag is cleared by
+            // `QueueManager::delete_unified_item` when the queue item completes.
+            if is_new {
+                info!(
+                    "Reconciled file_id={} ({}): enqueued for {}",
+                    file.file_id,
+                    file.file_path,
+                    op.as_str()
+                );
+            } else {
+                debug!(
+                    "Reconcile file_id={} ({}): op={} already in queue, flag kept",
+                    file.file_id,
+                    file.file_path,
+                    op.as_str()
+                );
+            }
+            stats.reconciled += 1;
+        }
+        Err(e) => {
+            warn!(
+                "Failed to re-queue reconcile file {}: {}",
+                file.file_path, e
+            );
+            stats.reconcile_errors += 1;
+        }
     }
 }
 
-/// Clear the needs_reconcile flag for a tracked file (non-transactional).
-async fn clear_reconcile_flag(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
-    let now = timestamps::now_utc();
+/// Clear the needs_reconcile flag for a tracked file directly.
+///
+/// Only called when reconciliation is impossible (e.g. watch folder missing).
+/// Normal completions go through `QueueManager::delete_unified_item` instead.
+async fn clear_reconcile_flag_direct(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
+    let now = wqm_common::timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1
          WHERE file_id = ?2",

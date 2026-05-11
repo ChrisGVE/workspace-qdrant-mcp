@@ -134,14 +134,18 @@ pub async fn init_graph_db(queue_pool: &SqlitePool) -> Option<ConcreteGraphStore
 pub async fn run_reconciliation(queue_pool: &SqlitePool) {
     info!("Running startup reconciliation (fast path)...");
 
-    match workspace_qdrant_core::startup::clean_stale_state(queue_pool).await {
+    let queue_manager =
+        workspace_qdrant_core::queue_operations::QueueManager::new(queue_pool.clone());
+    match workspace_qdrant_core::startup::clean_stale_state(queue_pool, &queue_manager).await {
         Ok(stats) => {
             if stats.has_changes() {
                 info!(
                     "Stale state cleanup: {} items reset, {} old items cleaned, \
+                     {} Delete(s) enqueued for missing files, \
                      {} stale tracked files removed, {} orphan chunks removed",
                     stats.items_reset,
                     stats.items_cleaned,
+                    stats.deletes_enqueued,
                     stats.tracked_files_removed,
                     stats.orphan_chunks_removed
                 );

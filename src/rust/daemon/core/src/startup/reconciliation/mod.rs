@@ -16,6 +16,8 @@ use sqlx::{Row, SqlitePool};
 use tracing::{debug, info, warn};
 
 use crate::lifecycle::WatchFolderLifecycle;
+use crate::queue_operations::QueueManager;
+use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
 
 /// Statistics returned by `clean_stale_state`.
 #[derive(Debug, Clone, Default)]
@@ -28,7 +30,10 @@ pub struct StaleCleanupStats {
     pub items_cleaned: u64,
     /// Failed items removed because their tenant no longer has a watch_folder.
     pub orphan_tenant_items_removed: u64,
-    /// Tracked files removed because the file no longer exists on disk.
+    /// Delete ops enqueued for tracked files missing on disk (F-036).
+    pub deletes_enqueued: u64,
+    /// Tracked files removed because the file no longer exists on disk and
+    /// the corresponding Delete op has been durably processed (not in flight).
     pub tracked_files_removed: u64,
     /// Orphan qdrant_chunks removed (file_id no longer in tracked_files).
     pub orphan_chunks_removed: u64,
@@ -41,6 +46,7 @@ impl StaleCleanupStats {
             || self.items_reset > 0
             || self.items_cleaned > 0
             || self.orphan_tenant_items_removed > 0
+            || self.deletes_enqueued > 0
             || self.tracked_files_removed > 0
             || self.orphan_chunks_removed > 0
     }
@@ -59,13 +65,22 @@ pub struct WatchValidationStats {
 
 /// Clean stale state from previous daemon runs.
 ///
-/// Performs five cleanup operations:
-/// 1. Reset in_progress queue items back to pending.
-/// 2. Remove done/failed queue items older than 7 days.
-/// 3. Purge failed items whose tenant no longer has a watch_folder.
-/// 4. Remove tracked_files entries whose files no longer exist on disk.
-/// 5. Remove orphan qdrant_chunks whose file_id is not in tracked_files.
-pub async fn clean_stale_state(pool: &SqlitePool) -> Result<StaleCleanupStats, String> {
+/// Performs seven cleanup operations in safe order (F-036):
+/// 1. Reset session reference counts to 0.
+/// 2. Reset in_progress queue items back to pending.
+/// 3. Remove done/failed queue items older than 7 days (with F-043 exemption).
+/// 4. Purge failed items whose tenant no longer has a watch_folder.
+/// 5. Enqueue Delete ops for tracked files missing on disk.
+/// 6. Remove tracked_files entries whose Delete op has completed (not in flight).
+/// 7. Remove orphan qdrant_chunks whose file_id is not in tracked_files.
+///
+/// Step 5 before step 6 ensures Qdrant/FTS/graph state is cleaned up before
+/// the `tracked_files` row is removed. The composite uniqueness key makes
+/// step 5 idempotent across restarts.
+pub async fn clean_stale_state(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+) -> Result<StaleCleanupStats, String> {
     let mut stats = StaleCleanupStats::default();
 
     // Reset session counts before anything else: all MCP sessions from the previous
@@ -74,6 +89,11 @@ pub async fn clean_stale_state(pool: &SqlitePool) -> Result<StaleCleanupStats, S
     stats.items_reset = reset_in_progress_items(pool).await?;
     stats.items_cleaned = purge_old_completed_items(pool).await?;
     stats.orphan_tenant_items_removed = purge_orphan_tenant_items(pool).await?;
+    // F-036: enqueue Delete ops for files missing on disk before removing their
+    // tracked_files rows. This ensures downstream state (Qdrant, FTS, graph) is
+    // cleaned up before we lose the file's tracking record.
+    stats.deletes_enqueued = enqueue_delete_for_missing_tracked_files(pool, queue_manager).await?;
+    // Only remove tracked_files rows where no Delete op is still in flight.
     stats.tracked_files_removed = remove_stale_tracked_files(pool).await?;
     stats.orphan_chunks_removed = remove_orphan_chunks(pool).await?;
 
@@ -127,13 +147,35 @@ async fn reset_in_progress_items(pool: &SqlitePool) -> Result<u64, String> {
     Ok(count)
 }
 
-/// Step 2: Remove done/failed queue items older than 7 days.
+/// Step 2: Remove done/failed queue items older than 7 days (F-043 exemption).
+///
+/// Failed rows are exempt from purge when they are the sole remaining repair
+/// intent for a file: specifically, when the file's `tracked_files` row has
+/// `needs_reconcile = 1` AND there are no other pending or in-progress queue
+/// items for that file path. Removing such a failed row would silently discard
+/// the only signal that the file needs repair (F-043).
 async fn purge_old_completed_items(pool: &SqlitePool) -> Result<u64, String> {
     info!("Cleaning old done/failed queue items...");
     let result = sqlx::query(
         "DELETE FROM unified_queue \
          WHERE status IN ('done', 'failed') \
-         AND updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')",
+         AND updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days') \
+         AND NOT ( \
+             status = 'failed' \
+             AND retry_count >= max_retries \
+             AND EXISTS ( \
+                 SELECT 1 FROM tracked_files tf \
+                 JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+                 WHERE tf.needs_reconcile = 1 \
+                   AND (wf.path || '/' || tf.file_path) = unified_queue.file_path \
+                   AND NOT EXISTS ( \
+                       SELECT 1 FROM unified_queue q2 \
+                       WHERE q2.file_path = unified_queue.file_path \
+                         AND q2.status IN ('pending', 'in_progress') \
+                         AND q2.queue_id != unified_queue.queue_id \
+                   ) \
+             ) \
+         )",
     )
     .execute(pool)
     .await
@@ -176,11 +218,109 @@ async fn purge_orphan_tenant_items(pool: &SqlitePool) -> Result<u64, String> {
     Ok(count)
 }
 
-/// Step 4: Remove tracked_files entries whose files no longer exist on disk.
+/// Step 4b (F-036): Enqueue Delete ops for tracked files that no longer exist on disk.
+///
+/// Iterates all tracked files, checks disk existence, and enqueues a
+/// `(File, Delete)` queue item for each missing file. The composite uniqueness
+/// key `(tenant_id, branch, collection, item_type, op, file_path)` makes this
+/// operation idempotent: re-running on the next startup will silently skip files
+/// that already have a pending or in-progress Delete item.
+async fn enqueue_delete_for_missing_tracked_files(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+) -> Result<u64, String> {
+    info!("Enqueueing Delete ops for tracked files missing on disk (F-036)...");
+    let tracked_rows = sqlx::query(
+        "SELECT tf.file_id, tf.file_path, wf.path AS watch_path, \
+                wf.tenant_id, wf.collection, \
+                COALESCE(tf.branch, 'main') AS branch \
+         FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to query tracked files for delete enqueue: {}", e))?;
+
+    let mut enqueued: u64 = 0;
+    for row in &tracked_rows {
+        let file_path: String = row.get("file_path");
+        let watch_path: String = row.get("watch_path");
+        let tenant_id: String = row.get("tenant_id");
+        let collection: String = row.get("collection");
+        let branch: String = row.get("branch");
+
+        let abs_path = Path::new(&watch_path).join(&file_path);
+        if abs_path.exists() {
+            continue;
+        }
+
+        let abs_path_str = abs_path.to_string_lossy();
+        let file_payload = FilePayload {
+            file_path: abs_path_str.to_string(),
+            file_type: None,
+            file_hash: None,
+            size_bytes: None,
+            old_path: None,
+        };
+        let payload_json = serde_json::to_string(&file_payload)
+            .map_err(|e| format!("Failed to serialize FilePayload: {}", e))?;
+
+        match queue_manager
+            .enqueue_unified(
+                ItemType::File,
+                QueueOperation::Delete,
+                &tenant_id,
+                &collection,
+                &payload_json,
+                Some(&branch),
+                None,
+            )
+            .await
+        {
+            Ok((_, true)) => {
+                debug!("Enqueued Delete for missing tracked file: {}", abs_path_str);
+                enqueued += 1;
+            }
+            Ok((_, false)) => {
+                // Idempotent dedup: Delete already queued from a previous startup.
+                debug!(
+                    "Delete already queued for missing tracked file: {}",
+                    abs_path_str
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to enqueue Delete for missing tracked file {}: {}",
+                    abs_path_str, e
+                );
+            }
+        }
+    }
+
+    if enqueued > 0 {
+        info!(
+            "Enqueued {} Delete op(s) for tracked files missing on disk",
+            enqueued
+        );
+    } else {
+        debug!("No missing tracked files require Delete enqueue");
+    }
+    Ok(enqueued)
+}
+
+/// Step 5 (F-036): Remove tracked_files entries whose files no longer exist on
+/// disk AND whose Delete op is not still in flight.
+///
+/// A tracked_files row is only removed when the corresponding Delete queue item
+/// has been durably processed (deleted from queue = done) or never existed. If a
+/// pending or in-progress Delete item exists for the file, the row is kept so
+/// that the Delete handler can still resolve the file's identity on completion.
 async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     info!("Checking tracked files against filesystem...");
     let tracked_rows = sqlx::query(
-        "SELECT tf.file_id, tf.file_path, wf.path AS watch_path \
+        "SELECT tf.file_id, tf.file_path, wf.path AS watch_path, \
+                wf.tenant_id, COALESCE(tf.branch, 'main') AS branch, \
+                wf.collection \
          FROM tracked_files tf \
          JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id",
     )
@@ -188,21 +328,50 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     .await
     .map_err(|e| format!("Failed to query tracked files: {}", e))?;
 
-    let mut stale_file_ids: Vec<i64> = Vec::new();
+    let mut removable_file_ids: Vec<i64> = Vec::new();
     for row in &tracked_rows {
         let file_id: i64 = row.get("file_id");
         let file_path: String = row.get("file_path");
         let watch_path: String = row.get("watch_path");
 
         let abs_path = Path::new(&watch_path).join(&file_path);
-        if !abs_path.exists() {
-            debug!("Tracked file no longer exists: {}", abs_path.display());
-            stale_file_ids.push(file_id);
+        if abs_path.exists() {
+            continue;
+        }
+
+        // File is missing on disk. Only remove the tracked_files row if there is
+        // no pending or in-progress Delete item for this absolute path. A Delete
+        // item in flight means the downstream cleanup (Qdrant, FTS, graph) has
+        // not yet been applied — removing the row now would orphan that state.
+        let abs_path_str = abs_path.to_string_lossy().to_string();
+        let in_flight: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM unified_queue \
+             WHERE file_path = ?1 \
+               AND op = 'delete' \
+               AND item_type = 'file' \
+               AND status IN ('pending', 'in_progress')",
+        )
+        .bind(&abs_path_str)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+
+        if in_flight > 0 {
+            debug!(
+                "Keeping tracked_files row for {} — Delete op still in flight",
+                abs_path_str
+            );
+        } else {
+            debug!(
+                "Tracked file missing on disk and no Delete in flight, removing: {}",
+                abs_path_str
+            );
+            removable_file_ids.push(file_id);
         }
     }
 
-    if !stale_file_ids.is_empty() {
-        for chunk in stale_file_ids.chunks(500) {
+    if !removable_file_ids.is_empty() {
+        for chunk in removable_file_ids.chunks(500) {
             let placeholders: String = chunk
                 .iter()
                 .map(|id| id.to_string())
@@ -217,11 +386,14 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
                 .await
                 .map_err(|e| format!("Failed to delete stale tracked files: {}", e))?;
         }
-        let count = stale_file_ids.len() as u64;
-        info!("Removed {} stale tracked files", count);
+        let count = removable_file_ids.len() as u64;
+        info!(
+            "Removed {} stale tracked files (Delete not in flight)",
+            count
+        );
         Ok(count)
     } else {
-        debug!("All tracked files still exist on disk");
+        debug!("All tracked files still exist on disk or have Delete ops in flight");
         Ok(0)
     }
 }
