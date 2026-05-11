@@ -10,6 +10,74 @@ mod tests {
     use crate::unified_config::UnifiedConfigManager;
     use wqm_common::env_expand::expand_path_env_vars;
 
+    /// F-051: DaemonConfig must survive a full YAML round-trip without losing fields.
+    ///
+    /// `DaemonConfig` uses `#[serde(skip_serializing_if = "...")]` on several optional
+    /// fields, so serialising a default instance and deserialising it back must leave all
+    /// representative fields intact.
+    #[test]
+    fn test_daemon_config_yaml_round_trip() {
+        let original = DaemonConfig::default();
+
+        // Serialise to YAML — this is what `wqm config generate` produces.
+        let yaml =
+            serde_yaml_ng::to_string(&original).expect("DaemonConfig must serialise to YAML");
+
+        // Deserialise back — this exercises the serde round-trip path.
+        let restored: DaemonConfig =
+            serde_yaml_ng::from_str(&yaml).expect("serialised YAML must deserialise back");
+
+        // Assert representative fields from every top-level section survive intact.
+        assert_eq!(restored.chunk_size, original.chunk_size, "chunk_size");
+        assert_eq!(
+            restored.max_concurrent_tasks, original.max_concurrent_tasks,
+            "max_concurrent_tasks"
+        );
+        assert_eq!(restored.log_level, original.log_level, "log_level");
+        assert_eq!(
+            restored.enable_preemption, original.enable_preemption,
+            "enable_preemption"
+        );
+
+        // embedding section
+        assert_eq!(
+            restored.embedding.cache_max_entries, original.embedding.cache_max_entries,
+            "embedding.cache_max_entries"
+        );
+        assert_eq!(
+            restored.embedding.model, original.embedding.model,
+            "embedding.model"
+        );
+
+        // gRPC endpoint
+        assert_eq!(
+            restored.daemon_endpoint.grpc_port, original.daemon_endpoint.grpc_port,
+            "daemon_endpoint.grpc_port"
+        );
+
+        // git section
+        assert_eq!(
+            restored.git.enable_branch_detection, original.git.enable_branch_detection,
+            "git.enable_branch_detection"
+        );
+
+        // resource limits
+        assert_eq!(
+            restored.resource_limits.nice_level, original.resource_limits.nice_level,
+            "resource_limits.nice_level"
+        );
+
+        // url_ingestion
+        assert_eq!(
+            restored.url_ingestion.max_body_bytes, original.url_ingestion.max_body_bytes,
+            "url_ingestion.max_body_bytes"
+        );
+        assert_eq!(
+            restored.url_ingestion.max_redirects, original.url_ingestion.max_redirects,
+            "url_ingestion.max_redirects"
+        );
+    }
+
     #[test]
     fn test_config_format_detection() {
         assert_eq!(ConfigFormat::from_path("config.yaml"), ConfigFormat::Yaml);
