@@ -725,7 +725,7 @@ Manage the `memexd` daemon process and system service registration.
 
 | Flag | Description |
 |------|-------------|
-| `--remove-data` | Also remove `~/.workspace-qdrant/` data directory |
+| `--remove-data` | Also remove `~/.local/share/workspace-qdrant/` data directory |
 
 **`wqm service logs`**
 

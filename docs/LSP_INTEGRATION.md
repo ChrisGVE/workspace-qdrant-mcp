@@ -259,7 +259,7 @@ npm install -g typescript-language-server
 ### LSP Settings in `config.yaml`
 
 ```yaml
-# ~/.workspace-qdrant/config.yaml
+# ~/.config/workspace-qdrant/config.yaml
 lsp:
   # Enable/disable LSP integration
   enabled: true
@@ -656,9 +656,9 @@ wqm admin metrics --lsp | grep cache_hit_rate
 
 | Log | Location |
 |-----|----------|
-| Daemon logs | `~/.workspace-qdrant/logs/daemon.log` |
+| Daemon logs | `~/Library/Logs/workspace-qdrant/daemon.log` (macOS) / `~/.local/state/workspace-qdrant/log/daemon.log` (Linux) |
 | LSP-specific | Filter with `--filter lsp` |
-| Server stdout | `~/.workspace-qdrant/logs/lsp/<server>.log` |
+| Server stdout | `~/Library/Logs/workspace-qdrant/lsp/<server>.log` (macOS) / `~/.local/state/workspace-qdrant/log/lsp/<server>.log` (Linux) |
 
 ### Debug Mode
 

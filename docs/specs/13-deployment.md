@@ -33,7 +33,8 @@ The system consists of three primary components that work together:
            ▼
 ┌─────────────────────────┐
 │    SQLite Database      │
-│  ~/.workspace-qdrant/   │
+│  ~/.local/share/        │
+│  workspace-qdrant/      │
 │      state.db           │
 │                         │
 │  - unified_queue        │
@@ -127,7 +128,7 @@ Since the `ort` crate doesn't provide prebuilt static libraries for `x86_64-appl
 
 **Tree-sitter Grammar Compatibility:**
 
-Pre-compiled grammar libraries are included for each platform. Custom grammars can be loaded from `~/.workspace-qdrant/grammars/`.
+Pre-compiled grammar libraries are included for each platform. Custom grammars can be loaded from `~/.local/share/workspace-qdrant/grammars/`.
 
 ### Installation Methods
 
@@ -265,7 +266,7 @@ services:
   memexd:
     image: workspace-qdrant-mcp/daemon:latest
     volumes:
-      - ~/.workspace-qdrant:/data
+      - ~/.local/share/workspace-qdrant:/data
       - ~/projects:/projects:ro
     environment:
       - QDRANT_URL=http://qdrant:6333
@@ -327,7 +328,7 @@ docker run -e QDRANT_URL -e QDRANT_API_KEY workspace-qdrant-mcp/daemon
 |----------|---------|-------------|
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | (none) | Qdrant API key |
-| `WQM_DATABASE_PATH` | `~/.workspace-qdrant/state.db` | SQLite database path |
+| `WQM_DATABASE_PATH` | `~/.local/share/workspace-qdrant/state.db` | SQLite database path |
 | `WQM_LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARN, ERROR) |
 | `WQM_GRPC_PORT` | `50051` | gRPC server port |
 
@@ -348,7 +349,7 @@ docker pull ghcr.io/chrisgve/workspace-qdrant-mcp:0
 docker run -d \
   -p 50051:50051 \
   -e QDRANT_URL=http://host.docker.internal:6333 \
-  -v ~/.workspace-qdrant:/data \
+  -v ~/.local/share/workspace-qdrant:/data \
   ghcr.io/chrisgve/workspace-qdrant-mcp:latest
 ```
 
@@ -368,8 +369,7 @@ On first run, the system initializes automatically:
    ```
 
 2. **Config file locations (search order):**
-   - `~/.workspace-qdrant/config.yaml`
-   - `~/.config/workspace-qdrant/config.yaml`
+   - `~/.config/workspace-qdrant/config.yaml` (Linux / macOS)
    - `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS)
    - `%APPDATA%\workspace-qdrant\config.yaml` (Windows)
 
@@ -380,7 +380,7 @@ On first run, the system initializes automatically:
    ```
 
 4. **SQLite database initialization:**
-   The daemon automatically creates `~/.workspace-qdrant/state.db` on first run with all required tables.
+   The daemon automatically creates `~/.local/share/workspace-qdrant/state.db` on first run with all required tables.
 
 #### MCP Client Configuration
 
@@ -618,7 +618,7 @@ Log files follow platform-specific conventions:
 
 **Note:** Daemon and MCP Server logs are kept in **separate files** to prevent corruption if one component crashes while writing. The CLI merges them for unified viewing.
 
-**Important:** The `~/.workspace-qdrant/` directory is reserved for **configuration only**, not logs. On Linux, if `$XDG_CONFIG_HOME` is set, configuration moves to `$XDG_CONFIG_HOME/workspace-qdrant/`.
+**Important:** Logs are written to `~/Library/Logs/workspace-qdrant/` (macOS) or `~/.local/state/workspace-qdrant/log/` (Linux). Configuration lives in `~/.config/workspace-qdrant/` (respects `$XDG_CONFIG_HOME`). Data (SQLite, models, cache) lives in `~/.local/share/workspace-qdrant/` (respects `$XDG_DATA_HOME`).
 
 #### Service Manager Integration
 

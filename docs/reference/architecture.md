@@ -25,7 +25,7 @@ For visual diagrams and complete component details, see [docs/ARCHITECTURE.md](.
          | reads/writes
          v
   +-------------------+
-  |   SQLite          |  ~/.workspace-qdrant/state.db
+  |   SQLite          |  ~/.local/share/workspace-qdrant/state.db
   |   State DB        |
   +-------------------+
          ^
@@ -149,7 +149,7 @@ Reference: [docs/adr/ADR-002-daemon-only-write-policy.md](../adr/ADR-002-daemon-
 
 ### ADR-003 — Daemon Owns SQLite
 
-The daemon creates the database file (`~/.workspace-qdrant/state.db`), all tables, and all schema migrations. The MCP server and CLI may read from and write to tables, but must not create tables or run migrations. If a table does not exist, components return degraded responses rather than attempting to create it.
+The daemon creates the database file (`~/.local/share/workspace-qdrant/state.db`), all tables, and all schema migrations. The MCP server and CLI may read from and write to tables, but must not create tables or run migrations. If a table does not exist, components return degraded responses rather than attempting to create it.
 
 Reference: [docs/adr/ADR-003-daemon-owns-sqlite.md](../adr/ADR-003-daemon-owns-sqlite.md)
 

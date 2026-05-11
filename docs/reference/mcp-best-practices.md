@@ -95,7 +95,7 @@ claude mcp list
 | `QDRANT_URL` | No | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | No | (none) | API key for Qdrant Cloud |
 | `FASTEMBED_MODEL` | No | `all-MiniLM-L6-v2` | Embedding model (384-dim) |
-| `WQM_DATABASE_PATH` | No | `~/.workspace-qdrant/state.db` | Override SQLite state path |
+| `WQM_DATABASE_PATH` | No | `~/.local/share/workspace-qdrant/state.db` | Override SQLite state path |
 | `WQM_LOG_LEVEL` | No | `INFO` | Log level: DEBUG, INFO, WARN, ERROR |
 
 ---
