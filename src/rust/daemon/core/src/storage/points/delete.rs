@@ -243,4 +243,148 @@ impl StorageClient {
 
         Ok(count)
     }
+
+    /// Delete all points matching every supplied (field, value) keyword pair.
+    ///
+    /// All conditions are combined with `must` (logical AND). Use this when
+    /// a single field is insufficient for safe scoping — for example,
+    /// `(label, "no-foo") AND (tenant_id, "proj-A")` ensures a label-only
+    /// remove can never delete a same-label rule belonging to another
+    /// project.
+    ///
+    /// Errors when any field value is empty (mirrors the single-field helper)
+    /// or when `fields` is empty (refuses an unconditional delete).
+    pub async fn delete_points_by_payload_fields(
+        &self,
+        collection_name: &str,
+        fields: &[(&str, &str)],
+    ) -> Result<u64, StorageError> {
+        let filter = validate_and_build_payload_field_filter(fields)?;
+
+        info!(
+            "Deleting points matching {:?} from collection '{}'",
+            fields, collection_name
+        );
+
+        let count = self
+            .count_points_with_filter(collection_name, filter.clone())
+            .await?;
+
+        let delete_request = DeletePointsBuilder::new(collection_name)
+            .points(filter)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client
+                .delete_points(delete_request.clone())
+                .await
+                .map_err(|e| {
+                    StorageError::Point(format!("Failed to delete points by payload fields: {}", e))
+                })
+        })
+        .await?;
+
+        info!(
+            "Deleted {} points matching {:?} from '{}'",
+            count, fields, collection_name
+        );
+
+        Ok(count)
+    }
+}
+
+/// Validate the inputs to `delete_points_by_payload_fields` and lower them
+/// to a Qdrant `Filter::must([Condition::matches])` clause set.
+///
+/// Extracted so the safety invariants (no empty list, no empty value) can
+/// be unit-tested without a live Qdrant connection.
+fn validate_and_build_payload_field_filter(
+    fields: &[(&str, &str)],
+) -> Result<Filter, StorageError> {
+    if fields.is_empty() {
+        return Err(StorageError::Point(
+            "at least one (field, value) pair is required for delete operations".to_string(),
+        ));
+    }
+    for (name, value) in fields {
+        if value.trim().is_empty() {
+            return Err(StorageError::Point(format!(
+                "{} must not be empty for delete operations",
+                name
+            )));
+        }
+    }
+    let conditions: Vec<Condition> = fields
+        .iter()
+        .map(|(name, value)| Condition::matches(*name, value.to_string()))
+        .collect();
+    Ok(Filter::must(conditions))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Regression tests for the `(field, value)` validation that gates
+    //! `delete_points_by_payload_fields`. Multi-field scoping closes F-005
+    //! (label-only rule remove crossed project boundaries); these tests
+    //! prove the helper refuses unsafe inputs (no fields, empty value).
+
+    use super::*;
+
+    #[test]
+    fn validate_payload_filter_rejects_empty_field_list() {
+        let result = validate_and_build_payload_field_filter(&[]);
+        let err = result.expect_err("empty field list must be rejected");
+        match err {
+            StorageError::Point(msg) => assert!(
+                msg.contains("at least one"),
+                "error message must mention required field, got: {msg}"
+            ),
+            other => panic!("expected StorageError::Point, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_payload_filter_rejects_empty_value() {
+        let result =
+            validate_and_build_payload_field_filter(&[("label", "no-foo"), ("tenant_id", "")]);
+        let err = result.expect_err("empty value must be rejected");
+        match err {
+            StorageError::Point(msg) => assert!(
+                msg.contains("tenant_id"),
+                "error message must identify the offending field, got: {msg}"
+            ),
+            other => panic!("expected StorageError::Point, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_payload_filter_rejects_whitespace_only_value() {
+        let result =
+            validate_and_build_payload_field_filter(&[("label", "   "), ("tenant_id", "proj-a")]);
+        assert!(
+            result.is_err(),
+            "whitespace-only value must be rejected to prevent unscoped delete"
+        );
+    }
+
+    #[test]
+    fn validate_payload_filter_builds_filter_for_valid_pair() {
+        let filter = validate_and_build_payload_field_filter(&[
+            ("label", "no-foo"),
+            ("tenant_id", "proj-a"),
+        ])
+        .expect("valid input must produce a filter");
+        assert_eq!(
+            filter.must.len(),
+            2,
+            "two valid (field, value) pairs must produce two must conditions"
+        );
+    }
+
+    #[test]
+    fn validate_payload_filter_supports_single_pair() {
+        let filter = validate_and_build_payload_field_filter(&[("tenant_id", "proj-a")])
+            .expect("single valid pair must produce a filter");
+        assert_eq!(filter.must.len(), 1);
+    }
 }

@@ -79,7 +79,7 @@ impl TextStrategy {
         let action = payload.action.as_deref().unwrap_or("add");
 
         if action == "remove" {
-            return Self::handle_rules_remove(ctx, &payload).await;
+            return Self::handle_rules_remove(ctx, item, &payload).await;
         }
 
         let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
@@ -91,7 +91,7 @@ impl TextStrategy {
         .await?;
 
         if action == "update" {
-            Self::delete_rule_by_label(ctx, &payload.label).await?;
+            Self::delete_rule_by_label(ctx, &item.tenant_id, &payload.label).await?;
         }
 
         let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
@@ -118,50 +118,67 @@ impl TextStrategy {
     }
 
     /// Handle the `remove` action: delete the point from Qdrant and clean `rules_mirror`.
+    ///
+    /// Scope is enforced by `(tenant_id, label)` so a `remove` queued by
+    /// project A can never delete a same-labeled rule owned by project B
+    /// (or by the global tenant). Closes F-005.
     async fn handle_rules_remove(
         ctx: &ProcessingContext,
+        item: &UnifiedQueueItem,
         payload: &MemoryPayload,
     ) -> UnifiedProcessorResult<()> {
         if let Some(label) = &payload.label {
-            info!("Removing rule with label: {}", label);
+            info!(
+                "Removing rule with label='{}' tenant_id='{}'",
+                label, item.tenant_id
+            );
             ctx.storage_client
-                .delete_points_by_payload_field(
+                .delete_points_by_payload_fields(
                     wqm_common::constants::COLLECTION_RULES,
-                    "label",
-                    label,
+                    &[("label", label), ("tenant_id", &item.tenant_id)],
                 )
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
             // Best-effort: remove from rules_mirror (Qdrant delete already succeeded)
             let pool = ctx.queue_manager.pool();
-            if let Err(e) = sqlx::query("DELETE FROM rules_mirror WHERE rule_id = ?1")
-                .bind(label)
-                .execute(pool)
-                .await
-            {
+            let delete_result = sqlx::query(
+                "DELETE FROM rules_mirror WHERE rule_id = ?1 AND (tenant_id = ?2 OR tenant_id IS NULL)",
+            )
+            .bind(label)
+            .bind(&item.tenant_id)
+            .execute(pool)
+            .await;
+            if let Err(e) = delete_result {
                 warn!(
-                    "Failed to delete rules_mirror row for label={}: {}",
-                    label, e
+                    "Failed to delete rules_mirror row for label={} tenant_id={}: {}",
+                    label, item.tenant_id, e
                 );
             }
         }
         Ok(())
     }
 
-    /// Delete an existing rule point by label (used for `update` action).
+    /// Delete an existing rule point by label, scoped by tenant (used for
+    /// `update` action — delete + re-insert).
+    ///
+    /// The tenant scope must match the queue item's tenant to prevent
+    /// cross-tenant rule eviction. Closes F-005.
     async fn delete_rule_by_label(
         ctx: &ProcessingContext,
+        tenant_id: &str,
         label: &Option<String>,
     ) -> UnifiedProcessorResult<()> {
         if let Some(label) = label {
-            info!("Updating rule with label: {} (delete + re-insert)", label);
+            info!(
+                "Updating rule with label='{}' tenant_id='{}' (delete + re-insert)",
+                label, tenant_id
+            );
             let _ = ctx
                 .storage_client
-                .delete_points_by_payload_field(
+                .delete_points_by_payload_fields(
                     wqm_common::constants::COLLECTION_RULES,
-                    "label",
-                    label,
+                    &[("label", label), ("tenant_id", tenant_id)],
                 )
                 .await;
         }
