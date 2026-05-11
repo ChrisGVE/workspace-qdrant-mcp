@@ -1,6 +1,7 @@
 //! Delete, stats, cleanup, and queue depth tests.
 
 use super::*;
+use crate::tracked_files_schema::CREATE_TRACKED_FILES_SQL;
 
 #[tokio::test]
 async fn test_unified_queue_delete_item() {
@@ -362,4 +363,141 @@ async fn test_oldest_pending_age_ignores_non_pending() {
 
     let age = manager.get_oldest_pending_age_seconds().await.unwrap();
     assert_eq!(age, 0, "non-pending items must not contribute to age");
+}
+
+/// Regression test: Delete-completion side-effects (F-036) must be scoped by
+/// tenant_id.  When two `tracked_files` rows share the same reconstructed
+/// absolute path (`wf.path || '/' || tf.file_path`) but belong to different
+/// tenants, completing a Delete queue item for one tenant must only remove
+/// that tenant's row and must leave the other tenant's row intact.
+#[tokio::test]
+async fn test_delete_unified_item_tracked_files_scoped_by_tenant() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_tenant_isolation.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    // Initialize schemas
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+    sqlx::query(CREATE_TRACKED_FILES_SQL)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool.clone());
+    manager.init_unified_queue().await.unwrap();
+
+    // Two watch-folders with distinct tenant_ids whose watch roots are *nested*,
+    // which causes `wf.path || '/' || tf.file_path` to reconstruct to the same
+    // absolute path for both rows — exactly the multi-tenant collision scenario.
+    //
+    //   tenant-alpha: watch_root=/data/shared    rel=project/src/lib.rs
+    //                 → /data/shared/project/src/lib.rs
+    //   tenant-beta:  watch_root=/data/shared/project  rel=src/lib.rs
+    //                 → /data/shared/project/src/lib.rs
+    //
+    // The UNIQUE constraint on watch_folders.path is satisfied because the two
+    // roots are different strings.
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+         VALUES ('wf-t1', '/data/shared', 'projects', 'tenant-alpha',
+                 '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+         VALUES ('wf-t2', '/data/shared/project', 'projects', 'tenant-beta',
+                 '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Both rows reconstruct to the same absolute path.
+    let abs_path = "/data/shared/project/src/lib.rs";
+
+    sqlx::query(
+        "INSERT INTO tracked_files \
+         (watch_folder_id, file_path, branch, needs_reconcile, file_mtime, file_hash, \
+          collection, created_at, updated_at) \
+         VALUES ('wf-t1', 'project/src/lib.rs', 'main', 0, '2025-01-01T00:00:00Z', 'hash1', \
+                 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO tracked_files \
+         (watch_folder_id, file_path, branch, needs_reconcile, file_mtime, file_hash, \
+          collection, created_at, updated_at) \
+         VALUES ('wf-t2', 'src/lib.rs', 'main', 0, '2025-01-01T00:00:00Z', 'hash1', \
+                 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Verify both rows exist before the test
+    let count_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tracked_files")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count_before, 2, "setup: expected 2 tracked_files rows");
+
+    // Insert a Delete queue item for tenant-alpha directly so we can control
+    // tenant_id without going through the full enqueue validation path.
+    let queue_id = "qid-delete-alpha";
+    sqlx::query(
+        "INSERT INTO unified_queue \
+         (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
+          status, branch, payload_json, metadata, file_path, created_at, updated_at) \
+         VALUES (?1, ?2, 'file', 'delete', 'tenant-alpha', 'projects', \
+                 'in_progress', 'main', '{}', '{}', ?3, \
+                 '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+    )
+    .bind(queue_id)
+    .bind("idem-key-alpha-delete")
+    .bind(abs_path)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Complete the Delete: only tenant-alpha's tracked_files row should be removed.
+    let deleted = manager.delete_unified_item(queue_id).await.unwrap();
+    assert!(deleted, "queue item should be deleted");
+
+    // tenant-alpha's row must be gone
+    let alpha_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.tenant_id = 'tenant-alpha'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        alpha_count, 0,
+        "tenant-alpha's tracked_files row must be removed after its Delete completes"
+    );
+
+    // tenant-beta's row must survive
+    let beta_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.tenant_id = 'tenant-beta'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        beta_count, 1,
+        "tenant-beta's tracked_files row must NOT be removed — it belongs to a different tenant"
+    );
 }

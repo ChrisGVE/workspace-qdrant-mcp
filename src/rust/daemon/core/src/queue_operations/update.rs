@@ -164,20 +164,26 @@ impl QueueManager {
     pub async fn delete_unified_item(&self, queue_id: &str) -> QueueResult<bool> {
         // Look up op + file_path before deleting so we can apply post-completion
         // side-effects for F-020 and F-036.
-        let row =
-            sqlx::query("SELECT op, item_type, file_path FROM unified_queue WHERE queue_id = ?1")
-                .bind(queue_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = sqlx::query(
+            "SELECT op, item_type, file_path, tenant_id FROM unified_queue WHERE queue_id = ?1",
+        )
+        .bind(queue_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
-        let (op, item_type, file_path): (Option<String>, Option<String>, Option<String>) = match row
-        {
+        let (op, item_type, file_path, tenant_id): (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = match row {
             Some(r) => (
                 r.try_get("op").ok(),
                 r.try_get("item_type").ok(),
                 r.try_get("file_path").ok(),
+                r.try_get("tenant_id").ok(),
             ),
-            None => (None, None, None),
+            None => (None, None, None, None),
         };
 
         let result = sqlx::query("DELETE FROM unified_queue WHERE queue_id = ?1")
@@ -194,7 +200,7 @@ impl QueueManager {
             );
             METRICS.queue_item_processed("unified", "deleted", 0.0);
 
-            if let Some(ref abs_path) = file_path {
+            if let (Some(ref abs_path), Some(ref tid)) = (file_path, tenant_id) {
                 let is_file = item_type.as_deref() == Some("file");
                 let is_delete = op.as_deref() == Some("delete");
 
@@ -203,7 +209,7 @@ impl QueueManager {
                 // the row any longer would cause the next reconciliation pass to
                 // re-enqueue another Delete for the same file.
                 if is_file && is_delete {
-                    if let Err(e) = self.remove_tracked_file_row(abs_path).await {
+                    if let Err(e) = self.remove_tracked_file_row(abs_path, tid).await {
                         warn!(
                             "Failed to remove tracked_files row after Delete {} completed: {}",
                             queue_id, e
@@ -212,7 +218,7 @@ impl QueueManager {
                 } else if is_file {
                     // F-020: for non-Delete file ops, clear needs_reconcile only.
                     // The tracked_files row should remain (file still exists).
-                    if let Err(e) = self.clear_needs_reconcile_for_file(abs_path).await {
+                    if let Err(e) = self.clear_needs_reconcile_for_file(abs_path, tid).await {
                         // Non-fatal: the flag will be picked up on the next pass.
                         warn!(
                             "Failed to clear needs_reconcile after item {} completed: {}",
@@ -232,8 +238,14 @@ impl QueueManager {
     /// completes (F-036).
     ///
     /// The row is identified by joining `watch_folders.path || '/' ||
-    /// tracked_files.file_path` against the absolute path stored in the queue.
-    async fn remove_tracked_file_row(&self, abs_file_path: &str) -> QueueResult<()> {
+    /// tracked_files.file_path` against the absolute path stored in the queue,
+    /// scoped to `tenant_id` to prevent cross-tenant mutations when two tenants
+    /// share an identical absolute path under different watch-folder roots.
+    async fn remove_tracked_file_row(
+        &self,
+        abs_file_path: &str,
+        tenant_id: &str,
+    ) -> QueueResult<()> {
         let rows = sqlx::query(
             "DELETE FROM tracked_files \
              WHERE file_id IN ( \
@@ -241,9 +253,11 @@ impl QueueManager {
                  FROM tracked_files tf \
                  JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
                  WHERE wf.path || '/' || tf.file_path = ?1 \
+                   AND wf.tenant_id = ?2 \
              )",
         )
         .bind(abs_file_path)
+        .bind(tenant_id)
         .execute(&self.pool)
         .await?
         .rows_affected();
@@ -262,8 +276,14 @@ impl QueueManager {
     ///
     /// The absolute path is reconstructed as `watch_folders.path || '/' ||
     /// tracked_files.file_path` and compared against the stored queue
-    /// `file_path`.
-    async fn clear_needs_reconcile_for_file(&self, abs_file_path: &str) -> QueueResult<()> {
+    /// `file_path`, scoped to `tenant_id` to prevent cross-tenant mutations
+    /// when two tenants share an identical absolute path under different
+    /// watch-folder roots.
+    async fn clear_needs_reconcile_for_file(
+        &self,
+        abs_file_path: &str,
+        tenant_id: &str,
+    ) -> QueueResult<()> {
         let now = timestamps::now_utc();
         let rows = sqlx::query(
             "UPDATE tracked_files \
@@ -274,10 +294,12 @@ impl QueueManager {
                    FROM tracked_files tf \
                    JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
                    WHERE wf.path || '/' || tf.file_path = ?2 \
+                     AND wf.tenant_id = ?3 \
                )",
         )
         .bind(&now)
         .bind(abs_file_path)
+        .bind(tenant_id)
         .execute(&self.pool)
         .await?
         .rows_affected();
