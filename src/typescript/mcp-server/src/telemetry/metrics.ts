@@ -167,12 +167,30 @@ export function recordDaemonFallback(tool: string, reason: string): void {
 
 // ── HTTP helpers ────────────────────────────────────────────────────────────
 
-/** Logical path label for HTTP counters — collapses ad-hoc URLs into buckets. */
+/**
+ * The configured MCP HTTP path, cached at module load from `MCP_HTTP_PATH`
+ * (same env var used by `resolveHttpOptions()` in `src/index.ts`).
+ * Defaults to `/mcp` when the variable is unset (matching DEFAULT_HTTP_PATH
+ * in server-types.ts).
+ *
+ * Cached so every call to `httpPathLabel()` does not re-read process.env.
+ * Tests that need a different value must call `vi.resetModules()` and
+ * re-import this module after setting the env var.
+ */
+const _mcpHttpPath: string = process.env['MCP_HTTP_PATH'] ?? '/mcp';
+
+/** Logical path label for HTTP counters — collapses ad-hoc URLs into buckets.
+ *
+ * Uses `MCP_HTTP_PATH` (cached at module load) to recognise the MCP route.
+ * Any path that matches the configured MCP path (or starts with it followed
+ * by `/`) is labelled `mcp`. `/healthz` is labelled `/healthz`. Everything
+ * else falls back to `other`.
+ */
 export function httpPathLabel(rawPath: string | undefined): string {
   if (rawPath === undefined) return 'other';
   const noQuery = rawPath.split('?', 1)[0] ?? '';
   if (noQuery === '/healthz') return '/healthz';
-  if (noQuery === '/mcp' || noQuery.startsWith('/mcp/')) return '/mcp';
+  if (noQuery === _mcpHttpPath || noQuery.startsWith(_mcpHttpPath + '/')) return 'mcp';
   return 'other';
 }
 
