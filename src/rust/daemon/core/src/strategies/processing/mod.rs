@@ -10,4 +10,5 @@ pub mod folder;
 pub mod tenant;
 pub mod text;
 pub mod url;
+pub mod url_security;
 pub mod website;
