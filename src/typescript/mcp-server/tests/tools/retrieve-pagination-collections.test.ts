@@ -74,10 +74,7 @@ describe('RetrieveTool - pagination', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     await newTool.retrieve({
       collection: 'projects',
@@ -103,10 +100,7 @@ describe('RetrieveTool - pagination', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     await newTool.retrieve({
       collection: 'projects',
@@ -136,10 +130,7 @@ describe('RetrieveTool - pagination', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({
       collection: 'projects',
@@ -156,17 +147,12 @@ describe('RetrieveTool - pagination', () => {
       () =>
         ({
           scroll: vi.fn().mockResolvedValue({
-            points: [
-              { id: '1', payload: { content: 'doc 1' } },
-            ],
+            points: [{ id: '1', payload: { content: 'doc 1' } }],
           }),
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({
       collection: 'projects',
@@ -195,10 +181,7 @@ describe('RetrieveTool - collection handling', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     await newTool.retrieve({});
 
@@ -215,12 +198,11 @@ describe('RetrieveTool - collection handling', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
-    await newTool.retrieve({ collection: 'libraries' });
+    // F-002 / F-011: libraries scope now requires `libraryName` — otherwise
+    // the retrieve refuses to scroll. Mirror that contract here.
+    await newTool.retrieve({ collection: 'libraries', libraryName: 'mylib' });
 
     expect(scrollMock).toHaveBeenCalledWith('libraries', expect.any(Object));
   });
@@ -235,10 +217,7 @@ describe('RetrieveTool - collection handling', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     await newTool.retrieve({ collection: 'rules' });
 
@@ -263,10 +242,7 @@ describe('RetrieveTool - error handling', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({ collection: 'projects' });
 
@@ -284,10 +260,7 @@ describe('RetrieveTool - error handling', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({ collection: 'projects' });
 

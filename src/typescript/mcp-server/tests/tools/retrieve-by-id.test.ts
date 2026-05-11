@@ -16,7 +16,7 @@ vi.mock('@qdrant/js-client-rest', () => ({
           content: 'Document content here',
           title: 'Test Document',
           source_type: 'user_input',
-          tenant_id: 'test-project',
+          tenant_id: 'test-project-123',
         },
       },
     ]),
@@ -28,7 +28,7 @@ vi.mock('@qdrant/js-client-rest', () => ({
             content: 'First document',
             title: 'Doc 1',
             source_type: 'file',
-            tenant_id: 'test-project',
+            tenant_id: 'test-project-123',
           },
         },
         {
@@ -37,7 +37,7 @@ vi.mock('@qdrant/js-client-rest', () => ({
             content: 'Second document',
             title: 'Doc 2',
             source_type: 'web',
-            tenant_id: 'test-project',
+            tenant_id: 'test-project-123',
           },
         },
       ],
@@ -64,10 +64,7 @@ describe('RetrieveTool - retrieve by document ID', () => {
     vi.clearAllMocks();
     mockProjectDetector = createMockProjectDetector();
 
-    retrieveTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    retrieveTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
   });
 
   it('should retrieve a document by ID', async () => {
@@ -108,10 +105,7 @@ describe('RetrieveTool - retrieve by document ID', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({
       documentId: 'nonexistent',
@@ -132,10 +126,7 @@ describe('RetrieveTool - retrieve by document ID', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({
       documentId: 'doc-123',
@@ -168,16 +159,18 @@ describe('RetrieveTool - metadata extraction', () => {
                 dense_vector: [0.1, 0.2, 0.3],
                 sparse_vector: { indices: [1, 2], values: [0.5, 0.5] },
                 title: 'Test',
+                // F-002: tenant_id is required for the ownership check
+                // performed by `retrieveById` against the projects
+                // collection. Must match the mock detector's resolved
+                // project id.
+                tenant_id: 'test-project-123',
               },
             },
           ]),
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({ documentId: 'doc-123' });
 
@@ -187,7 +180,10 @@ describe('RetrieveTool - metadata extraction', () => {
     expect(result.documents[0].metadata.content).toBeUndefined();
   });
 
-  it('should handle null payload gracefully', async () => {
+  it('should reject null payload as not-found (F-002 ownership check)', async () => {
+    // Pre-F-002 this returned success with empty content. Post-fix the
+    // ownership check cannot pass without a payload, so the response
+    // collapses to the same not-found shape as a foreign tenant ID.
     const QdrantClientMock = await import('@qdrant/js-client-rest');
     vi.mocked(QdrantClientMock.QdrantClient).mockImplementationOnce(
       () =>
@@ -201,15 +197,12 @@ describe('RetrieveTool - metadata extraction', () => {
         }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
     );
 
-    const newTool = new RetrieveTool(
-      { qdrantUrl: 'http://localhost:6333' },
-      mockProjectDetector
-    );
+    const newTool = new RetrieveTool({ qdrantUrl: 'http://localhost:6333' }, mockProjectDetector);
 
     const result = await newTool.retrieve({ documentId: 'doc-123' });
 
-    expect(result.success).toBe(true);
-    expect(result.documents[0].content).toBe('');
-    expect(result.documents[0].metadata).toEqual({});
+    expect(result.success).toBe(false);
+    expect(result.documents).toHaveLength(0);
+    expect(result.message).toContain('Document not found');
   });
 });
