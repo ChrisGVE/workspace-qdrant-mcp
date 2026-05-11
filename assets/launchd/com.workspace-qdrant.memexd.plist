@@ -30,13 +30,13 @@
     <true/>
 
     <key>WorkingDirectory</key>
-    <string>__HOME__/.workspace-qdrant</string>
+    <string>__HOME__/.local/share/workspace-qdrant</string>
 
     <key>StandardOutPath</key>
-    <string>__HOME__/.workspace-qdrant/memexd.log</string>
+    <string>__HOME__/Library/Logs/workspace-qdrant/memexd.log</string>
 
     <key>StandardErrorPath</key>
-    <string>__HOME__/.workspace-qdrant/memexd.err.log</string>
+    <string>__HOME__/Library/Logs/workspace-qdrant/memexd.err.log</string>
 
     <!--
       Non-secret config can live here. Do NOT put OPENAI_API_KEY in this
