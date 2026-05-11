@@ -32,13 +32,35 @@ import {
 } from './search-qdrant.js';
 import { expandGraphContext } from './search-graph-context.js';
 
+/** Maximum active base_points we still attach as a Qdrant filter. Above
+ * this the filter clause would blow past server-side limits; we instead
+ * surface a degradation flag so the caller reports it explicitly. */
+const BASE_POINTS_FILTER_CAP = 500;
+
+/** Resolution outcome for project-scoped search context.
+ *
+ * `basePointsDegraded` (F-014) surfaces the case where the active
+ * base-point set exceeds {@link BASE_POINTS_FILTER_CAP}. Pre-fix the
+ * filter was silently dropped (worktree/instance isolation broadened
+ * to the whole tenant). The flag lets the caller report `status:
+ * 'uncertain'` with an explicit `status_reason` instead. */
+export interface ProjectContextResolution {
+  currentProjectId: string | undefined;
+  basePoints: string[] | undefined;
+  /** True when active base-point count exceeds the filter cap. */
+  basePointsDegraded?: boolean;
+  /** Active base-point count when degraded — useful for the caller's
+   *  `status_reason` message. */
+  basePointsActiveCount?: number;
+}
+
 /** Resolve current project ID and base_points for instance-aware filtering. */
 export async function resolveProjectContext(
   projectId: string | undefined,
   scope: SearchScope,
   projectDetector: ProjectDetector,
   stateManager: SqliteStateManager
-): Promise<{ currentProjectId: string | undefined; basePoints: string[] | undefined }> {
+): Promise<ProjectContextResolution> {
   let currentProjectId = projectId;
   if (!currentProjectId && scope === 'project') {
     const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
@@ -46,14 +68,32 @@ export async function resolveProjectContext(
   }
 
   let basePoints: string[] | undefined;
+  let basePointsDegraded = false;
+  let basePointsActiveCount: number | undefined;
   if (currentProjectId && scope === 'project') {
     const watchFolderId = stateManager.getWatchFolderIdByTenantId(currentProjectId);
     if (watchFolderId) {
       const points = stateManager.getActiveBasePoints(watchFolderId, false);
-      if (points.length > 0 && points.length <= 500) basePoints = points;
+      if (points.length > 0 && points.length <= BASE_POINTS_FILTER_CAP) {
+        basePoints = points;
+      } else if (points.length > BASE_POINTS_FILTER_CAP) {
+        // F-014: do NOT silently drop instance isolation. Tenant
+        // filter still applies, but the caller must surface this in
+        // the response so the user knows the worktree narrowing
+        // was bypassed.
+        basePointsDegraded = true;
+        basePointsActiveCount = points.length;
+      }
     }
   }
-  return { currentProjectId, basePoints };
+  const result: ProjectContextResolution = { currentProjectId, basePoints };
+  if (basePointsDegraded) {
+    result.basePointsDegraded = true;
+    if (basePointsActiveCount !== undefined) {
+      result.basePointsActiveCount = basePointsActiveCount;
+    }
+  }
+  return result;
 }
 
 /** Log the pre-execution search event. */

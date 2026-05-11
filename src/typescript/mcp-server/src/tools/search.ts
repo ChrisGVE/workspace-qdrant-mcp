@@ -55,6 +55,20 @@ import {
   finalizeResults,
 } from './search-helpers.js';
 
+/** Format an explicit status_reason for the F-014 base-point degradation
+ * case. Used in both the embedding-fallback path and the normal
+ * fan-out path so callers always see why instance isolation was
+ * bypassed. */
+function formatBasePointsDegradedReason(activeCount: number | undefined): string {
+  const count = activeCount ?? 'too many';
+  return (
+    `Worktree/instance isolation degraded: project has ${count} active base points, ` +
+    `exceeding the 500-filter cap; tenant filter still applies but base-point ` +
+    `narrowing was bypassed. Narrow further with pathGlob, branch, or component to ` +
+    `restore worktree-level isolation.`
+  );
+}
+
 /**
  * Search tool for hybrid semantic + keyword search
  */
@@ -141,16 +155,18 @@ export class SearchTool {
     searchStartMs: number;
     currentProjectId: string | undefined;
     basePoints: string[] | undefined;
+    basePointsDegraded: boolean;
+    basePointsActiveCount: number | undefined;
   }> {
     const eventId = randomUUID();
     const searchStartMs = Date.now();
-    const { currentProjectId, basePoints } = await resolveProjectContext(
+    const resolution = await resolveProjectContext(
       projectId,
       scope,
       this.projectDetector,
       this._stateManager
     );
-    logSearchEventPre(this._stateManager, eventId, currentProjectId, query, limit, {
+    logSearchEventPre(this._stateManager, eventId, resolution.currentProjectId, query, limit, {
       collection: options.collection,
       scope,
       branch: options.branch,
@@ -158,7 +174,14 @@ export class SearchTool {
       libraryName: options.libraryName,
       tag: options.tag,
     });
-    return { eventId, searchStartMs, currentProjectId, basePoints };
+    return {
+      eventId,
+      searchStartMs,
+      currentProjectId: resolution.currentProjectId,
+      basePoints: resolution.basePoints,
+      basePointsDegraded: resolution.basePointsDegraded ?? false,
+      basePointsActiveCount: resolution.basePointsActiveCount,
+    };
   }
 
   async search(options: SearchOptions): Promise<SearchResponse> {
@@ -173,8 +196,14 @@ export class SearchTool {
       scope,
       options.includeLibraries ?? false
     );
-    const { eventId, searchStartMs, currentProjectId, basePoints } =
-      await this.resolveContextAndLog(options, options.query, limit, scope, options.projectId);
+    const {
+      eventId,
+      searchStartMs,
+      currentProjectId,
+      basePoints,
+      basePointsDegraded,
+      basePointsActiveCount,
+    } = await this.resolveContextAndLog(options, options.query, limit, scope, options.projectId);
     const embeddings = await this.prepareEmbeddings(
       options,
       options.query,
@@ -183,7 +212,19 @@ export class SearchTool {
       currentProjectId,
       basePoints
     );
-    if ('fallback' in embeddings) return embeddings.fallback;
+    if ('fallback' in embeddings) {
+      // F-014: if base-point isolation degraded, surface it on the
+      // fallback response too — tenant filter still applies via
+      // fallbackSearch, but instance/worktree narrowing was bypassed.
+      if (basePointsDegraded) {
+        embeddings.fallback.status = 'uncertain';
+        const reason = formatBasePointsDegradedReason(basePointsActiveCount);
+        embeddings.fallback.status_reason = embeddings.fallback.status_reason
+          ? `${embeddings.fallback.status_reason}; ${reason}`
+          : reason;
+      }
+      return embeddings.fallback;
+    }
     return this.runSearchAndFinalize(
       options,
       mode,
@@ -194,6 +235,8 @@ export class SearchTool {
       searchStartMs,
       currentProjectId,
       basePoints,
+      basePointsDegraded,
+      basePointsActiveCount,
       embeddings.denseEmbedding,
       embeddings.sparseVector
     );
@@ -240,10 +283,12 @@ export class SearchTool {
     searchStartMs: number,
     currentProjectId: string | undefined,
     basePoints: string[] | undefined,
+    basePointsDegraded: boolean,
+    basePointsActiveCount: number | undefined,
     denseEmbedding: number[] | undefined,
     sparseVector: Record<number, number> | undefined
   ): Promise<SearchResponse> {
-    const { allResults, status, statusReason } = await this.runSearchCollections(
+    const collectionsResult = await this.runSearchCollections(
       options,
       mode,
       limit,
@@ -254,8 +299,16 @@ export class SearchTool {
       denseEmbedding,
       sparseVector
     );
+    let { status, statusReason } = collectionsResult;
+    if (basePointsDegraded) {
+      // F-014: merge the explicit degradation message into the final
+      // response so callers know instance isolation was bypassed.
+      status = 'uncertain';
+      const reason = formatBasePointsDegradedReason(basePointsActiveCount);
+      statusReason = statusReason ? `${statusReason}; ${reason}` : reason;
+    }
     return finalizeResults(this.qdrantClient, this.daemonClient, this._stateManager, {
-      allResults,
+      allResults: collectionsResult.allResults,
       mode,
       limit,
       options,
