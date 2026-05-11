@@ -347,7 +347,7 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
         // item in flight means the downstream cleanup (Qdrant, FTS, graph) has
         // not yet been applied — removing the row now would orphan that state.
         let abs_path_str = abs_path.to_string_lossy().to_string();
-        let in_flight: i64 = sqlx::query_scalar(
+        let in_flight: i64 = match sqlx::query_scalar(
             "SELECT COUNT(*) FROM unified_queue \
              WHERE file_path = ?1 \
                AND op = 'delete' \
@@ -357,7 +357,16 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
         .bind(&abs_path_str)
         .fetch_one(pool)
         .await
-        .unwrap_or(0);
+        {
+            Ok(count) => count,
+            Err(e) => {
+                warn!(
+                    "Failed to check in-flight Delete for {}: {} — skipping row to preserve F-036 safety guarantee",
+                    abs_path_str, e
+                );
+                continue;
+            }
+        };
 
         if in_flight > 0 {
             debug!(
