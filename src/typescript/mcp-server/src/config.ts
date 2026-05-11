@@ -87,6 +87,31 @@ function mergeConfigs(base: ServerConfig, override: Partial<ServerConfig>): Serv
   return merged;
 }
 
+/**
+ * Parse a gRPC endpoint string into host and port components.
+ *
+ * Accepted formats:
+ *   - "http://host:port"   (scheme stripped, port parsed)
+ *   - "host:port"          (bare host:port)
+ *   - "host"               (host only, port defaults to 50051)
+ */
+export function parseGrpcEndpoint(endpoint: string): { host: string; port: number } {
+  const DEFAULT_PORT = 50051;
+  // Strip http:// or https:// scheme if present.
+  const withoutScheme = endpoint.replace(/^https?:\/\//, '');
+  const colonIndex = withoutScheme.lastIndexOf(':');
+  if (colonIndex === -1) {
+    return { host: withoutScheme, port: DEFAULT_PORT };
+  }
+  const host = withoutScheme.slice(0, colonIndex);
+  const portStr = withoutScheme.slice(colonIndex + 1);
+  const port = parseInt(portStr, 10);
+  if (isNaN(port) || port <= 0 || port > 65535) {
+    return { host, port: DEFAULT_PORT };
+  }
+  return { host, port };
+}
+
 function applyEnvironmentOverrides(config: ServerConfig): ServerConfig {
   const result = { ...config };
 
@@ -103,8 +128,15 @@ function applyEnvironmentOverrides(config: ServerConfig): ServerConfig {
     result.database = { ...result.database, path: process.env['WQM_DATABASE_PATH'] };
   }
 
-  // Daemon port override
-  if (process.env['WQM_DAEMON_PORT']) {
+  // Daemon endpoint override: WQM_DAEMON_ENDPOINT preferred, MEMEXD_GRPC_URL as alias.
+  const endpointEnv = process.env['WQM_DAEMON_ENDPOINT'] ?? process.env['MEMEXD_GRPC_URL'];
+  if (endpointEnv) {
+    const { host, port } = parseGrpcEndpoint(endpointEnv);
+    result.daemon = { ...result.daemon, grpcHost: host, grpcPort: port };
+  }
+
+  // Daemon port-only override (legacy; endpoint env takes precedence when both set).
+  if (!endpointEnv && process.env['WQM_DAEMON_PORT']) {
     const port = parseInt(process.env['WQM_DAEMON_PORT'], 10);
     if (!isNaN(port)) {
       result.daemon = { ...result.daemon, grpcPort: port };
@@ -146,4 +178,9 @@ export function getQdrantUrl(config?: ServerConfig): string {
 export function getDaemonPort(config?: ServerConfig): number {
   const cfg = config ?? loadConfig();
   return cfg.daemon.grpcPort;
+}
+
+export function getDaemonHost(config?: ServerConfig): string {
+  const cfg = config ?? loadConfig();
+  return cfg.daemon.grpcHost;
 }

@@ -13,6 +13,7 @@ export interface QdrantConfig {
 }
 
 export interface DaemonConfig {
+  grpcHost: string;
   grpcPort: number;
   queuePollIntervalMs: number;
   queueBatchSize: number;

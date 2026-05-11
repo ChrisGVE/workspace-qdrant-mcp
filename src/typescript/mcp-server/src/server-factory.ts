@@ -63,7 +63,12 @@ function createTools(
 export function buildServerComponents(config: ServerConfig): ServerComponents {
   // DaemonClient is constructed eagerly but connection is lazy (on first RPC call).
   // All consumers handle null/unavailable daemon gracefully via fire-and-forget patterns.
-  const daemonClient = new DaemonClient({ port: config.daemon.grpcPort, timeoutMs: 5000 });
+  const daemonClient = new DaemonClient({
+    host: config.daemon.grpcHost,
+    port: config.daemon.grpcPort,
+    timeoutMs: 5000,
+  });
+  console.error(`[wqm] daemon gRPC endpoint: ${config.daemon.grpcHost}:${config.daemon.grpcPort}`);
   const stateManager = new SqliteStateManager({
     dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
   });

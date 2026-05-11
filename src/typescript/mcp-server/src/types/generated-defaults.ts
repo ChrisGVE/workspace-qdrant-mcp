@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
     timeout: 30000,
   },
   daemon: {
+    grpcHost: 'localhost',
     grpcPort: 50051,
     queuePollIntervalMs: 500,
     queueBatchSize: 10,
