@@ -138,11 +138,13 @@ async fn test_reconcile_flagged_files_requeues_existing() {
     assert_eq!(stats.reconciled, 1);
     assert_eq!(stats.reconcile_errors, 0);
 
-    // Verify flag was cleared
+    // F-020: needs_reconcile must NOT be cleared immediately after enqueue.
+    // The flag is only cleared when the queue item completes (delete_unified_item).
     let flagged = tfs::get_files_needing_reconcile(&pool).await.unwrap();
-    assert!(
-        flagged.is_empty(),
-        "needs_reconcile should be cleared after reconciliation"
+    assert_eq!(
+        flagged.len(),
+        1,
+        "needs_reconcile must remain set until the queue item completes (F-020)"
     );
 
     // Verify an item was enqueued
@@ -160,6 +162,23 @@ async fn test_reconcile_flagged_files_requeues_existing() {
             .await
             .unwrap();
     assert_eq!(op, "update");
+
+    // Simulate successful processing: delete_unified_item clears needs_reconcile.
+    let queue_id: String =
+        sqlx::query_scalar("SELECT queue_id FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    queue_manager
+        .delete_unified_item(&queue_id)
+        .await
+        .expect("delete_unified_item failed");
+
+    let flagged_after = tfs::get_files_needing_reconcile(&pool).await.unwrap();
+    assert!(
+        flagged_after.is_empty(),
+        "needs_reconcile should be cleared after queue item completes (F-020)"
+    );
 
     drop(tmp);
     let _ = file_id; // used for insert verification

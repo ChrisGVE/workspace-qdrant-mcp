@@ -150,17 +150,35 @@ impl QueueManager {
     /// This is the correct method for handling successfully processed items.
     /// Use this instead of mark_unified_done.
     ///
-    /// F-020: After deleting the queue item, clears the `needs_reconcile` flag
-    /// on the matching `tracked_files` row (if any). The flag is set during
-    /// startup recovery to signal that a file needs re-ingestion; it must only
-    /// be cleared after the repair intent has been durably executed.
+    /// Post-completion side-effects (F-020, F-036):
+    ///
+    /// - **F-020**: For any completed file op, clears `needs_reconcile` on the
+    ///   matching `tracked_files` row. The flag must only be cleared after the
+    ///   repair intent has been durably executed, not at enqueue time.
+    ///
+    /// - **F-036**: For completed Delete ops specifically, also removes the
+    ///   `tracked_files` row itself. Once the Delete handler has cleaned up
+    ///   Qdrant/FTS/graph state, the tracking record is no longer needed and
+    ///   must be removed so that the next startup reconciliation pass does not
+    ///   re-enqueue another Delete for the same file.
     pub async fn delete_unified_item(&self, queue_id: &str) -> QueueResult<bool> {
-        // Look up the file_path before deleting so we can clear needs_reconcile.
-        let file_path: Option<String> =
-            sqlx::query_scalar("SELECT file_path FROM unified_queue WHERE queue_id = ?1")
+        // Look up op + file_path before deleting so we can apply post-completion
+        // side-effects for F-020 and F-036.
+        let row =
+            sqlx::query("SELECT op, item_type, file_path FROM unified_queue WHERE queue_id = ?1")
                 .bind(queue_id)
                 .fetch_optional(&self.pool)
                 .await?;
+
+        let (op, item_type, file_path): (Option<String>, Option<String>, Option<String>) = match row
+        {
+            Some(r) => (
+                r.try_get("op").ok(),
+                r.try_get("item_type").ok(),
+                r.try_get("file_path").ok(),
+            ),
+            None => (None, None, None),
+        };
 
         let result = sqlx::query("DELETE FROM unified_queue WHERE queue_id = ?1")
             .bind(queue_id)
@@ -176,19 +194,31 @@ impl QueueManager {
             );
             METRICS.queue_item_processed("unified", "deleted", 0.0);
 
-            // F-020: clear needs_reconcile for the matching tracked_files row.
-            // The absolute file path stored in unified_queue.file_path must
-            // match wf.path || '/' || tf.file_path. SQLite's rtrim+replace is
-            // not needed here — a direct equality check on the concatenation is
-            // sufficient and index-friendly via idx_tracked_files_path.
             if let Some(ref abs_path) = file_path {
-                if let Err(e) = self.clear_needs_reconcile_for_file(abs_path).await {
-                    // Non-fatal: the file was processed; the flag will be
-                    // picked up again on the next reconciliation pass.
-                    warn!(
-                        "Failed to clear needs_reconcile after item {} completed: {}",
-                        queue_id, e
-                    );
+                let is_file = item_type.as_deref() == Some("file");
+                let is_delete = op.as_deref() == Some("delete");
+
+                // F-036: remove the tracked_files row once a Delete op completes.
+                // The handler has already cleaned up Qdrant/FTS/graph state; keep
+                // the row any longer would cause the next reconciliation pass to
+                // re-enqueue another Delete for the same file.
+                if is_file && is_delete {
+                    if let Err(e) = self.remove_tracked_file_row(abs_path).await {
+                        warn!(
+                            "Failed to remove tracked_files row after Delete {} completed: {}",
+                            queue_id, e
+                        );
+                    }
+                } else if is_file {
+                    // F-020: for non-Delete file ops, clear needs_reconcile only.
+                    // The tracked_files row should remain (file still exists).
+                    if let Err(e) = self.clear_needs_reconcile_for_file(abs_path).await {
+                        // Non-fatal: the flag will be picked up on the next pass.
+                        warn!(
+                            "Failed to clear needs_reconcile after item {} completed: {}",
+                            queue_id, e
+                        );
+                    }
                 }
             }
         } else {
@@ -198,6 +228,35 @@ impl QueueManager {
         Ok(deleted)
     }
 
+    /// Remove the `tracked_files` row for `abs_file_path` after a Delete op
+    /// completes (F-036).
+    ///
+    /// The row is identified by joining `watch_folders.path || '/' ||
+    /// tracked_files.file_path` against the absolute path stored in the queue.
+    async fn remove_tracked_file_row(&self, abs_file_path: &str) -> QueueResult<()> {
+        let rows = sqlx::query(
+            "DELETE FROM tracked_files \
+             WHERE file_id IN ( \
+                 SELECT tf.file_id \
+                 FROM tracked_files tf \
+                 JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+                 WHERE wf.path || '/' || tf.file_path = ?1 \
+             )",
+        )
+        .bind(abs_file_path)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+
+        if rows > 0 {
+            debug!(
+                "Removed {} tracked_files row(s) after Delete completed: {}",
+                rows, abs_file_path
+            );
+        }
+        Ok(())
+    }
+
     /// Clear `needs_reconcile` on the `tracked_files` row whose absolute path
     /// matches `abs_file_path` (F-020).
     ///
@@ -205,7 +264,7 @@ impl QueueManager {
     /// tracked_files.file_path` and compared against the stored queue
     /// `file_path`.
     async fn clear_needs_reconcile_for_file(&self, abs_file_path: &str) -> QueueResult<()> {
-        let now = wqm_common::timestamps::now_utc();
+        let now = timestamps::now_utc();
         let rows = sqlx::query(
             "UPDATE tracked_files \
              SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1 \

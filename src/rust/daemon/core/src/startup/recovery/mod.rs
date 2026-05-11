@@ -351,5 +351,17 @@ async fn process_tracked_file(
     0
 }
 
+/// Test-only re-export of `reconcile_flagged_files` so that integration tests
+/// in the reconciliation module can drive it directly without going through the
+/// full `run_startup_recovery` path.
+#[cfg(test)]
+pub async fn reconcile_flagged_files_for_test(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+    stats: &mut FullRecoveryStats,
+) {
+    reconcile_flagged_files(pool, queue_manager, stats).await;
+}
+
 #[cfg(test)]
 mod tests;
