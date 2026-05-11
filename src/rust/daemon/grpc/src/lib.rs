@@ -26,12 +26,13 @@ use workspace_qdrant_core::SearchDbManager;
 
 pub mod auth;
 mod builder;
-mod factory;
+pub mod factory;
 pub mod metrics_layer;
 pub mod services;
 
 // Re-export auth types at crate root for backward compatibility
 pub use auth::{AuthConfig, AuthInterceptor, TlsConfig};
+pub use factory::make_auth_fn;
 
 pub mod proto {
     // Generated protobuf definitions from build.rs

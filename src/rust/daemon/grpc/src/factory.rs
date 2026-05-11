@@ -6,16 +6,36 @@
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
+use tonic::service::interceptor::InterceptedService;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
+use tonic::{Request, Status};
 use workspace_qdrant_core::storage::{StorageClient, StorageConfig};
 use workspace_qdrant_core::{LanguageServerManager, ProjectLspConfig};
 
+use crate::auth::AuthInterceptor;
 use crate::services::{
     AdminWriteServiceImpl, CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl,
     LibraryWriteServiceImpl, ProjectServiceImpl, QueueWriteServiceImpl, SystemServiceImpl,
     TextSearchServiceImpl, TrackingWriteServiceImpl, WatchWriteServiceImpl,
 };
 use crate::{GrpcError, GrpcServer, ServerConfig};
+
+/// Build a cloneable auth-checking closure from the server configuration.
+///
+/// The returned closure is `Clone` (the inner `AuthInterceptor` is `Clone`) and
+/// applies the API-key / origin checks defined in `auth.rs`. Always wrapping
+/// every service with this closure — even when auth is disabled — keeps the
+/// `tonic::Router` type identical in both modes; the closure short-circuits
+/// to `Ok` when no auth is configured.
+pub fn make_auth_fn(
+    config: &ServerConfig,
+) -> impl FnMut(Request<()>) -> Result<Request<()>, Status> + Clone {
+    let interceptor = AuthInterceptor::new(config.auth_config.clone());
+    move |req: Request<()>| -> Result<Request<()>, Status> {
+        interceptor.check(&req)?;
+        Ok(req)
+    }
+}
 
 type LayerStack =
     tower::layer::util::Stack<crate::metrics_layer::MetricsLayer, tower::layer::util::Identity>;
@@ -184,16 +204,30 @@ impl GrpcServer {
 
     fn log_startup_info(&self) {
         tracing::info!("Starting gRPC server on {}", self.config.bind_addr);
+        let auth_enabled = self
+            .config
+            .auth_config
+            .as_ref()
+            .map(|a| a.enabled)
+            .unwrap_or(false);
         tracing::info!(
             "gRPC server configuration: TLS={}, Auth={}, Timeouts={:?}",
             self.config.tls_config.is_some(),
-            self.config
-                .auth_config
-                .as_ref()
-                .map(|a| a.enabled)
-                .unwrap_or(false),
+            auth_enabled,
             self.config.timeout_config
         );
+
+        // Surface the chosen auth mode unambiguously so operators can tell at
+        // a glance whether the auth interceptor is enforcing API keys.
+        if auth_enabled {
+            tracing::info!(
+                "gRPC auth mode: SECURE — auth interceptor enforcing API key on all services"
+            );
+        } else {
+            tracing::warn!(
+                "gRPC auth mode: INSECURE — auth interceptor wired but disabled; all requests pass"
+            );
+        }
 
         log_security_warnings(&self.config);
     }
@@ -230,45 +264,59 @@ impl GrpcServer {
     ) -> Result<(), GrpcError> {
         use crate::proto;
 
+        // Build the auth-checking closure once and clone it into each service
+        // wrap. When auth is disabled or unconfigured, the closure is a pass-
+        // through, so wrapping is type-uniform across modes.
+        let auth_fn = make_auth_fn(&self.config);
+
         let mut router = server_builder
-            .add_service(proto::system_service_server::SystemServiceServer::new(
-                system_service,
+            .add_service(InterceptedService::new(
+                proto::system_service_server::SystemServiceServer::new(system_service),
+                auth_fn.clone(),
             ))
-            .add_service(
+            .add_service(InterceptedService::new(
                 proto::collection_service_server::CollectionServiceServer::new(collection_service),
-            )
-            .add_service(proto::document_service_server::DocumentServiceServer::new(
-                document_service,
+                auth_fn.clone(),
             ))
-            .add_service(
+            .add_service(InterceptedService::new(
+                proto::document_service_server::DocumentServiceServer::new(document_service),
+                auth_fn.clone(),
+            ))
+            .add_service(InterceptedService::new(
                 proto::embedding_service_server::EmbeddingServiceServer::new(embedding_service),
-            );
+                auth_fn.clone(),
+            ));
 
         if let Some(project_svc_impl) = project_service {
             project_svc_impl.start_deferred_shutdown_monitor();
             tracing::info!(
                 "Registering ProjectService gRPC endpoint with deferred shutdown monitor"
             );
-            router = router.add_service(proto::project_service_server::ProjectServiceServer::new(
-                project_svc_impl,
+            router = router.add_service(InterceptedService::new(
+                proto::project_service_server::ProjectServiceServer::new(project_svc_impl),
+                auth_fn.clone(),
             ));
         }
         if let Some(search_db) = self.search_db.take() {
             tracing::info!("Registering TextSearchService gRPC endpoint");
-            router = router.add_service(
+            router = router.add_service(InterceptedService::new(
                 proto::text_search_service_server::TextSearchServiceServer::new(
                     TextSearchServiceImpl::new(search_db),
                 ),
-            );
+                auth_fn.clone(),
+            ));
         }
         if let Some(graph_store) = self.graph_store.take() {
             tracing::info!("Registering GraphService gRPC endpoint");
-            router = router.add_service(proto::graph_service_server::GraphServiceServer::new(
-                crate::services::GraphServiceImpl::new(graph_store),
+            router = router.add_service(InterceptedService::new(
+                proto::graph_service_server::GraphServiceServer::new(
+                    crate::services::GraphServiceImpl::new(graph_store),
+                ),
+                auth_fn.clone(),
             ));
         }
 
-        router = self.register_write_services(router, &local_storage_client);
+        router = self.register_write_services(router, &local_storage_client, auth_fn.clone());
 
         let addr = self.config.bind_addr;
         match self.shutdown_signal.take() {
@@ -291,11 +339,15 @@ impl GrpcServer {
         Ok(())
     }
 
-    fn register_write_services(
+    fn register_write_services<F>(
         &mut self,
         router: tonic::transport::server::Router<LayerStack>,
         local_storage_client: &Arc<StorageClient>,
-    ) -> tonic::transport::server::Router<LayerStack> {
+        auth_fn: F,
+    ) -> tonic::transport::server::Router<LayerStack>
+    where
+        F: FnMut(Request<()>) -> Result<Request<()>, Status> + Clone + Send + Sync + 'static,
+    {
         use crate::proto;
 
         let Some(write_handle) = self.resolve_write_actor() else {
@@ -337,29 +389,34 @@ impl GrpcServer {
             "Registered 5 write services via WriteActor for serialized SQLite mutations"
         );
         router
-            .add_service(
+            .add_service(InterceptedService::new(
                 proto::queue_write_service_server::QueueWriteServiceServer::new(
                     QueueWriteServiceImpl::new(write_handle.clone()),
                 ),
-            )
-            .add_service(
+                auth_fn.clone(),
+            ))
+            .add_service(InterceptedService::new(
                 proto::watch_write_service_server::WatchWriteServiceServer::new(
                     WatchWriteServiceImpl::new(write_handle.clone()),
                 ),
-            )
-            .add_service(
+                auth_fn.clone(),
+            ))
+            .add_service(InterceptedService::new(
                 proto::library_write_service_server::LibraryWriteServiceServer::new(
                     LibraryWriteServiceImpl::new(write_handle.clone()),
                 ),
-            )
-            .add_service(
+                auth_fn.clone(),
+            ))
+            .add_service(InterceptedService::new(
                 proto::tracking_write_service_server::TrackingWriteServiceServer::new(
                     TrackingWriteServiceImpl::new(write_handle),
                 ),
-            )
-            .add_service(
+                auth_fn.clone(),
+            ))
+            .add_service(InterceptedService::new(
                 proto::admin_write_service_server::AdminWriteServiceServer::new(admin_impl),
-            )
+                auth_fn,
+            ))
     }
 }
 
