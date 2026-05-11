@@ -17,6 +17,40 @@ type StoreResult = {
   collection: string;
 };
 
+/**
+ * Pre-enqueue URL validation. Rejects malformed input, non-http(s) schemes,
+ * and obviously bad hostnames so the daemon does not waste a queue cycle on
+ * URLs it would reject at fetch time. Full SSRF policy (private-network
+ * denylist, DNS rebinding defense, redirect re-validation) is enforced
+ * daemon-side; this is a fast-fail surface for user-facing error messages.
+ */
+export function validateUrlInput(raw: unknown): { ok: true } | { ok: false; message: string } {
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return { ok: false, message: 'url is required when type is "url"' };
+  }
+  const trimmed = raw.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, message: 'url is malformed (failed to parse)' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      ok: false,
+      message: `url must use http:// or https:// (got ${parsed.protocol})`,
+    };
+  }
+  const host = parsed.hostname;
+  if (!host || host.length === 0) {
+    return { ok: false, message: 'url has empty hostname' };
+  }
+  if (/^[.\s]+$/.test(host)) {
+    return { ok: false, message: 'url has invalid hostname (dots/whitespace only)' };
+  }
+  return { ok: true };
+}
+
 /** Build the URL queue payload. */
 function buildUrlPayload(
   url: string,
@@ -47,10 +81,10 @@ export async function storeUrl(
   sessionState: Pick<SessionState, 'projectId'>
 ): Promise<StoreResult> {
   const url = args?.['url'] as string;
-  if (!url?.trim())
-    return { success: false, message: 'url is required when type is "url"', collection: '' };
-  if (!url.startsWith('http://') && !url.startsWith('https://'))
-    return { success: false, message: 'url must start with http:// or https://', collection: '' };
+  const validation = validateUrlInput(url);
+  if (!validation.ok) {
+    return { success: false, message: validation.message, collection: '' };
+  }
 
   const libraryName = args?.['libraryName'] as string | undefined;
   const title = args?.['title'] as string | undefined;
