@@ -56,6 +56,10 @@ impl UrlStrategy {
             item.queue_id, payload.url
         );
 
+        if item.op == QueueOperation::Delete {
+            return Self::handle_url_delete(ctx, item, &payload).await;
+        }
+
         let (body, content_type) = fetch_url_content(&payload.url).await?;
 
         let is_html = content_type.contains("text/html");
@@ -99,6 +103,39 @@ impl UrlStrategy {
             payload.url,
             extracted_text.len()
         );
+
+        Ok(())
+    }
+}
+
+impl UrlStrategy {
+    /// Delete URL points scoped by `(tenant_id, document_id)`.
+    ///
+    /// `document_id` is derived from the URL (same derivation used on insert),
+    /// so the delete matches the previously stored point. Tenant scope is
+    /// enforced to prevent cross-tenant eviction.
+    async fn handle_url_delete(
+        ctx: &ProcessingContext,
+        item: &UnifiedQueueItem,
+        payload: &UrlPayload,
+    ) -> UnifiedProcessorResult<()> {
+        let document_id = compute_url_document_id(&payload.url);
+
+        info!(
+            "Deleting URL point: tenant={} url={} document_id={} -> collection={}",
+            item.tenant_id, payload.url, document_id, item.collection
+        );
+
+        ctx.storage_client
+            .delete_points_by_payload_fields(
+                &item.collection,
+                &[
+                    ("tenant_id", item.tenant_id.as_str()),
+                    ("document_id", document_id.as_str()),
+                ],
+            )
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         Ok(())
     }
@@ -214,5 +251,24 @@ mod tests {
     fn test_url_strategy_name() {
         let strategy = UrlStrategy;
         assert_eq!(strategy.name(), "url");
+    }
+
+    /// F-006: URL Delete derives the same `document_id` as the Add path.
+    ///
+    /// The Add path (build_url_payload) writes `document_id` derived from
+    /// `compute_url_document_id(&payload.url)`. The Delete path
+    /// (`handle_url_delete`) MUST derive the same id, or Delete becomes a
+    /// no-op against the point inserted by Add.
+    #[test]
+    fn test_url_delete_uses_same_document_id_as_add() {
+        let url = "https://example.com/docs/page";
+        let id_a = compute_url_document_id(url);
+        let id_b = compute_url_document_id(url);
+        assert_eq!(id_a, id_b);
+        // Distinct URL → distinct id
+        assert_ne!(id_a, compute_url_document_id("https://example.com/other"));
+        // 32-char hex prefix (per implementation)
+        assert_eq!(id_a.len(), 32);
+        assert!(id_a.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

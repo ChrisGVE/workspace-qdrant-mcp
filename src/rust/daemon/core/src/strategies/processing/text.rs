@@ -245,11 +245,18 @@ impl TextStrategy {
     }
 
     /// Process a generic content item (non-rules, non-scratchpad).
+    ///
+    /// `Delete` removes the point identified by `(tenant_id, document_id)`
+    /// where `document_id` is derived from the content hash; other ops upsert.
     async fn process_generic_content_item(
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
         let payload: ContentPayload = parse_payload(item)?;
+
+        if item.op == QueueOperation::Delete {
+            return Self::handle_generic_content_delete(ctx, item, &payload).await;
+        }
 
         // Generate embedding (semaphore-gated, Task 504)
         let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
@@ -297,6 +304,40 @@ impl TextStrategy {
             "Successfully processed content item {} -> {}",
             item.queue_id, item.collection
         );
+
+        Ok(())
+    }
+}
+
+impl TextStrategy {
+    /// Delete generic content points scoped by `(tenant_id, document_id)`.
+    ///
+    /// The document id is hashed from `(tenant_id, content)` — the same
+    /// derivation used when the point was upserted, so the delete is
+    /// guaranteed to match the original write. Tenant scope is enforced to
+    /// prevent cross-tenant eviction.
+    async fn handle_generic_content_delete(
+        ctx: &ProcessingContext,
+        item: &UnifiedQueueItem,
+        payload: &ContentPayload,
+    ) -> UnifiedProcessorResult<()> {
+        let document_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
+
+        info!(
+            "Deleting generic content point: tenant={} document_id={} -> collection={}",
+            item.tenant_id, document_id, item.collection
+        );
+
+        ctx.storage_client
+            .delete_points_by_payload_fields(
+                &item.collection,
+                &[
+                    ("tenant_id", item.tenant_id.as_str()),
+                    ("document_id", document_id.as_str()),
+                ],
+            )
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         Ok(())
     }
@@ -365,6 +406,31 @@ mod tests {
         assert!(!strategy.handles(&ItemType::Folder, &QueueOperation::Add));
         assert!(!strategy.handles(&ItemType::Tenant, &QueueOperation::Add));
         assert!(!strategy.handles(&ItemType::Url, &QueueOperation::Add));
+    }
+
+    /// F-006: Text Delete derives the same `document_id` as the Add path.
+    ///
+    /// The Add path (`process_generic_content_item`) writes `document_id`
+    /// derived from `generate_content_document_id(tenant_id, content)`.
+    /// The Delete path (`handle_generic_content_delete`) MUST derive the
+    /// same id or Delete becomes a no-op against the original point.
+    #[test]
+    fn test_text_delete_uses_same_document_id_as_add() {
+        let tenant = "tenant-a";
+        let content = "the brown fox jumps over the lazy dog";
+        let id_a = crate::generate_content_document_id(tenant, content);
+        let id_b = crate::generate_content_document_id(tenant, content);
+        assert_eq!(id_a, id_b);
+        // Different tenant → different id (tenant scoping)
+        assert_ne!(
+            id_a,
+            crate::generate_content_document_id("tenant-b", content)
+        );
+        // Different content → different id
+        assert_ne!(
+            id_a,
+            crate::generate_content_document_id(tenant, "other content")
+        );
     }
 
     #[test]
