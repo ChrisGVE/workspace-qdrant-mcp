@@ -196,7 +196,7 @@ pub struct YamlGrammarsConfig {
 impl Default for YamlGrammarsConfig {
     fn default() -> Self {
         Self {
-            cache_dir: "~/.workspace-qdrant/grammars".to_string(),
+            cache_dir: "~/.cache/workspace-qdrant/grammars".to_string(),
             required: vec![],
             auto_download: true,
             tree_sitter_version: env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string(),

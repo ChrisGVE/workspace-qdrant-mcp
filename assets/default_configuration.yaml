@@ -22,74 +22,6 @@
 # Last Updated: 2025-01-20
 # =============================================================================
 
-# =============================================================================
-# DEPLOYMENT CONFIGURATION
-# =============================================================================
-# Purpose: Controls deployment-specific behavior including asset file locations,
-# base paths, and environment-specific settings. This section determines whether
-# the application runs in development mode (using project-relative paths) or
-# production mode (using system-installed paths).
-deployment:
-  # develop: Development mode toggle for asset and configuration file resolution
-  # Purpose: Controls whether to use development (project-relative) or production paths
-  # Development mode (true): Assets loaded from project "assets/" directory
-  # Production mode (false): Assets loaded from system installation directories
-  # Security: Production mode provides better isolation and security
-  # Maintenance: Production mode enables centralized configuration management
-  # Override: Local configurations can set develop=true for development work
-  # Default reasoning: false ensures production deployments use proper system paths
-  # Platform paths (production mode):
-  #   - Linux: /usr/share/workspace-qdrant-mcp/assets/
-  #   - macOS: /usr/local/share/workspace-qdrant-mcp/assets/
-  #   - Windows: %ProgramFiles%\workspace-qdrant-mcp\assets\
-  # Format: Boolean true/false
-  develop: false
-
-  # base_path: Override base path for asset and configuration file resolution
-  # Purpose: Allows custom base directory when standard paths are not suitable
-  # Usage: Optional override for both development and production deployments
-  # Examples: "/opt/workspace-qdrant", "/usr/local/workspace-qdrant"
-  # Security: Ensure path is readable by application user/service account
-  # Precedence: If set, overrides both develop=true and develop=false behavior
-  # Format: Absolute directory path string, or null to use defaults
-  # Default reasoning: null allows automatic path resolution based on develop flag
-  base_path: null
-
-# =============================================================================
-# HTTP SERVER CONFIGURATION
-# =============================================================================
-# Purpose: Configures the HTTP server that handles MCP (Model Context Protocol)
-# communication between Claude Desktop and the workspace-qdrant-mcp server.
-# This server receives document operations, search requests, and collection
-# management commands from MCP clients.
-server:
-  # host: Network interface binding for HTTP server
-  # Purpose: Controls which network interfaces the server listens on for connections
-  # Security: "127.0.0.1" restricts to localhost, "0.0.0.0" allows external access
-  # Production: Use specific IP or "127.0.0.1" with reverse proxy for security
-  # Development: "127.0.0.1" prevents accidental external exposure
-  # Format: IP address string
-  # Examples: "127.0.0.1", "0.0.0.0", "192.168.1.100"
-  host: "127.0.0.1"
-
-  # port: TCP port number for HTTP server binding
-  # Purpose: Defines the port where the MCP server accepts HTTP connections
-  # Constraints: Must be available and not conflict with system or application ports
-  # Common conflicts: 8080 (proxy servers), 8000 (development servers)
-  # Production: Use non-standard ports above 1024 for security
-  # Load balancing: Configure load balancer to forward to this port
-  # Format: Integer 1-65535
-  # Default reasoning: 8000 is commonly available and recognizable for HTTP services
-  port: 8000
-
-  # debug: Development and diagnostic mode toggle
-  # Purpose: Enables enhanced logging, error details, and debugging features
-  # Development: Essential for troubleshooting integration and performance issues
-  # Production: Disable to reduce log volume and prevent information disclosure
-  # Performance impact: Minimal when disabled, 5-10% overhead when enabled
-  # Security: May expose internal system details in error responses
-  # Format: Boolean
-  debug: false
 
 # =============================================================================
 # QDRANT VECTOR DATABASE CONFIGURATION
@@ -359,6 +291,13 @@ qdrant:
 # Purpose: Configures the text embedding pipeline that converts documents into
 # vector representations for semantic search. Critical for search quality,
 # performance, and system resource utilization.
+
+# =============================================================================
+# EMBEDDING SERVICE CONFIGURATION
+# =============================================================================
+# Purpose: Configures the text embedding pipeline that converts documents into
+# vector representations for semantic search. Critical for search quality,
+# performance, and system resource utilization.
 embedding:
   # provider: Active dense embedding provider
   # Purpose: Selects between local (FastEmbed/ONNX) and remote (OpenAI-compatible) providers
@@ -510,120 +449,6 @@ embedding:
 #    - Optional user-defined collections for custom organization
 #    - Created using collection_basename + collection_types
 #    - Example: myapp-notes, myapp-specs (when basename="myapp")
-workspace:
-  # collection_basename: Base name for USER collections (optional)
-  # Purpose: Creates specialized user collections for custom content organization
-  # Collection pattern: {basename}-{type} for each type in collection_types
-  # Use case: Organize project-specific notes, specifications, or research
-  # NOT used for: Project collections (_{project_id}) or library collections (_{library})
-  # Example: If basename="myapp" and types=["notes", "specs"]
-  #          Creates: myapp-notes, myapp-specs
-  # Empty default: Prevents automatic creation of potentially unwanted collections
-  # Format: string or null
-  collection_basename: null
-
-  # collection_types: Suffixes for USER collection types (optional)
-  # Purpose: Defines specialized collection types for custom content organization
-  # Collection pattern: Creates {collection_basename}-{suffix} for each type
-  # Use case: Separate different types of user content (notes, specs, research)
-  # NOT used for: Project collections (_{project_id}) or library collections (_{library})
-  # Example: ["notes", "specs", "research"] with basename="myapp"
-  #          Creates: myapp-notes, myapp-specs, myapp-research
-  # Empty default: No user collections created automatically
-  # Management overhead: Each collection type multiplies storage and index overhead
-  # Format: Array of strings
-  collection_types: []
-
-  # global_collections: Cross-project shared collection definitions
-  # Purpose: Defines collections that span multiple projects or contain shared resources
-  # Use cases: Common libraries, shared documentation, organization-wide templates
-  # Naming pattern: Collections created with exact names specified (no project prefix)
-  # Content sharing: Enables knowledge sharing across project boundaries
-  # Access patterns: All projects can read/write to these collections
-  # Example usage: ["shared-docs", "templates", "common-libs"]
-  # Format: Array of strings
-  global_collections: []
-
-  # github_user: Project filtering by GitHub ownership
-  # Purpose: Restricts project detection to repositories owned by specific user/organization
-  # Security: Prevents processing of unintended repositories
-  # Multi-user systems: Isolates user-specific projects in shared environments
-  # Repository detection: Checks .git/config remote.origin.url for username match
-  # Organization support: Works with both individual users and GitHub organizations
-  # Privacy: Ensures only authorized repositories are indexed
-  # Format: String username or null for no filtering
-  github_user: null
-
-  # auto_create_collections: Automatic collection provisioning
-  # Purpose: Controls whether collections are created automatically on first document
-  # Zero-configuration: Enables automatic setup without manual collection creation
-  # Resource control: Prevents accidental creation of unwanted collections
-  # Development convenience: Automatic creation simplifies development workflow
-  # Production caution: May create collections with suboptimal configurations
-  # Monitoring: Automatic creation should be monitored for unexpected collections
-  # Format: Boolean
-  auto_create_collections: true
-
-  # rules_collection_name: Cross-session persistent storage identifier
-  # Purpose: Defines collection name for storing behavioral rules and preferences
-  # Session continuity: Maintains context across multiple work sessions
-  # Learning persistence: Stores user preferences, project insights, and interaction patterns
-  # System reserved: This collection is managed by the system, not user content
-  # Backup importance: Contains valuable learned context that should be preserved
-  # Format: String collection name
-  rules_collection_name: "rules"
-
-  # rules_limits: Constraints for rule metadata fields
-  # Purpose: Defines maximum lengths for LLM-generated rule metadata
-  # LLM guidance: These limits guide the LLM when generating rule labels, titles, and tags
-  # Validation: Enforced by the rules tool when creating/updating rules
-  rules_limits:
-    # max_label_length: Maximum characters for rule label
-    # Format: word-word-word (lowercase, hyphen-separated)
-    # Examples: "prefer-uv", "use-pytest", "strict-types"
-    max_label_length: 15
-
-    # max_title_length: Maximum characters for rule title
-    # Purpose: Human-readable summary of the rule
-    max_title_length: 50
-
-    # max_tag_length: Maximum characters per tag
-    # Purpose: Categorical labels for rule organization
-    max_tag_length: 20
-
-    # max_tags_per_rule: Maximum number of tags per rule
-    # Purpose: Prevents excessive categorization
-    max_tags_per_rule: 5
-
-  # custom_include_patterns: Additional file pattern recognition
-  # Purpose: Extends built-in file type detection with custom patterns
-  # Pattern format: Supports glob patterns for flexible file matching
-  # Use cases: Proprietary file formats, custom documentation types, specialized content
-  # Language detection: Custom patterns integrate with existing language detection
-  # Processing pipeline: Matched files undergo standard embedding and indexing
-  # Example patterns: ["*.custom", "special/**/*.txt", "config/*.yaml"]
-  # Format: Array of glob pattern strings
-  custom_include_patterns: []
-
-  # custom_exclude_patterns: Additional file exclusion rules
-  # Purpose: Extends built-in exclusion patterns with project-specific rules
-  # Security: Exclude sensitive files that shouldn't be indexed
-  # Performance: Skip large files that don't contribute to search quality
-  # Privacy: Exclude personal or confidential content from indexing
-  # Pattern inheritance: Combines with built-in exclusions from languages_support.yaml
-  # Example patterns: ["secret/**", "*.backup", "temp/*.log", "*.key"]
-  # Format: Array of glob pattern strings
-  custom_exclude_patterns: []
-
-  # custom_project_indicators: Specialized project detection rules
-  # Purpose: Defines custom file patterns that indicate project boundaries
-  # Project types: Supports detection of specialized development environments
-  # Framework support: Enables detection of custom frameworks or toolchains
-  # Organization standards: Accommodate company-specific project structures
-  # Detection priority: Custom indicators are checked alongside standard patterns
-  # Example: { "unity": ["Assets/", "ProjectSettings/"], "custom": ["project.yaml"] }
-  # Format: Object with project type keys and file pattern arrays
-  custom_project_indicators: {}
 
 # =============================================================================
 # gRPC COMMUNICATION CONFIGURATION
@@ -738,6 +563,13 @@ grpc:
 # Purpose: Controls automatic document processing, file system monitoring, and
 # real-time ingestion pipeline. Critical for maintaining up-to-date vector
 # search indexes as project files change.
+
+# =============================================================================
+# AUTO-INGESTION CONFIGURATION
+# =============================================================================
+# Purpose: Controls automatic document processing, file system monitoring, and
+# real-time ingestion pipeline. Critical for maintaining up-to-date vector
+# search indexes as project files change.
 auto_ingestion:
   # enabled: Master control for automatic document processing
   # Purpose: Enables or disables the entire auto-ingestion system
@@ -829,6 +661,19 @@ auto_ingestion:
   # Network files: May need longer delays for network-mounted file systems
   # Format: Duration with unit (ms/s)
   debounce: 10s
+
+# =============================================================================
+# QUEUE PROCESSOR CONFIGURATION
+# =============================================================================
+# Purpose: Controls the background queue processing loop that dequeues and
+# processes items from the SQLite ingestion queue. This is the core processing
+# engine for the daemon's document ingestion pipeline.
+#
+# The queue processor handles:
+# - Batch dequeuing of pending items
+# - Retry logic with exponential backoff
+# - Performance monitoring and metrics
+# - Graceful shutdown coordination
 
 # =============================================================================
 # QUEUE PROCESSOR CONFIGURATION
@@ -1001,238 +846,6 @@ queue_processor:
 # Purpose: Controls retention policies and cleanup operations for error messages
 # in the message queue system. Prevents unbounded growth of error logs while
 # preserving important error information for debugging and monitoring.
-error_retention:
-  # enabled: Master control for automatic error message cleanup
-  # Purpose: Enables or disables automatic cleanup of old error messages
-  # Database growth: Prevents unbounded growth of error message database
-  # Performance impact: Large error tables can slow down queries
-  # Debugging: Retains recent errors for troubleshooting
-  # Compliance: May need to retain errors for audit or compliance requirements
-  # Format: Boolean
-  enabled: true
-
-  # cleanup_interval: Frequency of automatic cleanup operations
-  # Purpose: Defines how often the cleanup process runs
-  # Resource usage: More frequent cleanup reduces peak database size
-  # Performance overhead: Cleanup operations consume CPU and I/O resources
-  # Timing strategy: Run during low-activity periods if possible
-  # Database maintenance: Coordinate with database vacuum/optimize operations
-  # Format: Duration with unit (h/d)
-  # Default reasoning: 24h provides daily cleanup without excessive overhead
-  cleanup_interval: 24h
-
-  # max_age_days: Default retention period for all error messages
-  # Purpose: Default maximum age for error messages before cleanup
-  # Fallback value: Used when severity-specific retention not defined
-  # Debugging window: Should cover typical debugging/troubleshooting period
-  # Storage balance: Trade-off between retention and database size
-  # Override: Severity-specific settings take precedence
-  # Format: Integer days
-  max_age_days: 30
-
-  # max_count: Maximum total error messages to retain
-  # Purpose: Hard limit on total error message count (keeps most recent)
-  # Database size: Prevents database from growing beyond manageable size
-  # Memory constraint: Limits memory usage when loading error statistics
-  # Performance: Keeps query performance predictable
-  # null value: No count-based limit, only age-based retention applies
-  # Format: Integer > 0 or null
-  max_count: 100000
-
-  # acknowledged_multiplier: Retention extension for acknowledged errors
-  # Purpose: Multiplier for retention period of acknowledged error messages
-  # Acknowledgment value: Acknowledged errors are considered more important
-  # Extended retention: Provides longer history for acknowledged issues
-  # Typical values: 2.0 doubles retention, 3.0 triples it
-  # Use case: Track resolution of known issues over longer period
-  # Format: Float >= 1.0
-  acknowledged_multiplier: 2.0
-
-  # preserve_active_retries: Protection for messages being retried
-  # Purpose: Never delete error messages with retry_count > 0
-  # Data integrity: Prevents deletion of messages in retry queue
-  # Queue consistency: Maintains referential integrity for retry system
-  # Safety mechanism: Ensures no active processing is lost
-  # Recommended: Keep enabled unless you have specific reasons to disable
-  # Format: Boolean
-  preserve_active_retries: true
-
-  # Severity-specific retention periods
-  # Purpose: Define different retention periods based on error severity
-  # Rationale: More severe errors warrant longer retention for analysis
-  severity_retention:
-    # info: Retention period for informational messages
-    # Purpose: Info-level messages are least critical, shortest retention
-    # Use case: General operational information, status updates
-    # Volume consideration: Info messages are typically most numerous
-    # Format: Integer days
-    info: 30
-
-    # warning: Retention period for warning messages
-    # Purpose: Warnings indicate potential issues, medium retention
-    # Use case: Non-critical issues that may need investigation
-    # Debugging value: Useful for identifying recurring problems
-    # Format: Integer days
-    warning: 90
-
-    # error: Retention period for error messages
-    # Purpose: Errors are critical issues, longest retention
-    # Use case: Failed operations requiring investigation and resolution
-    # Compliance: May be required for audit trails
-    # Root cause analysis: Long retention supports pattern identification
-    # Format: Integer days
-    error: 180
-
-# =============================================================================
-# BACKPRESSURE DETECTION CONFIGURATION
-# =============================================================================
-# Purpose: Controls backpressure detection and alerting for the queue system.
-# Monitors queue growth rates and processing capacity to detect when the system
-# is unable to keep up with incoming workload, enabling proactive intervention.
-backpressure:
-  # enabled: Master control for backpressure detection
-  # Purpose: Enables or disables backpressure monitoring and alerting
-  # Proactive monitoring: Detects capacity issues before they become critical
-  # Resource planning: Provides data for capacity planning decisions
-  # Alert fatigue: Can be disabled if causing too many false positives
-  # Format: Boolean
-  enabled: true
-
-  # monitoring_interval: Frequency of backpressure checks
-  # Purpose: How often to check for backpressure conditions
-  # Early detection: More frequent checks detect issues faster
-  # Resource overhead: Frequent checks consume more CPU/database resources
-  # Alert timing: Affects how quickly alerts are generated
-  # Recommendation: Balance between responsiveness and overhead
-  # Format: Duration with unit (s/m)
-  monitoring_interval: 60s
-
-  # max_processing_capacity: Maximum expected processing rate
-  # Purpose: Baseline for calculating processing capacity utilization
-  # System-specific: Adjust based on observed maximum processing rate
-  # Measurement: Items per minute the system can process at peak performance
-  # Capacity planning: Use for calculating when to scale processing workers
-  # Format: Float items/min
-  max_processing_capacity: 1000.0
-
-  # Thresholds for LOW severity backpressure
-  thresholds_low:
-    # growth_rate: Queue growth rate threshold (items/min)
-    # Purpose: Minimum growth rate to trigger LOW severity alert
-    # Early warning: Catches gradual queue buildup
-    # Format: Float items/min
-    growth_rate: 10.0
-
-    # drain_time_minutes: Maximum drain time for LOW severity
-    # Purpose: If drain time exceeds this, trigger LOW alert
-    # Interpretation: Queue can be drained in under 30 minutes
-    # Format: Float minutes
-    drain_time_minutes: 30.0
-
-  # Thresholds for MEDIUM severity backpressure
-  thresholds_medium:
-    # growth_rate: Queue growth rate threshold (items/min)
-    # Purpose: Growth rate threshold for MEDIUM severity alert
-    # Moderate concern: Queue growing at concerning rate
-    # Format: Float items/min
-    growth_rate: 50.0
-
-    # drain_time_min_minutes: Minimum drain time for MEDIUM severity
-    # Purpose: Lower bound of drain time range for MEDIUM alert
-    # Format: Float minutes
-    drain_time_min_minutes: 30.0
-
-    # drain_time_max_minutes: Maximum drain time for MEDIUM severity
-    # Purpose: Upper bound of drain time range for MEDIUM alert
-    # Interpretation: Queue will take 30-60 minutes to drain
-    # Format: Float minutes
-    drain_time_max_minutes: 60.0
-
-  # Thresholds for HIGH severity backpressure
-  thresholds_high:
-    # growth_rate: Queue growth rate threshold (items/min)
-    # Purpose: Growth rate threshold for HIGH severity alert
-    # Serious concern: Queue growing rapidly
-    # Format: Float items/min
-    growth_rate: 100.0
-
-    # drain_time_min_minutes: Minimum drain time for HIGH severity
-    # Purpose: Lower bound of drain time range for HIGH alert
-    # Format: Float minutes
-    drain_time_min_minutes: 60.0
-
-    # drain_time_max_minutes: Maximum drain time for HIGH severity
-    # Purpose: Upper bound of drain time range for HIGH alert
-    # Interpretation: Queue will take 1-2 hours to drain
-    # Format: Float minutes
-    drain_time_max_minutes: 120.0
-
-  # Thresholds for CRITICAL severity backpressure
-  thresholds_critical:
-    # growth_rate: Queue growth rate threshold (items/min)
-    # Purpose: Growth rate threshold for CRITICAL severity alert
-    # Emergency: Queue growing at unsustainable rate
-    # Format: Float items/min
-    growth_rate: 200.0
-
-    # drain_time_minutes: Minimum drain time for CRITICAL severity
-    # Purpose: If drain time exceeds this, trigger CRITICAL alert
-    # Interpretation: Queue will take over 2 hours to drain
-    # Format: Float minutes
-    drain_time_minutes: 120.0
-
-# =============================================================================
-# LOGGING CONFIGURATION
-# =============================================================================
-# Purpose: Controls system logging, metrics collection, and diagnostic output.
-# Critical for monitoring, debugging, and operational visibility.
-logging:
-  # level: Minimum log message severity for output
-  # Purpose: Controls verbosity of log output and filters messages by importance
-  # Severity levels: "trace" < "debug" < "info" < "warn" < "error" (increasing severity)
-  # Development: Use "debug" or "trace" for detailed diagnostic information
-  # Production: Use "info" or "warn" to reduce log volume and focus on important events
-  # Performance impact: Lower levels generate more log messages, affecting performance
-  # Storage consideration: Verbose logging consumes significant disk space over time
-  # Format: String enum ("trace" | "debug" | "info" | "warn" | "error")
-  level: "info"
-
-  # use_file_logging: File-based vs. console logging selection
-  # Purpose: Controls whether logs are written to files or standard output streams
-  # Console logging: Suitable for development and containerized environments
-  # File logging: Better for production deployments requiring log persistence
-  # Log rotation: File logging typically supports automatic log rotation
-  # Container compatibility: Console logging integrates better with container orchestration
-  # Debugging: File logging preserves logs for post-mortem analysis
-  # Format: Boolean
-  use_file_logging: false
-
-  # log_file: Log file location specification
-  # Purpose: Defines file path when file logging is enabled
-  # Automatic generation: null value triggers automatic path generation
-  # Path requirements: Directory must exist and be writable by application
-  # Rotation considerations: Consider log rotation policies for long-running services
-  # Monitoring integration: Log aggregation tools may require specific paths
-  # Example paths: "/var/log/workspace-qdrant-mcp.log", "logs/app.log"
-  # Format: String file path or null
-  log_file: null
-
-  # rotation: Log rotation settings for file-based logging
-  # Purpose: Prevents unbounded log file growth in long-running services
-  rotation:
-    # max_size_mb: Maximum log file size before rotation
-    # Format: Integer (megabytes)
-    max_size_mb: 50
-
-    # max_files: Number of rotated log files to retain
-    # Older files beyond this count are deleted automatically
-    # Format: Integer >= 1
-    max_files: 5
-
-    # compress: Gzip compress rotated log files to save disk space
-    # Active log file is never compressed; only rotated files
-    # Format: Boolean
-    compress: true
 
 # =============================================================================
 # OBSERVABILITY CONFIGURATION
@@ -1370,6 +983,15 @@ observability:
 # Also configures adaptive idle mode: when the user is inactive, the daemon
 # gradually ramps up processing throughput, then immediately scales back when
 # the user returns.
+
+# =============================================================================
+# RESOURCE LIMITS CONFIGURATION
+# =============================================================================
+# Purpose: Controls how the daemon manages system resources to be a good neighbor.
+# Four levels: OS priority, processing pacing, embedding concurrency, memory pressure.
+# Also configures adaptive idle mode: when the user is inactive, the daemon
+# gradually ramps up processing throughput, then immediately scales back when
+# the user returns.
 resource_limits:
   # nice_level: Unix process priority (-20 highest priority, 19 lowest)
   # Default: 10 (low priority - daemon yields to interactive processes)
@@ -1496,6 +1118,12 @@ resource_limits:
 # =============================================================================
 # Purpose: Controls resource utilization, concurrency, and performance optimization
 # settings. Critical for balancing system responsiveness, throughput, and resource consumption.
+
+# =============================================================================
+# PERFORMANCE CONFIGURATION
+# =============================================================================
+# Purpose: Controls resource utilization, concurrency, and performance optimization
+# settings. Critical for balancing system responsiveness, throughput, and resource consumption.
 performance:
   # max_concurrent_tasks: Parallel operation limit
   # Purpose: Controls maximum number of operations that can execute simultaneously
@@ -1543,909 +1171,6 @@ performance:
 # Purpose: Additional configuration options specific to the Rust engine component
 # that are not shared with Python implementations. Controls Rust-specific
 # optimizations, client behavior, and system integration patterns.
-rust:
-  # Rust client configuration for Qdrant communication optimization
-  # Purpose: Fine-tunes Rust-specific client behavior and performance characteristics
-  # Performance focus: Optimized for Rust's memory management and concurrency model
-  # Integration: Complements general Qdrant configuration with Rust-specific optimizations
-  client:
-    # connection_timeout: Rust client connection establishment timeout
-    # Purpose: Maximum time Rust client waits for Qdrant connection establishment
-    # Network resilience: Handles network latency and connection issues
-    # Fail-fast behavior: Prevents Rust processes from hanging on connection failures
-    # Container deployment: Account for service discovery and startup delays
-    # Development: Shorter timeouts provide faster feedback during development
-    # Format: Duration with unit (s/m)
-    connection_timeout: 30s
-
-    # request_timeout: Individual Rust client request timeout
-    # Purpose: Maximum time allowed for individual Qdrant requests from Rust client
-    # Operation coverage: Applies to vector insertions, searches, and collection operations
-    # Large operations: Vector batch insertions may require longer timeouts
-    # Memory management: Rust's zero-copy optimizations may handle large requests efficiently
-    # Error handling: Rust client can handle timeouts gracefully with proper error propagation
-    # Format: Duration with unit (s/m)
-    request_timeout: 60s
-
-    # max_retries: Rust client retry attempt limit
-    # Purpose: Maximum retry attempts for failed Rust client operations
-    # Reliability: Rust's error handling enables sophisticated retry logic
-    # Performance: Rust's low overhead makes retries less expensive
-    # Circuit breaker integration: Works with Rust-based circuit breaker implementations
-    # Logging: Rust client can provide detailed retry attempt logging
-    # Format: Integer >= 0
-    max_retries: 3
-
-    # retry_delay: Base delay between Rust client retry attempts
-    # Purpose: Initial delay before first retry attempt in exponential backoff
-    # Exponential progression: Subsequent delays increase based on backoff multiplier
-    # Service protection: Prevents overwhelming services with immediate retries
-    # Rust efficiency: Low-overhead timers enable precise delay control
-    # Jitter support: Rust implementation can add random jitter to prevent synchronized retries
-    # Format: Duration with unit (ms/s)
-    retry_delay: 1s
-
-    # max_retry_delay: Maximum delay cap for Rust client retry attempts
-    # Purpose: Upper limit for exponential backoff to prevent excessive wait times
-    # User experience: Ensures retries don't become indefinitely long
-    # Resource efficiency: Prevents threads from being blocked for excessive periods
-    # Operational control: Provides predictable maximum delay for operational planning
-    # Rust async: Integrates with Rust's async runtime for efficient delay handling
-    # Format: Duration with unit (s/m)
-    max_retry_delay: 30s
-
-# =============================================================================
-# QUEUE HEALTH MONITORING CONFIGURATION
-# =============================================================================
-# Purpose: Controls health assessment and monitoring for the queue system.
-# Provides thresholds and weights for calculating overall queue health status
-# based on multiple indicators including backlog, processing rate, errors,
-# latency, and resource usage.
-queue_health:
-  # enabled: Master control for queue health monitoring
-  # Purpose: Enables or disables health status calculation and monitoring
-  # Monitoring benefit: Provides proactive health alerts and recommendations
-  # Resource overhead: Minimal CPU overhead for health calculations
-  # Production value: Essential for operational visibility and alerting
-  # Format: Boolean
-  enabled: true
-
-  # Health check thresholds for queue backlog monitoring
-  thresholds:
-    # backlog_normal: Normal queue size baseline
-    # Purpose: Expected queue size under normal operation
-    # Healthy operation: Queue size below this threshold is considered healthy
-    # Format: Integer items
-    backlog_normal: 1000
-
-    # backlog_warning: Queue size warning threshold
-    # Purpose: Queue size that triggers degraded health status
-    # Action threshold: Monitor closely when above this level
-    # Format: Integer items
-    backlog_warning: 5000
-
-    # backlog_critical: Queue size critical threshold
-    # Purpose: Queue size that triggers critical health status
-    # Emergency threshold: Immediate action required above this level
-    # Format: Integer items
-    backlog_critical: 10000
-
-    # processing_rate_min: Minimum acceptable processing rate
-    # Purpose: Minimum items/minute that indicates healthy processing
-    # Performance baseline: System should process at least this rate
-    # Tuning: Adjust based on expected workload and capacity
-    # Format: Float items/minute
-    processing_rate_min: 10.0
-
-    # error_rate_max: Maximum acceptable error rate
-    # Purpose: Maximum percentage of failures considered acceptable
-    # Quality threshold: Higher error rates indicate processing issues
-    # Format: Float percentage (0-100)
-    error_rate_max: 5.0
-
-    # latency_warning_ms: Warning threshold for queue latency
-    # Purpose: Queue wait time that triggers degraded status
-    # Response time target: Items should be processed within this time
-    # Format: Float milliseconds
-    latency_warning_ms: 1000.0
-
-    # latency_critical_ms: Critical threshold for queue latency
-    # Purpose: Queue wait time that triggers critical status
-    # Emergency threshold: Indicates severe processing delays
-    # Format: Float milliseconds
-    latency_critical_ms: 5000.0
-
-    # success_rate_min: Minimum acceptable success rate
-    # Purpose: Minimum percentage of successful processing
-    # Quality baseline: Below this indicates significant processing issues
-    # Format: Float percentage (0-100)
-    success_rate_min: 95.0
-
-    # cpu_warning_percent: CPU usage warning threshold
-    # Purpose: CPU utilization that triggers degraded status
-    # Resource monitoring: Indicates approaching resource limits
-    # Format: Float percentage (0-100)
-    cpu_warning_percent: 70.0
-
-    # cpu_critical_percent: CPU usage critical threshold
-    # Purpose: CPU utilization that triggers critical status
-    # Resource emergency: Indicates resource exhaustion
-    # Format: Float percentage (0-100)
-    cpu_critical_percent: 90.0
-
-    # memory_warning_mb: Memory usage warning threshold
-    # Purpose: Memory consumption that triggers degraded status
-    # Memory monitoring: Indicates approaching memory limits
-    # Format: Float megabytes
-    memory_warning_mb: 1000.0
-
-    # memory_critical_mb: Memory usage critical threshold
-    # Purpose: Memory consumption that triggers critical status
-    # Memory emergency: Indicates potential out-of-memory risk
-    # Format: Float megabytes
-    memory_critical_mb: 2000.0
-
-  # Weights for health indicator contribution to overall score
-  # Purpose: Controls how much each indicator contributes to overall health
-  # Calculation: Weighted average of all indicator scores
-  # Sum requirement: Total active weights should sum to 100 for balanced scoring
-  # Customization: Adjust weights based on operational priorities
-  weights:
-    # backlog: Weight for queue backlog health indicator
-    # Purpose: How much queue size affects overall health
-    # Importance: High backlog indicates capacity issues
-    # Format: Float weight (recommend 0-100)
-    backlog: 20.0
-
-    # processing_rate: Weight for processing rate health indicator
-    # Purpose: How much processing throughput affects overall health
-    # Importance: Low processing rate indicates performance issues
-    # Format: Float weight (recommend 0-100)
-    processing_rate: 20.0
-
-    # error_rate: Weight for error rate health indicator
-    # Purpose: How much error frequency affects overall health
-    # Importance: High priority as errors indicate quality issues
-    # Format: Float weight (recommend 0-100)
-    error_rate: 25.0
-
-    # latency: Weight for latency health indicator
-    # Purpose: How much queue wait time affects overall health
-    # Importance: High latency impacts user experience
-    # Format: Float weight (recommend 0-100)
-    latency: 15.0
-
-    # success_rate: Weight for success rate health indicator
-    # Purpose: How much processing success rate affects overall health
-    # Importance: Directly measures processing quality
-    # Format: Float weight (recommend 0-100)
-    success_rate: 20.0
-
-    # backpressure: Weight for backpressure health indicator
-    # Purpose: How much backpressure state affects overall health
-    # Optional: Set to 0 if backpressure monitoring not used
-    # Format: Float weight (recommend 0-100)
-    backpressure: 0.0
-
-    # resource_usage: Weight for resource usage health indicator
-    # Purpose: How much CPU/memory usage affects overall health
-    # Optional: Set to 0 if resource monitoring not available
-    # Format: Float weight (recommend 0-100)
-    resource_usage: 0.0
-
-  # monitoring_interval: Health check frequency
-  # Purpose: How often to calculate and update health status
-  # Balance: Frequent checks provide faster detection but use more resources
-  # Alerting: Affects how quickly health changes are detected
-  # Format: Duration with unit (s/m)
-  monitoring_interval: 60s
-
-# =============================================================================
-# QUEUE RESOURCE MONITORING CONFIGURATION
-# =============================================================================
-# Purpose: Controls resource utilization tracking and correlation with queue
-# performance. Monitors CPU, memory, database connections, and thread usage to
-# detect bottlenecks and optimize queue processing.
-queue_resource_monitoring:
-  # enabled: Master control for resource monitoring
-  # Purpose: Enables or disables resource utilization tracking
-  # Benefit: Identifies resource bottlenecks affecting queue performance
-  # Overhead: Minimal CPU/memory overhead for metric collection
-  # Requires: psutil library for system metrics
-  # Format: Boolean
-  enabled: true
-
-  # snapshot_retention: Number of resource snapshots to retain
-  # Purpose: Controls how much historical data is kept in memory
-  # Memory usage: ~1KB per snapshot (depends on metric count)
-  # Correlation: More snapshots provide better correlation analysis
-  # Trade-off: Memory usage vs. historical depth
-  # Format: Integer count
-  # Default reasoning: 200 snapshots at 30s interval = 100 minutes of history
-  snapshot_retention: 200
-
-  # monitoring_interval: Resource collection frequency
-  # Purpose: How often to collect resource and queue metrics
-  # Balance: Frequent collection detects issues faster but uses more CPU
-  # Correlation: More frequent samples improve correlation accuracy
-  # Bottleneck detection: Affects how quickly bottlenecks are detected
-  # Format: Integer seconds
-  # Default reasoning: 30s provides good balance between accuracy and overhead
-  monitoring_interval: 30
-
-  # Bottleneck detection thresholds
-  thresholds:
-    # cpu_warning_percent: CPU usage warning threshold
-    # Purpose: CPU utilization that triggers bottleneck warning
-    # Detection: Combined with queue backlog to identify CPU constraints
-    # Format: Float percentage (0-100)
-    # Default reasoning: 70% allows headroom before critical threshold
-    cpu_warning_percent: 70.0
-
-    # cpu_critical_percent: CPU usage critical threshold
-    # Purpose: CPU utilization that triggers critical bottleneck alert
-    # Detection: Combined with low processing rate to confirm CPU bottleneck
-    # Format: Float percentage (0-100)
-    # Default reasoning: 90% indicates near-saturation
-    cpu_critical_percent: 90.0
-
-    # memory_warning_mb: Memory usage warning threshold
-    # Purpose: Memory consumption that triggers bottleneck warning
-    # Detection: Combined with queue metrics to identify memory constraints
-    # Format: Float megabytes
-    # Default reasoning: 1GB is reasonable for typical workloads
-    memory_warning_mb: 1000.0
-
-    # memory_critical_mb: Memory usage critical threshold
-    # Purpose: Memory consumption that triggers critical bottleneck alert
-    # Detection: Combined with queue backlog to confirm memory bottleneck
-    # Format: Float megabytes
-    # Default reasoning: 2GB indicates potential memory pressure
-    memory_critical_mb: 2000.0
-
-    # low_processing_rate_threshold: Minimum acceptable processing rate
-    # Purpose: Processing rate below which indicates performance issues
-    # Detection: Used to identify if resource usage is causing low throughput
-    # Format: Float items per minute
-    # Default reasoning: Matches queue_health.thresholds.processing_rate_min
-    low_processing_rate_threshold: 10.0
-
-  # Correlation analysis configuration
-  correlation:
-    # min_samples: Minimum snapshots required for correlation analysis
-    # Purpose: Ensures statistical validity of correlation coefficients
-    # Statistics: Pearson correlation needs sufficient sample size
-    # Format: Integer count
-    # Default reasoning: 2 samples minimum for any correlation
-    min_samples: 2
-
-    # history_window_minutes: Time window for correlation analysis
-    # Purpose: How far back to look when calculating correlations
-    # Trade-off: Longer window captures trends, shorter window more current
-    # Format: Integer minutes
-    # Default reasoning: 60 minutes captures recent patterns
-    history_window_minutes: 60
-
-# =============================================================================
-# QUEUE BOTTLENECK DETECTION CONFIGURATION
-# =============================================================================
-# Purpose: Controls operation-level bottleneck detection and tracking for queue
-# processing. Identifies slow operations, collections, parsers, and tenants that
-# are causing performance degradation.
-queue_bottleneck_detection:
-  # enabled: Master control for bottleneck detection
-  # Purpose: Enables or disables bottleneck detection and analysis
-  # Performance benefit: Identifies specific bottlenecks for optimization
-  # Resource overhead: Minimal CPU/memory overhead for tracking
-  # Production value: Essential for performance optimization and troubleshooting
-  # Format: Boolean
-  enabled: true
-
-  # slow_operation_threshold_ms: Threshold for slow operation tracking
-  # Purpose: Operations exceeding this duration are tracked as slow
-  # Detection: Only operations above threshold are recorded for analysis
-  # Tuning: Adjust based on expected operation times
-  # Memory impact: Lower threshold increases memory usage for tracking
-  # Format: Float milliseconds
-  # Default reasoning: 5000ms (5s) is reasonable threshold for slow operations
-  slow_operation_threshold_ms: 5000.0
-
-  # slow_collection_multiplier: Multiplier for slow collection detection
-  # Purpose: Collections with avg time >multiplier × overall avg are considered slow
-  # Detection: Identifies collections that are significantly slower than average
-  # Tuning: 2.0 means 2x slower, adjust based on tolerance
-  # Format: Float multiplier
-  # Default reasoning: 2.0 identifies collections taking twice as long as average
-  slow_collection_multiplier: 2.0
-
-  # slow_parser_multiplier: Multiplier for slow parser detection
-  # Purpose: File types with avg parsing time >multiplier × overall avg are flagged
-  # Detection: Identifies parsers that need optimization
-  # Tuning: 2.0 means 2x slower, adjust based on parser complexity tolerance
-  # Format: Float multiplier
-  # Default reasoning: 2.0 identifies parsers taking twice as long as average
-  slow_parser_multiplier: 2.0
-
-  # slow_tenant_rate_threshold: Threshold for slow tenant detection
-  # Purpose: Tenants with processing rate <threshold × avg rate are flagged
-  # Detection: Identifies tenants with significantly lower processing rates
-  # Tuning: 0.5 means 50% of average, adjust based on tenant SLA requirements
-  # Format: Float multiplier (0-1)
-  # Default reasoning: 0.5 identifies tenants processing at half the average rate
-  slow_tenant_rate_threshold: 0.5
-
-  # max_slow_items: Maximum slow operations to retain in memory
-  # Purpose: Limits memory usage for slow operation tracking
-  # Memory usage: Each operation ~500 bytes, max_slow_items × 500B total
-  # History depth: More items provide better historical analysis
-  # Trade-off: Memory usage vs. historical depth
-  # Format: Integer count
-  # Default reasoning: 1000 items = ~500KB memory, provides good history
-  max_slow_items: 1000
-
-  # pipeline_stage_tracking: Enable pipeline stage timing
-  # Purpose: Track time spent in each processing stage (parse, embed, store)
-  # Performance benefit: Identifies which pipeline stage is the bottleneck
-  # Overhead: Adds timing instrumentation to each stage
-  # Production value: Essential for pipeline optimization
-  # Format: Boolean
-  # Default reasoning: Enabled by default for comprehensive performance analysis
-  pipeline_stage_tracking: true
-
-# =============================================================================
-# HISTORICAL TREND ANALYSIS CONFIGURATION
-# =============================================================================
-# Purpose: Controls historical metric tracking, trend analysis, forecasting,
-# and anomaly detection for queue performance metrics. Provides insights into
-# queue behavior over time and enables predictive capacity planning.
-trend_analysis:
-  # enabled: Master control for trend analysis
-  # Purpose: Enables or disables historical metric tracking and analysis
-  # Performance benefit: Identifies patterns, forecasts capacity needs
-  # Resource overhead: Minimal storage and CPU for analysis
-  # Production value: Essential for capacity planning and anomaly detection
-  # Format: Boolean
-  # Default reasoning: Enabled for production monitoring and optimization
-  enabled: true
-
-  # retention_days: Metric data retention period
-  # Purpose: How long to retain historical metric data
-  # Storage impact: Longer retention increases database size
-  # Analysis depth: More history enables better trend identification
-  # Cleanup: Automatic daily cleanup removes data older than this
-  # Format: Integer days
-  # Default reasoning: 30 days provides good historical depth without excessive storage
-  retention_days: 30
-
-  # default_window_hours: Default analysis window
-  # Purpose: Default time window for trend analysis queries
-  # Analysis scope: Larger window captures longer-term trends
-  # Responsiveness: Smaller window more sensitive to recent changes
-  # Format: Integer hours
-  # Default reasoning: 24 hours captures daily patterns
-  default_window_hours: 24
-
-  # anomaly_sensitivity: Z-score threshold for anomaly detection
-  # Purpose: Number of standard deviations to classify as anomaly
-  # Sensitivity: Lower values detect more anomalies (more false positives)
-  # Specificity: Higher values reduce false positives (may miss anomalies)
-  # Typical range: 2.0 (sensitive) to 4.0 (conservative)
-  # Format: Float standard deviations
-  # Default reasoning: 3.0 is statistical standard (99.7% confidence)
-  anomaly_sensitivity: 3.0
-
-  # stable_slope_threshold: Threshold for stable trend classification
-  # Purpose: Maximum absolute slope value to classify trend as stable
-  # Trend classification: |slope| < threshold = stable
-  # Sensitivity: Lower values make trends more sensitive to change
-  # Units: Change per hour in metric's natural units
-  # Format: Float
-  # Default reasoning: 0.1 allows minor fluctuations without trend classification
-  stable_slope_threshold: 0.1
-
-  # volatile_coefficient_threshold: Threshold for volatile classification
-  # Purpose: Coefficient of variation (std_dev/mean) threshold for volatility
-  # Volatility detection: CV > threshold = volatile trend
-  # Typical values: 0.3 (moderate) to 0.7 (high tolerance)
-  # Format: Float (0-1 range typically)
-  # Default reasoning: 0.5 identifies significantly unstable metrics
-  volatile_coefficient_threshold: 0.5
-
-  # metrics_to_track: List of metrics to track historically
-  # Purpose: Defines which queue metrics to store and analyze
-  # Storage impact: Each metric multiplies storage requirements
-  # Analysis scope: More metrics provide comprehensive monitoring
-  # Customization: Add custom metrics as needed
-  # Format: List of strings
-  # Available metrics:
-  #   - queue_size: Number of items in queue
-  #   - processing_rate: Items processed per time unit
-  #   - error_rate: Percentage of failed operations
-  #   - latency: Average queue wait time
-  #   - success_rate: Percentage of successful operations
-  #   - resource_usage_cpu: CPU utilization percentage
-  #   - resource_usage_memory: Memory usage in MB
-  metrics_to_track:
-    - queue_size
-    - processing_rate
-    - error_rate
-    - latency
-    - success_rate
-    - resource_usage_cpu
-    - resource_usage_memory
-
-# =============================================================================
-# DASHBOARD DATA CONFIGURATION
-# =============================================================================
-# Purpose: Controls dashboard widget data preparation, caching, and layout
-# configuration. Provides formatted data for monitoring dashboards with support
-# for multiple widget types and layout presets.
-dashboard:
-  # enabled: Master control for dashboard data preparation
-  # Purpose: Enables or disables dashboard widget data generation
-  # Monitoring benefit: Provides formatted data for visualization dashboards
-  # Resource overhead: Minimal CPU overhead for data formatting and caching
-  # Production value: Essential for operational visibility through dashboards
-  # Format: Boolean
-  # Default reasoning: Enabled for dashboard monitoring capabilities
-  enabled: true
-
-  # cache_ttl_seconds: Widget data cache time-to-live
-  # Purpose: How long to cache prepared widget data before refreshing
-  # Performance benefit: Reduces load on monitoring modules by caching results
-  # Freshness trade-off: Longer TTL reduces load but shows less current data
-  # Real-time updates: Shorter TTL provides more current dashboard data
-  # Format: Integer seconds
-  # Default reasoning: 30 seconds balances freshness with performance
-  cache_ttl_seconds: 30
-
-  # default_refresh_interval: Global dashboard refresh interval
-  # Purpose: Default interval for dashboard to request fresh data
-  # Dashboard responsiveness: How often dashboard UI updates
-  # Network efficiency: Longer intervals reduce request frequency
-  # Alignment: Should be >= cache_ttl_seconds to benefit from caching
-  # Format: Integer seconds
-  # Default reasoning: 30 seconds matches cache TTL for efficient updates
-  default_refresh_interval: 30
-
-  # enable_trend_analysis: Trend data for sparklines and charts
-  # Purpose: Enables historical trend data for sparklines and time-series charts
-  # Data requirement: Requires trend_analysis.enabled = true
-  # Visualization benefit: Provides trend indicators and historical charts
-  # Resource overhead: Minimal as trend analysis is already enabled separately
-  # Format: Boolean
-  # Default reasoning: Enabled to provide rich dashboard visualizations
-  enable_trend_analysis: true
-
-  # enable_bottleneck_detection: Bottleneck data for dashboard
-  # Purpose: Enables bottleneck detection data for performance widgets
-  # Data requirement: Requires queue_bottleneck_detection.enabled = true
-  # Visualization benefit: Shows slow collections, operations, parsers
-  # Resource overhead: Minimal as bottleneck detection is already enabled separately
-  # Format: Boolean
-  # Default reasoning: Enabled to provide performance optimization insights
-  enable_bottleneck_detection: true
-
-  # Grid layout configuration
-  layout:
-    # columns: Grid column count for widget positioning
-    # Purpose: Number of columns in dashboard grid layout
-    # Layout flexibility: 12 columns allows flexible widget sizing
-    # Responsive design: Commonly used grid system (Bootstrap-compatible)
-    # Format: Integer > 0
-    # Default reasoning: 12-column grid is industry standard
-    columns: 12
-
-    # row_height: Grid row height in pixels
-    # Purpose: Height of each grid row for consistent widget sizing
-    # Visual consistency: Fixed row height provides predictable layouts
-    # Responsive scaling: Combine with responsive breakpoints
-    # Format: Integer pixels
-    # Default reasoning: 60px provides reasonable default row height
-    row_height: 60
-
-    # Responsive breakpoints for different screen sizes
-    # Purpose: Defines screen width breakpoints for responsive layouts
-    # Mobile support: Smaller breakpoints optimize for mobile devices
-    # Desktop optimization: Larger breakpoints use available screen space
-    # Format: Object with pixel width values
-    breakpoints:
-      # lg: Large desktop screens
-      lg: 1200
-      # md: Medium desktop/tablet landscape
-      md: 996
-      # sm: Tablet portrait
-      sm: 768
-      # xs: Mobile devices
-      xs: 480
-
-  # Widget configuration defaults
-  widgets:
-    # sparkline_points: Number of data points for sparkline indicators
-    # Purpose: How many historical points to show in trend sparklines
-    # Trend visibility: More points show longer trends
-    # Performance: More points require more data retrieval
-    # Format: Integer > 0
-    # Default reasoning: 20 points provides good trend visibility
-    sparkline_points: 20
-
-    # chart_time_window_hours: Default time window for time-series charts
-    # Purpose: How many hours of history to show in line charts
-    # Historical context: Longer window shows more historical context
-    # Data volume: Longer window requires more data points
-    # Format: Integer hours
-    # Default reasoning: 24 hours shows daily patterns
-    chart_time_window_hours: 24
-
-    # table_limit_default: Default row limit for table widgets
-    # Purpose: Maximum number of rows to show in table widgets
-    # Page size: Balance between showing enough data and performance
-    # User experience: Avoid overwhelming users with too many rows
-    # Format: Integer > 0
-    # Default reasoning: 20 rows is reasonable default page size
-    table_limit_default: 20
-
-  # Color coding thresholds for status indicators
-  # Purpose: Defines color codes for different metric value ranges
-  # Visual communication: Colors provide quick status assessment
-  # Customization: Adjust thresholds based on operational requirements
-  color_thresholds:
-    # Queue size color coding
-    queue_size:
-      green_max: 1000      # Queue size below this is green (healthy)
-      yellow_max: 5000     # Queue size below this is yellow (warning)
-      orange_max: 10000    # Queue size below this is orange (degraded)
-      # Above orange_max is red (critical)
-
-    # Error rate color coding (percentage)
-    error_rate:
-      green_max: 1.0       # Error rate below this is green (healthy)
-      yellow_max: 5.0      # Error rate below this is yellow (warning)
-      orange_max: 10.0     # Error rate below this is orange (degraded)
-      # Above orange_max is red (critical)
-
-    # Success rate color coding (percentage)
-    success_rate:
-      green_min: 95.0      # Success rate above this is green (healthy)
-      yellow_min: 90.0     # Success rate above this is yellow (warning)
-      orange_min: 80.0     # Success rate above this is orange (degraded)
-      # Below orange_min is red (critical)
-
-    # Health score color coding (0-100)
-    health_score:
-      green_min: 80.0      # Health score above this is green (healthy)
-      yellow_min: 60.0     # Health score above this is yellow (degraded)
-      orange_min: 40.0     # Health score above this is orange (unhealthy)
-      # Below orange_min is red (critical)
-
-# =============================================================================
-# QUEUE ALERTING CONFIGURATION
-# =============================================================================
-# Purpose: Controls alert rule management, threshold monitoring, and notification
-# delivery for queue system monitoring. Enables proactive alerting for queue
-# health issues, performance degradation, and operational anomalies.
-queue_alerting:
-  # enabled: Master control for alerting system
-  # Purpose: Enables or disables alert rule evaluation and notifications
-  # Monitoring benefit: Proactive alerts for queue issues
-  # Resource overhead: Minimal CPU overhead for rule evaluation
-  # Production value: Essential for operational monitoring and incident response
-  # Format: Boolean
-  # Default reasoning: Enabled for production monitoring and alerting
-  enabled: true
-
-  # evaluation_interval: Alert rule evaluation frequency
-  # Purpose: How often to check alert rules and thresholds
-  # Alert responsiveness: More frequent checks detect issues faster
-  # Resource overhead: Frequent evaluation increases CPU usage
-  # Notification timing: Affects how quickly alerts are triggered
-  # Format: Integer seconds
-  # Default reasoning: 60 seconds provides good balance between responsiveness and overhead
-  evaluation_interval: 60
-
-  # default_cooldown_minutes: Default alert cooldown period
-  # Purpose: Minimum time between repeated alerts for same condition
-  # Alert fatigue prevention: Prevents spamming with duplicate alerts
-  # Issue persistence: Only re-alerts if issue persists beyond cooldown
-  # Customization: Can be overridden per alert rule
-  # Format: Integer minutes
-  # Default reasoning: 15 minutes prevents alert spam while allowing re-notification
-  default_cooldown_minutes: 15
-
-  # max_alert_history_days: Alert history retention period
-  # Purpose: How long to retain alert history in database
-  # Compliance: May be required for audit trails
-  # Troubleshooting: Historical alerts help identify patterns
-  # Storage impact: Longer retention increases database size
-  # Format: Integer days
-  # Default reasoning: 30 days provides good historical depth
-  max_alert_history_days: 30
-
-  # retry_attempts: Notification delivery retry attempts
-  # Purpose: Number of times to retry failed notification delivery
-  # Reliability: Handles transient network/service issues
-  # Failure handling: Falls back to logging after all retries exhausted
-  # Format: Integer >= 0
-  # Default reasoning: 3 retries handles most transient failures
-  retry_attempts: 3
-
-  # retry_delay_seconds: Base delay between retry attempts
-  # Purpose: Initial delay before first retry (exponential backoff)
-  # Service protection: Prevents overwhelming failing notification services
-  # Backoff progression: Delay increases with each retry attempt
-  # Format: Integer seconds
-  # Default reasoning: 5 seconds provides reasonable initial retry delay
-  retry_delay_seconds: 5
-
-  # Notification channel configurations
-  # Purpose: Defines available notification channels and their settings
-  # Flexibility: Multiple channels can be enabled simultaneously
-  # Fallback: Log channel always available as fallback
-  channels:
-    # log: Loguru-based logging channel (always available)
-    log:
-      enabled: true
-      level: "warning"  # Log level for alerts (info, warning, error, critical)
-
-    # email: SMTP email notification channel
-    email:
-      enabled: false
-      smtp_host: "smtp.gmail.com"
-      smtp_port: 587
-      smtp_user: null    # Set via environment variable SMTP_USER
-      smtp_password: null  # Set via environment variable SMTP_PASSWORD
-      from_address: "alerts@workspace-qdrant.local"
-      to_addresses: []   # List of recipient email addresses
-
-    # webhook: HTTP webhook notification channel
-    webhook:
-      enabled: false
-      url: null          # Webhook endpoint URL
-      method: "POST"     # HTTP method (POST, PUT)
-      headers: {}        # Custom HTTP headers
-      timeout_seconds: 10
-
-    # slack: Slack notification channel (requires slack_sdk)
-    slack:
-      enabled: false
-      webhook_url: null  # Slack webhook URL
-      channel: null      # Optional channel override
-      username: "Queue Alerting Bot"
-
-    # pagerduty: PagerDuty incident notification (requires pdpyras)
-    pagerduty:
-      enabled: false
-      integration_key: null  # PagerDuty integration key
-      severity_mapping:      # Map alert severity to PagerDuty severity
-        INFO: "info"
-        WARNING: "warning"
-        ERROR: "error"
-        CRITICAL: "critical"
-
-# ==============================================================================
-# BACKUP AND RESTORE CONFIGURATION
-# ==============================================================================
-# Controls backup creation, restore operations, and version compatibility
-# validation for system data protection and disaster recovery.
-#
-# Purpose:
-#   - Define backup/restore behavior and validation rules
-#   - Configure version compatibility checking strictness
-#   - Control development version handling
-#   - Set backup retention and storage policies
-#
-# Usage:
-#   - CLI commands: wqm backup create/restore/list/info/validate
-#   - Automatic backups before major operations
-#   - Manual backup scheduling and retention
-#   - Disaster recovery and rollback procedures
-
-backup:
-  # enabled: Master control for backup/restore functionality
-  # Purpose: Allow disabling backup features in environments where not needed
-  # Format: boolean
-  # Default reasoning: Enabled by default for data protection
-  # Usage:
-  #   - Production: Enable for disaster recovery
-  #   - Development: Can disable to reduce overhead
-  #   - Testing: Enable for backup system validation
-  # Example: Set to false in ephemeral test environments
-  enabled: true
-
-  # auto_backup_before_restore: Create safety backup before restore operations
-  # Purpose: Prevent data loss from failed or problematic restore operations
-  # Format: boolean
-  # Default reasoning: Enabled by default as safety measure
-  # Usage:
-  #   - Always creates timestamped backup before restore
-  #   - Allows rollback if restore fails or causes issues
-  #   - Can be overridden with --no-auto-backup flag in CLI
-  # Example: Disable only when explicitly restoring to empty system
-  auto_backup_before_restore: true
-
-  # default_backup_directory: Default location for backup storage
-  # Purpose: Centralized backup storage location if not specified
-  # Format: string (path) or null for user prompt
-  # Default reasoning: null to force explicit path specification
-  # Usage:
-  #   - Set to absolute path for automated backups
-  #   - Leave null to require path in CLI commands
-  #   - Can use environment variables: ${HOME}/.wqm/backups
-  # Example: "/var/backups/wqm" or "~/.wqm/backups"
-  default_backup_directory: null
-
-  # retention_days: Number of days to retain old backups (0 = never delete)
-  # Purpose: Automatic cleanup of old backups to manage disk space
-  # Format: integer (days)
-  # Default reasoning: 30 days provides reasonable history without excessive storage
-  # Usage:
-  #   - Set to 0 to disable automatic deletion
-  #   - Set to 7 for weekly retention
-  #   - Set to 90 for quarterly retention
-  # Example: Set to 365 for yearly audit requirements
-  retention_days: 30
-
-  # compression: Enable compression for backup storage
-  # Purpose: Reduce backup storage size at cost of CPU during backup/restore
-  # Format: boolean
-  # Default reasoning: Enabled by default for efficient storage
-  # Usage:
-  #   - Typically 5-10x compression ratio for vector data
-  #   - Slower backup/restore but significant storage savings
-  #   - Disable for maximum speed on fast storage
-  # Example: Disable in high-performance environments with ample storage
-  compression: true
-
-  # validation:
-  #   Controls version compatibility checking and validation behavior
-  #   during backup creation and restore operations
-  validation:
-    # strict_version_check: Enforce strict semantic version compatibility
-    # Purpose: Control whether to allow any version mismatches during restore
-    # Format: boolean
-    # Default reasoning: Enabled by default to prevent data corruption
-    # Usage:
-    #   - true: Only exact major.minor versions allowed (patch can differ)
-    #   - false: Allow minor version differences with warnings
-    #   - Major version differences always rejected regardless of setting
-    # Example: Set to false for development environments with frequent version changes
-    strict_version_check: true
-
-    # allow_dev_versions: Permit restoring from development version backups
-    # Purpose: Enable testing of backup/restore in development environments
-    # Format: boolean
-    # Default reasoning: Disabled by default to prevent unstable version restores
-    # Usage:
-    #   - true: Allow backups from versions like "0.2.1dev1"
-    #   - false: Reject backups with dev/alpha/beta/rc suffixes
-    #   - Requires --allow-dev-versions flag if disabled
-    # Example: Enable in development environments, disable in production
-    allow_dev_versions: false
-
-    # allow_patch_downgrade: Allow restoring from newer patch versions
-    # Purpose: Support restoring recent backup after emergency patch rollback
-    # Format: boolean
-    # Default reasoning: Disabled by default to prevent unexpected downgrades
-    # Usage:
-    #   - true: Allow 0.2.2 → 0.2.1 restore (patch downgrade)
-    #   - false: Reject any restore from newer version (including patches)
-    #   - Requires --allow-downgrade flag if disabled
-    # Example: Enable if frequently rolling back emergency patches
-    allow_patch_downgrade: false
-
-    # allow_minor_downgrade: Allow restoring from newer minor versions
-    # Purpose: Support major rollbacks across minor version boundaries
-    # Format: boolean
-    # Default reasoning: Disabled by default due to compatibility risks
-    # Usage:
-    #   - true: Allow 0.3.0 → 0.2.x restore (minor downgrade)
-    #   - false: Reject minor version downgrades
-    #   - High risk of data structure incompatibility
-    # Example: Enable only for emergency disaster recovery scenarios
-    # WARNING: May cause data loss or corruption if schemas changed
-    allow_minor_downgrade: false
-
-    # version_warning_threshold: Days before flagging backup as potentially stale
-    # Purpose: Warn users when restoring old backups that may have compatibility issues
-    # Format: integer (days)
-    # Default reasoning: 90 days as reasonable threshold for version drift
-    # Usage:
-    #   - Shows warning if backup older than threshold
-    #   - Suggests creating fresh backup from current version
-    #   - Does not prevent restore, only warns
-    # Example: Set to 30 for fast-moving projects, 180 for stable releases
-    version_warning_threshold: 90
-
-    # check_schema_compatibility: Validate data schema compatibility during restore
-    # Purpose: Detect incompatible data structure changes before restore
-    # Format: boolean
-    # Default reasoning: Enabled by default to prevent data corruption
-    # Usage:
-    #   - true: Validates collection schemas match before restore
-    #   - false: Skip schema validation (faster but riskier)
-    #   - Recommended to keep enabled except for emergency recovery
-    # Example: Disable only when explicitly overriding for data recovery
-    check_schema_compatibility: true
-
-  # verification:
-  #   Controls backup integrity checking and validation testing
-  verification:
-    # verify_after_backup: Run integrity checks after backup creation
-    # Purpose: Ensure backup is valid and restorable immediately after creation
-    # Format: boolean
-    # Default reasoning: Enabled by default to catch backup failures early
-    # Usage:
-    #   - Validates manifest structure
-    #   - Checks file integrity
-    #   - Verifies collection metadata
-    #   - Adds ~10-30 seconds to backup time
-    # Example: Disable in time-sensitive automated backup scripts
-    verify_after_backup: true
-
-    # verify_before_restore: Run integrity checks before restore operations
-    # Purpose: Detect corrupted backups before potentially destructive restore
-    # Format: boolean
-    # Default reasoning: Enabled by default as safety measure
-    # Usage:
-    #   - Validates backup structure and manifest
-    #   - Checks file checksums if available
-    #   - Prevents restore from corrupted backups
-    #   - Adds ~5-15 seconds to restore time
-    # Example: Disable only in emergency recovery scenarios
-    verify_before_restore: true
-
-    # checksum_algorithm: Algorithm for backup file integrity verification
-    # Purpose: Detect file corruption or tampering in backups
-    # Format: string ("xxhash64", "sha256", "md5", "none")
-    # Default reasoning: xxhash64 for speed with good collision resistance
-    # Usage:
-    #   - xxhash64: Fastest, good for routine verification
-    #   - sha256: Cryptographically secure, slower but tamper-proof
-    #   - md5: Legacy compatibility, not recommended for security
-    #   - none: Skip checksums for maximum speed (not recommended)
-    # Example: Use sha256 in environments requiring audit trails
-    checksum_algorithm: "xxhash64"
-
-  # metadata:
-  #   Controls what metadata is included in backup manifests
-  metadata:
-    # include_collection_stats: Include detailed collection statistics
-    # Purpose: Provide comprehensive backup inventory and validation data
-    # Format: boolean
-    # Default reasoning: Enabled by default for thorough backup documentation
-    # Usage:
-    #   - Records point counts, vector dimensions, schemas
-    #   - Enables validation of restore completeness
-    #   - Useful for backup auditing and inventory
-    #   - Minimal size overhead (~1-5KB per collection)
-    # Example: Disable for minimal backup manifests
-    include_collection_stats: true
-
-    # include_system_info: Include system and environment information
-    # Purpose: Record system configuration for troubleshooting restore issues
-    # Format: boolean
-    # Default reasoning: Enabled by default to assist with compatibility diagnosis
-    # Usage:
-    #   - Records Python version, Qdrant version, OS platform
-    #   - Helps identify environment-specific issues
-    #   - Minimal size overhead (~1KB)
-    # Example: Disable if backup manifests need to be sanitized of system info
-    include_system_info: true
-
-    # custom_metadata: User-defined metadata to include in all backups
-    # Purpose: Allow tagging backups with custom organizational metadata
-    # Format: dictionary of key-value pairs
-    # Default reasoning: Empty by default, user can add as needed
-    # Usage:
-    #   - Add tags like environment, purpose, ticket number
-    #   - Useful for backup management and automation
-    #   - Included in manifest.json metadata section
-    # Example:
-    #   custom_metadata:
-    #     environment: "production"
-    #     backup_type: "pre-migration"
-    #     ticket: "OPS-1234"
-    custom_metadata: {}
 
 # =============================================================================
 # FILE WATCHING AND MOVE DETECTION CONFIGURATION
@@ -3096,6 +1821,15 @@ watching:
 #
 # Branch Lifecycle: Tracks branch creation, deletion, rename, and default changes
 # Document Management: Auto-manages Qdrant documents when branches change
+
+# =============================================================================
+# GIT INTEGRATION CONFIGURATION
+# =============================================================================
+# Purpose: Configures Git-specific features including branch lifecycle management
+# and repository monitoring for tracked projects.
+#
+# Branch Lifecycle: Tracks branch creation, deletion, rename, and default changes
+# Document Management: Auto-manages Qdrant documents when branches change
 git:
   # track_branch_lifecycle: Enable branch lifecycle monitoring
   # Purpose: Master toggle for branch creation/deletion/rename detection
@@ -3143,6 +1877,16 @@ git:
   # Format: String enum
   # Default reasoning: "head" is fastest and most reliable for local operations
   default_branch_detection: "head"
+
+# =============================================================================
+# LSP (LANGUAGE SERVER PROTOCOL) INTEGRATION CONFIGURATION
+# =============================================================================
+# Purpose: Configures Language Server Protocol integration for active projects.
+# LSP provides code intelligence features like references, type information,
+# and import resolution for semantic chunks.
+#
+# Note: LSP is only active for projects that are currently being worked on.
+# Servers are started on project activation and stopped on deactivation.
 
 # =============================================================================
 # LSP (LANGUAGE SERVER PROTOCOL) INTEGRATION CONFIGURATION
@@ -3253,16 +1997,28 @@ lsp:
 # Note: Grammars must be compatible with the tree-sitter runtime version
 # specified below. Incompatible grammars will be detected and can be
 # auto-replaced if auto_download is enabled.
+
+# =============================================================================
+# TREE-SITTER GRAMMAR CONFIGURATION
+# =============================================================================
+# Purpose: Configures dynamic tree-sitter grammar loading for semantic code
+# chunking. Instead of statically compiled grammars, grammars are loaded from
+# shared library files (.so/.dylib/.dll) at runtime, allowing languages to be
+# added without recompiling the daemon.
+#
+# Note: Grammars must be compatible with the tree-sitter runtime version
+# specified below. Incompatible grammars will be detected and can be
+# auto-replaced if auto_download is enabled.
 grammars:
   # cache_dir: Directory for storing grammar shared libraries
   # Purpose: Location where tree-sitter grammar files are cached
   # Structure: <cache_dir>/<platform>/<tree_sitter_version>/<language>/
-  # Example: ~/.workspace-qdrant/grammars/x86_64-apple-darwin/0.24/rust/
+  # Example: ~/.cache/workspace-qdrant/grammars/x86_64-apple-darwin/0.24/rust/
   # Platform: Automatically detected (x86_64, aarch64, etc.)
   # Permissions: Directory must be writable by daemon process
   # Format: Directory path with shell expansion (~, $HOME, etc.)
   # Default reasoning: Standard location under workspace-qdrant config directory
-  cache_dir: "~/.workspace-qdrant/grammars"
+  cache_dir: "~/.cache/workspace-qdrant/grammars"
 
   # required: List of language grammars to pre-download on daemon startup
   # Purpose: Grammars listed here are downloaded eagerly at startup
@@ -3358,90 +2114,6 @@ grammars:
 #
 # The registry replaces all hardcoded language support. Adding a new language
 # requires only a YAML definition — no code changes.
-language_registry:
-  # registry_dir: Directory for user-local language override YAML files
-  # Purpose: YAML files here override bundled definitions (highest precedence)
-  # Format: Directory path with shell expansion
-  # Default reasoning: Standard location under workspace-qdrant config directory
-  registry_dir: "~/.workspace-qdrant/languages"
-
-  # auto_refresh: Automatically refresh registry from upstream providers
-  # Purpose: Controls whether the daemon fetches upstream language metadata
-  # When enabled: Periodic background refresh from Linguist, nvim-treesitter, etc.
-  # When disabled: Only bundled definitions and user overrides are used
-  # Format: Boolean
-  # Default reasoning: true keeps language metadata current
-  auto_refresh: true
-
-  # refresh_interval_hours: How often to refresh from upstream providers
-  # Purpose: Controls frequency of upstream metadata refresh
-  # Set to 0: Disable automatic refresh (manual via `wqm language refresh`)
-  # Format: Integer (hours)
-  # Default reasoning: 168 (weekly) balances freshness with network traffic
-  refresh_interval_hours: 168
-
-  # grammar_quality_priority: Preferred quality tier ordering for grammar selection
-  # Purpose: When multiple grammar sources exist, prefer higher quality tiers
-  # Format: List of quality tiers in preference order
-  # Available: curated, official, community
-  # Default reasoning: curated grammars are most reliable
-  grammar_quality_priority: [curated, official, community]
-
-  # providers: Upstream data source configuration
-  # Purpose: Enable/disable individual providers for language metadata
-  # Each provider fetches from a specific upstream source
-  providers:
-    # GitHub Linguist — language identity (extensions, aliases, type)
-    linguist:
-      enabled: true
-
-    # tree-sitter-grammars GitHub org — curated grammar repos
-    treesitter_grammars_org:
-      enabled: true
-
-    # nvim-treesitter lockfile — grammar-to-repo mappings (200+ languages)
-    nvim_treesitter:
-      enabled: true
-
-    # mason-registry — LSP server metadata and install methods
-    mason:
-      enabled: true
-
-  # editor_search_paths: Directories where editors install LSP servers
-  # Purpose: Find LSP servers installed by editors (mason.nvim, VS Code, etc.)
-  # The daemon and CLI search these paths in addition to $PATH
-  # Format: List of search path entries with name, path, and recursion settings
-  # Default reasoning: covers the most popular editors
-  editor_search_paths:
-    - name: "mason.nvim"
-      path: "~/.local/share/nvim/mason/bin"
-      recursive: false
-    - name: "VS Code"
-      path: "~/.vscode/extensions"
-      recursive: true
-      max_depth: 3
-    - name: "VS Code Insiders"
-      path: "~/.vscode-insiders/extensions"
-      recursive: true
-      max_depth: 3
-    - name: "Zed"
-      path: "~/.local/share/zed/languages"
-      recursive: true
-      max_depth: 3
-    - name: "Emacs lsp-mode"
-      path: "~/.emacs.d/.cache/lsp"
-      recursive: true
-      max_depth: 3
-    - name: "Helix"
-      path: "~/.config/helix/runtime"
-      recursive: true
-      max_depth: 2
-
-  # extra_search_paths: Additional user-defined search paths for LSP binaries
-  # Purpose: Add custom locations where LSP servers may be installed
-  # Format: List of directory paths
-  # Default reasoning: empty — user adds paths as needed
-  extra_search_paths: []
 
 # =============================================================================
 # DAEMON SELF-UPDATE CONFIGURATION
@@ -3484,6 +2156,14 @@ updates:
   # Format: Integer (hours)
   # Default reasoning: 24 (daily) balances awareness with network traffic
   check_interval_hours: 24
+
+# =============================================================================
+# TAGGING CONFIGURATION
+# =============================================================================
+# Purpose: Controls LLM-assisted tag extraction (Tier 3). This is the
+# highest-quality but most expensive tagging tier — disabled by default.
+# When enabled, document chunks are sent to an AI provider to extract
+# structured concept tags.
 
 # =============================================================================
 # TAGGING CONFIGURATION
@@ -3580,22 +2260,42 @@ tagging:
 # Rationale: Configuration and structured-data files should never legitimately
 # exceed 500KB. Larger files are likely training datasets or generated output
 # that should not be embedded. The 100MB global hard limit remains as a backstop.
-ingestion_limits:
-  extension_size_limits_kb:
-    # Structured data / config formats
-    json:   500
-    jsonc:  500
-    json5:  500
-    jsonl:  500
-    ndjson: 500
-    yaml:   500
-    yml:    500
-    toml:   500
-    # Markup / schema formats
-    xml:    500
-    xsl:    500
-    xslt:   500
-    # Tabular data
-    csv:    500
-    tsv:    500
 
+# =============================================================================
+# URL INGESTION CONFIGURATION
+# =============================================================================
+# Purpose: Configures HTTP fetch limits and SSRF policy for URL-based ingestion.
+# Controls timeout, redirect following, payload size, and network access scope.
+url_ingestion:
+  # connect_timeout_secs: TCP connection timeout in seconds
+  # Format: Integer > 0
+  connect_timeout_secs: 15
+
+  # read_timeout_secs: Maximum time to read the response body in seconds
+  # Format: Integer > 0
+  read_timeout_secs: 60
+
+  # max_redirects: Maximum number of HTTP redirects to follow
+  # Set to 0 to disable redirect following
+  # Format: Integer >= 0
+  max_redirects: 5
+
+  # max_body_bytes: Maximum response body size in bytes
+  # Requests whose response exceeds this are aborted
+  # Default: 10MB
+  # Format: Integer > 0
+  max_body_bytes: 10485760
+
+  # allow_private_networks: Whether to allow fetching from private/loopback addresses
+  # Security: Keep false in production to prevent SSRF attacks
+  # Format: Boolean
+  allow_private_networks: false
+
+  # allowed_content_types: Content-type prefix allowlist
+  # Only responses whose Content-Type starts with one of these values are accepted
+  # Format: List of strings
+  allowed_content_types:
+    - "text/"
+    - "application/json"
+    - "application/xhtml+xml"
+    - "application/xml"
