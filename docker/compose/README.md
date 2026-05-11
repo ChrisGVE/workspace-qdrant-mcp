@@ -26,9 +26,16 @@ the system.
 
 2. **Populate `docker/.env`.** Copy `.env.example` and fill in:
 
+   ```bash
+   # Generate a token (run this in your shell):
+   openssl rand -hex 32
    ```
+
+   Paste the output as a literal value in `docker/.env`:
+
+   ```env
    # Required
-   MCP_HTTP_TOKEN=$(openssl rand -hex 32)
+   MCP_HTTP_TOKEN=<paste-openssl-output-here>
    WQM_DEV_ROOT=/Users/your-user/dev
    WQM_VERSION=latest
 
@@ -36,6 +43,10 @@ the system.
    WQM_STATE_DIR=./state
    WQM_CONFIG_FILE=/absolute/path/to/wqm-config.yaml
    ```
+
+   > **Warning:** Docker Compose `.env` files do not evaluate `$()` command
+   > substitution. You must paste the literal hex value — do not write
+   > `MCP_HTTP_TOKEN=$(openssl rand -hex 32)` inside `.env`.
 
    See the header comment in `reference.yml` for the full list of variables.
    Without `MCP_HTTP_TOKEN` or `WQM_DEV_ROOT` compose refuses to start

@@ -34,12 +34,23 @@ deployments can skip it.
 
 2. **Create `docker/.env`.** Copy `docker/.env.example` and set at least:
 
+   ```bash
+   # Generate a token (run this in your shell — not inside .env):
+   openssl rand -hex 32
+   ```
+
+   Paste the output as a literal value in `docker/.env`:
+
    ```env
-   MCP_HTTP_TOKEN=$(openssl rand -hex 32)   # required
-   WQM_DEV_ROOT=/Users/you/dev              # required — see Path transparency
+   MCP_HTTP_TOKEN=<paste-openssl-output-here>   # required
+   WQM_DEV_ROOT=/Users/you/dev                  # required — see Path transparency
    WQM_VERSION=latest
    WQM_STATE_DIR=./state
    ```
+
+   > **Warning:** Docker Compose `.env` files do not evaluate `$()` command
+   > substitution. Paste the literal hex value; do not write
+   > `MCP_HTTP_TOKEN=$(openssl rand -hex 32)` inside `.env`.
 
    The compose file refuses to start if `MCP_HTTP_TOKEN` or
    `WQM_DEV_ROOT` is missing. The full variable list is documented in
