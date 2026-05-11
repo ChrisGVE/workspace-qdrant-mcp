@@ -124,6 +124,9 @@ export async function resolveProjectScopeId(
     resolvedProjectId = projectInfo?.projectId;
   }
   if (scope === 'project' && !resolvedProjectId) {
+    // Caller decides which action label to report — the spread on the
+    // returned response can override `action` (see updateRule /
+    // removeRule). Default to 'add' for backward compat with addRule.
     return {
       resolvedProjectId: undefined,
       error: {
@@ -216,11 +219,14 @@ export async function persistAddRule(
 
 function buildUpdateMetadata(
   label: string,
+  scope: RuleScope,
+  resolvedProjectId: string | undefined,
   title: string | undefined,
   tags: string[] | undefined,
   priority: number | undefined
 ): Record<string, string> {
-  const m: Record<string, string> = { label };
+  const m: Record<string, string> = { label, scope };
+  if (resolvedProjectId) m[FIELD_PROJECT_ID] = resolvedProjectId;
   if (title) m[FIELD_TITLE] = title;
   if (tags && tags.length > 0) m['tags'] = tags.join(',');
   if (priority !== undefined) m['priority'] = String(priority);
@@ -230,11 +236,19 @@ function buildUpdateMetadata(
 function buildUpdateQueueOp(
   label: string,
   content: string,
+  scope: RuleScope,
+  resolvedProjectId: string | undefined,
   title: string | undefined,
   tags: string[] | undefined,
   priority: number | undefined
 ): Parameters<typeof queueRuleOperation>[1] {
-  const op: Parameters<typeof queueRuleOperation>[1] = { action: 'update', label, content };
+  const op: Parameters<typeof queueRuleOperation>[1] = {
+    action: 'update',
+    label,
+    content,
+    scope,
+  };
+  if (resolvedProjectId) op.projectId = resolvedProjectId;
   if (title) op.title = title;
   if (tags) op.tags = tags;
   if (priority !== undefined) op.priority = priority;
@@ -246,21 +260,27 @@ export async function persistUpdateRule(
   stateManager: SqliteStateManager,
   label: string,
   content: string,
+  scope: RuleScope,
+  resolvedProjectId: string | undefined,
   title: string | undefined,
   tags: string[] | undefined,
   priority: number | undefined
 ): Promise<RuleResponse> {
-  const metadata = buildUpdateMetadata(label, title, tags, priority);
+  // F-015: pass the resolved project tenant (or TENANT_GLOBAL for
+  // global rules) so the daemon's (label, tenant_id) match targets
+  // the correct rule.
+  const tenantId = resolvedProjectId ?? TENANT_GLOBAL;
+  const metadata = buildUpdateMetadata(label, scope, resolvedProjectId, title, tags, priority);
   try {
     const response = await daemonClient.ingestText({
       content,
       collection_basename: RULES_BASENAME,
-      tenant_id: TENANT_GLOBAL,
+      tenant_id: tenantId,
       document_id: label,
       metadata,
     });
     if (response.success) {
-      upsertMirror(stateManager, label, content, null, null);
+      upsertMirror(stateManager, label, content, scope, resolvedProjectId ?? null);
       return { success: true, action: 'update', label, message: 'Rule updated successfully' };
     }
   } catch (err: unknown) {
@@ -269,9 +289,9 @@ export async function persistUpdateRule(
 
   const queueResult = await queueRuleOperation(
     stateManager,
-    buildUpdateQueueOp(label, content, title, tags, priority)
+    buildUpdateQueueOp(label, content, scope, resolvedProjectId, title, tags, priority)
   );
-  upsertMirror(stateManager, label, content, null, null);
+  upsertMirror(stateManager, label, content, scope, resolvedProjectId ?? null);
   return {
     success: true,
     action: 'update',

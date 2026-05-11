@@ -24,9 +24,10 @@ export type {
 import type { RuleOptions, RuleResponse, RuleToolConfig, Rule, RuleScope } from './rules-types.js';
 import { RULES_COLLECTION } from './rules-types.js';
 import { TENANT_GLOBAL } from '../constants/tenants.js';
-import { FIELD_CONTENT } from '../common/native-bridge.js';
+import { FIELD_CONTENT, FIELD_PROJECT_ID } from '../common/native-bridge.js';
 import { addRule, updateRule, removeRule } from './rules-mutations.js';
 import { listRules } from './rules-list.js';
+import { resolveProjectScopeId } from './rules-mutation-helpers.js';
 
 const DEFAULT_DUPLICATION_THRESHOLD = 0.7;
 
@@ -63,9 +64,22 @@ export class RulesTool {
   async execute(options: RuleOptions): Promise<RuleResponse> {
     switch (options.action) {
       case 'add': {
-        // Check for similar rules before inserting
+        // Check for similar rules before inserting. F-015: scope the
+        // duplicate-detection by (scope, tenant_id) so the same label
+        // / similar content in another project does not block this
+        // project's add.
         if (options.content?.trim()) {
-          const duplicates = await this.findSimilarRules(options.content);
+          const dupScope: RuleScope = options.scope ?? 'project';
+          const { resolvedProjectId } = await resolveProjectScopeId(
+            dupScope,
+            options.projectId,
+            this.projectDetector
+          );
+          const duplicates = await this.findSimilarRules(
+            options.content,
+            dupScope,
+            resolvedProjectId
+          );
           if (duplicates.length > 0) {
             return {
               success: false,
@@ -78,9 +92,9 @@ export class RulesTool {
         return addRule(this.daemonClient, this.stateManager, this.projectDetector, options);
       }
       case 'update':
-        return updateRule(this.daemonClient, this.stateManager, options);
+        return updateRule(this.daemonClient, this.stateManager, this.projectDetector, options);
       case 'remove':
-        return removeRule(this.stateManager, options);
+        return removeRule(this.stateManager, this.projectDetector, options);
       case 'list':
         return listRules(this.qdrantClient, this.stateManager, this.projectDetector, options);
       default:
@@ -95,18 +109,38 @@ export class RulesTool {
   /**
    * Find existing rules similar to the given content using embedding similarity.
    * Returns rules with cosine similarity >= duplicationThreshold.
+   *
+   * F-015: results are scoped by (scope, tenant_id) so a project-scope
+   * add is only matched against rules in the same project (plus global
+   * rules), and a global-scope add is only matched against global
+   * rules. Pre-fix the whole RULES_COLLECTION was scanned and the same
+   * label / content in another project blocked the add.
    */
-  private async findSimilarRules(content: string): Promise<Array<Rule & { similarity: number }>> {
+  private async findSimilarRules(
+    content: string,
+    scope: RuleScope,
+    projectId: string | undefined
+  ): Promise<Array<Rule & { similarity: number }>> {
     try {
       const embedResponse = await this.daemonClient.embedText({ text: content });
       if (!embedResponse.embedding?.length) return [];
 
-      const searchResult = await this.qdrantClient.search(RULES_COLLECTION, {
+      const searchRequest: {
+        vector: number[];
+        limit: number;
+        score_threshold: number;
+        with_payload: boolean;
+        filter?: Record<string, unknown>;
+      } = {
         vector: embedResponse.embedding,
         limit: 5,
         score_threshold: this.duplicationThreshold,
         with_payload: true,
-      });
+      };
+      const filter = buildDuplicateScopeFilter(scope, projectId);
+      if (filter) searchRequest.filter = filter;
+
+      const searchResult = await this.qdrantClient.search(RULES_COLLECTION, searchRequest);
 
       return searchResult
         .filter((point) => point.score >= this.duplicationThreshold)
@@ -123,4 +157,29 @@ export class RulesTool {
       return [];
     }
   }
+}
+
+/** F-015: Build a Qdrant filter that restricts duplicate detection to
+ *  the active rule scope. Project-scope: match the current project_id
+ *  (or any global rule too — global rules apply to every project and
+ *  remain dup-detectable). Global-scope: only match global rules. */
+function buildDuplicateScopeFilter(
+  scope: RuleScope,
+  projectId: string | undefined
+): Record<string, unknown> | null {
+  if (scope === 'project') {
+    if (!projectId) return null; // unresolvable — let dup detection broaden rather than silently block
+    return {
+      must: [
+        {
+          should: [
+            { key: FIELD_PROJECT_ID, match: { value: projectId } },
+            { key: 'scope', match: { value: 'global' } },
+          ],
+        },
+      ],
+    };
+  }
+  // Global add — only check against other global rules.
+  return { must: [{ key: 'scope', match: { value: 'global' } }] };
 }

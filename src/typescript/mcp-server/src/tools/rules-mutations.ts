@@ -58,9 +58,10 @@ export async function addRule(
 export async function updateRule(
   daemonClient: DaemonClient,
   stateManager: SqliteStateManager,
+  projectDetector: ProjectDetector,
   options: RuleOptions
 ): Promise<RuleResponse> {
-  const { label, content, title, tags, priority } = options;
+  const { label, content, title, tags, priority, scope = 'project', projectId } = options;
 
   if (!label) {
     return { success: false, action: 'update', message: 'Label is required for updating' };
@@ -69,19 +70,55 @@ export async function updateRule(
     return { success: false, action: 'update', message: 'Content is required for updating a rule' };
   }
 
-  return persistUpdateRule(daemonClient, stateManager, label, content, title, tags, priority);
+  // F-015: project-scope updates must carry the project tenant_id so
+  // the daemon's (label, tenant_id) match targets the right rule.
+  // Pre-fix the call hardcoded TENANT_GLOBAL.
+  const { resolvedProjectId, error } = await resolveProjectScopeId(
+    scope,
+    projectId,
+    projectDetector
+  );
+  if (error) return { ...error, action: 'update' };
+
+  return persistUpdateRule(
+    daemonClient,
+    stateManager,
+    label,
+    content,
+    scope,
+    resolvedProjectId,
+    title,
+    tags,
+    priority
+  );
 }
 
 export async function removeRule(
   stateManager: SqliteStateManager,
+  projectDetector: ProjectDetector,
   options: RuleOptions
 ): Promise<RuleResponse> {
-  const { label } = options;
+  const { label, scope = 'project', projectId } = options;
   if (!label) {
     return { success: false, action: 'remove', message: 'Label is required for removal' };
   }
 
-  const queueResult = await queueRuleOperation(stateManager, { action: 'remove', label });
+  // F-015: same-label rules can exist in two projects. Resolve the
+  // project tenant and pass it through so the daemon can scope the
+  // Qdrant delete by (label, tenant_id) — not by label alone.
+  const { resolvedProjectId, error } = await resolveProjectScopeId(
+    scope,
+    projectId,
+    projectDetector
+  );
+  if (error) return { ...error, action: 'remove' };
+
+  const queueResult = await queueRuleOperation(stateManager, {
+    action: 'remove',
+    label,
+    scope,
+    ...(resolvedProjectId !== undefined ? { projectId: resolvedProjectId } : {}),
+  });
   stateManager.deleteRulesMirror(label);
 
   return {

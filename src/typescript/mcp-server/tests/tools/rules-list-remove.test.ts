@@ -110,7 +110,7 @@ describe('RulesTool', () => {
   });
 
   describe('remove action', () => {
-    it('should queue removal (always uses queue)', async () => {
+    it('should queue removal scoped to the active project (F-015)', async () => {
       const options: RuleOptions = {
         action: 'remove',
         label: 'rule-to-remove',
@@ -121,6 +121,38 @@ describe('RulesTool', () => {
       expect(result.success).toBe(true);
       expect(result.action).toBe('remove');
       expect(result.fallback_mode).toBe('unified_queue');
+      // F-015: default scope is 'project'; the detector resolves to
+      // 'test-project-123' so the queue payload MUST target that
+      // tenant (not 'global'). Otherwise project A's remove could
+      // evict a same-labeled rule in project B.
+      expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
+        'text',
+        'delete',
+        'test-project-123',
+        'rules',
+        expect.objectContaining({
+          label: 'rule-to-remove',
+          action: 'remove',
+          scope: 'project',
+          project_id: 'test-project-123',
+        }),
+        1, // PRIORITY_HIGH
+        'main',
+        expect.any(Object)
+      );
+    });
+
+    it('should remove globally when scope is explicitly global', async () => {
+      const options: RuleOptions = {
+        action: 'remove',
+        label: 'rule-to-remove',
+        scope: 'global',
+      };
+
+      const result = await rulesTool.execute(options);
+
+      expect(result.success).toBe(true);
+      expect(result.action).toBe('remove');
       expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
         'text',
         'delete',
@@ -129,8 +161,9 @@ describe('RulesTool', () => {
         expect.objectContaining({
           label: 'rule-to-remove',
           action: 'remove',
+          scope: 'global',
         }),
-        1, // PRIORITY_HIGH
+        1,
         'main',
         expect.any(Object)
       );
