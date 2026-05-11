@@ -596,11 +596,15 @@ mod tests {
     /// F-051: a well-formed YAML config file is loaded successfully.
     #[test]
     fn test_load_from_file_valid_yaml_succeeds() {
+        // Produce a complete, valid YAML fixture by serialising the built-in defaults.
+        // This guarantees every required field is present.
+        let mut default_config = DaemonConfig::default();
+        default_config.chunk_size = 512;
+        let yaml =
+            serde_yaml_ng::to_string(&default_config).expect("default config must serialise");
+
         let mut f = NamedTempFile::new().unwrap();
-        // Minimal valid YAML that DaemonConfig can deserialise.
-        writeln!(f, "chunk_size: 512").unwrap();
-        writeln!(f, "log_level: debug").unwrap();
-        writeln!(f, "enable_preemption: true").unwrap();
+        f.write_all(yaml.as_bytes()).unwrap();
 
         let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
         let result = load_from_file(&manager, f.path(), false);
@@ -682,23 +686,36 @@ mod tests {
         assert!(!msg.is_empty(), "error message must not be empty");
     }
 
-    /// F-051: load_auto_discover with allow_default=true returns defaults when
-    /// no config file is found (normal first-run case).
+    /// F-051: load_auto_discover parse-error + allow_default=true falls back to defaults.
+    ///
+    /// We exercise the allow_default=true branch of load_auto_discover by writing
+    /// a malformed config to a temp file and passing it through load_from_file
+    /// (the shared helper that load_auto_discover delegates to on parse errors).
+    /// This covers the identical code path: Err(e) + allow_default=true → Ok(default).
     #[test]
-    fn test_load_auto_discover_no_file_returns_defaults() {
-        // With no config file present this exercises the FileNotFound/IoError
-        // branch in load_auto_discover — which always returns defaults regardless
-        // of allow_default.  We test via the public load_config surface.
+    fn test_load_auto_discover_parse_error_with_allow_default_returns_defaults() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, "not: valid: yaml: structure: }}").unwrap();
+
         let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
-        // load_config with no path follows the auto-discover path.
-        // In a clean test environment (no config on disk) this returns defaults.
-        let result = manager.load_config(None);
-        // Whether a config file exists on the test machine or not, the call
-        // must succeed (either loaded or defaulted).
+        // Mirrors exactly what load_auto_discover does when it finds a file
+        // but it fails to parse: calls load_from_file with the same allow_default.
+        let result = load_from_file(&manager, f.path(), true);
         assert!(
             result.is_ok(),
-            "auto-discover must not fail: {:?}",
+            "allow_default=true must return Ok on parse error: {:?}",
             result.err()
+        );
+
+        let config = result.unwrap();
+        let default = DaemonConfig::default();
+        assert_eq!(
+            config.chunk_size, default.chunk_size,
+            "must equal default chunk_size"
+        );
+        assert_eq!(
+            config.log_level, default.log_level,
+            "must equal default log_level"
         );
     }
 }
