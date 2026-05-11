@@ -5,7 +5,8 @@
 
 use std::collections::HashMap;
 
-use qdrant_client::qdrant::QueryPointsBuilder;
+use qdrant_client::qdrant::{Condition, Filter, QueryPointsBuilder};
+use serde_json::Value;
 use tracing::debug;
 
 use super::client::StorageClient;
@@ -13,6 +14,46 @@ use super::convert::convert_qdrant_value_to_json;
 use super::types::{
     HybridSearchMode, HybridSearchParams, SearchParams, SearchResult, StorageError,
 };
+
+/// Convert the flat `field -> JSON value` filter map used by callers into a
+/// Qdrant `Filter` of `must` match conditions.
+///
+/// Each entry produces one `Condition::matches(field, value)` clause. Values
+/// are converted using their native representation:
+///
+/// - `String`            -> match by string keyword
+/// - `Number` (integer)  -> match by integer
+/// - `Bool`              -> match by boolean
+/// - `Number` (float)    -> match by string (stringified) — Qdrant has no
+///   float-match semantics; preserves the value without crashing.
+/// - `null` / `Array` /
+///   `Object`            -> skipped (no equivalent single-value match)
+///
+/// Returns `None` when every entry was skipped or the input map was empty.
+pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<Filter> {
+    let mut conditions: Vec<Condition> = Vec::with_capacity(filter.len());
+    for (key, value) in filter {
+        let cond = match value {
+            Value::String(s) => Condition::matches(key.as_str(), s.clone()),
+            Value::Bool(b) => Condition::matches(key.as_str(), *b),
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Condition::matches(key.as_str(), i)
+                } else {
+                    // f64 or u64 outside i64 range — fall back to stringified
+                    Condition::matches(key.as_str(), n.to_string())
+                }
+            }
+            Value::Null | Value::Array(_) | Value::Object(_) => continue,
+        };
+        conditions.push(cond);
+    }
+    if conditions.is_empty() {
+        None
+    } else {
+        Some(Filter::must(conditions))
+    }
+}
 
 impl StorageClient {
     /// Perform hybrid search with dense/sparse vector fusion
@@ -90,14 +131,23 @@ impl StorageClient {
         collection_name: &str,
         dense_vector: Vec<f32>,
         limit: usize,
-        _score_threshold: Option<f32>,
-        _filter: Option<HashMap<String, serde_json::Value>>,
+        score_threshold: Option<f32>,
+        filter: Option<HashMap<String, serde_json::Value>>,
     ) -> Result<Vec<SearchResult>, StorageError> {
-        let query_builder = QueryPointsBuilder::new(collection_name)
+        let mut query_builder = QueryPointsBuilder::new(collection_name)
             .query(dense_vector)
             .using("dense")
             .limit(limit as u64)
             .with_payload(true);
+
+        if let Some(filter_map) = filter.as_ref() {
+            if let Some(qdrant_filter) = build_filter_from_json(filter_map) {
+                query_builder = query_builder.filter(qdrant_filter);
+            }
+        }
+        if let Some(threshold) = score_threshold {
+            query_builder = query_builder.score_threshold(threshold);
+        }
 
         let response = self
             .retry_operation(|| async {
@@ -139,8 +189,8 @@ impl StorageClient {
         collection_name: &str,
         sparse_vector: HashMap<u32, f32>,
         limit: usize,
-        _score_threshold: Option<f32>,
-        _filter: Option<HashMap<String, serde_json::Value>>,
+        score_threshold: Option<f32>,
+        filter: Option<HashMap<String, serde_json::Value>>,
     ) -> Result<Vec<SearchResult>, StorageError> {
         if sparse_vector.is_empty() {
             debug!("Empty sparse vector, returning no results");
@@ -149,11 +199,20 @@ impl StorageClient {
 
         let sparse_pairs: Vec<(u32, f32)> = sparse_vector.into_iter().collect();
 
-        let query_builder = QueryPointsBuilder::new(collection_name)
+        let mut query_builder = QueryPointsBuilder::new(collection_name)
             .query(sparse_pairs)
             .using("sparse")
             .limit(limit as u64)
             .with_payload(true);
+
+        if let Some(filter_map) = filter.as_ref() {
+            if let Some(qdrant_filter) = build_filter_from_json(filter_map) {
+                query_builder = query_builder.filter(qdrant_filter);
+            }
+        }
+        if let Some(threshold) = score_threshold {
+            query_builder = query_builder.score_threshold(threshold);
+        }
 
         let response = self
             .retry_operation(|| async {
@@ -265,5 +324,82 @@ fn extract_point_id(id: &Option<qdrant_client::qdrant::PointId>) -> String {
         Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) => uuid.clone(),
         Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(num)) => num.to_string(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Filter-conversion unit tests for the JSON-to-Qdrant adapter used by
+    //! `search_dense` and `search_sparse`. Regression coverage for F-003
+    //! (Rust storage search ignores filter and score_threshold).
+    //!
+    //! Live Qdrant round-trip behaviour is exercised in
+    //! `tests/storage_search_filter_integration.rs`; here we verify the
+    //! filter-building plumbing that previously discarded its inputs.
+
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn build_filter_from_json_empty_map_returns_none() {
+        let filter: HashMap<String, Value> = HashMap::new();
+        assert!(build_filter_from_json(&filter).is_none());
+    }
+
+    #[test]
+    fn build_filter_from_json_string_value_produces_filter() {
+        let mut filter = HashMap::new();
+        filter.insert("tenant_id".to_string(), json!("alpha"));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            1,
+            "single string entry must produce exactly one match condition"
+        );
+    }
+
+    #[test]
+    fn build_filter_from_json_multiple_fields_all_present() {
+        let mut filter = HashMap::new();
+        filter.insert("tenant_id".to_string(), json!("alpha"));
+        filter.insert("source_collection".to_string(), json!("docs"));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            2,
+            "every supported entry must yield a must condition"
+        );
+    }
+
+    #[test]
+    fn build_filter_from_json_bool_and_int_values_supported() {
+        let mut filter = HashMap::new();
+        filter.insert("deleted".to_string(), json!(false));
+        filter.insert("version".to_string(), json!(42));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(result.must.len(), 2);
+    }
+
+    #[test]
+    fn build_filter_from_json_unsupported_types_are_skipped() {
+        let mut filter = HashMap::new();
+        filter.insert("ok".to_string(), json!("yes"));
+        filter.insert("nullish".to_string(), json!(null));
+        filter.insert("arr".to_string(), json!(["a", "b"]));
+        filter.insert("obj".to_string(), json!({"k": "v"}));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            1,
+            "only the string entry should survive type filtering"
+        );
+    }
+
+    #[test]
+    fn build_filter_from_json_all_unsupported_returns_none() {
+        let mut filter = HashMap::new();
+        filter.insert("nullish".to_string(), json!(null));
+        filter.insert("arr".to_string(), json!(["a"]));
+        assert!(build_filter_from_json(&filter).is_none());
     }
 }
