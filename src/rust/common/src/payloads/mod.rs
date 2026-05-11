@@ -10,6 +10,9 @@ mod web;
 
 pub use content::{ContentPayload, MemoryPayload, ScratchpadPayload};
 pub use filesystem::{FilePayload, FolderPayload};
-pub use library::{ChunkingConfigPayload, LibraryDocumentPayload, LibraryPayload, ProjectPayload};
+pub use library::{
+    ChunkingConfigPayload, LibraryContentPayload, LibraryDocumentPayload, LibraryPayload,
+    ProjectPayload,
+};
 pub use operations::{CollectionPayload, DeleteDocumentPayload, DeleteTenantPayload};
 pub use web::{UrlPayload, WebsitePayload};

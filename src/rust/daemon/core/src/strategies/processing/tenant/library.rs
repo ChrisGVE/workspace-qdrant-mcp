@@ -16,10 +16,11 @@ use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file};
 use crate::queue_operations::QueueManager;
 use crate::specs::parse_payload;
+use crate::storage::DocumentPoint;
 use crate::storage::StorageClient;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
-    FilePayload, ItemType, LibraryPayload, QueueOperation, UnifiedQueueItem,
+    FilePayload, ItemType, LibraryContentPayload, LibraryPayload, QueueOperation, UnifiedQueueItem,
 };
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
@@ -33,65 +34,10 @@ pub(crate) async fn process_library_item(
         item.queue_id, item.op
     );
 
-    let payload: LibraryPayload = parse_payload(item)?;
-
     match item.op {
-        QueueOperation::Add => {
-            crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-        }
-        QueueOperation::Scan => {
-            // Scan library directory - look up path from watch_folders
-            let pool = ctx.queue_manager.pool();
-            let folder_path: Option<String> = sqlx::query_scalar(
-                "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
-            )
-            .bind(&item.tenant_id)
-            .bind(COLLECTION_LIBRARIES)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| {
-                UnifiedProcessorError::QueueOperation(format!(
-                    "Failed to lookup library path: {}",
-                    e
-                ))
-            })?;
-
-            match folder_path {
-                Some(path) => {
-                    scan_library_directory(
-                        item,
-                        &path,
-                        &ctx.queue_manager,
-                        &ctx.storage_client,
-                        &ctx.allowed_extensions,
-                    )
-                    .await?;
-                }
-                None => {
-                    warn!("Library '{}' not found in watch_folders", item.tenant_id);
-                }
-            }
-        }
-        QueueOperation::Delete => {
-            // Delete library data from collection
-            if ctx
-                .storage_client
-                .collection_exists(&item.collection)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-            {
-                info!(
-                    "Deleting library data for tenant={} from collection={}",
-                    item.tenant_id, item.collection
-                );
-                ctx.storage_client
-                    .delete_points_by_tenant(&item.collection, &item.tenant_id)
-                    .await
-                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-            }
-        }
+        QueueOperation::Add => handle_library_add(ctx, item).await?,
+        QueueOperation::Scan => handle_library_scan(ctx, item).await?,
+        QueueOperation::Delete => handle_library_delete(ctx, item).await?,
         _ => {
             warn!(
                 "Unsupported operation {:?} for library item {}",
@@ -101,11 +47,164 @@ pub(crate) async fn process_library_item(
     }
 
     info!(
-        "Successfully processed library item {} (library={})",
-        item.queue_id, payload.library_name
+        "Successfully processed library item {} (op={:?})",
+        item.queue_id, item.op
     );
 
     Ok(())
+}
+
+/// Add-op dispatcher: content-bearing payloads embed and write; registration
+/// payloads only ensure the destination collection exists.
+async fn handle_library_add(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+) -> UnifiedProcessorResult<()> {
+    // Try the content-bearing payload first (MCP `store` enqueues this shape).
+    if let Ok(content_payload) = parse_payload::<LibraryContentPayload>(item) {
+        if !content_payload.content.trim().is_empty() {
+            return write_library_content_point(ctx, item, &content_payload).await;
+        }
+    }
+    // Fall back to registration semantics: ensure the collection exists.
+    let _payload: LibraryPayload = parse_payload(item)?;
+    crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
+        .await
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+    Ok(())
+}
+
+/// Scan-op handler: walks the library directory and enqueues files.
+async fn handle_library_scan(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+) -> UnifiedProcessorResult<()> {
+    let pool = ctx.queue_manager.pool();
+    let folder_path: Option<String> = sqlx::query_scalar(
+        "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
+    )
+    .bind(&item.tenant_id)
+    .bind(COLLECTION_LIBRARIES)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        UnifiedProcessorError::QueueOperation(format!("Failed to lookup library path: {}", e))
+    })?;
+
+    match folder_path {
+        Some(path) => {
+            scan_library_directory(
+                item,
+                &path,
+                &ctx.queue_manager,
+                &ctx.storage_client,
+                &ctx.allowed_extensions,
+            )
+            .await?;
+        }
+        None => {
+            warn!("Library '{}' not found in watch_folders", item.tenant_id);
+        }
+    }
+    Ok(())
+}
+
+/// Delete-op handler: tenant-scoped point removal from the libraries
+/// collection.
+async fn handle_library_delete(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+) -> UnifiedProcessorResult<()> {
+    if ctx
+        .storage_client
+        .collection_exists(&item.collection)
+        .await
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+    {
+        info!(
+            "Deleting library data for tenant={} from collection={}",
+            item.tenant_id, item.collection
+        );
+        ctx.storage_client
+            .delete_points_by_tenant(&item.collection, &item.tenant_id)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Embed content via the shared pipeline and upsert a single point to the
+/// libraries collection. Mirrors the projects content-add flow but scopes
+/// the payload by `library_name` instead of branch/project.
+async fn write_library_content_point(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    payload: &LibraryContentPayload,
+) -> UnifiedProcessorResult<()> {
+    crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
+        .await
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+    let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
+        &ctx.embedding_generator,
+        &ctx.embedding_semaphore,
+        &payload.content,
+        "bge-small-en-v1.5",
+    )
+    .await?;
+
+    let point_payload = build_library_content_payload(item, payload);
+    let point = DocumentPoint {
+        id: crate::generate_point_id(&item.tenant_id, &item.branch, &payload.document_id, 0),
+        dense_vector: embed_result.dense_vector,
+        sparse_vector: embed_result.sparse_vector,
+        payload: point_payload,
+    };
+
+    ctx.storage_client
+        .insert_points_batch(&item.collection, vec![point], Some(1))
+        .await
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+    info!(
+        "Wrote library content point: tenant={} library={} document_id={} -> {}",
+        item.tenant_id, payload.library_name, payload.document_id, item.collection
+    );
+    Ok(())
+}
+
+/// Build the Qdrant payload map for a library content point.
+fn build_library_content_payload(
+    item: &UnifiedQueueItem,
+    payload: &LibraryContentPayload,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut p = std::collections::HashMap::new();
+    p.insert("content".to_string(), serde_json::json!(payload.content));
+    p.insert(
+        "document_id".to_string(),
+        serde_json::json!(payload.document_id),
+    );
+    p.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+    p.insert(
+        "library_name".to_string(),
+        serde_json::json!(payload.library_name),
+    );
+    p.insert(
+        "source_type".to_string(),
+        serde_json::json!(payload.source_type),
+    );
+    p.insert("item_type".to_string(), serde_json::json!("content"));
+    p.insert("branch".to_string(), serde_json::json!(item.branch));
+
+    if let Some(metadata) = &payload.metadata {
+        for (k, v) in metadata.iter() {
+            // Avoid clobbering reserved keys; expose user-supplied metadata flat.
+            if !p.contains_key(k) {
+                p.insert(k.clone(), serde_json::json!(v));
+            }
+        }
+    }
+    p
 }
 
 /// Scan a library directory and enqueue files for ingestion (Task 523).

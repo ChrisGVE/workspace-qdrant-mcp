@@ -36,6 +36,7 @@ pub use types::{
     FilePayload,
     FolderPayload,
     ItemType,
+    LibraryContentPayload,
     LibraryPayload,
     MemoryPayload,
     ProjectPayload,

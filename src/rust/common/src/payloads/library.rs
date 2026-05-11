@@ -34,6 +34,30 @@ pub struct LibraryPayload {
     pub source_url: Option<String>,
 }
 
+/// Payload for library content items enqueued via MCP `store` tool.
+///
+/// MCP `store` calls produce `tenant/add` queue items carrying the
+/// fully-formed content + metadata. The daemon embeds the content
+/// and writes a point to the libraries collection.
+///
+/// This is distinct from `LibraryPayload` (registration / management)
+/// and `LibraryDocumentPayload` (file-based ingestion via daemon).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryContentPayload {
+    /// Library name (used as a tenant key + Qdrant payload field)
+    pub library_name: String,
+    /// Content text to be embedded
+    pub content: String,
+    /// Stable document identifier computed by the producer.
+    pub document_id: String,
+    /// Source type tag (e.g. "user_input", "web", "file", "note", "scratchbook")
+    pub source_type: String,
+    /// Optional metadata (title, url, file_path, ...) — preserved verbatim
+    /// into the Qdrant point payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<std::collections::HashMap<String, String>>,
+}
+
 /// Chunking configuration for library document ingestion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkingConfigPayload {
@@ -94,6 +118,51 @@ mod tests {
 
         let back: ProjectPayload = serde_json::from_str(&json).unwrap();
         assert_eq!(back.old_tenant_id, Some("old_abc123".to_string()));
+    }
+
+    /// F-007: the MCP `store` tool serializes its payload as
+    /// `{content, document_id, source_type, metadata, library_name}` (see
+    /// `src/typescript/mcp-server/src/tools/store.ts`).
+    /// `LibraryContentPayload` MUST round-trip that exact shape so the
+    /// daemon library handler can dispatch and embed the content.
+    #[test]
+    fn test_library_content_payload_matches_mcp_store_shape() {
+        let json = r#"{
+            "content": "design note",
+            "document_id": "abc123",
+            "source_type": "user_input",
+            "library_name": "mylib",
+            "metadata": {"title": "Note", "source": "mcp_store_tool"}
+        }"#;
+        let p: LibraryContentPayload =
+            serde_json::from_str(json).expect("LibraryContentPayload must deserialize MCP shape");
+        assert_eq!(p.content, "design note");
+        assert_eq!(p.document_id, "abc123");
+        assert_eq!(p.source_type, "user_input");
+        assert_eq!(p.library_name, "mylib");
+        let m = p.metadata.expect("metadata must round-trip");
+        assert_eq!(m.get("title").map(String::as_str), Some("Note"));
+        assert_eq!(m.get("source").map(String::as_str), Some("mcp_store_tool"));
+    }
+
+    /// F-007: registration payloads (no `content`/`document_id`) MUST NOT
+    /// be mis-parsed as `LibraryContentPayload` — the handler decides which
+    /// payload shape to use, and ambiguity here would silently swallow
+    /// registration items into the content path. Required fields differ:
+    /// `LibraryPayload` only needs `library_name`; `LibraryContentPayload`
+    /// requires `content` + `document_id` + `source_type`.
+    #[test]
+    fn test_library_registration_payload_is_distinct_from_content() {
+        let registration_json = r#"{"library_name":"mylib"}"#;
+        let reg: LibraryPayload = serde_json::from_str(registration_json).unwrap();
+        assert_eq!(reg.library_name, "mylib");
+
+        // Same JSON cannot satisfy LibraryContentPayload (missing required fields).
+        let result: Result<LibraryContentPayload, _> = serde_json::from_str(registration_json);
+        assert!(
+            result.is_err(),
+            "registration payload must not parse as content payload"
+        );
     }
 
     #[test]
