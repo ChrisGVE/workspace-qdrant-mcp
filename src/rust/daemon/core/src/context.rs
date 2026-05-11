@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::component_detection::ComponentMap;
-use crate::config::IngestionLimitsConfig;
+use crate::config::{IngestionLimitsConfig, UrlIngestionConfig};
 use crate::document_processor::DocumentProcessor;
 use crate::embedding::EmbeddingGenerator;
 use crate::graph::{SharedGraphStore, SqliteGraphStore};
@@ -84,6 +84,9 @@ pub struct ProcessingContext {
     /// Per-project `.gitattributes` overrides cache, keyed by project root path.
     /// Lazily populated on first file processed per project.
     pub gitattributes_cache: Arc<RwLock<HashMap<String, GitattributesOverrides>>>,
+
+    /// URL ingestion limits and SSRF policy (T5).
+    pub url_ingestion: Arc<UrlIngestionConfig>,
 }
 
 impl ProcessingContext {
@@ -118,6 +121,7 @@ impl ProcessingContext {
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
             pending_grammar_downloads: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
             gitattributes_cache: Arc::new(RwLock::new(HashMap::new())),
+            url_ingestion: Arc::new(UrlIngestionConfig::default()),
         }
     }
 }
@@ -138,6 +142,12 @@ impl ProcessingContext {
     /// Override per-extension ingestion size limits (Task 14).
     pub fn with_ingestion_limits(mut self, limits: Arc<IngestionLimitsConfig>) -> Self {
         self.ingestion_limits = limits;
+        self
+    }
+
+    /// Override URL ingestion config (T5).
+    pub fn with_url_ingestion(mut self, cfg: Arc<UrlIngestionConfig>) -> Self {
+        self.url_ingestion = cfg;
         self
     }
 }
@@ -170,6 +180,7 @@ mod tests {
             let _ = &ctx.ingestion_limits;
             let _ = &ctx.pending_grammar_downloads;
             let _ = &ctx.gitattributes_cache;
+            let _ = &ctx.url_ingestion;
         }
     }
 }

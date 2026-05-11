@@ -297,3 +297,35 @@ impl Default for YamlTier3Config {
         }
     }
 }
+
+// ── URL Ingestion ───────────────────────────────────────────────────────
+
+/// URL ingestion fetch limits + SSRF policy (T5).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlUrlIngestionConfig {
+    pub connect_timeout_secs: u64,
+    pub read_timeout_secs: u64,
+    pub max_redirects: usize,
+    pub max_body_bytes: u64,
+    pub allow_private_networks: bool,
+    pub allowed_content_types: Vec<String>,
+}
+
+impl Default for YamlUrlIngestionConfig {
+    fn default() -> Self {
+        Self {
+            connect_timeout_secs: 15,
+            read_timeout_secs: 60,
+            max_redirects: 5,
+            max_body_bytes: 10 * 1024 * 1024,
+            allow_private_networks: false,
+            allowed_content_types: vec![
+                "text/".to_string(),
+                "application/json".to_string(),
+                "application/xhtml+xml".to_string(),
+                "application/xml".to_string(),
+            ],
+        }
+    }
+}

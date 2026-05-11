@@ -141,6 +141,7 @@ pub struct YamlConfig {
     pub observability: YamlObservabilityConfig,
     pub resource_limits: YamlResourceLimitsConfig,
     pub tagging: YamlTaggingConfig,
+    pub url_ingestion: YamlUrlIngestionConfig,
 }
 
 #[cfg(test)]

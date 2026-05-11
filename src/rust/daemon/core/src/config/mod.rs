@@ -10,6 +10,7 @@ mod integration;
 mod observability;
 mod processing;
 mod resource_limits;
+mod url_ingestion;
 
 // Re-export all public types for backward compatibility
 pub use code_intelligence::{GrammarConfig, LspSettings};
@@ -22,6 +23,7 @@ pub use observability::{
 };
 pub use processing::{QueueProcessorSettings, StartupConfig};
 pub use resource_limits::{detect_physical_cores, ResourceLimitsConfig};
+pub use url_ingestion::UrlIngestionConfig;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -114,6 +116,9 @@ pub struct DaemonConfig {
     /// Per-extension ingestion size limits (Task 14)
     #[serde(default)]
     pub ingestion_limits: IngestionLimitsConfig,
+    /// URL ingestion fetch limits and SSRF policy (T5).
+    #[serde(default)]
+    pub url_ingestion: UrlIngestionConfig,
 }
 
 impl Default for DaemonConfig {
@@ -147,7 +152,19 @@ impl From<&YamlConfig> for DaemonConfig {
             startup: StartupConfig::default(),
             daemon_endpoint: build_daemon_endpoint_config(yaml),
             ingestion_limits: IngestionLimitsConfig::default(),
+            url_ingestion: build_url_ingestion_config(yaml),
         }
+    }
+}
+
+fn build_url_ingestion_config(yaml: &YamlConfig) -> UrlIngestionConfig {
+    UrlIngestionConfig {
+        connect_timeout_secs: yaml.url_ingestion.connect_timeout_secs,
+        read_timeout_secs: yaml.url_ingestion.read_timeout_secs,
+        max_redirects: yaml.url_ingestion.max_redirects,
+        max_body_bytes: yaml.url_ingestion.max_body_bytes,
+        allow_private_networks: yaml.url_ingestion.allow_private_networks,
+        allowed_content_types: yaml.url_ingestion.allowed_content_types.clone(),
     }
 }
 
