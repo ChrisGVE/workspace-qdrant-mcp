@@ -108,13 +108,18 @@ impl StorageConfig {
     /// Create a daemon-mode configuration with compatibility checking disabled
     /// to ensure complete console silence for MCP stdio protocol compliance.
     /// Uses gRPC transport on port 6334 (Qdrant's gRPC port).
+    ///
+    /// The Qdrant URL is resolved in order:
+    ///   1. `QDRANT_URL` environment variable
+    ///   2. Hard-coded default `http://127.0.0.1:6334`
     pub fn daemon_mode() -> Self {
         let mut config = Self::default();
         config.check_compatibility = false; // Disable to suppress Qdrant client output
         config.transport = TransportMode::Grpc; // gRPC is required by qdrant-client
                                                 // qdrant-client uses gRPC protocol - ensure we use port 6334
                                                 // Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
-        config.url = "http://127.0.0.1:6334".to_string();
+        config.url =
+            std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://127.0.0.1:6334".to_string());
         config
     }
 }
@@ -205,5 +210,34 @@ mod tests {
         assert_eq!(config.keepalive_interval_ms, Some(30000));
         assert_eq!(config.keepalive_timeout_ms, Some(5000));
         assert!(!config.http2_adaptive_window);
+    }
+
+    // Env-var tests mutate process-global state; serialise with `#[serial]` so
+    // parallel test threads cannot observe each other's QDRANT_URL mutations.
+    #[test]
+    #[serial_test::serial]
+    fn daemon_mode_uses_qdrant_url_env_var() {
+        let prev = std::env::var("QDRANT_URL").ok();
+        std::env::set_var("QDRANT_URL", "http://qdrant:6333");
+        let config = StorageConfig::daemon_mode();
+        match prev {
+            Some(v) => std::env::set_var("QDRANT_URL", v),
+            None => std::env::remove_var("QDRANT_URL"),
+        }
+        assert_eq!(config.url, "http://qdrant:6333");
+        assert!(!config.check_compatibility);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn daemon_mode_defaults_when_no_qdrant_url() {
+        let prev = std::env::var("QDRANT_URL").ok();
+        std::env::remove_var("QDRANT_URL");
+        let config = StorageConfig::daemon_mode();
+        if let Some(v) = prev {
+            std::env::set_var("QDRANT_URL", v);
+        }
+        assert_eq!(config.url, "http://127.0.0.1:6334");
+        assert!(!config.check_compatibility);
     }
 }

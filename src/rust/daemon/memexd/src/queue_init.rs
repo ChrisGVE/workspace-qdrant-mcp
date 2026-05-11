@@ -290,7 +290,9 @@ pub async fn initialize(
     };
 
     let (embedding_generator, dense_provider) = create_embedding_generator(daemon_config, config)?;
-    let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
+    let storage_config = StorageConfig::daemon_mode();
+    info!("Connecting to Qdrant at: {}", storage_config.url);
+    let storage_client = Arc::new(StorageClient::with_config(storage_config));
     let active_dim = daemon_config.embedding.output_dim as u64;
     wait_for_qdrant_and_init(&storage_client, active_dim).await;
 
