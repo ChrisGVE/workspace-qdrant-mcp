@@ -27,18 +27,20 @@ impl Migration for V09Migration {
 
         sqlx::query(CREATE_UNIFIED_QUEUE_SQL).execute(pool).await?;
 
-        // Copy all existing data
+        // Copy all existing data.
+        // Note: max_retries is omitted — the column was dropped in v27
+        // and CREATE_UNIFIED_QUEUE_SQL no longer declares it.
         sqlx::query(
             "INSERT INTO unified_queue (
                 queue_id, item_type, op, tenant_id, collection,
                 status, created_at, updated_at, lease_until, worker_id,
-                idempotency_key, payload_json, retry_count, max_retries,
+                idempotency_key, payload_json, retry_count,
                 error_message, last_error_at, branch, metadata, file_path
             )
             SELECT
                 queue_id, item_type, op, tenant_id, collection,
                 status, created_at, updated_at, lease_until, worker_id,
-                idempotency_key, payload_json, retry_count, max_retries,
+                idempotency_key, payload_json, retry_count,
                 error_message, last_error_at, branch, metadata, file_path
             FROM unified_queue_old",
         )

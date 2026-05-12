@@ -21,7 +21,6 @@ async fn setup_queue_table(pool: &SqlitePool) {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             retry_count INTEGER NOT NULL DEFAULT 0,
-            max_retries INTEGER NOT NULL DEFAULT 3,
             error_message TEXT,
             last_error_at TEXT,
             lease_until TEXT,

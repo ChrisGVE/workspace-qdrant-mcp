@@ -73,6 +73,9 @@ async fn v11_needs_migration(pool: &SqlitePool) -> Result<bool, SchemaError> {
 }
 
 /// Create the v11 staging table with the updated CHECK constraints.
+///
+/// Note: `max_retries` is not included — it was dropped in v27 and
+/// `CREATE_UNIFIED_QUEUE_SQL` no longer declares it.
 async fn v11_create_temp_table(pool: &SqlitePool) -> Result<(), SchemaError> {
     sqlx::query(r#"
         CREATE TABLE unified_queue_v11 (
@@ -94,7 +97,6 @@ async fn v11_create_temp_table(pool: &SqlitePool) -> Result<(), SchemaError> {
             idempotency_key TEXT NOT NULL UNIQUE,
             payload_json TEXT NOT NULL DEFAULT '{}',
             retry_count INTEGER NOT NULL DEFAULT 0,
-            max_retries INTEGER NOT NULL DEFAULT 3,
             error_message TEXT,
             last_error_at TEXT,
             branch TEXT DEFAULT 'main',
@@ -106,13 +108,16 @@ async fn v11_create_temp_table(pool: &SqlitePool) -> Result<(), SchemaError> {
 }
 
 /// Copy rows from unified_queue into unified_queue_v11, transforming taxonomy values.
+///
+/// Note: `max_retries` is omitted — the column was dropped in v27 and is no
+/// longer part of the current `unified_queue` schema.
 async fn v11_copy_data(pool: &SqlitePool) -> Result<(), SchemaError> {
     sqlx::query(
         r#"
         INSERT INTO unified_queue_v11 (
             queue_id, item_type, op, tenant_id, collection, status,
             created_at, updated_at, lease_until, worker_id, idempotency_key,
-            payload_json, retry_count, max_retries, error_message, last_error_at,
+            payload_json, retry_count, error_message, last_error_at,
             branch, metadata, file_path
         )
         SELECT
@@ -133,7 +138,7 @@ async fn v11_copy_data(pool: &SqlitePool) -> Result<(), SchemaError> {
             END,
             tenant_id, collection, status,
             created_at, updated_at, lease_until, worker_id, idempotency_key,
-            payload_json, retry_count, max_retries, error_message, last_error_at,
+            payload_json, retry_count, error_message, last_error_at,
             branch, metadata, file_path
         FROM unified_queue
     "#,
