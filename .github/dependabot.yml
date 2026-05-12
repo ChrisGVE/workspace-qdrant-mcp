@@ -1,23 +1,23 @@
-# Dependabot: critical dependencies only
+# Dependabot: workspace-wide dependency monitoring
 #
-# Monitors only key integration dependencies. Other updates handled by:
-#   - tree-sitter-version-bump.yml (daily crates.io check → direct push + tag)
-#   - onnx-runtime-version-bump.yml (daily crates.io check → direct push + tag)
+# Covers all Rust and TypeScript dependencies with grouping to keep
+# PR volume manageable. Specialized version bump workflows handle:
+#   - tree-sitter-version-bump.yml (daily crates.io check)
+#   - onnx-runtime-version-bump.yml (daily crates.io check)
 #   - security.yml (cargo audit + npm audit for vulnerability alerts)
 #
-# Pre-release policy: alpha, beta, and release candidate versions are ignored
-# for all managed dependencies.
+# Pre-release policy: alpha, beta, and rc versions are ignored.
 
 version: 2
 updates:
-  # Rust: only qdrant-client
+  # Rust workspace
   - package-ecosystem: "cargo"
     directory: "/src/rust"
     schedule:
       interval: "weekly"
       day: "wednesday"
       time: "04:00"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
     reviewers:
       - "ChrisGVE"
     commit-message:
@@ -26,20 +26,39 @@ updates:
     labels:
       - "dependencies"
       - "rust"
-    allow:
-      - dependency-name: "qdrant-client"
+    groups:
+      qdrant:
+        patterns:
+          - "qdrant-client"
+      serialization:
+        patterns:
+          - "serde*"
+          - "serde_json"
+          - "serde_yaml_ng"
+      async-runtime:
+        patterns:
+          - "tokio"
+          - "tokio-*"
+      database:
+        patterns:
+          - "sqlx"
+          - "sqlx-*"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
     ignore:
-      - dependency-name: "qdrant-client"
+      - dependency-name: "*"
         versions: ["*-alpha*", "*-beta*", "*-rc*", "*-pre*"]
 
-  # TypeScript: only MCP SDK and Qdrant client
+  # TypeScript MCP server
   - package-ecosystem: "npm"
     directory: "/src/typescript/mcp-server"
     schedule:
       interval: "weekly"
       day: "wednesday"
       time: "04:00"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
     reviewers:
       - "ChrisGVE"
     commit-message:
@@ -48,11 +67,29 @@ updates:
     labels:
       - "dependencies"
       - "typescript"
-    allow:
-      - dependency-name: "@modelcontextprotocol/sdk"
-      - dependency-name: "@qdrant/js-client-rest"
+    groups:
+      mcp-and-qdrant:
+        patterns:
+          - "@modelcontextprotocol/*"
+          - "@qdrant/*"
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
     ignore:
-      - dependency-name: "@modelcontextprotocol/sdk"
+      - dependency-name: "*"
         versions: ["*-alpha*", "*-beta*", "*-rc*", "*-pre*"]
-      - dependency-name: "@qdrant/js-client-rest"
-        versions: ["*-alpha*", "*-beta*", "*-rc*", "*-pre*"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "ChrisGVE"
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - "dependencies"
+      - "ci"
