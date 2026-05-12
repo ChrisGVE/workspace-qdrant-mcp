@@ -3,12 +3,19 @@
  */
 
 // Canonical collection names from native bridge (single source of truth)
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES, FIELD_CONTENT } from '../common/native-bridge.js';
+import {
+  COLLECTION_PROJECTS,
+  COLLECTION_LIBRARIES,
+  COLLECTION_RULES,
+  COLLECTION_SCRATCHPAD,
+  FIELD_CONTENT,
+} from '../common/native-bridge.js';
 export const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
 export const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 export const RULES_COLLECTION = COLLECTION_RULES;
+export const SCRATCHPAD_COLLECTION = COLLECTION_SCRATCHPAD;
 
-export type RetrieveCollectionType = 'projects' | 'libraries' | 'rules';
+export type RetrieveCollectionType = 'projects' | 'libraries' | 'rules' | 'scratchpad';
 
 export interface RetrieveOptions {
   documentId?: string;
@@ -44,15 +51,23 @@ export interface RetrieveToolConfig {
 /** Map collection type to canonical Qdrant collection name. */
 export function getCollectionName(collection: RetrieveCollectionType): string {
   switch (collection) {
-    case 'projects': return PROJECTS_COLLECTION;
-    case 'libraries': return LIBRARIES_COLLECTION;
-    case 'rules': return RULES_COLLECTION;
-    default: return PROJECTS_COLLECTION;
+    case 'projects':
+      return PROJECTS_COLLECTION;
+    case 'libraries':
+      return LIBRARIES_COLLECTION;
+    case 'rules':
+      return RULES_COLLECTION;
+    case 'scratchpad':
+      return SCRATCHPAD_COLLECTION;
+    default:
+      return PROJECTS_COLLECTION;
   }
 }
 
 /** Extract metadata from payload (excluding content and vector fields). */
-export function extractMetadata(payload: Record<string, unknown> | null | undefined): Record<string, unknown> {
+export function extractMetadata(
+  payload: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
   if (!payload) return {};
   const metadata: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {

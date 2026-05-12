@@ -83,6 +83,10 @@ function payloadMatchesScope(
       // Rules are explicitly mixed-tenancy. Direct-by-ID lookup is
       // therefore not gated on caller scope.
       return true;
+    case 'scratchpad':
+      // Scratchpad is project-scoped; verify tenant_id matches.
+      if (!resolvedProjectId) return false;
+      return payload[FIELD_TENANT_ID] === resolvedProjectId;
     default:
       return false;
   }
@@ -118,7 +122,9 @@ export class RetrieveTool {
     // F-002 / F-011: resolve the tenant context up front so that BOTH
     // by-id verification AND by-filter scoping share the same answer.
     const resolvedProjectId =
-      collection === 'projects' ? (projectId ?? (await this.resolveProjectId())) : undefined;
+      collection === 'projects' || collection === 'scratchpad'
+        ? (projectId ?? (await this.resolveProjectId()))
+        : undefined;
 
     if (documentId) {
       return this.retrieveById(
@@ -134,6 +140,9 @@ export class RetrieveTool {
     // to scroll. Same rule for libraries when no library_name is given.
     if (collection === 'projects' && !resolvedProjectId) {
       return unresolvedTenantResponse('projects');
+    }
+    if (collection === 'scratchpad' && !resolvedProjectId) {
+      return unresolvedTenantResponse('scratchpad');
     }
     if (collection === 'libraries' && !libraryName) {
       return unresolvedTenantResponse('libraries');
@@ -173,6 +182,9 @@ export class RetrieveTool {
     // cannot distinguish "owned" from "foreign", so refuse the read.
     if (collection === 'projects' && !resolvedProjectId) {
       return unresolvedTenantResponse('projects');
+    }
+    if (collection === 'scratchpad' && !resolvedProjectId) {
+      return unresolvedTenantResponse('scratchpad');
     }
     if (collection === 'libraries' && !libraryName) {
       return unresolvedTenantResponse('libraries');
@@ -282,7 +294,7 @@ export class RetrieveTool {
   ): Record<string, unknown> | null {
     const mustConditions: Record<string, unknown>[] = [];
 
-    if (collection === 'projects' && projectId) {
+    if ((collection === 'projects' || collection === 'scratchpad') && projectId) {
       mustConditions.push({ key: FIELD_TENANT_ID, match: { value: projectId } });
     } else if (collection === 'libraries' && libraryName) {
       mustConditions.push({ key: FIELD_TENANT_ID, match: { value: libraryName } });

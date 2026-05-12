@@ -4,7 +4,7 @@
 
 export type RetrieveOptions = {
   documentId?: string;
-  collection?: 'projects' | 'libraries' | 'rules';
+  collection?: 'projects' | 'libraries' | 'rules' | 'scratchpad';
   filter?: Record<string, string>;
   limit?: number;
   offset?: number;
@@ -20,7 +20,12 @@ export function buildRetrieveOptions(args: Record<string, unknown> | undefined):
   if (documentId) options.documentId = documentId;
 
   const collection = args?.['collection'] as string | undefined;
-  if (collection === 'projects' || collection === 'libraries' || collection === 'rules') {
+  if (
+    collection === 'projects' ||
+    collection === 'libraries' ||
+    collection === 'rules' ||
+    collection === 'scratchpad'
+  ) {
     options.collection = collection;
   }
 
