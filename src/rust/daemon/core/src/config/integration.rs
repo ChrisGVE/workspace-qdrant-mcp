@@ -119,6 +119,21 @@ impl Default for UpdatesConfig {
     }
 }
 
+impl UpdatesConfig {
+    /// Validate configuration settings.
+    ///
+    /// `check_interval_hours` must be in the range [1, 8760] (1 hour – 1 year).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.check_interval_hours == 0 {
+            return Err("check_interval_hours must be at least 1".to_string());
+        }
+        if self.check_interval_hours > 8760 {
+            return Err("check_interval_hours must not exceed 8760 (1 year)".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +161,43 @@ mod tests {
 
         // Valid again
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_updates_config_validate_default_ok() {
+        assert!(UpdatesConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_updates_config_validate_rejects_zero_interval() {
+        let config = UpdatesConfig {
+            check_interval_hours: 0,
+            ..UpdatesConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_updates_config_validate_rejects_over_8760() {
+        let config = UpdatesConfig {
+            check_interval_hours: 8761,
+            ..UpdatesConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_updates_config_validate_accepts_boundary_values() {
+        let min = UpdatesConfig {
+            check_interval_hours: 1,
+            ..UpdatesConfig::default()
+        };
+        assert!(min.validate().is_ok());
+
+        let max = UpdatesConfig {
+            check_interval_hours: 8760,
+            ..UpdatesConfig::default()
+        };
+        assert!(max.validate().is_ok());
     }
 }

@@ -400,6 +400,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         error!("Failed to load configuration: {}", e);
         e
     })?;
+    if let Err(e) = config.validate() {
+        error!("Invalid daemon configuration: {}", e);
+        return Err(format!("Invalid configuration: {}", e).into());
+    }
     startup::init_logging_with_telemetry(
         &args.log_level,
         args.foreground,

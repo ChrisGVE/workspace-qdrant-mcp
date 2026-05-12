@@ -57,6 +57,26 @@ impl Default for DaemonEndpointConfig {
     }
 }
 
+impl DaemonEndpointConfig {
+    /// Validate configuration settings.
+    ///
+    /// - `host` must be non-empty.
+    /// - `grpc_port` must be non-zero.
+    /// - `health_endpoint` must be empty or start with `/`.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.host.trim().is_empty() {
+            return Err("host must not be empty".to_string());
+        }
+        if self.grpc_port == 0 {
+            return Err("grpc_port must be non-zero".to_string());
+        }
+        if !self.health_endpoint.is_empty() && !self.health_endpoint.starts_with('/') {
+            return Err("health_endpoint must be empty or start with '/'".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Complete daemon configuration that matches the TOML structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -349,6 +369,50 @@ impl DaemonConfig {
         config.qdrant = StorageConfig::daemon_mode(); // Use silent StorageConfig
         config
     }
+
+    /// Validate all sub-configuration sections, returning the first error encountered.
+    pub fn validate(&self) -> Result<(), String> {
+        self.queue_processor
+            .validate()
+            .map_err(|e| format!("queue_processor: {e}"))?;
+        self.monitoring
+            .validate()
+            .map_err(|e| format!("monitoring: {e}"))?;
+        self.git.validate().map_err(|e| format!("git: {e}"))?;
+        self.observability
+            .validate()
+            .map_err(|e| format!("observability: {e}"))?;
+        self.embedding
+            .validate()
+            .map_err(|e| format!("embedding: {e}"))?;
+        self.lsp.validate().map_err(|e| format!("lsp: {e}"))?;
+        self.grammars
+            .validate()
+            .map_err(|e| format!("grammars: {e}"))?;
+        self.updates
+            .validate()
+            .map_err(|e| format!("updates: {e}"))?;
+        // resource_limits uses 0 as sentinel for auto-detect; resolve
+        // hardware-specific defaults on a temporary clone before validating.
+        let mut resolved_limits = self.resource_limits.clone();
+        resolved_limits.resolve_auto_values();
+        resolved_limits
+            .validate()
+            .map_err(|e| format!("resource_limits: {e}"))?;
+        self.startup
+            .validate()
+            .map_err(|e| format!("startup: {e}"))?;
+        self.daemon_endpoint
+            .validate()
+            .map_err(|e| format!("daemon_endpoint: {e}"))?;
+        self.ingestion_limits
+            .validate()
+            .map_err(|e| format!("ingestion_limits: {e}"))?;
+        self.auto_ingestion
+            .validate()
+            .map_err(|e| format!("auto_ingestion: {e}"))?;
+        Ok(())
+    }
 }
 
 /// Processing engine configuration
@@ -482,5 +546,107 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(config.startup.warmup_delay_secs, 5);
         assert_eq!(config.startup.warmup_window_secs, 30);
+    }
+
+    // ── DaemonEndpointConfig::validate() tests ──────────────────────────────
+
+    #[test]
+    fn test_daemon_endpoint_config_validate_default_ok() {
+        let config = DaemonEndpointConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_daemon_endpoint_config_validate_rejects_empty_host() {
+        let empty = DaemonEndpointConfig {
+            host: "".to_string(),
+            ..DaemonEndpointConfig::default()
+        };
+        assert!(empty.validate().is_err());
+
+        let whitespace = DaemonEndpointConfig {
+            host: "   ".to_string(),
+            ..DaemonEndpointConfig::default()
+        };
+        assert!(whitespace.validate().is_err());
+    }
+
+    #[test]
+    fn test_daemon_endpoint_config_validate_rejects_zero_grpc_port() {
+        let config = DaemonEndpointConfig {
+            grpc_port: 0,
+            ..DaemonEndpointConfig::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("grpc_port"));
+    }
+
+    #[test]
+    fn test_daemon_endpoint_config_validate_rejects_bad_health_endpoint() {
+        let config = DaemonEndpointConfig {
+            health_endpoint: "health".to_string(),
+            ..DaemonEndpointConfig::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("health_endpoint"));
+    }
+
+    #[test]
+    fn test_daemon_endpoint_config_validate_accepts_empty_health_endpoint() {
+        let config = DaemonEndpointConfig {
+            health_endpoint: "".to_string(),
+            ..DaemonEndpointConfig::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    // ── DaemonConfig::validate() tests ──────────────────────────────────────
+
+    #[test]
+    fn test_daemon_config_validate_default_ok() {
+        assert!(DaemonConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_daemon_config_validate_propagates_queue_error() {
+        let mut config = DaemonConfig::default();
+        config.queue_processor.batch_size = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("queue_processor:"),
+            "expected 'queue_processor:' in '{msg}'"
+        );
+    }
+
+    #[test]
+    fn test_daemon_config_validate_propagates_observability_error() {
+        let mut config = DaemonConfig::default();
+        config.observability.collection_interval = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("observability:"),
+            "expected 'observability:' in '{msg}'"
+        );
+    }
+
+    #[test]
+    fn test_daemon_config_validate_short_circuits_on_first_error() {
+        let mut config = DaemonConfig::default();
+        // queue_processor is first in the chain
+        config.queue_processor.batch_size = 0;
+        config.observability.collection_interval = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("queue_processor:"),
+            "expected 'queue_processor:' in '{msg}'"
+        );
     }
 }

@@ -40,6 +40,25 @@ impl Default for ObservabilityConfig {
     }
 }
 
+impl ObservabilityConfig {
+    /// Validate configuration settings.
+    ///
+    /// `collection_interval` must be in the range [1, 86400] seconds (1 s – 24 h).
+    /// Chains telemetry subconfig validation.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.collection_interval == 0 {
+            return Err("collection_interval must be at least 1 second".to_string());
+        }
+        if self.collection_interval > 86_400 {
+            return Err("collection_interval must not exceed 86400 seconds (24 hours)".to_string());
+        }
+        self.telemetry
+            .validate()
+            .map_err(|e| format!("telemetry: {e}"))?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetricsConfig {
     #[serde(default)]
@@ -533,5 +552,56 @@ mod tests {
         t.apply_env_overrides();
         assert_eq!(t.otlp.endpoint, "http://set-in-yaml:4318");
         assert!((t.otlp.sample_rate - 0.5).abs() < 1e-9);
+    }
+
+    // ── ObservabilityConfig::validate ────────────────────────────────────────
+
+    #[test]
+    fn test_observability_config_validate_default_ok() {
+        assert!(ObservabilityConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_observability_config_validate_rejects_zero_interval() {
+        let config = ObservabilityConfig {
+            collection_interval: 0,
+            ..ObservabilityConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_observability_config_validate_rejects_over_86400() {
+        let config = ObservabilityConfig {
+            collection_interval: 86_401,
+            ..ObservabilityConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_observability_config_validate_accepts_boundary_values() {
+        let min = ObservabilityConfig {
+            collection_interval: 1,
+            ..ObservabilityConfig::default()
+        };
+        assert!(min.validate().is_ok());
+
+        let max = ObservabilityConfig {
+            collection_interval: 86_400,
+            ..ObservabilityConfig::default()
+        };
+        assert!(max.validate().is_ok());
+    }
+
+    #[test]
+    fn test_observability_config_validate_chains_telemetry() {
+        let mut config = ObservabilityConfig::default();
+        config.telemetry.service_name = "  ".to_string(); // whitespace → invalid
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("telemetry:"),
+            "error should be prefixed with 'telemetry:': {err}"
+        );
     }
 }

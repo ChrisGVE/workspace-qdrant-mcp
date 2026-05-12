@@ -218,6 +218,32 @@ impl Default for StartupConfig {
 }
 
 impl StartupConfig {
+    /// Validate configuration settings.
+    ///
+    /// Bounds:
+    /// - `warmup_delay_secs` in [0, 600]
+    /// - `warmup_window_secs` in [0, 600]
+    /// - `warmup_max_concurrent_embeddings` must be > 0
+    /// - `startup_enqueue_batch_size` in [1, 1000]
+    pub fn validate(&self) -> Result<(), String> {
+        if self.warmup_delay_secs > 600 {
+            return Err("warmup_delay_secs must not exceed 600".to_string());
+        }
+        if self.warmup_window_secs > 600 {
+            return Err("warmup_window_secs must not exceed 600".to_string());
+        }
+        if self.warmup_max_concurrent_embeddings == 0 {
+            return Err("warmup_max_concurrent_embeddings must be greater than 0".to_string());
+        }
+        if self.startup_enqueue_batch_size == 0 {
+            return Err("startup_enqueue_batch_size must be at least 1".to_string());
+        }
+        if self.startup_enqueue_batch_size > 1000 {
+            return Err("startup_enqueue_batch_size must not exceed 1000".to_string());
+        }
+        Ok(())
+    }
+
     /// Apply environment variable overrides
     pub fn apply_env_overrides(&mut self) {
         use std::env;
@@ -372,6 +398,73 @@ mod tests {
 
         std::env::remove_var("WQM_STARTUP_WARMUP_DELAY_SECS");
         std::env::remove_var("WQM_STARTUP_WARMUP_WINDOW_SECS");
+    }
+
+    #[test]
+    fn test_startup_config_validate_default_ok() {
+        let config = StartupConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_startup_config_validate_rejects_zero_max_concurrent() {
+        let config = StartupConfig {
+            warmup_max_concurrent_embeddings: 0,
+            ..StartupConfig::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("warmup_max_concurrent_embeddings"));
+    }
+
+    #[test]
+    fn test_startup_config_validate_rejects_zero_batch_size() {
+        let config = StartupConfig {
+            startup_enqueue_batch_size: 0,
+            ..StartupConfig::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("startup_enqueue_batch_size"));
+    }
+
+    #[test]
+    fn test_startup_config_validate_rejects_batch_size_over_1000() {
+        let config = StartupConfig {
+            startup_enqueue_batch_size: 1001,
+            ..StartupConfig::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("startup_enqueue_batch_size"));
+    }
+
+    #[test]
+    fn test_startup_config_validate_accepts_boundary_values() {
+        let config_min = StartupConfig {
+            startup_enqueue_batch_size: 1,
+            ..StartupConfig::default()
+        };
+        assert!(config_min.validate().is_ok());
+
+        let config_max = StartupConfig {
+            startup_enqueue_batch_size: 1000,
+            ..StartupConfig::default()
+        };
+        assert!(config_max.validate().is_ok());
+    }
+
+    #[test]
+    fn test_startup_config_validate_rejects_excessive_warmup_delay() {
+        let config = StartupConfig {
+            warmup_delay_secs: 601,
+            ..StartupConfig::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("warmup_delay_secs"));
     }
 
     #[test]
