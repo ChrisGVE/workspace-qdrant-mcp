@@ -40,6 +40,10 @@ Technical specifications for developers and contributors.
 | [Configuration](specs/12-configuration.md) | Configuration specification |
 | [Deployment](specs/13-deployment.md) | Build, packaging, and distribution |
 | [Future Development](specs/14-future-development.md) | Roadmap and parking lot |
+| [Language Registry](specs/15-language-registry.md) | Dynamic language registry and GenericExtractor |
+| [Deferred Reprocessing](specs/17-deferred-reprocessing.md) | Deferred reprocessing pipeline |
+| [Error Handling](specs/18-error-handling-resilience.md) | Error handling and resilience patterns |
+| [Branch/Worktree Audit](specs/19-branch-worktree-audit.md) | Branch lifecycle and worktree management |
 
 ## Architecture Decision Records
 
