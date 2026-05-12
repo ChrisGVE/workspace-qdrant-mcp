@@ -111,6 +111,8 @@ jobs:
           outputs: |
             type=image,name=${{ env.DOCKERHUB_USERNAME }}/memexd,push-by-digest=true,name-canonical=true,push=true
             type=image,name=${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/memexd,push-by-digest=true,name-canonical=true,push=true
+          # F-P2 preservation: provenance and SBOM must remain enabled.
+          # Do not disable without explicit security review.
           provenance: true
           sbom: true
 
@@ -295,6 +297,8 @@ jobs:
           outputs: |
             type=image,name=${{ env.DOCKERHUB_USERNAME }}/workspace-qdrant-mcp,push-by-digest=true,name-canonical=true,push=true
             type=image,name=${{ env.REGISTRY_GHCR }}/${{ env.GHCR_USERNAME }}/workspace-qdrant-mcp,push-by-digest=true,name-canonical=true,push=true
+          # F-P2 preservation: provenance and SBOM must remain enabled.
+          # Do not disable without explicit security review.
           provenance: true
           sbom: true
 
