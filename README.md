@@ -14,7 +14,7 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
 
 - **Hybrid Search** - Combines semantic similarity with keyword matching using Reciprocal Rank Fusion
 - **Project Detection** - Automatic Git repository awareness and project-scoped collections
-- **6 MCP Tools** - search, retrieve, rules, store, grep, list
+- **7 MCP Tools** - search, retrieve, rules, store, grep, list, embedding
 - **Code Intelligence** - Tree-sitter semantic chunking + LSP integration for active projects
 - **Code Graph** - Relationship graph with algorithms (PageRank, community detection, betweenness centrality)
 - **High-Performance CLI** - Rust-based `wqm` command-line tool

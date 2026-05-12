@@ -2,7 +2,7 @@
 
 ### MCP Tools
 
-The server provides exactly **6 tools**: `search`, `retrieve`, `rules`, `store`, `grep`, and `list`.
+The server provides exactly **7 tools**: `search`, `retrieve`, `rules`, `store`, `grep`, `list`, and `embedding`.
 
 **Important design principles:**
 

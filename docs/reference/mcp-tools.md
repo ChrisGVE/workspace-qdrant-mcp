@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The workspace-qdrant MCP server exposes six tools to AI assistants. All tools communicate with the `memexd` daemon over gRPC.
+The workspace-qdrant MCP server exposes seven tools to AI assistants. All tools communicate with the `memexd` daemon over gRPC.
 
 ## Tool Index
 
@@ -12,6 +12,7 @@ The workspace-qdrant MCP server exposes six tools to AI assistants. All tools co
 | [`store`](#store) | Store content, register projects, save notes |
 | [`grep`](#grep) | Exact substring or regex search using FTS5 |
 | [`list`](#list) | List project files and folder structure |
+| [`embedding`](#embedding) | Generate vector embeddings for text |
 
 ---
 

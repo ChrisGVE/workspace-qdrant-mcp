@@ -17,7 +17,7 @@ Complete documentation for workspace-qdrant-mcp's Model Context Protocol (MCP) t
 
 ## Overview
 
-workspace-qdrant-mcp provides 4 comprehensive MCP tools that enable natural language interaction with your Qdrant vector database through Claude Desktop and Claude Code. These tools leverage the Model Context Protocol for seamless AI-assisted vector operations.
+workspace-qdrant-mcp provides 7 comprehensive MCP tools that enable natural language interaction with your Qdrant vector database through Claude Desktop and Claude Code. These tools leverage the Model Context Protocol for seamless AI-assisted vector operations.
 
 **Key Capabilities:**
 - Store any content with automatic embedding generation
