@@ -26,6 +26,10 @@ export interface ListOptions {
   projectId?: string;
   /** Filter by component (dot-separated ID or prefix, e.g. "daemon" or "daemon.core") */
   component?: string;
+  /** Opaque pagination cursor from a previous response's next_token */
+  cursor?: string;
+  /** Page size for cursor-based pagination (falls back to limit) */
+  pageSize?: number;
 }
 
 // ── Internal tree types ──────────────────────────────────────────────────
@@ -77,4 +81,6 @@ export interface ListResponse {
   listing: string;
   stats: ListStats;
   message?: string;
+  /** Opaque cursor for fetching the next page; absent when no more pages */
+  next_token?: string;
 }

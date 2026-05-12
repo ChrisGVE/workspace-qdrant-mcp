@@ -19,14 +19,13 @@ import type {
 import { DEFAULT_DEPTH, MAX_DEPTH, DEFAULT_LIMIT, MAX_LIMIT } from '../list-files-types.js';
 import {
   detectComponents,
-  assignComponent,
   componentMatchesFilter,
   type ComponentMap,
 } from '../../utils/component-detector/index.js';
 import { buildTree } from './tree-builder.js';
 import type { SubmoduleEntry } from '../../clients/tracked-files-queries/index.js';
 import { renderTree, renderSummary, renderFlat } from './renderers.js';
-import { filterByGlob, countFolders } from './filters.js';
+import { countFolders } from './filters.js';
 
 // Re-export types for consumers
 export type { ListOptions, ListResponse } from '../list-files-types.js';
@@ -49,7 +48,7 @@ export class ListFilesTool {
   }
 
   private buildListStats(
-    filteredFiles: TrackedFileEntry[],
+    pageFiles: TrackedFileEntry[],
     submodules: SubmoduleEntry[],
     basePath: string,
     truncated: boolean,
@@ -57,12 +56,12 @@ export class ListFilesTool {
     componentSummaries: ComponentSummary[] | undefined
   ): ListStats {
     const languageSet = new Set<string>();
-    for (const f of filteredFiles) {
+    for (const f of pageFiles) {
       if (f.language) languageSet.add(f.language);
     }
     const stats: ListStats = {
-      files: filteredFiles.length,
-      folders: countFolders(buildTree(filteredFiles, submodules, basePath)),
+      files: pageFiles.length,
+      folders: countFolders(buildTree(pageFiles, submodules, basePath)),
       languages: Array.from(languageSet).sort(),
       truncated,
       totalMatching,
@@ -105,15 +104,23 @@ export class ListFilesTool {
   ): ListResponse {
     const projectPath = this.stateManager.getProjectById(projectId).data?.project_path ?? null;
 
-    const { files, totalMatching } = this.queryFiles(options, watchFolderId, basePath);
+    const { components, componentSummaries } = this.resolveComponents(watchFolderId, projectPath);
+
+    // Resolve component filter to SQL-level base paths before querying
+    const componentBasePaths = resolveComponentBasePaths(options.component, components);
+
+    const { files, totalMatching } = this.queryFiles(
+      options,
+      watchFolderId,
+      basePath,
+      componentBasePaths
+    );
     if (!files) return errorResponse('Database unavailable', basePath, format);
 
-    const { components, componentSummaries } = this.resolveComponents(watchFolderId, projectPath);
-    const filteredFiles = filterFilesByComponent(files, options.component, components);
     const submodules = this.stateManager.listSubmodules(watchFolderId).data;
 
     return this.assembleResponse(
-      filteredFiles,
+      files,
       submodules,
       basePath,
       format,
@@ -121,12 +128,13 @@ export class ListFilesTool {
       limit,
       totalMatching,
       projectPath,
-      componentSummaries
+      componentSummaries,
+      options
     );
   }
 
   private assembleResponse(
-    filteredFiles: TrackedFileEntry[],
+    pageFiles: TrackedFileEntry[],
     submodules: SubmoduleEntry[],
     basePath: string,
     format: ListFormat,
@@ -134,61 +142,90 @@ export class ListFilesTool {
     limit: number,
     totalMatching: number,
     projectPath: string | null,
-    componentSummaries: ComponentSummary[] | undefined
+    componentSummaries: ComponentSummary[] | undefined,
+    options: ListOptions
   ): ListResponse {
     const { listing, renderedCount } = renderFiles(
-      filteredFiles,
+      pageFiles,
       submodules,
       basePath,
       format,
       depth,
       limit
     );
-    const truncated = renderedCount < filteredFiles.length;
-    const finalListing = truncated
-      ? `${listing}\n... (truncated, ${totalMatching} total files match)`
-      : listing;
+    // truncated: rendered fewer than the page (render limit hit within page)
+    const truncated = renderedCount < pageFiles.length;
+    // next_token: present when there are more pages beyond the current fetch window
+    const pageSize = options.pageSize ?? limit;
+    const hasNextPage = pageFiles.length >= pageSize;
+    const lastFile = pageFiles.at(-1);
+    const nextToken =
+      hasNextPage && lastFile !== undefined
+        ? Buffer.from(lastFile.relativePath).toString('base64')
+        : undefined;
+    const finalListing =
+      truncated || nextToken
+        ? `${listing}\n... (truncated, ${totalMatching} total files match)`
+        : listing;
 
-    return {
+    const response: ListResponse = {
       success: true,
       projectPath,
       basePath: basePath || '.',
       format,
       listing: finalListing,
       stats: this.buildListStats(
-        filteredFiles,
+        pageFiles,
         submodules,
         basePath,
-        truncated,
+        truncated || !!nextToken,
         totalMatching,
         componentSummaries
       ),
     };
+    if (nextToken) response.next_token = nextToken;
+    return response;
   }
 
   private queryFiles(
     options: ListOptions,
     watchFolderId: string,
-    basePath: string
+    basePath: string,
+    componentBasePaths: string[] | undefined
   ): { files: TrackedFileEntry[] | null; totalMatching: number } {
-    const queryOpts: Parameters<typeof this.stateManager.listTrackedFiles>[0] = { watchFolderId };
-    if (basePath) queryOpts.path = basePath;
-    if (options.fileType) queryOpts.fileType = options.fileType;
-    if (options.language) queryOpts.language = options.language;
-    if (options.extension) queryOpts.extension = options.extension;
-    if (options.includeTests !== undefined) queryOpts.includeTests = options.includeTests;
+    // Decode cursor: it's a base64-encoded relativePath from a prior response.
+    const afterPath = options.cursor
+      ? Buffer.from(options.cursor, 'base64').toString('utf8')
+      : undefined;
 
-    const filesResult = this.stateManager.listTrackedFiles({ ...queryOpts, limit: MAX_LIMIT });
+    const pageSize = Math.min(
+      Math.max(options.pageSize ?? options.limit ?? DEFAULT_LIMIT, 1),
+      MAX_LIMIT
+    );
+
+    const baseOpts: Parameters<typeof this.stateManager.listTrackedFiles>[0] = { watchFolderId };
+    if (basePath) baseOpts.path = basePath;
+    if (options.fileType) baseOpts.fileType = options.fileType;
+    if (options.language) baseOpts.language = options.language;
+    if (options.extension) baseOpts.extension = options.extension;
+    if (options.includeTests !== undefined) baseOpts.includeTests = options.includeTests;
+    if (options.pattern) baseOpts.glob = options.pattern;
+    if (componentBasePaths && componentBasePaths.length > 0)
+      baseOpts.componentBasePaths = componentBasePaths;
+
+    // Accurate total: COUNT(*) with all filters except the cursor
+    const totalMatching = this.stateManager.countTrackedFiles(baseOpts);
+
+    // Paginated fetch: add cursor and page-size limit
+    const pageOpts = { ...baseOpts, limit: pageSize };
+    if (afterPath) pageOpts.afterPath = afterPath;
+
+    const filesResult = this.stateManager.listTrackedFiles(pageOpts);
     if (filesResult.status === 'degraded') {
       return { files: null, totalMatching: 0 };
     }
 
-    const totalMatching = this.stateManager.countTrackedFiles(queryOpts);
-    let files = filesResult.data;
-    if (options.pattern) {
-      files = filterByGlob(files, options.pattern);
-    }
-    return { files, totalMatching };
+    return { files: filesResult.data, totalMatching };
   }
 
   private resolveComponents(
@@ -246,17 +283,26 @@ function errorResponse(message: string, basePath: string, format: ListFormat): L
   };
 }
 
-function filterFilesByComponent(
-  files: TrackedFileEntry[],
+/**
+ * Resolve component filter to a list of base paths for SQL pushdown.
+ *
+ * Returns `undefined` when no component filter applies (all files pass).
+ * Returns an empty array when the component name is provided but no
+ * matching component is found (zero files should match).
+ */
+function resolveComponentBasePaths(
   component: string | undefined,
   components: ComponentMap | undefined
-): TrackedFileEntry[] {
-  if (!component || !components || components.size === 0) return files;
-  return files.filter((f) => {
-    const assigned = assignComponent(f.relativePath, components);
-    if (!assigned) return false;
-    return componentMatchesFilter(assigned.id, component);
-  });
+): string[] | undefined {
+  if (!component) return undefined;
+  if (!components || components.size === 0) return [];
+  const basePaths: string[] = [];
+  for (const info of components.values()) {
+    if (componentMatchesFilter(info.id, component)) {
+      basePaths.push(info.basePath);
+    }
+  }
+  return basePaths;
 }
 
 function renderFiles(

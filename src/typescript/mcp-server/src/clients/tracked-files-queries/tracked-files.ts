@@ -28,6 +28,12 @@ export interface ListTrackedFilesOptions {
   includeTests?: boolean;
   branch?: string;
   limit?: number;
+  /** Glob pattern (e.g. "*.rs") — translated to SQLite GLOB */
+  glob?: string;
+  /** Component base-path prefixes (OR logic) — each entry is a basePath like "src/rust/daemon" */
+  componentBasePaths?: string[];
+  /** Keyset pagination cursor: return rows with relative_path > cursor */
+  afterPath?: string;
 }
 
 // ── Query Building ───────────────────────────────────────────────────────
@@ -38,20 +44,55 @@ interface FilterClause {
 }
 
 /** Build WHERE conditions and params from filter options. */
-function buildFilterClause(
-  options: Omit<ListTrackedFilesOptions, 'limit'>,
-): FilterClause {
+function buildFilterClause(options: Omit<ListTrackedFilesOptions, 'limit'>): FilterClause {
   const conditions: string[] = ['watch_folder_id = ?'];
   const params: (string | number)[] = [options.watchFolderId];
-  const { path, fileType, language, extension, branch } = options;
+  const { path, fileType, language, extension, branch, glob, componentBasePaths, afterPath } =
+    options;
   const includeTests = options.includeTests ?? true;
 
-  if (path) { conditions.push('relative_path LIKE ?'); params.push(`${path}/%`); }
-  if (fileType) { conditions.push('file_type = ?'); params.push(fileType); }
-  if (language) { conditions.push('language = ?'); params.push(language); }
-  if (extension) { conditions.push('extension = ?'); params.push(extension); }
-  if (!includeTests) { conditions.push('is_test = 0'); }
-  if (branch) { conditions.push('branch = ?'); params.push(branch); }
+  if (path) {
+    conditions.push('relative_path LIKE ?');
+    params.push(`${path}/%`);
+  }
+  if (fileType) {
+    conditions.push('file_type = ?');
+    params.push(fileType);
+  }
+  if (language) {
+    conditions.push('language = ?');
+    params.push(language);
+  }
+  if (extension) {
+    conditions.push('extension = ?');
+    params.push(extension);
+  }
+  if (!includeTests) {
+    conditions.push('is_test = 0');
+  }
+  if (branch) {
+    conditions.push('branch = ?');
+    params.push(branch);
+  }
+  if (glob) {
+    // SQLite GLOB uses * for multi-char and ? for single-char, same as shell globs.
+    // The caller passes a pattern like "*.rs" or "src/**/*.ts"; translate ** → * for SQLite.
+    const sqliteGlob = glob.replace(/\*\*/g, '*');
+    conditions.push('relative_path GLOB ?');
+    params.push(sqliteGlob);
+  }
+  if (componentBasePaths && componentBasePaths.length > 0) {
+    // Build OR clause: each base path matches exact or prefix (with /)
+    const clauses = componentBasePaths.map(() => '(relative_path = ? OR relative_path LIKE ?)');
+    conditions.push(`(${clauses.join(' OR ')})`);
+    for (const bp of componentBasePaths) {
+      params.push(bp, `${bp}/%`);
+    }
+  }
+  if (afterPath) {
+    conditions.push('relative_path > ?');
+    params.push(afterPath);
+  }
 
   return { conditions, params };
 }
@@ -65,7 +106,7 @@ function buildFilterClause(
  */
 export function listTrackedFiles(
   db: DatabaseType | null,
-  options: ListTrackedFilesOptions,
+  options: ListTrackedFilesOptions
 ): DegradedQueryResult<TrackedFileEntry[]> {
   if (!db) {
     return {
@@ -110,7 +151,7 @@ export function listTrackedFiles(
  */
 export function countTrackedFiles(
   db: DatabaseType | null,
-  options: Omit<ListTrackedFilesOptions, 'limit'>,
+  options: Omit<ListTrackedFilesOptions, 'limit'>
 ): number {
   if (!db) return 0;
 
