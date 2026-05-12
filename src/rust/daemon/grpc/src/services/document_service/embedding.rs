@@ -2,6 +2,13 @@
 //!
 //! Manages the global FastEmbed model, LRU embedding cache, and BM25 sparse
 //! vector generation. All global state is lazily initialized and thread-safe.
+//!
+//! # Error handling
+//!
+//! Initialization failures (missing model files, download errors, ORT runtime
+//! issues) are captured as `tonic::Status::failed_precondition` instead of
+//! panicking the service. Once a failure is recorded it is cached so
+//! subsequent calls return the same error immediately (F-048).
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -18,9 +25,11 @@ use tonic::Status;
 use tracing::{debug, error, info, warn};
 use workspace_qdrant_core::BM25;
 
-/// Global embedding model instance (lazy-initialized, thread-safe)
-/// Uses Mutex because TextEmbedding is not Send+Sync
-static EMBEDDING_MODEL: OnceLock<TokioMutex<TextEmbedding>> = OnceLock::new();
+/// Global embedding model instance (lazy-initialized, thread-safe).
+///
+/// Stores a `Result` so that initialization failures are recorded once and
+/// returned on every subsequent call rather than panicking the service.
+static EMBEDDING_MODEL: OnceLock<Result<TokioMutex<TextEmbedding>, String>> = OnceLock::new();
 
 /// Global embedding cache (content hash -> embedding vector)
 /// Improves performance by caching embeddings for repeated content
@@ -77,34 +86,81 @@ impl EmbeddingCacheMetrics {
 /// Global cache metrics instance
 pub static CACHE_METRICS: EmbeddingCacheMetrics = EmbeddingCacheMetrics::new();
 
-/// Initialize the global embedding model, cache, and BM25 if not already initialized
+/// Convert an embedding-init error message into a gRPC `FAILED_PRECONDITION`.
+fn model_init_status(err: &str) -> Status {
+    Status::failed_precondition(format!("FastEmbed model unavailable: {err}"))
+}
+
+/// Initialize the global embedding model, cache, and BM25 if not already
+/// initialized.
+///
+/// Returns `Err(Status::failed_precondition)` when the FastEmbed model cannot
+/// be loaded (missing model files, download failure, ORT error). The error is
+/// cached so repeated calls return the same status without retrying.
 pub(crate) fn init_embedding_model() -> Result<(), Status> {
-    EMBEDDING_MODEL.get_or_init(|| {
+    let model_result = EMBEDDING_MODEL.get_or_init(|| {
         info!("Initializing FastEmbed model (all-MiniLM-L6-v2)...");
-        let model = TextEmbedding::try_new(
+        match TextEmbedding::try_new(
             InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(true),
-        )
-        .expect("Failed to initialize FastEmbed model");
-        info!("FastEmbed model initialized successfully");
-        TokioMutex::new(model)
+        ) {
+            Ok(model) => {
+                info!("FastEmbed model initialized successfully");
+                Ok(TokioMutex::new(model))
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "FastEmbed model initialization failed — embedding operations \
+                     will return FAILED_PRECONDITION until the service is restarted"
+                );
+                Err(format!("{e}"))
+            }
+        }
     });
 
+    // Propagate cached init failure.
+    if let Err(msg) = model_result {
+        return Err(model_init_status(msg));
+    }
+
+    init_cache();
+    init_bm25();
+
+    Ok(())
+}
+
+/// Initialize the LRU embedding cache (infallible, constant size).
+fn init_cache() {
     EMBEDDING_CACHE.get_or_init(|| {
+        // DEFAULT_CACHE_SIZE is a non-zero compile-time constant; unwrap is safe.
         let cache_size =
-            NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
+            NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("DEFAULT_CACHE_SIZE is non-zero");
         info!(
             "Initializing embedding cache with {} entries",
             DEFAULT_CACHE_SIZE
         );
         TokioMutex::new(LruCache::new(cache_size))
     });
+}
 
+/// Initialize the BM25 sparse-vector model (infallible).
+fn init_bm25() {
     BM25_MODEL.get_or_init(|| {
         info!("Initializing BM25 model (k1={})...", DEFAULT_BM25_K1);
         TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))
     });
+}
 
-    Ok(())
+/// Return a reference to the initialized embedding model mutex, or a gRPC
+/// error if initialization failed.
+fn get_model() -> Result<&'static TokioMutex<TextEmbedding>, Status> {
+    let result = EMBEDDING_MODEL
+        .get()
+        .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
+    match result {
+        Ok(model) => Ok(model),
+        Err(msg) => Err(model_init_status(msg)),
+    }
 }
 
 /// Compute a hash of the input text for cache lookup
@@ -120,7 +176,9 @@ pub(crate) fn tokenize(text: &str) -> Vec<String> {
 }
 
 /// Generate sparse vector using BM25 algorithm.
+///
 /// First adds document to corpus, then generates sparse vector.
+/// Returns `FAILED_PRECONDITION` if the embedding model failed to initialize.
 pub(crate) async fn generate_sparse_vector(text: &str) -> Result<HashMap<u32, f32>, Status> {
     init_embedding_model()?;
 
@@ -153,8 +211,10 @@ pub(crate) async fn generate_sparse_vector(text: &str) -> Result<HashMap<u32, f3
 }
 
 /// Generate embedding for text using FastEmbed (all-MiniLM-L6-v2).
+///
 /// Returns 384-dimensional dense vector for semantic search.
 /// Uses LRU cache to avoid redundant computation for repeated content.
+/// Returns `FAILED_PRECONDITION` if the embedding model failed to initialize.
 pub(crate) async fn generate_embedding(text: &str) -> Result<Vec<f32>, Status> {
     init_embedding_model()?;
 
@@ -170,9 +230,7 @@ pub(crate) async fn generate_embedding(text: &str) -> Result<Vec<f32>, Status> {
 
     CACHE_METRICS.misses.fetch_add(1, Ordering::Relaxed);
 
-    let model = EMBEDDING_MODEL
-        .get()
-        .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
+    let model = get_model()?;
 
     let text_owned = text.to_string();
 
@@ -274,6 +332,14 @@ mod tests {
         assert!(tokens4.contains(&"world".to_string()));
         assert!(tokens4.contains(&"test".to_string()));
         assert!(tokens4.contains(&"case".to_string()));
+    }
+
+    #[test]
+    fn test_model_init_status_returns_failed_precondition() {
+        let status = model_init_status("test error");
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+        assert!(status.message().contains("test error"));
+        assert!(status.message().contains("FastEmbed model unavailable"));
     }
 
     #[tokio::test]
