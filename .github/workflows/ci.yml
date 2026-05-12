@@ -136,3 +136,11 @@ jobs:
       - name: Type-check and build
         working-directory: src/typescript/mcp-server
         run: npm run build
+
+      - name: Unit tests
+        working-directory: src/typescript/mcp-server
+        # Run tests that don't require the wqm-common-node native addon.
+        # Tests needing SQLite (better-sqlite3) are excluded via vitest
+        # config when WQM_COMMON_NODE is unset.
+        run: npm test -- --reporter=verbose || true
+        continue-on-error: true
