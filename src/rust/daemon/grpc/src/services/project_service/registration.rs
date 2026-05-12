@@ -4,6 +4,13 @@
 //! queue enqueue for new projects, session registration for existing projects,
 //! LSP server startup, and activity inheritance.
 //!
+//! # Path canonicalization (F-019)
+//!
+//! All project paths are canonicalized via `std::fs::canonicalize` before
+//! persistence or enqueue. Nonexistent paths and non-directory paths are
+//! rejected with `INVALID_ARGUMENT`. This prevents duplicate registrations
+//! from symlinks, relative paths, or tilde expansion differences.
+//!
 //! Worktree auto-registration logic is in the sibling `worktree` module.
 
 use std::path::{Path, PathBuf};
@@ -56,6 +63,28 @@ fn resolve_git_root(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// Canonicalize a project path and validate it exists as a directory.
+///
+/// Returns `INVALID_ARGUMENT` if:
+/// - the path does not exist on the filesystem
+/// - the path is not a directory (e.g. a regular file)
+fn canonicalize_project_path(path: &Path) -> Result<PathBuf, Status> {
+    let canonical = std::fs::canonicalize(path).map_err(|e| {
+        Status::invalid_argument(format!(
+            "project path does not exist or is inaccessible: {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    if !canonical.is_dir() {
+        return Err(Status::invalid_argument(format!(
+            "project path is not a directory: {}",
+            canonical.display()
+        )));
+    }
+    Ok(canonical)
+}
+
 impl ProjectServiceImpl {
     /// Execute the register_project business logic
     pub(crate) async fn handle_register_project(
@@ -71,10 +100,11 @@ impl ProjectServiceImpl {
         let (effective_path, effective_path_str) = if req.path.is_empty() {
             (PathBuf::new(), String::new())
         } else {
-            let p = resolve_git_root(Path::new(&req.path));
+            let git_root = resolve_git_root(Path::new(&req.path));
+            let p = canonicalize_project_path(&git_root)?;
             let s = p.to_string_lossy().to_string();
             if s != req.path {
-                info!("Resolved git root: {} -> {}", req.path, s);
+                info!("Resolved and canonicalized project path: {} -> {}", req.path, s);
             }
             (p, s)
         };
@@ -337,9 +367,12 @@ impl ProjectServiceImpl {
         req: &RegisterProjectRequest,
         is_high_priority: bool,
     ) -> Result<RegistrationAction, Status> {
-        // Use the resolved git root path for project_root, not req.path.
-        // Re-resolve here to stay consistent with handle_register_project.
-        let effective_root = resolve_git_root(Path::new(&req.path));
+        // Use the resolved and canonicalized git root path for project_root.
+        let effective_root = canonicalize_project_path(&resolve_git_root(Path::new(&req.path)))
+            .map_err(|e| {
+                error!(path = %req.path, "enqueue_new_project: path canonicalization failed");
+                e
+            })?;
         let effective_root_str = effective_root.to_string_lossy().to_string();
 
         let effective_git_remote = if req.git_remote.as_ref().map_or(true, |r| r.is_empty()) {
