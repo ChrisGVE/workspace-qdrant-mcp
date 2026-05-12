@@ -2,10 +2,17 @@
 //!
 //! All FTS5 index updates are performed incrementally inline with code_lines
 //! changes, avoiding the need for a full FTS5 rebuild after each file.
+//!
+//! # Insertion ordering (F-018)
+//!
+//! Inserted lines are position-aware: each insertion records its `new_index`
+//! in the target file. After all inserts, `renumber_after_changes` re-assigns
+//! both `seq` and `line_number` in correct new-file order. This prevents
+//! middle-of-file insertions from being appended at the end of the seq space.
 
 use std::collections::HashSet;
 
-use crate::code_lines_schema::{initial_seq, INITIAL_SEQ_GAP};
+use crate::code_lines_schema::initial_seq;
 use crate::code_lines_schema::{FTS5_DELETE_ROW_SQL, FTS5_INSERT_ROW_SQL};
 use crate::line_diff::{DiffOp, DiffResult};
 use crate::search_db::SearchDbError;
@@ -21,6 +28,9 @@ pub(super) struct FileDiffStats {
     retained_ids: HashSet<i64>,
     /// Internal: tracks line_ids already deleted by explicit Deleted ops (cleared before return).
     explicitly_deleted_ids: HashSet<i64>,
+    /// Desired line_id ordering (new_index -> line_id) for correct seq renumbering.
+    /// Built during diff application and used by `renumber_after_changes`.
+    ordered_line_ids: Vec<i64>,
 }
 
 /// Apply a diff result to the code_lines table within a transaction.
@@ -48,7 +58,7 @@ pub(super) async fn apply_diff_to_code_lines(
 
     let existing_lines = fetch_existing_lines(tx, file_id).await?;
     let mut stats = FileDiffStats::default();
-    let insertions = apply_diff_ops(tx, diff, &existing_lines, &mut stats).await?;
+    apply_diff_ops(tx, diff, &existing_lines, file_id, &mut stats).await?;
     let orphan_deleted = delete_orphaned_lines(
         tx,
         &existing_lines,
@@ -57,12 +67,12 @@ pub(super) async fn apply_diff_to_code_lines(
     )
     .await?;
     stats.lines_deleted += orphan_deleted;
-    insert_pending_lines(tx, file_id, insertions, &mut stats).await?;
-    renumber_after_changes(tx, file_id, &stats).await?;
+    renumber_after_changes(tx, file_id, &mut stats).await?;
 
     // Clear internal tracking fields before returning
     stats.retained_ids.clear();
     stats.explicitly_deleted_ids.clear();
+    stats.ordered_line_ids.clear();
     Ok(stats)
 }
 
@@ -126,29 +136,38 @@ async fn fetch_existing_lines(
         .collect())
 }
 
-/// Process diff operations: update changed lines, collect insertions, delete removed lines.
-/// Returns the list of pending insertions (new_index, content).
-/// FTS5 index is updated incrementally for Changed and Deleted ops.
+/// Process diff operations: update changed lines, insert new lines, delete
+/// removed lines. Builds `stats.ordered_line_ids` in new-file order so
+/// `renumber_after_changes` can assign correct `seq` and `line_number`.
+///
+/// FTS5 index is updated incrementally for Changed, Inserted and Deleted ops.
 async fn apply_diff_ops(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     diff: &DiffResult,
     existing_lines: &[(i64, f64, String)],
+    file_id: i64,
     stats: &mut FileDiffStats,
-) -> Result<Vec<(usize, String)>, SearchDbError> {
-    let mut insertions: Vec<(usize, String)> = Vec::new();
+) -> Result<(), SearchDbError> {
+    // Pre-size: one slot per new-file line (exact count not known,
+    // but ops.len() is an upper-bound approximation).
+    let mut ordered: Vec<(usize, i64)> = Vec::with_capacity(diff.ops.len());
 
     for op in &diff.ops {
         match op {
-            DiffOp::Unchanged { old_index, .. } => {
+            DiffOp::Unchanged {
+                old_index,
+                new_index,
+            } => {
                 if let Some(&(line_id, _, _)) = existing_lines.get(*old_index) {
                     stats.retained_ids.insert(line_id);
                     stats.lines_unchanged += 1;
+                    ordered.push((*new_index, line_id));
                 }
             }
             DiffOp::Changed {
                 old_index,
+                new_index,
                 new_content: content,
-                ..
             } => {
                 if let Some((line_id, _, old_content)) = existing_lines.get(*old_index) {
                     let line_id = *line_id;
@@ -174,13 +193,16 @@ async fn apply_diff_ops(
 
                     stats.retained_ids.insert(line_id);
                     stats.lines_updated += 1;
+                    ordered.push((*new_index, line_id));
                 }
             }
             DiffOp::Inserted {
                 new_index,
                 new_content: content,
             } => {
-                insertions.push((*new_index, content.clone()));
+                let line_id = insert_single_line(tx, file_id, content).await?;
+                stats.lines_inserted += 1;
+                ordered.push((*new_index, line_id));
             }
             DiffOp::Deleted { old_index } => {
                 if let Some((line_id, _, old_content)) = existing_lines.get(*old_index) {
@@ -204,7 +226,40 @@ async fn apply_diff_ops(
         }
     }
 
-    Ok(insertions)
+    // Sort by new_index to get correct new-file order
+    ordered.sort_by_key(|(idx, _)| *idx);
+    stats.ordered_line_ids = ordered.into_iter().map(|(_, id)| id).collect();
+
+    Ok(())
+}
+
+/// Insert a single line into code_lines with a temporary seq and line_number.
+/// The correct seq and line_number will be assigned by `renumber_after_changes`.
+async fn insert_single_line(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    file_id: i64,
+    content: &str,
+) -> Result<i64, SearchDbError> {
+    // Use a large temporary seq; renumber will fix it.
+    let result = sqlx::query(
+        "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)",
+    )
+    .bind(file_id)
+    .bind(f64::MAX / 2.0)
+    .bind(content)
+    .execute(&mut **tx)
+    .await?;
+
+    let line_id = result.last_insert_rowid();
+
+    // Incrementally update FTS5 index
+    sqlx::query(FTS5_INSERT_ROW_SQL)
+        .bind(line_id)
+        .bind(content)
+        .execute(&mut **tx)
+        .await?;
+
+    Ok(line_id)
 }
 
 /// Delete existing lines not referenced by any Unchanged or Changed op.
@@ -238,70 +293,37 @@ async fn delete_orphaned_lines(
     Ok(deleted)
 }
 
-/// Insert pending lines, assigning seq values by appending after max_seq.
-/// Also inserts corresponding FTS5 index entries.
-async fn insert_pending_lines(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    file_id: i64,
-    mut insertions: Vec<(usize, String)>,
-    stats: &mut FileDiffStats,
-) -> Result<(), SearchDbError> {
-    insertions.sort_by_key(|(idx, _)| *idx);
-
-    for (_, content) in &insertions {
-        let max_seq: Option<f64> =
-            sqlx::query_scalar("SELECT MAX(seq) FROM code_lines WHERE file_id = ?1")
-                .bind(file_id)
-                .fetch_optional(&mut **tx)
-                .await?
-                .flatten();
-
-        let new_seq = match max_seq {
-            Some(max) => max + INITIAL_SEQ_GAP,
-            None => INITIAL_SEQ_GAP,
-        };
-
-        let result = sqlx::query(
-            "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)",
-        )
-        .bind(file_id)
-        .bind(new_seq)
-        .bind(content.as_str())
-        .execute(&mut **tx)
-        .await?;
-
-        // Incrementally update FTS5 index
-        let line_id = result.last_insert_rowid();
-        sqlx::query(FTS5_INSERT_ROW_SQL)
-            .bind(line_id)
-            .bind(content.as_str())
-            .execute(&mut **tx)
-            .await?;
-
-        stats.lines_inserted += 1;
-    }
-    Ok(())
-}
-
-/// Renumber line_numbers sequentially after insertions or deletions.
+/// Renumber seq and line_number values based on the correct new-file ordering.
+///
+/// If `stats.ordered_line_ids` was populated (incremental diff path), it
+/// provides the authoritative ordering. Otherwise falls back to the existing
+/// `seq` ordering from the database (bulk-insert path).
 async fn renumber_after_changes(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     file_id: i64,
-    stats: &FileDiffStats,
+    stats: &mut FileDiffStats,
 ) -> Result<(), SearchDbError> {
     if stats.lines_inserted == 0 && stats.lines_deleted == 0 {
         return Ok(());
     }
 
-    let line_ids: Vec<i64> =
+    // Use the authoritative ordering from diff application when available.
+    let line_ids = if !stats.ordered_line_ids.is_empty() {
+        std::mem::take(&mut stats.ordered_line_ids)
+    } else {
+        // Fallback: fetch from DB ordered by seq (insert-all path)
         sqlx::query_scalar("SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq")
             .bind(file_id)
             .fetch_all(&mut **tx)
-            .await?;
+            .await?
+    };
 
     for (i, line_id) in line_ids.iter().enumerate() {
-        sqlx::query("UPDATE code_lines SET line_number = ?1 WHERE line_id = ?2")
-            .bind((i + 1) as i64)
+        let new_seq = initial_seq(i);
+        let new_line_number = (i + 1) as i64;
+        sqlx::query("UPDATE code_lines SET seq = ?1, line_number = ?2 WHERE line_id = ?3")
+            .bind(new_seq)
+            .bind(new_line_number)
             .bind(*line_id)
             .execute(&mut **tx)
             .await?;
