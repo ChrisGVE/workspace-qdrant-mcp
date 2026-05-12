@@ -8,6 +8,7 @@ export type SearchOptions = {
   mode?: 'hybrid' | 'semantic' | 'keyword';
   scope?: 'project' | 'global' | 'all';
   limit?: number;
+  scoreThreshold?: number;
   projectId?: string;
   libraryName?: string;
   branch?: string;
@@ -26,7 +27,7 @@ export type SearchOptions = {
 
 function extractScopeOptions(
   args: Record<string, unknown> | undefined,
-  options: SearchOptions,
+  options: SearchOptions
 ): void {
   const collection = args?.['collection'] as string | undefined;
   if (collection) options.collection = collection;
@@ -39,11 +40,14 @@ function extractScopeOptions(
 
   const limit = args?.['limit'] as number | undefined;
   if (limit !== undefined) options.limit = limit;
+
+  const scoreThreshold = args?.['scoreThreshold'] as number | undefined;
+  if (scoreThreshold !== undefined) options.scoreThreshold = scoreThreshold;
 }
 
 function extractIdentifierOptions(
   args: Record<string, unknown> | undefined,
-  options: SearchOptions,
+  options: SearchOptions
 ): void {
   const projectId = args?.['projectId'] as string | undefined;
   if (projectId) options.projectId = projectId;
@@ -63,7 +67,7 @@ function extractIdentifierOptions(
 
 function extractFilterOptions(
   args: Record<string, unknown> | undefined,
-  options: SearchOptions,
+  options: SearchOptions
 ): void {
   const tag = args?.['tag'] as string | undefined;
   if (tag) options.tag = tag;
@@ -80,7 +84,7 @@ function extractFilterOptions(
 
 function extractOutputOptions(
   args: Record<string, unknown> | undefined,
-  options: SearchOptions,
+  options: SearchOptions
 ): void {
   const exact = args?.['exact'] as boolean | undefined;
   if (exact !== undefined) options.exact = exact;
