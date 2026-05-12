@@ -140,6 +140,7 @@ async fn simulate_pre_v35_unified_queue(pool: &SqlitePool) {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_run_migrations_from_scratch() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -201,6 +202,7 @@ async fn test_run_migrations_from_scratch() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_run_migrations_idempotent() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool);
@@ -216,6 +218,7 @@ async fn test_run_migrations_idempotent() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_incremental_migration_v1_to_current() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -271,6 +274,7 @@ async fn test_incremental_migration_v1_to_current() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_incremental_migration_v2_to_v3() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -303,6 +307,7 @@ async fn test_incremental_migration_v2_to_v3() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_incremental_migration_v3_to_v4() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -349,6 +354,7 @@ async fn test_incremental_migration_v3_to_v4() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_incremental_migration_v4_to_current() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -420,6 +426,7 @@ async fn test_incremental_migration_v4_to_current() {
 // ============================================================================
 
 #[tokio::test]
+#[serial]
 async fn test_v35_adds_active_provider_column() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -465,6 +472,7 @@ async fn test_v35_adds_active_provider_column() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_v35_queue_op_accepts_reembed() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -484,6 +492,7 @@ async fn test_v35_queue_op_accepts_reembed() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_v35_existing_in_progress_rows_survive_migration() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -525,6 +534,7 @@ async fn test_v35_existing_in_progress_rows_survive_migration() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_v35_ddl_has_no_extra_item_types() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -576,6 +586,7 @@ async fn test_v35_ddl_has_no_extra_item_types() {
 /// v36 rebuilds `unified_queue` so `file_path` is a plain TEXT column
 /// (no UNIQUE) and creates a composite partial UNIQUE index. Closes F-009.
 #[tokio::test]
+#[serial]
 async fn test_v36_drops_column_unique_and_creates_composite_index() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -613,6 +624,7 @@ async fn test_v36_drops_column_unique_and_creates_composite_index() {
 /// inserts within the same `(tenant, branch, collection, item_type, op)`
 /// scope. Closes F-009.
 #[tokio::test]
+#[serial]
 async fn test_v36_composite_unique_enforced_after_migration() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -769,19 +781,66 @@ async fn test_v35_migration_rollback_on_error() {
     );
 }
 
+/// ForeignKeysGuard explicit restore: verify that `restore()` on the success
+/// path returns the connection with FK checks correctly reinstated.
+///
+/// This test exercises the non-panic path end-to-end: disable → verify OFF →
+/// restore → verify ON — all on the same `PoolConnection`.
+#[tokio::test]
+#[serial]
+async fn test_foreign_keys_guard_explicit_restore() {
+    let pool = create_test_pool().await;
+
+    // Acquire a connection, enable FK checks so there is a non-zero value to
+    // restore, then hand it to the guard.
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute("PRAGMA foreign_keys = ON").await.unwrap();
+
+    let fk_before: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(fk_before, 1, "FK must be ON before guard is constructed");
+
+    let mut guard = ForeignKeysGuard::disable(conn).await.expect("disable");
+
+    // While the guard is held FK must be OFF on the same connection.
+    let fk_off: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(&mut **guard.conn_mut())
+        .await
+        .unwrap();
+    assert_eq!(fk_off, 0, "FK must be OFF while guard is held");
+
+    // Explicit restore returns the connection; FK must be ON again.
+    let mut restored_conn = guard.restore().await.expect("restore");
+    let fk_restored: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(&mut *restored_conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        fk_restored, 1,
+        "FK must be restored to ON on the returned connection after explicit restore()"
+    );
+}
+
 /// ForeignKeysGuard panic safety: if the code panics while the guard is held,
-/// Drop must restore PRAGMA foreign_keys via block_in_place.
+/// Drop must restore PRAGMA foreign_keys via block_in_place without a
+/// secondary panic.
 ///
 /// Requires multi_thread flavor because block_in_place is not available on
 /// current-thread runtimes.
+///
+/// Note: SQLite `foreign_keys` is a per-connection pragma. The guard restores
+/// FK on its owned `PoolConnection` inside Drop; once that connection is
+/// returned to the pool it is a distinct object from any subsequent acquire.
+/// Therefore the restoration cannot be observed post-Drop on a new connection —
+/// we verify the weaker (but still meaningful) guarantee: Drop fires, executes
+/// the restore path, and does NOT produce a secondary panic.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_foreign_keys_guard_panic_safety() {
     use sqlx::sqlite::SqlitePoolOptions;
     use std::time::Duration;
 
-    // Use a shared in-memory database (cache=shared) so multiple connections
-    // from the same pool share the same in-memory DB, enabling us to inspect
-    // the pragma on a separate connection after the guard is dropped.
     let pool = SqlitePoolOptions::new()
         .max_connections(2)
         .acquire_timeout(Duration::from_secs(5))
@@ -789,36 +848,29 @@ async fn test_foreign_keys_guard_panic_safety() {
         .await
         .expect("pool");
 
-    // Enable FK checks on the pool so we have a non-zero original value to
-    // restore.  acquire a connection, set FK ON, return it.
-    {
-        let mut setup_conn = pool.acquire().await.unwrap();
-        sqlx::query("PRAGMA foreign_keys = ON")
-            .execute(&mut *setup_conn)
-            .await
-            .unwrap();
-    }
+    // Acquire a connection for the guard and enable FK checks so the guard
+    // has a non-zero original_value to restore.
+    let mut guard_conn = pool.acquire().await.unwrap();
+    guard_conn
+        .execute("PRAGMA foreign_keys = ON")
+        .await
+        .unwrap();
 
-    // Acquire a fresh connection for the guard.
-    let guard_conn = pool.acquire().await.unwrap();
-
-    // Spawn a task that acquires a guard, then panics.  The guard's Drop should
-    // restore FK = ON on the connection before the connection is returned to the
-    // pool (or dropped).
-    let guard_original = tokio::task::spawn(async move {
+    // Spawn a task that acquires a guard, then panics.  The guard's Drop must
+    // restore FK = ON on the connection and must NOT produce a secondary panic.
+    let result = tokio::task::spawn(async move {
         let mut guard = ForeignKeysGuard::disable(guard_conn)
             .await
             .expect("disable");
 
-        // Verify FK is now OFF on the guard's connection.
-        // Deref PoolConnection → SqliteConnection for the Executor bound.
+        // Confirm FK is OFF while the guard is held.
         let fk_off: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
             .fetch_one(&mut **guard.conn_mut())
             .await
             .unwrap();
         assert_eq!(fk_off, 0, "FK must be OFF while guard is held");
 
-        // Panic while the guard is held — Drop should fire and restore.
+        // Panic — Drop fires here and must not produce a secondary panic.
         panic!("intentional test panic inside ForeignKeysGuard scope");
 
         #[allow(unreachable_code)]
@@ -826,30 +878,8 @@ async fn test_foreign_keys_guard_panic_safety() {
     })
     .await;
 
-    // The task panicked as expected.
-    assert!(
-        guard_original.is_err(),
-        "task must have panicked as expected"
-    );
-
-    // The connection returned to the pool by Drop should have FK restored.
-    // Acquire a new connection and verify FK = ON (or the pool has restored it
-    // via Drop).  Because in-memory pools share state per connection rather
-    // than globally, we verify the Drop at minimum ran without a secondary
-    // panic (tested implicitly by the clean drop above).
-    //
-    // Additionally: acquire the pool connection and confirm FK is ON.
-    let mut verify_conn = pool.acquire().await.unwrap();
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&mut *verify_conn)
-        .await
-        .unwrap();
-    let fk_val: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
-        .fetch_one(&mut *verify_conn)
-        .await
-        .unwrap();
-    assert_eq!(
-        fk_val, 1,
-        "FK checks must be ON on a fresh pool connection after guard panic"
-    );
+    // The spawned task must have panicked exactly once (the intentional panic).
+    // If Drop had panicked too the process would have aborted; we would not
+    // reach this assertion.
+    assert!(result.is_err(), "task must have panicked as expected");
 }

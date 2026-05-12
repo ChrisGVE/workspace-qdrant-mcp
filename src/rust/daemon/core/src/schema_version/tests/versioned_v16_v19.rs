@@ -1,7 +1,10 @@
+use serial_test::serial;
+
 use super::super::*;
 use super::create_test_pool;
 
 #[tokio::test]
+#[serial]
 async fn test_search_behavior_view_classification() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -58,6 +61,7 @@ async fn test_search_behavior_view_classification() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_v16_keywords_tables() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -102,6 +106,7 @@ async fn test_migration_v16_keywords_tables() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_v16_cascade_deletes() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -151,6 +156,7 @@ async fn test_migration_v16_cascade_deletes() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_v16_multi_tenant_isolation() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -180,6 +186,7 @@ async fn test_migration_v16_multi_tenant_isolation() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_v17_operational_state() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -231,6 +238,7 @@ async fn test_migration_v17_operational_state() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_v18_indexed_content() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -304,6 +312,7 @@ async fn test_migration_v18_indexed_content() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_v19_base_point_columns() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -348,6 +357,7 @@ async fn test_migration_v19_base_point_columns() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_v19_backfill() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());

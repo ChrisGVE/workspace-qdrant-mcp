@@ -1,7 +1,10 @@
+use serial_test::serial;
+
 use super::super::*;
 use super::create_test_pool;
 
 #[sqlx::test]
+#[serial]
 async fn test_migration_v20_destination_columns() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -31,6 +34,7 @@ async fn test_migration_v20_destination_columns() {
 }
 
 #[sqlx::test]
+#[serial]
 async fn test_migration_v20_defaults_and_constraints() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -82,6 +86,7 @@ async fn test_migration_v20_defaults_and_constraints() {
 }
 
 #[sqlx::test]
+#[serial]
 async fn test_migration_v21_git_tracking_columns() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -129,6 +134,7 @@ async fn test_migration_v21_git_tracking_columns() {
 }
 
 #[sqlx::test]
+#[serial]
 async fn test_migration_v21_rules_mirror_table() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -159,6 +165,7 @@ async fn test_migration_v21_rules_mirror_table() {
 }
 
 #[sqlx::test]
+#[serial]
 async fn test_migration_v21_submodule_junction_table() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -208,6 +215,7 @@ async fn test_migration_v21_submodule_junction_table() {
 }
 
 #[sqlx::test]
+#[serial]
 async fn test_migration_v31_worktree_columns() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
@@ -297,6 +305,7 @@ async fn test_migration_v31_worktree_columns() {
 }
 
 #[sqlx::test]
+#[serial]
 async fn test_migration_v31_idempotent() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
