@@ -67,6 +67,34 @@ impl IngestionLimitsConfig {
             .get(extension.trim_start_matches('.'))
             .map(|kb| kb * 1024)
     }
+
+    /// Validate configuration settings.
+    ///
+    /// Extension names must be non-empty and size limits must be in
+    /// the range (0, 1_048_576] KB (max 1 GB). A value of 0 means "skip
+    /// all files of that extension" and is disallowed; use the absence of
+    /// the key to express "no limit" instead.
+    pub fn validate(&self) -> Result<(), String> {
+        const MAX_LIMIT_KB: u64 = 1_048_576; // 1 GB
+        for (ext, &limit_kb) in &self.extension_size_limits_kb {
+            if ext.is_empty() {
+                return Err("extension_size_limits_kb contains an empty extension key".to_string());
+            }
+            if limit_kb == 0 {
+                return Err(format!(
+                    "extension_size_limits_kb[{ext}] must be greater than 0 (use key absence for \
+                     no-limit)"
+                ));
+            }
+            if limit_kb > MAX_LIMIT_KB {
+                return Err(format!(
+                    "extension_size_limits_kb[{ext}] must not exceed {MAX_LIMIT_KB} KB (1 GB), \
+                     got {limit_kb}"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for AutoIngestionConfig {
@@ -83,6 +111,31 @@ impl Default for AutoIngestionConfig {
             recursive_depth: 5,
             debounce_seconds: 10,
         }
+    }
+}
+
+impl AutoIngestionConfig {
+    /// Validate configuration settings.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_files_per_batch == 0 {
+            return Err("max_files_per_batch must be greater than 0".to_string());
+        }
+        if !self.batch_delay_seconds.is_finite() || self.batch_delay_seconds < 0.0 {
+            return Err("batch_delay_seconds must be a finite non-negative number".to_string());
+        }
+        if self.max_file_size_mb == 0 {
+            return Err("max_file_size_mb must be greater than 0".to_string());
+        }
+        if self.max_file_size_mb >= 1000 {
+            return Err("max_file_size_mb must be less than 1000".to_string());
+        }
+        if self.recursive_depth > 20 {
+            return Err("recursive_depth must not exceed 20".to_string());
+        }
+        if self.debounce_seconds > 600 {
+            return Err("debounce_seconds must not exceed 600".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -144,5 +197,105 @@ mod tests {
             cfg2.extension_size_limits_kb.len()
         );
         assert_eq!(cfg2.size_limit_bytes("json"), Some(500 * 1024));
+    }
+
+    // ── IngestionLimitsConfig::validate ─────────────────────────────────────
+
+    #[test]
+    fn test_ingestion_limits_validate_default_ok() {
+        assert!(IngestionLimitsConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_ingestion_limits_validate_rejects_zero_limit() {
+        let mut cfg = IngestionLimitsConfig::default();
+        cfg.extension_size_limits_kb.insert("rs".to_string(), 0);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_ingestion_limits_validate_rejects_over_max() {
+        let mut cfg = IngestionLimitsConfig::default();
+        cfg.extension_size_limits_kb
+            .insert("rs".to_string(), 1_048_577);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_ingestion_limits_validate_accepts_max_boundary() {
+        let mut cfg = IngestionLimitsConfig::default();
+        cfg.extension_size_limits_kb
+            .insert("rs".to_string(), 1_048_576);
+        assert!(cfg.validate().is_ok());
+    }
+
+    // ── AutoIngestionConfig::validate ───────────────────────────────────────
+
+    #[test]
+    fn test_auto_ingestion_validate_default_ok() {
+        assert!(AutoIngestionConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_rejects_zero_batch() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.max_files_per_batch = 0;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_rejects_negative_batch_delay() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.batch_delay_seconds = -1.0;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_rejects_infinite_batch_delay() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.batch_delay_seconds = f64::INFINITY;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_rejects_zero_file_size() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.max_file_size_mb = 0;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_rejects_file_size_gte_1000() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.max_file_size_mb = 1000;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_rejects_recursive_depth_over_20() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.recursive_depth = 21;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_accepts_recursive_depth_20() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.recursive_depth = 20;
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_rejects_debounce_over_600() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.debounce_seconds = 601;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_auto_ingestion_validate_accepts_debounce_600() {
+        let mut cfg = AutoIngestionConfig::default();
+        cfg.debounce_seconds = 600;
+        assert!(cfg.validate().is_ok());
     }
 }
