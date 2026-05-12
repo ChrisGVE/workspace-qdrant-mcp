@@ -213,6 +213,11 @@ cast_slice_from_raw_parts = "allow"
 # Patch fastembed to expose ONNX intra-op thread count control.
 # Upstream hardcodes available_parallelism() which uses ALL CPU cores per session.
 # This patch adds InitOptions.num_threads: Option<usize> (None = upstream behavior).
-# Remove when fastembed upstream adds thread count support.
+#
+# Upstream issue: https://github.com/Anush008/fastembed-rs/issues/82
+# Owner: @ChrisGVE
+# Review cadence: quarterly (next review: 2026-08)
+# Remove when fastembed upstream adds thread count support or ort 2.x
+# makes ExecutionProviders configurable enough to control threads natively.
 [patch.crates-io]
 fastembed = { path = "patches/fastembed" }

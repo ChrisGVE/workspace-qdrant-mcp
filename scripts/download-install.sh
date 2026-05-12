@@ -161,7 +161,7 @@ download_binary() {
     if expected_checksum=$(curl -fsSL "$checksum_url" 2>/dev/null); then
         verify_checksum "$dest/$name" "$expected_checksum"
     else
-        warn "Checksum file not available, skipping verification"
+        error "Checksum file not available at $checksum_url — refusing to install unverified binary"
     fi
 
     chmod 755 "$dest/$name"
