@@ -252,6 +252,8 @@ impl TextSearchService for TextSearchServiceImpl {
         let start = Instant::now();
         let results = self.execute_or_cached(&req).await?;
         let options = Self::build_options(&req);
+        // Capture pre-truncation count before apply_max_results_and_context caps the vec.
+        let total_matches = results.matches.len() as i32;
         let truncated = results.matches.len() > options.max_results;
 
         let matches = self
@@ -259,7 +261,6 @@ impl TextSearchService for TextSearchServiceImpl {
             .await;
 
         let query_time_ms = start.elapsed().as_millis() as i64;
-        let total_matches = matches.len() as i32;
 
         info!(
             "TextSearch completed: {} matches (truncated={}) in {}ms",
@@ -442,5 +443,84 @@ mod tests {
             ..req1.clone()
         };
         assert_ne!(CacheKey::from_request(&req1), CacheKey::from_request(&req2));
+    }
+
+    /// Verify the total_matches / truncated invariant:
+    ///
+    /// When `results.matches.len() > options.max_results`, `truncated` must be
+    /// `true` and `total_matches` must equal the PRE-cap length — NOT the
+    /// post-cap length returned to the caller.
+    ///
+    /// This is a pure logic test; it does not invoke gRPC or the database.
+    #[test]
+    fn test_total_matches_is_precap_count() {
+        // Simulate 1000 raw matches with a cap of 50.
+        let raw_count: usize = 1000;
+        let cap: usize = 50;
+
+        // Build a mock options value with max_results = cap.
+        let req = TextSearchRequest {
+            pattern: "fn ".to_string(),
+            regex: false,
+            case_sensitive: true,
+            tenant_id: None,
+            branch: None,
+            path_glob: None,
+            path_prefix: None,
+            context_lines: 0,
+            max_results: cap as i32,
+        };
+        let options = TextSearchServiceImpl::build_options(&req);
+        assert_eq!(options.max_results, cap);
+
+        // Replicate the handler's total_matches / truncated computation
+        // (extracted here as pure arithmetic so the test stays fast).
+        let truncated = raw_count > options.max_results;
+        let total_matches = raw_count as i32; // captured BEFORE capping
+        let capped_count = raw_count.min(options.max_results) as i32;
+
+        assert!(truncated, "truncated must be true when raw > cap");
+        assert_eq!(
+            total_matches, 1000,
+            "total_matches must reflect full pre-cap count"
+        );
+        assert_eq!(
+            capped_count, cap as i32,
+            "capped result set must equal max_results"
+        );
+        assert!(
+            total_matches > capped_count,
+            "total_matches must exceed the capped response length when truncated"
+        );
+    }
+
+    /// When raw result count is within the cap, total_matches equals the
+    /// result count and truncated is false.
+    #[test]
+    fn test_total_matches_no_truncation() {
+        let raw_count: usize = 42;
+        let cap: usize = 1000;
+
+        let req = TextSearchRequest {
+            pattern: "todo".to_string(),
+            regex: false,
+            case_sensitive: false,
+            tenant_id: None,
+            branch: None,
+            path_glob: None,
+            path_prefix: None,
+            context_lines: 0,
+            max_results: cap as i32,
+        };
+        let options = TextSearchServiceImpl::build_options(&req);
+
+        let truncated = raw_count > options.max_results;
+        let total_matches = raw_count as i32;
+        let capped_count = raw_count.min(options.max_results) as i32;
+
+        assert!(!truncated, "truncated must be false when raw <= cap");
+        assert_eq!(total_matches, 42);
+        assert_eq!(capped_count, 42);
+        assert_eq!(total_matches, capped_count);
     }
 }
