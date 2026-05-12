@@ -46,11 +46,124 @@ mod v34;
 mod v35;
 mod v36;
 
-use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
+use sqlx::{pool::PoolConnection, sqlite::SqliteRow, Executor, Row, Sqlite, SqlitePool};
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub use self::migration::{Migration, MigrationRegistry};
+
+// ============================================================================
+// ForeignKeysGuard — RAII wrapper that disables FK checks for a connection
+// and restores the original state on drop (even on panic).
+//
+// Convention for migrations v35+: each migration owns its own transaction
+// (BEGIN IMMEDIATE / COMMIT / ROLLBACK). The ForeignKeysGuard must be
+// acquired before opening the transaction so the PRAGMA change takes effect
+// outside the transaction scope as required by SQLite.
+// ============================================================================
+
+/// RAII guard that sets `PRAGMA foreign_keys = OFF` on a dedicated SQLite
+/// connection and restores the original value when dropped — even on panic.
+///
+/// The guard takes ownership of the connection for the duration of the DDL
+/// window. Use `conn_mut()` to access the connection while the guard is held,
+/// and `into_conn()` to reclaim it when done (which also restores the pragma
+/// asynchronously via an explicit async call, bypassing Drop).
+///
+/// Drop provides the panic-safety guarantee: it runs a synchronous restore
+/// via `tokio::task::block_in_place` so the pragma is always restored even
+/// when the async success path is not reached.
+pub struct ForeignKeysGuard {
+    /// The connection on which FK checks were disabled. Wrapped in Option so
+    /// Drop can take ownership when it needs to run the restore.
+    conn: Option<PoolConnection<Sqlite>>,
+    /// The FK pragma value captured before disabling (0 or 1).
+    original_value: i32,
+}
+
+impl ForeignKeysGuard {
+    /// Capture the current `PRAGMA foreign_keys` value on `conn`, set it to
+    /// `OFF`, take ownership of the connection, and return a guard that
+    /// restores the original value when dropped.
+    pub async fn disable(
+        mut conn: PoolConnection<Sqlite>,
+    ) -> Result<ForeignKeysGuard, SchemaError> {
+        let original_value: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&mut *conn)
+            .await?;
+
+        conn.execute("PRAGMA foreign_keys = OFF").await?;
+        debug!(
+            "ForeignKeysGuard: disabled FK checks (was {})",
+            original_value
+        );
+
+        Ok(ForeignKeysGuard {
+            conn: Some(conn),
+            original_value,
+        })
+    }
+
+    /// Borrow the underlying connection mutably for DDL operations.
+    pub fn conn_mut(&mut self) -> &mut PoolConnection<Sqlite> {
+        self.conn
+            .as_mut()
+            .expect("ForeignKeysGuard: connection already consumed")
+    }
+
+    /// Restore FK checks asynchronously and return the owned connection.
+    /// Prefer this over relying on Drop for the success path; Drop is the
+    /// panic-safety fallback only.
+    pub async fn restore(mut self) -> Result<PoolConnection<Sqlite>, SchemaError> {
+        let mut conn = self
+            .conn
+            .take()
+            .expect("ForeignKeysGuard: connection already consumed");
+
+        let pragma = if self.original_value != 0 {
+            "PRAGMA foreign_keys = ON"
+        } else {
+            "PRAGMA foreign_keys = OFF"
+        };
+        conn.execute(pragma).await?;
+        debug!(
+            "ForeignKeysGuard: restored FK checks to {}",
+            self.original_value
+        );
+
+        // self.conn is now None — Drop will skip the restore.
+        Ok(conn)
+    }
+}
+
+impl Drop for ForeignKeysGuard {
+    /// Panic-safety fallback: if the guard is dropped without `restore()` being
+    /// called (e.g. on panic or early return on the error path), restore the
+    /// FK pragma synchronously so it is never left disabled.
+    fn drop(&mut self) {
+        if let Some(mut conn) = self.conn.take() {
+            let pragma = if self.original_value != 0 {
+                "PRAGMA foreign_keys = ON"
+            } else {
+                "PRAGMA foreign_keys = OFF"
+            };
+            warn!(
+                "ForeignKeysGuard::drop: restoring FK checks to {} via block_in_place \
+                 (guard was not explicitly restored — check for panics or early returns)",
+                self.original_value
+            );
+            // block_in_place yields the current worker thread to run a blocking
+            // operation inside an async Tokio context.
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    if let Err(e) = conn.execute(pragma).await {
+                        warn!("ForeignKeysGuard::drop: failed to restore FK pragma: {}", e);
+                    }
+                });
+            });
+        }
+    }
+}
 
 /// Current schema version - increment when adding new migrations
 pub const CURRENT_SCHEMA_VERSION: i32 = 36;
@@ -242,7 +355,16 @@ impl SchemaManager {
         registry
     }
 
-    /// Run a migration from the registry.
+    /// Run a single migration from the registry.
+    ///
+    /// Transaction ownership convention (v35+): each migration that performs
+    /// table reconstruction is responsible for wrapping its own work in
+    /// `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK`. This function does NOT add
+    /// a wrapping transaction — doing so would prevent migrations from using
+    /// `PRAGMA foreign_keys = OFF`, which SQLite requires to be set outside
+    /// an active transaction. Migrations v1–v34 predate this convention and
+    /// rely on SQLite's implicit per-statement transactions; they must not be
+    /// retrofitted (no migration effort policy).
     async fn run_migration_from_registry(
         &self,
         registry: &MigrationRegistry,
