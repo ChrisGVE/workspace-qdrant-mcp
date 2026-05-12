@@ -1,6 +1,7 @@
 //! Queue depth monitoring and adaptive throttling (Task 461.8).
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -73,6 +74,9 @@ pub struct QueueThrottleState {
     config: QueueThrottleConfig,
     /// Last check timestamp
     last_check: Arc<tokio::sync::RwLock<SystemTime>>,
+    /// Set when events are dropped under critical pressure (F-045).
+    /// The reconciliation loop should check and clear this flag.
+    needs_full_reconcile: Arc<AtomicBool>,
 }
 
 impl QueueThrottleState {
@@ -90,6 +94,7 @@ impl QueueThrottleState {
             event_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             config,
             last_check: Arc::new(tokio::sync::RwLock::new(SystemTime::UNIX_EPOCH)),
+            needs_full_reconcile: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -142,7 +147,12 @@ impl QueueThrottleState {
         }
     }
 
-    /// Check if we should throttle (skip this event)
+    /// Check if we should throttle (skip this event).
+    ///
+    /// At Critical load, all throttled events set `needs_full_reconcile` so
+    /// the watcher reconciliation loop can catch up later (F-045). At High
+    /// load, the skip ratio reduces throughput without losing events that
+    /// matter — the unthrottled events provide enough coverage.
     pub async fn should_throttle(&self) -> bool {
         let level = *self.load_level.read().await;
         match level {
@@ -157,9 +167,23 @@ impl QueueThrottleState {
                 let count = self
                     .event_counter
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                count % self.config.critical_skip_ratio != 0
+                let throttled = count % self.config.critical_skip_ratio != 0;
+                if throttled {
+                    // Mark that a full reconcile is needed so dropped events
+                    // are eventually recovered (F-045).
+                    self.needs_full_reconcile
+                        .store(true, std::sync::atomic::Ordering::Release);
+                }
+                throttled
             }
         }
+    }
+
+    /// Returns `true` and clears the flag if a full reconcile was requested
+    /// because events were dropped under critical queue pressure.
+    pub fn take_needs_full_reconcile(&self) -> bool {
+        self.needs_full_reconcile
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
     /// Check if we need to refresh queue depth (time-based)

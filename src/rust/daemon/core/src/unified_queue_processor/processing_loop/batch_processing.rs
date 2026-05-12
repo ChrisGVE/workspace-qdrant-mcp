@@ -59,13 +59,18 @@ pub(super) async fn process_batch(
 ) -> Result<HashSet<String>, ()> {
     let mut processed_tenants: HashSet<String> = HashSet::new();
 
-    for item in &items {
+    for (item_idx, item) in items.iter().enumerate() {
         if cancellation_token.is_cancelled() {
             warn!("Shutdown requested during item processing");
             return Err(());
         }
 
-        if check_memory_pressure_and_pause(config, queue_manager, item).await {
+        if check_memory_pressure(config).await {
+            // Re-lease ALL remaining items in the batch (F-044), not just the
+            // current one, so they return to pending instead of being stuck
+            // in_progress until lease expiry.
+            re_lease_remaining_items(queue_manager, &items, item_idx).await;
+            tokio::time::sleep(Duration::from_secs(10)).await;
             break;
         }
 
@@ -124,12 +129,8 @@ pub(super) async fn process_batch(
     Ok(processed_tenants)
 }
 
-/// Check memory pressure and re-lease the item if too high, returning `true` to break.
-async fn check_memory_pressure_and_pause(
-    config: &UnifiedProcessorConfig,
-    queue_manager: &QueueManager,
-    item: &UnifiedQueueItem,
-) -> bool {
+/// Check memory pressure, returning `true` if the batch should pause.
+async fn check_memory_pressure(config: &UnifiedProcessorConfig) -> bool {
     if !UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await {
         return false;
     }
@@ -138,11 +139,32 @@ async fn check_memory_pressure_and_pause(
         "Memory pressure during batch processing (<{}% available), pausing remaining items",
         100u8.saturating_sub(config.max_memory_percent)
     );
-    if let Err(e) = queue_manager.re_lease_item(&item.queue_id, 30).await {
-        warn!("Failed to re-lease item during memory pressure: {}", e);
-    }
-    tokio::time::sleep(Duration::from_secs(10)).await;
     true
+}
+
+/// Re-lease all items from `from_idx` onward so they return to pending (F-044).
+///
+/// Without this, items leased as part of the batch but not yet processed would
+/// remain `in_progress` until their lease expires, blocking other workers.
+async fn re_lease_remaining_items(
+    queue_manager: &QueueManager,
+    items: &[UnifiedQueueItem],
+    from_idx: usize,
+) {
+    let remaining = &items[from_idx..];
+    let count = remaining.len();
+    let mut failures = 0;
+    for item in remaining {
+        if let Err(e) = queue_manager.re_lease_item(&item.queue_id, 30).await {
+            warn!(queue_id = %item.queue_id, "Failed to re-lease item during memory pressure: {}", e);
+            failures += 1;
+        }
+    }
+    info!(
+        total = count,
+        released = count - failures,
+        "Re-leased remaining batch items due to memory pressure"
+    );
 }
 
 /// Apply inter-item delay based on warmup state, adaptive profile, or config default.
