@@ -4,7 +4,7 @@
 //! 1. FTS5 trigram MATCH for fast candidate selection
 //! 2. INSTR verification for exact substring match
 
-mod context;
+pub mod context;
 mod query_builder;
 mod search;
 
@@ -15,4 +15,5 @@ mod tests;
 pub use search::search_exact;
 
 // Crate-internal API — used by other text_search submodules.
-pub(crate) use context::attach_context_lines;
+// Re-export for convenience within the crate.
+pub use context::attach_context_lines;

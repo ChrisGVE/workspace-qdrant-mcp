@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 use workspace_qdrant_core::text_search::{
-    search_exact, search_regex, SearchOptions, SearchResults,
+    attach_context_lines, search_exact, search_regex, SearchOptions, SearchResults,
 };
 use workspace_qdrant_core::SearchDbManager;
 
@@ -30,6 +30,10 @@ const CACHE_TTL: Duration = Duration::from_secs(5);
 
 /// Maximum cache entries before forced eviction of all expired entries.
 const CACHE_MAX_ENTRIES: usize = 32;
+
+/// Maximum results to fetch on a cache miss (F-028). Prevents unbounded
+/// memory usage on broad queries while keeping enough for CountMatches.
+const CACHE_MISS_MAX_RESULTS: usize = 10_000;
 
 /// Cache key derived from the search-relevant fields of a request.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -130,69 +134,44 @@ impl TextSearchServiceImpl {
         );
     }
 
-    /// Cap results to `max_results` and re-fetch with context lines when needed.
+    /// Cap results to `max_results` and attach context lines when needed.
     ///
-    /// The cache stores results without context. When `context_lines > 0`, the
-    /// search is re-executed with the limit applied so context can be included.
+    /// The cache stores results without context (F-029). Instead of
+    /// re-executing the full search, context lines are fetched via
+    /// targeted `code_lines` lookups on the already-capped result set.
     async fn apply_max_results_and_context(
         &self,
         results: SearchResults,
-        req: &TextSearchRequest,
+        _req: &TextSearchRequest,
         options: &SearchOptions,
     ) -> Vec<TextSearchMatch> {
-        let capped: Vec<_> = results
+        let mut capped: Vec<_> = results
             .matches
             .into_iter()
             .take(options.max_results)
             .collect();
 
         if options.context_lines > 0 {
-            let result_with_ctx = if req.regex {
-                search_regex(&self.search_db, &req.pattern, options).await
-            } else {
-                search_exact(&self.search_db, &req.pattern, options).await
-            };
-            match result_with_ctx {
-                Ok(ctx_results) => ctx_results
-                    .matches
-                    .into_iter()
-                    .map(|m| TextSearchMatch {
-                        file_path: m.file_path,
-                        line_number: m.line_number as i32,
-                        content: m.content,
-                        tenant_id: m.tenant_id,
-                        branch: m.branch,
-                        context_before: m.context_before,
-                        context_after: m.context_after,
-                    })
-                    .collect(),
-                Err(_) => capped
-                    .into_iter()
-                    .map(|m| TextSearchMatch {
-                        file_path: m.file_path,
-                        line_number: m.line_number as i32,
-                        content: m.content,
-                        tenant_id: m.tenant_id,
-                        branch: m.branch,
-                        context_before: vec![],
-                        context_after: vec![],
-                    })
-                    .collect(),
+            // Attach context from code_lines without re-running the FTS query (F-029).
+            if let Err(e) =
+                attach_context_lines(&self.search_db, &mut capped, options.context_lines).await
+            {
+                debug!("Failed to attach context lines, returning without context: {e}");
             }
-        } else {
-            capped
-                .into_iter()
-                .map(|m| TextSearchMatch {
-                    file_path: m.file_path,
-                    line_number: m.line_number as i32,
-                    content: m.content,
-                    tenant_id: m.tenant_id,
-                    branch: m.branch,
-                    context_before: vec![],
-                    context_after: vec![],
-                })
-                .collect()
         }
+
+        capped
+            .into_iter()
+            .map(|m| TextSearchMatch {
+                file_path: m.file_path,
+                line_number: m.line_number as i32,
+                content: m.content,
+                tenant_id: m.tenant_id,
+                branch: m.branch,
+                context_before: m.context_before,
+                context_after: m.context_after,
+            })
+            .collect()
     }
 
     /// Execute the search (exact or regex) or return a cached result.
@@ -212,7 +191,7 @@ impl TextSearchServiceImpl {
             path_prefix: req.path_prefix.clone(),
             path_glob: req.path_glob.clone(),
             case_insensitive: !req.case_sensitive,
-            max_results: usize::MAX,
+            max_results: CACHE_MISS_MAX_RESULTS,
             context_lines: 0,
         };
 

@@ -15,7 +15,7 @@ use crate::search_db::{SearchDbError, SearchDbManager};
 /// Groups matches by file_id, fetches the needed line ranges from code_lines,
 /// then distributes context to each match. Uses a single query per file for
 /// efficiency.
-pub(crate) async fn attach_context_lines(
+pub async fn attach_context_lines(
     search_db: &SearchDbManager,
     matches: &mut [SearchMatch],
     context_lines: usize,
