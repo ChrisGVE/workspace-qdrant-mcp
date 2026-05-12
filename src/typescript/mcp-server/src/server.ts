@@ -65,6 +65,7 @@ export class WorkspaceQdrantMcpServer {
     isWorktree: false,
     heartbeatInterval: null,
     daemonConnected: false,
+    cleaned: false,
   };
 
   private readonly mode: ServerMode;
@@ -186,7 +187,18 @@ export class WorkspaceQdrantMcpServer {
     return this.mode;
   }
 
+  /**
+   * Tear down all resources for the current session.
+   *
+   * Safe to call multiple times. Only the first invocation runs cleanup;
+   * subsequent calls no-op via the `cleaned` flag (F-049). This prevents
+   * double-decrement of the `wqm_mcp_session_count` metric when both the
+   * `onclose` handler and `stop()` fire for the same session.
+   */
   private async cleanupSession(): Promise<void> {
+    if (this.sessionState.cleaned) return;
+    this.sessionState.cleaned = true;
+
     const { daemonClient, stateManager, healthMonitor } = this.components;
     await cleanup(this.sessionState, daemonClient, stateManager, healthMonitor);
     recordSessionEnd();

@@ -21,6 +21,11 @@ export interface SessionState {
   isWorktree: boolean;
   heartbeatInterval: ReturnType<typeof setInterval> | null;
   daemonConnected: boolean;
+  /**
+   * Idempotence flag for cleanupSession (F-049).
+   * Set to `true` on the first cleanup invocation; subsequent calls no-op.
+   */
+  cleaned: boolean;
 }
 
 /**
