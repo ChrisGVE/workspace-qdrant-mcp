@@ -369,9 +369,8 @@ impl ProjectServiceImpl {
     ) -> Result<RegistrationAction, Status> {
         // Use the resolved and canonicalized git root path for project_root.
         let effective_root = canonicalize_project_path(&resolve_git_root(Path::new(&req.path)))
-            .map_err(|e| {
+            .inspect_err(|_| {
                 error!(path = %req.path, "enqueue_new_project: path canonicalization failed");
-                e
             })?;
         let effective_root_str = effective_root.to_string_lossy().to_string();
 

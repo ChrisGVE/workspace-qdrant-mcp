@@ -192,7 +192,7 @@ impl IngestionEngine {
         for (chunk_idx, (chunk, embedding_result)) in content
             .chunks
             .iter()
-            .zip(batch_results.into_iter())
+            .zip(batch_results)
             .enumerate()
         {
             let payload = build_chunk_payload(

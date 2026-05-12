@@ -146,6 +146,7 @@ impl CrossPlatformTestSuite {
     }
 
     /// Run memory safety validation tests
+    #[allow(clippy::await_holding_lock)]
     pub async fn run_memory_safety_tests(&self) -> anyhow::Result<MemorySafetyResults> {
         info!("Running memory safety validation tests");
 

@@ -28,6 +28,7 @@ impl FfiPerformanceTester {
         // Benchmark future creation
         let future_start = Instant::now();
         for _ in 0..self.config.measurement_iterations {
+            #[allow(clippy::let_underscore_future)]
             let _ = black_box(async {
                 tokio::task::yield_now().await;
             });

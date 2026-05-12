@@ -106,7 +106,7 @@ pub(super) fn reconstruct_library_state(
         let doc_groups = group_points_by_document(points);
 
         for (doc_id, doc_points) in &doc_groups {
-            let result = insert_library_tracked_file(&tx, &watch_id, doc_id, &doc_points, &now)?;
+            let result = insert_library_tracked_file(&tx, &watch_id, doc_id, doc_points, &now)?;
 
             if result == 0 {
                 continue;
@@ -115,7 +115,7 @@ pub(super) fn reconstruct_library_state(
             let file_id = tx.last_insert_rowid();
             tracked_files_created += 1;
 
-            chunks_created += insert_library_chunks(&tx, file_id, &doc_points, &now)?;
+            chunks_created += insert_library_chunks(&tx, file_id, doc_points, &now)?;
         }
     }
 
@@ -130,9 +130,9 @@ pub(super) fn reconstruct_library_state(
 }
 
 /// Group library points by `library_name` (tenant field for libraries).
-fn group_points_by_library<'a>(
-    points: &'a [serde_json::Value],
-) -> BTreeMap<String, Vec<&'a serde_json::Value>> {
+fn group_points_by_library(
+    points: &[serde_json::Value],
+) -> BTreeMap<String, Vec<&serde_json::Value>> {
     let mut groups: BTreeMap<String, Vec<&serde_json::Value>> = BTreeMap::new();
     for point in points {
         let library_name = point["payload"]["library_name"]

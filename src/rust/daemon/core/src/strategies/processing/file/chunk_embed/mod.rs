@@ -93,7 +93,7 @@ pub(super) async fn embed_chunks(
     for (chunk_idx, (chunk, embedding_result)) in document_content
         .chunks
         .iter()
-        .zip(batch_results.into_iter())
+        .zip(batch_results)
         .enumerate()
     {
         let mut point_payload = build_chunk_payload(
