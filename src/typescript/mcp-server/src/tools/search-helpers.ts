@@ -77,12 +77,19 @@ export async function resolveProjectContext(
       if (points.length > 0 && points.length <= BASE_POINTS_FILTER_CAP) {
         basePoints = points;
       } else if (points.length > BASE_POINTS_FILTER_CAP) {
-        // F-014: do NOT silently drop instance isolation. Tenant
-        // filter still applies, but the caller must surface this in
-        // the response so the user knows the worktree narrowing
-        // was bypassed.
-        basePointsDegraded = true;
-        basePointsActiveCount = points.length;
+        // F-012: Fall back to "primary base-point only" filter.
+        // Instead of dropping instance isolation entirely, narrow to
+        // the single base point matching the caller's working directory.
+        // Tenant filter still applies for project-level scoping.
+        const cwd = process.cwd();
+        const primaryPoint = points.find(bp => cwd.startsWith(bp));
+        if (primaryPoint) {
+          basePoints = [primaryPoint];
+        } else {
+          // No base point matches cwd — degrade gracefully.
+          basePointsDegraded = true;
+          basePointsActiveCount = points.length;
+        }
       }
     }
   }
