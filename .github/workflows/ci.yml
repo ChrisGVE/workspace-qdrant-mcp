@@ -116,7 +116,7 @@ jobs:
         # Exclude workspace-qdrant-grpc integration tests (require running Qdrant)
         run: cargo test --release --workspace --exclude workspace-qdrant-grpc
 
-  # TypeScript MCP server (build only)
+  # TypeScript MCP server — build, unit tests, and integration tests
   # Full test suite requires wqm-common-node native addon (Rust napi build)
   # which needs the Rust toolchain. Tests run in the release workflow instead.
   typescript:
@@ -133,6 +133,10 @@ jobs:
         working-directory: src/typescript/mcp-server
         run: npm ci
 
+      - name: Rebuild native addons
+        working-directory: src/typescript/mcp-server
+        run: npm rebuild better-sqlite3
+
       - name: Type-check and build
         working-directory: src/typescript/mcp-server
         run: npm run build
@@ -140,7 +144,37 @@ jobs:
       - name: Unit tests
         working-directory: src/typescript/mcp-server
         # Run tests that don't require the wqm-common-node native addon.
-        # Tests needing SQLite (better-sqlite3) are excluded via vitest
-        # config when WQM_COMMON_NODE is unset.
-        run: npm test -- --reporter=verbose || true
-        continue-on-error: true
+        # Tests needing SQLite (better-sqlite3) work after native addon rebuild.
+        # Tests requiring live services (Qdrant, daemon) are in tests/integration/
+        # and excluded here — they run in the integration-tests job below.
+        run: npm test -- --exclude 'tests/integration/**'
+
+  # TypeScript integration tests — require live daemon or Qdrant
+  # These are allowed to skip in CI (no live services available).
+  typescript-integration:
+    name: TypeScript integration tests
+    needs: typescript
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: src/typescript/mcp-server
+        run: npm ci
+
+      - name: Rebuild native addons
+        working-directory: src/typescript/mcp-server
+        run: npm rebuild better-sqlite3
+
+      - name: Build
+        working-directory: src/typescript/mcp-server
+        run: npm run build
+
+      - name: Integration tests (live services)
+        working-directory: src/typescript/mcp-server
+        run: npm test -- --include 'tests/integration/**' --reporter=verbose
