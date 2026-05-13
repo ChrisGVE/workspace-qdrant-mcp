@@ -231,6 +231,13 @@ jobs:
             git rm "$TRACKING_FILE" || rm -f "$TRACKING_FILE"
           fi
 
+          # Stage all modified Cargo.toml files (updated by the find command)
+          find . -name 'Cargo.toml' -not -path '*/target/*' -not -path '*/patches/*' -type f | while read file; do
+            if ! git diff --quiet -- "$file" 2>/dev/null; then
+              git add "$file"
+            fi
+          done
+
           git add src/rust/Cargo.lock
           git add assets/default_configuration.yaml
           git commit -m "deps: bump tree-sitter from $CURRENT_VERSION to $LATEST_VERSION"
