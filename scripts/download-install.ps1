@@ -143,12 +143,16 @@ function Get-Binary {
         Write-Error "Failed to download $Name from $url"
     }
 
-    # Download and verify checksum
+    # Download and verify checksum — fail-closed: refuse unverified binaries
     try {
         $expectedChecksum = (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing).Content.Trim()
         Test-Checksum -FilePath $destPath -Expected $expectedChecksum
-    } catch {
-        Write-Warn "Checksum file not available, skipping verification"
+    } catch [System.Net.WebException] {
+        # Checksum file not available — refuse to install unverified binary
+        if (Test-Path $destPath) {
+            Remove-Item $destPath -Force
+        }
+        Write-Error "Checksum file not available at $checksumUrl — refusing to install unverified binary"
     }
 }
 
