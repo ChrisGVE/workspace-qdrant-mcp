@@ -1,5 +1,16 @@
 # Security scanning for workspace-qdrant-mcp
 # Rust dependency audit + secrets scanning
+#
+# ┌────────────────────────────────┬───────────────────────────────────────────────────────┬────────────┐
+# │ Advisory                       │ Rationale                                             │ Review by  │
+# ├────────────────────────────────┼───────────────────────────────────────────────────────┼────────────┤
+# │ RUSTSEC-2024-0437 (proc-macro2)│ Upstream fix in syn/proc-macro2; no user-facing       │ 2025-09-01 │
+# │                                │ impact, transitive dep via fastembed/ort toolchain.    │            │
+# ├────────────────────────────────┼───────────────────────────────────────────────────────┼────────────┤
+# │ RUSTSEC-2023-0071 (rsa crate)  │ Marvin attack on PKCS#1 v1.5 decryption; we do not   │ 2025-09-01 │
+# │                                │ use RSA decryption. Transitive dep via reqwest/       │            │
+# │                                │ rustls. Cannot upgrade without fastembed update.      │            │
+# └────────────────────────────────┴───────────────────────────────────────────────────────┴────────────┘
 
 name: Security
 
