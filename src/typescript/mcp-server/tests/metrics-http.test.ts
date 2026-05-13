@@ -25,10 +25,10 @@ describe('metrics (HTTP transport)', () => {
   });
 
   describe('httpPathLabel', () => {
-    it('maps /mcp and /mcp/... to the /mcp bucket', () => {
-      expect(httpPathLabel('/mcp')).toBe('/mcp');
-      expect(httpPathLabel('/mcp/session')).toBe('/mcp');
-      expect(httpPathLabel('/mcp?trace=1')).toBe('/mcp');
+    it('maps /mcp and /mcp/... to the mcp bucket', () => {
+      expect(httpPathLabel('/mcp')).toBe('mcp');
+      expect(httpPathLabel('/mcp/session')).toBe('mcp');
+      expect(httpPathLabel('/mcp?trace=1')).toBe('mcp');
     });
 
     it('maps /healthz exactly', () => {
@@ -74,9 +74,9 @@ describe('metrics (HTTP transport)', () => {
         cells.find((c) => c.labels['path'] === path && c.labels['status_class'] === status)
           ?.value ?? 0;
 
-      expect(bucket('/mcp', '2xx')).toBe(2);
+      expect(bucket('mcp', '2xx')).toBe(2);
       expect(bucket('/healthz', '2xx')).toBe(1);
-      expect(bucket('/mcp', '4xx')).toBe(1);
+      expect(bucket('mcp', '4xx')).toBe(1);
       expect(bucket('other', '5xx')).toBe(1);
     });
   });
