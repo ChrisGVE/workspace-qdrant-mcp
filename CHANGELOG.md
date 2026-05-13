@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Unified `DaemonConfig::validate()`** — chains every subconfig validator (queue_processor, monitoring, git, observability, embedding, lsp, grammars, updates, resource_limits, startup, daemon_endpoint, ingestion_limits, auto_ingestion). Errors are prefixed with the subsystem name for quick diagnosis. Called in `main.rs` immediately after `load_config`; invalid config causes non-zero exit before the daemon starts. (F-047)
+- **`IngestionLimits` and `AutoIngestion` validators** — bounds checks for per-extension size limits and auto-ingestion settings, now wired into the unified validation chain. (F-047)
+- **Schema migration v35 atomicity** — v35 table rebuild now runs inside `BEGIN IMMEDIATE … COMMIT / ROLLBACK`, with a `ForeignKeysGuard` RAII wrapper that restores `PRAGMA foreign_keys` on error. Prevents partial DDL state on crash mid-migration. (F-046)
+
+### Changed
+
+- **Search cache-miss result cap** — exact-search cache misses previously ran with `max_results: usize::MAX`, streaming every matching FTS row into memory. Cache misses are now capped at a bounded limit and context lines are attached without re-executing the full search. (F-028, F-029)
+- **TypeScript CI** — `better-sqlite3` is rebuilt against the active Node.js ABI, and unit and integration tests run as separate steps to surface failures more precisely.
+- **Dependabot coverage expanded** — now covers the full Cargo workspace (daemon, CLI, common, grpc, memexd) in addition to the existing npm scope.
+- **Docker base images pinned by SHA256** — `node:20-slim` base images in all Dockerfiles are now pinned to a specific digest rather than a floating tag. (supply chain hardening)
+- **fastembed patch annotated; checksum enforced** — the fastembed Cargo patch entry carries a comment explaining the override, and the download-install scripts now fail-closed when a checksum is absent or mismatched.
+
+### Fixed
+
+- **Search filter dropped on >500 base-points** — the fallback code path that disabled base-point filtering and broadened to all-tenant results when a project had more than 500 active base-points now falls back to the primary base-point instead of dropping the filter entirely. (F-012)
+- **FTS position-aware sequence assignment** — `diff_apply` previously appended all middle-of-file insertions after `MAX(seq)`, causing incorrect FTS line ordering. Sequences are now assigned at the correct target index. (F-018)
+- **Project path canonicalization on registration** — project roots are now canonicalized and validated to exist before enqueueing; relative paths, symlinks, and nonexistent paths are rejected at registration time rather than producing silent failures. (F-019)
+- **Queue re-lease on memory pressure** — under memory pressure, the queue processor previously re-leased only the current item and left the rest of the batch stuck `in_progress` until lease expiry. All remaining batch items are now re-leased together. (F-044)
+- **FastEmbed init panic replaced with gRPC error** — the `.expect()` call in the gRPC embedding service is replaced with a controlled error response; a missing or undownloadable model now returns a gRPC status rather than crashing the service. (F-048)
+- **`cleanupSession` double-invocation** — `cleanupSession` now carries an idempotence flag so that the `onclose` and `stop()` paths cannot both fire `recordSessionEnd()`, preventing metrics from being decremented twice. (F-049)
+- **`max_retries` column removed from queue schema** — stale `max_retries` column removed from `CREATE_UNIFIED_QUEUE_SQL` and all migration copies, eliminating schema/code drift.
+- **`--allow-default` env-var override gap** — when `--allow-default` triggered a fallback to built-in defaults, `apply_env_overrides` was not called on the fallback config. `OTEL_*` and `WQM_PROMETHEUS_*` env vars are now applied on both the normal and fallback paths.
+
+### Security
+
+- **`download-install.ps1` fails closed on missing checksum** — the PowerShell installer now aborts instead of continuing when a checksum file is absent or does not match. (supply chain hardening, T20-closeout)
+- **ONNX Runtime version-bump CI gate** — the scheduled ONNX Runtime version-bump workflow now runs the full build-and-test matrix before committing the version change, preventing a broken version from landing. (T20-closeout)
+- **Security advisory exemption table** — `security.yml` now contains a documented exemption table for known low-risk advisories, making audit decisions explicit and reviewable. (T20-closeout)
+- **Provenance / SBOM preservation markers** — `docker-publish.yml` attestation steps carry `F-P2` markers to preserve SLSA provenance and SBOM generation through future edits.
+
 ## [0.1.3] - 2026-04-18
 
 ### Added
