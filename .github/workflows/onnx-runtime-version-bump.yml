@@ -168,6 +168,11 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
+
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
@@ -207,6 +212,14 @@ jobs:
               echo "Updated $file"
             fi
           done
+
+      - name: Build and test gate
+        working-directory: src/rust
+        run: |
+          # ort auto-downloads the ONNX Runtime library on Linux x64.
+          # Verify the updated dependency builds and tests pass before committing.
+          cargo build --release
+          cargo test --release --workspace --exclude workspace-qdrant-grpc
 
       - name: Check for actual changes
         id: changes
