@@ -11,7 +11,8 @@
 #   docker run -i -e QDRANT_URL=http://host.docker.internal:6333 workspace-qdrant-mcp
 
 # ---- Build Stage ----
-FROM node:20-slim AS builder
+# node:20-slim
+FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -43,7 +44,8 @@ RUN cd src/typescript/mcp-server && npm run build
 RUN cd src/typescript/mcp-server && npm prune --omit=dev
 
 # ---- Production Stage ----
-FROM node:20-slim
+# node:20-slim
+FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
