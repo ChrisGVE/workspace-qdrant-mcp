@@ -438,35 +438,115 @@ The daemon installs as a launchd user agent:
 
 **Plist location:** `~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist`
 
+The following annotated plist includes Prometheus metrics, OTLP tracing, and an embedding API key. Restrict file permissions to mode 600 because the plist contains secrets on disk.
+
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.workspace-qdrant.memexd</string>
+
+    <!-- --allow-default: fall back to built-in defaults on config parse error.
+         --metrics-port: bind Prometheus exposition at port 6337. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/memexd</string>
+        <string>/Users/YOUR_USERNAME/.local/bin/memexd</string>
+        <string>--allow-default</string>
+        <string>--metrics-port</string>
+        <string>6337</string>
     </array>
+
+    <!-- Environment variables for the daemon process.
+         launchd does NOT inherit the login shell environment.
+         Set every variable that memexd reads at startup here. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Rust log filter; use memexd=info in production -->
+        <key>RUST_LOG</key>
+        <string>memexd=info,workspace_qdrant_core=info</string>
+
+        <!-- HOME is required by XDG path resolution -->
+        <key>HOME</key>
+        <string>/Users/YOUR_USERNAME</string>
+
+        <!-- Embedding provider API key (mode 600 on this plist is required) -->
+        <key>OPENAI_API_KEY</key>
+        <string>sk-...</string>
+
+        <!-- Prometheus metrics (redundant when --metrics-port is set,
+             but explicit for documentation purposes) -->
+        <key>WQM_PROMETHEUS_ENABLED</key>
+        <string>true</string>
+        <key>WQM_PROMETHEUS_PORT</key>
+        <string>6337</string>
+        <key>WQM_PROMETHEUS_BIND</key>
+        <string>127.0.0.1</string>
+
+        <!-- OTLP tracing (optional; remove if no collector is running) -->
+        <key>OTEL_SERVICE_NAME</key>
+        <string>memexd</string>
+        <key>OTEL_EXPORTER_OTLP_ENDPOINT</key>
+        <string>http://localhost:4318</string>
+        <key>OTEL_EXPORTER_OTLP_PROTOCOL</key>
+        <string>http/protobuf</string>
+        <key>OTEL_TRACES_SAMPLER_ARG</key>
+        <string>0.1</string>
+    </dict>
+
+    <!-- Start automatically at login -->
     <key>RunAtLoad</key>
     <true/>
+
+    <!-- Restart automatically if the process exits -->
     <key>KeepAlive</key>
     <true/>
+
+    <!-- Stdout and stderr go to log files; launchd expands ~ here -->
     <key>StandardOutPath</key>
-    <string>~/Library/Logs/workspace-qdrant/daemon.log</string>
+    <string>/Users/YOUR_USERNAME/Library/Logs/workspace-qdrant/daemon.log</string>
     <key>StandardErrorPath</key>
-    <string>~/Library/Logs/workspace-qdrant/daemon.err</string>
+    <string>/Users/YOUR_USERNAME/Library/Logs/workspace-qdrant/daemon.err</string>
 </dict>
 </plist>
 ```
 
-**Manual control:**
+**After creating the plist, restrict its permissions:**
+
 ```bash
-launchctl load ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
+chmod 600 ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
+```
+
+**Manual control:**
+
+```bash
+launchctl load   ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
 launchctl unload ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
 launchctl list | grep memexd
 ```
+
+**Alternative: wrapper-script approach for secrets**
+
+Users who prefer not to embed secrets inside the plist can use a wrapper script that sources the user environment before exec-ing memexd:
+
+```xml
+<key>ProgramArguments</key>
+<array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>source ~/.zshenv && exec /Users/YOUR_USERNAME/.local/bin/memexd --allow-default --metrics-port 6337</string>
+</array>
+```
+
+This inherits variables exported in `~/.zshenv` (which runs for non-interactive shells). Keep `~/.zshenv` mode 600 if it contains secrets.
+
+#### Provider key resolution
+
+The daemon reads the embedding API key from the environment variable named by `embedding.api_key_env_var` in config (default `OPENAI_API_KEY`). It resolves this variable from its **process environment at startup**, not from the shell of the user invoking launchctl.
+
+Because launchd user agents do not inherit the login shell environment, you must supply the key explicitly — either in the `EnvironmentVariables` dict in the plist, or via the wrapper-script approach above.
 
 #### Linux (systemd)
 
@@ -764,21 +844,69 @@ Log rotation is handled by the daemon:
 
 **Rotated file naming:** `daemon.jsonl.1`, `daemon.jsonl.2.gz`, etc.
 
-#### OpenTelemetry Integration (Optional)
+#### Prometheus Metrics Exposition
 
-For production deployments with distributed tracing infrastructure:
+The daemon exposes a Prometheus text-format scrape endpoint. There are two activation paths:
+
+**CLI flag (overrides config):**
 
 ```bash
-# Enable OTLP export
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
-export OTEL_SERVICE_NAME=memexd
-export OTEL_TRACES_SAMPLER_ARG=0.1  # 10% sampling
-
-# Traces are exported to the configured backend
-# View in Jaeger, Zipkin, Grafana Tempo, etc.
+memexd --metrics-port 6337
 ```
 
-**Note:** OpenTelemetry is for distributed tracing correlation, not log viewing. It requires external infrastructure and is optional.
+Passing `--metrics-port` forces `prometheus.enabled = true` and binds to the port and address from config (default `0.0.0.0:6337`).
+
+**Config or environment variables:**
+
+```bash
+# via environment
+export WQM_PROMETHEUS_ENABLED=true
+export WQM_PROMETHEUS_PORT=6337
+export WQM_PROMETHEUS_BIND=0.0.0.0
+
+# or in config.yaml
+observability:
+  telemetry:
+    prometheus:
+      enabled: true
+      port: 6337
+      bind: "0.0.0.0"
+```
+
+Default port is `6337`. Note that port `9091` (used as the default scrape target in `docker/prometheus/prometheus.yml`) commonly conflicts with Transmission on macOS hosts. Prefer `6337` and update the Prometheus scrape target accordingly:
+
+```yaml
+# docker/prometheus/prometheus.yml
+scrape_configs:
+  - job_name: memexd
+    static_configs:
+      - targets: ['host.docker.internal:6337']
+```
+
+Verify the endpoint is live:
+
+```bash
+curl -s http://127.0.0.1:6337/metrics | head
+```
+
+#### OpenTelemetry OTLP Push Exporter
+
+The daemon supports OTLP trace export via environment variables that follow the OpenTelemetry specification:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_SERVICE_NAME` | `memexd` | `service.name` resource attribute |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Collector endpoint; setting this also enables the exporter |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | `http/protobuf` or `grpc` (port 4317) |
+| `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Trace sample rate in [0.0, 1.0] |
+
+The default endpoint `http://localhost:4318` matches the OpenTelemetry collector defined in `docker/compose/observability.yml`. For gRPC protocol, use port `4317`.
+
+Both `http/protobuf` and `grpc` protocols are supported. Setting `OTEL_EXPORTER_OTLP_ENDPOINT` implicitly enables the exporter; no separate enable flag is required.
+
+These env-var overrides are applied on both the normal config-load path and when the daemon starts with `--allow-default` after a config parse error.
+
+**Note:** OpenTelemetry is for distributed tracing correlation, not log viewing. It requires external infrastructure (Jaeger, Zipkin, Grafana Tempo, etc.) and is optional.
 
 #### Environment Variables
 
