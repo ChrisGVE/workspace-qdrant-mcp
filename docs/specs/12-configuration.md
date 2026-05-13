@@ -288,6 +288,103 @@ environment:
 
 **Note:** The `watching` section replaces the old `patterns`/`ignore_patterns` approach. The allowlist (`allowed_extensions` + `allowed_filenames`) is the primary ingestion gate. See the [File Type Allowlist](06-file-watching.md#file-type-allowlist) section for the complete categorized list and ingestion gate layering. The full default list is embedded at build time from `assets/default_configuration.yaml`.
 
+### Configuration Validation
+
+#### `DaemonConfig::validate()`
+
+`DaemonConfig::validate()` chains every subconfig validator in a single call. It is the canonical entry point for startup config checks; `memexd/src/main.rs` calls it immediately after `load_config` and returns a non-zero exit code on failure:
+
+```rust
+let config = startup::load_config(&args)?;
+if let Err(e) = config.validate() {
+    error!("Invalid daemon configuration: {}", e);
+    return Err(format!("Invalid configuration: {}", e).into());
+}
+```
+
+Each subconfig error is prefixed with the subsystem name, for example `queue_processor: batch_size must be greater than 0`. The validator chain covers:
+
+| Subsystem | Validated by |
+|-----------|-------------|
+| `queue_processor` | `QueueProcessorSettings::validate()` |
+| `monitoring` | `MonitoringConfig::validate()` |
+| `git` | `GitConfig::validate()` |
+| `observability` | `ObservabilityConfig::validate()` → chains `TelemetryConfig::validate()` → `PrometheusExportConfig::validate()`, `OtlpExportConfig::validate()` |
+| `embedding` | `EmbeddingSettings::validate()` |
+| `lsp` | `LspSettings::validate()` |
+| `grammars` | `GrammarConfig::validate()` |
+| `updates` | `UpdatesConfig::validate()` |
+| `resource_limits` | `ResourceLimitsConfig::validate()` (auto values resolved before checking) |
+| `startup` | `StartupConfig::validate()` |
+| `daemon_endpoint` | `DaemonEndpointConfig::validate()` |
+| `ingestion_limits` | `IngestionLimitsConfig::validate()` |
+| `auto_ingestion` | `AutoIngestionConfig::validate()` |
+
+#### `--allow-default` flag
+
+`memexd --allow-default` falls back to built-in defaults when the config file cannot be parsed (YAML syntax error, type mismatch, etc.). A missing config file is always silently treated as "use defaults" regardless of this flag; `--allow-default` only affects parse errors on an existing file.
+
+Environment variable overrides (`OTEL_*`, `WQM_PROMETHEUS_*`, `WORKSPACE_QDRANT_*`) are applied on **both** the normal and fallback paths, so telemetry and metrics configuration from the environment is effective even when the YAML cannot be parsed.
+
+#### Subconfig validation bounds
+
+**`queue_processor`**
+
+| Field | Constraint |
+|-------|-----------|
+| `batch_size` | [1, 1000] |
+| `poll_interval_ms` | [1, 60000] ms |
+| `max_retries` | [0, 20] |
+| `retry_delays_seconds` | non-empty list |
+
+**`monitoring`**
+
+| Field | Constraint |
+|-------|-----------|
+| `check_interval_hours` | [1, 8760] (1 h – 1 year) |
+
+**`git`**
+
+| Field | Constraint |
+|-------|-----------|
+| `cache_ttl_seconds` | [1, 3600] s |
+
+**`observability`**
+
+| Field | Constraint |
+|-------|-----------|
+| `collection_interval` | [1, 86400] s |
+| `telemetry.otlp.sample_rate` | [0.0, 1.0] |
+| `telemetry.service_name` | non-empty |
+| `telemetry.prometheus.port` | non-zero when `prometheus.enabled = true` |
+| `telemetry.prometheus.bind` | non-empty |
+| `telemetry.otlp.endpoint` | non-empty when `otlp.enabled = true` |
+
+**`updates`**
+
+| Field | Constraint |
+|-------|-----------|
+| `check_interval_hours` | [1, 8760] |
+
+**`startup`**
+
+| Field | Constraint |
+|-------|-----------|
+| `warmup_delay_secs` | ≤ 600 |
+| `warmup_window_secs` | ≤ 600 |
+| `warmup_max_concurrent_embeddings` | > 0 |
+| `startup_enqueue_batch_size` | [1, 1000] |
+
+**`daemon_endpoint`**
+
+| Field | Constraint |
+|-------|-----------|
+| `host` | non-empty |
+| `grpc_port` | non-zero |
+| `health_endpoint` | empty or starts with `/` |
+
+For `ingestion_limits` and `auto_ingestion` bounds, see the [Configuration Structure](#configuration-structure) section above.
+
 ### Qdrant Dashboard Visualization
 
 When using the Qdrant dashboard (web UI) to visualize collections, note that this system uses **named vectors**. The standard vector visualization will not work without specifying the vector name.
