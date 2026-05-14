@@ -38,6 +38,9 @@ mod local;
 mod mount_map;
 mod normalize;
 
+#[cfg(test)]
+mod tests;
+
 pub use canonical::CanonicalPath;
 pub use error::PathError;
 pub use local::LocalPath;
@@ -229,7 +232,7 @@ pub fn get_model_cache_dir() -> Result<PathBuf, ConfigPathError> {
 }
 
 #[cfg(test)]
-mod tests {
+mod xdg_tests {
     use super::*;
     use std::sync::Mutex;
 

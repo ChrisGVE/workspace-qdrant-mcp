@@ -90,6 +90,15 @@ impl LocalPath {
     pub fn as_std_path(&self) -> &Path {
         &self.0
     }
+
+    /// Test-only constructor. Wraps an arbitrary [`PathBuf`] without any
+    /// validation, so callers can build inputs that exercise the
+    /// non-UTF-8 and no-mount-coverage branches of
+    /// [`Self::to_canonical`]. Not part of the public API.
+    #[cfg(test)]
+    pub(crate) fn from_pathbuf_for_test(p: PathBuf) -> Self {
+        LocalPath(p)
+    }
 }
 
 /// Replace `from_prefix` with `to_prefix` at the start of `path`, joining
