@@ -63,7 +63,7 @@ sha2 = "0.10"
 async-trait = "0.1"
 
 # Qdrant client (for rebuild_rules scrolling)
-qdrant-client = "1.17"
+qdrant-client = "1.18"
 
 # Database access (for ProjectService)
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono"] }
