@@ -4,6 +4,8 @@
 
 use std::collections::HashSet;
 
+use sha2::{Digest, Sha256};
+
 use super::canonical::CanonicalPath;
 use super::PathError;
 
@@ -183,6 +185,62 @@ impl MountMap {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Iterator over the declared mount entries in declaration order.
+    ///
+    /// Used by `wqm docker generate-compose` to emit one `volumes:` line per
+    /// entry. The ordering matches the YAML source, which keeps the generated
+    /// override stable across runs.
+    pub fn iter(&self) -> std::slice::Iter<'_, MountEntry> {
+        self.entries.iter()
+    }
+}
+
+/// Compute the SHA-256 hash of a list of [`crate::yaml_defaults::YamlMountEntry`].
+///
+/// The hash is a stable function of the entries as declared in `config.yaml`
+/// (order-sensitive). It is embedded as `# wqm-config-hash: <hex>` in the
+/// generated `docker-compose.override.yaml` so that the daemon entrypoint
+/// (spec §9.1) and `wqm docker generate-compose --check` can detect drift
+/// between override file and live config.
+///
+/// Hashing strategy: serialise the entries to canonical YAML via
+/// `serde_yaml_ng`, then SHA-256 the resulting bytes. We hash the YAML rather
+/// than canonical-form strings so that:
+///
+/// 1. The hash domain is exactly the slice of `config.yaml` the user edits.
+/// 2. `~` expansion changes (which depend on `$HOME`) are absorbed before
+///    canonicalisation, keeping the hash portable across hosts with the
+///    same canonical mount entries.
+///
+/// Note: `serde_yaml_ng::to_string` writes a stable representation for a
+/// given `Vec<YamlMountEntry>` ordering, so the hash is reproducible across
+/// process invocations.
+///
+/// # Examples
+///
+/// ```
+/// use wqm_common::paths::mount_section_hash;
+/// use wqm_common::yaml_defaults::YamlMountEntry;
+///
+/// let h1 = mount_section_hash(&[]);
+/// let h2 = mount_section_hash(&[YamlMountEntry {
+///     host: "/a".into(),
+///     container: "/a".into(),
+/// }]);
+/// assert_ne!(h1, h2);
+/// // Stable across invocations.
+/// assert_eq!(h1, mount_section_hash(&[]));
+/// ```
+pub fn mount_section_hash(entries: &[crate::yaml_defaults::YamlMountEntry]) -> String {
+    // `serde_yaml_ng::to_string` of a Vec yields a deterministic
+    // representation for a given ordering. The empty-vec case still produces
+    // a stable string (`"[]\n"` in current serde_yaml_ng), which is fine.
+    let serialised =
+        serde_yaml_ng::to_string(entries).expect("YamlMountEntry serialization is infallible");
+    let mut hasher = Sha256::new();
+    hasher.update(serialised.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 /// Whether `prefix` is a component-aware prefix of `path`.
@@ -205,6 +263,7 @@ fn component_aware_prefix(path: &str, prefix: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::yaml_defaults::YamlMountEntry;
 
     #[test]
     fn component_aware_prefix_exact_match() {
@@ -231,5 +290,56 @@ mod tests {
     #[test]
     fn component_aware_prefix_unrelated() {
         assert!(!component_aware_prefix("/a", "/b"));
+    }
+
+    #[test]
+    fn mount_section_hash_empty_is_stable() {
+        let h1 = mount_section_hash(&[]);
+        let h2 = mount_section_hash(&[]);
+        assert_eq!(h1, h2);
+        // SHA-256 produces a 64-char lower-hex string.
+        assert_eq!(h1.len(), 64);
+        assert!(h1
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn mount_section_hash_changes_with_entries() {
+        let h_empty = mount_section_hash(&[]);
+        let h_one = mount_section_hash(&[YamlMountEntry {
+            host: "/a".into(),
+            container: "/a".into(),
+        }]);
+        assert_ne!(h_empty, h_one);
+    }
+
+    #[test]
+    fn mount_section_hash_order_sensitive() {
+        let a = YamlMountEntry {
+            host: "/a".into(),
+            container: "/a".into(),
+        };
+        let b = YamlMountEntry {
+            host: "/b".into(),
+            container: "/b".into(),
+        };
+        let h_ab = mount_section_hash(&[a.clone(), b.clone()]);
+        let h_ba = mount_section_hash(&[b, a]);
+        // Ordering matters — reflects the user's literal YAML.
+        assert_ne!(h_ab, h_ba);
+    }
+
+    #[test]
+    fn mount_section_hash_distinguishes_host_vs_container() {
+        let a = YamlMountEntry {
+            host: "/x".into(),
+            container: "/y".into(),
+        };
+        let b = YamlMountEntry {
+            host: "/y".into(),
+            container: "/x".into(),
+        };
+        assert_ne!(mount_section_hash(&[a]), mount_section_hash(&[b]));
     }
 }
