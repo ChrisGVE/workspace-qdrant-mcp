@@ -502,8 +502,15 @@ qdrant_url = "http://127.0.0.1:6333"
     fn ensure_cli_config_creates_default_when_missing() {
         let _lock = ENV_MUTEX.lock().unwrap();
         let prev_cli = std::env::var("WQM_CLI_CONFIG").ok();
+        let prev_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+        scrub_env();
 
         let tmp = tempfile::TempDir::new().unwrap();
+        // Point XDG at the tempdir as well so any pre-existing
+        // ~/.config/wqm/cli-config.toml on the developer machine does
+        // not satisfy find_cli_config_file() before WQM_CLI_CONFIG is
+        // checked.
+        std::env::set_var("XDG_CONFIG_HOME", tmp.path());
         let path = tmp.path().join("wqm").join(CLI_CONFIG_FILENAME);
         std::env::set_var("WQM_CLI_CONFIG", &path);
 
@@ -515,6 +522,10 @@ qdrant_url = "http://127.0.0.1:6333"
         match prev_cli {
             Some(v) => std::env::set_var("WQM_CLI_CONFIG", v),
             None => std::env::remove_var("WQM_CLI_CONFIG"),
+        }
+        match prev_xdg {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
         }
     }
 }
