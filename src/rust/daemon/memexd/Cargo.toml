@@ -32,6 +32,12 @@ tracing = { version = "0.1", features = ["log", "attributes", "std"] }
 scopeguard = "1.2"
 tokio-util = "0.7"
 
+# Control-port identity stamp + diagnostics (spec 16 §10.1).
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

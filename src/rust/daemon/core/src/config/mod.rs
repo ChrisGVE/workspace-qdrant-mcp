@@ -147,6 +147,14 @@ pub struct DaemonConfig {
     /// empty list, which yields an identity map.
     #[serde(default)]
     pub mounts: Vec<YamlMountEntry>,
+    /// Memexd control-port override (spec 16 §10.1).
+    ///
+    /// When `Some(p)`, memexd binds the cross-process single-instance
+    /// lock to `127.0.0.1:p` instead of the built-in default 7799. The
+    /// CLI flag `--control-port` and the `WQM_CONTROL_PORT` env var
+    /// take precedence over this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_port: Option<u16>,
 }
 
 impl Default for DaemonConfig {
@@ -182,6 +190,7 @@ impl From<&YamlConfig> for DaemonConfig {
             ingestion_limits: IngestionLimitsConfig::default(),
             url_ingestion: build_url_ingestion_config(yaml),
             mounts: yaml.mounts.clone(),
+            control_port: None,
         }
     }
 }

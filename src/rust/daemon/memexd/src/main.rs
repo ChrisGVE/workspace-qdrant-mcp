@@ -12,6 +12,7 @@
 //! - [`shutdown`]: Graceful shutdown with cleanup
 
 mod background;
+mod control_port;
 mod database;
 mod grpc_setup;
 mod queue_init;
@@ -29,13 +30,34 @@ use workspace_qdrant_core::{config::Config, config::DaemonConfig, HierarchyBuild
 
 pub use startup::DaemonArgs;
 
-/// Execute Phase 1: instance check, PID, config conversion, nice level.
-/// Returns the resolved `Config` and a scopeguard that removes the PID file on drop.
+/// Execute Phase 1: instance check, control-port lock, PID, config conversion, nice level.
+///
+/// Returns the resolved `Config` plus a tuple of drop guards: the
+/// PID-file scopeguard and the control-port lock holder. Both are
+/// released when the returned tuple is dropped at process exit.
+///
+/// The control-port bind (spec 16 §10.1) happens *before* the PID file
+/// is created so that a second memexd attempting to start cannot leave
+/// a stale PID file behind on rejection. SQLite is opened in phase 2,
+/// strictly after the lock is acquired.
 fn run_phase1(
     args: &DaemonArgs,
     daemon_config: &DaemonConfig,
-) -> Result<(Config, impl Drop), Box<dyn std::error::Error>> {
+) -> Result<(Config, (impl Drop, control_port::ControlPortGuard)), Box<dyn std::error::Error>> {
     startup::check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
+
+    // Acquire the cross-process single-instance lock BEFORE SQLite is opened.
+    let mode = control_port::DeploymentMode::detect();
+    let port = control_port::resolve_port(args.control_port, daemon_config.control_port)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+    let cp_guard = control_port::acquire(port, mode).map_err(|e| {
+        error!(
+            "Failed to acquire memexd control port (single-instance lock): {}",
+            e
+        );
+        Box::<dyn std::error::Error>::from(format!("{e}"))
+    })?;
+
     startup::create_pid_file(&args.pid_file, args.project_id.as_ref())?;
     startup::check_stale_legacy_directory();
 
@@ -48,7 +70,7 @@ fn run_phase1(
         startup::remove_pid_file(&pid_file_cleanup);
     });
 
-    Ok((config, cleanup_guard))
+    Ok((config, (cleanup_guard, cp_guard)))
 }
 
 /// Wire the gRPC server with all phase-5 dependencies and return its handle.

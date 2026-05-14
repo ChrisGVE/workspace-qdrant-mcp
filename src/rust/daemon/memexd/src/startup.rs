@@ -44,6 +44,13 @@ pub struct DaemonArgs {
     /// Without this flag a malformed config file is fatal. With it the daemon
     /// logs a warning and continues with `DaemonConfig::default()`.
     pub allow_default: bool,
+    /// Override the memexd control port used as the cross-process
+    /// single-instance lock (spec 16 §10.1).
+    ///
+    /// `None` (default) preserves the precedence chain:
+    /// `WQM_CONTROL_PORT` env → `DaemonConfig.control_port` → built-in
+    /// default `7799`. `Some(p)` pins the port unconditionally.
+    pub control_port: Option<u16>,
 }
 
 impl Default for DaemonArgs {
@@ -59,6 +66,7 @@ impl Default for DaemonArgs {
             metrics_port: None,
             bootstrap_reembed: false,
             allow_default: false,
+            control_port: None,
         }
     }
 }
@@ -158,6 +166,18 @@ fn build_cli(is_daemon: bool) -> Command {
                 )
                 .action(clap::ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("control-port")
+                .long("control-port")
+                .value_name("PORT")
+                .help(
+                    "Override the memexd control port (cross-process \
+                     single-instance lock, spec 16 §10.1). Default 7799. \
+                     Precedence: this flag > WQM_CONTROL_PORT env > \
+                     config.control_port > 7799.",
+                )
+                .value_parser(clap::value_parser!(u16)),
+        )
 }
 
 /// Parse command-line arguments with graceful error handling.
@@ -205,6 +225,7 @@ pub fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
         metrics_port: matches.get_one::<u16>("metrics-port").copied(),
         bootstrap_reembed: matches.get_flag("bootstrap-reembed"),
         allow_default: matches.get_flag("allow-default"),
+        control_port: matches.get_one::<u16>("control-port").copied(),
     })
 }
 
@@ -346,7 +367,11 @@ pub fn check_existing_instance(
                         .map(|id| format!(" for project {}", id))
                         .unwrap_or_default();
                     return Err(format!(
-                        "Another memexd instance is already running{} with PID {}",
+                        "Another memexd instance is already running{} with PID {}. \
+                         The cross-process single-instance lock (spec 16 §10.1) is \
+                         the authoritative check — see the memexd control-port error \
+                         (default 127.0.0.1:7799) for more detail, and consider \
+                         `--control-port` if running parallel test instances.",
                         project_info, pid
                     )
                     .into());
@@ -366,7 +391,9 @@ pub fn check_existing_instance(
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if !stdout.trim().is_empty() && stdout.contains("memexd") {
                     return Err(format!(
-                        "Another memexd instance is already running with PID {}",
+                        "Another memexd instance is already running with PID {}. \
+                         Use --control-port to override the default 7799 control \
+                         port if this is a parallel test instance.",
                         pid
                     )
                     .into());
