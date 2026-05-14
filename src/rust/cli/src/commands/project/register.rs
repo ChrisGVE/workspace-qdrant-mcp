@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use wqm_common::paths::CanonicalPath;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::RegisterProjectRequest;
@@ -58,15 +59,30 @@ async fn call_daemon_register(
     }
 }
 
+/// Build a [`CanonicalPath`] from a CLI path argument, absolutizing
+/// relative inputs syntactically against CWD. No fs canonicalize.
+fn canonical_from_cli_path(path: &std::path::Path) -> Result<CanonicalPath> {
+    let s = path.to_str().context("Path contains invalid UTF-8")?;
+    if let Ok(cp) = CanonicalPath::from_user_input(s) {
+        return Ok(cp);
+    }
+    let cwd = std::env::current_dir().context("Could not determine current directory")?;
+    let joined = cwd.join(path);
+    let joined_str = joined
+        .to_str()
+        .context("Path contains invalid UTF-8 after CWD join")?;
+    CanonicalPath::from_user_input(joined_str)
+        .map_err(|e| anyhow::anyhow!("Could not resolve path: {e}"))
+}
+
 pub(super) async fn register_project(
     path: Option<PathBuf>,
     name: Option<String>,
     yes: bool,
 ) -> Result<()> {
     let project_path = path.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let abs_path = project_path
-        .canonicalize()
-        .context("Could not resolve path")?;
+    let abs_canonical = canonical_from_cli_path(&project_path)?;
+    let abs_path = PathBuf::from(abs_canonical.as_str());
 
     let project_name = name.unwrap_or_else(|| {
         abs_path
@@ -102,7 +118,7 @@ pub(super) async fn register_project(
 
     // Display summary
     output::section("Register Project");
-    output::kv("Path", abs_path.display().to_string());
+    output::kv("Path", abs_canonical.as_str());
     output::kv("Name", &project_name);
     output::kv("Project ID", &project_id);
     if let Some(remote) = &git_remote {

@@ -1,10 +1,32 @@
 //! Shared helpers for library subcommands
 
+use anyhow::{Context, Result};
 use clap::ValueEnum;
+use wqm_common::paths::CanonicalPath;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
+
+/// Build a [`CanonicalPath`] from a CLI path argument.
+///
+/// Applies the nine syntactic-canonical rules (spec §3.1) and never
+/// calls `std::fs::canonicalize` (rule 7). Relative inputs are
+/// absolutized by joining onto the process CWD — no symlink
+/// resolution.
+pub fn canonical_from_cli_path(path: &std::path::Path) -> Result<CanonicalPath> {
+    let s = path.to_str().context("Path contains invalid UTF-8")?;
+    if let Ok(cp) = CanonicalPath::from_user_input(s) {
+        return Ok(cp);
+    }
+    let cwd = std::env::current_dir().context("Could not determine current directory")?;
+    let joined = cwd.join(path);
+    let joined_str = joined
+        .to_str()
+        .context("Path contains invalid UTF-8 after CWD join")?;
+    CanonicalPath::from_user_input(joined_str)
+        .map_err(|e| anyhow::anyhow!("Could not normalize path: {e}"))
+}
 
 /// Library sync mode controlling how file deletions are handled
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]

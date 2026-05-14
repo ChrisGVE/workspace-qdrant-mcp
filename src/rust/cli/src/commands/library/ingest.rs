@@ -8,7 +8,9 @@ use wqm_common::classification::extension_to_document_type;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 use wqm_common::payloads::{ChunkingConfigPayload, LibraryDocumentPayload};
 
-use super::helpers::{classify_document_extension, signal_daemon_ingest_queue};
+use super::helpers::{
+    canonical_from_cli_path, classify_document_extension, signal_daemon_ingest_queue,
+};
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::EnqueueItemRequest;
 use crate::output;
@@ -34,12 +36,11 @@ pub async fn execute(
         return Ok(());
     }
 
-    let abs_path = file
-        .canonicalize()
-        .context("Could not resolve absolute path")?;
-    let abs_path_str = abs_path.to_string_lossy().to_string();
+    let abs_path = canonical_from_cli_path(file)?;
+    let abs_path_str = abs_path.into_string();
+    let abs_path_buf = PathBuf::from(&abs_path_str);
 
-    let (source_format, document_type) = classify_extension(&abs_path)?;
+    let (source_format, document_type) = classify_extension(&abs_path_buf)?;
 
     output::kv("  File", home_to_tilde(&abs_path_str));
     output::kv("  Library", library);
@@ -53,7 +54,8 @@ pub async fn execute(
     output::kv("  Doc ID", &doc_id);
 
     // Calculate doc_fingerprint (SHA256 of file bytes)
-    let file_bytes = std::fs::read(&abs_path).context("Failed to read file for fingerprinting")?;
+    let file_bytes =
+        std::fs::read(&abs_path_buf).context("Failed to read file for fingerprinting")?;
     let mut hasher = Sha256::new();
     hasher.update(&file_bytes);
     let doc_fingerprint = format!("{:x}", hasher.finalize());

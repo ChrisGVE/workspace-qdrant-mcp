@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
+use super::helpers::canonical_from_cli_path;
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::SetIncrementalRequest;
 use crate::output;
@@ -12,11 +13,9 @@ use crate::output;
 pub async fn execute(files: &[PathBuf], clear: bool) -> Result<()> {
     let file_paths: Vec<String> = files
         .iter()
-        .map(|f| {
-            std::fs::canonicalize(f)
-                .unwrap_or_else(|_| f.to_path_buf())
-                .to_string_lossy()
-                .to_string()
+        .map(|f| match canonical_from_cli_path(f) {
+            Ok(cp) => cp.into_string(),
+            Err(_) => f.to_string_lossy().to_string(),
         })
         .collect();
 

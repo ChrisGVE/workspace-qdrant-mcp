@@ -2,10 +2,12 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
-use super::helpers::{mode_description, LibraryMode, DEFAULT_LIBRARY_PATTERNS};
+use super::helpers::{
+    canonical_from_cli_path, mode_description, LibraryMode, DEFAULT_LIBRARY_PATTERNS,
+};
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::{
     EnqueueItemRequest, QueueType, RefreshSignalRequest, WatchLibraryRequest,
@@ -79,10 +81,8 @@ pub async fn execute(
         return Ok(());
     }
 
-    let abs_path = path
-        .canonicalize()
-        .context("Could not resolve absolute path")?;
-    let abs_path_str = abs_path.to_string_lossy().to_string();
+    let abs_path = canonical_from_cli_path(path)?;
+    let abs_path_str = abs_path.into_string();
 
     let mut client = ensure_daemon_available().await?;
 
