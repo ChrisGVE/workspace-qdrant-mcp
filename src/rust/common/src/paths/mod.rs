@@ -1,9 +1,21 @@
-//! XDG-compliant path resolution for workspace-qdrant.
+//! XDG-compliant path resolution and canonical-path abstraction for
+//! workspace-qdrant.
 //!
-//! Single source of truth for all filesystem paths. Every component (daemon,
-//! CLI, MCP server) MUST use these functions — never hardcode directory names.
+//! This module has two distinct concerns:
 //!
-//! Layout (macOS, no env overrides):
+//! 1. **Process-local directory layout** — XDG-compliant resolution of config,
+//!    data, cache, and log directories. The free functions [`get_config_dir`],
+//!    [`get_data_dir`], etc. are the single source of truth for filesystem
+//!    layout. Every component (daemon, CLI, MCP server) MUST use these
+//!    functions instead of hardcoding directory names.
+//!
+//! 2. **Canonical path abstraction** — newtypes [`CanonicalPath`],
+//!    [`LocalPath`], and [`MountMap`] enforce a type-system discipline that
+//!    keeps stored/transmitted paths in a single deployment-independent form
+//!    and translates to process-local paths only at the filesystem I/O
+//!    boundary. See `docs/specs/16-path-abstraction.md` for the full design.
+//!
+//! XDG layout (macOS, no env overrides):
 //!   Config: ~/.config/workspace-qdrant/           (config.yaml, cli-config.toml)
 //!   Data:   ~/.local/share/workspace-qdrant/      (state.db, search.db, graph.db)
 //!   Cache:  ~/.cache/workspace-qdrant/            (grammars/, models/)
@@ -20,9 +32,12 @@
 //! XDG variables ($XDG_CONFIG_HOME, $XDG_DATA_HOME, $XDG_CACHE_HOME) are
 //! respected on all platforms.
 
+mod error;
+
+pub use error::PathError;
+
 use std::env;
 use std::path::PathBuf;
-
 const DIR_NAME: &str = "workspace-qdrant";
 
 #[derive(Debug, thiserror::Error)]
