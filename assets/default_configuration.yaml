@@ -2299,3 +2299,43 @@ url_ingestion:
     - "application/json"
     - "application/xhtml+xml"
     - "application/xml"
+
+
+# =============================================================================
+# MOUNT MAP CONFIGURATION
+# =============================================================================
+# Purpose: Maps host-side filesystem paths to container-side paths so that the
+# same canonical path is used in SQLite, Qdrant, and gRPC regardless of
+# whether the daemon runs natively on the host or inside a container.
+#
+# Schema (see docs/specs/16-path-abstraction.md §5):
+#   mounts:
+#     - host: <absolute host path>
+#       container: <absolute container/canonical path>
+#
+# Semantics:
+#   - Both host and container must be absolute. A leading `~` is expanded
+#     once on config load.
+#   - Duplicate host or duplicate container prefixes are rejected
+#     (daemon refuses to start).
+#   - Overlapping mounts are allowed (longest-prefix wins on resolution).
+#   - The mount map is immutable for the lifetime of each process. Edits
+#     require a process restart (no SIGHUP-style reload).
+#   - Empty/missing mounts: identity map — host == container, no
+#     translation.
+#
+# Mirror mounts (host == container) are the default style — they eliminate
+# translation entirely when chosen well. Non-mirror mounts are needed only
+# when a host path cannot exist inside a Linux container (e.g. macOS
+# `/Volumes/*` or removable media).
+#
+# Default: identity (no entries). Uncomment and edit the example below for
+# containerised deployments or unusual mount-point layouts.
+mounts: []
+#mounts:
+#  - host: /Users/chris/dev
+#    container: /Users/chris/dev          # mirror — default style
+#  - host: /Volumes/External/books
+#    container: /mnt/external-books
+#  - host: ~/reference
+#    container: /mnt/reference
