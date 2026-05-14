@@ -141,6 +141,15 @@ jobs:
         working-directory: src/typescript/mcp-server
         run: npm run build
 
+      - name: Lint — path-discipline rule (src/common/paths.ts)
+        working-directory: src/typescript/mcp-server
+        # Enforce the no-restricted-syntax ESLint rule that bans
+        # `as CanonicalPath` / `as LocalPath` casts outside paths.ts.
+        # Only src/common/paths.ts is linted here; the broader src/ lint
+        # has pre-existing issues tracked separately.
+        # See docs/specs/16-path-abstraction.md §4.2.
+        run: node_modules/.bin/eslint src/common/paths.ts src/common/index.ts
+
       - name: Unit tests
         working-directory: src/typescript/mcp-server
         # Run tests that don't require the wqm-common-node native addon.
