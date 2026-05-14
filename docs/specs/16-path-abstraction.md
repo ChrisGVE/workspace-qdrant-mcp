@@ -449,7 +449,8 @@ drafting; A-1 will append any missed.
 | `FilePayload` | `old_path` (Option) | `common/src/payloads/filesystem.rs:27` |
 | `FolderPayload` | `folder_path` | `common/src/payloads/filesystem.rs:37` |
 | `FolderPayload` | `old_path` (Option) | `common/src/payloads/filesystem.rs:51` |
-| Other Rust payload structs | TBD by audit A-1 | `common/src/payloads/` |
+| `LibraryDocumentPayload` | `document_path` | `common/src/payloads/library.rs:78` |
+| `ImageSearchResult` | `file_path` | `daemon/core/src/image_search.rs:79` |
 
 **Proto-defined payload messages — Canonical (must validate as
 `CanonicalPath` after prost decode):**
@@ -466,6 +467,12 @@ drafting; A-1 will append any missed.
 
 | Message | Field | Source |
 |---|---|---|
+| `RegisterProjectResponse` | `watch_path` | `proto/workspace_daemon.proto:444` |
+| `GetProjectStatusResponse` | `project_root` | `proto/workspace_daemon.proto:468` |
+| `GetProjectStatusResponse` | `main_worktree_path` | `proto/workspace_daemon.proto:475` |
+| `ProjectInfo` | `project_root` | `proto/workspace_daemon.proto:492` |
+| `ServerStatusNotification` | `project_root` (optional) | `proto/workspace_daemon.proto:272` |
+| `CancelItemsResponse` | `project_path` | `proto/workspace_daemon.proto:968` |
 | `TextSearchMatch` | `file_path` | `proto/workspace_daemon.proto:580` |
 | `TraversalNodeProto` | `file_path` | `proto/workspace_daemon.proto:638` |
 | `ImpactNodeProto` | `file_path` | `proto/workspace_daemon.proto:662` |
@@ -477,6 +484,9 @@ drafting; A-1 will append any missed.
 
 | Message | Field | Source |
 |---|---|---|
+| `RegisterProjectRequest` | `path` | `proto/workspace_daemon.proto:429` |
+| `DeprioritizeProjectRequest` | `watch_path` (optional) | `proto/workspace_daemon.proto:450` |
+| `SetIncrementalRequest` | `file_paths` (repeated) | `proto/workspace_daemon.proto:1083` |
 | `ImpactAnalysisRequest` | `file_path` (optional) | `proto/workspace_daemon.proto:648` |
 
 **Proto-defined relative path fields (no canonical wrapping):**
@@ -500,10 +510,20 @@ must annotate each path field as canonical-absolute or relative-anchor.
 
 | Site | Notes |
 |---|---|
-| `queue_config.database_path` (Rust struct) | SQLite file location |
-| `graph::path` (Rust struct) | DB file location |
-| Config file path (env var / well-known) | Bootstrap input |
+| `queue_config.database_path` (Rust struct) | SQLite state.db file location |
+| `GraphDbManager::path` (Rust struct) | graph.db file location |
+| `LadybugConfig::db_path` (Rust struct) | LadybugDB directory path |
+| `Config::database_path` (Rust struct) | Processing engine SQLite path |
+| `DaemonConfig::log_file` (Rust struct) | Log file path; never stored or transmitted |
+| `DaemonConfig::project_path` (Rust struct) | Working directory override; not persisted (see decisions-needed in audit doc) |
+| `LoggingConfig::log_file_path` (Rust struct) | Log rotation file path |
+| `TlsConfig::cert_path`, `key_path`, `ca_cert_path` (Rust struct) | TLS cert file paths; read at startup only |
+| `Profile::database_path` (CLI cli_profiles.rs) | CLI profile DB override |
+| `YamlLspConfig::user_path` (YAML config) | LSP binary search path override |
+| Config file path (env var / well-known) | Bootstrap input; resolved before mount map is available |
 | `LocalPath`-flavored arguments to fs APIs | Per-process view |
+| Watcher `FileEvent::path`, `PendingMove::old_path` (PathBuf) | Transient; converted to canonical before DB write |
+| Path-validator `OrphanedProject::path`, `RegisteredProject::path` (PathBuf) | In-memory; sourced from DB read; not a write surface |
 
 ### 6.1.1 Audit Task A-1 Output Format
 
