@@ -81,3 +81,62 @@ CHAOS_ITERATIONS=10 tests/integration/docker/test-chaos.sh
 
 Scratch directories under `/tmp/wqm-e2e-chaos.*` are preserved on
 failure; `compose logs` is dumped to `logs/compose.log` in that dir.
+
+
+## Cross-process single-instance lock
+
+memexd binds a TCP listener to `127.0.0.1:7799` at startup as the
+authoritative cross-process single-instance lock (spec 16 §10.1). Only
+one daemon — host or docker, arbitrated by the host kernel when the
+container publishes the port to `127.0.0.1:7799` — can hold the bind at
+a time. Process death releases the socket immediately; no stale-lock
+cleanup logic is needed.
+
+### Port-resolution precedence
+
+1. `--control-port <PORT>` CLI flag — highest.
+2. `WQM_CONTROL_PORT` env var (compose-generated overrides consume the
+   same name).
+3. `DaemonConfig.control_port` field in `config.yaml`.
+4. Built-in default `7799`.
+
+### Identity stamp
+
+On a successful bind, memexd writes a diagnostic JSON to
+`~/.local/share/workspace-qdrant/memexd.lock` (host) or
+`/var/lib/wqm/memexd.lock` (docker). Schema:
+
+```json
+{
+  "mode": "host",
+  "pid": 12345,
+  "started_at": "2026-05-14T10:30:00+00:00",
+  "port": 7799
+}
+```
+
+The stamp is **diagnostic only** — the bound socket is the authoritative
+lock. Stamp-write failure logs a warning but does not block startup.
+
+### Troubleshooting "port in use" errors
+
+If memexd refuses to start with a control-port bind error:
+
+1. Check for a running memexd: `ps -ef | grep memexd`.
+2. Check for an unrelated process holding the port:
+   `lsof -nP -iTCP:7799 -sTCP:LISTEN`.
+3. If running parallel test instances, use `--control-port` to bind
+   different ports per instance.
+
+### Deployment-mode detection
+
+memexd detects whether it runs on the host or inside a docker container
+via, in order:
+
+1. `WQM_DEPLOYMENT_MODE=host|docker` — explicit override.
+2. Presence of `/.dockerenv` — Docker's standard marker file.
+3. Default: `host`.
+
+The detected mode is recorded in the identity stamp and selects the
+on-disk location (`~/.local/share/workspace-qdrant/` vs `/var/lib/wqm/`).
+

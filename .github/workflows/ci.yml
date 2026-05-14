@@ -187,3 +187,50 @@ jobs:
       - name: Integration tests (live services)
         working-directory: src/typescript/mcp-server
         run: npm test -- --include 'tests/integration/**' --reporter=verbose
+
+  # memexd control-port discipline (spec 16 §10.1).
+  # Verifies the cross-process single-instance lock primitive in
+  # isolation: builds the example holder, runs the unit + cross-process
+  # integration tests serially (they touch process-shared ports).
+  control-port:
+    name: memexd control-port (spec 16 §10.1)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ubuntu-latest-cargo-control-port-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-latest-cargo-
+
+      - name: Build example holder
+        working-directory: src/rust
+        run: cargo build --package memexd --examples
+
+      - name: Clippy (memexd, all targets, -D warnings)
+        working-directory: src/rust
+        run: cargo clippy --package memexd --all-targets -- -D warnings
+
+      - name: Unit tests (control_port module)
+        working-directory: src/rust
+        run: cargo test --package memexd --lib control_port -- --test-threads=1
+
+      - name: Integration tests (cross-process double-bind, identity stamp)
+        working-directory: src/rust
+        run: cargo test --package memexd --test control_port_cross_process -- --test-threads=1
