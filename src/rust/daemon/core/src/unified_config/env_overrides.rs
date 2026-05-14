@@ -9,9 +9,7 @@ use crate::unified_config::types::UnifiedConfigError;
 const ENV_PREFIX: &str = "WORKSPACE_QDRANT_";
 
 /// Apply environment variable overrides to `config`, returning the mutated value.
-pub(super) fn apply_env_overrides(
-    mut config: DaemonConfig,
-) -> Result<DaemonConfig, UnifiedConfigError> {
+pub fn apply_env_overrides(mut config: DaemonConfig) -> Result<DaemonConfig, UnifiedConfigError> {
     apply_general_overrides(&mut config)?;
     apply_qdrant_overrides(&mut config)?;
     apply_auto_ingestion_overrides(&mut config)?;

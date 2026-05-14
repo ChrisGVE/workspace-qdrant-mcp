@@ -11,6 +11,7 @@ mod types;
 mod validation;
 
 // Public API — all paths remain identical to the previous flat module
+pub use env_overrides::apply_env_overrides;
 pub use manager::UnifiedConfigManager;
 pub use types::{ConfigFormat, UnifiedConfigError};
 
