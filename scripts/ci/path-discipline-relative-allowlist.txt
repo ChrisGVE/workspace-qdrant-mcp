@@ -1,0 +1,24 @@
+# path-discipline-relative-allowlist.txt — Fields expected to use RelativePath
+#
+# Fields listed here are content paths anchored to a watch_folder or library root.
+# Under the root/relative discipline (docs/specs/16-path-abstraction.md §3.3, §6.3),
+# these fields must use RelativePath (not CanonicalPath, not String, not PathBuf).
+#
+# The CI script path-discipline.sh verifies that fields listed here are typed
+# RelativePath (or Option<RelativePath>) in their Rust struct definitions, NOT
+# String, PathBuf, or CanonicalPath.
+#
+# Format: Struct | Field | Anchor | Notes
+# Derived from docs/specs/16-path-abstraction-audit.md (Relative sections).
+#
+# TODO (follow-up task): extend path-discipline.sh to actively verify these fields
+# use RelativePath typing. Current script verifies canonical typing only; relative
+# verification requires the RelativePath newtype to be implemented first (T7-revised).
+
+Struct | Field | Anchor | Notes
+FilePayload | file_path | watch_folder root | Qdrant payload; file content path
+FilePayload | old_path | watch_folder root | Qdrant payload; previous path on rename
+FolderPayload | folder_path | watch_folder root | Qdrant payload; folder content path
+FolderPayload | old_path | watch_folder root | Qdrant payload; previous path on rename
+LibraryDocumentPayload | document_path | library root | Qdrant payload; doc content path
+ImageSearchResult | file_path | watch_folder root | Decoded from Qdrant images collection

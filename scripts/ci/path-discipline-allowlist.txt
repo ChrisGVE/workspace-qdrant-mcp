@@ -1,9 +1,16 @@
 # path-discipline-allowlist.txt — Allowlist of process-local path fields
 #
-# Fields listed here are exempt from the CanonicalPath requirement in path-discipline.sh.
+# Fields listed here are exempt from BOTH the CanonicalPath and RelativePath
+# requirements in path-discipline.sh. These are process-local paths that are
+# legitimately String or PathBuf (SQLite db paths, log paths, TLS certs, etc.).
+#
 # Format: Struct | Field | Class
-# Only "process-local" class fields should be listed here.
-# Derived from 16-path-abstraction-audit.md §6 (Process-local Paths).
+# Only "process-local" class fields belong here.
+# Derived from docs/specs/16-path-abstraction-audit.md (Process-local Paths section).
+#
+# See also: path-discipline-relative-allowlist.txt — fields expected to be RelativePath.
+# Note: WatchMetadata::watch_path was previously listed here but is canonical (watch root
+# returned in RegisterProjectResponse.watch_path); it belongs in the canonical set, not here.
 
 Struct | Field | Class
 QueueConnectionConfig | database_path | process-local
@@ -26,4 +33,3 @@ TlsConfig | key_path | process-local
 TlsConfig | ca_cert_path | process-local
 Profile | database_path | process-local
 YamlLspConfig | user_path | process-local
-WatchMetadata | watch_path | process-local
