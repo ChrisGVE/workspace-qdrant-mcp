@@ -6,6 +6,10 @@ description = "Memory eXchange Daemon - Document processing and embedding genera
 authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
 license = "MIT"
 
+[lib]
+name = "memexd"
+path = "src/lib.rs"
+
 [[bin]]
 name = "memexd"
 path = "src/main.rs"

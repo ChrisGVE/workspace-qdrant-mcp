@@ -12,12 +12,13 @@
 //! - [`shutdown`]: Graceful shutdown with cleanup
 
 mod background;
-mod control_port;
 mod database;
 mod grpc_setup;
 mod queue_init;
 mod shutdown;
 mod startup;
+
+use memexd::control_port;
 #[cfg(windows)]
 mod windows_service;
 
