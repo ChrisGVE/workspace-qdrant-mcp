@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Owner:** core
-**Last updated:** 2026-05-14
+**Last updated:** 2026-05-14 (revised: root/relative discipline)
 **Depends on:** 06-file-watching, 12-configuration
 **Blocks:** observability stack, docker-memexd image, host/docker parity
 
@@ -56,6 +56,37 @@ A canonical path:
 9. Has UTF-8 validity. Non-UTF-8 paths are rejected.
 
 The rules apply identically in Rust and TypeScript implementations.
+
+### 3.3 Relative Paths
+
+A **relative path** names content **inside** a project or library, anchored to its owning
+root. Relative paths are the correct type for all file-level content fields — every
+`file_path`, `source_file`, `folder_path`, `document_path`, and similar field that refers
+to a file inside a project or library.
+
+A `RelativePath` value:
+
+1. Is NOT absolute. An absolute input is rejected.
+2. Contains NO `..` segments. Inputs with `..` are rejected (traversal risk; the anchor
+   is trusted, the content within it must not escape).
+3. Contains NO `.` segments after normalization. Inputs with `.` are cleaned.
+4. Has no leading `/`.
+5. Has no duplicate `/` segments.
+6. Is UTF-8.
+7. Is syntactically normalized (rules 3–5 applied at construction time, pure string op).
+
+`RelativePath` has NO mount-map translation — it is deployment-independent by construction.
+A relative path stored in one clone of a project is valid in every other clone sharing the
+same `tenant_id`, and is equally valid inside or outside a container.
+
+Reconstruction of the absolute path at read time:
+
+```
+absolute = watch_folders.path + "/" + relative_path
+```
+
+This JOIN replaces all denormalized absolute `file_path` columns that were previously
+stored redundantly alongside `relative_path`.
 
 ### 3.2 Why Not `canonicalize()`
 
@@ -226,6 +257,15 @@ pub struct CanonicalPath(String);
 /// NEVER serialized.
 #[derive(Debug, Clone)]
 pub struct LocalPath(PathBuf);
+
+/// Content-relative path anchored to a watch_folder root.
+/// Not absolute, no `..`, no `.`, UTF-8, normalized.
+/// Stored in all file-level path columns (tracked_files.relative_path,
+/// Qdrant FilePayload.file_path, etc.).  Serializes as plain string.
+/// Mount-map translation is NOT needed — relative paths are
+/// deployment-independent.
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct RelativePath(String);
 ```
 
 Constructors:
@@ -255,6 +295,23 @@ impl LocalPath {
     /// Final boundary: hand to fs APIs.
     pub fn as_std_path(&self) -> &Path;
 }
+
+impl RelativePath {
+    /// Build from raw user input or watcher event path.
+    /// Applies normalization (strips leading `/` if accidentally present,
+    /// removes `.` segments, rejects `..`). Errors on absolute or traversal input.
+    pub fn from_user_input(s: &str) -> Result<Self, PathError>;
+
+    /// Build from a value already stored as relative (e.g., DB row decode).
+    /// Validates: not absolute, no `..`, no `.`, UTF-8.
+    pub fn from_validated(s: String) -> Result<Self, PathError>;
+
+    /// Reconstruct absolute path by joining to its watch_folder root.
+    pub fn to_absolute(&self, root: &CanonicalPath) -> CanonicalPath;
+
+    /// Raw string reference for serialization.
+    pub fn as_str(&self) -> &str;
+}
 ```
 
 The `from_validated` constructor is `pub` because `CanonicalPath`
@@ -273,14 +330,22 @@ listed in the script's allowlist.
 ```ts
 declare const _canonical: unique symbol;
 declare const _local: unique symbol;
+declare const _relative: unique symbol;
 
 export type CanonicalPath = string & { readonly [_canonical]: true };
 export type LocalPath = string & { readonly [_local]: true };
+/** Content path relative to a watch_folder root. Not absolute, no `..`. */
+export type RelativePath = string & { readonly [_relative]: true };
 
 export function fromUserInput(s: string): CanonicalPath;
 export function fromValidated(s: string): CanonicalPath;
 export function toLocal(c: CanonicalPath, mounts: MountMap): LocalPath;
 export function toCanonical(l: LocalPath, mounts: MountMap): CanonicalPath;
+
+// RelativePath constructors — no mount-map needed.
+export function relativeFromUserInput(s: string): RelativePath;
+export function relativeFromValidated(s: string): RelativePath;
+export function relativeToAbsolute(r: RelativePath, root: CanonicalPath): CanonicalPath;
 ```
 
 Brand types provide nominal typing at compile time. Runtime validation
@@ -298,10 +363,12 @@ implementation includes:
   optionally be a stricter "assert this is already in canonical form"
   check (no transformation, only validation).
 
-`as CanonicalPath` casts that bypass these functions are banned by an
-ESLint rule (`@wqm/eslint-config` ships `no-restricted-syntax` rule
-matching `TSAsExpression[typeAnnotation.typeName.name='CanonicalPath']`
-outside the `paths.ts` module itself).
+`as CanonicalPath` and `as RelativePath` casts that bypass these functions
+are banned by an ESLint rule (`@wqm/eslint-config` ships `no-restricted-syntax`
+rules matching `TSAsExpression[typeAnnotation.typeName.name='CanonicalPath']` and
+`TSAsExpression[typeAnnotation.typeName.name='RelativePath']` outside the `paths.ts`
+module itself). Runtime validation in `relativeFromUserInput` and `relativeFromValidated`
+applies the §3.3 rules (no absolute, no `..`, UTF-8, normalized).
 
 ### 4.3 Forbidden Patterns
 
@@ -309,12 +376,16 @@ After this spec lands, the following are forbidden in code review:
 
 | Where | Forbidden | Required |
 |---|---|---|
-| SQLite column binding | `PathBuf`, `&Path`, `&str` for path columns | `CanonicalPath` |
-| `sqlx` row decode for path columns | `String` decoded directly to `PathBuf` | `String` → `CanonicalPath::from_validated` |
-| gRPC `prost`-generated request/response with path semantics | `String` used directly as fs path | Decode to `CanonicalPath` at handler entry |
-| MCP tool response payloads | Raw strings for path values | `CanonicalPath` serialized as string |
-| `tokio::fs::*`, `std::fs::*`, `File::open` | `CanonicalPath`, raw string | `LocalPath::as_std_path()` |
-| Qdrant payload struct fields semantically representing paths | `String` | `CanonicalPath` |
+| SQLite root columns (`watch_folders.path`, `ignore_file_mtimes.project_root`) | `PathBuf`, `&Path`, `&str` | `CanonicalPath` |
+| `sqlx` row decode for root columns | `String` decoded directly to `PathBuf` | `String` → `CanonicalPath::from_validated` |
+| SQLite file-content columns (`tracked_files.relative_path`, etc.) | raw `String` without newtype | `RelativePath::from_validated` |
+| gRPC root path fields (`project_root`, `watch_path`, `path` register inputs) | `String` used directly as fs path | Decode to `CanonicalPath` at handler entry |
+| gRPC file path fields (content inside a project) | `String` used directly | Decode to `RelativePath` or keep as `RelativePath` in payload structs |
+| MCP tool response payloads — root paths | Raw strings | `CanonicalPath` serialized as string |
+| MCP tool response payloads — file paths inside project | Raw strings | `RelativePath` serialized as string |
+| `tokio::fs::*`, `std::fs::*`, `File::open` | `CanonicalPath`, `RelativePath`, raw string | Reconstruct via `RelativePath::to_absolute`, then `LocalPath::as_std_path()` |
+| Qdrant payload struct root fields | `String` | `CanonicalPath` |
+| Qdrant payload struct file-content fields | `String` | `RelativePath` |
 
 `clippy::disallowed_types` cannot enforce field-level rules: it blocks
 a type globally, which would break legitimate non-path `String` and
@@ -325,10 +396,14 @@ defense, not a single compiler check:
    with no implicit conversion. The compiler blocks accidental mixing
    inside any function that uses them.
 2. **CI grep job** — `scripts/ci/path-discipline.sh` audits specific
-   known schema-mirroring structs and forbids `String`/`PathBuf` fields
-   named `*_path`, `*_file`, `path`, `file`. Exact field list lives
-   alongside the script and is updated by audit task A-1. Runs on every
-   PR.
+   known schema-mirroring structs. Two companion allowlist files live in
+   `scripts/ci/`:
+   - `path-discipline-allowlist.txt` — process-local fields exempt from
+     both `CanonicalPath` and `RelativePath` requirements.
+   - `path-discipline-relative-allowlist.txt` — fields expected to use
+     `RelativePath` (not `CanonicalPath`). The script verifies these
+     fields are typed `RelativePath`, not `String`/`PathBuf`.
+   Runs on every PR. Lists updated by audit task A-1.
 3. **Custom `dylint` lint** (optional, future) — once `dylint` adoption
    matures in the project, port the CI grep into a proper AST lint that
    inspects fields of structs annotated with a marker attribute.
@@ -414,97 +489,99 @@ code paths for host-only deployments.
 
 ### 6.1 Path Column Inventory
 
-This inventory is **provisional** — final exhaustiveness is verified by
-audit task A-1, which greps every schema file and serde struct in the
-workspace. The lists below cover all sites identified during spec
-drafting; A-1 will append any missed.
+This inventory reflects the corrected root/relative discipline (see §3.3 and §6.3).
+Only root paths are canonical. All file-level content paths are relative to their
+owning watch_folder root. Denormalized absolute `file_path` columns are DROPPED in
+schema version 37 — see §6.2.
 
-**SQLite — Canonical (must become `CanonicalPath`):**
+Audit task A-1 verifies exhaustiveness by grepping every schema file and serde struct
+in the workspace.
+
+**SQLite — Canonical (root paths only — must become `CanonicalPath`):**
 
 | Table | Column | Source | Notes |
 |---|---|---|---|
-| `watch_folders` | `path` | `schema/watch_folders_schema.sql:14` | Project/library root; absolute |
-| `tracked_files` | `file_path` | `tracked_files_schema/schema.rs:12` | Absolute; in UNIQUE constraint |
-| `file_metadata` (search.db) | `file_path` | `search_db/migrations.rs` | Denormalized absolute |
-| `graph_nodes` | `file_path` | `graph/schema.rs` | Absolute |
-| `graph_edges` | `source_file` | `graph/schema.rs:216` | Absolute |
-| `unified_queue` | `file_path` | `unified_queue_schema/sql.rs:42` | Absolute |
-| `ignore_file_mtimes` | `project_root` | `schema_version/v34.rs:24` | Absolute |
-| `ignore_file_mtimes` | `file_path` | `schema_version/v34.rs:25` | Absolute |
+| `watch_folders` | `path` | `schema/watch_folders_schema.sql:14` | Project/library root. Single source of truth for absolute location. |
+| `ignore_file_mtimes` | `project_root` | `schema_version/v34.rs:24` | Absolute root; part of composite PK. |
 
-**SQLite — Relative (no type change, already portable):**
+**SQLite — DROPPED in v37 (denormalized absolute columns — eliminated; use `relative_path` + JOIN):**
 
-| Table | Column | Anchor |
-|---|---|---|
-| `watch_folders` | `submodule_path` | Relative to parent `watch_folders.path` |
-| `watch_folders` | `disambiguation_path` | Path suffix for clone disambiguation; treat as relative semantically (not a full path) — a new `DisambiguationSuffix` newtype if needed, otherwise leave as `String` |
-| `tracked_files` | `relative_path` | Relative to `watch_folders.path` |
-| `file_metadata` | `relative_path` | Same |
+| Table | Column | Source | Notes |
+|---|---|---|---|
+| `tracked_files` | `file_path` | `tracked_files_schema/schema.rs:12` | **DROPPED.** Was absolute; replaced by `(watch_folder_id, relative_path, branch)` UNIQUE constraint. |
+| `file_metadata` (search.db) | `file_path` | `search_db/migrations.rs` | **DROPPED.** Was denormalized absolute copied from `tracked_files.file_path`. |
 
-**Qdrant payloads (must become `CanonicalPath`):**
+**SQLite — Relative (content paths — `RelativePath`):**
 
-| Struct | Field | Source |
-|---|---|---|
-| `FilePayload` | `file_path` | `common/src/payloads/filesystem.rs:17` |
-| `FilePayload` | `old_path` (Option) | `common/src/payloads/filesystem.rs:27` |
-| `FolderPayload` | `folder_path` | `common/src/payloads/filesystem.rs:37` |
-| `FolderPayload` | `old_path` (Option) | `common/src/payloads/filesystem.rs:51` |
-| `LibraryDocumentPayload` | `document_path` | `common/src/payloads/library.rs:78` |
-| `ImageSearchResult` | `file_path` | `daemon/core/src/image_search.rs:79` |
+| Table | Column | Anchor | Notes |
+|---|---|---|---|
+| `tracked_files` | `relative_path` | `watch_folders.path` | Surviving key. UNIQUE constraint rebuilds on `(watch_folder_id, relative_path, branch)`. |
+| `file_metadata` (search.db) | `relative_path` | `watch_folders.path` | Surviving key. |
+| `graph_nodes` | `file_path` | `watch_folders.path` | Stores relative path going forward (previously absolute; reclassified). |
+| `graph_edges` | `source_file` | `watch_folders.path` | Stores relative path going forward (previously absolute; reclassified). |
+| `unified_queue` | `file_path` | `watch_folders.path` via `watch_folder_id` | Relative path for per-file dedup; NULL for non-file item types. |
+| `ignore_file_mtimes` | `file_path` | `ignore_file_mtimes.project_root` (same row) | Relative to the `project_root` column in the same row. |
+| `watch_folders` | `submodule_path` | Parent `watch_folders.path` | NULL for top-level watches. |
+| `watch_folders` | `disambiguation_path` | Path suffix for clone disambiguation | `DisambiguationSuffix` newtype if introduced, otherwise `String`. |
 
-**Proto-defined payload messages — Canonical (must validate as
-`CanonicalPath` after prost decode):**
+**Qdrant payloads — Relative (content paths inside a project or library — `RelativePath`):**
+
+| Struct | Field | Source | Notes |
+|---|---|---|---|
+| `FilePayload` | `file_path` | `common/src/payloads/filesystem.rs:17` | Relative to owning watch_folder root. Previously absolute; reclassified. |
+| `FilePayload` | `old_path` (Option) | `common/src/payloads/filesystem.rs:29` | Previous relative path before rename. |
+| `FolderPayload` | `folder_path` | `common/src/payloads/filesystem.rs:36` | Relative folder path. Previously absolute; reclassified. |
+| `FolderPayload` | `old_path` (Option) | `common/src/payloads/filesystem.rs:51` | Previous relative path before rename. |
+| `LibraryDocumentPayload` | `document_path` | `common/src/payloads/library.rs:78` | Relative to library root. Previously absolute; reclassified. |
+| `ImageSearchResult` | `file_path` | `daemon/core/src/image_search.rs:79` | Relative to owning watch_folder root. Previously absolute; reclassified. |
+
+**Proto-defined payload messages — Relative (content inside a project):**
 
 | Message | Field | Source | Notes |
 |---|---|---|---|
-| `ProjectPayload` | `file_absolute_path` | `proto/workspace_daemon.proto:1338` | Full path (reference only). Absolute. |
-| `LibraryPayload` | `source_file` | `proto/workspace_daemon.proto:1381` | Absolute |
-| `SymbolReference` | `file_path` (nested in `LspMetadata`) | `proto/workspace_daemon.proto:1370` | Absolute |
+| `ProjectPayload` | `file_path` | `proto/workspace_daemon.proto:1337` | Relative to project root. Always was relative; now typed `RelativePath`. |
+| `ProjectPayload` | `file_absolute_path` | `proto/workspace_daemon.proto:1338` | **Optional reference field.** Provided for display convenience only; reconstructed from root + relative. Canonical when present. |
+| `SymbolReference` | `file_path` (nested in `LspMetadata`) | `proto/workspace_daemon.proto:1370` | Relative to project root. Previously canonical; reclassified. |
 
-**Proto-defined response messages — Canonical, producer-validated
-(handler emitting the message validates `String` at construction; per
-§7.4 item 3):**
+**Proto-defined payload messages — Canonical (library roots, not content):**
 
-| Message | Field | Source |
-|---|---|---|
-| `RegisterProjectResponse` | `watch_path` | `proto/workspace_daemon.proto:444` |
-| `GetProjectStatusResponse` | `project_root` | `proto/workspace_daemon.proto:468` |
-| `GetProjectStatusResponse` | `main_worktree_path` | `proto/workspace_daemon.proto:475` |
-| `ProjectInfo` | `project_root` | `proto/workspace_daemon.proto:492` |
-| `ServerStatusNotification` | `project_root` (optional) | `proto/workspace_daemon.proto:272` |
-| `CancelItemsResponse` | `project_path` | `proto/workspace_daemon.proto:968` |
-| `TextSearchMatch` | `file_path` | `proto/workspace_daemon.proto:580` |
-| `TraversalNodeProto` | `file_path` | `proto/workspace_daemon.proto:638` |
-| `ImpactNodeProto` | `file_path` | `proto/workspace_daemon.proto:662` |
-| `PageRankNodeProto` | `file_path` | `proto/workspace_daemon.proto:702` |
-| `CommunityMemberProto` | `file_path` | `proto/workspace_daemon.proto:732` |
-| `BetweennessNodeProto` | `file_path` | `proto/workspace_daemon.proto:755` |
-
-**Proto-defined request messages — Canonical, handler-validated:**
-
-| Message | Field | Source |
-|---|---|---|
-| `RegisterProjectRequest` | `path` | `proto/workspace_daemon.proto:429` |
-| `DeprioritizeProjectRequest` | `watch_path` (optional) | `proto/workspace_daemon.proto:450` |
-| `SetIncrementalRequest` | `file_paths` (repeated) | `proto/workspace_daemon.proto:1083` |
-| `ImpactAnalysisRequest` | `file_path` (optional) | `proto/workspace_daemon.proto:648` |
-
-**Proto-defined relative path fields (no canonical wrapping):**
-
-| Message | Field | Source | Anchor |
+| Message | Field | Source | Notes |
 |---|---|---|---|
-| `ProjectPayload` | `file_path` | `proto/workspace_daemon.proto:1337` | Relative to project root. Aligns with `tracked_files.relative_path` semantics. |
+| `LibraryPayload` | `source_file` | `proto/workspace_daemon.proto:1381` | Absolute path to the library root document. Canonical. |
 
-Qdrant payloads are JSON-serialized into point metadata. They are not
-SQLite columns but are persistent path storage governed by the same
-canonical-form rules where applicable. Proto-defined payload messages
-flow through prost decode at gRPC handlers; per §7.4, every absolute
-path field is validated at handler entry (top-level) or at producer
-site (nested). The lone relative field (`ProjectPayload.file_path`)
-must not be wrapped in `CanonicalPath`, which would reject it for
-being non-absolute. A-1's classification scope explicitly includes both
-Rust struct-defined payloads AND prost-generated payload messages, and
-must annotate each path field as canonical-absolute or relative-anchor.
+**Proto-defined response messages — Canonical (root paths) or Relative (file content):**
+
+| Message | Field | Source | Class | Notes |
+|---|---|---|---|---|
+| `RegisterProjectResponse` | `watch_path` | `proto/workspace_daemon.proto:444` | canonical | Registered watch root. |
+| `GetProjectStatusResponse` | `project_root` | `proto/workspace_daemon.proto:468` | canonical | Absolute project root. |
+| `GetProjectStatusResponse` | `main_worktree_path` | `proto/workspace_daemon.proto:475` | canonical | Absolute path to main worktree. |
+| `ProjectInfo` | `project_root` | `proto/workspace_daemon.proto:492` | canonical | Absolute project root. |
+| `ServerStatusNotification` | `project_root` (optional) | `proto/workspace_daemon.proto:272` | canonical | Absolute project root. |
+| `CancelItemsResponse` | `project_path` | `proto/workspace_daemon.proto:968` | canonical | Display field; sourced from `watch_folders.path`. |
+| `TextSearchMatch` | `file_path` | `proto/workspace_daemon.proto:580` | relative | File path relative to project root; sourced from `file_metadata.relative_path`. |
+| `TraversalNodeProto` | `file_path` | `proto/workspace_daemon.proto:638` | relative | Relative to project root; sourced from `graph_nodes.file_path`. |
+| `ImpactNodeProto` | `file_path` | `proto/workspace_daemon.proto:662` | relative | Same. |
+| `PageRankNodeProto` | `file_path` | `proto/workspace_daemon.proto:702` | relative | Same. |
+| `CommunityMemberProto` | `file_path` | `proto/workspace_daemon.proto:732` | relative | Same. |
+| `BetweennessNodeProto` | `file_path` | `proto/workspace_daemon.proto:755` | relative | Same. |
+
+**Proto-defined request messages — Canonical (root inputs) or Relative (file filters):**
+
+| Message | Field | Source | Class | Notes |
+|---|---|---|---|---|
+| `RegisterProjectRequest` | `path` | `proto/workspace_daemon.proto:429` | canonical | Project root to register. |
+| `DeprioritizeProjectRequest` | `watch_path` (optional) | `proto/workspace_daemon.proto:450` | canonical | Watch root for multi-clone disambiguation. |
+| `SetIncrementalRequest` | `file_paths` (repeated) | `proto/workspace_daemon.proto:1083` | relative | File paths relative to project root. `extract_relative_paths!` macro. |
+| `ImpactAnalysisRequest` | `file_path` (optional) | `proto/workspace_daemon.proto:648` | relative | Relative file path to narrow graph query. |
+
+Qdrant payloads are JSON-serialized into point metadata. Relative paths in payloads
+are portable across machines and deployment modes. When a consumer needs an absolute
+path for I/O (e.g., reading file content), it reconstructs via:
+`RelativePath::to_absolute(watch_folders.path)` and then converts to `LocalPath`.
+A-1's classification scope explicitly includes both Rust struct-defined payloads AND
+prost-generated payload messages, and must annotate each path field as canonical (root)
+or relative (content).
 
 **Process-local (must NOT become `CanonicalPath`):**
 
@@ -542,8 +619,15 @@ report constitute spec defects to be corrected before A-1 closes.
 
 ### 6.2 Schema Version Bump
 
-Spec landing **mandates wipe + rebuild**, not in-place rewrite. On
-daemon startup, schema-version mismatch triggers: truncation of
+Spec landing **mandates wipe + rebuild** at schema version 37, not in-place rewrite.
+Version 37 also DROPS the denormalized absolute `file_path` columns
+(`tracked_files.file_path` and `file_metadata.file_path`) and rebuilds UNIQUE
+constraints on `(watch_folder_id, relative_path, branch)` in `tracked_files`.
+The `graph_nodes.file_path`, `graph_edges.source_file`, `unified_queue.file_path`,
+and `ignore_file_mtimes.file_path` columns remain but store relative paths going
+forward.
+
+On daemon startup, schema-version mismatch triggers: truncation of
 ingest-derived tables (`tracked_files`, `qdrant_chunks`,
 `file_metadata`, `graph_nodes`, `graph_edges`, `unified_queue`,
 `ignore_file_mtimes`); retention of user-configured tables
@@ -609,16 +693,64 @@ in the user upgrade notes.
 In-place rewrite is explicitly deferred to post-v1.0 work, when users
 exist and migration cost becomes a real constraint. Tracked in §13.
 
+### 6.3 Why Files Are Relative
+
+The corrected discipline (roots canonical, content relative) is grounded in
+the following architectural facts:
+
+**Submodule frontier.** A Git submodule is the boundary between two independent
+projects. Each submodule has its own `tenant_id` and its own `watch_folders.path`
+(root). File paths inside the submodule are relative to the submodule's root, NOT
+the parent project's root. If submodule paths were stored absolute (relative to
+the parent), they would have to change every time the parent moved or was cloned
+to a different location — defeating portability.
+
+**`tenant_id` derivation.** `tenant_id` is derived from the remote URL hash (if a
+remote exists) or the absolute root path (if local-only). If a local project later
+gains a remote, `tenant_id` is updated but relative content paths do NOT change —
+the content is the same; only the identity anchor changes. Storing absolute paths
+would require mass re-tagging of every content record on `tenant_id` update.
+
+**Clone disambiguation.** A project indexed at multiple paths (e.g., two clones of
+the same repo) shares a `tenant_id` and thus identical content in the projects
+collection. Relative paths are identical across clones by construction. Only the
+root stored in `watch_folders.path` differs. If file paths were stored absolute,
+two clones would produce duplicate, diverging records in Qdrant, bloating the
+collection and requiring clone-aware deduplication logic.
+
+**Library docs.** Library documents (PDF, markdown, reference prose) associated
+with a project are stored under a library collection. The library root is absolute
+(`CanonicalPath`); the document path within the library is relative. This is the
+same root/content split as for project source files.
+
+**Docker parity.** Only roots need mount-map translation. A `CanonicalPath` root is
+translated to a `LocalPath` via the `MountMap` once, and all content relative paths
+are then resolved relative to that local root. Content paths themselves are
+deployment-independent — no mount-map logic is needed for file-level data, and no
+rewriting occurs when switching between host and container deployments.
+
+**Single source of truth.** The `(watch_folder_id, relative_path, branch)` tuple
+uniquely identifies a content record. Reconstructing the absolute path at read time
+via `SELECT watch_folders.path || '/' || tracked_files.relative_path` is a
+JOIN — a standard, explicit operation. Storing a denormalized absolute `file_path`
+alongside `relative_path` (the previous approach) duplicated information, required
+both columns to stay in sync, and silently diverged under mount changes or clone moves.
+
 ## 7. Module Boundaries
 
 ### 7.1 Daemon (memexd)
 
-- Receives gRPC requests carrying canonical paths.
-- Deserializes to `CanonicalPath` at handler entry.
-- For file I/O (read source, write content hash), converts to
-  `LocalPath` via `MountMap`.
-- Writes `CanonicalPath` to SQLite. Never writes `LocalPath`.
-- Emits gRPC responses with `CanonicalPath`.
+- Receives gRPC requests. Root path fields (`project_root`, `watch_path`, register
+  `path`) are deserialized to `CanonicalPath` at handler entry. File-content path
+  fields are deserialized to `RelativePath` at handler entry.
+- For file I/O (read source, write content hash), converts root `CanonicalPath` to
+  `LocalPath` via `MountMap`, then reconstructs absolute via
+  `relative.to_absolute(root)`.
+- Writes `CanonicalPath` to root columns (`watch_folders.path`). Writes
+  `RelativePath` to all content columns. Never writes `LocalPath` to either.
+- Emits gRPC responses with `CanonicalPath` for root fields and `RelativePath` for
+  content fields. Emitters produce `RelativePath` for content, `CanonicalPath` for
+  roots; consumers receive both and JOIN to reconstruct absolute paths when needed.
 
 ### 7.2 wqm CLI
 
@@ -630,21 +762,25 @@ exist and migration cost becomes a real constraint. Tracked in §13.
 
 ### 7.3 MCP Server (TypeScript)
 
-- Receives tool invocations from the LLM client. Path arguments enter
-  as strings, converted to `CanonicalPath` via `fromUserInput` at the
-  tool-handler boundary.
-- Forwards canonical to daemon via gRPC.
-- Tool responses serialize `CanonicalPath` as plain string. The LLM
-  client, which always operates from the user's host perspective, sees
-  host paths.
+- Receives tool invocations from the LLM client. Root path arguments (project roots,
+  library roots) enter as strings and are converted to `CanonicalPath` via
+  `fromUserInput`. File/content path arguments are converted to `RelativePath` via
+  `relativeFromUserInput`.
+- Forwards canonical roots and relative content paths to daemon via gRPC.
+- Tool responses: root paths serialize `CanonicalPath` as plain string; file paths
+  serialize `RelativePath` as plain string. The LLM client sees host-absolute root
+  paths and project-relative file paths — unambiguous and portable.
 
 ### 7.4 gRPC Schema
 
 Every path field in `workspace_daemon.proto` carries a comment marking
-it as carrying canonical-path semantics:
+its class — canonical (root) or relative (content):
 
 ```proto
-// Canonical host-absolute path. See docs/specs/16-path-abstraction.md §3.
+// Canonical host-absolute root path. See docs/specs/16-path-abstraction.md §3.
+string project_root = 1;
+
+// Relative content path (anchored to watch_folder root). See §3.3.
 string file_path = 4;
 ```
 
@@ -659,37 +795,39 @@ async fn ingest_file(
     request: Request<IngestFileRequest>,
 ) -> Result<Response<IngestFileResponse>, Status> {
     let req = request.into_inner();
-    // Validate at handler boundary, convert string → CanonicalPath.
-    let file_path = CanonicalPath::from_user_input(&req.file_path)
+    // Root path → CanonicalPath at handler boundary.
+    let project_root = CanonicalPath::from_user_input(&req.project_root)
+        .map_err(|e| Status::invalid_argument(format!("project_root: {e}")))?;
+    // File path → RelativePath at handler boundary.
+    let file_path = RelativePath::from_user_input(&req.file_path)
         .map_err(|e| Status::invalid_argument(format!("file_path: {e}")))?;
-    // From this line forward, `file_path: CanonicalPath` — type system
-    // ensures it cannot be passed where a raw String is expected.
+    // From this line forward, types enforce correct usage — compiler blocks
+    // passing a RelativePath where CanonicalPath is required and vice versa.
     // ...
 }
 ```
 
 Helper layers reduce boilerplate:
 
-1. **`extract_canonical_path!` macro** — single `String` field
-   extraction with `Status` wrapping.
-2. **`extract_canonical_paths!` macro** — iterates a `Vec<String>`
-   (proto `repeated string`) and validates each element. The proto
-   defines at least one such field today: `SetIncrementalRequest.file_paths`
-   (`repeated string`, daemon proto line 1083). Failure mode: first
-   element failing validation aborts with the element index in the
-   error message.
-3. **Nested-message paths.** Path fields inside nested messages (e.g.,
-   `SymbolReference.file_path` inside `LspMetadata` inside
-   `ProjectPayload`) cannot be validated at the outermost handler
-   boundary alone. For these, the rule is: the producing site (the
-   code that constructs the inner message) is responsible for
-   validating its own path fields before serializing. Consumers that
-   receive nested messages re-validate at first use via
-   `CanonicalPath::from_validated`. A-1's classification flags every
-   nested path field so that A-2 can audit producers.
-4. **Optional `#[validated_grpc]` procedural macro** (deferred) that
-   decorates handler signatures with field annotations and emits
-   validation code automatically. Tracked in §13.
+1. **`extract_canonical_path!` macro** — single `String` root field extraction with
+   `Status` wrapping, producing `CanonicalPath`.
+2. **`extract_relative_path!` macro** — single `String` content field extraction,
+   producing `RelativePath`.
+3. **`extract_relative_paths!` macro** — iterates a `Vec<String>` (proto `repeated
+   string`) and validates each element as `RelativePath`. Used for
+   `SetIncrementalRequest.file_paths` (daemon proto line 1083) and
+   `ImpactAnalysisRequest.file_path`. Failure mode: first failing element aborts
+   with the element index in the error message.
+4. **Nested-message paths.** Path fields inside nested messages (e.g.,
+   `SymbolReference.file_path` inside `LspMetadata` inside `ProjectPayload`)
+   cannot be validated at the outermost handler boundary alone. The producing site
+   is responsible for validating before serializing. Consumers re-validate at first
+   use via `RelativePath::from_validated` (content) or `CanonicalPath::from_validated`
+   (root). A-1's classification flags every nested path field so A-2 can audit
+   producers.
+5. **Optional `#[validated_grpc]` procedural macro** (deferred) that decorates
+   handler signatures with field annotations and emits validation code
+   automatically. Tracked in §13.
 
 Test discipline: every handler has at least one test case that feeds
 an unnormalized path (relative, contains `..`, non-UTF-8, empty) and
@@ -866,9 +1004,9 @@ another:
 
 8a. **File symlink with absolute target inside watch root.** Create a
 file `foo.txt`, then `bar.txt` symlink to `foo.txt`. Watch the root.
-Verify: both `foo.txt` and `bar.txt` paths appear in SQLite
-`tracked_files.file_path` and in Qdrant `FilePayload.file_path` as
-canonical paths (symlink names, NOT resolved to `foo.txt`). MCP `list`
+Verify: both `foo.txt` and `bar.txt` appear in SQLite
+`tracked_files.relative_path` and in Qdrant `FilePayload.file_path` as
+relative paths (symlink names, NOT resolved to `foo.txt`). MCP `list`
 returns both names.
 
 8b. **Directory symlink as watch root.** Watch root itself is a
@@ -893,8 +1031,10 @@ removing `resolve_symlink` from `watching/platform/macos.rs` (per
 §3.2.2), FSEvents events for files inside a symlinked watch root are
 correctly attributed to canonical paths. This test gates A-2 closure.
 
-All sub-cases assert against BOTH SQLite stored path AND Qdrant payload
-path. Inconsistency between the two stores is a hard failure.
+All sub-cases assert against BOTH `tracked_files.relative_path` (SQLite) AND
+`FilePayload.file_path` (Qdrant). Both must be relative paths. Inconsistency between
+the two stores is a hard failure. Absolute path leakage into either store is a hard
+failure.
 
 ### 11.2 CI Assignment
 
@@ -932,6 +1072,7 @@ evidence. A-2 closure requires 8e passing somewhere.
 | Mount map duplicates / conflicting overlaps | Medium | §5.3: dup host = config-load error; overlap allowed with longest-prefix-wins semantics. |
 | External volume unmounted (USB removed) between ingestion and query | Low | `LocalPath::from_canonical` succeeds; fs open fails; row flagged `needs_reconcile=1`. Existing failure mode. |
 | Bootstrap: container needs config path before it can read mount map | Low | Fixed `/etc/wqm/config.yaml` convention. `WQM_CONFIG_PATH` env override. |
+| A content path field is reclassified as canonical (or left as `String`) instead of `RelativePath` | High | CI grep job `path-discipline.sh` checks `path-discipline-relative-allowlist.txt`; fields listed as relative must type-check as `RelativePath`. Code review policy in §4.3. A-1 audit closure requires zero class-mismatch between spec and audit doc. |
 
 ## 13. Open Items (Defer to Implementation PRD)
 
@@ -962,10 +1103,10 @@ evidence. A-2 closure requires 8e passing somewhere.
 
 The path-abstraction work is complete when:
 
-1. `CanonicalPath` (`String`-backed, UTF-8) and `LocalPath` types ship
-   in `wqm-common` and the TypeScript MCP common module with full
-   test coverage including all nine normalization rules (§3.1) and
-   the §4.2 runtime validation requirement.
+1. `CanonicalPath` (`String`-backed, UTF-8), `LocalPath`, and `RelativePath`
+   types ship in `wqm-common` and the TypeScript MCP common module with full test
+   coverage including all nine normalization rules (§3.1), the §3.3 relative-path
+   rules, and the §4.2 runtime validation requirement.
 2. Audit task A-1 has produced `docs/specs/16-path-abstraction-audit.md`
    listing every path site classified as canonical / relative /
    process-local / disambiguation-suffix / non-path. Inventory in §6.1
