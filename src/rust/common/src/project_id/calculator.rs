@@ -4,6 +4,8 @@ use super::types::DisambiguationConfig;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
+use crate::paths::CanonicalPath;
+
 /// Calculator for unique project IDs with disambiguation support
 pub struct ProjectIdCalculator {
     config: DisambiguationConfig,
@@ -29,7 +31,13 @@ impl ProjectIdCalculator {
     ///    - If disambiguation_path provided: hash(normalized_url|disambiguation_path)
     ///    - Otherwise: hash(normalized_url)
     /// 2. If no git_remote (local project):
-    ///    - hash(project_root_path)
+    ///    - hash(syntactic-canonical project_root_path)
+    ///
+    /// Per spec §16 (path-abstraction §3.2.3) the local-project path is
+    /// no longer resolved through `std::fs::canonicalize` — it is reduced
+    /// to its syntactic canonical form (rules in §3.1). For projects whose
+    /// root is a symlink, this changes the resulting project_id; the
+    /// pre-release "NO MIGRATION EFFORT" policy makes that acceptable.
     pub fn calculate(
         &self,
         project_root: &Path,
@@ -47,12 +55,12 @@ impl ProjectIdCalculator {
 
             self.hash_to_id(&input)
         } else {
-            // Local project - hash the path
-            let path_str = project_root
-                .canonicalize()
-                .unwrap_or_else(|_| project_root.to_path_buf())
-                .to_string_lossy()
-                .to_string();
+            // Local project — hash the syntactic-canonical form of the
+            // project root. Fall back to a lossy stringification only when
+            // canonical normalization is impossible (non-UTF-8, etc.) so
+            // that we still emit *some* deterministic ID; this is the
+            // documented fallback behavior of the legacy implementation.
+            let path_str = path_to_syntactic_canonical(project_root);
 
             format!("local_{}", self.hash_to_id(&path_str))
         }
@@ -114,4 +122,26 @@ impl Default for ProjectIdCalculator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Reduce a [`Path`] to its syntactic-canonical UTF-8 string per spec §3.1.
+///
+/// Relative inputs are absolutized against CWD purely syntactically. No
+/// `std::fs::canonicalize`. Returns the lossy stringification as a last-
+/// resort fallback so the caller always receives a deterministic value.
+fn path_to_syntactic_canonical(path: &Path) -> String {
+    if let Some(s) = path.to_str() {
+        if let Ok(cp) = CanonicalPath::from_user_input(s) {
+            return cp.into_string();
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            let joined = cwd.join(path);
+            if let Some(joined_str) = joined.to_str() {
+                if let Ok(cp) = CanonicalPath::from_user_input(joined_str) {
+                    return cp.into_string();
+                }
+            }
+        }
+    }
+    path.to_string_lossy().to_string()
 }

@@ -1,4 +1,3 @@
-./src/rust/common/src/project_id/calculator.rs:52:                 .canonicalize()
 ./src/rust/daemon/core/tests/grammar_chunking_test.rs:46:         .canonicalize()
 ./src/rust/daemon/core/tests/grammar_pipeline_diagnostic.rs:72:         .canonicalize()
 ./src/rust/daemon/core/tests/branch_worktree_audit.rs:76:     let expected = fx.main_path.canonicalize().unwrap();
