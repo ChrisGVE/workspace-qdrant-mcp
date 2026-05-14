@@ -220,7 +220,64 @@ layer1_hash_check() {
 }
 
 # ────────────────────────────────────────────────────────────────────────
-# Main orchestration — layer hooks added in subsequent commits.
+# Mount-present validation — for each config mount entry, the container
+# directory must exist as a directory inside the container. A missing
+# `volumes:` line in the override file leaves the container path absent.
+# We treat both "non-existent" and "exists but not a directory" as failure
+# modes; the spec only requires the directory case but checking the type
+# defends against a host-side file being accidentally mounted.
+# ────────────────────────────────────────────────────────────────────────
+mount_present() {
+	local container_path="$1"
+	[ -d "${container_path}" ]
+}
+
+# ────────────────────────────────────────────────────────────────────────
+# Layer 2 — Mount-present validation
+#
+# Iterates over (host, container) pairs from config.yaml and aborts with
+# EXIT_MOUNT_MISSING on the first container path that is not a directory.
+# Reports the container path of the failing entry; the host path is
+# included as context only (per §9.1.1 the host path is opaque inside
+# the container and is informational).
+# ────────────────────────────────────────────────────────────────────────
+layer2_mount_present() {
+	log_info "layer 2: checking each config mount is present in container"
+
+	local pairs
+	if ! pairs="$(config_mount_pairs "${WQM_CONFIG_PATH}")"; then
+		log_error "failed to parse mounts section of ${WQM_CONFIG_PATH}"
+		return ${EXIT_CONFIG_INVALID}
+	fi
+
+	if [ -z "${pairs}" ]; then
+		log_info "layer 2: ok (no mounts declared in config.yaml)"
+		return ${EXIT_OK}
+	fi
+
+	local checked=0
+	local host container
+	# Read pairs line-by-line; tab-delimited.
+	while IFS=$'\t' read -r host container; do
+		if [ -z "${host}" ] || [ -z "${container}" ]; then
+			continue
+		fi
+		if ! mount_present "${container}"; then
+			log_error "Required mount missing: ${container}"
+			log_error "  declared in ${WQM_CONFIG_PATH} as: host=${host} container=${container}"
+			log_error "  The docker-compose.override.yaml is missing the corresponding volumes: line."
+			log_error "  Fix: run 'wqm docker generate-compose' on the host, then restart the container."
+			return ${EXIT_MOUNT_MISSING}
+		fi
+		checked=$((checked + 1))
+	done <<<"${pairs}"
+
+	log_info "layer 2: ok (${checked} mount(s) verified present)"
+	return ${EXIT_OK}
+}
+
+# ────────────────────────────────────────────────────────────────────────
+# Main orchestration — layer 3 hooked in the next commit.
 # ────────────────────────────────────────────────────────────────────────
 main() {
 	log_info "memexd entrypoint starting"
@@ -228,7 +285,8 @@ main() {
 	log_info "config:   ${WQM_CONFIG_PATH}"
 
 	layer1_hash_check || exit $?
-	# Layer 2 + Layer 3 are hooked in subsequent commits.
+	layer2_mount_present || exit $?
+	# Layer 3 is hooked in the next commit.
 
 	if [ -n "${WQM_ENTRYPOINT_SKIP_EXEC:-}" ]; then
 		log_info "WQM_ENTRYPOINT_SKIP_EXEC set — would exec: ${WQM_MEMEXD_BIN} $*"
