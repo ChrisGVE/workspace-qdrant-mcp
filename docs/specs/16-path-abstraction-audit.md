@@ -1,9 +1,10 @@
 # Path Abstraction Audit (A-1)
 
-**Status:** Complete  
+**Status:** Complete (revised under root/relative discipline)  
 **Produced by:** Audit task A-1 (task-master tag: path-abstraction, task ID: 4)  
 **Date:** 2026-05-14  
-**Spec reference:** `docs/specs/16-path-abstraction.md` §6.1, §6.1.1
+**Revision date:** 2026-05-14 (reclassification: only roots are canonical; file paths are relative)  
+**Spec reference:** `docs/specs/16-path-abstraction.md` §6.1, §6.1.1, §6.3
 
 ---
 
@@ -11,45 +12,52 @@
 
 | Class | Count |
 |---|---|
-| canonical | 26 |
-| relative | 7 |
+| canonical | 8 |
+| relative | 30 |
+| dropped-in-v37 | 2 |
 | process-local | 16 |
 | disambiguation-suffix | 2 |
 | non-path | 10 |
-| **total** | **61** |
+| **total** | **68** |
 
-Classification definitions (from spec §6.1.1):
+Classification definitions (from spec §6.1.1, §6.3):
 
-- **canonical** — host-absolute, must become `CanonicalPath` (or producer-validated for nested proto types)
-- **relative** — anchored to a watch_folder root or project root; already portable
-- **process-local** — SQLite DB file path, config path, log path, etc.; never serialized over gRPC or stored in Qdrant
-- **disambiguation-suffix** — path suffix for clone disambiguation; relative semantically; see spec §6.1
-- **non-path** — field name matches pattern but is not a filesystem path (e.g. traversal description string, URL, filter pattern)
+- **canonical** — host-absolute ROOT path only (`watch_folders.path`, `ignore_file_mtimes.project_root`, library roots, gRPC root fields). Must become `CanonicalPath`.
+- **relative** — content path anchored to a watch_folder or library root; portable across clones and deployment modes. Must become `RelativePath`. Previously misclassified as canonical.
+- **dropped-in-v37** — denormalized absolute `file_path` columns eliminated in schema v37. Replaced by `(watch_folder_id, relative_path, branch)` UNIQUE constraint.
+- **process-local** — SQLite DB file path, config path, log path, etc.; never serialized over gRPC or stored in Qdrant.
+- **disambiguation-suffix** — path suffix for clone disambiguation; relative semantically; see spec §6.1.
+- **non-path** — field name matches pattern but is not a filesystem path (e.g. traversal description string, URL, filter pattern).
 
 ---
 
 ## SQLite Columns
 
-### Canonical (must become `CanonicalPath`)
+### Canonical — Root Paths Only
 
 | Site | Table | Column | Type | Class | Notes |
 |---|---|---|---|---|---|
 | `schema/watch_folders_schema.sql:14` | `watch_folders` | `path` | `TEXT NOT NULL UNIQUE` | canonical | Project/library root; absolute. Hot-path: read by queue priority JOIN and path-validator loop. |
-| `tracked_files_schema/schema.rs:12` | `tracked_files` | `file_path` | `TEXT NOT NULL` | canonical | Absolute file path; in UNIQUE constraint `(watch_folder_id, file_path, branch)`. Hot-path: every watcher event writes here. |
-| `code_lines_schema.rs:158` | `file_metadata` (search.db) | `file_path` | `TEXT NOT NULL` | canonical | Denormalized absolute path copied from `tracked_files.file_path` for FTS5 scoping. |
-| `graph/schema.rs:186` | `graph_nodes` | `file_path` | `TEXT NOT NULL` | canonical | Absolute path to source file containing the symbol. |
-| `graph/schema.rs:216` | `graph_edges` | `source_file` | `TEXT NOT NULL` | canonical | Absolute path to file containing the source node. |
-| `unified_queue_schema/sql.rs:42` | `unified_queue` | `file_path` | `TEXT` (nullable) | canonical | Absolute file path for per-file dedup; NULL for non-file item types. Hot-path: on every enqueue. |
 | `schema_version/v34.rs:24` | `ignore_file_mtimes` | `project_root` | `TEXT NOT NULL` (PK part) | canonical | Absolute path to project root; part of composite PK. |
-| `schema_version/v34.rs:25` | `ignore_file_mtimes` | `file_path` | `TEXT NOT NULL` (PK part) | canonical | Absolute path to `.gitignore`/`.wqmignore` file; part of composite PK. |
 
-### Relative (no type change — already portable)
+### Dropped in v37 — Denormalized Absolute Columns Eliminated
+
+| Site | Table | Column | Type | Class | Notes |
+|---|---|---|---|---|---|
+| `tracked_files_schema/schema.rs:12` | `tracked_files` | `file_path` | `TEXT NOT NULL` | **dropped-in-v37** | Was absolute. DROPPED in schema v37. Replaced by `(watch_folder_id, relative_path, branch)` UNIQUE constraint. Previously in UNIQUE constraint `(watch_folder_id, file_path, branch)`. |
+| `code_lines_schema.rs:158` | `file_metadata` (search.db) | `file_path` | `TEXT NOT NULL` | **dropped-in-v37** | Was denormalized absolute path copied from `tracked_files.file_path` for FTS5 scoping. DROPPED in schema v37. |
+
+### Relative — Content Paths (must become `RelativePath`)
 
 | Site | Table | Column | Anchor | Class | Notes |
 |---|---|---|---|---|---|
-| `schema/watch_folders_schema.sql:21` | `watch_folders` | `submodule_path` | Relative to parent `watch_folders.path` | relative | NULL for top-level watches. |
-| `tracked_files_schema/schema.rs:29` | `tracked_files` | `relative_path` | Relative to `watch_folders.path` | relative | Added in migration v19. Used by Qdrant payload alignment. |
-| `code_lines_schema.rs:168` | `file_metadata` (search.db) | `relative_path` | Relative to `watch_folders.path` | relative | Added in search.db migration v5. |
+| `tracked_files_schema/schema.rs:29` | `tracked_files` | `relative_path` | `watch_folders.path` | relative | Surviving key. UNIQUE constraint rebuilt on `(watch_folder_id, relative_path, branch)` in v37. Hot-path: every watcher event writes here. |
+| `code_lines_schema.rs:168` | `file_metadata` (search.db) | `relative_path` | `watch_folders.path` | relative | Surviving key. Added in search.db migration v5. |
+| `graph/schema.rs:186` | `graph_nodes` | `file_path` | `watch_folders.path` | relative | **Reclassified** from canonical. Previously stored absolute path; stores relative path going forward in v37. |
+| `graph/schema.rs:216` | `graph_edges` | `source_file` | `watch_folders.path` | relative | **Reclassified** from canonical. Previously stored absolute path; stores relative path going forward in v37. |
+| `unified_queue_schema/sql.rs:42` | `unified_queue` | `file_path` | `watch_folders.path` via `watch_folder_id` | relative | **Reclassified** from canonical. Relative path for per-file dedup; NULL for non-file item types. Hot-path: on every enqueue. |
+| `schema_version/v34.rs:25` | `ignore_file_mtimes` | `file_path` | `ignore_file_mtimes.project_root` (same row) | relative | **Reclassified** from canonical. Anchored to `project_root` in the same row. Path to `.gitignore`/`.wqmignore` file relative to the project root. |
+| `schema/watch_folders_schema.sql:21` | `watch_folders` | `submodule_path` | Parent `watch_folders.path` | relative | NULL for top-level watches. |
 
 ### Disambiguation-suffix
 
@@ -61,22 +69,20 @@ Classification definitions (from spec §6.1.1):
 
 ## Qdrant Payloads (Rust serde structs — `common/src/payloads/`)
 
-### Canonical (must become `CanonicalPath`)
+### Relative — Content Paths (must become `RelativePath`)
 
-| Site | Struct | Field | Rust type | Class | Notes |
-|---|---|---|---|---|---|
-| `common/src/payloads/filesystem.rs:17` | `FilePayload` | `file_path` | `String` | canonical | Absolute file path; serialized into Qdrant point payload JSON. |
-| `common/src/payloads/filesystem.rs:29` | `FilePayload` | `old_path` | `Option<String>` | canonical | Previous absolute path before rename (op=Rename). Absent on non-rename ops. |
-| `common/src/payloads/filesystem.rs:36` | `FolderPayload` | `folder_path` | `String` | canonical | Absolute folder path. |
-| `common/src/payloads/filesystem.rs:51` | `FolderPayload` | `old_path` | `Option<String>` | canonical | Previous absolute path before rename. |
-| `common/src/payloads/library.rs:78` | `LibraryDocumentPayload` | `document_path` | `String` | canonical | Absolute path to library document on disk (PDF, EPUB, etc.). |
-| `daemon/core/src/image_search.rs:79` | `ImageSearchResult` | `file_path` | `String` | canonical | Absolute path to source document; decoded from Qdrant `images` collection payload. |
+All file-level payload fields are content paths inside a project or library, and
+are **reclassified from canonical to relative** under the corrected discipline.
 
-### Relative (no canonical wrapping)
-
-| Site | Struct | Field | Anchor | Class | Notes |
-|---|---|---|---|---|---|
-| `common/src/payloads/library.rs:93` | `LibraryDocumentPayload` | `library_path` | Relative within library hierarchy | relative | e.g. `"cs/design_patterns"`. Empty string for root-level docs. Not a filesystem path to an existing file — a logical hierarchy label. |
+| Site | Struct | Field | Rust type | Anchor | Class | Notes |
+|---|---|---|---|---|---|---|
+| `common/src/payloads/filesystem.rs:17` | `FilePayload` | `file_path` | `String` | `watch_folders.path` | relative | **Reclassified.** File path relative to owning watch_folder root. Previously stored absolute. |
+| `common/src/payloads/filesystem.rs:29` | `FilePayload` | `old_path` | `Option<String>` | `watch_folders.path` | relative | **Reclassified.** Previous relative path before rename. Previously stored absolute. |
+| `common/src/payloads/filesystem.rs:36` | `FolderPayload` | `folder_path` | `String` | `watch_folders.path` | relative | **Reclassified.** Folder path relative to owning watch_folder root. Previously stored absolute. |
+| `common/src/payloads/filesystem.rs:51` | `FolderPayload` | `old_path` | `Option<String>` | `watch_folders.path` | relative | **Reclassified.** Previous relative folder path before rename. Previously stored absolute. |
+| `common/src/payloads/library.rs:78` | `LibraryDocumentPayload` | `document_path` | `String` | library root | relative | **Reclassified.** Document path relative to library root. Previously stored as absolute path to library document on disk. |
+| `daemon/core/src/image_search.rs:79` | `ImageSearchResult` | `file_path` | `String` | `watch_folders.path` | relative | **Reclassified.** Relative path to source document; decoded from Qdrant `images` collection payload. Previously stored absolute. |
+| `common/src/payloads/library.rs:93` | `LibraryDocumentPayload` | `library_path` | Relative within library hierarchy | logical | relative | e.g. `"cs/design_patterns"`. Empty string for root-level docs. Logical hierarchy label, not a direct filesystem path — but relative semantics apply (no `..`, no leading `/`). |
 
 ### Serde non-path fields in payloads (false positives)
 
@@ -88,45 +94,55 @@ Classification definitions (from spec §6.1.1):
 
 ## Proto-defined Messages (`.proto` source — prost-generated in Rust)
 
-### Canonical — handler-validated at entry (request messages)
+### Canonical — Root paths only (request messages, handler-validated at entry)
 
 | Proto line | Message | Field | Class | Notes |
 |---|---|---|---|---|
 | `proto:429` | `RegisterProjectRequest` | `path` | canonical | Absolute path to project root; feeds `watch_folders.path`. Primary site: `project_service/registration.rs`. |
 | `proto:450` | `DeprioritizeProjectRequest` | `watch_path` | canonical | Optional; absolute path to specific watch root for multi-clone disambiguation. |
-| `proto:1083` | `SetIncrementalRequest` | `file_paths` | canonical | `repeated string`; each element is an absolute file path. See spec §7.4 item 2 — requires `extract_canonical_paths!` macro. |
-| `proto:648` | `ImpactAnalysisRequest` | `file_path` | canonical | Optional; narrows graph query to specific file. |
 
-### Canonical — producer-validated (response messages emitted by daemon handlers)
+### Relative — Content paths (request messages, handler-validated at entry)
 
 | Proto line | Message | Field | Class | Notes |
 |---|---|---|---|---|
-| `proto:444` | `RegisterProjectResponse` | `watch_path` | canonical | Confirmed registered watch path; built by registration handler. |
+| `proto:1083` | `SetIncrementalRequest` | `file_paths` | relative | **Reclassified.** `repeated string`; each element is a file path relative to the project root. See spec §7.4 — requires `extract_relative_paths!` macro. |
+| `proto:648` | `ImpactAnalysisRequest` | `file_path` | relative | **Reclassified.** Optional; file path relative to project root; narrows graph query. |
+
+### Canonical — Root paths (response messages, producer-validated)
+
+| Proto line | Message | Field | Class | Notes |
+|---|---|---|---|---|
+| `proto:444` | `RegisterProjectResponse` | `watch_path` | canonical | Confirmed registered watch root; built by registration handler. |
 | `proto:468` | `GetProjectStatusResponse` | `project_root` | canonical | Absolute project root from `watch_folders.path`. |
 | `proto:475` | `GetProjectStatusResponse` | `main_worktree_path` | canonical | Absolute path to main working tree when project is a worktree. |
 | `proto:492` | `ProjectInfo` | `project_root` | canonical | Absolute project root in list response. |
 | `proto:272` | `ServerStatusNotification` | `project_root` | canonical | Optional; absolute project root sent in server status events. |
-| `proto:580` | `TextSearchMatch` | `file_path` | canonical | Absolute file path from `file_metadata.file_path`. Hot-path: emitted for every search result. |
-| `proto:638` | `TraversalNodeProto` | `file_path` | canonical | Absolute path to file containing the traversal node. |
-| `proto:662` | `ImpactNodeProto` | `file_path` | canonical | Absolute path to file containing impacted node. |
-| `proto:702` | `PageRankNodeProto` | `file_path` | canonical | Absolute path to file containing the PageRank node. |
-| `proto:732` | `CommunityMemberProto` | `file_path` | canonical | Absolute path to file containing the community member. |
-| `proto:755` | `BetweennessNodeProto` | `file_path` | canonical | Absolute path to file containing the betweenness node. |
-| `proto:968` | `CancelItemsResponse` | `project_path` | canonical | Resolved project path for display; sourced from `watch_folders.path`. |
+| `proto:968` | `CancelItemsResponse` | `project_path` | canonical | Display field; sourced from `watch_folders.path`. |
 
-### Canonical — nested-message paths (producer-validated per spec §7.4 item 3)
+### Relative — Content paths (response messages, producer-validated)
 
 | Proto line | Message | Field | Class | Notes |
 |---|---|---|---|---|
-| `proto:1338` | `ProjectPayload` | `file_absolute_path` | canonical | Optional; full host-absolute path to the indexed file. Nested inside `ProjectPayload`; producer (Qdrant write path) must validate before serialization. |
-| `proto:1370` | `SymbolReference` | `file_path` | canonical | Absolute path inside `LspMetadata.references`; nested two levels deep (`ProjectPayload → LspMetadata → SymbolReference`). Producer-validated rule applies. |
-| `proto:1381` | `LibraryPayload` (proto) | `source_file` | canonical | Absolute path to the original library file. Nested in proto-defined `LibraryPayload` (distinct from serde `LibraryPayload`). |
+| `proto:580` | `TextSearchMatch` | `file_path` | relative | **Reclassified.** File path relative to project root; sourced from `file_metadata.relative_path`. Hot-path: emitted for every search result. |
+| `proto:638` | `TraversalNodeProto` | `file_path` | relative | **Reclassified.** Relative path to file containing the traversal node; sourced from `graph_nodes.file_path`. |
+| `proto:662` | `ImpactNodeProto` | `file_path` | relative | **Reclassified.** Relative path to file containing impacted node; sourced from `graph_nodes.file_path`. |
+| `proto:702` | `PageRankNodeProto` | `file_path` | relative | **Reclassified.** Relative path; sourced from `graph_nodes.file_path`. |
+| `proto:732` | `CommunityMemberProto` | `file_path` | relative | **Reclassified.** Relative path; sourced from `graph_nodes.file_path`. |
+| `proto:755` | `BetweennessNodeProto` | `file_path` | relative | **Reclassified.** Relative path; sourced from `graph_nodes.file_path`. |
 
-### Relative (no canonical wrapping)
+### Canonical — library root (nested-message path, producer-validated per spec §7.4)
 
-| Proto line | Message | Field | Anchor | Class | Notes |
-|---|---|---|---|---|---|
-| `proto:1337` | `ProjectPayload` | `file_path` | Relative to project root | relative | Aligns with `tracked_files.relative_path`. Must NOT be wrapped in `CanonicalPath` (would reject as non-absolute). |
+| Proto line | Message | Field | Class | Notes |
+|---|---|---|---|---|
+| `proto:1381` | `LibraryPayload` (proto) | `source_file` | canonical | Absolute path to the original library root document. Nested in proto-defined `LibraryPayload` (distinct from serde `LibraryPayload`). |
+
+### Relative — Content paths (nested-message paths, producer-validated per spec §7.4)
+
+| Proto line | Message | Field | Class | Notes |
+|---|---|---|---|---|
+| `proto:1337` | `ProjectPayload` | `file_path` | relative | Relative to project root. Aligns with `tracked_files.relative_path`. Must NOT be wrapped in `CanonicalPath`. |
+| `proto:1338` | `ProjectPayload` | `file_absolute_path` | canonical | Optional display/reference field. Reconstructed from root + relative. Canonical when present. Producer must validate. |
+| `proto:1370` | `SymbolReference` | `file_path` | relative | **Reclassified.** File path relative to project root; nested inside `LspMetadata.references` (`ProjectPayload → LspMetadata → SymbolReference`). Producer-validated rule applies. |
 
 ### Non-path proto fields (false positives)
 
@@ -140,20 +156,32 @@ Classification definitions (from spec §6.1.1):
 
 ## TypeScript MCP Server (`src/typescript/mcp-server/src/`)
 
-These fields mirror the proto messages over gRPC. They are listed here for T2 coverage confirmation — the TS types do not add new path storage.
+These fields mirror the proto messages over gRPC. Reclassified under root/relative discipline.
+
+### Canonical — Root paths
 
 | File | Interface | Field | Class | Notes |
 |---|---|---|---|---|
-| `clients/grpc-types-messages-document-project.ts:42` | `RegisterProjectRequest` | `path` | canonical | Mirrors proto `RegisterProjectRequest.path`. Sent from TS → gRPC. |
-| `clients/grpc-types-messages-document-project.ts:57` | `RegisterProjectResponse` | `watch_path` | canonical | Mirrors proto response. |
-| `clients/grpc-types-messages-document-project.ts:62` | `DeprioritizeProjectRequest` | `watch_path` | canonical | Mirrors proto request. |
-| `clients/grpc-types-messages-document-project.ts:79` | `GetProjectStatusResponse` | `project_root` | canonical | Mirrors proto response. |
-| `clients/grpc-types-messages-document-project.ts:95` | `ProjectInfo` | `project_root` | canonical | Mirrors proto. |
-| `clients/grpc-types-messages-system-collection.ts:72` | `ServerStatusNotification` | `project_root` | canonical | Mirrors proto. |
-| `clients/grpc-types-search-graph.ts:30` | `TextSearchMatch` | `file_path` | canonical | Mirrors proto. Returned to LLM client. |
-| `clients/grpc-types-search-graph.ts:58` | `TraversalNodeProto` | `file_path` | canonical | Mirrors proto. |
-| `clients/grpc-types-search-graph.ts:67` | `ImpactAnalysisRequest` | `file_path` | canonical | Optional; mirrors proto. |
-| `clients/grpc-types-search-graph.ts:79` | `ImpactNodeProto` | `file_path` | canonical | Mirrors proto. |
+| `clients/grpc-types-messages-document-project.ts:42` | `RegisterProjectRequest` | `path` | canonical | Mirrors proto `RegisterProjectRequest.path`. Root path. Sent from TS → gRPC. |
+| `clients/grpc-types-messages-document-project.ts:57` | `RegisterProjectResponse` | `watch_path` | canonical | Mirrors proto response. Watch root. |
+| `clients/grpc-types-messages-document-project.ts:62` | `DeprioritizeProjectRequest` | `watch_path` | canonical | Mirrors proto request. Watch root for disambiguation. |
+| `clients/grpc-types-messages-document-project.ts:79` | `GetProjectStatusResponse` | `project_root` | canonical | Mirrors proto response. Root. |
+| `clients/grpc-types-messages-document-project.ts:95` | `ProjectInfo` | `project_root` | canonical | Mirrors proto. Root. |
+| `clients/grpc-types-messages-system-collection.ts:72` | `ServerStatusNotification` | `project_root` | canonical | Mirrors proto. Root. |
+
+### Relative — Content paths
+
+| File | Interface | Field | Class | Notes |
+|---|---|---|---|---|
+| `clients/grpc-types-search-graph.ts:30` | `TextSearchMatch` | `file_path` | relative | **Reclassified.** Mirrors proto. File path relative to project root. Returned to LLM client. |
+| `clients/grpc-types-search-graph.ts:58` | `TraversalNodeProto` | `file_path` | relative | **Reclassified.** Mirrors proto. Relative to project root. |
+| `clients/grpc-types-search-graph.ts:67` | `ImpactAnalysisRequest` | `file_path` | relative | **Reclassified.** Optional; mirrors proto. Relative to project root. |
+| `clients/grpc-types-search-graph.ts:79` | `ImpactNodeProto` | `file_path` | relative | **Reclassified.** Mirrors proto. Relative to project root. |
+
+### Non-path / disambiguation
+
+| File | Interface | Field | Class | Notes |
+|---|---|---|---|---|
 | `clients/grpc-types-search-graph.ts:61` | `TraversalNodeProto` | `path` | non-path | Traversal description string; mirrors proto field. |
 | `clients/project-queries.ts:26` | `ProjectRow` (SQLite result) | `disambiguation_path` | disambiguation-suffix | Read from `watch_folders.disambiguation_path`. |
 
@@ -230,53 +258,54 @@ Sites that participate in the watcher event loop or queue hot-path — flag for 
 
 | Site | Reason |
 |---|---|
-| `unified_queue.file_path` | Every file enqueue/dedup check touches this column with a composite UNIQUE index. |
-| `tracked_files.file_path` | Written on every watcher event (create, modify, rename, delete). In UNIQUE constraint. |
-| `watch_folders.path` | Read by queue priority JOIN on every dequeue. Path-validator reads it in polling loop. |
-| `FileEvent::path` (watching/events.rs:12) | Lives on the hot-path from OS notify callbacks through debounce to queue write. Must be converted to canonical before DB write. |
+| `unified_queue.file_path` | Every file enqueue/dedup check touches this column with a composite UNIQUE index. Now stores relative path. |
+| `tracked_files.relative_path` | Written on every watcher event (create, modify, rename, delete). Surviving key after `file_path` drop; in UNIQUE constraint `(watch_folder_id, relative_path, branch)`. |
+| `watch_folders.path` | Read by queue priority JOIN on every dequeue. Path-validator reads it in polling loop. Canonical root. |
+| `FileEvent::path` (watching/events.rs:12) | Lives on the hot-path from OS notify callbacks through debounce to queue write. Must be converted to `RelativePath` (relative to watch root) before DB write. |
 | `PendingMove::old_path` (move_detector/types.rs:52) | Renamed-file correlation is time-critical (MOVED_FROM → MOVED_TO within debounce window). |
-| `FilePayload::file_path` (payloads/filesystem.rs:17) | Serialized into Qdrant point payload JSON on every file ingest. |
-| `TextSearchMatch::file_path` (proto:580) | Emitted for every FTS5 search result row — can be thousands per query. |
+| `FilePayload::file_path` (payloads/filesystem.rs:17) | Serialized into Qdrant point payload JSON on every file ingest. Now stores relative path. |
+| `TextSearchMatch::file_path` (proto:580) | Emitted for every FTS5 search result row — can be thousands per query. Now relative path sourced from `file_metadata.relative_path`. |
 
 ---
 
-## Producer/Consumer Matrix for Proto Canonical Fields
+## Producer/Consumer Matrix for Proto Path Fields
 
-For each canonical-class proto field: which handlers produce it, which consumers decode it. Informs T8 validation placement (handler-entry vs producer-side per spec §7.4).
+For each canonical/relative proto field: which handlers produce it, which consumers decode it. Informs T8 validation placement (handler-entry vs producer-side per spec §7.4).
 
 ### Handler-entry validated (request fields — incoming data)
 
-| Message | Field | Producing client | Handler entry point |
-|---|---|---|---|
-| `RegisterProjectRequest` | `path` | wqm CLI / TS MCP session-lifecycle | `project_service/registration.rs` — `canonicalize_project_path()` currently (Category A, A-2 target) |
-| `DeprioritizeProjectRequest` | `watch_path` | wqm CLI | `project_service/deactivation.rs` |
-| `SetIncrementalRequest` | `file_paths` | wqm CLI | daemon library write service |
-| `ImpactAnalysisRequest` | `file_path` | wqm CLI / TS graph tool | `graph_service/handlers.rs` |
+| Message | Field | Class | Producing client | Handler entry point |
+|---|---|---|---|---|
+| `RegisterProjectRequest` | `path` | canonical | wqm CLI / TS MCP session-lifecycle | `project_service/registration.rs` — `canonicalize_project_path()` currently (Category A, A-2 target). Validate as `CanonicalPath`. |
+| `DeprioritizeProjectRequest` | `watch_path` | canonical | wqm CLI | `project_service/deactivation.rs`. Validate as `CanonicalPath`. |
+| `SetIncrementalRequest` | `file_paths` | relative | wqm CLI | daemon library write service. **Reclassified.** Validate as `RelativePath` via `extract_relative_paths!`. |
+| `ImpactAnalysisRequest` | `file_path` | relative | wqm CLI / TS graph tool | `graph_service/handlers.rs`. **Reclassified.** Validate as `RelativePath`. |
 
 ### Producer-validated (response fields — outgoing data built by daemon)
 
-| Message | Field | Build site | Notes |
-|---|---|---|---|
-| `RegisterProjectResponse` | `watch_path` | `project_service/registration.rs` | Sourced from `watch_folders.path` (DB-read canonical). |
-| `GetProjectStatusResponse` | `project_root` | `project_service/queries.rs` | DB read. |
-| `GetProjectStatusResponse` | `main_worktree_path` | `project_service/worktree.rs` | Built from worktree detection; must be validated before serialization. |
-| `ProjectInfo` | `project_root` | `project_service/queries.rs` | DB read. |
-| `ServerStatusNotification` | `project_root` | `system_service/helpers.rs` | Built from registered project record. |
-| `TextSearchMatch` | `file_path` | `text_search_service.rs` | Decoded from `file_metadata.file_path` (DB canonical). |
-| `TraversalNodeProto` | `file_path` | `graph_service/handlers.rs` | Decoded from `graph_nodes.file_path` (DB canonical). |
-| `ImpactNodeProto` | `file_path` | `graph_service/handlers.rs` | Same. |
-| `PageRankNodeProto` | `file_path` | `graph_service/handlers.rs` | Same. |
-| `CommunityMemberProto` | `file_path` | `graph_service/handlers.rs` | Same. |
-| `BetweennessNodeProto` | `file_path` | `graph_service/handlers.rs` | Same. |
-| `CancelItemsResponse` | `project_path` | `queue_write_service.rs` | Sourced from `watch_folders.path`; display field. |
+| Message | Field | Class | Build site | Notes |
+|---|---|---|---|---|
+| `RegisterProjectResponse` | `watch_path` | canonical | `project_service/registration.rs` | Sourced from `watch_folders.path` (DB-read canonical). |
+| `GetProjectStatusResponse` | `project_root` | canonical | `project_service/queries.rs` | DB read. |
+| `GetProjectStatusResponse` | `main_worktree_path` | canonical | `project_service/worktree.rs` | Built from worktree detection; must be validated before serialization. |
+| `ProjectInfo` | `project_root` | canonical | `project_service/queries.rs` | DB read. |
+| `ServerStatusNotification` | `project_root` | canonical | `system_service/helpers.rs` | Built from registered project record. |
+| `CancelItemsResponse` | `project_path` | canonical | `queue_write_service.rs` | Sourced from `watch_folders.path`; display field. |
+| `TextSearchMatch` | `file_path` | relative | `text_search_service.rs` | **Reclassified.** Decoded from `file_metadata.relative_path` (DB relative). |
+| `TraversalNodeProto` | `file_path` | relative | `graph_service/handlers.rs` | **Reclassified.** Decoded from `graph_nodes.file_path` (DB relative). |
+| `ImpactNodeProto` | `file_path` | relative | `graph_service/handlers.rs` | **Reclassified.** Same source. |
+| `PageRankNodeProto` | `file_path` | relative | `graph_service/handlers.rs` | **Reclassified.** Same source. |
+| `CommunityMemberProto` | `file_path` | relative | `graph_service/handlers.rs` | **Reclassified.** Same source. |
+| `BetweennessNodeProto` | `file_path` | relative | `graph_service/handlers.rs` | **Reclassified.** Same source. |
 
-### Nested-message paths (producer-validated, see spec §7.4 item 3)
+### Nested-message paths (producer-validated, see spec §7.4)
 
-| Message (container) | Nested type | Field | Build site |
-|---|---|---|---|
-| `ProjectPayload` | direct | `file_absolute_path` | Qdrant write path in daemon; built when constructing the point payload. Producer must call `CanonicalPath::from_validated`. |
-| `LspMetadata → SymbolReference` | `SymbolReference` | `file_path` | LSP enrichment pipeline in daemon; built during LSP symbol extraction. |
-| `LibraryPayload` (proto) | direct | `source_file` | Library ingest pipeline in daemon. |
+| Message (container) | Nested type | Field | Class | Build site | Notes |
+|---|---|---|---|---|---|
+| `ProjectPayload` | direct | `file_absolute_path` | canonical | Qdrant write path in daemon; optional display field reconstructed from root + relative. Producer must call `CanonicalPath::from_validated`. |
+| `ProjectPayload` | direct | `file_path` | relative | Qdrant write path in daemon; relative to project root. Producer must call `RelativePath::from_validated`. |
+| `LspMetadata → SymbolReference` | `SymbolReference` | `file_path` | relative | **Reclassified.** LSP enrichment pipeline in daemon; built during LSP symbol extraction. Relative to project root. |
+| `LibraryPayload` (proto) | direct | `source_file` | canonical | Library ingest pipeline in daemon. Library root document; absolute. |
 
 ---
 
@@ -288,7 +317,7 @@ The following items require architectural input before T6 (refactor task) closes
 
 2. **`WatchMetadata::watch_path` in `daemon/grpc/src/services/project_service/worktree.rs:28`** — This field is classified canonical (it is returned in `RegisterProjectResponse.watch_path`). The worktree handler builds it from `std::fs::canonicalize()` (spec §3.2.2 site: `worktree.rs:97` — Category A). **Decision needed:** confirm A-2 will replace this with syntactic normalization to resolve the Category A violation.
 
-3. **`LibraryDocumentPayload::library_path` (common/src/payloads/library.rs:93)** — Classified as relative/non-path. The field is a logical hierarchy label (e.g. `"cs/design_patterns"`), not a filesystem path. It is serialized into the Qdrant payload. **Decision needed:** confirm this is intentionally a label, not derived from a filesystem path, so it needs no `CanonicalPath` treatment.
+3. **`LibraryDocumentPayload::library_path` (common/src/payloads/library.rs:93)** — Classified as relative (logical hierarchy label). The field is a hierarchy label (e.g. `"cs/design_patterns"`), not a direct filesystem path. It is serialized into the Qdrant payload. Confirmed: this is intentionally a label, not derived from a filesystem path; no `CanonicalPath` treatment needed. The `RelativePath` rules (no `..`, no leading `/`) still apply as a best-practice guard. **Resolved:** leave as `String` with input validation; no `RelativePath` newtype required for label fields.
 
 ---
 
@@ -296,55 +325,56 @@ The following items require architectural input before T6 (refactor task) closes
 
 | Spec §6.1 entry | Audit finding | Status |
 |---|---|---|
-| `watch_folders.path` — canonical | Confirmed canonical (`schema/watch_folders_schema.sql:14`). | match |
-| `tracked_files.file_path` — canonical | Confirmed canonical (`tracked_files_schema/schema.rs:12`). | match |
-| `file_metadata.file_path` (search.db) — canonical | Confirmed canonical (`code_lines_schema.rs:158`). | match |
-| `graph_nodes.file_path` — canonical | Confirmed canonical (`graph/schema.rs:186`). | match |
-| `graph_edges.source_file` — canonical | Confirmed canonical (`graph/schema.rs:216`). | match |
-| `unified_queue.file_path` — canonical | Confirmed canonical (`unified_queue_schema/sql.rs:42`). | match |
-| `ignore_file_mtimes.project_root` — canonical | Confirmed canonical (`schema_version/v34.rs:24`). | match |
-| `ignore_file_mtimes.file_path` — canonical | Confirmed canonical (`schema_version/v34.rs:25`). | match |
+| `watch_folders.path` — canonical | Confirmed canonical (root only). `schema/watch_folders_schema.sql:14`. | match |
+| `ignore_file_mtimes.project_root` — canonical | Confirmed canonical (root). `schema_version/v34.rs:24`. | match |
+| `tracked_files.file_path` — **DROPPED in v37** | Reclassified: was absolute, now eliminated. `tracked_files_schema/schema.rs:12`. | **reclassified** |
+| `file_metadata.file_path` (search.db) — **DROPPED in v37** | Reclassified: was absolute/denormalized, now eliminated. `code_lines_schema.rs:158`. | **reclassified** |
+| `graph_nodes.file_path` — **relative** | **Reclassified** from canonical. Stores relative path going forward. `graph/schema.rs:186`. | **reclassified** |
+| `graph_edges.source_file` — **relative** | **Reclassified** from canonical. Stores relative path going forward. `graph/schema.rs:216`. | **reclassified** |
+| `unified_queue.file_path` — **relative** | **Reclassified** from canonical. Relative path for per-file dedup. `unified_queue_schema/sql.rs:42`. | **reclassified** |
+| `ignore_file_mtimes.file_path` — **relative** | **Reclassified** from canonical. Anchored to `project_root` in same row. `schema_version/v34.rs:25`. | **reclassified** |
 | `watch_folders.submodule_path` — relative | Confirmed relative. | match |
 | `watch_folders.disambiguation_path` — disambiguation-suffix | Confirmed disambiguation-suffix. | match |
-| `tracked_files.relative_path` — relative | Confirmed relative. | match |
-| `file_metadata.relative_path` — relative | Confirmed relative. | match |
-| `FilePayload.file_path` — canonical | Confirmed canonical (`payloads/filesystem.rs:17`). | match |
-| `FilePayload.old_path` — canonical | Confirmed canonical (`payloads/filesystem.rs:29`). | match |
-| `FolderPayload.folder_path` — canonical | Confirmed canonical (`payloads/filesystem.rs:36`). | match |
-| `FolderPayload.old_path` — canonical | Confirmed canonical (`payloads/filesystem.rs:51`). | match |
-| "Other Rust payload structs TBD by A-1" | Added: `LibraryDocumentPayload.document_path` (canonical), `LibraryDocumentPayload.library_path` (relative/non-path), `ImageSearchResult.file_path` (canonical). | **added** |
-| `ProjectPayload.file_absolute_path` (proto:1338) — canonical | Confirmed canonical, nested-message class. | match |
-| `LibraryPayload.source_file` (proto:1381) — canonical | Confirmed canonical (`proto:1381`). | match |
-| `SymbolReference.file_path` (proto:1370) — canonical | Confirmed canonical, nested inside `LspMetadata`. | match |
-| `TextSearchMatch.file_path` (proto:580) — canonical | Confirmed canonical. | match |
-| `TraversalNodeProto.file_path` (proto:638) — canonical | Confirmed canonical. | match |
-| `ImpactNodeProto.file_path` (proto:662) — canonical | Confirmed canonical. | match |
-| `PageRankNodeProto.file_path` (proto:702) — canonical | Confirmed canonical. | match |
-| `CommunityMemberProto.file_path` (proto:732) — canonical | Confirmed canonical. | match |
-| `BetweennessNodeProto.file_path` (proto:755) — canonical | Confirmed canonical. | match |
-| `ImpactAnalysisRequest.file_path` (proto:648) — canonical | Confirmed canonical (request field). | match |
+| `tracked_files.relative_path` — relative | Confirmed relative. Surviving key after `file_path` drop. | match |
+| `file_metadata.relative_path` — relative | Confirmed relative. Surviving key after `file_path` drop. | match |
+| `FilePayload.file_path` — **relative** | **Reclassified** from canonical. Relative to watch_folder root. `payloads/filesystem.rs:17`. | **reclassified** |
+| `FilePayload.old_path` — **relative** | **Reclassified** from canonical. Relative path before rename. `payloads/filesystem.rs:29`. | **reclassified** |
+| `FolderPayload.folder_path` — **relative** | **Reclassified** from canonical. Relative folder path. `payloads/filesystem.rs:36`. | **reclassified** |
+| `FolderPayload.old_path` — **relative** | **Reclassified** from canonical. Relative folder path before rename. `payloads/filesystem.rs:51`. | **reclassified** |
+| `LibraryDocumentPayload.document_path` — **relative** | **Reclassified** from canonical. Relative to library root. `payloads/library.rs:78`. | **reclassified** |
+| `LibraryDocumentPayload.library_path` — relative | Confirmed relative (logical hierarchy label). `payloads/library.rs:93`. | match |
+| `ImageSearchResult.file_path` — **relative** | **Reclassified** from canonical. Relative to watch_folder root. `daemon/core/src/image_search.rs:79`. | **reclassified** |
+| `ProjectPayload.file_absolute_path` (proto:1338) — canonical | Optional display/reference field; canonical when present. Confirmed canonical. | match |
+| `LibraryPayload.source_file` (proto:1381) — canonical | Library root document. Confirmed canonical. | match |
+| `SymbolReference.file_path` (proto:1370) — **relative** | **Reclassified** from canonical. Relative to project root; nested inside `LspMetadata`. | **reclassified** |
+| `TextSearchMatch.file_path` (proto:580) — **relative** | **Reclassified** from canonical. Sourced from `file_metadata.relative_path`. | **reclassified** |
+| `TraversalNodeProto.file_path` (proto:638) — **relative** | **Reclassified** from canonical. Sourced from `graph_nodes.file_path`. | **reclassified** |
+| `ImpactNodeProto.file_path` (proto:662) — **relative** | **Reclassified** from canonical. | **reclassified** |
+| `PageRankNodeProto.file_path` (proto:702) — **relative** | **Reclassified** from canonical. | **reclassified** |
+| `CommunityMemberProto.file_path` (proto:732) — **relative** | **Reclassified** from canonical. | **reclassified** |
+| `BetweennessNodeProto.file_path` (proto:755) — **relative** | **Reclassified** from canonical. | **reclassified** |
+| `ImpactAnalysisRequest.file_path` (proto:648) — **relative** | **Reclassified** from canonical. File path relative to project root. | **reclassified** |
+| `SetIncrementalRequest.file_paths` (proto:1083) — **relative** | **Reclassified** from canonical. Each element relative to project root. | **reclassified** |
 | `ProjectPayload.file_path` (proto:1337) — relative | Confirmed relative. | match |
+| `RegisterProjectRequest.path` (proto:429) — canonical | Root path. Confirmed canonical. | match |
+| `DeprioritizeProjectRequest.watch_path` (proto:450) — canonical | Root path. Confirmed canonical. | match |
+| `RegisterProjectResponse.watch_path` (proto:444) — canonical | Watch root. Confirmed canonical. | match |
+| `GetProjectStatusResponse.project_root` (proto:468) — canonical | Root. Confirmed canonical. | match |
+| `GetProjectStatusResponse.main_worktree_path` (proto:475) — canonical | Root. Confirmed canonical. | match |
+| `ProjectInfo.project_root` (proto:492) — canonical | Root. Confirmed canonical. | match |
+| `ServerStatusNotification.project_root` (proto:272) — canonical | Root. Confirmed canonical. | match |
+| `CancelItemsResponse.project_path` (proto:968) — canonical | Display root. Confirmed canonical. | match |
 | `queue_config.database_path` — process-local | Confirmed process-local (`queue_config.rs:19`). | match |
 | `graph::path` — process-local | Confirmed process-local (`graph/schema.rs:53` → `GraphDbManager::path`). | match |
 | Config file path — process-local | Confirmed process-local (env var / `paths::find_config_file()`). | match |
 | `LocalPath`-flavored fs API args — process-local | Confirmed: watching events, path-validator, move-detector types all use `PathBuf`, not `String`. | match |
-| **New: `RegisterProjectRequest.path` (proto:429)** | Not in spec §6.1 proto section. Canonical request field. | **added** |
-| **New: `DeprioritizeProjectRequest.watch_path` (proto:450)** | Not in spec §6.1. Canonical request field. | **added** |
-| **New: `SetIncrementalRequest.file_paths` (proto:1083)** | Not in spec §6.1. Canonical `repeated string`. | **added** |
-| **New: `RegisterProjectResponse.watch_path` (proto:444)** | Not in spec §6.1. Canonical response field. | **added** |
-| **New: `GetProjectStatusResponse.project_root` (proto:468)** | Not in spec §6.1. Canonical response field. | **added** |
-| **New: `GetProjectStatusResponse.main_worktree_path` (proto:475)** | Not in spec §6.1. Canonical response field. | **added** |
-| **New: `ProjectInfo.project_root` (proto:492)** | Not in spec §6.1. Canonical response field. | **added** |
-| **New: `ServerStatusNotification.project_root` (proto:272)** | Not in spec §6.1. Canonical notification field. | **added** |
-| **New: `CancelItemsResponse.project_path` (proto:968)** | Not in spec §6.1. Canonical display field. | **added** |
-| **New: `DaemonConfig::log_file`, `project_path`, `Config::database_path`** | Not in spec §6.1 process-local list. Process-local. | **added** |
-| **New: `LoggingConfig::log_file_path`** | Not in spec §6.1. Process-local. | **added** |
-| **New: `LadybugConfig::db_path`** | Not in spec §6.1. Process-local. | **added** |
-| **New: `TlsConfig::cert_path`, `key_path`, `ca_cert_path`** | Not in spec §6.1. Process-local. | **added** |
-| **New: `Profile::database_path` (cli_profiles.rs)** | Not in spec §6.1. Process-local. | **added** |
-| **New: `YamlLspConfig::user_path`** | Not in spec §6.1. Process-local. | **added** |
-| **New: watcher / move-detector `PathBuf` fields** | Not in spec §6.1. Process-local (never reach persistence boundary unvalidated). | **added** |
-| **New: CLI display path fields** | Not in spec §6.1. Canonical (sourced from DB). No separate storage. | **added** |
-| **New: `ImageSearchResult::file_path`** | Not in spec §6.1. Canonical (decoded from Qdrant). | **added** |
-| **New: TraversalNodeProto.path, TextSearchRequest.path_glob/prefix** | Not in spec §6.1. Non-path false positives. | **added** |
+| `DaemonConfig::log_file`, `project_path`, `Config::database_path` — process-local | Confirmed process-local. | match |
+| `LoggingConfig::log_file_path` — process-local | Confirmed process-local. | match |
+| `LadybugConfig::db_path` — process-local | Confirmed process-local. | match |
+| `TlsConfig::cert_path`, `key_path`, `ca_cert_path` — process-local | Confirmed process-local. | match |
+| `Profile::database_path` (cli_profiles.rs) — process-local | Confirmed process-local. | match |
+| `YamlLspConfig::user_path` — process-local | Confirmed process-local. | match |
+| watcher / move-detector `PathBuf` fields — process-local | Confirmed process-local (never reach persistence boundary unvalidated). | match |
+| CLI display path fields — canonical (sourced from DB roots) | Confirmed canonical (sourced from `watch_folders.path`). No separate storage. | match |
+| `TraversalNodeProto.path`, `TextSearchRequest.path_glob/prefix` — non-path | Confirmed non-path false positives. | match |
 
