@@ -102,6 +102,44 @@ impl MountMap {
         Ok(MountMap { entries })
     }
 
+    /// Construct a [`MountMap`] from declared YAML mount entries.
+    ///
+    /// Convenience adapter for the config loader: each entry's `host` and
+    /// `container` strings are forwarded to [`MountMap::new`], which is the
+    /// single source of canonicalisation (tilde expansion, absolute-path
+    /// validation, `..` rejection) and validation (duplicate host / duplicate
+    /// container).
+    ///
+    /// An empty slice yields an [identity map](MountMap::identity), matching
+    /// the spec §5.5 default for host-native deployments.
+    ///
+    /// # Errors
+    ///
+    /// See [`MountMap::new`] for the full failure surface.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wqm_common::paths::MountMap;
+    /// use wqm_common::yaml_defaults::YamlMountEntry;
+    ///
+    /// let m = MountMap::from_yaml_entries(&[YamlMountEntry {
+    ///     host: "/Users/chris/dev".to_string(),
+    ///     container: "/Users/chris/dev".to_string(),
+    /// }])
+    /// .unwrap();
+    /// assert_eq!(m.len(), 1);
+    /// ```
+    pub fn from_yaml_entries(
+        entries: &[crate::yaml_defaults::YamlMountEntry],
+    ) -> Result<Self, PathError> {
+        let raw: Vec<(String, String)> = entries
+            .iter()
+            .map(|e| (e.host.clone(), e.container.clone()))
+            .collect();
+        Self::new(raw)
+    }
+
     /// Find the mount entry whose `host` is the longest prefix of the
     /// canonical path, with component-aware matching.
     ///
