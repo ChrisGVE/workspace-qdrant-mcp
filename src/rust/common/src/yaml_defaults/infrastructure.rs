@@ -360,3 +360,25 @@ impl Default for YamlResourceLimitsConfig {
         }
     }
 }
+
+// ── Mounts ──────────────────────────────────────────────────────────────
+
+/// One host ↔ container directory pair, as declared in `config.yaml`.
+///
+/// Carries unprocessed strings exactly as read from the YAML file. Tilde
+/// expansion, absolute-path validation, duplicate detection, and the
+/// conversion to [`wqm_common::paths::MountMap`] happen in
+/// [`crate::paths::MountMap::new`] or in the daemon's config-load
+/// validation step (`DaemonConfig::validate`).
+///
+/// See `docs/specs/16-path-abstraction.md` §5.1 for the schema and §5.3
+/// for the validation rules.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct YamlMountEntry {
+    /// Host-side directory (the path as seen by the daemon's running
+    /// process). May contain a leading `~` which is expanded on load.
+    pub host: String,
+    /// Container-side directory (the canonical/storage form). May contain
+    /// a leading `~` which is expanded on load.
+    pub container: String,
+}
