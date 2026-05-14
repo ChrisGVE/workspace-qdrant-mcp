@@ -74,18 +74,19 @@ while IFS= read -r filepath; do
 
         # Check for canonicalize call patterns
         if ($0 ~ /std::fs::canonicalize\(/ || $0 ~ /\.canonicalize\(\)/) {
-            # Check if CATEGORY-B marker is on this line or within 3 lines above
+            # Check if CATEGORY-B marker is on this line or within 3 lines above.
+            # POSIX awk does not support `\s`; use [[:space:]] explicitly.
             has_marker = 0
 
             # Check current line
-            if ($0 ~ /\/\/\s*CATEGORY-B:/) {
+            if ($0 ~ /\/\/[[:space:]]*CATEGORY-B:/) {
                 has_marker = 1
             }
 
             # Check up to 3 lines above
             if (!has_marker) {
                 for (i = 0; i <= 2; i++) {
-                    if (prev_lines[i] ~ /\/\/\s*CATEGORY-B:/) {
+                    if (prev_lines[i] ~ /\/\/[[:space:]]*CATEGORY-B:/) {
                         has_marker = 1
                         break
                     }

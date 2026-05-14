@@ -6,7 +6,13 @@
 //! - Configurable latency for event coalescing
 //!
 //! Edge case handling:
-//! - Symlinks: Resolved to canonical paths before watching
+//! - Symlinks: Watched paths are used **as given**. The user's symlink
+//!   representation is preserved end-to-end (see spec §16 §11.1 sub-case
+//!   8b). Watch roots that are themselves symlinks emit a startup warning
+//!   because FSEvents may attribute events to the symlink target rather
+//!   than the symlink path; this is the documented limitation chosen
+//!   under audit task A-2 (spec §13: "restrict to non-symlink roots —
+//!   document limitation"). Test case 8e exercises this path.
 //! - Permission changes: Reported as metadata events
 //! - Rapid file changes: Coalesced based on latency setting
 //! - Network mounts: Automatically uses polling fallback if FSEvents unavailable
@@ -29,8 +35,6 @@ pub struct MacOSWatcher {
     event_rx: Option<mpsc::UnboundedReceiver<FileEvent>>,
     watcher: Option<RecommendedWatcher>,
     watched_paths: Vec<PathBuf>,
-    /// Track symlink resolutions to handle symlinked directories
-    symlink_map: HashMap<PathBuf, PathBuf>,
 }
 
 impl MacOSWatcher {
@@ -48,30 +52,29 @@ impl MacOSWatcher {
             event_rx: Some(event_rx),
             watcher: None,
             watched_paths: Vec::new(),
-            symlink_map: HashMap::new(),
         })
     }
 
-    /// Resolve symlinks to their canonical paths
+    /// Inspect a watch-root path and emit a warning if it is itself a
+    /// symlink. The path is returned unchanged — per spec §16 §3.1
+    /// rule 7 we never resolve symlinks. Callers register FSEvents on
+    /// the user-supplied path representation; events for files under a
+    /// symlinked root may be attributed to either the symlink or its
+    /// target depending on FSEvents semantics.
     ///
-    /// This ensures consistent event handling when watching symlinked directories
-    fn resolve_symlink(&mut self, path: &Path) -> PathBuf {
-        match std::fs::canonicalize(path) {
-            Ok(canonical) => {
-                if canonical != path {
-                    tracing::debug!(
-                        "Resolved symlink: {} -> {}",
-                        path.display(),
-                        canonical.display()
-                    );
-                    self.symlink_map
-                        .insert(path.to_path_buf(), canonical.clone());
-                }
-                canonical
-            }
-            Err(e) => {
-                tracing::warn!("Failed to resolve symlink for {}: {}", path.display(), e);
-                path.to_path_buf()
+    /// This replaces the former `resolve_symlink` function (audit task
+    /// A-2, spec §3.2.2). The redesign chooses option (a) from spec
+    /// §13: "restrict to non-symlink roots — document limitation".
+    fn check_root_symlink(path: &Path) {
+        if let Ok(meta) = std::fs::symlink_metadata(path) {
+            if meta.file_type().is_symlink() {
+                tracing::warn!(
+                    "macOS watch root is a symlink: {}. FSEvents may attribute \
+                     events to the symlink target rather than the symlink path. \
+                     For stable canonical-path attribution, prefer watching the \
+                     resolved target directly. See spec §16 §11.1 case 8e.",
+                    path.display()
+                );
             }
         }
     }
@@ -173,23 +176,26 @@ impl PlatformWatcher for MacOSWatcher {
             self.setup_watcher()?;
         }
 
-        // Resolve symlinks to ensure consistent behavior
-        let canonical_path = self.resolve_symlink(path);
+        // Emit a warning if the user-supplied watch root is itself a
+        // symlink. The path is then used unchanged: FSEvents is
+        // registered on the symlink representation, not the target.
+        Self::check_root_symlink(path);
+        let watch_path = path.to_path_buf();
 
         // Verify path exists and is accessible
-        if !canonical_path.exists() {
+        if !watch_path.exists() {
             return Err(PlatformWatchingError::FSEvents(format!(
                 "Path does not exist: {}",
-                canonical_path.display()
+                watch_path.display()
             )));
         }
 
         // Check permissions
-        if let Err(e) = std::fs::read_dir(&canonical_path) {
+        if let Err(e) = std::fs::read_dir(&watch_path) {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
                 return Err(PlatformWatchingError::FSEvents(format!(
                     "Permission denied: {}",
-                    canonical_path.display()
+                    watch_path.display()
                 )));
             }
         }
@@ -197,14 +203,13 @@ impl PlatformWatcher for MacOSWatcher {
         // Add path to watcher (always recursive on macOS FSEvents)
         if let Some(ref mut watcher) = self.watcher {
             watcher
-                .watch(&canonical_path, RecursiveMode::Recursive)
+                .watch(&watch_path, RecursiveMode::Recursive)
                 .map_err(|e| PlatformWatchingError::FSEvents(e.to_string()))?;
 
-            self.watched_paths.push(canonical_path.clone());
+            self.watched_paths.push(watch_path.clone());
             tracing::info!(
-                "Started macOS FSEvents watching for: {} (canonical: {})",
-                path.display(),
-                canonical_path.display()
+                "Started macOS FSEvents watching for: {}",
+                watch_path.display()
             );
         }
 
@@ -224,7 +229,6 @@ impl PlatformWatcher for MacOSWatcher {
         // Clear state
         self.watcher = None;
         self.watched_paths.clear();
-        self.symlink_map.clear();
 
         tracing::info!("Stopped macOS FSEvents watcher");
         Ok(())
@@ -232,5 +236,58 @@ impl PlatformWatcher for MacOSWatcher {
 
     fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>> {
         self.event_rx.take()
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod symlink_tests {
+    //! Test §11.1 case 8e — macOS FSEvents handling for symlinked watch
+    //! roots after `resolve_symlink` removal. Verifies the chosen
+    //! redesign (option (a): restrict to non-symlink roots, log warning,
+    //! preserve user-supplied path representation).
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_8e_symlink_watch_root_preserves_path_representation() {
+        // Create a real directory, a symlink to it, then watch the symlink.
+        // The watcher must store the symlink path (not the target) in
+        // its watched_paths list — confirming spec §16 §11.1 8b/8e
+        // behavior.
+        let temp = TempDir::new().unwrap();
+        let target = temp.path().join("real");
+        fs::create_dir(&target).unwrap();
+
+        let symlink = temp.path().join("link");
+        std::os::unix::fs::symlink(&target, &symlink).unwrap();
+
+        let mut watcher = MacOSWatcher::new(MacOSConfig::default(), 64).unwrap();
+        watcher.watch(&symlink).await.unwrap();
+
+        let watched = &watcher.watched_paths;
+        assert_eq!(watched.len(), 1, "should register exactly one path");
+        // The watcher stores the symlink path as given — NOT the target.
+        // This is the §3.2.2 / §3.1 rule 7 guarantee.
+        assert_eq!(
+            watched[0],
+            symlink,
+            "watch_paths must preserve the user-supplied symlink representation; got {} expected {}",
+            watched[0].display(),
+            symlink.display()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_8e_non_symlink_watch_root_works_normally() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().join("project");
+        fs::create_dir(&dir).unwrap();
+
+        let mut watcher = MacOSWatcher::new(MacOSConfig::default(), 64).unwrap();
+        watcher.watch(&dir).await.unwrap();
+
+        assert_eq!(watcher.watched_paths.len(), 1);
+        assert_eq!(watcher.watched_paths[0], dir);
     }
 }

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{Debouncer, RecommendedCache};
 use tokio::sync::{Mutex, RwLock};
+use wqm_common::paths::CanonicalPath;
 
 use super::{EnhancedWatcherError, WatchEntry};
 
@@ -23,6 +24,22 @@ pub struct WatcherHandle {
 
     /// Processing task handle
     _process_task: tokio::task::JoinHandle<()>,
+}
+
+/// Convert a [`Path`] to its syntactic-canonical [`PathBuf`] per spec
+/// §16 §3.1. No `std::fs::canonicalize`. Returned `PathBuf` is the
+/// in-memory key the watch_entries map uses for fast lookup.
+fn syntactic_canonical_pathbuf(path: &Path) -> Result<PathBuf, EnhancedWatcherError> {
+    let s = path.to_str().ok_or_else(|| {
+        EnhancedWatcherError::Path(format!(
+            "Failed to convert path to UTF-8: {}",
+            path.display()
+        ))
+    })?;
+    let cp = CanonicalPath::from_user_input(s).map_err(|e| {
+        EnhancedWatcherError::Path(format!("Failed to normalize path {}: {e}", path.display()))
+    })?;
+    Ok(PathBuf::from(cp.into_string()))
 }
 
 impl WatcherHandle {
@@ -48,13 +65,7 @@ impl WatcherHandle {
         tenant_id: String,
         recursive: bool,
     ) -> Result<(), EnhancedWatcherError> {
-        let canonical = path.canonicalize().map_err(|e| {
-            EnhancedWatcherError::Path(format!(
-                "Failed to canonicalize path {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+        let canonical = syntactic_canonical_pathbuf(path)?;
 
         let mode = if recursive {
             RecursiveMode::Recursive
@@ -83,13 +94,7 @@ impl WatcherHandle {
 
     /// Remove a path from watching
     pub async fn unwatch(&self, path: &Path) -> Result<(), EnhancedWatcherError> {
-        let canonical = path.canonicalize().map_err(|e| {
-            EnhancedWatcherError::Path(format!(
-                "Failed to canonicalize path {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+        let canonical = syntactic_canonical_pathbuf(path)?;
 
         {
             let mut debouncer = self.debouncer.lock().await;

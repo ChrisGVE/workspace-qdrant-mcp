@@ -63,6 +63,7 @@ impl GitBranchDetector {
     /// This function first checks the cache. If the cache entry is valid,
     /// it returns the cached value. Otherwise, it queries Git and updates the cache.
     pub async fn get_current_branch(&self, repo_path: &Path) -> GitResult<String> {
+        // CATEGORY-B: git-internal path resolution; in-memory cache key; never stored.
         let canonical_path = repo_path
             .canonicalize()
             .map_err(|e| GitError::InvalidPath(format!("{}: {}", repo_path.display(), e)))?;
@@ -179,6 +180,7 @@ impl GitBranchDetector {
 
     /// Invalidate the cache entry for a specific repository
     pub async fn invalidate_cache(&self, repo_path: &Path) {
+        // CATEGORY-B: git-internal cache invalidation; result is process-local.
         let canonical_path = match repo_path.canonicalize() {
             Ok(p) => p,
             Err(e) => {

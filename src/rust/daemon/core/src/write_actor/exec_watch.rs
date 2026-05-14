@@ -152,10 +152,10 @@ async fn resolve_watch_id(pool: &SqlitePool, input: &str) -> WriteResult<String>
         return Ok(matches.into_iter().next().unwrap());
     }
 
-    let canonical = std::path::Path::new(input)
-        .canonicalize()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| input.to_string());
+    // Spec §16 §3.1: lookup uses syntactic-canonical form (no fs symlink follow)
+        let canonical = wqm_common::paths::CanonicalPath::from_user_input(input)
+            .map(|cp| cp.into_string())
+            .unwrap_or_else(|_| input.to_string());
 
     let by_path =
         sqlx::query_scalar::<_, String>("SELECT watch_id FROM watch_folders WHERE path = ?1")

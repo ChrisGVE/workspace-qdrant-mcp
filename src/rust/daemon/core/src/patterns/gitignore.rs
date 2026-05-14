@@ -136,9 +136,10 @@ impl ProjectIgnoreMatcher {
 ///
 /// If `dir` is not a descendant of `root`, returns just `[dir]`.
 fn collect_ancestor_chain(root: &Path, dir: &Path) -> Vec<std::path::PathBuf> {
-    // Canonicalize to handle symlinks / relative segments
-    let root_canon = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    let dir_canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    // Spec §16 §3.1 rule 7: no fs canonicalize. Use the paths as-is —
+    // both come from a single project walk and share their representation.
+    let root_canon = root.to_path_buf();
+    let dir_canon = dir.to_path_buf();
 
     if let Ok(suffix) = dir_canon.strip_prefix(&root_canon) {
         let mut chain = vec![root_canon.clone()];

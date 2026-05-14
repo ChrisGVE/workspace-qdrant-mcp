@@ -44,11 +44,17 @@ pub fn extract_html_images(html_path: &Path, html_content: &str) -> Vec<Embedded
 
                 let image_path = base_dir.join(src);
 
-                // Security: canonicalize and verify the path is within base_dir
+                // CATEGORY-B: path-traversal containment check. canonicalize() is
+                // the only safe way to detect `..` and symlinks that escape base_dir.
+                // Both `canonical` and `canonical_base` are consumed inside this
+                // function (std::fs::read of the image bytes); the result never
+                // enters SQLite, Qdrant, gRPC, or MCP responses. See spec §16 §3.2.2.
+                // CATEGORY-B: see above; canonical PathBuf for fs::read only.
                 let canonical = match image_path.canonicalize() {
                     Ok(p) => p,
                     Err(_) => continue, // File doesn't exist
                 };
+                // CATEGORY-B: same containment-check rationale; result is read-only fs probe.
                 let canonical_base = match base_dir.canonicalize() {
                     Ok(p) => p,
                     Err(_) => continue,

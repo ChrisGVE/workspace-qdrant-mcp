@@ -352,9 +352,10 @@ mod tests {
         std::fs::write(worktree_git_dir.join("commondir"), "../..").unwrap();
 
         let result = resolve_common_dir(&worktree_git_dir);
-        assert_eq!(
-            result.canonicalize().unwrap(),
-            main_git_dir.canonicalize().unwrap()
-        );
+        // CATEGORY-B: test mirrors production resolve_common_dir which uses canonicalize.
+        let result_canon = result.canonicalize().unwrap();
+        // CATEGORY-B: same rationale; production canonicalize-derived PathBuf consumed locally.
+        let main_canon = main_git_dir.canonicalize().unwrap();
+        assert_eq!(result_canon, main_canon);
     }
 }

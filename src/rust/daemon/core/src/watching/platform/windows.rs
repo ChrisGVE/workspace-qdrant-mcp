@@ -67,8 +67,12 @@ impl WindowsWatcher {
             return PathBuf::from(unc_path);
         }
 
-        // Long path that needs extended prefix
+        // Long path that needs extended prefix.
+        // CATEGORY-B: Windows-only long-path resolution for ReadDirectoryChangesW registration.
+        // The canonicalize result is only ever passed to the notify watcher (process-local fs API).
+        // Never stored, transmitted, or returned to MCP. See spec §16 §3.2.2.
         if path_str.len() > 248 {
+            // CATEGORY-B: process-local long-path \\?\ prefix resolution.
             if let Ok(canonical) = std::fs::canonicalize(path) {
                 let canonical_str = canonical.to_string_lossy();
                 if !canonical_str.starts_with(r"\\?\") {

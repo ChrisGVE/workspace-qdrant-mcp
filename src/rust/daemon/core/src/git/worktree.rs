@@ -44,7 +44,11 @@ pub fn find_main_worktree_path(worktree_git_dir: &Path) -> Option<PathBuf> {
         worktree_git_dir.join(common_path)
     };
 
-    // Canonicalize to resolve ".." components and verify existence
+    // CATEGORY-B: git-internal commondir resolution. Resolves "../.."  written by
+    // git into .git/worktrees/<n>/commondir. Result is consumed locally to derive
+    // the main worktree root; never persisted to SQLite or sent over gRPC.
+    // See spec §16 §3.2.2.
+    // CATEGORY-B: see above; result is process-local PathBuf only.
     let canonical = match resolved.canonicalize() {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
@@ -91,6 +95,8 @@ mod tests {
         let result = find_main_worktree_path(&worktree_git_dir);
         assert!(result.is_some(), "should resolve main worktree path");
 
+        // CATEGORY-B: test mirrors production find_main_worktree_path which
+        // retains canonicalize() as Category B (git-internal). See spec §16 §3.2.2.
         let expected = main_repo.canonicalize().unwrap();
         assert_eq!(result.unwrap(), expected);
     }
@@ -110,6 +116,7 @@ mod tests {
         fs::create_dir_all(&worktree_git_dir).unwrap();
 
         // Write absolute path to commondir
+        // CATEGORY-B: test fixture; absolute path for commondir file used in test only.
         let abs_git_path = main_git.canonicalize().unwrap();
         fs::write(
             worktree_git_dir.join("commondir"),
@@ -120,6 +127,8 @@ mod tests {
         let result = find_main_worktree_path(&worktree_git_dir);
         assert!(result.is_some(), "should resolve from absolute commondir");
 
+        // CATEGORY-B: test mirrors production find_main_worktree_path which
+        // retains canonicalize() as Category B (git-internal). See spec §16 §3.2.2.
         let expected = main_repo.canonicalize().unwrap();
         assert_eq!(result.unwrap(), expected);
     }
@@ -177,6 +186,8 @@ mod tests {
         let result = find_main_worktree_path(&worktree_git_dir);
         assert!(result.is_some(), "should handle whitespace in commondir");
 
+        // CATEGORY-B: test mirrors production find_main_worktree_path which
+        // retains canonicalize() as Category B (git-internal). See spec §16 §3.2.2.
         let expected = main_repo.canonicalize().unwrap();
         assert_eq!(result.unwrap(), expected);
     }

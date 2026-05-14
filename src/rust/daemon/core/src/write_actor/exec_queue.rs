@@ -434,10 +434,10 @@ async fn resolve_tenant(pool: &SqlitePool, hint: &str) -> Result<(String, String
         return Ok((tid, path));
     }
 
-    let canonical = std::path::Path::new(hint)
-        .canonicalize()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| hint.to_string());
+    // Spec §16 §3.1: lookup uses syntactic-canonical form (no fs symlink follow)
+        let canonical = wqm_common::paths::CanonicalPath::from_user_input(hint)
+            .map(|cp| cp.into_string())
+            .unwrap_or_else(|_| hint.to_string());
 
     let row = sqlx::query_as::<_, (String, String)>(
         "SELECT tenant_id, path FROM watch_folders WHERE path = ?1 LIMIT 1",

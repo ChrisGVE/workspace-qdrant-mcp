@@ -18,24 +18,23 @@ pub struct EligibilityStatus {
     /// Directory is eligible for indexing (not excluded by ignore rules).
     pub eligible: bool,
     /// Directory contains re-included files (via `.wqmignore` negation).
-    /// An ineligible parent with `has_exceptions = true` means some
-    /// children may still need indexing.
+    /// Set on ineligible parents whose descendants are eligible.
     pub has_exceptions: bool,
 }
 
-/// Pre-computed directory eligibility map for a project.
+/// Folder-level eligibility cache.
 ///
 /// Wrap in `Arc<RwLock<EligibilityTrie>>` for concurrent access from
-/// file watcher threads; swap atomically on rebuild.
+/// watcher threads and rebuilder threads.
 pub struct EligibilityTrie {
     inner: HashMap<PathBuf, EligibilityStatus>,
 }
 
 impl EligibilityTrie {
-    /// Build eligibility map by walking `project_root` with WalkBuilder.
-    ///
-    /// When `add_custom_ignore` is true, `.wqmignore` is added as an
-    /// additional ignore filename (standard for project scans).
+    /// Build an [`EligibilityTrie`] for the given project root using the
+    /// same `WalkBuilder` semantics as the indexing scan. Optionally include
+    /// `.wqmignore` as an additional ignore filename (standard for project
+    /// scans).
     pub fn build(project_root: &Path, add_custom_ignore: bool) -> Result<Self, String> {
         let mut builder = WalkBuilder::new(project_root);
         builder
@@ -96,20 +95,22 @@ impl EligibilityTrie {
 
 /// Recursively collect directories under `dir`, marking each as
 /// eligible or not based on whether the walker visited it.
+///
+/// Spec §16 §3.1 rule 7: `std::fs::canonicalize` is no longer used
+/// here. The `eligible_dirs` set is built from a `WalkBuilder` rooted
+/// at the same `project_root`, so the path representation matches `dir`
+/// directly under `starts_with` comparison.
 fn collect_dirs_recursive(
     dir: &Path,
     eligible: &HashSet<PathBuf>,
     out: &mut HashMap<PathBuf, EligibilityStatus>,
 ) {
     let is_eligible = eligible.contains(dir);
-    let canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
 
     // Check for exceptions: an ineligible dir whose children are eligible
     // (re-inclusion). Only relevant if the dir itself is not eligible.
     let has_exceptions = if !is_eligible {
-        eligible
-            .iter()
-            .any(|p| p.starts_with(&canon) && p != &canon)
+        eligible.iter().any(|p| p.starts_with(dir) && p != dir)
     } else {
         false
     };
