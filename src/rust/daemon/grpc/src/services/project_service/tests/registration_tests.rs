@@ -1,11 +1,22 @@
 //! Registration and validation tests for ProjectService
 
 use tonic::Request;
+use wqm_common::paths::CanonicalPath;
 
 use crate::proto::project_service_server::ProjectService;
 use crate::proto::RegisterProjectRequest;
 
 use super::{create_test_watch_folder, setup_test_db, ProjectServiceImpl};
+
+/// Build the syntactic-canonical UTF-8 string for a path used as a
+/// fixture — mirrors the new `normalize_project_path` semantics on the
+/// production side (no fs symlink resolution). Used by tests that
+/// previously asserted on fs-canonicalized output.
+fn syntactic_canonical_str(p: &std::path::Path) -> String {
+    CanonicalPath::from_user_input(p.to_str().unwrap())
+        .unwrap()
+        .into_string()
+}
 
 #[tokio::test]
 async fn test_register_new_project_with_register_if_new() {
@@ -68,10 +79,12 @@ async fn test_register_existing_project() {
     let (pool, temp_dir) = setup_test_db().await;
     let project_dir = temp_dir.path().join("project");
     std::fs::create_dir_all(&project_dir).unwrap();
-    let canonical_path = std::fs::canonicalize(&project_dir)
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
+    // Pre-store the watch_folder with the same syntactic-canonical form
+    // the handler will derive from req.path (spec §16 §3.1 — symlinks
+    // are not followed). Previously this used filesystem-level path
+    // resolution; the migration to syntactic normalization changes the
+    // expected value here.
+    let canonical_path = syntactic_canonical_str(&project_dir);
 
     create_test_watch_folder(&pool, "abcd12345678", &canonical_path).await;
 

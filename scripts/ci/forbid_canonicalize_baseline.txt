@@ -23,6 +23,3 @@
 ./src/rust/daemon/core/src/git/worktree.rs:123:         let expected = main_repo.canonicalize().unwrap();
 ./src/rust/daemon/core/src/git/worktree.rs:180:         let expected = main_repo.canonicalize().unwrap();
 ./src/rust/daemon/shared-test-utils/src/git_fixtures/tests.rs:99:         .map(|p| p.canonicalize().unwrap())
-./src/rust/daemon/grpc/src/services/project_service/tests/registration_tests.rs:71:     let canonical_path = std::fs::canonicalize(&project_dir)
-./src/rust/daemon/grpc/src/services/project_service/registration.rs:72:     let canonical = std::fs::canonicalize(path).map_err(|e| {
-./src/rust/daemon/grpc/src/services/project_service/worktree.rs:97:             std::fs::canonicalize(effective_path).unwrap_or_else(|_| effective_path.to_path_buf());

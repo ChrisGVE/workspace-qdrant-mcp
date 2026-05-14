@@ -4,12 +4,17 @@
 //! queue enqueue for new projects, session registration for existing projects,
 //! LSP server startup, and activity inheritance.
 //!
-//! # Path canonicalization (F-019)
+//! # Path normalization (F-019, spec §16)
 //!
-//! All project paths are canonicalized via `std::fs::canonicalize` before
-//! persistence or enqueue. Nonexistent paths and non-directory paths are
-//! rejected with `INVALID_ARGUMENT`. This prevents duplicate registrations
-//! from symlinks, relative paths, or tilde expansion differences.
+//! Project paths are normalized to their syntactic-canonical UTF-8 form
+//! before persistence or enqueue (spec §3.1 rules; see
+//! `wqm_common::paths::CanonicalPath`). Symlinks are **not** resolved
+//! (rule 7), and the stored path is the user-supplied path after
+//! tilde-expansion, `.`-collapse, and duplicate-slash removal.
+//! Nonexistent paths and non-directory paths are still rejected with
+//! `INVALID_ARGUMENT` via a syntactic check followed by an
+//! `is_dir`/`exists` filesystem probe — those probes are not
+//! canonicalize() calls and stay outside the Category A ban (§3.2.2).
 //!
 //! Worktree auto-registration logic is in the sibling `worktree` module.
 
@@ -25,6 +30,7 @@ use workspace_qdrant_core::{
     UnifiedQueueOp,
 };
 use wqm_common::constants::COLLECTION_PROJECTS;
+use wqm_common::paths::CanonicalPath;
 use wqm_common::project_id::detect_git_remote;
 
 use super::worktree::WorktreeResult;
@@ -63,23 +69,48 @@ fn resolve_git_root(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-/// Canonicalize a project path and validate it exists as a directory.
+/// Normalize a project path to its syntactic-canonical form and validate
+/// it points to an existing directory.
+///
+/// Replaces the previous `canonicalize_project_path` (which called
+/// `std::fs::canonicalize`). Per spec §3.1, normalization is pure
+/// syntax: tilde expansion, `.` strip, `..` reject, duplicate-`/`
+/// collapse, UTF-8 verification. Symlinks are not followed.
+///
+/// Existence and `is_dir` are still verified via plain `Path` probes —
+/// these are not canonicalize() calls and are necessary to surface the
+/// existing `INVALID_ARGUMENT` errors to gRPC clients.
 ///
 /// Returns `INVALID_ARGUMENT` if:
-/// - the path does not exist on the filesystem
-/// - the path is not a directory (e.g. a regular file)
-fn canonicalize_project_path(path: &Path) -> Result<PathBuf, Status> {
-    let canonical = std::fs::canonicalize(path).map_err(|e| {
+/// - the input path cannot be normalized (non-absolute, contains `..`,
+///   non-UTF-8, …),
+/// - the path does not exist on the filesystem,
+/// - the path is not a directory (e.g. a regular file).
+fn normalize_project_path(path: &Path) -> Result<CanonicalPath, Status> {
+    let input_str = path.to_str().ok_or_else(|| {
         Status::invalid_argument(format!(
-            "project path does not exist or is inaccessible: {}: {}",
-            path.display(),
-            e
+            "project path is not valid UTF-8: {}",
+            path.display()
         ))
     })?;
-    if !canonical.is_dir() {
+    let canonical = CanonicalPath::from_user_input(input_str).map_err(|e| {
+        Status::invalid_argument(format!(
+            "project path could not be normalized: {}: {e}",
+            path.display()
+        ))
+    })?;
+
+    let probe = Path::new(canonical.as_str());
+    if !probe.exists() {
+        return Err(Status::invalid_argument(format!(
+            "project path does not exist or is inaccessible: {}",
+            canonical.as_str()
+        )));
+    }
+    if !probe.is_dir() {
         return Err(Status::invalid_argument(format!(
             "project path is not a directory: {}",
-            canonical.display()
+            canonical.as_str()
         )));
     }
     Ok(canonical)
@@ -101,10 +132,11 @@ impl ProjectServiceImpl {
             (PathBuf::new(), String::new())
         } else {
             let git_root = resolve_git_root(Path::new(&req.path));
-            let p = canonicalize_project_path(&git_root)?;
-            let s = p.to_string_lossy().to_string();
+            let canonical = normalize_project_path(&git_root)?;
+            let s = canonical.as_str().to_string();
+            let p = PathBuf::from(&s);
             if s != req.path {
-                info!("Resolved and canonicalized project path: {} -> {}", req.path, s);
+                info!("Normalized project path: {} -> {}", req.path, s);
             }
             (p, s)
         };
@@ -367,12 +399,13 @@ impl ProjectServiceImpl {
         req: &RegisterProjectRequest,
         is_high_priority: bool,
     ) -> Result<RegistrationAction, Status> {
-        // Use the resolved and canonicalized git root path for project_root.
-        let effective_root = canonicalize_project_path(&resolve_git_root(Path::new(&req.path)))
-            .inspect_err(|_| {
-                error!(path = %req.path, "enqueue_new_project: path canonicalization failed");
+        // Use the resolved and syntactically-normalized git root path for project_root.
+        let effective_root_canonical =
+            normalize_project_path(&resolve_git_root(Path::new(&req.path))).inspect_err(|_| {
+                error!(path = %req.path, "enqueue_new_project: path normalization failed");
             })?;
-        let effective_root_str = effective_root.to_string_lossy().to_string();
+        let effective_root_str = effective_root_canonical.as_str().to_string();
+        let effective_root = PathBuf::from(&effective_root_str);
 
         let effective_git_remote = if req.git_remote.as_ref().map_or(true, |r| r.is_empty()) {
             detect_git_remote(&effective_root)

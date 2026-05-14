@@ -18,6 +18,7 @@ use workspace_qdrant_core::{
     project_disambiguation::ProjectIdCalculator,
 };
 use wqm_common::constants::COLLECTION_PROJECTS;
+use wqm_common::paths::CanonicalPath;
 use wqm_common::project_id::detect_git_remote;
 
 use super::ProjectServiceImpl;
@@ -93,9 +94,12 @@ impl ProjectServiceImpl {
             }
         };
 
-        let canonical_path =
-            std::fs::canonicalize(effective_path).unwrap_or_else(|_| effective_path.to_path_buf());
-        let canonical_str = canonical_path.to_string_lossy().to_string();
+        // Build a CanonicalPath for the worktree path using purely
+        // syntactic normalization (spec §3.1). Replaces a former
+        // fs-canonicalization + to_string_lossy binding pattern that was
+        // both a Category A storage-derivation site and a §3.2.2
+        // rule-4 violation. See spec §16 for the full design.
+        let canonical_str = build_worktree_canonical_str(effective_path)?;
 
         self.store_worktree_record(
             &canonical_str,
@@ -210,4 +214,30 @@ impl ProjectServiceImpl {
             },
         }
     }
+}
+
+/// Build the syntactic-canonical UTF-8 string for a worktree path.
+///
+/// Replaces a former fs-canonicalization + `to_string_lossy()` binding
+/// pattern that was a Category A storage-derivation site **and** a
+/// §3.2.2 rule-4 violation: the lossy String was persisted into
+/// `watch_folders.path` and re-emitted over gRPC. See spec §16 §3.1
+/// for the nine normalization rules now applied here.
+///
+/// The returned value is what is stored in `watch_folders.path` and
+/// returned over gRPC as the worktree's watch path.
+fn build_worktree_canonical_str(effective_path: &Path) -> Result<String, Status> {
+    let input_str = effective_path.to_str().ok_or_else(|| {
+        Status::invalid_argument(format!(
+            "worktree path is not valid UTF-8: {}",
+            effective_path.display()
+        ))
+    })?;
+    let canonical = CanonicalPath::from_user_input(input_str).map_err(|e| {
+        Status::invalid_argument(format!(
+            "worktree path could not be normalized: {}: {e}",
+            effective_path.display()
+        ))
+    })?;
+    Ok(canonical.into_string())
 }
