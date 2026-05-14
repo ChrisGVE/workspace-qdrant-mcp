@@ -5,8 +5,6 @@
 ./src/rust/cli/src/commands/library/ingest.rs:38:         .canonicalize()
 ./src/rust/cli/src/commands/library/set_incremental.rs:16:             std::fs::canonicalize(f)
 ./src/rust/cli/src/commands/project/register.rs:68:         .canonicalize()
-./src/rust/cli/src/commands/project/resolver.rs:16:         match path.canonicalize() {
-./src/rust/cli/src/commands/project/resolver.rs:147:         .canonicalize()
 ./src/rust/common/src/project_id/calculator.rs:52:                 .canonicalize()
 ./src/rust/daemon/core/tests/grammar_chunking_test.rs:46:         .canonicalize()
 ./src/rust/daemon/core/tests/grammar_pipeline_diagnostic.rs:72:         .canonicalize()

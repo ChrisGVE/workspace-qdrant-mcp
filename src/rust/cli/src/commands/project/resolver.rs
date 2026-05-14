@@ -3,19 +3,43 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use wqm_common::paths::CanonicalPath;
 
 use crate::output;
+
+/// Make a path-like CLI argument absolute without touching the filesystem.
+///
+/// Per spec §3.1 rule 7 we do not call `std::fs::canonicalize`. Relative
+/// inputs (e.g. `.`, `./foo`, `nonexistent.path`) are absolutized by
+/// joining onto the process CWD — no symlink resolution. Returns `None`
+/// when the input cannot be syntactically normalized into a canonical
+/// form (relative without a CWD, `..` segments after absolutization,
+/// non-UTF-8, …).
+fn try_canonical_from_user_input(input: &str) -> Option<CanonicalPath> {
+    // First try the fast path: input is already absolute / tilde-prefixed.
+    if let Ok(cp) = CanonicalPath::from_user_input(input) {
+        return Some(cp);
+    }
+
+    // Fall back: absolutize a relative input against the current working
+    // directory. Purely syntactic — no fs canonicalization.
+    let cwd = std::env::current_dir().ok()?;
+    let mut joined = cwd;
+    joined.push(input);
+    let joined_str = joined.to_str()?;
+    CanonicalPath::from_user_input(joined_str).ok()
+}
 
 /// Resolve a project argument to a project_id.
 ///
 /// If the argument looks like a path (contains `/` or `.`), resolve it to an
-/// absolute path and compute the project_id. Otherwise use it as a direct ID.
+/// absolute syntactically-canonical path and compute the project_id.
+/// Otherwise use it as a direct ID.
 pub(crate) fn resolve_project_id(project: &str) -> String {
     if project.contains('/') || project.contains('.') || project == "~" {
-        let path = PathBuf::from(project);
-        match path.canonicalize() {
-            Ok(abs_path) => calculate_project_id(&abs_path),
-            Err(_) => project.to_string(),
+        match try_canonical_from_user_input(project) {
+            Some(canonical) => calculate_project_id(std::path::Path::new(canonical.as_str())),
+            None => project.to_string(),
         }
     } else {
         project.to_string()
@@ -141,13 +165,11 @@ pub(crate) fn resolve_tenant_by_hint(
         return Ok(result);
     }
 
-    // 2. Exact path match
-    let abs_hint = PathBuf::from(hint);
-    let path_str = abs_hint
-        .canonicalize()
-        .unwrap_or(abs_hint)
-        .to_string_lossy()
-        .to_string();
+    // 2. Exact path match (syntactic-canonical form, no fs canonicalize).
+    let path_str = match try_canonical_from_user_input(hint) {
+        Some(c) => c.into_string(),
+        None => PathBuf::from(hint).to_string_lossy().to_string(),
+    };
     let exact_path: Option<(String, String)> = conn
         .query_row(
             "SELECT tenant_id, path FROM watch_folders WHERE path = ?1 \
