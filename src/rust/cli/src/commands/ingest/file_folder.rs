@@ -3,11 +3,28 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use wqm_common::paths::CanonicalPath;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
 use crate::output::style::home_to_tilde;
+
+/// Build a [`CanonicalPath`] from a CLI path argument, absolutizing
+/// relative inputs against CWD purely syntactically. No fs canonicalize.
+fn canonical_from_cli_path(path: &std::path::Path) -> Result<CanonicalPath> {
+    let s = path.to_str().context("Path contains invalid UTF-8")?;
+    if let Ok(cp) = CanonicalPath::from_user_input(s) {
+        return Ok(cp);
+    }
+    let cwd = std::env::current_dir().context("Could not determine current directory")?;
+    let joined = cwd.join(path);
+    let joined_str = joined
+        .to_str()
+        .context("Path contains invalid UTF-8 after CWD join")?;
+    CanonicalPath::from_user_input(joined_str)
+        .map_err(|e| anyhow::anyhow!("Could not normalize path: {e}"))
+}
 
 pub async fn ingest_file(
     path: &PathBuf,
@@ -22,11 +39,9 @@ pub async fn ingest_file(
         return Ok(());
     }
 
-    let abs_path = path
-        .canonicalize()
-        .context("Could not resolve absolute path")?;
+    let abs_path = canonical_from_cli_path(path)?;
 
-    output::kv("File", home_to_tilde(&abs_path.display().to_string()));
+    output::kv("File", home_to_tilde(abs_path.as_str()));
     if let Some(c) = &collection {
         output::kv("Collection", c);
     }
@@ -85,11 +100,9 @@ pub async fn ingest_folder(
         return Ok(());
     }
 
-    let abs_path = path
-        .canonicalize()
-        .context("Could not resolve absolute path")?;
+    let abs_path = canonical_from_cli_path(path)?;
 
-    output::kv("Folder", home_to_tilde(&abs_path.display().to_string()));
+    output::kv("Folder", home_to_tilde(abs_path.as_str()));
     if let Some(c) = &collection {
         output::kv("Collection", c);
     }
@@ -109,7 +122,7 @@ pub async fn ingest_folder(
     output::info(format!(
         "  wqm library watch {} {}",
         tag.as_deref().unwrap_or("mylib"),
-        home_to_tilde(&abs_path.display().to_string())
+        home_to_tilde(abs_path.as_str())
     ));
     output::separator();
 

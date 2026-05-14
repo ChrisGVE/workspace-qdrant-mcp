@@ -27,6 +27,7 @@ pub mod language;
 
 // System Administration
 pub mod admin;
+pub mod docker;
 pub mod backup;
 pub mod collections;
 pub mod config_cmd;

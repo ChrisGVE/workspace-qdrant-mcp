@@ -47,6 +47,7 @@ Commands by domain:
     \x1b[1mservice\x1b[0m      Daemon management (start, stop, restart, status)
     \x1b[1madmin\x1b[0m        Administration (collections, backup, restore, rebuild)
     \x1b[1mconfig\x1b[0m       Configuration management
+    \x1b[1mdocker\x1b[0m       Docker deployment helpers (compose generation)
 
   CODE ANALYSIS:
     \x1b[1mgraph\x1b[0m        Code relationship graph
@@ -295,6 +296,21 @@ enum Commands {
     )]
     Config(commands::config_cmd::ConfigCmdArgs),
 
+    /// Docker deployment helpers (compose generation)
+    #[command(
+        display_order = 43,
+        long_about = "Helpers for managing wqm under Docker. Currently provides \
+            `generate-compose`, which derives a docker-compose override from the \
+            live config.yaml mount map (spec 16 §9). The override embeds a \
+            content-hash header used by the daemon entrypoint and `--check` \
+            mode to detect drift.",
+        after_long_help = "Examples:\n  \
+            wqm docker generate-compose                 Generate the override\n  \
+            wqm docker generate-compose --check         Detect drift (exit 1 if stale)\n  \
+            wqm docker generate-compose --clean         Delete the override"
+    )]
+    Docker(commands::docker::DockerArgs),
+
     // --- Setup & Diagnostics ---
     /// Setup (shell completions, hooks)
     #[command(
@@ -454,6 +470,7 @@ async fn main() -> Result<()> {
         }
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Config(args) => commands::config_cmd::execute(args).await,
+        Commands::Docker(args) => commands::docker::execute(args).await,
 
         // Setup & Diagnostics
         Commands::Init(args) => {
