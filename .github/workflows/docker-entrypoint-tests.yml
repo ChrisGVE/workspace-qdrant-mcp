@@ -1,0 +1,55 @@
+# Docker entrypoint validation tests — spec 16 §9.1 stale-override defense.
+#
+# Tests `docker/memexd-entrypoint.sh` against synthesised config / override /
+# mountinfo fixtures. No Docker build is required: every check is performed
+# by the script itself using bash + python3 + PyYAML (the same runtime that
+# the memexd container image installs).
+#
+# Triggers: any change to the entrypoint script, its test harness, or the
+# generator that produces the override file (whose output format the
+# entrypoint reads).
+
+name: Docker Entrypoint Tests
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'docker/memexd-entrypoint.sh'
+      - 'docker/tests/**'
+      - 'src/rust/cli/src/commands/docker/**'
+      - '.github/workflows/docker-entrypoint-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docker/memexd-entrypoint.sh'
+      - 'docker/tests/**'
+      - 'src/rust/cli/src/commands/docker/**'
+      - '.github/workflows/docker-entrypoint-tests.yml'
+
+concurrency:
+  group: docker-entrypoint-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  entrypoint-tests:
+    name: Entrypoint validation (three-layer check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PyYAML
+        # PyYAML matches serde_yaml_ng byte-for-byte for the mount-section
+        # hash domain (verified via probe during T11 design). The runtime
+        # memexd image also installs it (python3-yaml apt package).
+        run: |
+          python3 -m pip install --quiet PyYAML
+
+      - name: Run entrypoint integration tests
+        run: |
+          bash docker/tests/run-entrypoint-tests.sh
