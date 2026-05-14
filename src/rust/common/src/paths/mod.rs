@@ -34,10 +34,14 @@
 
 mod canonical;
 mod error;
+mod local;
+mod mount_map;
 mod normalize;
 
 pub use canonical::CanonicalPath;
 pub use error::PathError;
+pub use local::LocalPath;
+pub use mount_map::{MountEntry, MountMap};
 
 use std::env;
 use std::path::PathBuf;
