@@ -1,0 +1,29 @@
+# path-discipline-allowlist.txt — Allowlist of process-local path fields
+#
+# Fields listed here are exempt from the CanonicalPath requirement in path-discipline.sh.
+# Format: Struct | Field | Class
+# Only "process-local" class fields should be listed here.
+# Derived from 16-path-abstraction-audit.md §6 (Process-local Paths).
+
+Struct | Field | Class
+QueueConnectionConfig | database_path | process-local
+DaemonConfig | log_file | process-local
+DaemonConfig | project_path | process-local
+Config | database_path | process-local
+GraphDbManager | path | process-local
+LadybugConfig | db_path | process-local
+LoggingConfig | log_file_path | process-local
+ProjectRecord | project_path | process-local
+RegisteredProject | project_path | process-local
+LogPrunerConfig | path | process-local
+FileEvent | path | process-local
+PendingMove | old_path | process-local
+OrphanedProject | path | process-local
+RegisteredProject | path | process-local
+OrphanCleanupActions | path | process-local
+TlsConfig | cert_path | process-local
+TlsConfig | key_path | process-local
+TlsConfig | ca_cert_path | process-local
+Profile | database_path | process-local
+YamlLspConfig | user_path | process-local
+WatchMetadata | watch_path | process-local

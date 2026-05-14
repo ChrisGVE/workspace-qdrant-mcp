@@ -1,0 +1,38 @@
+./src/rust/cli/src/commands/ingest/file_folder.rs:26:         .canonicalize()
+./src/rust/cli/src/commands/ingest/file_folder.rs:89:         .canonicalize()
+./src/rust/cli/src/commands/library/watch_cmd.rs:83:         .canonicalize()
+./src/rust/cli/src/commands/library/add.rs:24:         .canonicalize()
+./src/rust/cli/src/commands/library/ingest.rs:38:         .canonicalize()
+./src/rust/cli/src/commands/library/set_incremental.rs:16:             std::fs::canonicalize(f)
+./src/rust/cli/src/commands/project/register.rs:68:         .canonicalize()
+./src/rust/cli/src/commands/project/resolver.rs:16:         match path.canonicalize() {
+./src/rust/cli/src/commands/project/resolver.rs:147:         .canonicalize()
+./src/rust/common/src/project_id/calculator.rs:52:                 .canonicalize()
+./src/rust/daemon/core/tests/grammar_chunking_test.rs:46:         .canonicalize()
+./src/rust/daemon/core/tests/grammar_pipeline_diagnostic.rs:72:         .canonicalize()
+./src/rust/daemon/core/tests/branch_worktree_audit.rs:76:     let expected = fx.main_path.canonicalize().unwrap();
+./src/rust/daemon/core/tests/cross_platform_safety_tests/platform_tests.rs:166:         let resolved = relative_path.canonicalize()?;
+./src/rust/daemon/core/src/patterns/eligibility_trie.rs:105:     let canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+./src/rust/daemon/core/src/patterns/gitignore.rs:140:     let root_canon = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+./src/rust/daemon/core/src/patterns/gitignore.rs:141:     let dir_canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+./src/rust/daemon/core/src/watching/file_watcher/handle.rs:51:         let canonical = path.canonicalize().map_err(|e| {
+./src/rust/daemon/core/src/watching/file_watcher/handle.rs:86:         let canonical = path.canonicalize().map_err(|e| {
+./src/rust/daemon/core/src/watching/platform/macos.rs:59:         match std::fs::canonicalize(path) {
+./src/rust/daemon/core/src/watching/platform/windows.rs:72:             if let Ok(canonical) = std::fs::canonicalize(path) {
+./src/rust/daemon/core/src/image_extraction/html.rs:48:                 let canonical = match image_path.canonicalize() {
+./src/rust/daemon/core/src/image_extraction/html.rs:52:                 let canonical_base = match base_dir.canonicalize() {
+./src/rust/daemon/core/src/write_actor/exec_watch.rs:156:         .canonicalize()
+./src/rust/daemon/core/src/write_actor/exec_queue.rs:438:         .canonicalize()
+./src/rust/daemon/core/src/git/reflog.rs:356:             result.canonicalize().unwrap(),
+./src/rust/daemon/core/src/git/reflog.rs:357:             main_git_dir.canonicalize().unwrap()
+./src/rust/daemon/core/src/git/branch_detector.rs:67:             .canonicalize()
+./src/rust/daemon/core/src/git/branch_detector.rs:182:         let canonical_path = match repo_path.canonicalize() {
+./src/rust/daemon/core/src/git/worktree.rs:48:     let canonical = match resolved.canonicalize() {
+./src/rust/daemon/core/src/git/worktree.rs:94:         let expected = main_repo.canonicalize().unwrap();
+./src/rust/daemon/core/src/git/worktree.rs:113:         let abs_git_path = main_git.canonicalize().unwrap();
+./src/rust/daemon/core/src/git/worktree.rs:123:         let expected = main_repo.canonicalize().unwrap();
+./src/rust/daemon/core/src/git/worktree.rs:180:         let expected = main_repo.canonicalize().unwrap();
+./src/rust/daemon/shared-test-utils/src/git_fixtures/tests.rs:99:         .map(|p| p.canonicalize().unwrap())
+./src/rust/daemon/grpc/src/services/project_service/tests/registration_tests.rs:71:     let canonical_path = std::fs::canonicalize(&project_dir)
+./src/rust/daemon/grpc/src/services/project_service/registration.rs:72:     let canonical = std::fs::canonicalize(path).map_err(|e| {
+./src/rust/daemon/grpc/src/services/project_service/worktree.rs:97:             std::fs::canonicalize(effective_path).unwrap_or_else(|_| effective_path.to_path_buf());
