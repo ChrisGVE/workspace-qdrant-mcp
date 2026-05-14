@@ -56,6 +56,26 @@ impl MountMap {
     ///
     /// * [`PathError::MountMapError`] — duplicate host or container prefix.
     /// * Any [`PathError`] variant produced by canonicalizing an entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wqm_common::paths::MountMap;
+    ///
+    /// // Multiple non-overlapping mounts.
+    /// let m = MountMap::new(vec![
+    ///     ("/Users/chris/dev".to_string(), "/Users/chris/dev".to_string()),
+    ///     ("/Volumes/External/books".to_string(), "/mnt/books".to_string()),
+    /// ]).unwrap();
+    /// assert_eq!(m.len(), 2);
+    /// assert!(!m.is_identity());
+    ///
+    /// // Duplicate host prefix is rejected.
+    /// assert!(MountMap::new(vec![
+    ///     ("/Users/chris".to_string(), "/mnt/a".to_string()),
+    ///     ("/Users/chris".to_string(), "/mnt/b".to_string()),
+    /// ]).is_err());
+    /// ```
     pub fn new(raw_entries: Vec<(String, String)>) -> Result<Self, PathError> {
         let mut entries: Vec<MountEntry> = Vec::with_capacity(raw_entries.len());
         let mut seen_hosts: HashSet<String> = HashSet::with_capacity(raw_entries.len());

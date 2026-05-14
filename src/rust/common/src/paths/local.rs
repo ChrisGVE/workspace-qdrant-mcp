@@ -33,6 +33,25 @@ impl LocalPath {
     /// Returns [`PathError::NoMountCoverage`] when the mount map has at
     /// least one entry but none of them covers the canonical path. Identity
     /// maps never produce this error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wqm_common::paths::{CanonicalPath, LocalPath, MountMap};
+    ///
+    /// // Identity map: pass-through.
+    /// let cp = CanonicalPath::from_user_input("/Users/chris/dev").unwrap();
+    /// let local = LocalPath::from_canonical(&cp, &MountMap::identity()).unwrap();
+    /// assert_eq!(local.as_std_path().to_str().unwrap(), "/Users/chris/dev");
+    ///
+    /// // Non-mirror mount swaps the host prefix for the container prefix.
+    /// let m = MountMap::new(vec![
+    ///     ("/Volumes/External/books".to_string(), "/mnt/books".to_string()),
+    /// ]).unwrap();
+    /// let cp = CanonicalPath::from_user_input("/Volumes/External/books/x.pdf").unwrap();
+    /// let local = LocalPath::from_canonical(&cp, &m).unwrap();
+    /// assert_eq!(local.as_std_path().to_str().unwrap(), "/mnt/books/x.pdf");
+    /// ```
     pub fn from_canonical(c: &CanonicalPath, mounts: &MountMap) -> Result<Self, PathError> {
         if mounts.is_identity() {
             return Ok(LocalPath(PathBuf::from(c.as_str())));
