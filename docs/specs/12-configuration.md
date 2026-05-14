@@ -277,6 +277,22 @@ ingestion_limits:
     csv:    500   # Tabular data; can be multi-GB dataset dumps
     tsv:    500
 
+# Host-↔-container directory mounts (see 16-path-abstraction.md §5)
+# Empty/missing = identity map (host == container, no translation).
+# Mirror mounts (host == container) are the default style; non-mirror
+# entries cover macOS /Volumes/* or removable media.
+# Duplicate host or container prefixes are rejected at load time.
+# Overlapping mounts are allowed (longest-prefix wins).
+# Immutable for process lifetime — edits require restart.
+mounts: []
+# mounts:
+#   - host: /Users/chris/dev
+#     container: /Users/chris/dev          # mirror
+#   - host: /Volumes/External/books
+#     container: /mnt/external-books
+#   - host: ~/reference
+#     container: /mnt/reference
+
 # Collections configuration
 collections:
   rules_collection_name: "rules"
@@ -319,6 +335,7 @@ Each subconfig error is prefixed with the subsystem name, for example `queue_pro
 | `daemon_endpoint` | `DaemonEndpointConfig::validate()` |
 | `ingestion_limits` | `IngestionLimitsConfig::validate()` |
 | `auto_ingestion` | `AutoIngestionConfig::validate()` |
+| `mounts` | `DaemonConfig::validate_mounts()` → `MountMap::from_yaml_entries()` |
 
 #### `--allow-default` flag
 
@@ -382,6 +399,23 @@ Environment variable overrides (`OTEL_*`, `WQM_PROMETHEUS_*`, `WORKSPACE_QDRANT_
 | `host` | non-empty |
 | `grpc_port` | non-zero |
 | `health_endpoint` | empty or starts with `/` |
+
+**`mounts`**
+
+Each entry is a `{host, container}` pair; both fields go through
+`CanonicalPath::from_user_input` for validation.
+
+| Field | Constraint |
+|-------|-----------|
+| `host` | Absolute path after `~` expansion; no `..` segments; UTF-8 |
+| `container` | Absolute path after `~` expansion; no `..` segments; UTF-8 |
+| `host` (cross-entry) | Canonical form must be unique across all entries |
+| `container` (cross-entry) | Canonical form must be unique across all entries |
+
+Overlapping (one entry's host is a prefix of another's) is allowed.
+Resolution uses longest-prefix-wins; see
+[`16-path-abstraction.md` §5.2](16-path-abstraction.md). The `MountMap`
+is immutable for the lifetime of each process; edits require a restart.
 
 For `ingestion_limits` and `auto_ingestion` bounds, see the [Configuration Structure](#configuration-structure) section above.
 
