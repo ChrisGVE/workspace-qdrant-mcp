@@ -28,6 +28,21 @@
 #
 # Ports are NOT published to the host in this mode; Prometheus reaches the
 # metrics endpoints over the shared Docker network.
+#
+# Mount-map / path-abstraction (spec 16 §9):
+#   This file defines the static service topology only. The set of host
+#   directories that memexd reads (workspaces, libraries, external volumes)
+#   is declared in `config.yaml` under the `mounts:` section and rendered
+#   into a generated override file, NOT edited here:
+#
+#     wqm docker generate-compose         # write docker-compose.override.yaml
+#     wqm docker generate-compose --check # detect drift before `up`
+#     wqm docker generate-compose --clean # remove the override
+#
+#   Compose's standard merge layers the override on top of this file. The
+#   override also publishes 127.0.0.1:7799:7799 (the memexd control-port
+#   lock — mandatory per spec §10.1) and embeds a `# wqm-config-hash:`
+#   header that the daemon entrypoint verifies on startup.
 
 # ── YAML anchors ─────────────────────────────────────────────────────────────
 

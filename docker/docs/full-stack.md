@@ -63,13 +63,43 @@ WQM_LOG_LEVEL=INFO
 Other variables use the defaults defined in `.env.example` and are safe to leave
 unchanged for a first run.
 
-### 2. Start the overlay
+### 2. Generate the mount override
+
+memexd reads host directories declared in `config.yaml`'s `mounts:` section
+(spec 16 §5). The mappings are rendered into a Compose override file that
+layers on top of `full-stack.yml`. Run this whenever you edit `mounts:` or
+move between machines:
 
 ```bash
-docker compose -f docker/compose/full-stack.yml --env-file docker/.env up -d
+wqm docker generate-compose                 # write docker-compose.override.yaml
+wqm docker generate-compose --check         # exit 1 if config has drifted
+wqm docker generate-compose --clean         # delete the override
 ```
 
-### 3. Wait for memexd to pass its health check
+The override:
+
+- emits one `volumes:` entry per declared mount,
+- bind-mounts your `config.yaml` read-only at `/etc/wqm/config.yaml`,
+- bind-mounts `~/.local/share/workspace-qdrant` and `~/.local/share/qdrant`
+  to their canonical container locations (spec §9.2),
+- publishes `127.0.0.1:7799:7799` so the memexd control-port lock (spec
+  §10.1) arbitrates correctly between host and Docker daemons,
+- embeds a `# wqm-config-hash:` header so the entrypoint and `--check`
+  catch stale overrides.
+
+`network_mode: none` or any custom network that omits the control-port
+publish is rejected at generation time — see spec §10.1.
+
+### 3. Start the overlay
+
+```bash
+docker compose \
+  -f docker/compose/full-stack.yml \
+  -f docker-compose.override.yaml \
+  --env-file docker/.env up -d
+```
+
+### 4. Wait for memexd to pass its health check
 
 ```bash
 docker compose -f docker/compose/full-stack.yml ps
@@ -79,7 +109,7 @@ The `mcp` service will not start until `memexd` reports `healthy`. The health
 check polls `http://localhost:9091/health` every 30 seconds with a 30-second
 start period.
 
-### 4. Merge Prometheus scrape targets
+### 5. Merge Prometheus scrape targets
 
 Prometheus in main-docker reads its config from
 `/Users/chris/dev/tools/main-docker/prometheus.yml`. Add the workspace-qdrant
@@ -99,7 +129,7 @@ The `memexd` job scrapes `memexd:9091` and the `mcp` job scrapes
 `workspace-qdrant-mcp:9092`. Both container names are reachable over
 `main-docker_default`.
 
-### 5. Import Grafana dashboards
+### 6. Import Grafana dashboards
 
 If Grafana is not already provisioned from this project:
 
@@ -115,7 +145,7 @@ Alternatively, configure provisioning so Grafana loads dashboards automatically
 on startup. See `docker/grafana/provisioning/` for the datasource and dashboard
 provider YAML.
 
-### 6. Verify metrics are flowing
+### 7. Verify metrics are flowing
 
 ```bash
 # From within a container on the same network, or via main-docker's Prometheus:
