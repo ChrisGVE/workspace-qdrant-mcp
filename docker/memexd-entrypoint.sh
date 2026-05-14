@@ -277,7 +277,178 @@ layer2_mount_present() {
 }
 
 # ────────────────────────────────────────────────────────────────────────
-# Main orchestration — layer 3 hooked in the next commit.
+# /proc/self/mountinfo parser — emits mount points one per line.
+#
+# The mountinfo line format (man proc(5)) has 11+ space-separated fields:
+#
+#   36 35 98:0 /mnt1 /mnt1 rw,noatime master:1 - ext3 /dev/root rw,...
+#   │  │  │    │     │     │          │   │    │    │         │
+#   1  2  3    4     5     6          7  -|fs| 9    10        11
+#
+# Field 5 is the mount point as the kernel renders it (octal-escaped
+# spaces, tabs, newlines, backslashes — \040 \011 \012 \134). The
+# remainder before `-` is optional tag list, then `-`, fstype, source,
+# super-opts. Bind mounts surface as a non-`/` value in field 4 (the
+# root within the source filesystem), but for the spurious-mount check
+# we only care about mount points the user could plausibly conflate
+# with a config-declared volume, so we emit every mount point and let
+# the caller filter against the config list and a denylist of system
+# pseudofs locations.
+#
+# Stdin: ignored.  Args: mountinfo path.  Stdout: one path per line.
+#
+# Note: detect_spurious_mounts() below re-implements this parser inside
+# Python because the python3 stdin-script (`python3 -`) and the heredoc
+# script body conflict when this function's stdout is piped in. The shell
+# version is kept as a standalone helper for ad-hoc diagnostics and to
+# satisfy spec §9.1 layer-3 contract that a mountinfo parser exists.
+# ────────────────────────────────────────────────────────────────────────
+parse_mountinfo() {
+	local mountinfo_path="$1"
+	if [ ! -r "${mountinfo_path}" ]; then
+		# No mountinfo (e.g., running outside Linux) — emit nothing.
+		return 0
+	fi
+	# Field 5 is the mount point. Decode kernel octal escapes for space,
+	# tab, newline, backslash; those are the only ones the kernel emits.
+	awk '
+        {
+            mp = $5
+            # Replace octal escapes the kernel uses for special chars.
+            gsub(/\\040/, " ", mp)
+            gsub(/\\011/, "\t", mp)
+            gsub(/\\012/, "\n", mp)
+            gsub(/\\134/, "\\", mp)
+            print mp
+        }
+    ' "${mountinfo_path}"
+}
+
+# ────────────────────────────────────────────────────────────────────────
+# Detect spurious bind mounts — mount points present in mountinfo that
+# are NOT declared as containers in config.yaml AND are not under
+# well-known system pseudo-filesystems (/proc, /sys, /dev, /run, the
+# memexd runtime bind targets covered by spec §9.2: /etc/wqm,
+# /var/lib/wqm, /qdrant/storage, /etc/docker-compose-wqm.override.yaml).
+#
+# Args: none. Globals: WQM_CONFIG_PATH, WQM_MOUNTINFO_PATH.
+# Stdout: spurious mount points, one per line.
+# Exit:   0 always (best-effort; missing inputs → empty output).
+# ────────────────────────────────────────────────────────────────────────
+detect_spurious_mounts() {
+    local pairs
+    if [ ! -r "${WQM_MOUNTINFO_PATH}" ]; then
+        return 0
+    fi
+    if ! pairs="$(config_mount_pairs "${WQM_CONFIG_PATH}" 2>/dev/null)"; then
+        pairs=""
+    fi
+
+    # Build the list of expected container mount points: declared containers
+    # plus the spec §9.2 runtime bind targets plus the override file path.
+    local expected
+    expected=$(
+        if [ -n "${pairs}" ]; then
+            printf '%s\n' "${pairs}" | awk -F'\t' 'NF==2 {print $2}'
+        fi
+        printf '%s\n' \
+            "/etc/wqm" \
+            "/etc/wqm/config.yaml" \
+            "/var/lib/wqm" \
+            "/qdrant/storage" \
+            "${WQM_OVERRIDE_PATH}"
+    )
+
+    # Python filter: open mountinfo, parse field 5 with octal unescaping,
+    # drop anything in `expected` or under a denied system pseudofs prefix.
+    # Mountinfo path goes via argv[1], expected list (newline-delimited)
+    # via WQM_EXPECTED env so we sidestep the python3 `-` stdin-vs-heredoc
+    # conflict.
+    WQM_EXPECTED="${expected}" python3 - "${WQM_MOUNTINFO_PATH}" <<'PY'
+import os, re, sys
+mountinfo_path = sys.argv[1]
+expected = set(
+    line for line in os.environ.get("WQM_EXPECTED", "").splitlines() if line
+)
+denied = (
+    "/proc", "/sys", "/dev", "/run",
+    "/etc/hostname", "/etc/hosts", "/etc/resolv.conf", "/etc/mtab",
+)
+
+
+def unescape(p: str) -> str:
+    # Kernel mountinfo escapes space, tab, newline, backslash as octal.
+    return re.sub(
+        r"\\(0[0-9]{2}|1[0-3][0-7])",
+        lambda m: chr(int(m.group(1), 8)),
+        p,
+    )
+
+
+def under_denied(p: str) -> bool:
+    if p == "/":
+        return True
+    for d in denied:
+        if p == d or p.startswith(d + "/"):
+            return True
+    return False
+
+
+try:
+    with open(mountinfo_path, "r", encoding="utf-8") as f:
+        for line in f:
+            fields = line.rstrip("\n").split(" ")
+            if len(fields) < 5:
+                continue
+            mp = unescape(fields[4])
+            if not mp or under_denied(mp) or mp in expected:
+                continue
+            sys.stdout.write(mp + "\n")
+except OSError:
+    pass
+PY
+}
+
+# ────────────────────────────────────────────────────────────────────────
+# Layer 3 — Spurious-mount warning (best-effort, non-fatal)
+#
+# Reports any bind mount in /proc/self/mountinfo that we cannot attribute
+# to a config entry or a spec §9.2 runtime bind. Does not abort: user-added
+# scratch mounts for debugging are a legitimate use-case (§9.1).
+# ────────────────────────────────────────────────────────────────────────
+layer3_spurious_warning() {
+	log_info "layer 3: scanning for unexpected bind mounts"
+
+	if [ ! -r "${WQM_MOUNTINFO_PATH}" ]; then
+		log_info "layer 3: skipped (${WQM_MOUNTINFO_PATH} not readable)"
+		return ${EXIT_OK}
+	fi
+
+	local spurious
+	spurious="$(detect_spurious_mounts || true)"
+
+	if [ -z "${spurious}" ]; then
+		log_info "layer 3: ok (no unexpected bind mounts)"
+		return ${EXIT_OK}
+	fi
+
+	local count=0
+	while IFS= read -r mp; do
+		if [ -z "${mp}" ]; then
+			continue
+		fi
+		log_warn "Unexpected bind mount detected: ${mp}"
+		log_warn "  Not present in config.yaml mounts section."
+		log_warn "  This may be intentional (e.g., debugging), but verify it's expected."
+		count=$((count + 1))
+	done <<<"${spurious}"
+
+	log_info "layer 3: ${count} unexpected mount(s) reported (non-fatal)"
+	return ${EXIT_OK}
+}
+
+# ────────────────────────────────────────────────────────────────────────
+# Main orchestration — run all three layers, then exec memexd.
 # ────────────────────────────────────────────────────────────────────────
 main() {
 	log_info "memexd entrypoint starting"
@@ -286,7 +457,7 @@ main() {
 
 	layer1_hash_check || exit $?
 	layer2_mount_present || exit $?
-	# Layer 3 is hooked in the next commit.
+	layer3_spurious_warning || exit $?
 
 	if [ -n "${WQM_ENTRYPOINT_SKIP_EXEC:-}" ]; then
 		log_info "WQM_ENTRYPOINT_SKIP_EXEC set — would exec: ${WQM_MEMEXD_BIN} $*"
