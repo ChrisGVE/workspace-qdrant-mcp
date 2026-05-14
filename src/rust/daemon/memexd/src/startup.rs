@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 
 use workspace_qdrant_core::{
     config::DaemonConfig,
-    unified_config::{UnifiedConfigError, UnifiedConfigManager},
+    unified_config::{apply_env_overrides, UnifiedConfigError, UnifiedConfigManager},
     LoggingConfig,
 };
 
@@ -499,7 +499,7 @@ fn load_from_file(
                     "Configuration parse error (falling back to defaults): {}",
                     e
                 );
-                Ok(DaemonConfig::default())
+                Ok(apply_env_overrides(DaemonConfig::default())?)
             } else {
                 error!(
                     "Configuration parse error: {} — use --allow-default to fall back to \
@@ -530,11 +530,12 @@ fn load_auto_discover(
         Err(UnifiedConfigError::FileNotFound(_)) | Err(UnifiedConfigError::IoError(_)) => {
             // No config found — this is expected; use defaults silently.
             info!("No configuration file found; using built-in defaults");
-            Ok(if is_daemon_mode {
+            let base = if is_daemon_mode {
                 DaemonConfig::daemon_mode()
             } else {
                 DaemonConfig::default()
-            })
+            };
+            Ok(apply_env_overrides(base)?)
         }
         Err(e) => {
             // A config file was found but could not be parsed.
@@ -543,11 +544,12 @@ fn load_auto_discover(
                     "Configuration parse error (falling back to defaults): {}",
                     e
                 );
-                Ok(if is_daemon_mode {
+                let base = if is_daemon_mode {
                     DaemonConfig::daemon_mode()
                 } else {
                     DaemonConfig::default()
-                })
+                };
+                Ok(apply_env_overrides(base)?)
             } else {
                 error!(
                     "Configuration parse error: {} — use --allow-default to fall back to \
