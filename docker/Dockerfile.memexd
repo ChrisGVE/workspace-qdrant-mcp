@@ -234,12 +234,19 @@ ARG UID=1000
 #   git            — rust-analyzer shells out to git for some workspace
 #                    detection; avoids rare "could not run git" errors at
 #                    runtime.
+#   python3 + python3-yaml — required by docker/memexd-entrypoint.sh for
+#                    the spec 16 §9.1 stale-override check: PyYAML's
+#                    safe_dump matches serde_yaml_ng byte-for-byte, used
+#                    to recompute the mount-section hash inside the
+#                    container before the daemon starts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         nodejs \
         npm \
         git \
+        python3 \
+        python3-yaml \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid ${UID} memexd \
     && useradd --uid ${UID} --gid ${UID} --create-home --shell /usr/sbin/nologin memexd \
@@ -276,6 +283,12 @@ COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
 # already stripped when copied from the builder stage.  An extra `strip` pass
 # would require installing binutils in the slim runtime image for no benefit.
 
+# Spec 16 §9.1 stale-override defense — copied as root so the file is owned
+# by root (mode 755), preventing the unprivileged memexd user from
+# tampering with the entrypoint at runtime.
+COPY docker/memexd-entrypoint.sh /usr/local/bin/memexd-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/memexd-entrypoint.sh
+
 USER memexd
 ENV HOME=/home/memexd
 
@@ -294,7 +307,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 #   --grpc-port     : gRPC listen port (flag name is "grpc-port", not "port")
 #   --metrics-port  : enables the Prometheus /metrics + /health HTTP endpoint
 # There is no --host flag; the daemon always binds 0.0.0.0 internally.
-CMD ["/usr/local/bin/memexd", \
-     "--foreground", \
+#
+# ENTRYPOINT is the wrapper script which performs the spec 16 §9.1
+# three-layer mount validation, then exec's memexd with the CMD args.
+# Override WQM_ENTRYPOINT_SKIP_EXEC=1 at `docker run` time to bypass the
+# exec and only run validation (test/diagnostic use).
+ENTRYPOINT ["/usr/local/bin/memexd-entrypoint.sh"]
+CMD ["--foreground", \
      "--grpc-port", "50051", \
      "--metrics-port", "9091"]

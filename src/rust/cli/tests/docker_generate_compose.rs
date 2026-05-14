@@ -105,8 +105,8 @@ mounts:
         .and_then(|m| m.get("volumes"))
         .and_then(|v| v.as_sequence())
         .expect("volumes sequence in generated override");
-    // 3 mounts + 1 config + 2 state = 6
-    assert_eq!(volumes.len(), 6);
+    // 3 mounts + 1 config + 1 override-self-bind + 2 state = 7
+    assert_eq!(volumes.len(), 7);
 }
 
 #[test]

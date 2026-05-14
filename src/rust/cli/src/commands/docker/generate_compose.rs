@@ -36,10 +36,14 @@ const DEFAULT_CONTROL_PORT: u16 = 7799;
 /// Default override-file name.
 const DEFAULT_OVERRIDE_FILENAME: &str = "docker-compose.override.yaml";
 
-/// Container-side bind-mount targets (fixed, spec §9.2).
+/// Container-side bind-mount targets (fixed, spec §9.2 / §9.1).
 const CONTAINER_CONFIG_PATH: &str = "/etc/wqm/config.yaml";
 const CONTAINER_STATE_DIR: &str = "/var/lib/wqm";
 const CONTAINER_QDRANT_DIR: &str = "/qdrant/storage";
+/// Container-side bind target for the generated override file. The image
+/// entrypoint (docker/memexd-entrypoint.sh) reads `# wqm-config-hash:`
+/// from this path to detect override drift (spec §9.1 layer 1).
+const CONTAINER_OVERRIDE_PATH: &str = "/etc/docker-compose-wqm.override.yaml";
 
 /// Host-side state-bind-mount defaults (spec §9.2).
 const HOST_STATE_DIR_DEFAULT: &str = "~/.local/share/workspace-qdrant";
@@ -117,7 +121,7 @@ pub async fn execute(args: GenerateComposeArgs) -> Result<()> {
 fn run_generate(cfg: &ComposeRelevantConfig, cfg_path: &Path, output_path: &Path) -> Result<()> {
     validate_network_mode(cfg)?;
 
-    let yaml = render_override_yaml(cfg, cfg_path)?;
+    let yaml = render_override_yaml(cfg, cfg_path, output_path)?;
     fs::write(output_path, &yaml)
         .with_context(|| format!("failed to write override file at {}", output_path.display()))?;
     output::success(format!(
@@ -252,7 +256,11 @@ fn validate_network_mode(cfg: &ComposeRelevantConfig) -> Result<()> {
 // YAML rendering
 // ────────────────────────────────────────────────────────────────────────
 
-fn render_override_yaml(cfg: &ComposeRelevantConfig, cfg_path: &Path) -> Result<String> {
+fn render_override_yaml(
+    cfg: &ComposeRelevantConfig,
+    cfg_path: &Path,
+    output_path: &Path,
+) -> Result<String> {
     let hash = mount_section_hash(&cfg.mounts);
     let control_port = cfg.control_port.unwrap_or(DEFAULT_CONTROL_PORT);
     let use_host_network = matches!(
@@ -292,6 +300,29 @@ fn render_override_yaml(cfg: &ComposeRelevantConfig, cfg_path: &Path) -> Result<
     out.push_str(&escape_yaml_double(cfg_display));
     out.push(':');
     out.push_str(CONTAINER_CONFIG_PATH);
+    out.push_str(":ro\"\n");
+    // Self-bind the override file read-only into the container so the
+    // entrypoint can hash-check it on startup (spec §9.1 layer 1). The
+    // host path is `output_path` (absolute when supplied via --output;
+    // relative paths are resolved against the current directory at
+    // generation time).
+    let override_host = if output_path.is_absolute() {
+        output_path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("cannot resolve override host path (current dir unavailable)")?
+            .join(output_path)
+    };
+    let override_display = override_host.to_str().ok_or_else(|| {
+        anyhow!(
+            "override path is not valid UTF-8: {}",
+            override_host.display()
+        )
+    })?;
+    out.push_str("      - \"");
+    out.push_str(&escape_yaml_double(override_display));
+    out.push(':');
+    out.push_str(CONTAINER_OVERRIDE_PATH);
     out.push_str(":ro\"\n");
     // State bind mounts (unconditional, spec §9.2).
     out.push_str("      - \"");
@@ -399,7 +430,7 @@ control_port: 8800
     #[test]
     fn render_override_contains_hash_header_and_mandatory_port() {
         let cfg = cfg_with_mounts(vec![("/Users/chris/dev", "/Users/chris/dev")]);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml")).unwrap();
+        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
         assert!(rendered.starts_with("# wqm-config-hash: "));
         assert!(rendered.contains("127.0.0.1:7799:7799"));
         assert!(rendered.contains("/Users/chris/dev:/Users/chris/dev"));
@@ -408,7 +439,7 @@ control_port: 8800
     #[test]
     fn render_override_emits_state_bind_mounts() {
         let cfg = cfg_with_mounts(vec![]);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml")).unwrap();
+        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
         assert!(rendered.contains("~/.local/share/workspace-qdrant:/var/lib/wqm"));
         assert!(rendered.contains("~/.local/share/qdrant:/qdrant/storage"));
         assert!(rendered.contains("/etc/wqm/config.yaml:/etc/wqm/config.yaml:ro"));
@@ -418,7 +449,7 @@ control_port: 8800
     fn render_override_uses_custom_control_port() {
         let mut cfg = cfg_with_mounts(vec![]);
         cfg.control_port = Some(9000);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml")).unwrap();
+        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
         assert!(rendered.contains("127.0.0.1:9000:9000"));
     }
 
@@ -426,7 +457,7 @@ control_port: 8800
     fn render_override_host_network_skips_ports_section() {
         let mut cfg = cfg_with_mounts(vec![]);
         cfg.network_mode = Some("host".into());
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml")).unwrap();
+        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
         assert!(rendered.contains("network_mode: \"host\""));
         assert!(!rendered.contains("ports:"));
     }
@@ -493,7 +524,7 @@ control_port: 8800
             ("/Users/chris/dev", "/Users/chris/dev"),
             ("/Volumes/External/books", "/mnt/books"),
         ]);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml")).unwrap();
+        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
         // The hash header is a YAML comment, so the body is a single document.
         let parsed: serde_yaml_ng::Value =
             serde_yaml_ng::from_str(&rendered).expect("rendered override must parse as YAML");
@@ -503,8 +534,8 @@ control_port: 8800
             .get("volumes")
             .and_then(|v| v.as_sequence())
             .expect("volumes sequence");
-        // 2 mounts + 1 config + 2 state = 5
-        assert_eq!(volumes.len(), 5);
+        // 2 mounts + 1 config + 1 override-self-bind + 2 state = 6
+        assert_eq!(volumes.len(), 6);
         let ports = memexd
             .get("ports")
             .and_then(|p| p.as_sequence())
@@ -516,7 +547,7 @@ control_port: 8800
     #[test]
     fn rendered_yaml_preserves_hash_for_check_round_trip() {
         let cfg = cfg_with_mounts(vec![("/a", "/a")]);
-        let rendered = render_override_yaml(&cfg, Path::new("/cfg.yaml")).unwrap();
+        let rendered = render_override_yaml(&cfg, Path::new("/cfg.yaml"), Path::new("/tmp/override.yaml")).unwrap();
         let recorded = extract_hash_header(&rendered).expect("hash present");
         let live = mount_section_hash(&cfg.mounts);
         assert_eq!(recorded, live);
