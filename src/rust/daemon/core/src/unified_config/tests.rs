@@ -199,4 +199,95 @@ mod tests {
 
         std::env::remove_var("WQM_TEST_DIR");
     }
+
+    // ── T3.17 / T3.19 / T3.20 — mount-map end-to-end through load_config ─
+
+    /// T3.17: a config file with an invalid mount entry causes the
+    /// daemon's load_config (the same path startup.rs uses) to fail with
+    /// an error that names the `mounts:` section.
+    #[test]
+    fn test_load_config_rejects_invalid_mount_relative_host() {
+        use crate::unified_config::types::UnifiedConfigError;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = tmp.path().join("config.yaml");
+        // Start from defaults so the only failure mode is mount validation.
+        let mut cfg = crate::config::DaemonConfig::default();
+        cfg.mounts = vec![wqm_common::yaml_defaults::YamlMountEntry {
+            host: "relative/host".to_string(),
+            container: "/mnt/x".to_string(),
+        }];
+        let yaml = serde_yaml_ng::to_string(&cfg).expect("serialise");
+        std::fs::write(&cfg_path, yaml).expect("write");
+
+        let manager = UnifiedConfigManager::new(None::<PathBuf>);
+        let result = manager.load_config(Some(&cfg_path));
+        let err = result.expect_err("invalid mount must reject load_config");
+        match err {
+            UnifiedConfigError::ValidationError(msg) => {
+                assert!(
+                    msg.contains("mounts:"),
+                    "expected 'mounts:' prefix in validation error '{msg}'"
+                );
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    /// T3.19: explicit `mounts: []` round-trips through load_config; the
+    /// resulting MountMap is the identity map.
+    #[test]
+    fn test_load_config_accepts_empty_mounts() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = tmp.path().join("config.yaml");
+
+        let mut cfg = crate::config::DaemonConfig::default();
+        cfg.mounts.clear();
+        std::fs::write(
+            &cfg_path,
+            serde_yaml_ng::to_string(&cfg).expect("serialise"),
+        )
+        .expect("write");
+
+        let manager = UnifiedConfigManager::new(None::<PathBuf>);
+        let loaded = manager
+            .load_config(Some(&cfg_path))
+            .expect("empty mounts must load");
+        assert!(loaded.mounts.is_empty());
+        let map = loaded.build_mount_map().expect("identity always builds");
+        assert!(map.is_identity());
+    }
+
+    /// T3.19: a valid two-entry mount map survives a full load_config cycle.
+    #[test]
+    fn test_load_config_round_trip_with_valid_mounts() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = tmp.path().join("config.yaml");
+
+        let mut cfg = crate::config::DaemonConfig::default();
+        cfg.mounts = vec![
+            wqm_common::yaml_defaults::YamlMountEntry {
+                host: "/Users/chris/dev".to_string(),
+                container: "/Users/chris/dev".to_string(),
+            },
+            wqm_common::yaml_defaults::YamlMountEntry {
+                host: "/Volumes/External/books".to_string(),
+                container: "/mnt/external-books".to_string(),
+            },
+        ];
+        std::fs::write(
+            &cfg_path,
+            serde_yaml_ng::to_string(&cfg).expect("serialise"),
+        )
+        .expect("write");
+
+        let manager = UnifiedConfigManager::new(None::<PathBuf>);
+        let loaded = manager
+            .load_config(Some(&cfg_path))
+            .expect("valid mounts must load");
+        assert_eq!(loaded.mounts.len(), 2);
+        let map = loaded.build_mount_map().expect("build_mount_map");
+        assert_eq!(map.len(), 2);
+        assert!(!map.is_identity());
+    }
 }

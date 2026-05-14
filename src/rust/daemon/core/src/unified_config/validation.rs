@@ -90,5 +90,12 @@ pub(super) fn validate_config(config: &DaemonConfig) -> Result<(), UnifiedConfig
         .validate()
         .map_err(UnifiedConfigError::ValidationError)?;
 
+    // Mount-map well-formedness (T3, spec 16 §5.3). The MountMap itself is
+    // built once at startup; here we only assert that the declared entries
+    // parse cleanly.
+    config
+        .validate_mounts()
+        .map_err(|e| UnifiedConfigError::ValidationError(format!("mounts: {e}")))?;
+
     Ok(())
 }
