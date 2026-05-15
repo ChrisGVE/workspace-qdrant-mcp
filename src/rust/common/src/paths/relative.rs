@@ -89,9 +89,65 @@ pub enum RelativePathError {
         /// The offending input verbatim.
         input: String,
     },
+
+    /// Absolute input was not under the supplied root. Returned by
+    /// [`RelativePath::from_absolute_and_root`] when `path.strip_prefix(root)`
+    /// fails — the producer asked to anchor a path to a root the path does
+    /// not actually live under.
+    #[error("absolute path {path:?} is not under root {root:?}")]
+    NotUnderRoot {
+        /// The absolute path the caller tried to anchor.
+        path: String,
+        /// The root the caller tried to anchor it to.
+        root: String,
+    },
 }
 
 impl RelativePath {
+    /// Build a [`RelativePath`] by stripping a canonical root prefix from an
+    /// absolute path.
+    ///
+    /// Used at producer sites that have both the absolute filesystem path
+    /// being enqueued and the owning `CanonicalPath` root (watch_folder
+    /// root, library root). The resulting `RelativePath` is the same string
+    /// that would later be reconstructed via `to_absolute(root)`.
+    ///
+    /// # Errors
+    ///
+    /// - [`RelativePathError::NotUnderRoot`] when `path` is not under `root`.
+    /// - Any [`RelativePathError`] variant from normalization when the
+    ///   stripped suffix is invalid (e.g. empty, contains NUL, contains `..`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wqm_common::paths::{CanonicalPath, RelativePath};
+    ///
+    /// let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
+    /// let abs = CanonicalPath::from_user_input("/Users/chris/lib/cs/book.pdf").unwrap();
+    /// let rel = RelativePath::from_absolute_and_root(&abs, &root).unwrap();
+    /// assert_eq!(rel.as_str(), "cs/book.pdf");
+    /// ```
+    pub fn from_absolute_and_root(
+        path: &CanonicalPath,
+        root: &CanonicalPath,
+    ) -> Result<Self, RelativePathError> {
+        use std::path::Path;
+        let suffix = Path::new(path.as_str())
+            .strip_prefix(root.as_str())
+            .map_err(|_| RelativePathError::NotUnderRoot {
+                path: path.as_str().to_string(),
+                root: root.as_str().to_string(),
+            })?;
+        let suffix_str = suffix
+            .to_str()
+            .ok_or_else(|| RelativePathError::NotNormalized {
+                reason: "stripped suffix is not valid UTF-8".to_string(),
+                input: path.as_str().to_string(),
+            })?;
+        Self::from_user_input(suffix_str)
+    }
+
     /// Build a [`RelativePath`] from raw user input.
     ///
     /// Applies §3.3 normalization rules: rejects absolute input, rejects
@@ -425,5 +481,51 @@ mod tests {
         let rel = RelativePath::from_user_input("a/b.rs").unwrap();
         let abs = rel.to_absolute(&root);
         assert_eq!(abs.as_str(), "/r/a/b.rs");
+    }
+
+    // -----------------------------------------------------------------
+    // from_absolute_and_root — strip canonical-root prefix.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn from_absolute_and_root_strips_root_prefix() {
+        let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
+        let abs = CanonicalPath::from_user_input("/Users/chris/lib/cs/book.pdf").unwrap();
+        let rel = RelativePath::from_absolute_and_root(&abs, &root).unwrap();
+        assert_eq!(rel.as_str(), "cs/book.pdf");
+    }
+
+    #[test]
+    fn from_absolute_and_root_handles_immediate_child() {
+        let root = CanonicalPath::from_user_input("/r").unwrap();
+        let abs = CanonicalPath::from_user_input("/r/file.txt").unwrap();
+        let rel = RelativePath::from_absolute_and_root(&abs, &root).unwrap();
+        assert_eq!(rel.as_str(), "file.txt");
+    }
+
+    #[test]
+    fn from_absolute_and_root_rejects_path_outside_root() {
+        let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
+        let abs = CanonicalPath::from_user_input("/Users/chris/other/doc.pdf").unwrap();
+        let err = RelativePath::from_absolute_and_root(&abs, &root).unwrap_err();
+        assert!(matches!(err, RelativePathError::NotUnderRoot { .. }));
+    }
+
+    #[test]
+    fn from_absolute_and_root_rejects_root_equals_path() {
+        // Root and absolute path are identical; stripped suffix is empty.
+        let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
+        let abs = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
+        let err = RelativePath::from_absolute_and_root(&abs, &root).unwrap_err();
+        assert!(matches!(err, RelativePathError::Empty));
+    }
+
+    #[test]
+    fn from_absolute_and_root_round_trip_through_to_absolute() {
+        let root = CanonicalPath::from_user_input("/r/lib").unwrap();
+        let original = CanonicalPath::from_user_input("/r/lib/a/b/c.txt").unwrap();
+        let rel = RelativePath::from_absolute_and_root(&original, &root).unwrap();
+        let reconstructed = rel.to_absolute(&root);
+        assert_eq!(reconstructed.as_str(), original.as_str());
     }
 }
