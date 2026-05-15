@@ -3,6 +3,7 @@
 use sqlx::{sqlite::SqliteRow, Row, Sqlite, SqlitePool};
 use std::path::Path;
 use wqm_common::constants::COLLECTION_PROJECTS;
+use wqm_common::paths::RelativePath;
 use wqm_common::timestamps;
 
 use super::types::{ChunkType, ProcessingStatus, TrackedFile};
@@ -10,12 +11,34 @@ use super::types::{ChunkType, ProcessingStatus, TrackedFile};
 // Re-export hashing functions from wqm-common
 pub use wqm_common::hashing::{compute_content_hash, compute_file_hash};
 
-/// Build a TrackedFile from a SQLite row
+/// Build a TrackedFile from a SQLite row.
+///
+/// Post-v37: the row carries a single relative path column (`relative_path`).
+/// The legacy absolute `file_path` column was dropped by migration v37 and is
+/// no longer hydrated here.
 pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
+    let raw_relative: String = r.get("relative_path");
+    let relative_path = RelativePath::from_validated(raw_relative.clone()).unwrap_or_else(|e| {
+        // The DB invariant established by v37 says every row has a
+        // non-null, normalized relative_path. A failure here is a
+        // corrupted-row condition; fail closed by treating the path as
+        // an opaque single-segment relative — but still record the
+        // diagnostic so it surfaces in tests/logs.
+        tracing::error!(
+            "tracked_files row decode: invalid relative_path {:?}: {} — substituting normalized form",
+            raw_relative,
+            e
+        );
+        RelativePath::from_user_input(raw_relative.trim_start_matches('/'))
+            .unwrap_or_else(|_| {
+                RelativePath::from_user_input("invalid_path").expect("literal is valid")
+            })
+    });
+
     TrackedFile {
         file_id: r.get("file_id"),
         watch_folder_id: r.get("watch_folder_id"),
-        file_path: r.get("file_path"),
+        relative_path,
         branch: r.get("branch"),
         file_type: r.get("file_type"),
         language: r.get("language"),
@@ -44,7 +67,6 @@ pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
             .get::<Option<String>, _>("collection")
             .unwrap_or_else(|| COLLECTION_PROJECTS.to_string()),
         base_point: r.get("base_point"),
-        relative_path: r.get("relative_path"),
         incremental: r.get::<Option<i32>, _>("incremental").unwrap_or(0) != 0,
         component: r.get("component"),
         created_at: r.get("created_at"),
@@ -77,44 +99,49 @@ pub async fn lookup_watch_folder(
     Ok(row.map(|r| (r.get("watch_id"), r.get("path"))))
 }
 
-/// Look up a tracked file by (watch_folder_id, relative_path, branch)
+/// Look up a tracked file by (watch_folder_id, relative_path, branch).
+///
+/// `relative_path` here is the validated relative-path string (the
+/// post-v37 column). Callers pass a `&str` because the value typically
+/// comes from another DB row or a queue payload that already validated it
+/// upstream.
 pub async fn lookup_tracked_file(
     pool: &SqlitePool,
     watch_folder_id: &str,
-    file_path: &str,
+    relative_path: &str,
     branch: Option<&str>,
 ) -> Result<Option<TrackedFile>, sqlx::Error> {
     let row = match branch {
         Some(b) => {
             sqlx::query(
-                "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
+                "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
-                        collection, base_point, relative_path, incremental,
+                        collection, base_point, incremental,
                         component, created_at, updated_at
                  FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch = ?3",
+                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND branch = ?3",
             )
             .bind(watch_folder_id)
-            .bind(file_path)
+            .bind(relative_path)
             .bind(b)
             .fetch_optional(pool)
             .await?
         }
         None => {
             sqlx::query(
-                "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
+                "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
-                        collection, base_point, relative_path, incremental,
+                        collection, base_point, incremental,
                         component, created_at, updated_at
                  FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch IS NULL",
+                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND branch IS NULL",
             )
             .bind(watch_folder_id)
-            .bind(file_path)
+            .bind(relative_path)
             .fetch_optional(pool)
             .await?
         }
@@ -123,11 +150,15 @@ pub async fn lookup_tracked_file(
     Ok(row.map(|r| tracked_file_from_row(&r)))
 }
 
-/// Insert a new tracked file record, returning the file_id
+/// Insert a new tracked file record, returning the file_id.
+///
+/// `relative_path` is the post-v37 anchored relative path stored alongside
+/// the row. Callers must have validated/normalized the string upstream.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_tracked_file(
     pool: &SqlitePool,
     watch_folder_id: &str,
-    file_path: &str,
+    relative_path: &str,
     branch: Option<&str>,
     file_type: Option<&str>,
     language: Option<&str>,
@@ -141,19 +172,18 @@ pub async fn insert_tracked_file(
     extension: Option<&str>,
     is_test: bool,
     base_point: Option<&str>,
-    relative_path: Option<&str>,
     component: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let now = timestamps::now_utc();
     let collection = collection.unwrap_or(COLLECTION_PROJECTS);
     let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_type, language,
          file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
-         extension, is_test, collection, base_point, relative_path, component, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)"
+         extension, is_test, collection, base_point, component, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
     )
     .bind(watch_folder_id)
-    .bind(file_path)
+    .bind(relative_path)
     .bind(branch)
     .bind(file_type)
     .bind(language)
@@ -167,7 +197,6 @@ pub async fn insert_tracked_file(
     .bind(is_test as i32)
     .bind(collection)
     .bind(base_point)
-    .bind(relative_path)
     .bind(component)
     .bind(&now)
     .bind(&now)
@@ -341,45 +370,59 @@ pub async fn get_chunk_point_ids(
 
 /// Check if a file has the incremental (do-not-delete) flag set.
 ///
-/// Looks up by absolute file_path across all watch_folders. Returns true if the
-/// file exists in tracked_files with `incremental = 1`.
-pub async fn is_incremental(pool: &SqlitePool, file_path: &str) -> Result<bool, sqlx::Error> {
-    let result: Option<i32> =
-        sqlx::query_scalar("SELECT incremental FROM tracked_files WHERE file_path = ?1 LIMIT 1")
-            .bind(file_path)
-            .fetch_optional(pool)
-            .await?;
+/// Lookup keyed by absolute filesystem path: the row is matched by joining
+/// `watch_folders.path || '/' || tracked_files.relative_path` against the
+/// supplied absolute path. Returns true if at least one match exists with
+/// `incremental = 1`.
+pub async fn is_incremental(pool: &SqlitePool, abs_file_path: &str) -> Result<bool, sqlx::Error> {
+    let result: Option<i32> = sqlx::query_scalar(
+        "SELECT tf.incremental \
+         FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.path || '/' || tf.relative_path = ?1 \
+         LIMIT 1",
+    )
+    .bind(abs_file_path)
+    .fetch_optional(pool)
+    .await?;
 
     Ok(result.unwrap_or(0) != 0)
 }
 
-/// Set the incremental (do-not-delete) flag on a tracked file.
+/// Set the incremental (do-not-delete) flag on a tracked file by absolute path.
 pub async fn set_incremental(
     pool: &SqlitePool,
-    file_path: &str,
+    abs_file_path: &str,
     incremental: bool,
 ) -> Result<u64, sqlx::Error> {
     let now = wqm_common::timestamps::now_utc();
     let result = sqlx::query(
-        "UPDATE tracked_files SET incremental = ?1, updated_at = ?2 WHERE file_path = ?3",
+        "UPDATE tracked_files \
+         SET incremental = ?1, updated_at = ?2 \
+         WHERE file_id IN ( \
+             SELECT tf.file_id FROM tracked_files tf \
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.path || '/' || tf.relative_path = ?3 \
+         )",
     )
     .bind(if incremental { 1i32 } else { 0i32 })
     .bind(&now)
-    .bind(file_path)
+    .bind(abs_file_path)
     .execute(pool)
     .await?;
 
     Ok(result.rows_affected())
 }
 
-/// Get all tracked file paths for a watch_folder (for cleanup/recovery)
+/// Get all tracked file paths for a watch_folder (for cleanup/recovery).
+///
+/// Returns `(file_id, relative_path, branch)`.
 pub async fn get_tracked_file_paths(
     pool: &SqlitePool,
     watch_folder_id: &str,
 ) -> Result<Vec<(i64, String, Option<String>)>, sqlx::Error> {
-    // Returns (file_id, file_path, branch)
     let rows = sqlx::query(
-        "SELECT file_id, file_path, branch FROM tracked_files WHERE watch_folder_id = ?1",
+        "SELECT file_id, relative_path, branch FROM tracked_files WHERE watch_folder_id = ?1",
     )
     .bind(watch_folder_id)
     .fetch_all(pool)
@@ -387,14 +430,15 @@ pub async fn get_tracked_file_paths(
 
     Ok(rows
         .iter()
-        .map(|r| (r.get("file_id"), r.get("file_path"), r.get("branch")))
+        .map(|r| (r.get("file_id"), r.get("relative_path"), r.get("branch")))
         .collect())
 }
 
-/// Get tracked files under a folder path prefix for a watch_folder
+/// Get tracked files under a folder path prefix for a watch_folder.
 ///
-/// Used for folder-level delete/move operations. Matches files whose relative
-/// path starts with `folder_prefix/` (ensuring proper directory boundary).
+/// Used for folder-level delete/move operations. Matches files whose
+/// relative path starts with `folder_prefix/` (ensuring proper directory
+/// boundary).
 pub async fn get_tracked_files_by_prefix(
     pool: &SqlitePool,
     watch_folder_id: &str,
@@ -408,8 +452,8 @@ pub async fn get_tracked_files_by_prefix(
     };
 
     let rows = sqlx::query(
-        "SELECT file_id, file_path, branch FROM tracked_files
-         WHERE watch_folder_id = ?1 AND (file_path LIKE ?2 OR file_path = ?3)",
+        "SELECT file_id, relative_path, branch FROM tracked_files
+         WHERE watch_folder_id = ?1 AND (relative_path LIKE ?2 OR relative_path = ?3)",
     )
     .bind(watch_folder_id)
     .bind(format!("{}%", prefix))
@@ -419,7 +463,7 @@ pub async fn get_tracked_files_by_prefix(
 
     Ok(rows
         .iter()
-        .map(|r| (r.get("file_id"), r.get("file_path"), r.get("branch")))
+        .map(|r| (r.get("file_id"), r.get("relative_path"), r.get("branch")))
         .collect())
 }
 

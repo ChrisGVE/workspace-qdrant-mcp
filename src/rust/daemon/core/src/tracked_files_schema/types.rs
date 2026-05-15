@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use wqm_common::paths::RelativePath;
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -102,15 +103,22 @@ impl ChunkType {
 // Rust structs
 // ---------------------------------------------------------------------------
 
-/// A tracked file entry representing an ingested file in the system
+/// A tracked file entry representing an ingested file in the system.
+///
+/// Post-v37: the row mirror no longer carries an absolute `file_path`. Content
+/// identity is anchored to the watch-folder root via a validated
+/// [`RelativePath`]. Absolute paths are reconstructed at I/O boundaries by
+/// joining with the owning `watch_folders.path` (a `CanonicalPath`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackedFile {
     /// Auto-incremented primary key
     pub file_id: i64,
     /// FK to watch_folders.watch_id
     pub watch_folder_id: String,
-    /// Relative path within project/library root
-    pub file_path: String,
+    /// Validated relative path within the watch-folder/library root.
+    /// Replaces both the legacy absolute `file_path` and the prior optional
+    /// `relative_path` string.
+    pub relative_path: RelativePath,
     /// Git branch (NULL for libraries or non-git contexts)
     pub branch: Option<String>,
     /// Detected file type (e.g., "code", "markdown", "config")
@@ -143,8 +151,6 @@ pub struct TrackedFile {
     pub collection: String,
     /// Content-addressed identity: SHA256(tenant_id|branch|relative_path|file_hash)[:32]
     pub base_point: Option<String>,
-    /// Normalized relative path within project root (for stable identity)
-    pub relative_path: Option<String>,
     /// Whether this file supports incremental (chunk-level) updates
     pub incremental: bool,
     /// Dot-separated component ID (e.g. "daemon.core", "cli")

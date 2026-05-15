@@ -7,11 +7,16 @@ use wqm_common::timestamps;
 use super::operations::{execute_chunk_batch_insert, CHUNK_INSERT_BATCH_SIZE};
 use super::types::{ChunkType, ProcessingStatus};
 
-/// Insert a new tracked file record within a transaction, returning the file_id
+/// Insert a new tracked file record within a transaction, returning the file_id.
+///
+/// Post-v37: the SQL column is `relative_path` (no more absolute `file_path`).
+/// Callers pass the validated relative-path string. Absolute reconstruction
+/// happens at I/O boundaries via `watch_folders.path` + `RelativePath`.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_tracked_file_tx(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     watch_folder_id: &str,
-    file_path: &str,
+    relative_path: &str,
     branch: Option<&str>,
     file_type: Option<&str>,
     language: Option<&str>,
@@ -25,19 +30,18 @@ pub async fn insert_tracked_file_tx(
     extension: Option<&str>,
     is_test: bool,
     base_point: Option<&str>,
-    relative_path: Option<&str>,
     component: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let now = timestamps::now_utc();
     let collection = collection.unwrap_or(COLLECTION_PROJECTS);
     let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_type, language,
          file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
-         extension, is_test, collection, base_point, relative_path, component, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)"
+         extension, is_test, collection, base_point, component, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
     )
     .bind(watch_folder_id)
-    .bind(file_path)
+    .bind(relative_path)
     .bind(branch)
     .bind(file_type)
     .bind(language)
@@ -51,7 +55,6 @@ pub async fn insert_tracked_file_tx(
     .bind(is_test as i32)
     .bind(collection)
     .bind(base_point)
-    .bind(relative_path)
     .bind(component)
     .bind(&now)
     .bind(&now)

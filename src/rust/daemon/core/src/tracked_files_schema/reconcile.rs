@@ -33,11 +33,11 @@ pub async fn get_files_needing_reconcile(
     pool: &SqlitePool,
 ) -> Result<Vec<TrackedFile>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
+        "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
                 file_mtime, file_hash, chunk_count, chunking_method,
                 lsp_status, treesitter_status, last_error,
                 needs_reconcile, reconcile_reason, extension, is_test,
-                collection, base_point, relative_path, incremental,
+                collection, base_point, incremental,
                 component, created_at, updated_at
          FROM tracked_files
          WHERE needs_reconcile = 1",
@@ -71,7 +71,8 @@ impl UpgradeReason {
 
 /// Find files needing capability upgrade for a given tenant and language.
 ///
-/// Returns `(file_id, file_path, branch, collection)` tuples for files where:
+/// Returns `(file_id, relative_path, branch, collection)` tuples for files
+/// where:
 /// - `treesitter_status` is 'none', 'failed', or 'skipped' (grammar upgrade), or
 /// - `lsp_status` is 'none' or 'failed' (LSP upgrade)
 pub async fn get_files_needing_upgrade(
@@ -88,7 +89,7 @@ pub async fn get_files_needing_upgrade(
 
     let query = if language.is_some() {
         format!(
-            "SELECT tf.file_id, tf.file_path, tf.branch, tf.collection
+            "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
              FROM tracked_files tf
              JOIN watch_folders wf ON tf.watch_folder_id = wf.id
              WHERE wf.tenant_id = ?1
@@ -98,7 +99,7 @@ pub async fn get_files_needing_upgrade(
         )
     } else {
         format!(
-            "SELECT tf.file_id, tf.file_path, tf.branch, tf.collection
+            "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
              FROM tracked_files tf
              JOIN watch_folders wf ON tf.watch_folder_id = wf.id
              WHERE wf.tenant_id = ?1
@@ -123,7 +124,7 @@ pub async fn get_files_needing_upgrade(
         .map(|r| {
             (
                 r.get::<i64, _>("file_id"),
-                r.get::<String, _>("file_path"),
+                r.get::<String, _>("relative_path"),
                 r.get::<String, _>("branch"),
                 r.get::<String, _>("collection"),
             )
