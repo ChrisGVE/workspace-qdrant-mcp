@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::paths::RelativePath;
+
 /// Payload for tenant items with collection="projects"
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectPayload {
@@ -74,8 +76,11 @@ pub struct ChunkingConfigPayload {
 /// extraction pipeline and `source_format` to select the specific extractor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LibraryDocumentPayload {
-    /// Absolute path to the library document
-    pub document_path: String,
+    /// Path to the library document, relative to the library root.
+    ///
+    /// Anchored to the owning library's `watch_folders.path`. Reconstruction
+    /// to an absolute filesystem path is `library_root + "/" + document_path`.
+    pub document_path: RelativePath,
     /// Library name (tenant_id for libraries collection)
     pub library_name: String,
     /// Processing family: "page_based" or "stream_based"
@@ -168,7 +173,7 @@ mod tests {
     #[test]
     fn test_library_document_payload_page_based() {
         let payload = LibraryDocumentPayload {
-            document_path: "/docs/report.pdf".to_string(),
+            document_path: RelativePath::from_user_input("docs/report.pdf").unwrap(),
             library_name: "internal-docs".to_string(),
             document_type: "page_based".to_string(),
             source_format: "pdf".to_string(),
@@ -196,7 +201,7 @@ mod tests {
     #[test]
     fn test_library_document_payload_stream_based() {
         let payload = LibraryDocumentPayload {
-            document_path: "/docs/book.epub".to_string(),
+            document_path: RelativePath::from_user_input("docs/book.epub").unwrap(),
             library_name: "reference-books".to_string(),
             document_type: "stream_based".to_string(),
             source_format: "epub".to_string(),
@@ -221,7 +226,7 @@ mod tests {
     #[test]
     fn test_library_document_payload_docx() {
         let payload = LibraryDocumentPayload {
-            document_path: "/docs/proposal.docx".to_string(),
+            document_path: RelativePath::from_user_input("docs/proposal.docx").unwrap(),
             library_name: "team-docs".to_string(),
             document_type: "page_based".to_string(),
             source_format: "docx".to_string(),

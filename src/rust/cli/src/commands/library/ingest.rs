@@ -6,11 +6,13 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use wqm_common::classification::extension_to_document_type;
 use wqm_common::constants::COLLECTION_LIBRARIES;
+use wqm_common::paths::{CanonicalPath, RelativePath};
 use wqm_common::payloads::{ChunkingConfigPayload, LibraryDocumentPayload};
 
 use super::helpers::{
     canonical_from_cli_path, classify_document_extension, signal_daemon_ingest_queue,
 };
+use crate::data::db::connect_readonly;
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::EnqueueItemRequest;
 use crate::output;
@@ -37,20 +39,42 @@ pub async fn execute(
     }
 
     let abs_path = canonical_from_cli_path(file)?;
-    let abs_path_str = abs_path.into_string();
+    let abs_path_str = abs_path.as_str().to_string();
     let abs_path_buf = PathBuf::from(&abs_path_str);
 
     let (source_format, document_type) = classify_extension(&abs_path_buf)?;
 
+    // Resolve the registered library root from SQLite so the persisted
+    // document_path is relative to that root (per docs/specs/16-path-abstraction.md §3.3).
+    let library_root = lookup_library_root(library).with_context(|| {
+        format!(
+            "Library '{}' is not registered. Run `wqm library add {} <path>` first.",
+            library, library
+        )
+    })?;
+
+    let relative_document_path = RelativePath::from_absolute_and_root(&abs_path, &library_root)
+        .with_context(|| {
+            format!(
+                "File {} is not inside library '{}' root {}",
+                home_to_tilde(abs_path.as_str()),
+                library,
+                home_to_tilde(library_root.as_str()),
+            )
+        })?;
+
     output::kv("  File", home_to_tilde(&abs_path_str));
     output::kv("  Library", library);
+    output::kv("  Library Root", home_to_tilde(library_root.as_str()));
+    output::kv("  Relative Path", relative_document_path.as_str());
     output::kv("  Format", source_format);
     output::kv("  Type", document_type);
     output::kv("  Chunk Target", format!("{} tokens", chunk_tokens));
     output::kv("  Chunk Overlap", format!("{} tokens", overlap_tokens));
 
-    // Generate doc_id (UUID v5 from library_name + path)
-    let doc_id = workspace_qdrant_core::generate_document_id(library, &abs_path_str);
+    // Generate doc_id (UUID v5 from library_name + relative path).
+    let doc_id =
+        workspace_qdrant_core::generate_document_id(library, relative_document_path.as_str());
     output::kv("  Doc ID", &doc_id);
 
     // Calculate doc_fingerprint (SHA256 of file bytes)
@@ -62,7 +86,7 @@ pub async fn execute(
 
     // Build payload
     let payload = LibraryDocumentPayload {
-        document_path: abs_path_str,
+        document_path: relative_document_path,
         library_name: library.to_string(),
         document_type: document_type.to_string(),
         source_format: source_format.to_string(),
@@ -83,6 +107,24 @@ pub async fn execute(
     signal_daemon_ingest_queue().await;
 
     Ok(())
+}
+
+/// Resolve the canonical root path for a registered library tag.
+///
+/// Reads the `watch_folders` row whose `tenant_id` matches the supplied
+/// library tag and whose `collection` is the libraries collection.
+fn lookup_library_root(library: &str) -> Result<CanonicalPath> {
+    let conn = connect_readonly().context("Could not open state database")?;
+    let path: String = conn
+        .query_row(
+            "SELECT path FROM watch_folders \
+             WHERE tenant_id = ?1 AND collection = ?2 \
+             LIMIT 1",
+            rusqlite::params![library, COLLECTION_LIBRARIES],
+            |row| row.get(0),
+        )
+        .context("Could not find library in watch_folders")?;
+    CanonicalPath::from_user_input(&path).map_err(|e| anyhow::anyhow!("library root invalid: {e}"))
 }
 
 /// Extract and classify the file extension
