@@ -2,12 +2,18 @@
 # path-discipline.sh — CI guard for path-abstraction field discipline.
 #
 # Enforces that all *_path, *_file, path, and file named fields in known
-# schema-mirroring structs use CanonicalPath (for canonical-class fields)
-# or are explicitly classified as process-local/relative in the audit doc.
+# schema-mirroring structs use the correct typed path newtype:
+#
+#   - CanonicalPath / Option<CanonicalPath> for canonical-class fields
+#     (filesystem roots: watch_folders, mount points, library roots).
+#   - RelativePath / Option<RelativePath> for content paths anchored to a
+#     watch_folder or library root.
+#
+# Process-local paths (String / PathBuf) are exempted via the allowlist.
 #
 # This script checks:
-# 1. Serde payload structs (common/src/payloads/*)
-# 2. Proto-generated types for canonical path fields
+# 1. Serde payload structs in common/src/payloads/*
+# 2. Decoded payload structs in daemon/core/src/image_search.rs (per D7).
 #
 # Usage: ./scripts/ci/path-discipline.sh [<project_root>]
 #
@@ -15,7 +21,9 @@
 #   0 — all struct fields comply with path-abstraction rules
 #   1 — one or more violations found
 #
-# See docs/specs/16-path-abstraction.md §4.3 for the discipline rules.
+# See docs/specs/16-path-abstraction.md §3.3, §4.3 and
+# scripts/ci/path-discipline-relative-allowlist.txt for the classification
+# of each tracked field.
 
 set -uo pipefail
 
@@ -53,47 +61,84 @@ while IFS='|' read -r struct field class; do
     fi
 done < "$ALLOWLIST_FILE"
 
-# Check Qdrant serde payload structs for canonical path fields using String/PathBuf
-# These should use CanonicalPath instead
+# Check payload + decoded-payload structs for path field discipline.
+#
+# Each entry is "Struct:field:expected_class" where expected_class is
+# "canonical" or "relative".
+#
+# Per docs/specs/16-path-abstraction-audit.md §"Qdrant Payloads", all six
+# content-path fields below are relative to a watch_folder or library
+# root. They MUST use RelativePath / Option<RelativePath>; CanonicalPath
+# is wrong here (would carry a deployment-specific absolute path).
 
 echo "Checking Qdrant payload structs..."
 PAYLOAD_STRUCTS=(
-    "FilePayload:file_path"
-    "FilePayload:old_path"
-    "FolderPayload:folder_path"
-    "FolderPayload:old_path"
-    "LibraryDocumentPayload:document_path"
-    "ImageSearchResult:file_path"
+    "FilePayload:file_path:relative"
+    "FilePayload:old_path:relative"
+    "FolderPayload:folder_path:relative"
+    "FolderPayload:old_path:relative"
+    "LibraryDocumentPayload:document_path:relative"
+    "ImageSearchResult:file_path:relative"
+)
+
+# Search both the serde payload directory and the image_search module
+# (per D7 — ImageSearchResult is a Qdrant-payload-decoded struct that
+# lives alongside the search implementation, not in common/payloads).
+SEARCH_PATHS=(
+    "$ROOT/src/rust/common/src/payloads"
+    "$ROOT/src/rust/daemon/core/src/image_search.rs"
 )
 
 for struct_field in "${PAYLOAD_STRUCTS[@]}"; do
-    IFS=':' read -r struct_name field_name <<<"$struct_field"
+    IFS=':' read -r struct_name field_name expected_class <<<"$struct_field"
 
-    # Check in payload files
+    # Determine expected newtype based on class
+    case "$expected_class" in
+        canonical)
+            expected_type="CanonicalPath"
+            ;;
+        relative)
+            expected_type="RelativePath"
+            ;;
+        *)
+            echo "ERROR: unknown expected_class '$expected_class' for $struct_name:$field_name" >&2
+            exit 1
+            ;;
+    esac
+
+    # Find candidate files containing this struct
     while IFS= read -r filepath; do
         [[ -z "$filepath" ]] && continue
+        [[ ! -f "$filepath" ]] && continue
 
         # Look for field: String or field: Option<String> patterns in the struct
-        # Use a simpler pattern match
         if grep -q "$field_name\s*:\s*Option\?<\s*String\s*>\|$field_name\s*:\s*String" "$filepath" 2>/dev/null; then
             # Check if this is the correct struct
             if grep -q "struct $struct_name" "$filepath" 2>/dev/null; then
-                # Verify it's not in allowlist or already CanonicalPath
+                # Verify it's not in allowlist
                 is_allowed="${ALLOWLIST_FIELDS[$struct_name:$field_name]:-}"
 
                 if [[ -z "$is_allowed" ]]; then
-                    # Check if it already uses CanonicalPath (acceptable)
-                    if ! grep -q "$field_name\s*:\s*CanonicalPath\|$field_name\s*:\s*Option<CanonicalPath>" "$filepath" 2>/dev/null; then
+                    # Check if it already uses the expected newtype
+                    if ! grep -q "$field_name\s*:\s*$expected_type\|$field_name\s*:\s*Option<$expected_type>" "$filepath" 2>/dev/null; then
                         echo "VIOLATION: $filepath" >&2
                         echo "  Struct: $struct_name" >&2
                         echo "  Field: $field_name" >&2
-                        echo "  → Uses String/PathBuf; should use CanonicalPath for canonical paths" >&2
+                        echo "  → Uses String/PathBuf; should use $expected_type ($expected_class path)" >&2
                         VIOLATIONS=$((VIOLATIONS + 1))
                     fi
                 fi
             fi
         fi
-    done < <(find "$ROOT/src/rust/common/src/payloads" -name "*.rs" 2>/dev/null)
+    done < <(
+        for sp in "${SEARCH_PATHS[@]}"; do
+            if [[ -d "$sp" ]]; then
+                find "$sp" -name "*.rs" 2>/dev/null
+            elif [[ -f "$sp" ]]; then
+                echo "$sp"
+            fi
+        done
+    )
 done
 
 # Check for to_string_lossy() bindings near canonicalize() calls (Category B rule 4 violation)
