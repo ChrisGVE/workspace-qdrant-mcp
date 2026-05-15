@@ -18,6 +18,7 @@ use tracing::{debug, info, warn};
 use crate::lifecycle::WatchFolderLifecycle;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
+use wqm_common::paths::RelativePath;
 
 /// Statistics returned by `clean_stale_state`.
 #[derive(Debug, Clone, Default)]
@@ -155,6 +156,12 @@ async fn reset_in_progress_items(pool: &SqlitePool) -> Result<u64, String> {
 /// items for that file path. Removing such a failed row would silently discard
 /// the only signal that the file needs repair (F-043).
 ///
+/// After the T7 relative-path migration, `unified_queue.file_path` stores the
+/// relative path anchored to `watch_folders.path` (scoped by
+/// `(tenant_id, branch, collection)`). The join now matches
+/// `tf.relative_path = unified_queue.file_path` plus the tenant/collection scope
+/// instead of reconstructing the absolute path.
+///
 /// Note: `max_retries` was dropped from `unified_queue` in schema migration
 /// v27 (centralised in daemon config). The exemption applies to any failed row
 /// that is the sole repair record, regardless of its `retry_count`.
@@ -170,10 +177,14 @@ async fn purge_old_completed_items(pool: &SqlitePool) -> Result<u64, String> {
                  SELECT 1 FROM tracked_files tf \
                  JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
                  WHERE tf.needs_reconcile = 1 \
-                   AND (wf.path || '/' || tf.relative_path) = unified_queue.file_path \
+                   AND tf.relative_path = unified_queue.file_path \
+                   AND wf.tenant_id = unified_queue.tenant_id \
+                   AND wf.collection = unified_queue.collection \
                    AND NOT EXISTS ( \
                        SELECT 1 FROM unified_queue q2 \
                        WHERE q2.file_path = unified_queue.file_path \
+                         AND q2.tenant_id = unified_queue.tenant_id \
+                         AND q2.collection = unified_queue.collection \
                          AND q2.status IN ('pending', 'in_progress') \
                          AND q2.queue_id != unified_queue.queue_id \
                    ) \
@@ -258,8 +269,20 @@ async fn enqueue_delete_for_missing_tracked_files(
         }
 
         let abs_path_str = abs_path.to_string_lossy();
+        // `tracked_files.relative_path` is already validated; use it as the
+        // anchored payload form directly.
+        let relative = match RelativePath::from_user_input(&relative_path) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "tracked_files.relative_path {:?} failed validation: {}",
+                    relative_path, e
+                );
+                continue;
+            }
+        };
         let file_payload = FilePayload {
-            file_path: abs_path_str.to_string(),
+            file_path: relative,
             file_type: None,
             file_hash: None,
             size_bytes: None,
@@ -318,6 +341,11 @@ async fn enqueue_delete_for_missing_tracked_files(
 /// has been durably processed (deleted from queue = done) or never existed. If a
 /// pending or in-progress Delete item exists for the file, the row is kept so
 /// that the Delete handler can still resolve the file's identity on completion.
+///
+/// Post-T7: the in-flight check matches on the relative path that is stored in
+/// `unified_queue.file_path` and is scoped to the row's tenant + collection so
+/// that two tenants sharing an identical relative path under different
+/// watch-folder roots do not cross-contaminate.
 async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     info!("Checking tracked files against filesystem...");
     let tracked_rows = sqlx::query(
@@ -336,6 +364,8 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
         let file_id: i64 = row.get("file_id");
         let relative_path: String = row.get("relative_path");
         let watch_path: String = row.get("watch_path");
+        let tenant_id: String = row.get("tenant_id");
+        let collection: String = row.get("collection");
 
         let abs_path = Path::new(&watch_path).join(&relative_path);
         if abs_path.exists() {
@@ -343,26 +373,30 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
         }
 
         // File is missing on disk. Only remove the tracked_files row if there is
-        // no pending or in-progress Delete item for this absolute path. A Delete
-        // item in flight means the downstream cleanup (Qdrant, FTS, graph) has
-        // not yet been applied — removing the row now would orphan that state.
-        let abs_path_str = abs_path.to_string_lossy().to_string();
+        // no pending or in-progress Delete item for this relative path within the
+        // same tenant + collection scope. A Delete item in flight means the
+        // downstream cleanup (Qdrant, FTS, graph) has not yet been applied —
+        // removing the row now would orphan that state.
         let in_flight: i64 = match sqlx::query_scalar(
             "SELECT COUNT(*) FROM unified_queue \
              WHERE file_path = ?1 \
+               AND tenant_id = ?2 \
+               AND collection = ?3 \
                AND op = 'delete' \
                AND item_type = 'file' \
                AND status IN ('pending', 'in_progress')",
         )
-        .bind(&abs_path_str)
+        .bind(&relative_path)
+        .bind(&tenant_id)
+        .bind(&collection)
         .fetch_one(pool)
         .await
         {
             Ok(count) => count,
             Err(e) => {
                 warn!(
-                    "Failed to check in-flight Delete for {}: {} — skipping row to preserve F-036 safety guarantee",
-                    abs_path_str, e
+                    "Failed to check in-flight Delete for {} (tenant={}, collection={}): {} — skipping row to preserve F-036 safety guarantee",
+                    relative_path, tenant_id, collection, e
                 );
                 continue;
             }
@@ -371,12 +405,12 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
         if in_flight > 0 {
             debug!(
                 "Keeping tracked_files row for {} — Delete op still in flight",
-                abs_path_str
+                relative_path
             );
         } else {
             debug!(
                 "Tracked file missing on disk and no Delete in flight, removing: {}",
-                abs_path_str
+                relative_path
             );
             removable_file_ids.push(file_id);
         }

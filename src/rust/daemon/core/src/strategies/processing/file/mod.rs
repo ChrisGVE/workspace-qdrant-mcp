@@ -39,6 +39,7 @@ use crate::tracked_files_schema;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation, UnifiedQueueItem};
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
+use wqm_common::paths::CanonicalPath;
 
 /// Strategy for processing file queue items.
 ///
@@ -85,12 +86,23 @@ impl FileStrategy {
             return Ok(());
         }
 
-        let file_path = Path::new(&payload.file_path);
         let pool = ctx.queue_manager.pool();
         let (watch_folder_id, base_path) = resolve_watch_folder(pool, item).await?;
-        let relative_path =
-            tracked_files_schema::compute_relative_path(&payload.file_path, &base_path)
-                .unwrap_or_else(|| payload.file_path.clone());
+
+        // Reconstruct the absolute filesystem path by anchoring the
+        // relative payload path to the watch_folder root. The relative
+        // form (already validated by serde + the type system) is what we
+        // pass downstream as `relative_path`.
+        let base_canonical = CanonicalPath::from_user_input(&base_path).map_err(|e| {
+            UnifiedProcessorError::InvalidPayload(format!(
+                "watch_folder.path is not canonical for tenant_id={}: {}",
+                item.tenant_id, e
+            ))
+        })?;
+        let abs_canonical = payload.file_path.to_absolute(&base_canonical);
+        let abs_file_path: String = abs_canonical.as_str().to_string();
+        let file_path = Path::new(abs_file_path.as_str());
+        let relative_path: &str = payload.file_path.as_str();
 
         crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
             .await
@@ -102,8 +114,8 @@ impl FileStrategy {
                 item,
                 pool,
                 &watch_folder_id,
-                &relative_path,
-                &payload.file_path,
+                relative_path,
+                &abs_file_path,
             )
             .await;
         }
@@ -111,8 +123,16 @@ impl FileStrategy {
         if !file_path.exists() {
             // F-035: handle_missing_file now returns Err if Qdrant delete failed;
             // propagate so the queue row picks up retry metadata.
-            handle_missing_file(ctx, item, pool, &watch_folder_id, &relative_path, &payload)
-                .await?;
+            handle_missing_file(
+                ctx,
+                item,
+                pool,
+                &watch_folder_id,
+                relative_path,
+                &abs_file_path,
+                &payload,
+            )
+            .await?;
             return Ok(());
         }
 
@@ -123,7 +143,8 @@ impl FileStrategy {
                 pool,
                 file_path,
                 &watch_folder_id,
-                &relative_path,
+                relative_path,
+                &abs_file_path,
                 &payload,
             )
             .await?
@@ -140,7 +161,8 @@ impl FileStrategy {
                 pool,
                 file_path,
                 &watch_folder_id,
-                &relative_path,
+                relative_path,
+                &abs_file_path,
                 &payload,
             )
             .await?;
@@ -152,9 +174,10 @@ impl FileStrategy {
             pool,
             file_path,
             &payload,
+            &abs_file_path,
             &watch_folder_id,
             &base_path,
-            &relative_path,
+            relative_path,
         )
         .await
     }
@@ -178,28 +201,25 @@ fn passes_ingestion_guards(
         return true;
     }
 
-    if !ctx
-        .allowed_extensions
-        .is_allowed(&payload.file_path, &item.collection)
-    {
+    let rel = payload.file_path.as_str();
+    if !ctx.allowed_extensions.is_allowed(rel, &item.collection) {
         debug!(
             "File type not in allowlist, skipping: {} (collection={})",
-            payload.file_path, item.collection
+            rel, item.collection
         );
         return false;
     }
 
     if let Some(size) = payload.size_bytes {
-        let ext =
-            crate::file_classification::get_extension_for_storage(Path::new(&payload.file_path))
-                .unwrap_or_default();
+        let ext = crate::file_classification::get_extension_for_storage(Path::new(rel))
+            .unwrap_or_default();
         if let Some(limit) = ctx.ingestion_limits.size_limit_bytes(&ext) {
             if size > limit {
                 warn!(
                     extension = %ext,
                     size_kb = size / 1024,
                     limit_kb = limit / 1024,
-                    path = %payload.file_path,
+                    path = %rel,
                     "Skipping oversized file: exceeds per-extension limit"
                 );
                 return false;
@@ -215,15 +235,25 @@ fn passes_ingestion_guards(
 ///
 /// **F-035:** if Qdrant cleanup fails, returns `Err` without marking
 /// destinations done — the queue row stays for retry.
+#[allow(clippy::too_many_arguments)]
 async fn handle_missing_file(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     pool: &sqlx::SqlitePool,
     watch_folder_id: &str,
     relative_path: &str,
+    abs_file_path: &str,
     payload: &FilePayload,
 ) -> crate::unified_queue_processor::UnifiedProcessorResult<()> {
-    delete::cleanup_missing_file(ctx, item, pool, watch_folder_id, relative_path, payload).await?;
+    delete::cleanup_missing_file(
+        ctx,
+        item,
+        pool,
+        watch_folder_id,
+        relative_path,
+        abs_file_path,
+    )
+    .await?;
     let _ = ctx
         .queue_manager
         .update_destination_status(
@@ -242,7 +272,7 @@ async fn handle_missing_file(
         .await;
     info!(
         "File no longer exists, cleaned up and dequeuing: {}",
-        payload.file_path
+        payload.file_path.as_str()
     );
     Ok(())
 }
@@ -250,6 +280,7 @@ async fn handle_missing_file(
 /// Handle the Update pre-flight: hash comparison and reference-counted deletion.
 ///
 /// Returns `UpdateAction::Skip` when the file is unchanged (hash match).
+#[allow(clippy::too_many_arguments)]
 async fn prepare_update(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -257,6 +288,7 @@ async fn prepare_update(
     file_path: &Path,
     watch_folder_id: &str,
     relative_path: &str,
+    abs_file_path: &str,
     payload: &FilePayload,
 ) -> UnifiedProcessorResult<UpdateAction> {
     let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
@@ -284,15 +316,18 @@ async fn prepare_update(
             pool,
             watch_folder_id,
             relative_path,
+            abs_file_path,
             payload,
             &existing,
             &new_hash,
         )
         .await?;
     } else {
-        // Not tracked yet — defensive cleanup via filter
+        // Not tracked yet — defensive cleanup via filter (filter matches
+        // the absolute path stored in the Qdrant payload's `file_path`
+        // field; the queue payload itself is relative).
         ctx.storage_client
-            .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
+            .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
     }
@@ -300,6 +335,7 @@ async fn prepare_update(
 }
 
 /// Handle the Uplift pre-flight: delete old points so fresh enrichment is produced.
+#[allow(clippy::too_many_arguments)]
 async fn prepare_uplift(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -307,6 +343,7 @@ async fn prepare_uplift(
     file_path: &Path,
     watch_folder_id: &str,
     relative_path: &str,
+    abs_file_path: &str,
     payload: &FilePayload,
 ) -> UnifiedProcessorResult<()> {
     let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
@@ -331,6 +368,7 @@ async fn prepare_uplift(
             pool,
             watch_folder_id,
             relative_path,
+            abs_file_path,
             payload,
             &existing,
             &new_hash,

@@ -23,6 +23,7 @@ use crate::unified_queue_schema::{
     FilePayload, ItemType, LibraryContentPayload, LibraryPayload, QueueOperation, UnifiedQueueItem,
 };
 use wqm_common::constants::COLLECTION_LIBRARIES;
+use wqm_common::paths::{CanonicalPath, RelativePath};
 
 /// Process library item -- create/manage library collections.
 pub(crate) async fn process_library_item(
@@ -360,8 +361,41 @@ async fn enqueue_library_file(
         return Ok(FileEnqueueResult::Excluded);
     }
 
+    let library_root_canonical = match CanonicalPath::from_user_input(
+        &library_root.to_string_lossy(),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(
+                "Library root {} failed canonical validation: {}",
+                library_root.display(),
+                e
+            );
+            return Ok(FileEnqueueResult::Error);
+        }
+    };
+    let abs_canonical = match CanonicalPath::from_user_input(&abs_path) {
+        Ok(a) => a,
+        Err(e) => {
+            warn!("File path {} failed canonical validation: {}", abs_path, e);
+            return Ok(FileEnqueueResult::Error);
+        }
+    };
+    let relative = match RelativePath::from_absolute_and_root(&abs_canonical, &library_root_canonical) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(
+                "File {} not under library root {} ({}); skipping",
+                abs_path,
+                library_root.display(),
+                e
+            );
+            return Ok(FileEnqueueResult::Error);
+        }
+    };
+
     let file_payload = FilePayload {
-        file_path: abs_path.to_string(),
+        file_path: relative,
         file_type: Some(classify_file_type(path).as_str().to_string()),
         file_hash: None,
         size_bytes: Some(metadata.len()),

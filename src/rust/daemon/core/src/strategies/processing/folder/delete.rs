@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use tracing::{debug, info, warn};
+use wqm_common::paths::RelativePath;
 
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
@@ -34,7 +35,7 @@ pub(crate) async fn process_folder_delete(
                 ))
             })?;
 
-    let (watch_folder_id, base_path) = match watch_info {
+    let (watch_folder_id, _base_path) = match watch_info {
         Some((wid, bp)) => (wid, bp),
         None => {
             warn!(
@@ -85,7 +86,7 @@ pub(crate) async fn process_folder_delete(
     );
 
     let (files_queued, errors) =
-        enqueue_file_deletions(item, &base_path, &tracked_files, queue_manager).await?;
+        enqueue_file_deletions(item, &tracked_files, queue_manager).await?;
 
     let elapsed = start.elapsed();
     info!(
@@ -107,10 +108,13 @@ pub(crate) async fn process_folder_delete(
 
 /// Enqueue individual file deletion items for each tracked file.
 ///
+/// `tracked_files` rows already carry the validated relative path from
+/// `tracked_files.relative_path` — re-build a [`RelativePath`] for each
+/// directly without round-tripping through the watch_folder root.
+///
 /// Returns `(files_queued, errors)`.
 async fn enqueue_file_deletions(
     item: &UnifiedQueueItem,
-    base_path: &str,
     tracked_files: &[(i64, String, Option<String>)],
     queue_manager: &Arc<QueueManager>,
 ) -> UnifiedProcessorResult<(u64, u64)> {
@@ -118,12 +122,22 @@ async fn enqueue_file_deletions(
     let mut errors = 0u64;
 
     for (file_id, rel_path, _branch) in tracked_files {
-        // Reconstruct absolute path for the file payload
-        let abs_path = std::path::Path::new(base_path).join(rel_path);
-        let abs_path_str = abs_path.to_string_lossy().to_string();
+        // `rel_path` was validated on insert into `tracked_files`; use
+        // `from_user_input` defensively in case persisted data drifts.
+        let relative = match RelativePath::from_user_input(rel_path) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "Tracked file relative_path failed validation ({}): {}",
+                    rel_path, e
+                );
+                errors += 1;
+                continue;
+            }
+        };
 
         let file_payload = FilePayload {
-            file_path: abs_path_str.clone(),
+            file_path: relative,
             file_type: None,
             file_hash: None,
             size_bytes: None,
@@ -153,17 +167,17 @@ async fn enqueue_file_deletions(
                 files_queued += 1;
                 debug!(
                     "Queued file for deletion: {} (file_id={})",
-                    abs_path_str, file_id
+                    rel_path, file_id
                 );
             }
             Ok((_queue_id, false)) => {
                 debug!(
                     "File deletion already in queue (deduplicated): {}",
-                    abs_path_str
+                    rel_path
                 );
             }
             Err(e) => {
-                warn!("Failed to queue file deletion for {}: {}", abs_path_str, e);
+                warn!("Failed to queue file deletion for {}: {}", rel_path, e);
                 errors += 1;
             }
         }

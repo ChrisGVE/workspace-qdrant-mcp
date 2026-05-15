@@ -96,6 +96,7 @@ pub(crate) async fn scan_directory_single_level(
             }
             files_queued += process_file_entry(
                 &path,
+                watch_folder_root,
                 item,
                 queue_manager,
                 allowed_extensions,
@@ -304,8 +305,10 @@ const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 /// `mtime <= baseline` are skipped as unchanged.
 ///
 /// Returns 1 if the file was enqueued, 0 otherwise.
+#[allow(clippy::too_many_arguments)]
 async fn process_file_entry(
     path: &Path,
+    watch_folder_root: &CanonicalPath,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
@@ -350,7 +353,16 @@ async fn process_file_entry(
         return 0;
     }
 
-    enqueue_scanned_file(path, &abs_path, &metadata, item, queue_manager, errors).await
+    enqueue_scanned_file(
+        path,
+        &abs_path,
+        watch_folder_root,
+        &metadata,
+        item,
+        queue_manager,
+        errors,
+    )
+    .await
 }
 
 /// Check mtime pruning: returns `true` if the file is unchanged since baseline.
@@ -362,18 +374,43 @@ fn should_prune_by_mtime(baseline: Option<&SystemTime>, metadata: &std::fs::Meta
     }
 }
 
-/// Build the file payload and enqueue the file. Returns 1 on success, 0 on failure.
+/// Build the file payload (anchored to `watch_folder_root`) and enqueue
+/// the file. Returns 1 on success, 0 on failure.
 async fn enqueue_scanned_file(
     path: &Path,
     abs_path: &std::borrow::Cow<'_, str>,
+    watch_folder_root: &CanonicalPath,
     metadata: &std::fs::Metadata,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     errors: &mut u64,
 ) -> u64 {
     let file_type_class = classify_file_type(path);
+
+    let abs = match CanonicalPath::from_user_input(abs_path) {
+        Ok(a) => a,
+        Err(e) => {
+            warn!("File path failed canonicalization ({}): {}", abs_path, e);
+            *errors += 1;
+            return 0;
+        }
+    };
+    let relative = match RelativePath::from_absolute_and_root(&abs, watch_folder_root) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(
+                "File {} not under watch_folder root {} ({}); skipping",
+                abs.as_str(),
+                watch_folder_root.as_str(),
+                e
+            );
+            *errors += 1;
+            return 0;
+        }
+    };
+
     let file_payload = FilePayload {
-        file_path: abs_path.to_string(),
+        file_path: relative,
         file_type: Some(file_type_class.as_str().to_string()),
         file_hash: None,
         size_bytes: Some(metadata.len()),

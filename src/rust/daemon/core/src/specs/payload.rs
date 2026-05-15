@@ -60,10 +60,10 @@ mod tests {
 
     #[test]
     fn test_parse_valid_payload() {
-        let json = r#"{"file_path": "/tmp/test.rs", "file_hash": "abc123"}"#;
+        let json = r#"{"file_path": "tmp/test.rs", "file_hash": "abc123"}"#;
         let item = make_item(json);
         let payload: FilePayload = parse_payload(&item).unwrap();
-        assert_eq!(payload.file_path, "/tmp/test.rs");
+        assert_eq!(payload.file_path.as_str(), "tmp/test.rs");
     }
 
     #[test]

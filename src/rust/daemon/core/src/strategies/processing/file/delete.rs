@@ -15,7 +15,7 @@ use crate::processing_timings::{self, PhaseTiming};
 use crate::tracked_files_schema;
 use crate::tree_sitter::detect_language;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
-use crate::unified_queue_schema::{FilePayload, UnifiedQueueItem};
+use crate::unified_queue_schema::UnifiedQueueItem;
 
 /// Process file delete operation with tracked_files awareness (Task 506 + Task 519).
 ///
@@ -359,7 +359,7 @@ pub(super) async fn cleanup_missing_file(
     pool: &SqlitePool,
     watch_folder_id: &str,
     relative_path: &str,
-    payload: &FilePayload,
+    abs_file_path: &str,
 ) -> UnifiedProcessorResult<()> {
     if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
         pool,
@@ -383,7 +383,7 @@ pub(super) async fn cleanup_missing_file(
         // F-035: surface Qdrant errors so the queue row can retry with metadata.
         if !point_ids.is_empty() {
             ctx.storage_client
-                .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
+                .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
                 .await
                 .map_err(|e| {
                     UnifiedProcessorError::Storage(format!(

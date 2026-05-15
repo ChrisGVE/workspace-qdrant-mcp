@@ -29,12 +29,14 @@ use super::store_track;
 ///
 /// Shared by both add and update paths (after update preamble completes).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn ingest_file_content(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     pool: &SqlitePool,
     file_path: &Path,
     payload: &FilePayload,
+    abs_file_path: &str,
     watch_folder_id: &str,
     base_path: &str,
     relative_path: &str,
@@ -42,7 +44,16 @@ pub(crate) async fn ingest_file_content(
     // === PER-DESTINATION RETRY SKIP (Task 6) ===
     let qdrant_already_done = item.qdrant_status == Some(DestinationStatus::Done);
     if qdrant_already_done {
-        return handle_retry_skip(ctx, item, pool, watch_folder_id, relative_path, payload).await;
+        return handle_retry_skip(
+            ctx,
+            item,
+            pool,
+            watch_folder_id,
+            relative_path,
+            abs_file_path,
+            payload,
+        )
+        .await;
     }
 
     // Mark qdrant status as in_progress
@@ -58,6 +69,7 @@ pub(crate) async fn ingest_file_content(
         pool,
         file_path,
         payload,
+        abs_file_path,
         watch_folder_id,
         base_path,
         relative_path,
@@ -73,7 +85,8 @@ async fn handle_retry_skip(
     pool: &SqlitePool,
     watch_folder_id: &str,
     relative_path: &str,
-    payload: &FilePayload,
+    abs_file_path: &str,
+    _payload: &FilePayload,
 ) -> UnifiedProcessorResult<()> {
     info!(
         "Qdrant already done for {} (retry), skipping to search DB update",
@@ -97,7 +110,7 @@ async fn handle_retry_skip(
                 sdb,
                 pool,
                 existing.file_id,
-                &payload.file_path,
+                abs_file_path,
                 &item.tenant_id,
                 Some(&item.branch),
                 existing.base_point.as_deref(),
@@ -110,7 +123,7 @@ async fn handle_retry_skip(
                 Err(e) => {
                     warn!(
                         "FTS5 retry failed for {} — search_status set to Failed: {}",
-                        payload.file_path, e
+                        relative_path, e
                     );
                     DestinationStatus::Failed
                 }
@@ -137,12 +150,14 @@ async fn handle_retry_skip(
 
 /// Run the main file ingestion pipeline (parse → embed → extract → upsert → FTS5).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 async fn run_ingest_pipeline(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     pool: &SqlitePool,
     file_path: &Path,
     payload: &FilePayload,
+    abs_file_path: &str,
     watch_folder_id: &str,
     base_path: &str,
     relative_path: &str,
@@ -160,6 +175,7 @@ async fn run_ingest_pipeline(
         item,
         payload,
         file_path,
+        abs_file_path,
         relative_path,
         provider,
         &mut timings,
@@ -208,6 +224,7 @@ async fn run_ingest_pipeline(
         pool,
         file_id,
         payload,
+        abs_file_path,
         &base_point,
         relative_path,
         &file_hash,
@@ -221,12 +238,14 @@ async fn run_ingest_pipeline(
 
 /// FTS5 indexing + timing record + success log (phases 7 and final).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 async fn finish_pipeline(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     pool: &SqlitePool,
     file_id: i64,
     payload: &FilePayload,
+    abs_file_path: &str,
     base_point: &str,
     relative_path: &str,
     file_hash: &str,
@@ -239,6 +258,7 @@ async fn finish_pipeline(
         pool,
         file_id,
         payload,
+        abs_file_path,
         base_point,
         relative_path,
         file_hash,
@@ -248,7 +268,8 @@ async fn finish_pipeline(
     record_pipeline_timings(pool, item, detected_language, timings).await;
     info!(
         "Successfully processed file item {} ({})",
-        item.queue_id, payload.file_path
+        item.queue_id,
+        payload.file_path.as_str()
     );
 }
 
@@ -330,11 +351,13 @@ async fn run_middle_phases(
 
 /// Parse the document and compute file identifiers (phase 0 + 1).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 async fn parse_document(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     payload: &FilePayload,
     file_path: &Path,
+    abs_file_path: &str,
     relative_path: &str,
     provider: Option<std::sync::Arc<dyn crate::tree_sitter::parser::LanguageProvider>>,
     timings: &mut Vec<PhaseTiming>,
@@ -352,10 +375,10 @@ async fn parse_document(
     info!(
         "Extracted {} chunks from {}",
         document_content.chunks.len(),
-        payload.file_path
+        payload.file_path.as_str()
     );
 
-    let file_document_id = crate::generate_document_id(&item.tenant_id, &payload.file_path);
+    let file_document_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
     let file_hash = tracked_files_schema::compute_file_hash(file_path)
         .unwrap_or_else(|_| "unknown".to_string());
     let base_point = wqm_common::hashing::compute_base_point(
@@ -472,12 +495,14 @@ async fn upsert_and_mark_done(
 
 /// Update FTS5 search index for a file (phase 7).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 async fn update_search_index(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     pool: &SqlitePool,
     file_id: i64,
-    payload: &FilePayload,
+    _payload: &FilePayload,
+    abs_file_path: &str,
     base_point: &str,
     relative_path: &str,
     file_hash: &str,
@@ -494,7 +519,7 @@ async fn update_search_index(
             sdb,
             pool,
             file_id,
-            &payload.file_path,
+            abs_file_path,
             &item.tenant_id,
             Some(&item.branch),
             Some(base_point),
@@ -507,7 +532,7 @@ async fn update_search_index(
             Err(e) => {
                 warn!(
                     "FTS5 indexing failed for {} — search_status set to Failed: {}",
-                    payload.file_path, e
+                    relative_path, e
                 );
                 fts_ok = false;
             }

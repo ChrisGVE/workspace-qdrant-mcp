@@ -356,8 +356,54 @@ impl TaskSubmitter {
             } => {
                 let tenant_id = self.resolve_tenant_id(context, file_path);
 
+                let file_path_str = file_path.to_string_lossy();
+                let watch_path_opt: Option<String> = sqlx::query_scalar(
+                    "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1",
+                )
+                .bind(&tenant_id)
+                .bind(collection)
+                .fetch_optional(queue_manager.pool())
+                .await
+                .map_err(|e| {
+                    PriorityError::Communication(format!(
+                        "Spill watch_folder lookup failed: {}",
+                        e
+                    ))
+                })?;
+                let watch_path = watch_path_opt.ok_or_else(|| {
+                    PriorityError::Communication(format!(
+                        "Spill aborted: no watch_folder for tenant_id={}, collection={}",
+                        tenant_id, collection
+                    ))
+                })?;
+                let root = wqm_common::paths::CanonicalPath::from_user_input(&watch_path)
+                    .map_err(|e| {
+                        PriorityError::Communication(format!(
+                            "Spill: watch_folder.path is not canonical: {}",
+                            e
+                        ))
+                    })?;
+                let abs = wqm_common::paths::CanonicalPath::from_user_input(&file_path_str)
+                    .map_err(|e| {
+                        PriorityError::Communication(format!(
+                            "Spill: file_path {} is not canonical: {}",
+                            file_path_str, e
+                        ))
+                    })?;
+                let relative =
+                    wqm_common::paths::RelativePath::from_absolute_and_root(&abs, &root).map_err(
+                        |e| {
+                            PriorityError::Communication(format!(
+                                "Spill: file {} not under watch_folder root {}: {}",
+                                file_path_str,
+                                root.as_str(),
+                                e
+                            ))
+                        },
+                    )?;
+
                 let file_payload = UqFilePayload {
-                    file_path: file_path.to_string_lossy().to_string(),
+                    file_path: relative,
                     file_type: None,
                     file_hash: None,
                     size_bytes: None,

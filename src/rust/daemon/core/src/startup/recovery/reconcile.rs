@@ -103,7 +103,8 @@ async fn reconcile_single_file(
         queue_manager,
         &tenant_id,
         &collection,
-        &abs_path.to_string_lossy(),
+        &file.relative_path,
+        Path::new(&base_path),
         op.clone(),
         None,
     )

@@ -31,7 +31,7 @@ impl QueueManager {
     /// - **Awaiting recovery**: Qdrant circuit open — skip.
     pub async fn triage_failed_items(&self) -> QueueResult<TriageStats> {
         let rows = sqlx::query(
-            r#"SELECT queue_id, item_type, op, file_path, tenant_id, error_message
+            r#"SELECT queue_id, item_type, op, file_path, tenant_id, collection, error_message
                FROM unified_queue
                WHERE status = 'failed'
                LIMIT 100"#,
@@ -53,6 +53,8 @@ impl QueueManager {
             let item_type: &str = row.try_get("item_type")?;
             let op: &str = row.try_get("op")?;
             let file_path: Option<&str> = row.try_get("file_path").ok();
+            let tenant_id: &str = row.try_get("tenant_id")?;
+            let collection: &str = row.try_get("collection")?;
             let error_message: &str = row.try_get("error_message")?;
 
             // Skip items already marked as permanently exhausted
@@ -70,8 +72,14 @@ impl QueueManager {
             }
 
             let should_drop = match op {
-                "delete" => self.should_drop_failed_delete(file_path).await,
-                "add" | "update" => self.should_drop_failed_add_update(file_path).await,
+                "delete" => {
+                    self.should_drop_failed_delete(file_path, tenant_id, collection)
+                        .await
+                }
+                "add" | "update" => {
+                    self.should_drop_failed_add_update(file_path, tenant_id, collection)
+                        .await
+                }
                 _ => false,
             };
 
@@ -114,22 +122,32 @@ impl QueueManager {
     ///
     /// A delete is droppable when the file has no tracked points in the database
     /// (meaning the delete is effectively already complete) or was never tracked.
-    async fn should_drop_failed_delete(&self, file_path: Option<&str>) -> bool {
+    ///
+    /// Post-T7: `file_path` in the queue is the relative path anchored to the
+    /// owning `watch_folders.path`. The join matches
+    /// `tf.relative_path = file_path` scoped to `(tenant_id, collection)`.
+    async fn should_drop_failed_delete(
+        &self,
+        file_path: Option<&str>,
+        tenant_id: &str,
+        collection: &str,
+    ) -> bool {
         let Some(path) = file_path else {
             return true; // No file_path — nothing to delete
         };
 
-        // Check if the file is tracked at all. The queue stores an absolute
-        // path; reconstruct it from `watch_folders.path` + `tracked_files.relative_path`
-        // and compare against the supplied absolute path.
         let tracked = sqlx::query(
             "SELECT tf.file_id \
              FROM tracked_files tf \
              JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-             WHERE wf.path || '/' || tf.relative_path = ?1 \
+             WHERE tf.relative_path = ?1 \
+               AND wf.tenant_id = ?2 \
+               AND wf.collection = ?3 \
              LIMIT 1",
         )
         .bind(path)
+        .bind(tenant_id)
+        .bind(collection)
         .fetch_optional(&self.pool)
         .await;
 
@@ -193,15 +211,52 @@ impl QueueManager {
     ///
     /// An add/update is droppable when the file no longer exists on disk —
     /// the watcher will re-enqueue it as a delete if needed.
-    async fn should_drop_failed_add_update(&self, file_path: Option<&str>) -> bool {
+    ///
+    /// Post-T7: `file_path` in the queue is relative. Resolve the owning
+    /// `watch_folders.path` via `(tenant_id, collection)` to reconstruct the
+    /// absolute path for the existence check.
+    async fn should_drop_failed_add_update(
+        &self,
+        file_path: Option<&str>,
+        tenant_id: &str,
+        collection: &str,
+    ) -> bool {
         let Some(path) = file_path else {
             return false; // No file path — can't check
         };
 
-        if !std::path::Path::new(path).exists() {
+        let watch_path: Option<String> = match sqlx::query_scalar(
+            "SELECT path FROM watch_folders \
+             WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1",
+        )
+        .bind(tenant_id)
+        .bind(collection)
+        .fetch_optional(&self.pool)
+        .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(
+                    "Triage: failed to look up watch_folder for tenant={}, collection={}: {} — skipping",
+                    tenant_id, collection, e
+                );
+                return false;
+            }
+        };
+
+        let Some(root) = watch_path else {
             debug!(
-                "Triage: add/update for {} — file no longer exists, droppable",
-                path
+                "Triage: no watch_folder for tenant={}, collection={} — leaving add/update for {} alone",
+                tenant_id, collection, path
+            );
+            return false;
+        };
+
+        let abs = std::path::Path::new(&root).join(path);
+        if !abs.exists() {
+            debug!(
+                "Triage: add/update for {} (root={}) — file no longer exists, droppable",
+                path, root
             );
             return true;
         }

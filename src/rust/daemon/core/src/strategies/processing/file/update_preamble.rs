@@ -22,12 +22,14 @@ use crate::unified_queue_schema::{FilePayload, UnifiedQueueItem};
 /// Called after hash comparison determines the file has changed.
 /// Stores a `QueueDecision` for retry-safe execution and deletes old points
 /// only if no other watch folder references the same base_point.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_update_deletion(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     pool: &SqlitePool,
     watch_folder_id: &str,
     relative_path: &str,
+    abs_file_path: &str,
     payload: &FilePayload,
     existing: &tracked_files_schema::TrackedFile,
     new_hash: &str,
@@ -65,13 +67,13 @@ pub(super) async fn execute_update_deletion(
             .unwrap_or_default();
         if !old_point_ids.is_empty() {
             ctx.storage_client
-                .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
+                .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
     }
 
-    record_preamble_timing(pool, item, payload, preamble_start).await;
+    record_preamble_timing(pool, item, payload, abs_file_path, preamble_start).await;
     Ok(())
 }
 
@@ -102,10 +104,11 @@ async fn resolve_delete_old(
 async fn record_preamble_timing(
     pool: &SqlitePool,
     item: &UnifiedQueueItem,
-    payload: &FilePayload,
+    _payload: &FilePayload,
+    abs_file_path: &str,
     preamble_start: Instant,
 ) {
-    let detected_language = detect_language(std::path::Path::new(&payload.file_path));
+    let detected_language = detect_language(std::path::Path::new(abs_file_path));
     processing_timings::record_timings(
         pool,
         &item.queue_id,

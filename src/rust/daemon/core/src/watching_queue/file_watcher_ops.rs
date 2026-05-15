@@ -17,6 +17,7 @@ use crate::tracked_files_schema;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation as UnifiedOp};
 
 use wqm_common::constants::COLLECTION_LIBRARIES;
+use wqm_common::paths::{CanonicalPath, RelativePath};
 
 use super::error_state::WatchErrorTracker;
 use super::file_watcher::FileWatcherQueue;
@@ -347,8 +348,17 @@ impl FileWatcherQueue {
             }
         }
 
-        let (final_collection, final_tenant, branch, metadata, payload_json) =
-            Self::resolve_routing_and_payload(&event, config, allowed_extensions).await;
+        let routed = Self::resolve_routing_and_payload(&event, config, allowed_extensions).await;
+        let (final_collection, final_tenant, branch, metadata, payload_json) = match routed {
+            Some(r) => r,
+            None => {
+                debug!(
+                    "Skipping event whose path could not be anchored to watch root: {}",
+                    event.path.display()
+                );
+                return;
+            }
+        };
 
         Self::enqueue_with_retry(
             queue_manager,
@@ -392,13 +402,17 @@ impl FileWatcherQueue {
     }
 
     /// Resolve collection/tenant routing and build the enqueue payload.
+    ///
+    /// Returns `None` when the event path cannot be anchored to the watch
+    /// folder root (non-UTF-8, escapes the root, etc.) — the event is then
+    /// dropped rather than enqueued with a malformed payload.
     async fn resolve_routing_and_payload(
         event: &FileEvent,
         config: &Arc<RwLock<WatchConfig>>,
         allowed_extensions: &Arc<AllowedExtensions>,
-    ) -> (String, String, String, Option<String>, String) {
+    ) -> Option<(String, String, String, Option<String>, String)> {
         let file_type = classify_file_type(&event.path);
-        let (collection, tenant_id, branch) = {
+        let (collection, tenant_id, branch, watch_root_str) = {
             let config_lock = config.read().await;
             let coll = match config_lock.watch_type {
                 WatchType::Project => wqm_common::constants::COLLECTION_PROJECTS.to_string(),
@@ -408,6 +422,7 @@ impl FileWatcherQueue {
                 coll,
                 config_lock.tenant_id.clone(),
                 get_current_branch(&config_lock.path),
+                config_lock.path.to_string_lossy().to_string(),
             )
         };
 
@@ -444,23 +459,69 @@ impl FileWatcherQueue {
             branch
         );
 
+        // Anchor the absolute file path to the watch folder root. The
+        // watcher exists because the daemon has a watch_folder row, so
+        // `config.path` is the canonical root. If anchoring fails the
+        // event is dropped — without a relative payload there is no way
+        // to address the file in the storage layer.
+        let root = match CanonicalPath::from_user_input(&watch_root_str) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "Watch root {} failed canonical validation: {} -- dropping event for {}",
+                    watch_root_str, e, file_absolute_path
+                );
+                return None;
+            }
+        };
+        let abs = match CanonicalPath::from_user_input(&file_absolute_path) {
+            Ok(a) => a,
+            Err(e) => {
+                warn!(
+                    "File path {} failed canonical validation: {} -- dropping event",
+                    file_absolute_path, e
+                );
+                return None;
+            }
+        };
+        let relative = match RelativePath::from_absolute_and_root(&abs, &root) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "File {} not under watch root {} ({}); dropping event",
+                    abs.as_str(),
+                    root.as_str(),
+                    e
+                );
+                return None;
+            }
+        };
+
         let file_payload = FilePayload {
-            file_path: file_absolute_path,
+            file_path: relative,
             file_type: Some(file_type.as_str().to_string()),
             file_hash: None,
             size_bytes: event.path.metadata().ok().map(|m| m.len()),
             old_path: None,
         };
-        let payload_json =
-            serde_json::to_string(&file_payload).unwrap_or_else(|_| "{}".to_string());
+        let payload_json = match serde_json::to_string(&file_payload) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(
+                    "Failed to serialize FilePayload for {}: {}",
+                    file_absolute_path, e
+                );
+                return None;
+            }
+        };
 
-        (
+        Some((
             final_collection,
             final_tenant,
             branch,
             metadata,
             payload_json,
-        )
+        ))
     }
 
     /// Execute enqueue with retry logic and error tracking.

@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use tracing::{debug, error, info, warn};
+use wqm_common::paths::RelativePath;
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::patterns::exclusion::should_exclude_file;
@@ -108,13 +109,19 @@ async fn cleanup_tracked_files(
         if !should_clean {
             continue;
         }
-        let abs_path_str = abs_path.to_string_lossy().to_string();
-        if enqueue_file_for_deletion(item, &abs_path_str, queue_manager).await? {
+        let relative = match RelativePath::from_user_input(rel_path) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "Tracked file relative_path failed validation ({}): {}",
+                    rel_path, e
+                );
+                continue;
+            }
+        };
+        if enqueue_file_for_deletion(item, &relative, queue_manager).await? {
             files_cleaned += 1;
-            debug!(
-                "Queued excluded file for deletion: {} (rel={})",
-                abs_path_str, rel_path
-            );
+            debug!("Queued excluded file for deletion: {}", rel_path);
         }
     }
     if files_cleaned > 0 {
@@ -159,18 +166,32 @@ async fn cleanup_excluded_files_qdrant_fallback(
 
     let mut files_cleaned = 0u64;
     for qdrant_file in &qdrant_file_paths {
-        let rel_path = match Path::new(qdrant_file).strip_prefix(project_root) {
+        // Qdrant payloads now also carry relative paths (post path-discipline
+        // migration). Strip the project_root prefix defensively in case any
+        // pre-migration absolute strings still surface.
+        let rel_str = match Path::new(qdrant_file).strip_prefix(project_root) {
             Ok(stripped) => stripped.to_string_lossy().to_string(),
             Err(_) => qdrant_file.clone(),
         };
 
-        let should_clean = should_exclude_file(&rel_path)
+        let should_clean = should_exclude_file(&rel_str)
             || !allowed_extensions.is_allowed(qdrant_file, &item.collection);
         if !should_clean {
             continue;
         }
 
-        if enqueue_file_for_deletion(item, qdrant_file, queue_manager).await? {
+        let relative = match RelativePath::from_user_input(&rel_str) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "Qdrant file path {} could not be anchored as relative ({}); skipping cleanup",
+                    qdrant_file, e
+                );
+                continue;
+            }
+        };
+
+        if enqueue_file_for_deletion(item, &relative, queue_manager).await? {
             files_cleaned += 1;
         }
     }
@@ -188,11 +209,11 @@ async fn cleanup_excluded_files_qdrant_fallback(
 /// Build a delete payload and enqueue it; returns true if a new item was created.
 async fn enqueue_file_for_deletion(
     item: &UnifiedQueueItem,
-    file_path: &str,
+    relative: &RelativePath,
     queue_manager: &Arc<QueueManager>,
 ) -> UnifiedProcessorResult<bool> {
     let file_payload = FilePayload {
-        file_path: file_path.to_string(),
+        file_path: relative.clone(),
         file_type: None,
         file_hash: None,
         size_bytes: None,
@@ -222,7 +243,8 @@ async fn enqueue_file_for_deletion(
         Err(e) => {
             warn!(
                 "Failed to queue excluded file for deletion {}: {}",
-                file_path, e
+                relative.as_str(),
+                e
             );
             Ok(false)
         }

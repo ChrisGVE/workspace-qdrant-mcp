@@ -271,6 +271,7 @@ async fn detect_deleted_files(
             queue_manager,
             tenant_id,
             collection,
+            root,
             &abs_path,
             file_path,
             stats,
@@ -293,20 +294,35 @@ async fn detect_deleted_files(
 
 /// Check one tracked file and enqueue a deletion if it is missing or now excluded.
 /// Returns 1 if an item was enqueued, 0 otherwise.
+#[allow(clippy::too_many_arguments)]
 async fn process_tracked_file(
     queue_manager: &QueueManager,
     tenant_id: &str,
     collection: &str,
+    repo_root: &Path,
     abs_path: &Path,
     file_path: &str,
     stats: &mut RecoveryStats,
 ) -> usize {
+    let relative = match wqm_common::paths::RelativePath::from_user_input(file_path) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(
+                "tracked_files.relative_path {:?} failed validation: {}",
+                file_path, e
+            );
+            stats.errors += 1;
+            return 0;
+        }
+    };
+
     if !abs_path.exists() {
         match enqueue_file_op(
             queue_manager,
             tenant_id,
             collection,
-            &abs_path.to_string_lossy(),
+            &relative,
+            repo_root,
             QueueOperation::Delete,
             None,
         )
@@ -329,7 +345,8 @@ async fn process_tracked_file(
             queue_manager,
             tenant_id,
             collection,
-            &abs_path.to_string_lossy(),
+            &relative,
+            repo_root,
             QueueOperation::Delete,
             None,
         )

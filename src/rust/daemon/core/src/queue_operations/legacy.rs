@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use std::collections::HashMap;
 use tracing::{debug, warn};
+use wqm_common::paths::{CanonicalPath, RelativePath};
 use wqm_common::timestamps;
 
 use crate::metrics::METRICS;
@@ -199,8 +200,50 @@ impl QueueManager {
         branch: &str,
         unified_op: UnifiedOp,
     ) -> QueueResult<bool> {
+        // Re-anchor the persisted absolute path against the current
+        // watch_folder root. If the watch folder is gone, or the path lives
+        // outside it, we cannot re-queue meaningfully — surface that as a
+        // payload-validation error.
+        let watch_path_opt: Option<String> = sqlx::query_scalar(
+            "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1",
+        )
+        .bind(tenant_id)
+        .bind(collection)
+        .fetch_optional(&self.pool)
+        .await?;
+        let watch_path = match watch_path_opt {
+            Some(p) => p,
+            None => {
+                warn!(
+                    "missing_metadata retry: no watch_folder for tenant_id={}, collection={} -- cannot anchor {}",
+                    tenant_id, collection, file_path
+                );
+                return Ok(false);
+            }
+        };
+        let root = CanonicalPath::from_user_input(&watch_path).map_err(|e| {
+            QueueError::InvalidPayloadJson(format!(
+                "watch_folder.path is not canonical for tenant_id={}: {}",
+                tenant_id, e
+            ))
+        })?;
+        let abs = CanonicalPath::from_user_input(file_path).map_err(|e| {
+            QueueError::InvalidPayloadJson(format!(
+                "missing_metadata file_absolute_path is not canonical: {}",
+                e
+            ))
+        })?;
+        let relative = RelativePath::from_absolute_and_root(&abs, &root).map_err(|e| {
+            QueueError::InvalidPayloadJson(format!(
+                "file {} is not under watch_folder root {}: {}",
+                file_path,
+                root.as_str(),
+                e
+            ))
+        })?;
+
         let payload = FilePayload {
-            file_path: file_path.to_string(),
+            file_path: relative,
             file_type: None,
             file_hash: None,
             size_bytes: None,

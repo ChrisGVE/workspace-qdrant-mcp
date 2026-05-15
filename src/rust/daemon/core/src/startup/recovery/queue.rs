@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use wqm_common::paths::RelativePath;
+
 use crate::file_classification::classify_file_type;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
@@ -44,6 +46,10 @@ pub(super) async fn enqueue_progressive_scan(
 
 /// Enqueue a file operation (ingest, update, or delete).
 ///
+/// `relative` is the file path relative to the owning watch_folder root,
+/// as carried in [`FilePayload::file_path`]. `repo_root` is the watch_folder
+/// path on disk, used for Git branch detection.
+///
 /// Returns `is_new`: `true` if a new queue item was inserted, `false` if an
 /// existing item with the same composite key was found (idempotent dedup).
 /// Callers that need to defer side-effects (e.g. clearing `needs_reconcile`)
@@ -52,13 +58,14 @@ pub(super) async fn enqueue_file_op(
     queue_manager: &QueueManager,
     tenant_id: &str,
     collection: &str,
-    abs_file_path: &str,
+    relative: &RelativePath,
+    repo_root: &Path,
     op: QueueOperation,
     metadata: Option<&str>,
 ) -> Result<bool, String> {
     let file_type = if op != QueueOperation::Delete {
         Some(
-            classify_file_type(Path::new(abs_file_path))
+            classify_file_type(Path::new(relative.as_str()))
                 .as_str()
                 .to_string(),
         )
@@ -67,7 +74,7 @@ pub(super) async fn enqueue_file_op(
     };
 
     let file_payload = FilePayload {
-        file_path: abs_file_path.to_string(),
+        file_path: relative.clone(),
         file_type,
         file_hash: None,
         size_bytes: None,
@@ -77,7 +84,7 @@ pub(super) async fn enqueue_file_op(
     let payload_json = serde_json::to_string(&file_payload)
         .map_err(|e| format!("Failed to serialize FilePayload: {}", e))?;
 
-    let branch = crate::watching_queue::get_current_branch(Path::new(abs_file_path));
+    let branch = crate::watching_queue::get_current_branch(repo_root);
 
     queue_manager
         .enqueue_unified(

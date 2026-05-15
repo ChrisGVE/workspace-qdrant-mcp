@@ -12,11 +12,16 @@ pub(super) fn default_recursive_depth() -> u32 {
     10
 }
 
-/// Payload for file items
+/// Payload for file items.
+///
+/// All path fields are anchored to the owning `watch_folders.path` root
+/// per docs/specs/16-path-abstraction.md §3.3. Reconstruction of the
+/// absolute filesystem path at the I/O boundary happens through
+/// `RelativePath::to_absolute(&watch_folder_root)`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilePayload {
-    /// Absolute path to the file
-    pub file_path: String,
+    /// File path relative to the owning watch_folder root.
+    pub file_path: RelativePath,
     /// File type classification
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_type: Option<String>,
@@ -26,9 +31,10 @@ pub struct FilePayload {
     /// File size in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
-    /// Previous path before rename (used when op=Rename)
+    /// Previous path before rename, relative to the watch_folder root
+    /// (used when op=Rename).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub old_path: Option<String>,
+    pub old_path: Option<RelativePath>,
 }
 
 /// Payload for folder items.
@@ -78,37 +84,40 @@ mod tests {
     #[test]
     fn test_file_payload_serde() {
         let payload = FilePayload {
-            file_path: "/src/main.rs".to_string(),
+            file_path: RelativePath::from_user_input("src/main.rs").unwrap(),
             file_type: Some("code".to_string()),
             file_hash: None,
             size_bytes: Some(1024),
             old_path: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
-        assert!(json.contains("/src/main.rs"));
+        assert!(json.contains("src/main.rs"));
         assert!(!json.contains("file_hash"));
         assert!(!json.contains("old_path"));
 
         let back: FilePayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.file_path, "/src/main.rs");
+        assert_eq!(back.file_path.as_str(), "src/main.rs");
         assert_eq!(back.size_bytes, Some(1024));
     }
 
     #[test]
     fn test_file_payload_with_rename() {
         let payload = FilePayload {
-            file_path: "/src/new_name.rs".to_string(),
+            file_path: RelativePath::from_user_input("src/new_name.rs").unwrap(),
             file_type: None,
             file_hash: None,
             size_bytes: None,
-            old_path: Some("/src/old_name.rs".to_string()),
+            old_path: Some(RelativePath::from_user_input("src/old_name.rs").unwrap()),
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("old_path"));
         assert!(json.contains("old_name.rs"));
 
         let back: FilePayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.old_path, Some("/src/old_name.rs".to_string()));
+        assert_eq!(
+            back.old_path,
+            Some(RelativePath::from_user_input("src/old_name.rs").unwrap())
+        );
     }
 
     #[test]
