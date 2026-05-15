@@ -14,6 +14,7 @@ use tracing::{debug, info};
 use crate::clip::{ClipEncoder, ClipError};
 use crate::storage::{HybridSearchMode, SearchParams, SearchResult, StorageClient, StorageError};
 use wqm_common::constants::{field, COLLECTION_IMAGES};
+use wqm_common::paths::RelativePath;
 
 // ─── Errors ─────────────────────────────────────────────────────────────
 
@@ -75,8 +76,8 @@ pub struct ImageSearchResult {
     pub ocr_text: Option<String>,
     /// Alt text from source markup (if available).
     pub alt_text: Option<String>,
-    /// Source file path.
-    pub file_path: String,
+    /// Source file path, relative to the owning watch_folder root.
+    pub file_path: RelativePath,
 }
 
 // ─── Search implementation ──────────────────────────────────────────────
@@ -230,11 +231,17 @@ fn convert_search_result(result: SearchResult) -> Option<ImageSearchResult> {
         .unwrap_or("Unknown")
         .to_string();
 
-    let file_path = payload
-        .get(field::FILE_PATH)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    // The Qdrant `file_path` payload field stores a path relative to the
+    // owning watch_folder root (per docs/specs/16-path-abstraction.md §3.3).
+    // Skip the result if the stored value is missing or malformed — there
+    // is no usable fallback for an image search result without a path.
+    let file_path = RelativePath::from_user_input(
+        payload
+            .get(field::FILE_PATH)
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+    )
+    .ok()?;
 
     let (page_number, image_index, ocr_text, alt_text) = extract_optional_image_fields(payload);
 
@@ -325,7 +332,7 @@ mod tests {
         payload.insert(field::IMAGE_FORMAT.to_string(), serde_json::json!("Jpeg"));
         payload.insert(
             field::FILE_PATH.to_string(),
-            serde_json::json!("/path/doc.pdf"),
+            serde_json::json!("path/doc.pdf"),
         );
         payload.insert(field::PAGE_NUMBER.to_string(), serde_json::json!(3));
         payload.insert(field::IMAGE_INDEX.to_string(), serde_json::json!(0));
@@ -356,7 +363,7 @@ mod tests {
         assert_eq!(result.width, 800);
         assert_eq!(result.height, 600);
         assert_eq!(result.format, "Jpeg");
-        assert_eq!(result.file_path, "/path/doc.pdf");
+        assert_eq!(result.file_path.as_str(), "path/doc.pdf");
         assert_eq!(result.page_number, Some(3));
         assert_eq!(result.image_index, Some(0));
         assert_eq!(result.ocr_text.as_deref(), Some("Figure 1: Architecture"));
@@ -364,8 +371,13 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_search_result_minimal() {
-        let payload = HashMap::new();
+    fn test_convert_search_result_minimal_with_path() {
+        // Per spec 16, file_path is a required field — convert_search_result
+        // skips results whose stored path is missing or malformed. Provide a
+        // minimal relative path so the conversion succeeds and we can exercise
+        // the defaulting behavior of the other fields.
+        let mut payload = HashMap::new();
+        payload.insert(field::FILE_PATH.to_string(), serde_json::json!("doc.pdf"));
         let raw = SearchResult {
             id: "point-456".to_string(),
             score: 0.5,
@@ -380,6 +392,40 @@ mod tests {
         assert_eq!(result.width, 0);
         assert!(result.page_number.is_none());
         assert!(result.ocr_text.is_none());
+        assert_eq!(result.file_path.as_str(), "doc.pdf");
+    }
+
+    #[test]
+    fn test_convert_search_result_skips_missing_file_path() {
+        let payload = HashMap::new();
+        let raw = SearchResult {
+            id: "point-456".to_string(),
+            score: 0.5,
+            payload,
+            dense_vector: None,
+            sparse_vector: None,
+        };
+        assert!(convert_search_result(raw).is_none());
+    }
+
+    #[test]
+    fn test_convert_search_result_skips_absolute_file_path() {
+        // Legacy absolute paths (pre-v37) are rejected by RelativePath
+        // construction — convert_search_result returns None rather than
+        // surfacing the malformed value.
+        let mut payload = HashMap::new();
+        payload.insert(
+            field::FILE_PATH.to_string(),
+            serde_json::json!("/abs/path/doc.pdf"),
+        );
+        let raw = SearchResult {
+            id: "point-789".to_string(),
+            score: 0.4,
+            payload,
+            dense_vector: None,
+            sparse_vector: None,
+        };
+        assert!(convert_search_result(raw).is_none());
     }
 
     #[test]
