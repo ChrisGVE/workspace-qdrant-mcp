@@ -238,7 +238,7 @@ impl QueueManager {
     /// completes (F-036).
     ///
     /// The row is identified by joining `watch_folders.path || '/' ||
-    /// tracked_files.file_path` against the absolute path stored in the queue,
+    /// tracked_files.relative_path` against the absolute path stored in the queue,
     /// scoped to `tenant_id` to prevent cross-tenant mutations when two tenants
     /// share an identical absolute path under different watch-folder roots.
     async fn remove_tracked_file_row(
@@ -252,7 +252,7 @@ impl QueueManager {
                  SELECT tf.file_id \
                  FROM tracked_files tf \
                  JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-                 WHERE wf.path || '/' || tf.file_path = ?1 \
+                 WHERE wf.path || '/' || tf.relative_path = ?1 \
                    AND wf.tenant_id = ?2 \
              )",
         )
@@ -275,7 +275,7 @@ impl QueueManager {
     /// matches `abs_file_path` (F-020).
     ///
     /// The absolute path is reconstructed as `watch_folders.path || '/' ||
-    /// tracked_files.file_path` and compared against the stored queue
+    /// tracked_files.relative_path` and compared against the stored queue
     /// `file_path`, scoped to `tenant_id` to prevent cross-tenant mutations
     /// when two tenants share an identical absolute path under different
     /// watch-folder roots.
@@ -293,7 +293,7 @@ impl QueueManager {
                    SELECT tf.file_id \
                    FROM tracked_files tf \
                    JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-                   WHERE wf.path || '/' || tf.file_path = ?2 \
+                   WHERE wf.path || '/' || tf.relative_path = ?2 \
                      AND wf.tenant_id = ?3 \
                )",
         )

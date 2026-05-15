@@ -92,7 +92,7 @@ async fn reconcile_single_file(
         }
     };
 
-    let abs_path = Path::new(&base_path).join(&file.file_path);
+    let abs_path = Path::new(&base_path).join(&file.relative_path.as_str());
     let op = if abs_path.exists() {
         QueueOperation::Update
     } else {
@@ -116,14 +116,14 @@ async fn reconcile_single_file(
                 info!(
                     "Reconciled file_id={} ({}): enqueued for {}",
                     file.file_id,
-                    file.file_path,
+                    file.relative_path.as_str(),
                     op.as_str()
                 );
             } else {
                 debug!(
                     "Reconcile file_id={} ({}): op={} already in queue, flag kept",
                     file.file_id,
-                    file.file_path,
+                    file.relative_path.as_str(),
                     op.as_str()
                 );
             }
@@ -132,7 +132,7 @@ async fn reconcile_single_file(
         Err(e) => {
             warn!(
                 "Failed to re-queue reconcile file {}: {}",
-                file.file_path, e
+                file.relative_path.as_str(), e
             );
             stats.reconcile_errors += 1;
         }

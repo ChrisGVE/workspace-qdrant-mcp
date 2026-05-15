@@ -44,9 +44,11 @@ async fn fetch_branch_data(
     pool: &SqlitePool,
     watch_folder_id: &str,
     old_branch: &str,
-) -> Result<(String, Vec<(i64, String, String, Option<String>)>), String> {
-    let files: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT file_id, file_path, COALESCE(file_hash, ''), relative_path
+) -> Result<(String, Vec<(i64, String, String)>), String> {
+    // Post-v37: the row carries only `relative_path`; the legacy absolute
+    // `file_path` column is gone. Tuple shape: `(file_id, relative_path, file_hash)`.
+    let files: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT file_id, relative_path, COALESCE(file_hash, '')
          FROM tracked_files
          WHERE watch_folder_id = ?1 AND branch = ?2",
     )
@@ -72,18 +74,22 @@ async fn fetch_branch_data(
 
 /// Compute new base_points for unchanged files.
 fn compute_unchanged_updates(
-    files: &[(i64, String, String, Option<String>)],
+    files: &[(i64, String, String)],
     changed_paths: &HashSet<String>,
     tenant_id: &str,
     new_branch: &str,
 ) -> Vec<(i64, String)> {
     let mut updates: Vec<(i64, String)> = Vec::new();
-    for (file_id, file_path, file_hash, relative_path) in files {
-        let rel = relative_path.as_deref().unwrap_or(file_path);
-        if changed_paths.contains(rel) || changed_paths.contains(file_path.as_str()) {
+    for (file_id, relative_path, file_hash) in files {
+        if changed_paths.contains(relative_path.as_str()) {
             continue;
         }
-        let new_bp = wqm_common::hashing::compute_base_point(tenant_id, new_branch, rel, file_hash);
+        let new_bp = wqm_common::hashing::compute_base_point(
+            tenant_id,
+            new_branch,
+            relative_path.as_str(),
+            file_hash,
+        );
         updates.push((*file_id, new_bp));
     }
     updates

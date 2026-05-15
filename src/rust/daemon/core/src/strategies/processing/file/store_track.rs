@@ -377,7 +377,6 @@ async fn insert_new_tracked_file(
         extension,
         is_test,
         Some(base_point),
-        Some(relative_path),
         component,
     )
     .await

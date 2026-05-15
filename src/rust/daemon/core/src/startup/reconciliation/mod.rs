@@ -170,7 +170,7 @@ async fn purge_old_completed_items(pool: &SqlitePool) -> Result<u64, String> {
                  SELECT 1 FROM tracked_files tf \
                  JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
                  WHERE tf.needs_reconcile = 1 \
-                   AND (wf.path || '/' || tf.file_path) = unified_queue.file_path \
+                   AND (wf.path || '/' || tf.relative_path) = unified_queue.file_path \
                    AND NOT EXISTS ( \
                        SELECT 1 FROM unified_queue q2 \
                        WHERE q2.file_path = unified_queue.file_path \
@@ -234,7 +234,7 @@ async fn enqueue_delete_for_missing_tracked_files(
 ) -> Result<u64, String> {
     info!("Enqueueing Delete ops for tracked files missing on disk (F-036)...");
     let tracked_rows = sqlx::query(
-        "SELECT tf.file_id, tf.file_path, wf.path AS watch_path, \
+        "SELECT tf.file_id, tf.relative_path, wf.path AS watch_path, \
                 wf.tenant_id, wf.collection, \
                 COALESCE(tf.branch, 'main') AS branch \
          FROM tracked_files tf \
@@ -246,13 +246,13 @@ async fn enqueue_delete_for_missing_tracked_files(
 
     let mut enqueued: u64 = 0;
     for row in &tracked_rows {
-        let file_path: String = row.get("file_path");
+        let relative_path: String = row.get("relative_path");
         let watch_path: String = row.get("watch_path");
         let tenant_id: String = row.get("tenant_id");
         let collection: String = row.get("collection");
         let branch: String = row.get("branch");
 
-        let abs_path = Path::new(&watch_path).join(&file_path);
+        let abs_path = Path::new(&watch_path).join(&relative_path);
         if abs_path.exists() {
             continue;
         }
@@ -321,7 +321,7 @@ async fn enqueue_delete_for_missing_tracked_files(
 async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     info!("Checking tracked files against filesystem...");
     let tracked_rows = sqlx::query(
-        "SELECT tf.file_id, tf.file_path, wf.path AS watch_path, \
+        "SELECT tf.file_id, tf.relative_path, wf.path AS watch_path, \
                 wf.tenant_id, COALESCE(tf.branch, 'main') AS branch, \
                 wf.collection \
          FROM tracked_files tf \
@@ -334,10 +334,10 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     let mut removable_file_ids: Vec<i64> = Vec::new();
     for row in &tracked_rows {
         let file_id: i64 = row.get("file_id");
-        let file_path: String = row.get("file_path");
+        let relative_path: String = row.get("relative_path");
         let watch_path: String = row.get("watch_path");
 
-        let abs_path = Path::new(&watch_path).join(&file_path);
+        let abs_path = Path::new(&watch_path).join(&relative_path);
         if abs_path.exists() {
             continue;
         }

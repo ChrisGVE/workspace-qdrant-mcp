@@ -119,11 +119,19 @@ impl QueueManager {
             return true; // No file_path — nothing to delete
         };
 
-        // Check if the file is tracked at all
-        let tracked = sqlx::query("SELECT file_id FROM tracked_files WHERE file_path = ?1 LIMIT 1")
-            .bind(path)
-            .fetch_optional(&self.pool)
-            .await;
+        // Check if the file is tracked at all. The queue stores an absolute
+        // path; reconstruct it from `watch_folders.path` + `tracked_files.relative_path`
+        // and compare against the supplied absolute path.
+        let tracked = sqlx::query(
+            "SELECT tf.file_id \
+             FROM tracked_files tf \
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.path || '/' || tf.relative_path = ?1 \
+             LIMIT 1",
+        )
+        .bind(path)
+        .fetch_optional(&self.pool)
+        .await;
 
         match tracked {
             Ok(Some(row)) => {

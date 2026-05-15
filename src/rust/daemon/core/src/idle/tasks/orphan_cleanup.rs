@@ -101,7 +101,7 @@ impl OrphanCleanupTask {
         ctx: &MaintenanceContext<'_>,
     ) -> Result<Vec<sqlx::sqlite::SqliteRow>, ()> {
         let rows = sqlx::query(
-            "SELECT DISTINCT tf.file_id, tf.file_path, tf.collection
+            "SELECT DISTINCT tf.file_id, tf.relative_path, tf.collection
              FROM tracked_files tf
              JOIN qdrant_chunks qc ON tf.file_id = qc.file_id
              ORDER BY tf.file_id
@@ -207,7 +207,7 @@ impl OrphanCleanupTask {
 fn parse_row(row: &sqlx::sqlite::SqliteRow) -> Option<(i64, String, String)> {
     match (
         row.try_get::<i64, _>("file_id"),
-        row.try_get::<String, _>("file_path"),
+        row.try_get::<String, _>("relative_path"),
         row.try_get::<String, _>("collection"),
     ) {
         (Ok(id), Ok(path), Ok(col)) => Some((id, path, col)),

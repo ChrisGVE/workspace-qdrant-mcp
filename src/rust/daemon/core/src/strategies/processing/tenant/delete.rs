@@ -159,7 +159,7 @@ async fn collect_tracked_points(
     tenant_id: &str,
 ) -> UnifiedProcessorResult<(std::collections::HashMap<String, Vec<String>>, usize)> {
     let file_data: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
-        r#"SELECT tf.file_id, tf.file_path, tf.collection, qc.point_id
+        r#"SELECT tf.file_id, tf.relative_path, tf.collection, qc.point_id
            FROM tracked_files tf
            JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
            LEFT JOIN qdrant_chunks qc ON qc.file_id = tf.file_id
@@ -179,7 +179,7 @@ async fn collect_tracked_points(
         std::collections::HashMap::new();
     let mut file_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
 
-    for (file_id, _file_path, collection, point_id) in &file_data {
+    for (file_id, _relative_path, collection, point_id) in &file_data {
         file_ids.insert(*file_id);
         if let Some(pid) = point_id {
             points_by_collection

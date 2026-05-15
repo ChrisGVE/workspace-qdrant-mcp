@@ -63,8 +63,8 @@ impl MaintenanceTask for FilesystemReconcileTask {
         cancel: &CancellationToken,
     ) -> MaintenanceResult {
         let rows = sqlx::query(
-            "SELECT tf.file_id, tf.file_path, tf.branch, tf.collection,
-                    wf.tenant_id
+            "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection,
+                    wf.tenant_id, wf.path AS watch_path
              FROM tracked_files tf
              JOIN watch_folders wf ON tf.watch_folder_id = wf.id
              ORDER BY tf.file_id
@@ -104,12 +104,16 @@ impl MaintenanceTask for FilesystemReconcileTask {
             }
 
             self.total_checked += 1;
-            let file_path: &str = row.try_get("file_path").unwrap_or("");
-            if file_path.is_empty() {
+            let relative_path: &str = row.try_get("relative_path").unwrap_or("");
+            let watch_path: &str = row.try_get("watch_path").unwrap_or("");
+            if relative_path.is_empty() || watch_path.is_empty() {
                 continue;
             }
 
-            if std::path::Path::new(file_path).exists() {
+            // Reconstruct the absolute filesystem path from the canonical
+            // watch-folder root and the validated relative path.
+            let abs_path = std::path::Path::new(watch_path).join(relative_path);
+            if abs_path.exists() {
                 continue;
             }
 
@@ -119,7 +123,8 @@ impl MaintenanceTask for FilesystemReconcileTask {
             let branch: String = row.try_get("branch").unwrap_or_default();
             let collection: String = row.try_get("collection").unwrap_or_default();
 
-            let payload = serde_json::json!({ "file_path": file_path });
+            let abs_path_str = abs_path.to_string_lossy();
+            let payload = serde_json::json!({ "file_path": abs_path_str });
             if let Err(e) = ctx
                 .queue_manager
                 .enqueue_unified(
@@ -135,10 +140,10 @@ impl MaintenanceTask for FilesystemReconcileTask {
             {
                 warn!(
                     "Failed to enqueue delete for missing file {}: {}",
-                    file_path, e
+                    abs_path_str, e
                 );
             } else {
-                info!("Enqueued delete for missing file: {}", file_path);
+                info!("Enqueued delete for missing file: {}", abs_path_str);
             }
         }
 
