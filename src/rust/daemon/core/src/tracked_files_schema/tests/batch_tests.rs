@@ -24,7 +24,6 @@ async fn test_batch_insert_large_chunk_count() {
         false,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -78,7 +77,6 @@ async fn test_batch_insert_boundary_sizes() {
             None,
             None,
             false,
-            None,
             None,
             None,
         )
@@ -137,7 +135,6 @@ async fn test_batch_insert_empty_chunks() {
         false,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -172,7 +169,6 @@ async fn test_batch_insert_tx_large_count() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )

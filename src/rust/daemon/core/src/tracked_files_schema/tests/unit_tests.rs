@@ -119,7 +119,7 @@ fn test_tracked_file_struct_serde() {
     let file = TrackedFile {
         file_id: 1,
         watch_folder_id: "watch_abc".to_string(),
-        file_path: "src/main.rs".to_string(),
+        relative_path: wqm_common::paths::RelativePath::from_user_input("src/main.rs").unwrap(),
         branch: Some("main".to_string()),
         file_type: Some("code".to_string()),
         language: Some("rust".to_string()),
@@ -136,7 +136,6 @@ fn test_tracked_file_struct_serde() {
         is_test: false,
         collection: "projects".to_string(),
         base_point: None,
-        relative_path: None,
         incremental: false,
         component: None,
         created_at: "2025-01-01T00:00:00Z".to_string(),
@@ -149,7 +148,7 @@ fn test_tracked_file_struct_serde() {
 
     assert_eq!(deserialized.file_id, 1);
     assert_eq!(deserialized.watch_folder_id, "watch_abc");
-    assert_eq!(deserialized.file_path, "src/main.rs");
+    assert_eq!(deserialized.relative_path.as_str(), "src/main.rs");
     assert_eq!(deserialized.branch, Some("main".to_string()));
     assert_eq!(deserialized.chunk_count, 5);
     assert_eq!(deserialized.lsp_status, ProcessingStatus::Done);
@@ -193,7 +192,7 @@ fn test_tracked_file_nullable_fields() {
     let file = TrackedFile {
         file_id: 1,
         watch_folder_id: "w1".to_string(),
-        file_path: "doc.pdf".to_string(),
+        relative_path: wqm_common::paths::RelativePath::from_user_input("doc.pdf").unwrap(),
         branch: None,
         file_type: None,
         language: None,
@@ -210,7 +209,6 @@ fn test_tracked_file_nullable_fields() {
         is_test: false,
         collection: "projects".to_string(),
         base_point: None,
-        relative_path: None,
         incremental: false,
         component: None,
         created_at: "2025-01-01T00:00:00Z".to_string(),

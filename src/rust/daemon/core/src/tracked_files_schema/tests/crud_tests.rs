@@ -24,7 +24,6 @@ async fn test_insert_and_lookup_tracked_file() {
         false,
         None,
         None,
-        None,
     )
     .await
     .expect("Insert failed");
@@ -38,7 +37,7 @@ async fn test_insert_and_lookup_tracked_file() {
     assert!(found.is_some());
     let f = found.unwrap();
     assert_eq!(f.file_id, file_id);
-    assert_eq!(f.file_path, "src/main.rs");
+    assert_eq!(f.relative_path.as_str(), "src/main.rs");
     assert_eq!(f.file_hash, "abc123hash");
     assert_eq!(f.chunk_count, 3);
     assert_eq!(f.lsp_status, ProcessingStatus::Done);
@@ -65,7 +64,6 @@ async fn test_lookup_tracked_file_null_branch() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -107,7 +105,6 @@ async fn test_update_tracked_file() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -162,7 +159,6 @@ async fn test_insert_and_get_qdrant_chunks() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -225,7 +221,6 @@ async fn test_delete_tracked_file_cascades_chunks() {
         false,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -279,7 +274,6 @@ async fn test_get_tracked_file_paths() {
         false,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -300,7 +294,6 @@ async fn test_get_tracked_file_paths() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -357,7 +350,6 @@ async fn test_delete_qdrant_chunks_explicit() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -429,7 +421,6 @@ async fn test_get_tracked_files_by_prefix() {
             false,
             None,
             None,
-            None,
         )
         .await
         .unwrap();
@@ -490,7 +481,6 @@ async fn test_get_tracked_files_by_prefix_no_false_positives() {
             None,
             None,
             false,
-            None,
             None,
             None,
         )

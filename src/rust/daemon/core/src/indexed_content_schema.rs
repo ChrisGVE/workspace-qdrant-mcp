@@ -169,7 +169,7 @@ mod tests {
             .unwrap();
 
         // Create tracked_files
-        sqlx::query(crate::tracked_files_schema::CREATE_TRACKED_FILES_SQL)
+        sqlx::query(crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_SQL)
             .execute(pool)
             .await
             .unwrap();
@@ -192,7 +192,7 @@ mod tests {
 
     async fn insert_test_file(pool: &SqlitePool, path: &str) -> i64 {
         let result = sqlx::query(
-            "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at)
+            "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at)
              VALUES ('w1', ?1, '2025-01-01T00:00:00Z', 'abc123', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
         )
         .bind(path)

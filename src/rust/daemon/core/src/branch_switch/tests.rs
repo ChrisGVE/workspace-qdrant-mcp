@@ -7,7 +7,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
 use crate::queue_operations::QueueManager;
-use crate::tracked_files_schema::{CREATE_TRACKED_FILES_INDEXES_SQL, CREATE_TRACKED_FILES_SQL};
+use crate::tracked_files_schema::{CREATE_TRACKED_FILES_V37_INDEXES_SQL, CREATE_TRACKED_FILES_V37_SQL};
 use crate::unified_queue_schema::{
     QueueOperation, CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
 };
@@ -35,11 +35,11 @@ async fn setup_tables(pool: &SqlitePool) {
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query(CREATE_TRACKED_FILES_SQL)
+    sqlx::query(CREATE_TRACKED_FILES_V37_SQL)
         .execute(pool)
         .await
         .unwrap();
-    for idx in CREATE_TRACKED_FILES_INDEXES_SQL {
+    for idx in CREATE_TRACKED_FILES_V37_INDEXES_SQL {
         sqlx::query(idx).execute(pool).await.unwrap();
     }
     sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
@@ -71,17 +71,21 @@ async fn insert_tracked_file(
     relative_path: &str,
     base_point: &str,
 ) {
+    // Post-v37: the schema has only `relative_path` (no `file_path`). The
+    // legacy `file_path` parameter is retained as the test's local key for
+    // backwards-compatible test fixture code paths; it is bound to the
+    // relative_path column (tests pass identical paths into both slots).
+    let _ = file_path; // legacy param, no SQL column
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash,
-         collection, base_point, relative_path, created_at, updated_at)
-         VALUES (?1, ?2, ?3, '2025-01-01T00:00:00Z', ?4, 'projects', ?5, ?6, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash,
+         collection, base_point, created_at, updated_at)
+         VALUES (?1, ?2, ?3, '2025-01-01T00:00:00Z', ?4, 'projects', ?5, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     )
     .bind(watch_id)
-    .bind(file_path)
+    .bind(relative_path)
     .bind(branch)
     .bind(file_hash)
     .bind(base_point)
-    .bind(relative_path)
     .execute(pool).await.unwrap();
 }
 
@@ -136,14 +140,14 @@ async fn test_batch_update_branch_basic() {
 
     // Verify branch was updated for unchanged files
     let branch_a: String =
-        sqlx::query_scalar("SELECT branch FROM tracked_files WHERE file_path = 'src/a.rs'")
+        sqlx::query_scalar("SELECT branch FROM tracked_files WHERE relative_path = 'src/a.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();
     assert_eq!(branch_a, "feature");
 
     let branch_c: String =
-        sqlx::query_scalar("SELECT branch FROM tracked_files WHERE file_path = 'src/c.rs'")
+        sqlx::query_scalar("SELECT branch FROM tracked_files WHERE relative_path = 'src/c.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -151,7 +155,7 @@ async fn test_batch_update_branch_basic() {
 
     // b.rs should still be on "main"
     let branch_b: String =
-        sqlx::query_scalar("SELECT branch FROM tracked_files WHERE file_path = 'src/b.rs'")
+        sqlx::query_scalar("SELECT branch FROM tracked_files WHERE relative_path = 'src/b.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -160,7 +164,7 @@ async fn test_batch_update_branch_basic() {
     // Verify base_point was recomputed for updated files
     let new_bp_a = wqm_common::hashing::compute_base_point(tenant, "feature", "src/a.rs", "hash_a");
     let stored_bp: String =
-        sqlx::query_scalar("SELECT base_point FROM tracked_files WHERE file_path = 'src/a.rs'")
+        sqlx::query_scalar("SELECT base_point FROM tracked_files WHERE relative_path = 'src/a.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();

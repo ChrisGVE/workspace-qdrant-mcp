@@ -264,8 +264,8 @@ async fn test_qdrant_delete_failure_preserves_tracked_file_and_queues_retry() {
     apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
         .await
         .unwrap();
-    use crate::tracked_files_schema::CREATE_TRACKED_FILES_SQL;
-    sqlx::query(CREATE_TRACKED_FILES_SQL)
+    use crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_SQL;
+    sqlx::query(CREATE_TRACKED_FILES_V37_SQL)
         .execute(&pool)
         .await
         .unwrap();
@@ -279,8 +279,8 @@ async fn test_qdrant_delete_failure_preserves_tracked_file_and_queues_retry() {
          VALUES ('w-f035', '/tmp/f035', 'projects', 't-f035', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, collection, base_point, relative_path, created_at, updated_at)
-         VALUES ('w-f035', 'src/lib.rs', 'main', '2025-01-01T00:00:00Z', 'h_f035', 'projects', 'bp_f035', 'src/lib.rs', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files (watch_folder_id, branch, file_mtime, file_hash, collection, base_point, relative_path, created_at, updated_at)
+         VALUES ('w-f035', 'main', '2025-01-01T00:00:00Z', 'h_f035', 'projects', 'bp_f035', 'src/lib.rs', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     // Enqueue a Delete operation.

@@ -53,7 +53,7 @@ fn test_compute_relative_path_for_recovery() {
 }
 
 use crate::tracked_files_schema::{
-    self as tfs, CREATE_TRACKED_FILES_INDEXES_SQL, CREATE_TRACKED_FILES_SQL,
+    self as tfs, CREATE_TRACKED_FILES_V37_INDEXES_SQL, CREATE_TRACKED_FILES_V37_SQL,
 };
 use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL};
 use crate::watch_folders_schema;
@@ -78,11 +78,11 @@ async fn setup_reconcile_tables(pool: &SqlitePool) {
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query(CREATE_TRACKED_FILES_SQL)
+    sqlx::query(CREATE_TRACKED_FILES_V37_SQL)
         .execute(pool)
         .await
         .unwrap();
-    for idx in CREATE_TRACKED_FILES_INDEXES_SQL {
+    for idx in CREATE_TRACKED_FILES_V37_INDEXES_SQL {
         sqlx::query(idx).execute(pool).await.unwrap();
     }
     sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
@@ -104,7 +104,7 @@ async fn insert_reconcile_fixture(pool: &SqlitePool, base_path: &str, rel_path: 
     .execute(pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, chunk_count, collection, needs_reconcile, reconcile_reason, created_at, updated_at)
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, chunk_count, collection, needs_reconcile, reconcile_reason, created_at, updated_at)
          VALUES ('wf-rc', ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects', 1, 'ingest_tx_failed: test', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     )
     .bind(rel_path)

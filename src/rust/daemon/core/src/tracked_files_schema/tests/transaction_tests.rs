@@ -25,7 +25,6 @@ async fn test_insert_tracked_file_tx_commit() {
         false,
         None,
         None,
-        None,
     )
     .await
     .expect("Tx insert failed");
@@ -64,7 +63,6 @@ async fn test_insert_tracked_file_tx_rollback() {
             false,
             None,
             None,
-            None,
         )
         .await
         .expect("Tx insert failed");
@@ -99,7 +97,6 @@ async fn test_transaction_atomicity_insert_and_chunks() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -161,7 +158,6 @@ async fn test_transaction_atomicity_rollback_both() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -240,7 +236,6 @@ async fn test_delete_tracked_file_tx() {
         false,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -290,7 +285,6 @@ async fn test_mark_and_query_needs_reconcile() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
@@ -349,7 +343,6 @@ async fn test_update_tracked_file_tx_clears_reconcile_flag() {
         None,
         None,
         false,
-        None,
         None,
         None,
     )
