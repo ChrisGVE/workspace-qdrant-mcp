@@ -619,7 +619,7 @@ report constitute spec defects to be corrected before A-1 closes.
 
 ### 6.2 Schema Version Bump
 
-Spec landing **mandates wipe + rebuild** at schema version 37, not in-place rewrite.
+Spec landing **mandates the relative-path migration** at schema version 37, not in-place rewrite.
 Version 37 also DROPS the denormalized absolute `file_path` columns
 (`tracked_files.file_path` and `file_metadata.file_path`) and rebuilds UNIQUE
 constraints on `(watch_folder_id, relative_path, branch)` in `tracked_files`.
@@ -636,59 +636,61 @@ collections corresponding to ingest-derived data are also truncated.
 
 #### 6.2.1 Crash Safety
 
-The wipe must be crash-safe so that a daemon crash mid-wipe does not
-leave the database in a state where the new schema version is already
-recorded but ingest tables are partially emptied. The current
-`SchemaManager` records each version immediately after its migration
-runs, which is unsafe for the wipe semantics: a partial wipe followed
-by a crash would mark the version bumped, and the next startup would
-see "version matches, do nothing" and operate on a half-empty DB.
+The relative-path migration must be crash-safe so that a daemon crash
+mid-migration does not leave the database in a state where the new
+schema version is already recorded but ingest tables are partially
+emptied. The current `SchemaManager` records each version immediately
+after its migration runs, which is unsafe for the migration semantics:
+a partial migration followed by a crash would mark the version bumped,
+and the next startup would see "version matches, do nothing" and
+operate on a half-empty DB.
 
-Two-phase marker approach:
+Two-phase marker approach (the **relative-path migration protocol**):
 
-1. **Phase 1 (begin wipe).** In a single SQLite transaction: insert a
-   row into a `wipe_in_progress` table with the target schema version
-   and a `started_at` timestamp. Commit.
-2. **Phase 2 (execute wipe).** Truncate ingest-derived tables. Also
+1. **Phase 1 (begin migration).** In a single SQLite transaction: insert a
+   row into a `relative_path_migration_in_progress` table with the target
+   schema version and a `started_at` timestamp. Commit.
+2. **Phase 2 (truncate).** Truncate ingest-derived tables. Also
    truncate Qdrant collections. (Cross-store atomicity is impossible;
    ordering: SQLite first, then Qdrant. A crash between leaves SQLite
-   empty and Qdrant non-empty — recovered in phase 4.)
+   empty and Qdrant non-empty — recovered on next startup.)
 3. **Phase 3 (re-ingest).** Walk `watch_folders.path` entries; enqueue
    for ingestion. Crash here just means the queue resumes on next
-   startup; the `wipe_in_progress` marker remains.
+   startup; the `relative_path_migration_in_progress` marker remains.
 4. **Phase 4 (finalize).** When all initial-walk enqueues complete and
    the queue drains for the first time, in a single transaction:
-   bump the schema-version constant; delete the `wipe_in_progress`
-   row. Commit.
+   bump the schema-version constant; delete the
+   `relative_path_migration_in_progress` row. Commit.
 
-Recovery: on every daemon startup, if `wipe_in_progress` has any row,
-resume from phase 2 (re-truncate, re-walk). Truncation is idempotent;
-re-enqueue is idempotent via the existing dedup key. The schema
-version is only bumped after phase 4, so a crash before phase 4
-re-triggers the entire wipe on next startup.
+Recovery: on every daemon startup, if `relative_path_migration_in_progress`
+has any row, resume from phase 2 (re-truncate, re-walk). Truncation is
+idempotent; re-enqueue is idempotent via the existing dedup key. The
+schema version is only bumped after phase 4, so a crash before phase 4
+re-triggers the entire migration on next startup.
 
 #### 6.2.2 User Experience
 
-For large repos (100k+ files), wipe + re-ingest can take 30+ minutes
-on first run after upgrade. The daemon emits progress logs at
-`INFO` level (`files_processed / files_estimated` every 1000 files),
-and the `wqm status` CLI shows a "wipe in progress (N% complete)"
-banner when the `wipe_in_progress` marker is present. The user
-upgrade notes accompanying the spec landing include a rough estimate
-per 10k files based on benchmarking.
+For large repos (100k+ files), the relative-path migration can take
+30+ minutes on first run after upgrade. The daemon emits progress logs
+at `INFO` level (`files_processed / files_estimated` every 1000 files),
+and the `wqm status health` CLI shows a "relative-path migration in
+progress (N% complete)" banner when the `relative_path_migration_in_progress`
+marker is present. The user upgrade notes accompanying the spec landing
+include a rough estimate per 10k files based on benchmarking.
 
 Rationale: project policy (CLAUDE.md "NO MIGRATION EFFORT" +
 pre-release status) explicitly permits data wipe; the canonicalize()
 removal in A-2 changes project ID derivation (§3.2.3) and would
 require a complex semantic migration if attempted in place; and the
 spec-driven normalization touches every absolute path column, making
-the rewrite-vs-wipe boundary fuzzy. A clean wipe is simpler, safer,
-and aligned with project policy.
+the in-place-rewrite-vs-rebuild boundary fuzzy. A clean rebuild via
+the relative-path migration protocol is simpler, safer, and aligned
+with project policy.
 
 The schema-version constant lives in the `schema_version` module; the
-PRD task that lands this spec selects the bump value. Re-ingest after
-wipe is non-trivial (large repos); document expected one-time delay
-in the user upgrade notes.
+PRD task that lands this spec selects the bump value. Re-ingest under
+the relative-path migration is non-trivial (large repos); document
+expected one-time delay in the user upgrade notes.
 
 In-place rewrite is explicitly deferred to post-v1.0 work, when users
 exist and migration cost becomes a real constraint. Tracked in §13.
@@ -1080,8 +1082,9 @@ evidence. A-2 closure requires 8e passing somewhere.
   does it descend into symlinks? Current `follow_symlinks` column on
   `watch_folders` exists but interacts with canonicalization. Decide
   default and document.
-- In-place schema-rewrite (as alternative to §6.2's mandated wipe):
-  defer to post-v1.0 once users exist and migration cost matters.
+- In-place schema-rewrite (as alternative to §6.2's mandated
+  relative-path migration): defer to post-v1.0 once users exist and
+  migration cost matters.
 - macOS FSEvents handling for symlinked watch roots after
   `resolve_symlink` removal: A-2 must determine final approach
   (restrict to non-symlink roots, register both paths, or translate at
@@ -1134,10 +1137,11 @@ The path-abstraction work is complete when:
 10. CHANGELOG `[Unreleased]` documents the spec, the schema-version
    bump, the project-ID derivation change (§3.2.3), and the new
    control-port requirement.
-11. Wipe + rebuild is crash-safe per §6.2.1: a test simulates a crash
-   after each of phases 1, 2, 3 and verifies recovery on next startup
-   leaves the DB in a consistent state.
-12. The daemon emits per-1000-files progress logs during wipe-triggered
-   re-ingest, and `wqm status` shows a wipe-in-progress banner when
-   the marker row is present. Verified by integration test on a
-   synthetic 10k-file fixture.
+11. The relative-path migration is crash-safe per §6.2.1: a test
+   simulates a crash after each of phases 1, 2, 3 and verifies recovery
+   on next startup leaves the DB in a consistent state.
+12. The daemon emits per-1000-files progress logs during the
+   relative-path migration's re-ingest phase, and `wqm status health`
+   shows a "relative-path migration in progress" banner when the
+   `relative_path_migration_in_progress` marker row is present.
+   Verified by integration test on a synthetic 10k-file fixture.
