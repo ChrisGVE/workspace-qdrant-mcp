@@ -37,6 +37,7 @@ mod error;
 mod local;
 mod mount_map;
 mod normalize;
+mod relative;
 
 #[cfg(test)]
 mod tests;
@@ -45,6 +46,7 @@ pub use canonical::CanonicalPath;
 pub use error::PathError;
 pub use local::LocalPath;
 pub use mount_map::{mount_section_hash, MountEntry, MountMap};
+pub use relative::{RelativePath, RelativePathError};
 
 use std::env;
 use std::path::PathBuf;
