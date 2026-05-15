@@ -65,7 +65,10 @@ impl QueueManager {
                 }
             }
             ItemType::Folder => {
-                require_non_empty(payload, "folder", "folder_path")?;
+                // folder_path is Option<RelativePath>; None signals
+                // "scan the watch_folder root itself" (library rescan/watch).
+                // The strategy handler validates anchoring against the
+                // watch_folders row at processing time.
                 if op == UnifiedOp::Rename {
                     require_non_empty(payload, "folder", "old_path")?;
                 }

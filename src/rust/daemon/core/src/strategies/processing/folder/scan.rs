@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use chrono::DateTime;
 use tracing::{debug, warn};
+use wqm_common::paths::{CanonicalPath, RelativePath};
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::file_classification::classify_file_type;
@@ -31,6 +32,7 @@ use crate::unified_queue_schema::{
 /// Returns `(files_queued, dirs_queued, files_excluded, errors)`.
 pub(crate) async fn scan_directory_single_level(
     dir_path: &Path,
+    watch_folder_root: &CanonicalPath,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
@@ -80,6 +82,7 @@ pub(crate) async fn scan_directory_single_level(
             dirs_queued += process_directory_entry(
                 &path,
                 &entry.file_name().to_string_lossy().to_string(),
+                watch_folder_root,
                 item,
                 queue_manager,
                 last_scan,
@@ -145,6 +148,7 @@ fn parse_iso8601_to_system_time(s: &str) -> Option<SystemTime> {
 async fn process_directory_entry(
     path: &Path,
     dir_name: &str,
+    watch_folder_root: &CanonicalPath,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     last_scan: Option<&str>,
@@ -161,7 +165,7 @@ async fn process_directory_entry(
     }
 
     // Regular subdirectory -> (Folder, Scan)
-    enqueue_subdirectory(path, item, queue_manager, last_scan).await
+    enqueue_subdirectory(path, watch_folder_root, item, queue_manager, last_scan).await
 }
 
 /// Enqueue a submodule directory as a Tenant/Add item.
@@ -218,12 +222,43 @@ async fn enqueue_submodule(
 /// Returns 1 if enqueued successfully, 0 otherwise.
 async fn enqueue_subdirectory(
     path: &Path,
+    watch_folder_root: &CanonicalPath,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     last_scan: Option<&str>,
 ) -> u64 {
+    // Build a CanonicalPath for the absolute subdir so we can derive the
+    // relative form. If the path is not UTF-8 or contains `..` we skip
+    // enqueueing rather than store an invalid payload.
+    let abs_str = match path.to_str() {
+        Some(s) => s,
+        None => {
+            warn!("Non-UTF-8 subdir path skipped: {}", path.display());
+            return 0;
+        }
+    };
+    let abs = match CanonicalPath::from_user_input(abs_str) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("Subdir path failed canonicalization ({}): {}", abs_str, e);
+            return 0;
+        }
+    };
+    let relative = match RelativePath::from_absolute_and_root(&abs, watch_folder_root) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(
+                "Subdir {} is not under watch_folder root {} ({}); skipping",
+                abs.as_str(),
+                watch_folder_root.as_str(),
+                e
+            );
+            return 0;
+        }
+    };
+
     let folder_payload = FolderPayload {
-        folder_path: path.to_string_lossy().to_string(),
+        folder_path: Some(relative),
         recursive: false,
         recursive_depth: 0,
         patterns: vec![],
@@ -231,8 +266,17 @@ async fn enqueue_subdirectory(
         old_path: None,
         last_scan: last_scan.map(|s| s.to_string()),
     };
-    let payload_json = serde_json::to_string(&folder_payload)
-        .unwrap_or_else(|_| format!(r#"{{"folder_path":"{}"}}"#, path.display()));
+    let payload_json = match serde_json::to_string(&folder_payload) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(
+                "Failed to serialize FolderPayload for {}: {}",
+                path.display(),
+                e
+            );
+            return 0;
+        }
+    };
 
     match queue_manager
         .enqueue_unified(

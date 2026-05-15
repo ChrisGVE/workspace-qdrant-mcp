@@ -21,8 +21,12 @@ async fn enqueue_scan_and_notify(
     abs_path_str: &str,
     patterns: &[String],
 ) {
+    // Library root scans omit folder_path: the daemon anchors to the
+    // library's watch_folder root (looked up at processing time) rather
+    // than embedding an absolute path that would violate the
+    // RelativePath contract.
+    let _ = abs_path_str;
     let payload_json = serde_json::json!({
-        "folder_path": abs_path_str,
         "recursive": true,
         "patterns": patterns,
     })

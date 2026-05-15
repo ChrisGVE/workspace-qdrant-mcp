@@ -45,10 +45,13 @@ pub(crate) async fn process_folder_delete(
         }
     };
 
-    // Compute relative folder path from absolute folder_path and base_path
-    let relative_folder =
-        tracked_files_schema::compute_relative_path(&payload.folder_path, &base_path)
-            .unwrap_or_else(|| payload.folder_path.clone());
+    // `payload.folder_path` is already relative to the watch_folder root.
+    // `None` means delete every tracked file under the watch_folder root.
+    let relative_folder = payload
+        .folder_path
+        .as_ref()
+        .map(|r| r.as_str().to_string())
+        .unwrap_or_default();
 
     // Get all tracked files under this folder prefix
     let tracked_files =
@@ -61,10 +64,16 @@ pub(crate) async fn process_folder_delete(
                 ))
             })?;
 
+    let folder_display: &str = if relative_folder.is_empty() {
+        "<root>"
+    } else {
+        relative_folder.as_str()
+    };
+
     if tracked_files.is_empty() {
         info!(
-            "No tracked files found under folder '{}' (relative='{}') -- nothing to delete",
-            payload.folder_path, relative_folder
+            "No tracked files found under folder '{}' -- nothing to delete",
+            folder_display
         );
         return Ok(());
     }
@@ -72,7 +81,7 @@ pub(crate) async fn process_folder_delete(
     info!(
         "Folder delete: found {} tracked files under '{}', enqueueing file deletions",
         tracked_files.len(),
-        relative_folder
+        folder_display
     );
 
     let (files_queued, errors) =
@@ -81,7 +90,7 @@ pub(crate) async fn process_folder_delete(
     let elapsed = start.elapsed();
     info!(
         "Folder delete complete: {} files queued for deletion, {} errors in {:?} (folder={})",
-        files_queued, errors, elapsed, payload.folder_path
+        files_queued, errors, elapsed, folder_display
     );
 
     if errors > 0 {
@@ -89,7 +98,7 @@ pub(crate) async fn process_folder_delete(
             "Folder delete had {} errors out of {} files for folder: {}",
             errors,
             tracked_files.len(),
-            payload.folder_path
+            folder_display
         );
     }
 

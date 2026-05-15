@@ -42,8 +42,12 @@ pub async fn execute(tag: &str, force: bool) -> Result<()> {
     // Enqueue a folder scan for the library via gRPC
     let mut client = ensure_daemon_available().await?;
 
+    // Omit folder_path: a None value tells the daemon to anchor the scan
+    // to the library's watch_folder root (looked up at processing time).
+    // Library root paths are absolute and so do not fit the RelativePath
+    // contract — the daemon reconstructs them from watch_folders.path.
+    let _ = lib_path;
     let payload_json = serde_json::json!({
-        "folder_path": lib_path,
         "recursive": true,
         "patterns": DEFAULT_LIBRARY_PATTERNS,
     })

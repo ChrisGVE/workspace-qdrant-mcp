@@ -9,6 +9,7 @@ use crate::strategies::ProcessingStrategy;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{FolderPayload, ItemType, QueueOperation, UnifiedQueueItem};
 use wqm_common::constants::COLLECTION_PROJECTS;
+use wqm_common::paths::CanonicalPath;
 
 use super::delete::process_folder_delete;
 use super::scan::scan_directory_single_level;
@@ -53,13 +54,21 @@ impl FolderStrategy {
     /// Delegation shim: callers that reference `FolderStrategy::scan_directory_single_level`.
     pub(crate) async fn scan_directory_single_level(
         dir_path: &Path,
+        watch_folder_root: &CanonicalPath,
         item: &UnifiedQueueItem,
         queue_manager: &Arc<QueueManager>,
         allowed_extensions: &Arc<AllowedExtensions>,
         last_scan: Option<&str>,
     ) -> UnifiedProcessorResult<(u64, u64, u64, u64)> {
-        scan_directory_single_level(dir_path, item, queue_manager, allowed_extensions, last_scan)
-            .await
+        scan_directory_single_level(
+            dir_path,
+            watch_folder_root,
+            item,
+            queue_manager,
+            allowed_extensions,
+            last_scan,
+        )
+        .await
     }
 }
 
@@ -84,7 +93,8 @@ pub(crate) async fn process_folder_item(
         QueueOperation::Update | QueueOperation::Add => {
             info!(
                 "Folder {:?} operation treated as rescan for: {}",
-                item.op, payload.folder_path
+                item.op,
+                folder_path_display(&payload),
             );
             dispatch_scan(ctx, item, &payload, None).await
         }
@@ -114,17 +124,39 @@ async fn dispatch_scan(
     payload: &FolderPayload,
     last_scan: Option<&str>,
 ) -> UnifiedProcessorResult<()> {
+    // Resolve the watch_folder root that anchors this scan. Required for
+    // both branches: project scans need it to compute relative paths of
+    // subdir enqueues, library scans need it to anchor the walk.
+    let root = match lookup_watch_folder_root(ctx, &item.tenant_id, &item.collection).await? {
+        Some(r) => r,
+        None => {
+            warn!(
+                "No watch_folder for tenant_id={}, collection={} -- cannot scan",
+                item.tenant_id, item.collection
+            );
+            return Ok(());
+        }
+    };
+
+    // Reconstruct the absolute scan target: None payload.folder_path means
+    // scan the watch_folder root; Some(rel) joins onto the root.
+    let abs_scan_target = match &payload.folder_path {
+        None => root.clone(),
+        Some(rel) => rel.to_absolute(&root),
+    };
+
     if item.collection == COLLECTION_PROJECTS {
-        let dir_path = std::path::Path::new(&payload.folder_path);
+        let dir_path = std::path::Path::new(abs_scan_target.as_str());
         if !dir_path.is_dir() {
             warn!(
                 "Folder scan target is not a directory: {}",
-                payload.folder_path
+                abs_scan_target.as_str()
             );
             return Ok(());
         }
         let (files, dirs, excluded, errs) = scan_directory_single_level(
             dir_path,
+            &root,
             item,
             &ctx.queue_manager,
             &ctx.allowed_extensions,
@@ -138,17 +170,64 @@ async fn dispatch_scan(
         };
         info!(
             "Folder {}: {} files, {} subdirs enqueued, {} excluded, {} errors ({})",
-            label, files, dirs, excluded, errs, payload.folder_path
+            label,
+            files,
+            dirs,
+            excluded,
+            errs,
+            abs_scan_target.as_str()
         );
         Ok(())
     } else {
         crate::strategies::processing::tenant::scan_library_directory(
             item,
-            &payload.folder_path,
+            abs_scan_target.as_str(),
             &ctx.queue_manager,
             &ctx.storage_client,
             &ctx.allowed_extensions,
         )
         .await
     }
+}
+
+/// Lookup helper: resolve the `watch_folders.path` row for a tenant/collection
+/// and parse it as a [`CanonicalPath`] for downstream join/strip operations.
+async fn lookup_watch_folder_root(
+    ctx: &ProcessingContext,
+    tenant_id: &str,
+    collection: &str,
+) -> UnifiedProcessorResult<Option<CanonicalPath>> {
+    let row: Option<String> = sqlx::query_scalar(
+        "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
+    )
+    .bind(tenant_id)
+    .bind(collection)
+    .fetch_optional(ctx.queue_manager.pool())
+    .await
+    .map_err(|e| {
+        UnifiedProcessorError::QueueOperation(format!("Failed to lookup watch_folder: {}", e))
+    })?;
+
+    match row {
+        None => Ok(None),
+        Some(path) => CanonicalPath::from_user_input(&path)
+            .map(Some)
+            .map_err(|e| {
+                UnifiedProcessorError::InvalidPayload(format!(
+                    "watch_folder.path stored for tenant_id={} is not canonical: {}",
+                    tenant_id, e
+                ))
+            }),
+    }
+}
+
+/// Helper used by log macros that previously dereferenced
+/// `payload.folder_path` as a string. Returns either the relative path or
+/// the placeholder `"<root>"` for the None case.
+fn folder_path_display(payload: &FolderPayload) -> &str {
+    payload
+        .folder_path
+        .as_ref()
+        .map(|r| r.as_str())
+        .unwrap_or("<root>")
 }

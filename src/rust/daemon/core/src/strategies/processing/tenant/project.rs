@@ -448,12 +448,25 @@ async fn scan_project_directory(
         payload.project_root, item.tenant_id, last_scan
     );
 
+    // Parse the project_root canonical form so the scanner can compute
+    // relative paths for enqueued subdirectories without re-querying the
+    // database. `payload.project_root` originates from watch_folders.path
+    // which is canonical by construction (handler-validated at registration).
+    let watch_folder_root = wqm_common::paths::CanonicalPath::from_user_input(&payload.project_root)
+        .map_err(|e| {
+            UnifiedProcessorError::InvalidPayload(format!(
+                "project_root {} is not canonical: {}",
+                payload.project_root, e
+            ))
+        })?;
+
     // Progressive scan: enumerate only the immediate children of the directory.
     // Subdirectories are enqueued as (Folder, Scan) for deferred processing.
     // last_scan enables mtime pruning to skip unchanged files.
     let (files_queued, dirs_queued, files_excluded, errors) =
         crate::strategies::processing::folder::FolderStrategy::scan_directory_single_level(
             project_root,
+            &watch_folder_root,
             item,
             &ctx.queue_manager,
             &ctx.allowed_extensions,
