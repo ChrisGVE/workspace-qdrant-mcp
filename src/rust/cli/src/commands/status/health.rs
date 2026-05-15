@@ -12,6 +12,11 @@
 //!
 //! Exit code is 0 iff every probed endpoint reports healthy; any
 //! failure returns 1 so CI / compose health scripts can gate on it.
+//!
+//! When the daemon's `state.db` has an active relative-path migration
+//! marker (see `docs/specs/16-path-abstraction.md` §6.2.2), a progress
+//! banner is rendered above the human-mode output. JSON consumers are not
+//! affected — JSON output remains structurally stable for scripting.
 
 use std::env;
 use std::time::Duration;
@@ -26,6 +31,7 @@ use crate::output::columnar::ColumnarBuilder;
 use crate::output::gutter::Gutter;
 use crate::output::{self, ServiceStatus};
 
+use super::migration_banner;
 use super::types::{status_label, HealthComponentJson, HealthStatusJson};
 
 /// Default probe timeout. Short enough that an unhealthy service fails
@@ -167,6 +173,11 @@ pub async fn health(json: bool) -> Result<()> {
             if json {
                 print_health_json(true, overall, &health.components, &external);
             } else {
+                // Banner renders above the title per spec §6.2.2 so it is
+                // visible before users scan health rows. The helper swallows
+                // errors and skips silently when the migration is inactive,
+                // so it can never block health output.
+                migration_banner::print_if_active();
                 canvas::print_title("System Health");
                 canvas::print_blank();
                 print_health_columnar(true, overall, &health.components, &external);
@@ -177,6 +188,7 @@ pub async fn health(json: bool) -> Result<()> {
             if json {
                 print_health_json_disconnected(false, &external);
             } else {
+                migration_banner::print_if_active();
                 canvas::print_title("System Health");
                 canvas::print_blank();
                 print_health_columnar_disconnected(&external);

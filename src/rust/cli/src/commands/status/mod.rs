@@ -9,6 +9,7 @@ mod health;
 mod history;
 mod live;
 mod messages;
+mod migration_banner;
 mod overview;
 mod performance;
 mod queue;
