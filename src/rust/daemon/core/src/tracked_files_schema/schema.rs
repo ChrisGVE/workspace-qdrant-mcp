@@ -139,3 +139,54 @@ pub const CREATE_REFCOUNT_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_tr
 /// Index for quickly finding files needing reconciliation
 pub const CREATE_RECONCILE_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_reconcile
        ON tracked_files(needs_reconcile) WHERE needs_reconcile = 1"#;
+
+// ---------------------------------------------------------------------------
+// Migration SQL — v37: drop denormalized file_path; rebuild UNIQUE on
+// (watch_folder_id, relative_path, branch). See spec 16 §6.1, §6.2.
+// ---------------------------------------------------------------------------
+
+/// Post-v37 DDL for the `tracked_files` table. The absolute `file_path`
+/// column is dropped; the UNIQUE constraint moves to
+/// `(watch_folder_id, relative_path, branch)`. Used by the v37 rebuild
+/// path in `schema_version::v37::rebuild_tracked_files`.
+pub const CREATE_TRACKED_FILES_V37_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS tracked_files (
+    file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    watch_folder_id TEXT NOT NULL,
+    branch TEXT,
+    file_type TEXT,
+    language TEXT,
+    file_mtime TEXT NOT NULL,
+    file_hash TEXT NOT NULL,
+    chunk_count INTEGER DEFAULT 0,
+    chunking_method TEXT,
+    lsp_status TEXT DEFAULT 'none' CHECK (lsp_status IN ('none', 'done', 'failed', 'skipped')),
+    treesitter_status TEXT DEFAULT 'none' CHECK (treesitter_status IN ('none', 'done', 'failed', 'skipped')),
+    last_error TEXT,
+    needs_reconcile INTEGER DEFAULT 0,
+    reconcile_reason TEXT,
+    extension TEXT,
+    is_test INTEGER DEFAULT 0,
+    collection TEXT NOT NULL DEFAULT 'projects',
+    base_point TEXT,
+    relative_path TEXT NOT NULL,
+    incremental INTEGER DEFAULT 0,
+    component TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
+    UNIQUE(watch_folder_id, relative_path, branch)
+)
+"#;
+
+/// Post-v37 indexes for `tracked_files`. The legacy `idx_tracked_files_path`
+/// over the absolute `file_path` column is replaced by an index on
+/// `relative_path`.
+pub const CREATE_TRACKED_FILES_V37_INDEXES_SQL: &[&str] = &[
+    r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_watch
+       ON tracked_files(watch_folder_id)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_relative
+       ON tracked_files(watch_folder_id, relative_path)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_branch
+       ON tracked_files(watch_folder_id, branch)"#,
+];

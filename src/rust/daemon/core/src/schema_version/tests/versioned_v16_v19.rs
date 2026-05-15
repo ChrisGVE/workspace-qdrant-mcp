@@ -274,12 +274,12 @@ async fn test_migration_v18_indexed_content() {
     ).execute(&pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at)
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at)
          VALUES ('w1', 'test.rs', '2025-01-01T00:00:00Z', 'h1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let file_id: i64 =
-        sqlx::query_scalar("SELECT file_id FROM tracked_files WHERE file_path = 'test.rs'")
+        sqlx::query_scalar("SELECT file_id FROM tracked_files WHERE relative_path = 'test.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -372,12 +372,12 @@ async fn test_migration_v19_backfill() {
     ).execute(&pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, collection, created_at, updated_at)
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, collection, created_at, updated_at)
          VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'deadbeef', 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let bp: Option<String> =
-        sqlx::query_scalar("SELECT base_point FROM tracked_files WHERE file_path = 'src/main.rs'")
+        sqlx::query_scalar("SELECT base_point FROM tracked_files WHERE relative_path = 'src/main.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -387,7 +387,7 @@ async fn test_migration_v19_backfill() {
     );
 
     let incr: i32 =
-        sqlx::query_scalar("SELECT incremental FROM tracked_files WHERE file_path = 'src/main.rs'")
+        sqlx::query_scalar("SELECT incremental FROM tracked_files WHERE relative_path = 'src/main.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();

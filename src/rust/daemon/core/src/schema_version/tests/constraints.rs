@@ -21,12 +21,12 @@ async fn test_qdrant_chunks_cascade_delete() {
     ).execute(&pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, chunk_count, created_at, updated_at)
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, chunk_count, created_at, updated_at)
          VALUES ('w1', 'src/main.rs', '2025-01-01T00:00:00Z', 'abc123', 2, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let file_id: i64 =
-        sqlx::query_scalar("SELECT file_id FROM tracked_files WHERE file_path = 'src/main.rs'")
+        sqlx::query_scalar("SELECT file_id FROM tracked_files WHERE relative_path = 'src/main.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -86,17 +86,17 @@ async fn test_tracked_files_unique_constraint() {
     ).execute(&pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, created_at, updated_at)
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, created_at, updated_at)
          VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'hash1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, created_at, updated_at)
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, created_at, updated_at)
          VALUES ('w1', 'src/main.rs', 'main', '2025-01-02T00:00:00Z', 'hash2', '2025-01-02T00:00:00Z', '2025-01-02T00:00:00Z')"
     ).execute(&pool).await;
 
     assert!(
         result.is_err(),
-        "Duplicate (watch_folder_id, file_path, branch) should violate UNIQUE constraint"
+        "Duplicate (watch_folder_id, relative_path, branch) should violate UNIQUE constraint"
     );
 }
