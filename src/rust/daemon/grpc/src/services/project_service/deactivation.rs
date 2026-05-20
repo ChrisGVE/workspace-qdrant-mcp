@@ -11,6 +11,7 @@ use tonic::Status;
 use tracing::{debug, error, info, warn};
 
 use crate::proto::{DeprioritizeProjectRequest, DeprioritizeProjectResponse};
+use crate::validation::extract_canonical_path;
 
 use super::ProjectServiceImpl;
 
@@ -24,9 +25,16 @@ impl ProjectServiceImpl {
             return Err(Status::invalid_argument("project_id cannot be empty"));
         }
 
-        let watch_path = req.watch_path.as_deref().filter(|p| !p.is_empty());
+        // Validate watch_path as CanonicalPath when present and non-empty.
+        let watch_path = match req.watch_path.as_deref().filter(|p| !p.is_empty()) {
+            Some(raw) => {
+                let canonical = extract_canonical_path!(raw.to_string(), "watch_path")?;
+                Some(canonical.into_string())
+            }
+            None => None,
+        };
 
-        if let Some(path) = watch_path {
+        if let Some(ref path) = watch_path {
             self.deprioritize_by_path(&req.project_id, path).await
         } else {
             self.deprioritize_tenant_wide(&req.project_id).await

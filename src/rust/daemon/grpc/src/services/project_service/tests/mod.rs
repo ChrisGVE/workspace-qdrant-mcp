@@ -4,8 +4,10 @@
 //! - `registration_tests`: project registration, validation, and ID handling
 //! - `query_tests`: project status queries, listing, and heartbeat
 //! - `lifecycle_tests`: deferred shutdown, queue depth, and background monitor
+//! - `path_validation_tests`: negative tests for path validation at handler entry
 
 mod lifecycle_tests;
+mod path_validation_tests;
 mod query_tests;
 mod registration_tests;
 

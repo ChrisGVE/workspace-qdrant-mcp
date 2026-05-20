@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use tonic::Request;
+use wqm_common::paths::CanonicalPath;
 
 use crate::proto::project_service_server::ProjectService;
 use crate::proto::{DeprioritizeProjectRequest, RegisterProjectRequest};
@@ -10,6 +11,13 @@ use crate::proto::{DeprioritizeProjectRequest, RegisterProjectRequest};
 use super::{
     build_test_service, create_test_watch_folder, setup_test_db, setup_test_db_with_queue,
 };
+
+/// Build the syntactic-canonical UTF-8 string for a temp path.
+fn canonical_str(p: &std::path::Path) -> String {
+    CanonicalPath::from_user_input(p.to_str().unwrap())
+        .unwrap()
+        .into_string()
+}
 
 #[tokio::test]
 async fn test_queue_depth_returns_zero_for_empty_queue() {
@@ -48,14 +56,17 @@ async fn test_queue_depth_counts_pending_items() {
 
 #[tokio::test]
 async fn test_deferred_shutdown_scheduled_when_delay_set() {
-    let (pool, _temp_dir) = setup_test_db_with_queue().await;
+    let (pool, temp_dir) = setup_test_db_with_queue().await;
+    let project_dir = temp_dir.path().join("project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    let project_path = canonical_str(&project_dir);
 
-    create_test_watch_folder(&pool, "abcd12345678", "/test/project").await;
+    create_test_watch_folder(&pool, "abcd12345678", &project_path).await;
 
     let service = build_test_service(pool, 30);
 
     let request = Request::new(RegisterProjectRequest {
-        path: "/test/project".to_string(),
+        path: project_path,
         project_id: "abcd12345678".to_string(),
         name: None,
         git_remote: None,
@@ -76,14 +87,17 @@ async fn test_deferred_shutdown_scheduled_when_delay_set() {
 
 #[tokio::test]
 async fn test_reactivation_cancels_deferred_shutdown() {
-    let (pool, _temp_dir) = setup_test_db_with_queue().await;
+    let (pool, temp_dir) = setup_test_db_with_queue().await;
+    let project_dir = temp_dir.path().join("project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    let project_path = canonical_str(&project_dir);
 
-    create_test_watch_folder(&pool, "abcd12345678", "/test/project").await;
+    create_test_watch_folder(&pool, "abcd12345678", &project_path).await;
 
     let service = build_test_service(pool, 60);
 
     let request = Request::new(RegisterProjectRequest {
-        path: "/test/project".to_string(),
+        path: project_path.clone(),
         project_id: "abcd12345678".to_string(),
         name: None,
         git_remote: None,
@@ -104,7 +118,7 @@ async fn test_reactivation_cancels_deferred_shutdown() {
         .contains_key("abcd12345678"));
 
     let request = Request::new(RegisterProjectRequest {
-        path: "/test/project".to_string(),
+        path: project_path,
         project_id: "abcd12345678".to_string(),
         name: None,
         git_remote: None,

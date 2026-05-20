@@ -269,7 +269,7 @@ message RefreshSignalRequest {
 message ServerStatusNotification {
     ServerState state = 1;                        // UP or DOWN
     optional string project_name = 2;             // Git repo name or folder name
-    optional string project_root = 3;             // Absolute path to project root
+    optional string project_root = 3;             // [canonical] Absolute path to project root
 }
 
 // =============================================================================
@@ -426,7 +426,7 @@ message SparseVectorResponse {
 
 // RegisterProject Request/Response
 message RegisterProjectRequest {
-    string path = 1;                              // Absolute path to project root
+    string path = 1;                              // [canonical] Absolute path to project root
     string project_id = 2;                        // 12-char hex identifier
     optional string name = 3;                     // Human-readable project name
     optional string git_remote = 4;               // Git remote URL (for normalization)
@@ -441,13 +441,13 @@ message RegisterProjectResponse {
     bool is_active = 4;                           // Activity flag (spec-compliant boolean)
     bool newly_registered = 5;                    // True only if register_if_new was true and project was new
     bool is_worktree = 6;                         // True if registered as a worktree
-    optional string watch_path = 7;               // The actual registered watch path
+    optional string watch_path = 7;               // [canonical] The actual registered watch path
 }
 
 // DeprioritizeProject Request/Response
 message DeprioritizeProjectRequest {
     string project_id = 1;                        // 12-char hex identifier
-    optional string watch_path = 2;               // Absolute path to specific watch root
+    optional string watch_path = 2;               // [canonical] Absolute path to specific watch root
 }
 
 message DeprioritizeProjectResponse {
@@ -465,14 +465,14 @@ message GetProjectStatusResponse {
     bool found = 1;                               // Whether project exists
     string project_id = 2;
     string project_name = 3;
-    string project_root = 4;
+    string project_root = 4;                         // [canonical] Absolute project root
     string priority = 5;                          // "high", "normal", "low"
     bool is_active = 6;                           // Activity flag (spec-compliant boolean)
     google.protobuf.Timestamp last_active = 7;    // Last heartbeat/activity
     google.protobuf.Timestamp registered_at = 8;
     optional string git_remote = 9;
     bool is_worktree = 10;                        // True if this is a worktree watch root
-    optional string main_worktree_path = 11;      // Path to the main working tree (if worktree)
+    optional string main_worktree_path = 11;      // [canonical] Path to the main working tree (if worktree)
 }
 
 // ListProjects Request/Response
@@ -489,7 +489,7 @@ message ListProjectsResponse {
 message ProjectInfo {
     string project_id = 1;
     string project_name = 2;
-    string project_root = 3;
+    string project_root = 3;                         // [canonical] Absolute project root
     string priority = 4;
     bool is_active = 5;                           // Activity flag (spec-compliant boolean)
     google.protobuf.Timestamp last_active = 6;
@@ -555,8 +555,8 @@ message TextSearchRequest {
     bool case_sensitive = 3;                      // Case-sensitive matching (default: true)
     optional string tenant_id = 4;                // Scope to project
     optional string branch = 5;                   // Scope to branch
-    optional string path_glob = 6;               // File path glob filter (e.g., "**/*.rs")
-    optional string path_prefix = 7;             // File path prefix filter (e.g., "src/")
+    optional string path_glob = 6;               // [non-path] File path glob filter (e.g., "**/*.rs")
+    optional string path_prefix = 7;             // [non-path] File path prefix filter (e.g., "src/")
     int32 context_lines = 8;                      // Lines of context before/after (0 = none)
     int32 max_results = 9;                        // Max results (0 = unlimited, default: 1000)
 }
@@ -577,7 +577,7 @@ message TextSearchCountResponse {
 
 // A single text search match
 message TextSearchMatch {
-    string file_path = 1;                         // File path
+    string file_path = 1;                         // [relative] File path relative to project root
     int32 line_number = 2;                        // 1-based line number
     string content = 3;                           // Full content of matching line
     string tenant_id = 4;                         // Project tenant_id
@@ -635,17 +635,17 @@ message TraversalNodeProto {
     string node_id = 1;
     string symbol_name = 2;
     string symbol_type = 3;                       // NodeType as string (e.g., "function")
-    string file_path = 4;
+    string file_path = 4;                             // [relative] Relative to project root
     string edge_type = 5;                         // EdgeType as string (e.g., "CALLS")
     uint32 depth = 6;                             // Hops from source node
-    string path = 7;                              // Traversal path description
+    string path = 7;                              // [non-path] Traversal path description
 }
 
 // ImpactAnalysis Request
 message ImpactAnalysisRequest {
     string tenant_id = 1;                         // Project tenant_id
     string symbol_name = 2;                       // Symbol to analyze
-    optional string file_path = 3;                // Narrow to specific file
+    optional string file_path = 3;                // [relative] Narrow to specific file (relative path)
 }
 
 // ImpactAnalysis Response
@@ -659,7 +659,7 @@ message ImpactAnalysisResponse {
 message ImpactNodeProto {
     string node_id = 1;
     string symbol_name = 2;
-    string file_path = 3;
+    string file_path = 3;                             // [relative] Relative to project root
     string impact_type = 4;                       // "direct_caller", "indirect_caller", etc.
     uint32 distance = 5;                          // Hops from changed symbol
 }
@@ -699,7 +699,7 @@ message PageRankNodeProto {
     string node_id = 1;
     string symbol_name = 2;
     string symbol_type = 3;
-    string file_path = 4;
+    string file_path = 4;                             // [relative] Relative to project root
     double score = 5;
 }
 
@@ -729,7 +729,7 @@ message CommunityMemberProto {
     string node_id = 1;
     string symbol_name = 2;
     string symbol_type = 3;
-    string file_path = 4;
+    string file_path = 4;                             // [relative] Relative to project root
 }
 
 // Betweenness Centrality Request
@@ -752,7 +752,7 @@ message BetweennessNodeProto {
     string node_id = 1;
     string symbol_name = 2;
     string symbol_type = 3;
-    string file_path = 4;
+    string file_path = 4;                             // [relative] Relative to project root
     double score = 5;
 }
 
@@ -965,7 +965,7 @@ message CancelItemsRequest {
 message CancelItemsResponse {
     uint32 count = 1;                                 // Items deleted (or would be deleted in dry_run)
     string tenant_id = 2;                             // Resolved tenant_id
-    string project_path = 3;                          // Resolved project path (for display)
+    string project_path = 3;                          // [canonical] Resolved project path (for display)
     bool is_dry_run = 4;                              // Echoes dry_run flag
 }
 
@@ -1024,7 +1024,7 @@ message ArchiveWatchResponse {
 // AddLibrary Request
 message AddLibraryRequest {
     string tag = 1;                                   // Library tag (e.g., "rust-book")
-    string path = 2;                                  // Absolute path to library folder
+    string path = 2;                                  // [canonical] Absolute path to library folder
     string mode = 3;                                  // Library mode: "incremental", "full", "snapshot"
 }
 
@@ -1052,7 +1052,7 @@ message RemoveLibraryResponse {
 // WatchLibrary Request
 message WatchLibraryRequest {
     string tag = 1;                                   // Library tag
-    string path = 2;                                  // Absolute path to watch
+    string path = 2;                                  // [canonical] Absolute path to watch
     string mode = 3;                                  // Library mode
     repeated string patterns = 4;                     // File patterns to match (empty = defaults)
 }
@@ -1080,7 +1080,7 @@ message ConfigureLibraryRequest {
 
 // SetIncremental Request
 message SetIncrementalRequest {
-    repeated string file_paths = 1;                   // Absolute file paths
+    repeated string file_paths = 1;                   // [relative] File paths relative to project root
     bool clear = 2;                                   // If true, clear flag instead of setting it
 }
 
@@ -1334,8 +1334,8 @@ enum PriorityLevel {
 message ProjectPayload {
     string project_id = 1;                        // 12-char hex (required, indexed)
     optional string project_name = 2;             // Human-readable name
-    string file_path = 3;                         // Relative path (required)
-    optional string file_absolute_path = 4;       // Full path (reference only)
+    string file_path = 3;                         // [relative] Relative path (required)
+    optional string file_absolute_path = 4;       // [canonical] Full path (reference only)
     FileType file_type = 5;                       // Content classification
     optional string language = 6;                 // Programming language
     string branch = 7;                            // Git branch (default: "main")
@@ -1367,7 +1367,7 @@ message SymbolDefinition {
 
 message SymbolReference {
     string name = 1;
-    string file_path = 2;
+    string file_path = 2;                             // [relative] Relative to project root
     int32 line = 3;
 }
 
@@ -1378,7 +1378,7 @@ message SymbolReference {
 
 message LibraryPayload {
     string library_name = 1;                      // Required, indexed
-    string source_file = 2;                       // Original file path
+    string source_file = 2;                       // [canonical] Original file path (library root)
     LibraryFileType file_type = 3;                // Document format
     optional string title = 4;                    // Extracted title
     optional string author = 5;                   // Document author

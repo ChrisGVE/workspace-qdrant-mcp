@@ -9,6 +9,7 @@
 //! - [`builder`] - Fluent builder methods for `GrpcServer` dependency injection
 //! - [`factory`] - Service instantiation, TLS setup, and server startup
 //! - [`services`] - Individual gRPC service implementations
+//! - [`validation`] - Path validation macros for gRPC handler boundaries
 
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -29,6 +30,7 @@ mod builder;
 pub mod factory;
 pub mod metrics_layer;
 pub mod services;
+pub mod validation;
 
 // Re-export auth types at crate root for backward compatibility
 pub use auth::{AuthConfig, AuthInterceptor, TlsConfig};

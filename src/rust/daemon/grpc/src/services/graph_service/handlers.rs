@@ -16,6 +16,7 @@ use crate::proto::{
     PageRankRequest, PageRankResponse, QueryRelatedRequest, QueryRelatedResponse,
     TraversalNodeProto,
 };
+use crate::validation::extract_relative_path;
 
 use super::helpers::parse_edge_type_filter;
 use super::service_impl::GraphServiceImpl;
@@ -119,16 +120,29 @@ impl GraphService for GraphServiceImpl {
             return Err(Status::invalid_argument("symbol_name is required"));
         }
 
+        // Validate optional file_path as RelativePath when present and non-empty.
+        let validated_file_path = match req.file_path.as_deref().filter(|p| !p.is_empty()) {
+            Some(raw) => {
+                let rp = extract_relative_path!(raw.to_string(), "file_path")?;
+                Some(rp.into_string())
+            }
+            None => None,
+        };
+
         debug!(
             "GraphService.ImpactAnalysis: tenant={} symbol={} file={:?}",
-            req.tenant_id, req.symbol_name, req.file_path
+            req.tenant_id, req.symbol_name, validated_file_path
         );
 
         let start = std::time::Instant::now();
 
         let result = self
             .graph_store
-            .impact_analysis(&req.tenant_id, &req.symbol_name, req.file_path.as_deref())
+            .impact_analysis(
+                &req.tenant_id,
+                &req.symbol_name,
+                validated_file_path.as_deref(),
+            )
             .await;
 
         match result {
@@ -416,7 +430,7 @@ impl GraphService for GraphServiceImpl {
     ) -> Result<Response<GraphMigrateResponse>, Status> {
         let req = request.into_inner();
 
-        // Currently only sqlite→sqlite is supported (ladybug requires feature flag)
+        // Currently only sqlite->sqlite is supported (ladybug requires feature flag)
         if req.from_backend != "sqlite" {
             return Err(Status::unimplemented(format!(
                 "Export from '{}' is not yet supported. Only 'sqlite' is available.",
