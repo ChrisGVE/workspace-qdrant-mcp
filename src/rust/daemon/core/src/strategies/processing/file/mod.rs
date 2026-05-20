@@ -12,6 +12,7 @@
 //! - `lsp_payload` — LSP enrichment payload serialization
 //! - `store_track` — Qdrant upsert + tracked_files/qdrant_chunks transaction
 //! - `update_preamble` — hash comparison + reference-counted old point deletion
+//! - `zero_byte` — graceful handling of empty (0-byte) files
 
 mod chunk_embed;
 mod component;
@@ -25,6 +26,7 @@ mod keyword_persist;
 pub(crate) mod lsp_payload;
 mod store_track;
 mod update_preamble;
+mod zero_byte;
 
 use std::path::Path;
 
@@ -134,6 +136,19 @@ impl FileStrategy {
             )
             .await?;
             return Ok(());
+        }
+
+        if zero_byte::is_zero_byte(file_path) {
+            return zero_byte::handle_zero_byte_file(
+                ctx,
+                item,
+                pool,
+                file_path,
+                &payload,
+                &watch_folder_id,
+                relative_path,
+            )
+            .await;
         }
 
         if item.op == QueueOperation::Update {

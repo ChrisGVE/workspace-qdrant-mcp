@@ -50,6 +50,19 @@ pub(super) async fn embed_chunks(
     file_hash: &str,
     file_type: Option<&str>,
 ) -> Result<EmbedResult, UnifiedProcessorError> {
+    if document_content.chunks.is_empty() {
+        debug!(
+            "No chunks to embed for {} — returning empty EmbedResult",
+            file_path.display()
+        );
+        return Ok(EmbedResult {
+            points: Vec::new(),
+            chunk_records: Vec::new(),
+            lsp_status: ProcessingStatus::Skipped,
+            treesitter_status: ProcessingStatus::Skipped,
+        });
+    }
+
     let (is_project_active, lsp_mgr_guard) = check_lsp_availability(ctx, item, file_path).await;
 
     let embedding_start = std::time::Instant::now();
