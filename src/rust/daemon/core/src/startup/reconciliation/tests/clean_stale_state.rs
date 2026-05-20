@@ -728,7 +728,9 @@ async fn test_f043_failed_row_preserved_as_sole_repair_intent() {
 
     let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let watch_path = tmp_dir.path().to_str().unwrap();
-    let abs_file = format!("{}/broken.rs", watch_path);
+    // Post-T7: unified_queue.file_path stores the relative path anchored
+    // to watch_folders.path.
+    let rel_file = "broken.rs";
 
     sqlx::query(
         "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, \
@@ -763,7 +765,7 @@ async fn test_f043_failed_row_preserved_as_sole_repair_intent() {
          VALUES ('q-sole-fail', 'file', 'update', 'tenant-f043', 'projects', 'failed', \
          'key-sole-fail', ?1, 3, '2020-01-01T00:00:00Z')",
     )
-    .bind(&abs_file)
+    .bind(rel_file)
     .execute(&pool)
     .await
     .unwrap();
@@ -796,7 +798,9 @@ async fn test_f043_failed_row_purged_when_newer_pending_exists() {
 
     let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let watch_path = tmp_dir.path().to_str().unwrap();
-    let abs_file = format!("{}/broken.rs", watch_path);
+    // Post-T7: unified_queue.file_path stores the relative path anchored
+    // to watch_folders.path.
+    let rel_file = "broken.rs";
 
     sqlx::query(
         "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, \
@@ -828,7 +832,7 @@ async fn test_f043_failed_row_purged_when_newer_pending_exists() {
          VALUES ('q-old-fail', 'file', 'update', 'tenant-f043b', 'projects', 'failed', \
          'key-old-fail', ?1, 3, '2020-01-01T00:00:00Z')",
     )
-    .bind(&abs_file)
+    .bind(rel_file)
     .execute(&pool)
     .await
     .unwrap();
@@ -842,7 +846,7 @@ async fn test_f043_failed_row_purged_when_newer_pending_exists() {
          VALUES ('q-new-pending', 'file', 'add', 'tenant-f043b', 'projects', 'pending', \
          'key-new-pending', ?1, 0)",
     )
-    .bind(&abs_file)
+    .bind(rel_file)
     .execute(&pool)
     .await
     .unwrap();

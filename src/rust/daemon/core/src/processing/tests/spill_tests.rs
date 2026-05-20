@@ -3,6 +3,44 @@
 use super::super::*;
 use std::sync::Arc;
 
+/// Insert a minimal `watch_folders` row so that the spill path's
+/// canonical-to-relative anchoring lookup succeeds. The full schema is not
+/// required — only the columns referenced by the spill helper:
+/// `path`, `tenant_id`, `collection`.
+async fn create_test_watch_folders_table(pool: &sqlx::SqlitePool) {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS watch_folders ( \
+            watch_id TEXT PRIMARY KEY, \
+            path TEXT NOT NULL, \
+            tenant_id TEXT NOT NULL, \
+            collection TEXT NOT NULL \
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("Failed to create watch_folders table");
+}
+
+async fn insert_watch_folder(
+    pool: &sqlx::SqlitePool,
+    watch_id: &str,
+    path: &str,
+    tenant_id: &str,
+    collection: &str,
+) {
+    sqlx::query(
+        "INSERT OR REPLACE INTO watch_folders (watch_id, path, tenant_id, collection) \
+         VALUES (?1, ?2, ?3, ?4)",
+    )
+    .bind(watch_id)
+    .bind(path)
+    .bind(tenant_id)
+    .bind(collection)
+    .execute(pool)
+    .await
+    .expect("Failed to insert watch_folders row");
+}
+
 #[tokio::test]
 async fn test_spill_to_sqlite_process_document() {
     use crate::queue_operations::QueueManager;
@@ -15,6 +53,7 @@ async fn test_spill_to_sqlite_process_document() {
         .execute(&pool)
         .await
         .expect("Failed to create unified_queue table");
+    create_test_watch_folders_table(&pool).await;
 
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
@@ -22,13 +61,19 @@ async fn test_spill_to_sqlite_process_document() {
     pipeline.set_spill_queue(queue_manager.clone());
     let submitter = pipeline.task_submitter();
 
+    // Pre-register a watch_folder so spill can anchor the absolute file_path
+    // to the project root and derive the relative path.
+    let project_root = "/tmp/test_project";
+    let tenant_id = wqm_common::project_id::calculate_tenant_id(std::path::Path::new(project_root));
+    insert_watch_folder(&pool, "wf-spill-1", project_root, &tenant_id, "projects").await;
+
     let context = TaskContext {
         task_id: Uuid::new_v4(),
         priority: TaskPriority::ProjectWatching,
         created_at: chrono::Utc::now(),
         timeout_ms: None,
         source: TaskSource::ProjectWatcher {
-            project_path: "/tmp/test_project".to_string(),
+            project_path: project_root.to_string(),
         },
         metadata: HashMap::new(),
         checkpoint_id: None,
@@ -63,10 +108,9 @@ async fn test_spill_to_sqlite_process_document() {
         .expect("Should have payload");
 
     let payload_val: serde_json::Value = serde_json::from_str(&payload_json.0).unwrap();
-    assert_eq!(
-        payload_val["file_path"].as_str().unwrap(),
-        "/tmp/test_project/src/main.rs"
-    );
+    // Post-T7 relative-path migration: payload carries the relative path
+    // anchored to the watch_folder root, not the absolute path.
+    assert_eq!(payload_val["file_path"].as_str().unwrap(), "src/main.rs");
 
     let metadata_json: (String,) = sqlx::query_as("SELECT metadata FROM unified_queue LIMIT 1")
         .fetch_one(&pool)
@@ -149,6 +193,7 @@ async fn test_spill_with_background_watcher_source() {
         .execute(&pool)
         .await
         .expect("Failed to create unified_queue table");
+    create_test_watch_folders_table(&pool).await;
 
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
@@ -156,13 +201,17 @@ async fn test_spill_with_background_watcher_source() {
     pipeline.set_spill_queue(queue_manager.clone());
     let submitter = pipeline.task_submitter();
 
+    let library_root = "/home/user/docs";
+    let tenant_id = wqm_common::project_id::calculate_tenant_id(std::path::Path::new(library_root));
+    insert_watch_folder(&pool, "wf-spill-2", library_root, &tenant_id, "libraries").await;
+
     let context = TaskContext {
         task_id: Uuid::new_v4(),
         priority: TaskPriority::BackgroundWatching,
         created_at: chrono::Utc::now(),
         timeout_ms: None,
         source: TaskSource::BackgroundWatcher {
-            folder_path: "/home/user/docs".to_string(),
+            folder_path: library_root.to_string(),
         },
         metadata: HashMap::new(),
         checkpoint_id: None,
@@ -186,6 +235,13 @@ async fn test_spill_with_background_watcher_source() {
         .expect("Should have spilled item");
 
     assert_eq!(row.0, "libraries");
+
+    let payload_json: (String,) = sqlx::query_as("SELECT payload_json FROM unified_queue LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("Should have payload");
+    let payload_val: serde_json::Value = serde_json::from_str(&payload_json.0).unwrap();
+    assert_eq!(payload_val["file_path"].as_str().unwrap(), "readme.md");
 }
 
 #[tokio::test]

@@ -364,12 +364,12 @@ async fn test_oldest_pending_age_ignores_non_pending() {
     let age = manager.get_oldest_pending_age_seconds().await.unwrap();
     assert_eq!(age, 0, "non-pending items must not contribute to age");
 }
-
 /// Regression test: Delete-completion side-effects (F-036) must be scoped by
-/// tenant_id.  When two `tracked_files` rows share the same reconstructed
-/// absolute path (`wf.path || '/' || tf.file_path`) but belong to different
-/// tenants, completing a Delete queue item for one tenant must only remove
-/// that tenant's row and must leave the other tenant's row intact.
+/// tenant_id. After the T7 relative-path migration, `unified_queue.file_path`
+/// stores the relative path anchored to the owning watch_folder root. Two
+/// tenants with identical relative paths under different roots must not have
+/// their tracked_files rows cross-deleted when only one tenant's Delete
+/// completes.
 #[tokio::test]
 async fn test_delete_unified_item_tracked_files_scoped_by_tenant() {
     let temp_dir = tempdir().unwrap();
@@ -390,20 +390,17 @@ async fn test_delete_unified_item_tracked_files_scoped_by_tenant() {
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
 
-    // Two watch-folders with distinct tenant_ids whose watch roots are *nested*,
-    // which causes `wf.path || '/' || tf.file_path` to reconstruct to the same
-    // absolute path for both rows — exactly the multi-tenant collision scenario.
+    // Two watch-folders with distinct tenant_ids, each holding a tracked_files
+    // row at the SAME relative path. Post-T7, the queue's file_path column
+    // stores the relative path, so a collision now happens whenever two
+    // tenants share an identical content layout — the deletion side-effects
+    // must be scoped by `tenant_id` to keep them isolated.
     //
-    //   tenant-alpha: watch_root=/data/shared    rel=project/src/lib.rs
-    //                 → /data/shared/project/src/lib.rs
-    //   tenant-beta:  watch_root=/data/shared/project  rel=src/lib.rs
-    //                 → /data/shared/project/src/lib.rs
-    //
-    // The UNIQUE constraint on watch_folders.path is satisfied because the two
-    // roots are different strings.
+    //   tenant-alpha: watch_root=/data/alpha    rel=src/lib.rs
+    //   tenant-beta:  watch_root=/data/beta     rel=src/lib.rs
     sqlx::query(
         "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
-         VALUES ('wf-t1', '/data/shared', 'projects', 'tenant-alpha',
+         VALUES ('wf-t1', '/data/alpha', 'projects', 'tenant-alpha',
                  '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
@@ -412,23 +409,24 @@ async fn test_delete_unified_item_tracked_files_scoped_by_tenant() {
 
     sqlx::query(
         "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
-         VALUES ('wf-t2', '/data/shared/project', 'projects', 'tenant-beta',
+         VALUES ('wf-t2', '/data/beta', 'projects', 'tenant-beta',
                  '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
     .await
     .unwrap();
 
-    // Both rows reconstruct to the same absolute path.
-    let abs_path = "/data/shared/project/src/lib.rs";
+    // Both tenants' tracked_files rows use the same relative path.
+    let rel_path = "src/lib.rs";
 
     sqlx::query(
         "INSERT INTO tracked_files \
          (watch_folder_id, relative_path, branch, needs_reconcile, file_mtime, file_hash, \
           collection, created_at, updated_at) \
-         VALUES ('wf-t1', 'project/src/lib.rs', 'main', 0, '2025-01-01T00:00:00Z', 'hash1', \
+         VALUES ('wf-t1', ?1, 'main', 0, '2025-01-01T00:00:00Z', 'hash1', \
                  'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
+    .bind(rel_path)
     .execute(&pool)
     .await
     .unwrap();
@@ -437,9 +435,10 @@ async fn test_delete_unified_item_tracked_files_scoped_by_tenant() {
         "INSERT INTO tracked_files \
          (watch_folder_id, relative_path, branch, needs_reconcile, file_mtime, file_hash, \
           collection, created_at, updated_at) \
-         VALUES ('wf-t2', 'src/lib.rs', 'main', 0, '2025-01-01T00:00:00Z', 'hash1', \
+         VALUES ('wf-t2', ?1, 'main', 0, '2025-01-01T00:00:00Z', 'hash1', \
                  'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
+    .bind(rel_path)
     .execute(&pool)
     .await
     .unwrap();
@@ -452,7 +451,8 @@ async fn test_delete_unified_item_tracked_files_scoped_by_tenant() {
     assert_eq!(count_before, 2, "setup: expected 2 tracked_files rows");
 
     // Insert a Delete queue item for tenant-alpha directly so we can control
-    // tenant_id without going through the full enqueue validation path.
+    // tenant_id without going through the full enqueue validation path. The
+    // queue's file_path column carries the relative path (post-T7 semantics).
     let queue_id = "qid-delete-alpha";
     sqlx::query(
         "INSERT INTO unified_queue \
@@ -464,7 +464,7 @@ async fn test_delete_unified_item_tracked_files_scoped_by_tenant() {
     )
     .bind(queue_id)
     .bind("idem-key-alpha-delete")
-    .bind(abs_path)
+    .bind(rel_path)
     .execute(&pool)
     .await
     .unwrap();

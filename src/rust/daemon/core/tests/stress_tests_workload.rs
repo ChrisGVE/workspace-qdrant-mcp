@@ -140,7 +140,9 @@ async fn stress_test_queue_depth() -> TestResult {
     for i in 0..QUEUE_SIZE {
         let unique_path = format!("{}.{}", base_path, i);
         let payload = FilePayload {
-            file_path: unique_path,
+            file_path: wqm_common::paths::RelativePath::from_user_input(
+            unique_path.trim_start_matches('/'),
+        ).unwrap(),
             file_type: Some("text".to_string()),
             file_hash: None,
             size_bytes: Some(5 * 1024),

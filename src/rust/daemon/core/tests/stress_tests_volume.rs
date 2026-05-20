@@ -94,7 +94,9 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
         let file_path_str = file_path.to_string_lossy().to_string();
         let file_size = tokio::fs::metadata(&file_path).await.ok().map(|m| m.len());
         let payload = FilePayload {
-            file_path: file_path_str.clone(),
+            file_path: wqm_common::paths::RelativePath::from_user_input(
+            file_path_str.trim_start_matches('/'),
+        ).unwrap(),
             file_type: Some("text".to_string()),
             file_hash: None,
             size_bytes: file_size,

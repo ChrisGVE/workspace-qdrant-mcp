@@ -230,6 +230,8 @@ async fn test_update_last_commit_hash() {
 async fn test_enqueue_file_op() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
+    // Watch folder is needed so the helper can anchor the absolute path.
+    insert_watch_folder(&pool, "w1", "t1", "/tmp/project").await;
 
     let qm = QueueManager::new(pool.clone());
 
