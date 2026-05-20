@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Path abstraction system (spec 16)** — type-system-enforced root/relative path discipline for host/Docker deployment parity. `CanonicalPath` for root paths (watch folders, project roots), `RelativePath` for content paths (files under a root). All paths stored relative to their watch folder root; absolute paths reconstructed via FK join at query time.
+- **RelativePath newtype** (`wqm-common::paths`) — validates relative paths (rejects absolute, `..` segments, embedded NUL), serde-transparent for wire compatibility.
+- **Schema v37 migration** — drops denormalized `file_path` columns from `tracked_files`, truncates ingest tables, implements crash-safe 4-phase migration protocol with `relative_path_migration_in_progress` marker table.
+- **Post-startup migration hook** — after file watchers start, detects in-progress migration, truncates Qdrant ingest collections (with retry), waits for queue drain, and finalizes migration.
+- **gRPC path validation macros** — `extract_canonical_path!`, `extract_relative_path!`, `extract_relative_paths!` for handler-entry validation. All path-accepting handlers now validate at entry with `InvalidArgument` on bad input.
+- **CLI migration banner** — `wqm status health` shows progress banner during relative-path migration with percentage complete.
+- **Zero-byte file handling** — empty files are recorded in tracked_files for inventory (chunk_count=0, Skipped status) without hitting the embedding pipeline.
+- **Migration crash-recovery tests** — 9 integration tests simulating crashes at each phase boundary of the v37 migration.
 - **Unified `DaemonConfig::validate()`** — chains every subconfig validator (queue_processor, monitoring, git, observability, embedding, lsp, grammars, updates, resource_limits, startup, daemon_endpoint, ingestion_limits, auto_ingestion). Errors are prefixed with the subsystem name for quick diagnosis. Called in `main.rs` immediately after `load_config`; invalid config causes non-zero exit before the daemon starts. (F-047)
 - **`IngestionLimits` and `AutoIngestion` validators** — bounds checks for per-extension size limits and auto-ingestion settings, now wired into the unified validation chain. (F-047)
 - **Cross-process single-instance lock for memexd (spec 16 §10.1, T9)** — memexd now binds a TCP listener to `127.0.0.1:7799` at startup, before opening SQLite. A second memexd (host or docker) attempting to start refuses with an actionable error mentioning the port and the `--control-port` override. Process death releases the bind immediately; no stale-lock cleanup needed. A diagnostic JSON identity stamp (`mode`, `pid`, `started_at`, `port`) is written to `~/.local/share/workspace-qdrant/memexd.lock` (host) or `/var/lib/wqm/memexd.lock` (docker) — best-effort, the socket is authoritative. Port resolution precedence: `--control-port` CLI flag > `WQM_CONTROL_PORT` env > `DaemonConfig.control_port` > built-in 7799. New `control_port: Option<u16>` field on `DaemonConfig` (defaults to `None` ⇒ 7799).
@@ -16,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: Schema v37** — first startup after upgrade triggers a wipe-and-rebuild of all ingested data (tracked_files, qdrant_chunks, unified_queue). Re-ingestion runs automatically; large repos may take 30+ minutes. Monitor via `wqm status health` banner.
+- **BREAKING: File paths stored as relative** — `tracked_files` no longer has a `file_path` column; paths are stored as `relative_path` anchored to the watch folder root. Queries that previously used absolute file paths must join through `watch_folders.path`.
+- **Proto field annotations** — all path fields in `workspace_daemon.proto` annotated with `[canonical]`, `[relative]`, or `[non-path]` comments.
 - **Search cache-miss result cap** — exact-search cache misses previously ran with `max_results: usize::MAX`, streaming every matching FTS row into memory. Cache misses are now capped at a bounded limit and context lines are attached without re-executing the full search. (F-028, F-029)
 - **TypeScript CI** — `better-sqlite3` is rebuilt against the active Node.js ABI, and unit and integration tests run as separate steps to surface failures more precisely.
 - **Dependabot coverage expanded** — now covers the full Cargo workspace (daemon, CLI, common, grpc, memexd) in addition to the existing npm scope.
