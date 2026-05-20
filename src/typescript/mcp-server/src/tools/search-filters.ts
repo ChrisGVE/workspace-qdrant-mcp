@@ -15,6 +15,7 @@ import {
   FIELD_FILE_TYPE,
   FIELD_LIBRARY_NAME,
   FIELD_CONCEPT_TAGS,
+  FIELD_TAGS,
   FIELD_FILE_PATH,
   FIELD_DELETED,
 } from '../common/native-bridge.js';
@@ -93,14 +94,21 @@ function buildTagConditions(params: FilterParams): Record<string, unknown>[] {
   const conditions: Record<string, unknown>[] = [];
 
   if (params.tag) {
-    conditions.push({ key: FIELD_CONCEPT_TAGS, match: { value: params.tag } });
+    // Match against both concept_tags (keyword-extracted) and tags (Tier 1 metadata)
+    conditions.push({
+      should: [
+        { key: FIELD_CONCEPT_TAGS, match: { value: params.tag } },
+        { key: FIELD_TAGS, match: { value: params.tag } },
+      ],
+    });
   }
 
   if (params.tags && params.tags.length > 0) {
-    const tagShouldConditions = params.tags.map((t) => ({
-      key: FIELD_CONCEPT_TAGS,
-      match: { value: t },
-    }));
+    // For multi-tag filter, match any tag in either concept_tags or tags fields
+    const tagShouldConditions = params.tags.flatMap((t) => [
+      { key: FIELD_CONCEPT_TAGS, match: { value: t } },
+      { key: FIELD_TAGS, match: { value: t } },
+    ]);
     conditions.push({ should: tagShouldConditions });
   }
 

@@ -26,8 +26,8 @@ use super::types::{
 /// - `Bool`              -> match by boolean
 /// - `Number` (float)    -> match by string (stringified) — Qdrant has no
 ///   float-match semantics; preserves the value without crashing.
-/// - `null` / `Array` /
-///   `Object`            -> skipped (no equivalent single-value match)
+/// - `Array` (strings)   -> match any (Qdrant `match_any`)
+/// - `null` / `Object`   -> skipped (no equivalent single-value match)
 ///
 /// Returns `None` when every entry was skipped or the input map was empty.
 pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<Filter> {
@@ -44,7 +44,18 @@ pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<
                     Condition::matches(key.as_str(), n.to_string())
                 }
             }
-            Value::Null | Value::Array(_) | Value::Object(_) => continue,
+            Value::Array(arr) => {
+                // Collect string elements for match-any; skip non-string items.
+                let string_values: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                if string_values.is_empty() {
+                    continue;
+                }
+                Condition::matches(key.as_str(), string_values)
+            }
+            Value::Null | Value::Object(_) => continue,
         };
         conditions.push(cond);
     }
@@ -390,8 +401,8 @@ mod tests {
         let result = build_filter_from_json(&filter).expect("filter expected");
         assert_eq!(
             result.must.len(),
-            1,
-            "only the string entry should survive type filtering"
+            2,
+            "string + string-array entries produce conditions; null + obj are skipped"
         );
     }
 
@@ -399,7 +410,47 @@ mod tests {
     fn build_filter_from_json_all_unsupported_returns_none() {
         let mut filter = HashMap::new();
         filter.insert("nullish".to_string(), json!(null));
-        filter.insert("arr".to_string(), json!(["a"]));
+        filter.insert("obj".to_string(), json!({"k": "v"}));
         assert!(build_filter_from_json(&filter).is_none());
+    }
+
+    #[test]
+    fn build_filter_from_json_string_array_produces_match_any() {
+        let mut filter = HashMap::new();
+        filter.insert("tags".to_string(), json!(["rust", "path:models"]));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            1,
+            "string array should produce one match-any condition"
+        );
+    }
+
+    #[test]
+    fn build_filter_from_json_empty_array_skipped() {
+        let mut filter = HashMap::new();
+        filter.insert("tags".to_string(), json!([]));
+        assert!(
+            build_filter_from_json(&filter).is_none(),
+            "empty array should be skipped"
+        );
+    }
+
+    #[test]
+    fn build_filter_from_json_mixed_array_only_strings() {
+        let mut filter = HashMap::new();
+        filter.insert("tags".to_string(), json!(["rust", 42, "test"]));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(result.must.len(), 1);
+    }
+
+    #[test]
+    fn build_filter_from_json_non_string_array_skipped() {
+        let mut filter = HashMap::new();
+        filter.insert("nums".to_string(), json!([1, 2, 3]));
+        assert!(
+            build_filter_from_json(&filter).is_none(),
+            "array of non-strings should be skipped"
+        );
     }
 }

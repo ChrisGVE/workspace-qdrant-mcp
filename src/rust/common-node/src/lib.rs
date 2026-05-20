@@ -231,6 +231,12 @@ pub fn field_concept_tags() -> String {
     wqm_common::constants::field::CONCEPT_TAGS.to_string()
 }
 
+/// Get the "tags" payload field name (metadata + Tier 1 rule-based tags)
+#[napi]
+pub fn field_tags() -> String {
+    wqm_common::constants::field::TAGS.to_string()
+}
+
 /// Get the "deleted" payload field name
 #[napi]
 pub fn field_deleted() -> String {

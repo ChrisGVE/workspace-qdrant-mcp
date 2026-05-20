@@ -9,8 +9,10 @@ use std::path::Path;
 
 use crate::embedding::SparseEmbedding;
 use crate::file_classification::is_test_file;
+use crate::tagging::tier1;
 use crate::unified_queue_schema::UnifiedQueueItem;
 use crate::DocumentContent;
+use wqm_common::constants::field;
 
 /// Build the Qdrant payload map for a single chunk.
 #[allow(clippy::too_many_arguments)]
@@ -72,25 +74,8 @@ pub(super) fn build_chunk_payload(
         );
     }
 
-    // Build tags array from static metadata for filtering/aggregation
-    {
-        let mut tags = Vec::new();
-        if let Some(ft) = file_type {
-            tags.push(ft.to_lowercase());
-        }
-        if let Some(lang) = document_content.document_type.language() {
-            tags.push(lang.to_string());
-        }
-        if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
-            tags.push(ext.to_lowercase());
-        }
-        if is_test_file(file_path) {
-            tags.push("test".to_string());
-        }
-        if !tags.is_empty() {
-            payload.insert("tags".to_string(), serde_json::json!(tags));
-        }
-    }
+    // Build tags array: static metadata + Tier 1 rule-based tags
+    build_tags_array(&mut payload, file_type, document_content, file_path);
 
     // Add chunk-level metadata (symbol_name, start_line, etc.)
     for (key, value) in chunk_metadata {
@@ -98,6 +83,45 @@ pub(super) fn build_chunk_payload(
     }
 
     payload
+}
+
+/// Build the `tags` payload array combining static metadata tags and
+/// Tier 1 rule-based tags (path-derived, PDF metadata, dependency concepts).
+fn build_tags_array(
+    payload: &mut HashMap<String, serde_json::Value>,
+    file_type: Option<&str>,
+    document_content: &DocumentContent,
+    file_path: &Path,
+) {
+    let mut tags = Vec::new();
+
+    // Static metadata tags
+    if let Some(ft) = file_type {
+        tags.push(ft.to_lowercase());
+    }
+    if let Some(lang) = document_content.document_type.language() {
+        tags.push(lang.to_string());
+    }
+    if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
+        tags.push(ext.to_lowercase());
+    }
+    if is_test_file(file_path) {
+        tags.push("test".to_string());
+    }
+
+    // Tier 1 rule-based tags (path-derived, PDF metadata, dependency concepts)
+    let tier1_tags = tier1::extract_tier1_tags(file_path, None);
+    for selected_tag in &tier1_tags {
+        tags.push(selected_tag.phrase.clone());
+    }
+
+    // Deduplicate while preserving insertion order
+    let mut seen = std::collections::HashSet::new();
+    tags.retain(|t| seen.insert(t.clone()));
+
+    if !tags.is_empty() {
+        payload.insert(field::TAGS.to_string(), serde_json::json!(tags));
+    }
 }
 
 /// Convert a `SparseEmbedding` to the `HashMap` format expected by `DocumentPoint`.

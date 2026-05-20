@@ -174,6 +174,7 @@ export const FIELD_BRANCH = loadAddon().fieldBranch();
 export const FIELD_FILE_TYPE = loadAddon().fieldFileType();
 export const FIELD_FILE_PATH = loadAddon().fieldFilePath();
 export const FIELD_CONCEPT_TAGS = loadAddon().fieldConceptTags();
+export const FIELD_TAGS = loadAddon().fieldTags();
 export const FIELD_DELETED = loadAddon().fieldDeleted();
 export const FIELD_CONTENT = loadAddon().fieldContent();
 export const FIELD_TITLE = loadAddon().fieldTitle();
