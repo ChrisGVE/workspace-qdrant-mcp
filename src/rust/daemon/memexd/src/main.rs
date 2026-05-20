@@ -15,6 +15,7 @@ mod background;
 mod database;
 mod grpc_setup;
 mod queue_init;
+mod relative_path_hook;
 mod shutdown;
 mod startup;
 
@@ -173,6 +174,12 @@ async fn run_daemon(
     // Phase 6b: File watching + hierarchy
     let (watch_manager, hierarchy_cancel) =
         start_watchers_and_hierarchy(&qc, &watch_refresh_signal).await;
+
+    // Phase 6c: Post-startup hook for relative-path migration (phases 2b–4).
+    let _migration_hook = relative_path_hook::spawn_if_needed(
+        db_handles.queue_pool.clone(),
+        Arc::clone(&qc.mirror_storage),
+    );
 
     info!(
         "memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.",
