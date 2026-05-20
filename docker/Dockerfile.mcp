@@ -34,9 +34,10 @@
 #   6335 — MCP HTTP transport (only bound when MCP_SERVER_MODE=http)
 #   9092 — Prometheus /metrics (bound when MCP_SERVER_MODE=http)
 #
-# A HEALTHCHECK is attached below against /healthz on the MCP HTTP port; it
-# only succeeds when MCP_SERVER_MODE=http. stdio-mode deployments should
-# disable the health check at run time (`docker run --no-healthcheck`).
+# A HEALTHCHECK is attached below.  It is mode-aware:
+#   MCP_SERVER_MODE=http  — probes /healthz on MCP_HTTP_PORT (default 6335).
+#   MCP_SERVER_MODE=stdio — probes PID 1 via kill -0 (process-existence check).
+# No --no-healthcheck flag is required for stdio deployments.
 
 ARG NODE_VERSION=20
 ARG BUILDKIT_INLINE_CACHE=1
@@ -90,15 +91,19 @@ RUN npm prune --production
 
 # ─────────────────────────────────────────────
 # Stage 2: Runtime
-# node:20-alpine is minimal (~55 MB compressed).  Alpine includes the 'node'
-# user (UID 1000) built into the official image, so no useradd is required.
+# node:20-bookworm-slim uses the same glibc ABI as the builder stage, so the
+# native addon (better-sqlite3) compiled with node-gyp in the builder works
+# without rebuilding.  Alpine/musl would require a separate musl rebuild step
+# because the builder produces glibc-linked .node files.
+# The 'node' user (UID 1000) is pre-created by the official node image.
 # ─────────────────────────────────────────────
-FROM node:${NODE_VERSION}-alpine AS runtime
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
-# better-sqlite3 links against libstdc++ at runtime; alpine needs the compat
-# library. wget is installed for the HEALTHCHECK below so the probe does not
-# depend on curl or netcat availability.
-RUN apk add --no-cache libstdc++ wget
+# wget is installed for the HEALTHCHECK below so the probe does not depend on
+# curl or netcat availability.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.title="workspace-qdrant-mcp" \
       org.opencontainers.image.description="TypeScript MCP server for workspace-qdrant" \
@@ -123,11 +128,19 @@ EXPOSE 6335
 # Prometheus /metrics. Bound alongside the MCP transport in http mode.
 EXPOSE 9092
 
-# Health check against /healthz on the configured MCP HTTP port. Honours a
-# runtime override of MCP_HTTP_PORT so custom compose configurations stay
-# probeable.
+# Health check is mode-dependent:
+#   http  mode — probe the /healthz endpoint; the HTTP server is running.
+#   stdio mode — the HTTP server is NOT started; probe process existence instead.
+#
+# The check reads MCP_SERVER_MODE at probe execution time (shell form expands
+# the variable inside the running container, not at image build time).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD sh -c 'wget -q -O- "http://127.0.0.1:${MCP_HTTP_PORT:-6335}/healthz" >/dev/null || exit 1'
+    CMD sh -c '\
+        if [ "${MCP_SERVER_MODE:-stdio}" = "http" ]; then \
+            wget -q -O- "http://127.0.0.1:${MCP_HTTP_PORT:-6335}/healthz" >/dev/null; \
+        else \
+            kill -0 1 2>/dev/null; \
+        fi'
 
 # Entry point: package.json "main" → dist/index.js
 # Mode selected at runtime via MCP_SERVER_MODE.
