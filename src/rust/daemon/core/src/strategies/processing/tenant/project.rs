@@ -62,7 +62,8 @@ pub(crate) async fn process_project_item(
 /// Handle Tenant/Add for the projects collection.
 ///
 /// Creates the Qdrant collection (idempotent), inserts a watch_folder row,
-/// enqueues a follow-up (Tenant, Scan) item, and updates git-org grouping.
+/// enqueues a follow-up (Tenant, Scan) item, and updates project grouping
+/// (workspace membership and git org).
 async fn handle_project_add(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -80,19 +81,8 @@ async fn handle_project_add(
     insert_watch_folder(ctx, item, payload, &git_status).await?;
     enqueue_project_scan(ctx, item, payload).await;
 
-    // Update git-org group membership for this project.
-    // Non-critical: failure to group does not block project registration.
-    if let Some(ref remote_url) = payload.git_remote {
-        if let Err(e) =
-            git_org::update_project_org_group(ctx.queue_manager.pool(), &item.tenant_id, remote_url)
-                .await
-        {
-            warn!(
-                "Failed to update git org group for tenant={}: {} (non-critical)",
-                item.tenant_id, e
-            );
-        }
-    }
+    // Update project grouping (non-critical side effects).
+    update_project_groups(ctx, item, payload).await;
 
     // Spawn background grammar pre-warming for this project's languages.
     // Non-blocking: project registration returns immediately.
@@ -101,6 +91,75 @@ async fn handle_project_add(
     }
 
     Ok(())
+}
+
+/// Update workspace and git org group memberships for a newly registered project.
+///
+/// Both operations are non-critical: failures are logged as warnings but do not
+/// block the project registration pipeline.
+async fn update_project_groups(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    payload: &ProjectPayload,
+) {
+    let pool = ctx.queue_manager.pool();
+    let project_path = Path::new(&payload.project_root);
+
+    // Workspace grouping: detect Cargo/npm/Go workspace membership and link
+    // this project with sibling workspace members in project_groups.
+    match crate::workspace_grouper::update_project_workspace_group(
+        pool,
+        &item.tenant_id,
+        project_path,
+    )
+    .await
+    {
+        Ok(true) => {
+            info!(
+                "Updated workspace group for tenant={} path={}",
+                item.tenant_id, payload.project_root
+            );
+        }
+        Ok(false) => {
+            debug!(
+                "No workspace detected for tenant={} path={}",
+                item.tenant_id, payload.project_root
+            );
+        }
+        Err(e) => {
+            warn!(
+                "Failed to update workspace group for tenant={}: {} (non-critical)",
+                item.tenant_id, e
+            );
+        }
+    }
+
+    // Git org grouping: extract org/user from the git remote and link this
+    // project with other projects sharing the same org.
+    if let Some(ref remote_url) = payload.git_remote {
+        match crate::git_org_grouper::update_project_org_group(pool, &item.tenant_id, remote_url)
+            .await
+        {
+            Ok(true) => {
+                info!(
+                    "Updated git org group for tenant={} remote={}",
+                    item.tenant_id, remote_url
+                );
+            }
+            Ok(false) => {
+                debug!(
+                    "No org extractable for tenant={} remote={}",
+                    item.tenant_id, remote_url
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to update git org group for tenant={}: {} (non-critical)",
+                    item.tenant_id, e
+                );
+            }
+        }
+    }
 }
 
 async fn insert_watch_folder(
@@ -355,15 +414,14 @@ async fn handle_project_delete(
         folders_deleted, item.tenant_id
     );
 
-    // 4. Remove git-org group membership for this tenant (non-critical)
-    if let Err(e) =
-        sqlx::query("DELETE FROM project_groups WHERE tenant_id = ?1 AND group_type = 'git_org'")
-            .bind(&item.tenant_id)
-            .execute(pool)
-            .await
+    // 4. Remove project from all groups (workspace, git_org, dependency, affinity)
+    if let Err(e) = sqlx::query("DELETE FROM project_groups WHERE tenant_id = ?1")
+        .bind(&item.tenant_id)
+        .execute(pool)
+        .await
     {
         warn!(
-            "Failed to remove git org group membership for tenant={}: {} (non-critical)",
+            "Failed to remove tenant={} from project groups: {} (non-critical)",
             item.tenant_id, e
         );
     }

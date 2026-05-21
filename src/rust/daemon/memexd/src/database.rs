@@ -173,6 +173,16 @@ pub async fn run_reconciliation(queue_pool: &SqlitePool) {
         Err(e) => warn!("Watch folder validation failed (non-fatal): {}", e),
     }
 
+    // Recompute workspace and git org groups from scratch so that groups
+    // stay consistent after projects are added or removed between runs.
+    let group_stats = workspace_qdrant_core::startup::reconcile_project_groups(queue_pool).await;
+    if group_stats.workspace_groups > 0 || group_stats.git_org_groups > 0 {
+        info!(
+            "Project groups reconciled: {} workspace groups, {} git org groups",
+            group_stats.workspace_groups, group_stats.git_org_groups
+        );
+    }
+
     info!("Startup reconciliation (fast path) complete");
 }
 
