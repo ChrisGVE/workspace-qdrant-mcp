@@ -279,26 +279,118 @@ impl ProjectServiceImpl {
         }
     }
 
-    /// Handle get_project_groups request.
     pub(crate) async fn handle_get_project_groups(
         &self,
         req: GetProjectGroupsRequest,
     ) -> Result<GetProjectGroupsResponse, Status> {
-        let _ = req;
-        Err(Status::unimplemented(
-            "get_project_groups is not yet implemented",
-        ))
+        if req.tenant_id.is_empty() {
+            return Err(Status::invalid_argument("tenant_id cannot be empty"));
+        }
+
+        debug!("Getting project groups for tenant: {}", req.tenant_id);
+
+        let rows: Vec<(String, String, String, f64)> = sqlx::query_as(
+            r#"
+            SELECT pg1.group_id, pg1.group_type, pg2.tenant_id, pg1.confidence
+            FROM project_groups pg1
+            JOIN project_groups pg2 ON pg1.group_id = pg2.group_id
+            WHERE pg1.tenant_id = ?
+            ORDER BY pg1.group_type, pg1.group_id, pg2.tenant_id
+            "#,
+        )
+        .bind(&req.tenant_id)
+        .fetch_all(&self.db_pool)
+        .await
+        .map_err(|e| {
+            error!("Database error fetching project groups: {e}");
+            Status::internal(format!("Database error: {e}"))
+        })?;
+
+        let mut groups_map: std::collections::HashMap<String, ProjectGroupInfo> =
+            std::collections::HashMap::new();
+        let mut all_members: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for (group_id, group_type, member_tenant_id, confidence) in rows {
+            all_members.insert(member_tenant_id.clone());
+            let entry = groups_map
+                .entry(group_id.clone())
+                .or_insert_with(|| ProjectGroupInfo {
+                    group_id,
+                    group_type,
+                    member_tenant_ids: Vec::new(),
+                    confidence,
+                });
+            entry.member_tenant_ids.push(member_tenant_id);
+        }
+
+        let total_members = all_members.len() as i32;
+        let groups: Vec<ProjectGroupInfo> = groups_map.into_values().collect();
+
+        Ok(GetProjectGroupsResponse {
+            groups,
+            total_members,
+        })
     }
 
-    /// Handle resolve_search_scope request.
     pub(crate) async fn handle_resolve_search_scope(
         &self,
         req: ResolveSearchScopeRequest,
     ) -> Result<ResolveSearchScopeResponse, Status> {
-        let _ = req;
-        Err(Status::unimplemented(
-            "resolve_search_scope is not yet implemented",
-        ))
+        if req.tenant_id.is_empty() {
+            return Err(Status::invalid_argument("tenant_id cannot be empty"));
+        }
+
+        let scope =
+            workspace_qdrant_core::cross_project_search::SearchScope::from_str_loose(&req.scope);
+        let filter = workspace_qdrant_core::cross_project_search::resolve_scope(
+            scope,
+            &req.tenant_id,
+            &self.db_pool,
+        )
+        .await;
+
+        let decay = workspace_qdrant_core::cross_project_search::RelevanceDecay::default();
+
+        match filter {
+            workspace_qdrant_core::cross_project_search::TenantFilter::Single(tid) => {
+                Ok(ResolveSearchScopeResponse {
+                    tenant_ids: vec![tid.clone()],
+                    filter_by_tenant: true,
+                    decay_map: vec![TenantDecay {
+                        tenant_id: tid,
+                        multiplier: decay.current_project,
+                    }],
+                })
+            }
+            workspace_qdrant_core::cross_project_search::TenantFilter::Multiple(tids) => {
+                let decay_map = tids
+                    .iter()
+                    .map(|tid| TenantDecay {
+                        tenant_id: tid.clone(),
+                        multiplier: if tid == &req.tenant_id {
+                            decay.current_project
+                        } else {
+                            decay.group_project
+                        },
+                    })
+                    .collect();
+                Ok(ResolveSearchScopeResponse {
+                    tenant_ids: tids,
+                    filter_by_tenant: true,
+                    decay_map,
+                })
+            }
+            workspace_qdrant_core::cross_project_search::TenantFilter::None => {
+                Ok(ResolveSearchScopeResponse {
+                    tenant_ids: Vec::new(),
+                    filter_by_tenant: false,
+                    decay_map: vec![TenantDecay {
+                        tenant_id: req.tenant_id,
+                        multiplier: decay.current_project,
+                    }],
+                })
+            }
+        }
     }
 }
 
