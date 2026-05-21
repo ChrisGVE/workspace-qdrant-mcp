@@ -66,12 +66,16 @@ async fn setup_watch_folders_table(pool: &SqlitePool) {
 }
 
 /// Create the `tracked_files` table.
+///
+/// Includes both legacy `file_path` (for backward-compat with admin tests)
+/// and post-v37 `relative_path` (for set_incremental and new code paths).
 async fn setup_tracked_files_table(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE tracked_files (
             file_id INTEGER PRIMARY KEY AUTOINCREMENT,
             watch_folder_id TEXT NOT NULL,
-            file_path TEXT NOT NULL,
+            file_path TEXT,
+            relative_path TEXT,
             tenant_id TEXT,
             branch TEXT DEFAULT 'main',
             incremental INTEGER DEFAULT 0,

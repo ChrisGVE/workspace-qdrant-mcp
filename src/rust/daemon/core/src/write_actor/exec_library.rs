@@ -268,17 +268,13 @@ impl WriteActor {
         let mut not_found = 0u32;
 
         for path in &data.file_paths {
-            // `path` is an absolute filesystem path supplied by the caller.
-            // Match it against `watch_folders.path || '/' || tracked_files.relative_path`
-            // to find the matching row(s) post-v37.
+            // `path` is a relative content path validated by the gRPC layer
+            // (extract_relative_paths! macro). Match directly against
+            // tracked_files.relative_path (the column is relative post-v37).
             let result = sqlx::query(
                 "UPDATE tracked_files \
                  SET incremental = ?1, updated_at = ?2 \
-                 WHERE file_id IN ( \
-                     SELECT tf.file_id FROM tracked_files tf \
-                     JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-                     WHERE wf.path || '/' || tf.relative_path = ?3 \
-                 )",
+                 WHERE relative_path = ?3",
             )
             .bind(value)
             .bind(&now)
