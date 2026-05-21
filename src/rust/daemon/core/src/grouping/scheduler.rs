@@ -430,12 +430,11 @@ mod tests {
         pool
     }
 
-    /// Helper: create all tables required by every grouping strategy.
     async fn create_all_strategy_tables(pool: &SqlitePool) {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS project_dependencies \
-             (tenant_id TEXT, dep_name TEXT, dep_type TEXT, updated_at TEXT, \
-              PRIMARY KEY (tenant_id, dep_name))",
+             (tenant_id TEXT, dependency_name TEXT, dep_type TEXT, updated_at TEXT, \
+              PRIMARY KEY (tenant_id, dependency_name))",
         )
         .execute(pool)
         .await
@@ -453,7 +452,9 @@ mod tests {
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS project_embeddings \
-             (tenant_id TEXT PRIMARY KEY, embedding BLOB, updated_at TEXT)",
+             (tenant_id TEXT PRIMARY KEY, embedding BLOB NOT NULL, \
+              dim INTEGER NOT NULL, chunk_count INTEGER NOT NULL DEFAULT 0, \
+              label TEXT, updated_at TEXT NOT NULL)",
         )
         .execute(pool)
         .await
@@ -461,7 +462,8 @@ mod tests {
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS affinity_labels \
-             (group_id TEXT PRIMARY KEY, label TEXT, category TEXT, score REAL)",
+             (group_id TEXT PRIMARY KEY, label TEXT NOT NULL, \
+              category TEXT NOT NULL, score REAL NOT NULL, updated_at TEXT NOT NULL)",
         )
         .execute(pool)
         .await
@@ -469,8 +471,13 @@ mod tests {
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS tags \
-             (doc_id TEXT, tag TEXT, tag_type TEXT, score REAL, diversity_score REAL, \
-              PRIMARY KEY (doc_id, tag))",
+             (tag_id INTEGER PRIMARY KEY AUTOINCREMENT, \
+              doc_id TEXT NOT NULL, tag TEXT NOT NULL, \
+              tag_type TEXT NOT NULL DEFAULT 'concept', \
+              score REAL NOT NULL DEFAULT 0.0, \
+              diversity_score REAL NOT NULL DEFAULT 0.0, \
+              basket_id INTEGER, collection TEXT NOT NULL, \
+              tenant_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT '')",
         )
         .execute(pool)
         .await
@@ -560,7 +567,11 @@ mod tests {
 
         // All strategies should have run (no skips), producing 0 groups on empty DB
         assert!(result.skipped_strategies.is_empty());
-        assert!(result.failed_strategies.is_empty());
+        assert!(
+            result.failed_strategies.is_empty(),
+            "Failed strategies: {:?}",
+            result.failed_strategies
+        );
         assert_eq!(result.total_groups(), 0);
 
         // After running, no strategies should be stale
