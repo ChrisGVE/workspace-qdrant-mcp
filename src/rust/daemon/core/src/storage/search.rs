@@ -2,6 +2,10 @@
 //!
 //! Dense, sparse, and hybrid (RRF) search implementations using
 //! Qdrant's QueryPoints API with named vector support.
+//!
+//! When `SearchParams::diversity_penalty` is set, the search method
+//! applies post-retrieval source diversity re-ranking to reduce
+//! result clustering from a single file or project.
 
 use std::collections::HashMap;
 
@@ -14,6 +18,7 @@ use super::convert::convert_qdrant_value_to_json;
 use super::types::{
     HybridSearchMode, HybridSearchParams, SearchParams, SearchResult, StorageError,
 };
+use crate::source_diversity::apply_diversity_penalty;
 
 /// Convert the flat `field -> JSON value` filter map used by callers into a
 /// Qdrant `Filter` of `must` match conditions.
@@ -68,6 +73,10 @@ pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<
 
 impl StorageClient {
     /// Perform hybrid search with dense/sparse vector fusion
+    ///
+    /// When `params.diversity_penalty` is `Some`, applies post-retrieval
+    /// source diversity re-ranking to penalize consecutive results from the
+    /// same file or project before returning.
     #[tracing::instrument(
         name = "qdrant.search",
         skip_all,
@@ -80,6 +89,8 @@ impl StorageClient {
     ) -> Result<Vec<SearchResult>, StorageError> {
         debug!("Performing search in collection: {}", collection_name);
         let started = std::time::Instant::now();
+
+        let diversity_config = params.diversity_penalty.clone();
 
         let results = match params.search_mode {
             HybridSearchMode::Dense => {
@@ -129,6 +140,18 @@ impl StorageClient {
                 };
                 self.search_hybrid(collection_name, hybrid_params).await?
             }
+        };
+
+        // Apply diversity penalty re-ranking when configured.
+        let results = if let Some(ref penalty_config) = diversity_config {
+            debug!(
+                same_file_penalty = penalty_config.same_file_penalty,
+                same_project_penalty = penalty_config.same_project_penalty,
+                "Applying source diversity penalty re-ranking"
+            );
+            apply_diversity_penalty(results, penalty_config)
+        } else {
+            results
         };
 
         debug!("Search completed, returned {} results", results.len());

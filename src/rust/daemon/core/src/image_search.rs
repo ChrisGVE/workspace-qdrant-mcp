@@ -122,6 +122,7 @@ pub async fn search_images(
         limit: params.limit,
         score_threshold: params.score_threshold,
         filter,
+        diversity_penalty: None,
     };
 
     let raw_results = storage.search(COLLECTION_IMAGES, search_params).await?;

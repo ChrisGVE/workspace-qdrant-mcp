@@ -210,6 +210,7 @@ async fn test_multi_tenant_architecture() {
             limit: 10,
             score_threshold: None,
             filter: None,
+            diversity_penalty: None,
         };
 
         let results = client
@@ -304,6 +305,7 @@ async fn test_comprehensive_workflow() {
         limit: 3,
         score_threshold: Some(0.1),
         filter: None,
+            diversity_penalty: None,
     };
 
     let results = client

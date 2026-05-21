@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
+use crate::source_diversity::DiversityPenaltyConfig;
+
 /// Storage-related errors
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -131,6 +133,10 @@ pub struct SearchParams {
     pub score_threshold: Option<f32>,
     /// Optional filter conditions
     pub filter: Option<HashMap<String, serde_json::Value>>,
+    /// Optional diversity penalty configuration for post-retrieval re-ranking.
+    /// When `Some`, applies score penalties to consecutive results from the
+    /// same file or project before returning.
+    pub diversity_penalty: Option<DiversityPenaltyConfig>,
 }
 
 impl Default for SearchParams {
@@ -142,6 +148,7 @@ impl Default for SearchParams {
             limit: 10,
             score_threshold: None,
             filter: None,
+            diversity_penalty: None,
         }
     }
 }
@@ -301,6 +308,7 @@ mod tests {
         assert_eq!(params.limit, 10);
         assert!(params.score_threshold.is_none());
         assert!(params.filter.is_none());
+        assert!(params.diversity_penalty.is_none());
     }
 
     #[test]
