@@ -408,6 +408,9 @@ mod tests {
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
+    /// Number of grouping strategies tracked by the scheduler.
+    const STRATEGY_COUNT: usize = 5;
+
     async fn setup_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)

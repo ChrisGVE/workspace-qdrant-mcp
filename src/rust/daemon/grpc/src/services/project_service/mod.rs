@@ -31,10 +31,11 @@ use tracing::{debug, info};
 
 use crate::proto::{
     project_service_server::ProjectService, DeleteProjectRequest, DeleteProjectResponse,
-    DeprioritizeProjectRequest, DeprioritizeProjectResponse, GetProjectStatusRequest,
-    GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListProjectsRequest,
-    ListProjectsResponse, RegisterProjectRequest, RegisterProjectResponse, RenameTenantRequest,
-    RenameTenantResponse,
+    DeprioritizeProjectRequest, DeprioritizeProjectResponse, GetProjectGroupsRequest,
+    GetProjectGroupsResponse, GetProjectStatusRequest, GetProjectStatusResponse, HeartbeatRequest,
+    HeartbeatResponse, ListProjectsRequest, ListProjectsResponse, RegisterProjectRequest,
+    RegisterProjectResponse, RenameTenantRequest, RenameTenantResponse, ResolveSearchScopeRequest,
+    ResolveSearchScopeResponse,
 };
 
 use workspace_qdrant_core::{
@@ -276,5 +277,25 @@ impl ProjectService for ProjectServiceImpl {
     ) -> Result<Response<DeleteProjectResponse>, Status> {
         let req = request.into_inner();
         self.handle_delete_project(req).await.map(Response::new)
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.get_project_groups"))]
+    async fn get_project_groups(
+        &self,
+        request: Request<GetProjectGroupsRequest>,
+    ) -> Result<Response<GetProjectGroupsResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_get_project_groups(req).await.map(Response::new)
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.resolve_search_scope"))]
+    async fn resolve_search_scope(
+        &self,
+        request: Request<ResolveSearchScopeRequest>,
+    ) -> Result<Response<ResolveSearchScopeResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_resolve_search_scope(req)
+            .await
+            .map(Response::new)
     }
 }

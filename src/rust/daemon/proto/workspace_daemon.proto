@@ -171,6 +171,12 @@ service ProjectService {
 
     // Delete a project and optionally its Qdrant data
     rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+
+    // Get all project groups a tenant belongs to (for cross-project search)
+    rpc GetProjectGroups(GetProjectGroupsRequest) returns (GetProjectGroupsResponse);
+
+    // Resolve search scope to concrete tenant filter (for MCP server search)
+    rpc ResolveSearchScope(ResolveSearchScopeRequest) returns (ResolveSearchScopeResponse);
 }
 
 // =============================================================================
@@ -532,6 +538,40 @@ message DeleteProjectResponse {
     int32 qdrant_points_deleted = 4;
     int32 queue_items_deleted = 5;
     string message = 6;
+}
+
+// GetProjectGroups Request/Response
+message GetProjectGroupsRequest {
+    string tenant_id = 1;                         // Tenant to look up groups for
+}
+
+message GetProjectGroupsResponse {
+    repeated ProjectGroupInfo groups = 1;         // Groups this tenant belongs to
+    int32 total_members = 2;                      // Total unique members across all groups
+}
+
+message ProjectGroupInfo {
+    string group_id = 1;                          // Group identifier
+    string group_type = 2;                        // "dependency", "workspace", "git_org", "affinity"
+    repeated string member_tenant_ids = 3;        // All tenants in this group
+    double confidence = 4;                        // Group assignment confidence
+}
+
+// ResolveSearchScope Request/Response
+message ResolveSearchScopeRequest {
+    string tenant_id = 1;                         // Current project tenant_id
+    string scope = 2;                             // "project", "group", or "all"
+}
+
+message ResolveSearchScopeResponse {
+    repeated string tenant_ids = 1;               // Tenant IDs to include in search filter
+    bool filter_by_tenant = 2;                    // false = no tenant filter (scope=all)
+    repeated TenantDecay decay_map = 3;           // Per-tenant relevance decay multiplier
+}
+
+message TenantDecay {
+    string tenant_id = 1;
+    float multiplier = 2;                         // 1.0 = current, 0.7 = group, 0.4 = other
 }
 
 // -----------------------------------------------------------------------------

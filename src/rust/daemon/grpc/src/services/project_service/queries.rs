@@ -7,8 +7,10 @@ use tonic::Status;
 use tracing::{debug, error};
 
 use crate::proto::{
-    GetProjectStatusRequest, GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse,
-    ListProjectsRequest, ListProjectsResponse, ProjectInfo,
+    GetProjectGroupsRequest, GetProjectGroupsResponse, GetProjectStatusRequest,
+    GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListProjectsRequest,
+    ListProjectsResponse, ProjectGroupInfo, ProjectInfo, ResolveSearchScopeRequest,
+    ResolveSearchScopeResponse, TenantDecay,
 };
 
 use wqm_common::constants::COLLECTION_PROJECTS;
@@ -275,6 +277,28 @@ impl ProjectServiceImpl {
                 );
             }
         }
+    }
+
+    /// Handle get_project_groups request.
+    pub(crate) async fn handle_get_project_groups(
+        &self,
+        req: GetProjectGroupsRequest,
+    ) -> Result<GetProjectGroupsResponse, Status> {
+        let _ = req;
+        Err(Status::unimplemented(
+            "get_project_groups is not yet implemented",
+        ))
+    }
+
+    /// Handle resolve_search_scope request.
+    pub(crate) async fn handle_resolve_search_scope(
+        &self,
+        req: ResolveSearchScopeRequest,
+    ) -> Result<ResolveSearchScopeResponse, Status> {
+        let _ = req;
+        Err(Status::unimplemented(
+            "resolve_search_scope is not yet implemented",
+        ))
     }
 }
 
