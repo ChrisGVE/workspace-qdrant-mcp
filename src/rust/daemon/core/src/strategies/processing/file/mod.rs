@@ -7,6 +7,7 @@
 //! Split into focused submodules:
 //! - `chunk_embed` — per-chunk embedding, payload construction, LSP enrichment
 //! - `delete` — delete operation, missing-file cleanup, Qdrant failure handling
+//! - `dependency_ingest` — dependency manifest parsing and storage for grouping
 //! - `fts5_index` — FTS5 code search index updates
 //! - `keyword_extract` — keyword/tag extraction pipeline
 //! - `lsp_payload` — LSP enrichment payload serialization
@@ -17,6 +18,7 @@
 mod chunk_embed;
 mod component;
 mod delete;
+mod dependency_ingest;
 mod fts5_index;
 mod grammar;
 mod graph_ingest;

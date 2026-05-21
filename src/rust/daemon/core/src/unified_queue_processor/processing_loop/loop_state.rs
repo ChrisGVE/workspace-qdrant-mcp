@@ -63,6 +63,7 @@ impl LoopState {
             crate::idle::tasks::StaleProjectDeactivationTask::new(),
         ));
         maintenance_scheduler.register(Box::new(crate::idle::tasks::GitOrgGroupTask::new()));
+        maintenance_scheduler.register(Box::new(crate::idle::tasks::DependencyGroupingTask::new()));
 
         Self {
             last_metrics_log: chrono::Utc::now(),

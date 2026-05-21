@@ -1,10 +1,12 @@
 //! Concrete maintenance task implementations.
 
+mod dependency_grouping;
 mod filesystem_reconcile;
 mod git_org_group;
 mod orphan_cleanup;
 mod stale_project_deactivation;
 
+pub use dependency_grouping::DependencyGroupingTask;
 pub use filesystem_reconcile::FilesystemReconcileTask;
 pub use git_org_group::GitOrgGroupTask;
 pub use orphan_cleanup::OrphanCleanupTask;
