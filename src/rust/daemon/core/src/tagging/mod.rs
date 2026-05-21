@@ -12,6 +12,7 @@ pub mod concepts;
 mod llm_aggregation;
 pub mod providers;
 pub mod taxonomy;
+pub mod taxonomy_cache;
 pub mod tier1;
 pub mod tier2;
 pub mod tier3;
@@ -29,6 +30,9 @@ pub use tier1::{
 // ── Tier 2 re-exports ────────────────────────────────────────────────────
 pub use aggregation::{aggregate_document_embedding, aggregate_document_embedding_weighted};
 pub use taxonomy::{load_taxonomy, load_taxonomy_from_file, TaxonomyEntry};
+pub use taxonomy_cache::{
+    compute_taxonomy_hash, load_cached_embeddings, save_cached_embeddings, CacheLookup,
+};
 pub use tier2::{TaxonomyMatch, Tier2Config, Tier2Tagger};
 
 // ── Tier 3 re-exports ────────────────────────────────────────────────────

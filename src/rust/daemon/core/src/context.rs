@@ -22,6 +22,7 @@ use crate::patterns::GitattributesOverrides;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
+use crate::tagging::Tier2Tagger;
 use crate::tree_sitter::GrammarManager;
 
 /// Bundled processing dependencies for queue item strategies.
@@ -87,6 +88,10 @@ pub struct ProcessingContext {
 
     /// URL ingestion limits and SSRF policy (T5).
     pub url_ingestion: Arc<UrlIngestionConfig>,
+
+    /// Tier 2 taxonomy-based tagger (optional — initialized at daemon startup
+    /// after embedding generator and taxonomy YAML are available).
+    pub tier2_tagger: Option<Arc<Tier2Tagger>>,
 }
 
 impl ProcessingContext {
@@ -122,6 +127,7 @@ impl ProcessingContext {
             pending_grammar_downloads: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
             gitattributes_cache: Arc::new(RwLock::new(HashMap::new())),
             url_ingestion: Arc::new(UrlIngestionConfig::default()),
+            tier2_tagger: None,
         }
     }
 }
@@ -148,6 +154,12 @@ impl ProcessingContext {
     /// Override URL ingestion config (T5).
     pub fn with_url_ingestion(mut self, cfg: Arc<UrlIngestionConfig>) -> Self {
         self.url_ingestion = cfg;
+        self
+    }
+
+    /// Attach a Tier 2 taxonomy tagger.
+    pub fn with_tier2_tagger(mut self, tagger: Arc<Tier2Tagger>) -> Self {
+        self.tier2_tagger = Some(tagger);
         self
     }
 }
@@ -181,6 +193,7 @@ mod tests {
             let _ = &ctx.pending_grammar_downloads;
             let _ = &ctx.gitattributes_cache;
             let _ = &ctx.url_ingestion;
+            let _ = &ctx.tier2_tagger;
         }
     }
 }
