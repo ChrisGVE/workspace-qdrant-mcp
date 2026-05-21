@@ -71,6 +71,52 @@ pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<
     }
 }
 
+/// Build a Qdrant filter that matches tags across both `concept_tags` and `tags` fields.
+pub fn build_tag_filter(tags: &[String]) -> Option<Filter> {
+    if tags.is_empty() {
+        return None;
+    }
+
+    let conditions: Vec<Condition> = if tags.len() == 1 {
+        let tag = tags[0].clone();
+        vec![
+            Condition::matches(wqm_common::constants::field::CONCEPT_TAGS, tag.clone()),
+            Condition::matches(wqm_common::constants::field::TAGS, tag),
+        ]
+    } else {
+        let tag_vec = tags.to_vec();
+        vec![
+            Condition::matches(wqm_common::constants::field::CONCEPT_TAGS, tag_vec.clone()),
+            Condition::matches(wqm_common::constants::field::TAGS, tag_vec),
+        ]
+    };
+
+    Some(Filter::should(conditions))
+}
+
+/// Merge a tag filter into a base filter as a nested `must` condition.
+pub fn merge_tag_filter_into(
+    base_filter: Option<Filter>,
+    tag_filter: Option<Filter>,
+) -> Option<Filter> {
+    match (base_filter, tag_filter) {
+        (Some(base), Some(tags)) => {
+            let tag_condition = Condition::from(tags);
+            let mut must = base.must;
+            must.push(tag_condition);
+            Some(Filter {
+                must,
+                should: base.should,
+                must_not: base.must_not,
+                min_should: base.min_should,
+            })
+        }
+        (Some(base), None) => Some(base),
+        (None, Some(tags)) => Some(Filter::must([Condition::from(tags)])),
+        (None, None) => None,
+    }
+}
+
 impl StorageClient {
     /// Perform hybrid search with dense/sparse vector fusion
     ///

@@ -9,7 +9,6 @@ use std::path::Path;
 use tracing::{debug, info, warn};
 
 use crate::context::ProcessingContext;
-use crate::grouping::git_org;
 use crate::specs::parse_payload;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{ItemType, ProjectPayload, QueueOperation, UnifiedQueueItem};

@@ -33,6 +33,8 @@ pub use config::{Http2Config, MultiTenantConfig, StorageConfig, TransportMode};
 
 pub use qdrant_circuit_breaker::QdrantCircuitBreaker;
 
+pub use search::{build_tag_filter, merge_tag_filter_into};
+
 pub use types::{
     BatchStats, CollectionInfoResult, DocumentPoint, HybridSearchMode, HybridSearchParams,
     MultiTenantInitResult, SearchParams, SearchResult, SparsePointData, StorageError,

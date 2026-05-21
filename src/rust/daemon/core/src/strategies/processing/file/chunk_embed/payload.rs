@@ -96,6 +96,8 @@ pub(super) fn build_chunk_payload(
         inject_library_hierarchy(&mut payload, lib_ctx, file_path);
     }
 
+    insert_provenance_fields(&mut payload, item);
+
     // Build tags array: static metadata + Tier 1 rule-based tags
     build_tags_array(&mut payload, file_type, document_content, file_path);
 
@@ -170,6 +172,35 @@ fn build_tags_array(
     if !tags.is_empty() {
         payload.insert(field::TAGS.to_string(), serde_json::json!(tags));
     }
+}
+
+fn insert_provenance_fields(
+    payload: &mut HashMap<String, serde_json::Value>,
+    item: &UnifiedQueueItem,
+) {
+    payload.insert(
+        field::SOURCE_COLLECTION.to_string(),
+        serde_json::json!(item.collection),
+    );
+    let source_type = if item.collection == wqm_common::constants::COLLECTION_LIBRARIES {
+        "library_doc"
+    } else {
+        "code_file"
+    };
+    payload.insert(
+        field::SOURCE_TYPE.to_string(),
+        serde_json::json!(source_type),
+    );
+    if let Some(reason) = extract_routing_reason(item) {
+        payload.insert(field::ROUTING_REASON.to_string(), serde_json::json!(reason));
+    }
+}
+
+fn extract_routing_reason(item: &UnifiedQueueItem) -> Option<String> {
+    item.metadata
+        .as_deref()
+        .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+        .and_then(|v| v.get("routing_reason")?.as_str().map(String::from))
 }
 
 /// Convert a `SparseEmbedding` to the `HashMap` format expected by `DocumentPoint`.
