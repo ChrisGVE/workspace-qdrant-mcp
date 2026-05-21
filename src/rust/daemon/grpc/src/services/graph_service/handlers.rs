@@ -1,7 +1,7 @@
 //! gRPC handler implementations for GraphService.
 
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use workspace_qdrant_core::graph::algorithms::{
     compute_betweenness_centrality, compute_pagerank, detect_communities, CommunityConfig,
     PageRankConfig,
@@ -20,6 +20,10 @@ use crate::validation::extract_relative_path;
 
 use super::helpers::parse_edge_type_filter;
 use super::service_impl::GraphServiceImpl;
+use super::validation::{
+    validate_betweenness_params, validate_community_params, validate_pagerank_params,
+    DEFAULT_MAX_NODES,
+};
 
 #[tonic::async_trait]
 impl GraphService for GraphServiceImpl {
@@ -222,10 +226,14 @@ impl GraphService for GraphServiceImpl {
             return Err(Status::invalid_argument("tenant_id is required"));
         }
 
+        // Validate parameters before algorithm execution
+        let (damping, max_iterations, tolerance) =
+            validate_pagerank_params(req.damping, req.max_iterations, req.tolerance)?;
+
         let config = PageRankConfig {
-            damping: req.damping.unwrap_or(0.85),
-            max_iterations: req.max_iterations.unwrap_or(100) as usize,
-            tolerance: req.tolerance.unwrap_or(1e-6),
+            damping,
+            max_iterations,
+            tolerance,
         };
 
         let edge_filter = parse_edge_type_filter(&req.edge_types)?;
@@ -234,14 +242,38 @@ impl GraphService for GraphServiceImpl {
             .map(|v| v.iter().map(|s| s.as_str()).collect());
 
         debug!(
-            "GraphService.ComputePageRank: tenant={} damping={} max_iter={}",
-            req.tenant_id, config.damping, config.max_iterations
+            "GraphService.ComputePageRank: tenant={} damping={} max_iter={} tolerance={}",
+            req.tenant_id, config.damping, config.max_iterations, config.tolerance
         );
 
         let start = std::time::Instant::now();
 
         let guard = self.graph_store.read().await;
         let pool = guard.pool();
+
+        // Check graph size before full materialization
+        let node_count = count_tenant_nodes(pool, &req.tenant_id).await?;
+        if node_count > DEFAULT_MAX_NODES as u64 {
+            warn!(
+                tenant_id = %req.tenant_id,
+                node_count,
+                limit = DEFAULT_MAX_NODES,
+                "Graph exceeds materialization limit for PageRank"
+            );
+            return Err(Status::failed_precondition(format!(
+                "Graph has {} nodes, exceeding materialization limit of {}. \
+                 Use edge_types filter to reduce scope.",
+                node_count, DEFAULT_MAX_NODES
+            )));
+        }
+        if node_count as f64 > DEFAULT_MAX_NODES as f64 * 0.8 {
+            warn!(
+                tenant_id = %req.tenant_id,
+                node_count,
+                limit = DEFAULT_MAX_NODES,
+                "Graph size approaching materialization limit"
+            );
+        }
 
         match compute_pagerank(pool, &req.tenant_id, &config, edge_refs.as_deref()).await {
             Ok(mut entries) => {
@@ -291,9 +323,13 @@ impl GraphService for GraphServiceImpl {
             return Err(Status::invalid_argument("tenant_id is required"));
         }
 
+        // Validate parameters before algorithm execution
+        let (max_iterations, min_community_size) =
+            validate_community_params(req.max_iterations, req.min_community_size)?;
+
         let config = CommunityConfig {
-            max_iterations: req.max_iterations.unwrap_or(50) as usize,
-            min_community_size: req.min_community_size.unwrap_or(2) as usize,
+            max_iterations,
+            min_community_size,
         };
 
         let edge_filter = parse_edge_type_filter(&req.edge_types)?;
@@ -310,6 +346,30 @@ impl GraphService for GraphServiceImpl {
 
         let guard = self.graph_store.read().await;
         let pool = guard.pool();
+
+        // Check graph size before full materialization
+        let node_count = count_tenant_nodes(pool, &req.tenant_id).await?;
+        if node_count > DEFAULT_MAX_NODES as u64 {
+            warn!(
+                tenant_id = %req.tenant_id,
+                node_count,
+                limit = DEFAULT_MAX_NODES,
+                "Graph exceeds materialization limit for community detection"
+            );
+            return Err(Status::failed_precondition(format!(
+                "Graph has {} nodes, exceeding materialization limit of {}. \
+                 Use edge_types filter to reduce scope.",
+                node_count, DEFAULT_MAX_NODES
+            )));
+        }
+        if node_count as f64 > DEFAULT_MAX_NODES as f64 * 0.8 {
+            warn!(
+                tenant_id = %req.tenant_id,
+                node_count,
+                limit = DEFAULT_MAX_NODES,
+                "Graph size approaching materialization limit"
+            );
+        }
 
         match detect_communities(pool, &req.tenant_id, &config, edge_refs.as_deref()).await {
             Ok(communities) => {
@@ -365,7 +425,8 @@ impl GraphService for GraphServiceImpl {
             .as_ref()
             .map(|v| v.iter().map(|s| s.as_str()).collect());
 
-        let max_samples = req.max_samples.filter(|&v| v > 0).map(|v| v as usize);
+        // Validate max_samples parameter
+        let max_samples = validate_betweenness_params(req.max_samples)?;
 
         debug!(
             "GraphService.ComputeBetweenness: tenant={} max_samples={:?}",
@@ -376,6 +437,30 @@ impl GraphService for GraphServiceImpl {
 
         let guard = self.graph_store.read().await;
         let pool = guard.pool();
+
+        // Check graph size before full materialization
+        let node_count = count_tenant_nodes(pool, &req.tenant_id).await?;
+        if node_count > DEFAULT_MAX_NODES as u64 {
+            warn!(
+                tenant_id = %req.tenant_id,
+                node_count,
+                limit = DEFAULT_MAX_NODES,
+                "Graph exceeds materialization limit for betweenness"
+            );
+            return Err(Status::failed_precondition(format!(
+                "Graph has {} nodes, exceeding materialization limit of {}. \
+                 Use edge_types filter or max_samples to reduce scope.",
+                node_count, DEFAULT_MAX_NODES
+            )));
+        }
+        if node_count as f64 > DEFAULT_MAX_NODES as f64 * 0.8 {
+            warn!(
+                tenant_id = %req.tenant_id,
+                node_count,
+                limit = DEFAULT_MAX_NODES,
+                "Graph size approaching materialization limit"
+            );
+        }
 
         match compute_betweenness_centrality(
             pool,
@@ -493,4 +578,19 @@ impl GraphService for GraphServiceImpl {
             warnings: report.warnings,
         }))
     }
+}
+
+/// Count total nodes for a tenant to enforce materialization limits.
+///
+/// Uses a lightweight COUNT(*) query instead of fetching all rows.
+async fn count_tenant_nodes(pool: &sqlx::SqlitePool, tenant_id: &str) -> Result<u64, Status> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM graph_nodes WHERE tenant_id = ?1")
+        .bind(tenant_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to count graph nodes: {}", e);
+            Status::internal(format!("Failed to count graph nodes: {}", e))
+        })?;
+    Ok(row.0 as u64)
 }
