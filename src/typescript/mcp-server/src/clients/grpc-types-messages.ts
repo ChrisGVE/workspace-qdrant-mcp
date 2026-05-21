@@ -47,6 +47,9 @@ export type {
   ListProjectsResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  ResolveSearchScopeRequest,
+  ResolveSearchScopeResponse,
+  TenantDecay,
 } from './grpc-types-messages-document-project.js';
 
 export type {

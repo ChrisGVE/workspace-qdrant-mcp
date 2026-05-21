@@ -112,3 +112,19 @@ export interface HeartbeatResponse {
   acknowledged: boolean;
   next_heartbeat_by?: { seconds: number; nanos: number };
 }
+
+export interface ResolveSearchScopeRequest {
+  tenant_id: string;
+  scope: string;
+}
+
+export interface TenantDecay {
+  tenant_id: string;
+  multiplier: number;
+}
+
+export interface ResolveSearchScopeResponse {
+  tenant_ids: string[];
+  filter_by_tenant: boolean;
+  decay_map: TenantDecay[];
+}

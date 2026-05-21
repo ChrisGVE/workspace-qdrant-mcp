@@ -17,6 +17,8 @@ import type {
   DeprioritizeProjectResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  ResolveSearchScopeRequest,
+  ResolveSearchScopeResponse,
 } from '../grpc-types.js';
 
 import { DaemonClientBase, grpcUnaryWithTimeout } from './connection.js';
@@ -121,6 +123,19 @@ export class DaemonClientSystem extends DaemonClientBase {
         'heartbeat',
         request,
         this.getMethodTimeout('heartbeat')
+      )
+    );
+  }
+
+  async resolveSearchScope(
+    request: ResolveSearchScopeRequest
+  ): Promise<ResolveSearchScopeResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'resolveSearchScope',
+        request,
+        this.getMethodTimeout('resolveSearchScope')
       )
     );
   }

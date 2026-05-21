@@ -82,7 +82,7 @@ export async function resolveProjectContext(
         // the single base point matching the caller's working directory.
         // Tenant filter still applies for project-level scoping.
         const cwd = process.cwd();
-        const primaryPoint = points.find(bp => cwd.startsWith(bp));
+        const primaryPoint = points.find((bp) => cwd.startsWith(bp));
         if (primaryPoint) {
           basePoints = [primaryPoint];
         } else {
@@ -174,6 +174,7 @@ export interface SearchAllCollectionsParams {
   collectionsToSearch: string[];
   scope: SearchScope;
   currentProjectId: string | undefined;
+  groupTenantIds: string[] | undefined;
   basePoints: string[] | undefined;
   branch: string | undefined;
   fileType: string | undefined;
@@ -197,6 +198,7 @@ function buildCollectionSearchParams(
     collection: coll,
     scope: params.scope,
     projectId: params.currentProjectId,
+    groupTenantIds: params.groupTenantIds,
     branch: params.branch,
     fileType: params.fileType,
     libraryName: params.libraryName,

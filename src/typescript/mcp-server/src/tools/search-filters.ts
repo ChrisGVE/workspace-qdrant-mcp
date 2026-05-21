@@ -45,15 +45,14 @@ export function extractGlobPrefix(glob: string): string {
 export function determineCollections(
   collection: string | undefined,
   scope: SearchScope,
-  includeLibraries: boolean,
+  includeLibraries: boolean
 ): string[] {
   if (collection) return [collection];
 
   switch (scope) {
     case 'project':
-      return includeLibraries
-        ? [PROJECTS_COLLECTION, LIBRARIES_COLLECTION]
-        : [PROJECTS_COLLECTION];
+    case 'group':
+      return includeLibraries ? [PROJECTS_COLLECTION, LIBRARIES_COLLECTION] : [PROJECTS_COLLECTION];
     case 'global':
       return [PROJECTS_COLLECTION];
     case 'all':
@@ -66,6 +65,9 @@ export function determineCollections(
 // ── Filter condition builders ─────────────────────────────────────────────
 
 function buildProjectCondition(params: FilterParams): Record<string, unknown> | null {
+  if (params.scope === 'group' && params.groupTenantIds && params.groupTenantIds.length > 0) {
+    return { key: FIELD_TENANT_ID, match: { any: params.groupTenantIds } };
+  }
   if (params.scope !== 'project' || !params.projectId) return null;
   return { key: FIELD_TENANT_ID, match: { value: params.projectId } };
 }
