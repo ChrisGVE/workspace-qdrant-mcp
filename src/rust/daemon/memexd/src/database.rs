@@ -96,22 +96,15 @@ pub async fn init_search_db(
 /// Initialize the graph database for code relationship tracking (graph-rag).
 pub async fn init_graph_db(queue_pool: &SqlitePool) -> Option<ConcreteGraphStore> {
     let db_path = get_state_db_path(queue_pool);
-    let graph_db_path = db_path
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .join(workspace_qdrant_core::graph::GRAPH_DB_FILENAME);
-    info!(
-        "Initializing graph database at: {}",
-        graph_db_path.display()
-    );
-    match workspace_qdrant_core::graph::GraphDbManager::new(&graph_db_path).await {
-        Ok(manager) => {
+    let db_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
+
+    match workspace_qdrant_core::graph::factory::create_sqlite_graph_store(db_dir).await {
+        Ok(store) => {
             info!(
-                "Graph database initialized at version {}",
+                "Graph database initialized (SQLite backend, version {})",
                 workspace_qdrant_core::graph::GRAPH_SCHEMA_VERSION
             );
-            let store = workspace_qdrant_core::graph::SqliteGraphStore::new(manager.pool().clone());
-            Some(workspace_qdrant_core::graph::SharedGraphStore::new(store))
+            Some(store)
         }
         Err(e) => {
             warn!(
