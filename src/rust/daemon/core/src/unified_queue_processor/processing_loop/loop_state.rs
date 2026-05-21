@@ -64,6 +64,8 @@ impl LoopState {
         ));
         maintenance_scheduler.register(Box::new(crate::idle::tasks::GitOrgGroupTask::new()));
         maintenance_scheduler.register(Box::new(crate::idle::tasks::DependencyGroupingTask::new()));
+        maintenance_scheduler
+            .register(Box::new(crate::idle::tasks::TagAffinityGroupingTask::new()));
 
         Self {
             last_metrics_log: chrono::Utc::now(),

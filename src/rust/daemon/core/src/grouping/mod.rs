@@ -3,6 +3,7 @@
 //! Consolidates all project grouping strategies:
 //! - **schema**: Core `project_groups` table operations
 //! - **affinity**: Embedding-based similarity grouping
+//! - **tag_affinity**: Tag Jaccard similarity grouping (T24)
 //! - **dependency**: Shared dependency (Jaccard) grouping
 //! - **workspace**: Workspace membership (Cargo, npm, Go) grouping
 //! - **git_org**: Git organization/user grouping
@@ -25,6 +26,12 @@ pub use affinity::{
     load_affinity_label, load_all_project_embeddings, load_project_embedding,
     store_project_embedding, AffinityConfig, AffinityGroupInfo, AffinityGrouper, ProjectAffinity,
     CREATE_AFFINITY_LABELS_SQL, CREATE_PROJECT_EMBEDDINGS_SQL,
+};
+
+// Re-export tag affinity types (T24)
+pub use affinity::{
+    compute_tag_affinities, compute_tag_affinity_groups, load_project_tag_profiles,
+    tag_jaccard_similarity, TagAffinity, TagAffinityConfig,
 };
 
 // Re-export dependency types (formerly dependency_grouper)
