@@ -3,8 +3,8 @@
 //! Manages `graph.db` — a dedicated SQLite database for code relationship
 //! storage, separate from `state.db` to avoid lock contention with queue ops.
 
-use std::time::Duration;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;

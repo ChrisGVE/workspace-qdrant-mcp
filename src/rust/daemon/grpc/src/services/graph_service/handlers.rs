@@ -11,10 +11,10 @@ use workspace_qdrant_core::graph::EdgeType;
 use crate::proto::{
     graph_service_server::GraphService, BetweennessNodeProto, BetweennessRequest,
     BetweennessResponse, CommunityMemberProto, CommunityProto, CommunityRequest, CommunityResponse,
-    GraphMigrateRequest, GraphMigrateResponse, GraphStatsRequest, GraphStatsResponse,
-    ImpactAnalysisRequest, ImpactAnalysisResponse, ImpactNodeProto, PageRankNodeProto,
-    PageRankRequest, PageRankResponse, QueryRelatedRequest, QueryRelatedResponse,
-    TraversalNodeProto,
+    FindPathRequest, FindPathResponse, GraphMigrateRequest, GraphMigrateResponse,
+    GraphStatsRequest, GraphStatsResponse, ImpactAnalysisRequest, ImpactAnalysisResponse,
+    ImpactNodeProto, PageRankNodeProto, PageRankRequest, PageRankResponse, QueryRelatedRequest,
+    QueryRelatedResponse, TraversalNodeProto,
 };
 use crate::validation::extract_relative_path;
 
@@ -589,6 +589,88 @@ impl GraphService for GraphServiceImpl {
             edges_match: report.edges_match,
             warnings: report.warnings,
         }))
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "GraphService.find_path"))]
+    async fn find_path(
+        &self,
+        request: Request<FindPathRequest>,
+    ) -> Result<Response<FindPathResponse>, Status> {
+        let start = std::time::Instant::now();
+        let req = request.into_inner();
+
+        if req.tenant_id.is_empty() {
+            return Err(Status::invalid_argument("tenant_id is required"));
+        }
+        if req.source_node_id.is_empty() {
+            return Err(Status::invalid_argument("source_node_id is required"));
+        }
+        if req.target_node_id.is_empty() {
+            return Err(Status::invalid_argument("target_node_id is required"));
+        }
+
+        let max_depth = req.max_depth.clamp(1, 10);
+        let edge_type_strs = parse_edge_type_filter(&req.edge_types)?;
+        let edge_types: Option<Vec<EdgeType>> = edge_type_strs
+            .as_ref()
+            .map(|strs| strs.iter().filter_map(|s| EdgeType::from_str(s)).collect());
+
+        let result = self
+            .graph_store
+            .find_path(
+                &req.tenant_id,
+                &req.source_node_id,
+                &req.target_node_id,
+                max_depth,
+                edge_types.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                error!("FindPath failed: {}", e);
+                Status::internal(format!("FindPath error: {}", e))
+            })?;
+
+        let elapsed = start.elapsed().as_millis() as i64;
+
+        match result {
+            Some(path) => {
+                let path_length = if path.len() > 1 {
+                    path.len() as u32 - 1
+                } else {
+                    0
+                };
+                let path_nodes: Vec<TraversalNodeProto> = path
+                    .into_iter()
+                    .map(|n| TraversalNodeProto {
+                        node_id: n.node_id,
+                        symbol_name: n.symbol_name,
+                        symbol_type: n.symbol_type,
+                        file_path: n.file_path,
+                        edge_type: String::new(),
+                        depth: n.depth,
+                        path: String::new(),
+                    })
+                    .collect();
+
+                debug!(path_length, elapsed_ms = elapsed, "FindPath: found path");
+
+                Ok(Response::new(FindPathResponse {
+                    path_found: true,
+                    path_nodes,
+                    path_length,
+                    query_time_ms: elapsed,
+                }))
+            }
+            None => {
+                debug!(elapsed_ms = elapsed, "FindPath: no path found");
+                Ok(Response::new(FindPathResponse {
+                    path_found: false,
+                    path_nodes: Vec::new(),
+                    path_length: 0,
+                    query_time_ms: elapsed,
+                }))
+            }
+        }
     }
 }
 

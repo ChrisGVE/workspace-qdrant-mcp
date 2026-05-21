@@ -653,6 +653,9 @@ service GraphService {
 
     // Migrate graph data between backends (SQLite ↔ LadybugDB)
     rpc MigrateGraph(GraphMigrateRequest) returns (GraphMigrateResponse);
+
+    // Find shortest path between two nodes
+    rpc FindPath(FindPathRequest) returns (FindPathResponse);
 }
 
 // QueryRelated Request
@@ -814,6 +817,23 @@ message GraphMigrateResponse {
     bool nodes_match = 6;
     bool edges_match = 7;
     repeated string warnings = 8;
+}
+
+// FindPath Request
+message FindPathRequest {
+    string tenant_id = 1;                         // Project tenant_id
+    string source_node_id = 2;                    // Starting node ID
+    string target_node_id = 3;                    // Destination node ID
+    uint32 max_depth = 4;                         // Max path length (1-10)
+    repeated string edge_types = 5;               // Filter edge types, empty = all
+}
+
+// FindPath Response
+message FindPathResponse {
+    bool path_found = 1;
+    repeated TraversalNodeProto path_nodes = 2;   // Ordered nodes along the path
+    uint32 path_length = 3;                       // Number of hops in path
+    int64 query_time_ms = 4;                      // Query execution time in ms
 }
 
 // -----------------------------------------------------------------------------

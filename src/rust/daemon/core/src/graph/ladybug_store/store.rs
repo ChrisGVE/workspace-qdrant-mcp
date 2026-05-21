@@ -530,6 +530,19 @@ impl GraphStore for LadybugGraphStore {
         })
     }
 
+    async fn find_path(
+        &self,
+        _tenant_id: &str,
+        _source_id: &str,
+        _target_id: &str,
+        _max_depth: u32,
+        _edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        // LadybugDB path-finding will use Cypher SHORTEST PATH in a future iteration.
+        // For now, return None (no path found) — callers handle this gracefully.
+        Ok(None)
+    }
+
     async fn stats(&self, tenant_id: Option<&str>) -> GraphDbResult<GraphStats> {
         let conn = self.connect()?;
 

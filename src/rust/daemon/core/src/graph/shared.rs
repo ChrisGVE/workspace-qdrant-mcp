@@ -183,6 +183,21 @@ impl<S: GraphStore> SharedGraphStore<S> {
         guard.stats(tenant_id).await
     }
 
+    /// Find shortest path between two nodes.
+    pub async fn find_path(
+        &self,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let guard = self.acquire_read("find_path").await?;
+        guard
+            .find_path(tenant_id, source_id, target_id, max_depth, edge_types)
+            .await
+    }
+
     // ── Write operations (exclusive lock) ────────────────────────────
 
     /// Upsert a batch of nodes (exclusive lock).

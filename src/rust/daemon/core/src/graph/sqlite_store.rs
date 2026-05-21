@@ -374,6 +374,99 @@ impl GraphStore for SqliteGraphStore {
         Ok(count)
     }
 
+    async fn find_path(
+        &self,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let num_edge_types = edge_types.map_or(0, |t| t.len());
+        let edge_filter = if num_edge_types > 0 {
+            let placeholders: Vec<String> =
+                (0..num_edge_types).map(|i| format!("?{}", i + 4)).collect();
+            format!("AND e.edge_type IN ({})", placeholders.join(","))
+        } else {
+            String::new()
+        };
+        let target_placeholder = num_edge_types + 4;
+
+        let sql = format!(
+            r#"
+            WITH RECURSIVE bfs(node_id, depth, path) AS (
+                SELECT ?2, 0, ?2
+                UNION ALL
+                SELECT e.target_node_id, bfs.depth + 1,
+                       bfs.path || ',' || e.target_node_id
+                FROM bfs
+                JOIN graph_edges e ON e.source_node_id = bfs.node_id
+                                  AND e.tenant_id = ?1
+                                  {edge_filter}
+                WHERE bfs.depth < ?3
+                  AND INSTR(bfs.path, e.target_node_id) = 0
+            )
+            SELECT bfs.node_id, bfs.depth, bfs.path,
+                   n.symbol_name, n.symbol_type, n.file_path, n.line_number
+            FROM bfs
+            JOIN graph_nodes n ON n.node_id = bfs.node_id AND n.tenant_id = ?1
+            WHERE bfs.node_id = ?{target_placeholder}
+            ORDER BY bfs.depth ASC
+            LIMIT 1
+            "#
+        );
+
+        let mut query = sqlx::query(&sql)
+            .bind(tenant_id)
+            .bind(source_id)
+            .bind(max_depth as i64);
+
+        if let Some(types) = edge_types {
+            for et in types {
+                query = query.bind(et.as_str());
+            }
+        }
+
+        query = query.bind(target_id);
+
+        let row = query.fetch_optional(&self.pool).await?;
+
+        match row {
+            None => Ok(None),
+            Some(row) => {
+                use sqlx::Row;
+                let path_str: String = row.get("path");
+                let node_ids: Vec<&str> = path_str.split(',').collect();
+
+                let mut path_nodes = Vec::with_capacity(node_ids.len());
+                for (hop, nid) in node_ids.iter().enumerate() {
+                    let nr = sqlx::query(
+                        "SELECT symbol_name, symbol_type, file_path, line_number
+                         FROM graph_nodes WHERE node_id = ?1 AND tenant_id = ?2",
+                    )
+                    .bind(nid)
+                    .bind(tenant_id)
+                    .fetch_optional(&self.pool)
+                    .await?;
+
+                    if let Some(nr) = nr {
+                        path_nodes.push(TraversalNode {
+                            node_id: nid.to_string(),
+                            symbol_name: nr.get("symbol_name"),
+                            symbol_type: nr.get("symbol_type"),
+                            file_path: nr.get("file_path"),
+                            edge_type: String::new(),
+                            depth: hop as u32,
+                            path: String::new(),
+                        });
+                    }
+                }
+
+                Ok(Some(path_nodes))
+            }
+        }
+    }
+
     /// Atomic re-ingestion: delete old edges, upsert nodes, insert new edges
     /// all within a single SQLite transaction. If any step fails, the entire
     /// transaction is rolled back leaving the database unchanged.

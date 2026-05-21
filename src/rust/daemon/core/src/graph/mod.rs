@@ -344,6 +344,16 @@ pub trait GraphStore: Send + Sync {
     /// Delete orphaned nodes (nodes with no edges).
     async fn prune_orphans(&self, tenant_id: &str) -> GraphDbResult<u64>;
 
+    /// Find shortest path between two nodes using BFS.
+    async fn find_path(
+        &self,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>>;
+
     /// Atomically re-ingest a file: delete old edges, upsert nodes, insert new
     /// edges — all within a single transaction. On error the database remains
     /// unchanged (all-or-nothing).
