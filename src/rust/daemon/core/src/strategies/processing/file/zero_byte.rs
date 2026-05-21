@@ -19,9 +19,15 @@ use crate::unified_queue_schema::{DestinationStatus, FilePayload, UnifiedQueueIt
 #[cfg(test)]
 const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-/// Returns `true` when the file at `path` exists and has zero bytes.
+/// Returns `true` when the file at `path` exists, is a regular file, and has
+/// zero bytes.
+///
+/// Rejects non-regular file types (symlinks, directories, FIFOs, device nodes)
+/// to prevent DoS from sources like `/dev/zero` where `metadata().len()` is 0
+/// but reading would never terminate.
 pub(super) fn is_zero_byte(path: &Path) -> bool {
-    path.metadata().map_or(false, |m| m.len() == 0)
+    path.metadata()
+        .map_or(false, |m| m.file_type().is_file() && m.len() == 0)
 }
 
 /// Record a zero-byte file in `tracked_files` (chunk_count = 0, both statuses
@@ -205,5 +211,63 @@ mod tests {
         let hash = tracked_files_schema::compute_file_hash(tmp.path())
             .expect("should hash a 0-byte file successfully");
         assert_eq!(hash, EMPTY_SHA256);
+    }
+
+    #[test]
+    fn directory_not_detected_as_zero_byte() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        assert!(
+            !is_zero_byte(dir.path()),
+            "directory must not be treated as zero-byte file"
+        );
+    }
+
+    #[test]
+    fn dev_zero_not_detected_as_zero_byte() {
+        let path = Path::new("/dev/zero");
+        if !path.exists() {
+            return;
+        }
+        assert!(
+            !is_zero_byte(path),
+            "/dev/zero must not be classified as zero-byte"
+        );
+    }
+
+    #[test]
+    fn dev_null_not_detected_as_zero_byte() {
+        let path = Path::new("/dev/null");
+        if !path.exists() {
+            return;
+        }
+        assert!(
+            !is_zero_byte(path),
+            "/dev/null must not be classified as zero-byte"
+        );
+    }
+
+    #[test]
+    fn fifo_not_detected_as_zero_byte() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let fifo_path = dir.path().join("test_fifo");
+        let fifo_cstr =
+            std::ffi::CString::new(fifo_path.to_str().unwrap()).expect("cstring from path");
+        let ret = unsafe { libc::mkfifo(fifo_cstr.as_ptr(), 0o644) };
+        assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+        assert!(
+            !is_zero_byte(&fifo_path),
+            "FIFO must not be classified as zero-byte"
+        );
+    }
+
+    #[test]
+    fn broken_symlink_returns_false() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let link_path = dir.path().join("broken_link");
+        std::os::unix::fs::symlink("/nonexistent/target", &link_path).expect("create symlink");
+        assert!(
+            !is_zero_byte(&link_path),
+            "broken symlink should return false"
+        );
     }
 }
