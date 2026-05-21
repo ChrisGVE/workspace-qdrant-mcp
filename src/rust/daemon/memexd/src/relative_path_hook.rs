@@ -9,7 +9,8 @@
 //!   - Phase 3: implicit — `start_all_watches()` triggers the initial walk.
 //!   - Phase 3→4 bridge: wait for queue to stabilise, snapshot
 //!     `initial_pending_count`, mark walk complete.
-//!   - Phase 4: poll until queue drains, then finalize (delete marker row).
+//!   - Phase 4: poll until migration-scoped queue drains, then finalize
+//!     (delete marker row).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,8 +20,8 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use workspace_qdrant_core::schema_version::v37::{
-    finalize_relative_path_migration, is_relative_path_migration_in_progress,
-    mark_initial_walk_complete,
+    active_queue_depth, finalize_relative_path_migration, is_relative_path_migration_in_progress,
+    mark_initial_walk_complete, migration_queue_depth,
 };
 use workspace_qdrant_core::StorageClient;
 use wqm_common::constants::{COLLECTION_IMAGES, COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
@@ -60,12 +61,12 @@ async fn run(
 
     // Phase 3 is implicit — watchers already started their initial walk.
     // Wait for the walk to settle so the pending count is meaningful.
-    let initial_pending = wait_for_walk_settle(&pool).await;
+    let (initial_pending, cutoff_ts) = wait_for_walk_settle(&pool).await?;
 
     mark_initial_walk_complete(&pool, initial_pending).await?;
 
-    // Phase 4: poll until queue drains, then finalize.
-    poll_and_finalize(&pool).await?;
+    // Phase 4: poll until migration-scoped queue drains, then finalize.
+    poll_and_finalize(&pool, &cutoff_ts).await?;
 
     Ok(())
 }
@@ -132,35 +133,51 @@ async fn truncate_qdrant_collections(storage: &StorageClient) {
 ///
 /// Strategy: let the walk settle for `WALK_SETTLE_DELAY`, then poll until
 /// the queue depth stabilises (two consecutive reads return the same value).
-async fn wait_for_walk_settle(pool: &SqlitePool) -> i64 {
+///
+/// Returns `(pending_count, cutoff_timestamp)` -- the cutoff is captured at
+/// settle time so that `poll_and_finalize` only waits for migration-era
+/// items, ignoring unrelated live traffic that arrives later.
+async fn wait_for_walk_settle(
+    pool: &SqlitePool,
+) -> Result<(i64, String), Box<dyn std::error::Error + Send + Sync>> {
     tokio::time::sleep(WALK_SETTLE_DELAY).await;
 
     let mut prev: i64 = -1;
     loop {
-        let depth = active_queue_depth(pool).await;
+        let depth = active_queue_depth(pool).await?;
         if depth == prev {
-            info!("relative-path migration: initial walk settled, {depth} items queued");
-            return depth;
+            // Capture the cutoff timestamp at settle time. Any items created
+            // after this point are live traffic, not part of the migration.
+            let cutoff_ts = wqm_common::timestamps::now_utc();
+            info!(
+                "relative-path migration: initial walk settled, \
+                 {depth} items queued (cutoff_ts={cutoff_ts})"
+            );
+            return Ok((depth, cutoff_ts));
         }
         prev = depth;
         tokio::time::sleep(WALK_POLL_INTERVAL).await;
     }
 }
 
-/// Poll until the queue is fully drained, then finalize.
+/// Poll until migration-scoped queue items are fully drained, then finalize.
+///
+/// Only items created at or before `cutoff_ts` are considered. This prevents
+/// live traffic from keeping the migration marker alive indefinitely.
 async fn poll_and_finalize(
     pool: &SqlitePool,
+    cutoff_ts: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("relative-path migration: waiting for queue to drain");
+    info!("relative-path migration: waiting for queue to drain (cutoff={cutoff_ts})");
 
     let mut last_logged: i64 = -1;
     loop {
-        let depth = active_queue_depth(pool).await;
+        let depth = migration_queue_depth(pool, cutoff_ts).await?;
         if depth == 0 {
             break;
         }
         if depth != last_logged {
-            info!("relative-path migration: {depth} items remaining");
+            info!("relative-path migration: {depth} migration items remaining");
             last_logged = depth;
         }
         tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
@@ -171,12 +188,3 @@ async fn poll_and_finalize(
     Ok(())
 }
 
-/// Count of pending + in_progress items in the unified queue.
-async fn active_queue_depth(pool: &SqlitePool) -> i64 {
-    sqlx::query_scalar(
-        "SELECT COUNT(*) FROM unified_queue WHERE status IN ('pending', 'in_progress')",
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0)
-}
