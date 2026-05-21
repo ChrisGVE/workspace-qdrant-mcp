@@ -31,6 +31,7 @@ import {
   fallbackSearch,
 } from './search-qdrant.js';
 import { expandGraphContext } from './search-graph-context.js';
+import { expandAndFuseWithGraph } from './search-graph-expansion.js';
 
 /** Maximum active base_points we still attach as a Qdrant filter. Above
  * this the filter clause would blow past server-side limits; we instead
@@ -297,6 +298,12 @@ export async function finalizeResults(
 ): Promise<SearchResponse> {
   const fusedResults = applyRRFFusion(params.allResults, params.mode);
   fusedResults.sort((a, b) => b.score - a.score);
+
+  if (params.options.includeGraphContext) {
+    const primaryCollection = params.collectionsToSearch[0] ?? 'projects';
+    await expandAndFuseWithGraph(daemonClient, fusedResults, primaryCollection);
+  }
+
   const finalResults = fusedResults.slice(0, params.limit);
 
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);
