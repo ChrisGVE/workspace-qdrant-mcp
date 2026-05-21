@@ -155,6 +155,8 @@ pub struct TrackedFile {
     pub incremental: bool,
     /// Dot-separated component ID (e.g. "daemon.core", "cli")
     pub component: Option<String>,
+    /// Routing reason for format-based collection assignment (e.g. "format_based").
+    pub routing_reason: Option<String>,
     /// Creation timestamp (ISO 8601)
     pub created_at: String,
     /// Last update timestamp (ISO 8601)
