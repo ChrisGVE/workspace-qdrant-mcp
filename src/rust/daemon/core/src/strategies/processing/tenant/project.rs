@@ -9,6 +9,7 @@ use std::path::Path;
 use tracing::{debug, info, warn};
 
 use crate::context::ProcessingContext;
+use crate::grouping::git_org;
 use crate::specs::parse_payload;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{ItemType, ProjectPayload, QueueOperation, UnifiedQueueItem};
@@ -61,7 +62,7 @@ pub(crate) async fn process_project_item(
 /// Handle Tenant/Add for the projects collection.
 ///
 /// Creates the Qdrant collection (idempotent), inserts a watch_folder row,
-/// and enqueues a follow-up (Tenant, Scan) item.
+/// enqueues a follow-up (Tenant, Scan) item, and updates git-org grouping.
 async fn handle_project_add(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -78,6 +79,20 @@ async fn handle_project_add(
     let git_status = crate::git::detect_git_status(std::path::Path::new(&payload.project_root));
     insert_watch_folder(ctx, item, payload, &git_status).await?;
     enqueue_project_scan(ctx, item, payload).await;
+
+    // Update git-org group membership for this project.
+    // Non-critical: failure to group does not block project registration.
+    if let Some(ref remote_url) = payload.git_remote {
+        if let Err(e) =
+            git_org::update_project_org_group(ctx.queue_manager.pool(), &item.tenant_id, remote_url)
+                .await
+        {
+            warn!(
+                "Failed to update git org group for tenant={}: {} (non-critical)",
+                item.tenant_id, e
+            );
+        }
+    }
 
     // Spawn background grammar pre-warming for this project's languages.
     // Non-blocking: project registration returns immediately.
@@ -281,7 +296,8 @@ async fn handle_project_scan(
 /// Handle Tenant/Delete scoped to the projects collection.
 ///
 /// Full cleanup: cancel pending queue items, delete tracked_files,
-/// delete watch_folders (including child folders), delete Qdrant points.
+/// delete watch_folders (including child folders), remove git-org group
+/// membership, and delete Qdrant points.
 async fn handle_project_delete(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -339,7 +355,20 @@ async fn handle_project_delete(
         folders_deleted, item.tenant_id
     );
 
-    // 4. Delete Qdrant points
+    // 4. Remove git-org group membership for this tenant (non-critical)
+    if let Err(e) =
+        sqlx::query("DELETE FROM project_groups WHERE tenant_id = ?1 AND group_type = 'git_org'")
+            .bind(&item.tenant_id)
+            .execute(pool)
+            .await
+    {
+        warn!(
+            "Failed to remove git org group membership for tenant={}: {} (non-critical)",
+            item.tenant_id, e
+        );
+    }
+
+    // 5. Delete Qdrant points
     if ctx
         .storage_client
         .collection_exists(&item.collection)

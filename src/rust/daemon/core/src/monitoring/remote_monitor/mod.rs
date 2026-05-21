@@ -11,11 +11,13 @@
 //! The detection runs during the daemon polling cycle. When a change is detected:
 //! 1. SQLite `watch_folders` are updated atomically (tenant_id, git_remote_url, remote_hash)
 //! 2. A cascade rename queue item is enqueued to update Qdrant point payloads
+//! 3. Git-org group membership is updated to reflect the new organization
 
 use git2::Repository;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
+use crate::grouping::git_org;
 use crate::project_disambiguation::ProjectIdCalculator;
 use crate::queue_operations::QueueManager;
 use wqm_common::constants::COLLECTION_PROJECTS;
@@ -161,6 +163,14 @@ async fn process_remote_change(
         normalized_stored, normalized_current
     );
     enqueue_cascade_rename(queue_manager, old_tenant_id, &new_tenant_id, &reason).await;
+
+    // Update git-org group membership for the new tenant/remote (non-critical).
+    if let Err(e) = git_org::update_project_org_group(pool, &new_tenant_id, current_url).await {
+        warn!(
+            "Failed to update git org group after remote change for {}: {} (non-critical)",
+            new_tenant_id, e
+        );
+    }
 
     Ok(())
 }
@@ -445,6 +455,33 @@ async fn apply_git_state_transition(
     if new_tenant_id != old_tenant_id {
         let reason = format!("Git state transition: {}", transition);
         enqueue_cascade_rename(queue_manager, old_tenant_id, &new_tenant_id, &reason).await;
+    }
+
+    // Update git-org group membership when remote URL changes (non-critical).
+    match current_remote {
+        Some(url) => {
+            if let Err(e) = git_org::update_project_org_group(pool, &new_tenant_id, url).await {
+                warn!(
+                    "Failed to update git org group after state transition for {}: {} (non-critical)",
+                    new_tenant_id, e
+                );
+            }
+        }
+        None => {
+            // Remote removed -- clear any git_org group membership
+            if let Err(e) = sqlx::query(
+                "DELETE FROM project_groups WHERE tenant_id = ? AND group_type = 'git_org'",
+            )
+            .bind(&new_tenant_id)
+            .execute(pool)
+            .await
+            {
+                warn!(
+                    "Failed to remove git org group for {}: {} (non-critical)",
+                    new_tenant_id, e
+                );
+            }
+        }
     }
 
     Ok(())
