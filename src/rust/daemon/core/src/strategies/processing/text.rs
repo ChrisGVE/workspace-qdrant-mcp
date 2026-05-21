@@ -56,9 +56,13 @@ impl TextStrategy {
             item.queue_id, item.collection
         );
 
-        crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+        crate::shared::ensure_collection(
+            &ctx.storage_client,
+            &item.collection,
+            ctx.embedding_generator.dense_dim() as u64,
+        )
+        .await
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         // Route to collection-specific or generic content processing
         if item.collection == wqm_common::constants::COLLECTION_RULES {

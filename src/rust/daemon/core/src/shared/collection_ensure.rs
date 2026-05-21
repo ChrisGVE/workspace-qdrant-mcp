@@ -19,13 +19,13 @@ use crate::storage::{MultiTenantConfig, StorageClient, StorageError};
 pub async fn ensure_collection(
     storage_client: &Arc<StorageClient>,
     collection_name: &str,
+    vector_size: u64,
 ) -> Result<(), StorageError> {
-    ensure_collection_with_config(
-        storage_client,
-        collection_name,
-        &MultiTenantConfig::default(),
-    )
-    .await
+    let config = MultiTenantConfig {
+        vector_size,
+        ..MultiTenantConfig::default()
+    };
+    ensure_collection_with_config(storage_client, collection_name, &config).await
 }
 
 /// Ensure a canonical Qdrant collection exists using `Collection` enum config.
@@ -57,8 +57,9 @@ pub async fn ensure_collection_with_config(
 ) -> Result<(), StorageError> {
     if !storage_client.collection_exists(collection_name).await? {
         info!(
-            "Creating collection '{}' with multi-tenant config (dense+sparse)",
-            collection_name
+            collection = collection_name,
+            vector_size = config.vector_size,
+            "Creating collection with multi-tenant config (dense+sparse)",
         );
         storage_client
             .create_multi_tenant_collection(collection_name, config)
@@ -69,10 +70,16 @@ pub async fn ensure_collection_with_config(
 
 #[cfg(test)]
 mod tests {
-    // Integration tests for ensure_collection require a running Qdrant instance.
-    // Unit-level verification is done by checking that the function signature
-    // matches what all 6+ call sites expect (StorageClient + name + optional config).
-    //
-    // The refactoring correctness is verified by the existing integration tests
-    // in `file_ingestion_pipeline_tests.rs` and `fts5_integration_tests.rs`.
+    use super::*;
+
+    #[test]
+    fn ensure_collection_requires_explicit_vector_size() {
+        let non_default_dim: u64 = 1536;
+        let config = MultiTenantConfig {
+            vector_size: non_default_dim,
+            ..MultiTenantConfig::default()
+        };
+        assert_eq!(config.vector_size, non_default_dim);
+        assert_ne!(config.vector_size, 384);
+    }
 }
