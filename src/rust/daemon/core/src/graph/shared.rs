@@ -88,9 +88,11 @@ impl<S: GraphStore> SharedGraphStore<S> {
         guard.insert_edges(edges).await
     }
 
-    /// Atomic re-ingestion: delete old edges for a file, then insert new
+    /// Atomic re-ingestion: delete old edges for a file, then upsert new
     /// nodes and edges. Holds the write lock for the entire operation so
-    /// readers never see a partially-updated file.
+    /// readers never see a partially-updated file. The underlying store
+    /// runs all three steps in a single SQLite transaction, so a crash
+    /// mid-operation leaves the database unchanged.
     pub async fn reingest_file(
         &self,
         tenant_id: &str,
@@ -99,10 +101,9 @@ impl<S: GraphStore> SharedGraphStore<S> {
         edges: &[GraphEdge],
     ) -> GraphDbResult<()> {
         let guard = self.inner.write().await;
-        guard.delete_edges_by_file(tenant_id, file_path).await?;
-        guard.upsert_nodes(nodes).await?;
-        guard.insert_edges(edges).await?;
-        Ok(())
+        guard
+            .reingest_file(tenant_id, file_path, nodes, edges)
+            .await
     }
 
     /// Delete all data for a tenant (exclusive lock).

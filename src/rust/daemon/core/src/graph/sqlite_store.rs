@@ -373,6 +373,97 @@ impl GraphStore for SqliteGraphStore {
         debug!("Pruned {} orphaned nodes for tenant {}", count, tenant_id);
         Ok(count)
     }
+
+    /// Atomic re-ingestion: delete old edges, upsert nodes, insert new edges
+    /// all within a single SQLite transaction. If any step fails, the entire
+    /// transaction is rolled back leaving the database unchanged.
+    async fn reingest_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+        nodes: &[GraphNode],
+        edges: &[GraphEdge],
+    ) -> GraphDbResult<()> {
+        let now = now_utc();
+        let mut tx = self.pool.begin().await?;
+
+        // Step 1: Delete old edges for this file
+        let deleted =
+            sqlx::query("DELETE FROM graph_edges WHERE tenant_id = ?1 AND source_file = ?2")
+                .bind(tenant_id)
+                .bind(file_path)
+                .execute(&mut *tx)
+                .await?;
+        debug!(
+            "reingest_file: deleted {} old edges for {} in tenant {}",
+            deleted.rows_affected(),
+            file_path,
+            tenant_id,
+        );
+
+        // Step 2: Upsert nodes
+        for node in nodes {
+            sqlx::query(
+                "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
+                    file_path, start_line, end_line, signature, language,
+                    created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    symbol_name = excluded.symbol_name,
+                    symbol_type = excluded.symbol_type,
+                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path
+                                     ELSE excluded.file_path END,
+                    start_line = COALESCE(excluded.start_line, graph_nodes.start_line),
+                    end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
+                    signature = COALESCE(excluded.signature, graph_nodes.signature),
+                    language = COALESCE(excluded.language, graph_nodes.language),
+                    updated_at = ?10",
+            )
+            .bind(&node.node_id)
+            .bind(&node.tenant_id)
+            .bind(&node.symbol_name)
+            .bind(node.symbol_type.as_str())
+            .bind(&node.file_path)
+            .bind(node.start_line.map(|v| v as i64))
+            .bind(node.end_line.map(|v| v as i64))
+            .bind(&node.signature)
+            .bind(&node.language)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Step 3: Insert new edges
+        for edge in edges {
+            sqlx::query(
+                "INSERT OR IGNORE INTO graph_edges
+                    (edge_id, tenant_id, source_node_id, target_node_id, edge_type,
+                     source_file, weight, metadata_json, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .bind(&edge.edge_id)
+            .bind(&edge.tenant_id)
+            .bind(&edge.source_node_id)
+            .bind(&edge.target_node_id)
+            .bind(edge.edge_type.as_str())
+            .bind(&edge.source_file)
+            .bind(edge.weight)
+            .bind(&edge.metadata_json)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        debug!(
+            "reingest_file: committed {} nodes + {} edges for {} in tenant {}",
+            nodes.len(),
+            edges.len(),
+            file_path,
+            tenant_id,
+        );
+        Ok(())
+    }
 }
 
 impl SqliteGraphStore {

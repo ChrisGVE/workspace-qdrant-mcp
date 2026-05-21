@@ -343,6 +343,27 @@ pub trait GraphStore: Send + Sync {
 
     /// Delete orphaned nodes (nodes with no edges).
     async fn prune_orphans(&self, tenant_id: &str) -> GraphDbResult<u64>;
+
+    /// Atomically re-ingest a file: delete old edges, upsert nodes, insert new
+    /// edges — all within a single transaction. On error the database remains
+    /// unchanged (all-or-nothing).
+    ///
+    /// The default implementation calls the three operations sequentially,
+    /// which is correct for backends that provide their own atomicity
+    /// guarantees (e.g. LadybugDB). `SqliteGraphStore` overrides this to
+    /// use a single SQLite transaction.
+    async fn reingest_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+        nodes: &[GraphNode],
+        edges: &[GraphEdge],
+    ) -> GraphDbResult<()> {
+        self.delete_edges_by_file(tenant_id, file_path).await?;
+        self.upsert_nodes(nodes).await?;
+        self.insert_edges(edges).await?;
+        Ok(())
+    }
 }
 
 /// Compute deterministic node ID from its identifying fields.
