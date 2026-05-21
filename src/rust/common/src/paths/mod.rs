@@ -32,6 +32,7 @@
 //! XDG variables ($XDG_CONFIG_HOME, $XDG_DATA_HOME, $XDG_CACHE_HOME) are
 //! respected on all platforms.
 
+mod boundary;
 mod canonical;
 mod error;
 mod local;
@@ -42,6 +43,7 @@ mod relative;
 #[cfg(test)]
 mod tests;
 
+pub use boundary::is_within_boundary;
 pub use canonical::CanonicalPath;
 pub use error::PathError;
 pub use local::LocalPath;
