@@ -121,6 +121,7 @@ pub(super) async fn embed_chunks(
             file_hash,
             file_type,
             &chunk.metadata,
+            None, // library_ctx
         );
 
         let (symbol_name, start_line, end_line, chunk_type) = extract_chunk_metadata(chunk);
