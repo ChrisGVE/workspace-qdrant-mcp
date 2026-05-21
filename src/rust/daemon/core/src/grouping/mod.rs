@@ -7,10 +7,12 @@
 //! - **dependency**: Shared dependency (Jaccard) grouping
 //! - **workspace**: Workspace membership (Cargo, npm, Go) grouping
 //! - **git_org**: Git organization/user grouping
+//! - **scheduler**: Unified coordinator for all strategies
 
 pub mod affinity;
 pub mod dependency;
 pub mod git_org;
+pub mod scheduler;
 pub mod schema;
 pub mod workspace;
 
@@ -51,3 +53,6 @@ pub use workspace::{
 pub use git_org::{
     compute_git_org_groups, extract_git_org, org_to_group_id, update_project_org_group,
 };
+
+// Re-export scheduler types
+pub use scheduler::{compute_all_groups, list_all_groups, GroupingResult, GroupingScheduler};

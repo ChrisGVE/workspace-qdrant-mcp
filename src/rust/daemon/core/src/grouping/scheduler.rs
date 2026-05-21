@@ -1,6 +1,6 @@
 //! Grouping scheduler -- unified coordinator for all project grouping strategies.
 //!
-//! Orchestrates the four grouping strategies in the correct order:
+//! Orchestrates the five grouping strategies in the correct order:
 //!
 //! 1. **Phase 1** (input data, independent):
 //!    - Dependency-based (Jaccard on dep sets)
@@ -8,7 +8,8 @@
 //!    - Git-org-based (shared remote URL org)
 //!
 //! 2. **Phase 2** (derived from phase 1 data):
-//!    - Tag-affinity-based (Jaccard on tag profiles / embedding similarity)
+//!    - Embedding-affinity-based (cosine similarity on aggregate embeddings)
+//!    - Tag-affinity-based (Jaccard on tag profiles)
 //!
 //! Each strategy is tracked independently for staleness. A strategy only
 //! reruns if its cooldown has expired since its last successful run.
@@ -18,6 +19,7 @@ use std::time::{Duration, Instant};
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
+use super::affinity::tag_affinity::{compute_tag_affinity_groups, TagAffinityConfig};
 use super::affinity::{AffinityConfig, AffinityGrouper};
 use super::{dependency, git_org, workspace};
 
@@ -31,6 +33,7 @@ pub struct GroupingResult {
     pub workspace_groups: Option<usize>,
     pub git_org_groups: Option<usize>,
     pub affinity_groups: Option<usize>,
+    pub tag_affinity_groups: Option<usize>,
     pub skipped_strategies: Vec<String>,
     pub failed_strategies: Vec<(String, String)>,
 }
@@ -42,6 +45,7 @@ impl GroupingResult {
             + self.workspace_groups.unwrap_or(0)
             + self.git_org_groups.unwrap_or(0)
             + self.affinity_groups.unwrap_or(0)
+            + self.tag_affinity_groups.unwrap_or(0)
     }
 }
 
@@ -81,6 +85,7 @@ pub struct GroupingScheduler {
     workspace: StrategyState,
     git_org: StrategyState,
     affinity: StrategyState,
+    tag_affinity: StrategyState,
 }
 
 impl GroupingScheduler {
@@ -91,21 +96,7 @@ impl GroupingScheduler {
             workspace: StrategyState::new("workspace", DEFAULT_COOLDOWN_SECS),
             git_org: StrategyState::new("git_org", DEFAULT_COOLDOWN_SECS),
             affinity: StrategyState::new("affinity", DEFAULT_COOLDOWN_SECS),
-        }
-    }
-
-    /// Create a scheduler with custom cooldowns (in seconds).
-    pub fn with_cooldowns(
-        dependency_secs: u64,
-        workspace_secs: u64,
-        git_org_secs: u64,
-        affinity_secs: u64,
-    ) -> Self {
-        Self {
-            dependency: StrategyState::new("dependency", dependency_secs),
-            workspace: StrategyState::new("workspace", workspace_secs),
-            git_org: StrategyState::new("git_org", git_org_secs),
-            affinity: StrategyState::new("affinity", affinity_secs),
+            tag_affinity: StrategyState::new("tag_affinity", DEFAULT_COOLDOWN_SECS),
         }
     }
 
@@ -115,15 +106,20 @@ impl GroupingScheduler {
             || self.workspace.is_stale()
             || self.git_org.is_stale()
             || self.affinity.is_stale()
+            || self.tag_affinity.is_stale()
     }
 
     /// Snapshot of last-run timestamps for observability.
+    ///
+    /// Returns pairs of (strategy_name, seconds_since_last_run).
+    /// The order matches execution order: phase 1 then phase 2.
     pub fn strategy_status(&self) -> Vec<(&str, Option<u64>)> {
         [
             &self.dependency,
             &self.workspace,
             &self.git_org,
             &self.affinity,
+            &self.tag_affinity,
         ]
         .iter()
         .map(|s| (s.name, s.last_run.map(|t| t.elapsed().as_secs())))
@@ -133,8 +129,8 @@ impl GroupingScheduler {
     /// Run all stale grouping strategies in the correct order.
     ///
     /// Phase 1 strategies (dependency, workspace, git_org) run first since
-    /// they produce input data. Phase 2 (affinity) runs after because it
-    /// derives from phase 1 outputs.
+    /// they produce input data. Phase 2 (affinity, tag_affinity) runs after
+    /// because they derive from phase 1 outputs.
     ///
     /// Only strategies whose cooldown has expired are rerun. Failures in
     /// one strategy do not block others.
@@ -144,82 +140,21 @@ impl GroupingScheduler {
             workspace_groups: None,
             git_org_groups: None,
             affinity_groups: None,
+            tag_affinity_groups: None,
             skipped_strategies: Vec::new(),
             failed_strategies: Vec::new(),
         };
 
         // -- Phase 1: input-data strategies (independent, can run in any order) --
 
-        if self.dependency.is_stale() {
-            match dependency::compute_dependency_groups(pool, None).await {
-                Ok(groups) => {
-                    result.dependency_groups = Some(groups);
-                    self.dependency.mark_completed();
-                    debug!(groups, "Dependency grouping complete");
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    warn!(error = msg.as_str(), "Dependency grouping failed");
-                    result.failed_strategies.push(("dependency".into(), msg));
-                }
-            }
-        } else {
-            result.skipped_strategies.push("dependency".into());
-        }
-
-        if self.workspace.is_stale() {
-            match workspace::compute_workspace_groups(pool).await {
-                Ok(groups) => {
-                    result.workspace_groups = Some(groups);
-                    self.workspace.mark_completed();
-                    debug!(groups, "Workspace grouping complete");
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    warn!(error = msg.as_str(), "Workspace grouping failed");
-                    result.failed_strategies.push(("workspace".into(), msg));
-                }
-            }
-        } else {
-            result.skipped_strategies.push("workspace".into());
-        }
-
-        if self.git_org.is_stale() {
-            match git_org::compute_git_org_groups(pool).await {
-                Ok(groups) => {
-                    result.git_org_groups = Some(groups);
-                    self.git_org.mark_completed();
-                    debug!(groups, "Git org grouping complete");
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    warn!(error = msg.as_str(), "Git org grouping failed");
-                    result.failed_strategies.push(("git_org".into(), msg));
-                }
-            }
-        } else {
-            result.skipped_strategies.push("git_org".into());
-        }
+        run_dependency(&mut self.dependency, pool, &mut result).await;
+        run_workspace(&mut self.workspace, pool, &mut result).await;
+        run_git_org(&mut self.git_org, pool, &mut result).await;
 
         // -- Phase 2: derived strategies (depend on phase 1 data) --
 
-        if self.affinity.is_stale() {
-            let grouper = AffinityGrouper::new(pool.clone(), AffinityConfig::default());
-            match grouper.compute_affinity_groups().await {
-                Ok(groups) => {
-                    result.affinity_groups = Some(groups);
-                    self.affinity.mark_completed();
-                    debug!(groups, "Affinity grouping complete");
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    warn!(error = msg.as_str(), "Affinity grouping failed");
-                    result.failed_strategies.push(("affinity".into(), msg));
-                }
-            }
-        } else {
-            result.skipped_strategies.push("affinity".into());
-        }
+        run_affinity(&mut self.affinity, pool, &mut result).await;
+        run_tag_affinity(&mut self.tag_affinity, pool, &mut result).await;
 
         info!(
             total = result.total_groups(),
@@ -227,6 +162,7 @@ impl GroupingScheduler {
             workspace = ?result.workspace_groups,
             git_org = ?result.git_org_groups,
             affinity = ?result.affinity_groups,
+            tag_affinity = ?result.tag_affinity_groups,
             skipped = result.skipped_strategies.len(),
             failed = result.failed_strategies.len(),
             "Grouping scheduler cycle complete"
@@ -236,16 +172,120 @@ impl GroupingScheduler {
     }
 }
 
+// ---- Strategy runners (extracted to keep run_stale concise) ----------------
+
+async fn run_dependency(state: &mut StrategyState, pool: &SqlitePool, result: &mut GroupingResult) {
+    if !state.is_stale() {
+        result.skipped_strategies.push("dependency".into());
+        return;
+    }
+    match dependency::compute_dependency_groups(pool, None).await {
+        Ok(groups) => {
+            result.dependency_groups = Some(groups);
+            state.mark_completed();
+            debug!(groups, "Dependency grouping complete");
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            warn!(error = msg.as_str(), "Dependency grouping failed");
+            result.failed_strategies.push(("dependency".into(), msg));
+        }
+    }
+}
+
+async fn run_workspace(state: &mut StrategyState, pool: &SqlitePool, result: &mut GroupingResult) {
+    if !state.is_stale() {
+        result.skipped_strategies.push("workspace".into());
+        return;
+    }
+    match workspace::compute_workspace_groups(pool).await {
+        Ok(groups) => {
+            result.workspace_groups = Some(groups);
+            state.mark_completed();
+            debug!(groups, "Workspace grouping complete");
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            warn!(error = msg.as_str(), "Workspace grouping failed");
+            result.failed_strategies.push(("workspace".into(), msg));
+        }
+    }
+}
+
+async fn run_git_org(state: &mut StrategyState, pool: &SqlitePool, result: &mut GroupingResult) {
+    if !state.is_stale() {
+        result.skipped_strategies.push("git_org".into());
+        return;
+    }
+    match git_org::compute_git_org_groups(pool).await {
+        Ok(groups) => {
+            result.git_org_groups = Some(groups);
+            state.mark_completed();
+            debug!(groups, "Git org grouping complete");
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            warn!(error = msg.as_str(), "Git org grouping failed");
+            result.failed_strategies.push(("git_org".into(), msg));
+        }
+    }
+}
+
+async fn run_affinity(state: &mut StrategyState, pool: &SqlitePool, result: &mut GroupingResult) {
+    if !state.is_stale() {
+        result.skipped_strategies.push("affinity".into());
+        return;
+    }
+    let grouper = AffinityGrouper::new(pool.clone(), AffinityConfig::default());
+    match grouper.compute_affinity_groups().await {
+        Ok(groups) => {
+            result.affinity_groups = Some(groups);
+            state.mark_completed();
+            debug!(groups, "Affinity grouping complete");
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            warn!(error = msg.as_str(), "Affinity grouping failed");
+            result.failed_strategies.push(("affinity".into(), msg));
+        }
+    }
+}
+
+async fn run_tag_affinity(
+    state: &mut StrategyState,
+    pool: &SqlitePool,
+    result: &mut GroupingResult,
+) {
+    if !state.is_stale() {
+        result.skipped_strategies.push("tag_affinity".into());
+        return;
+    }
+    let config = TagAffinityConfig::default();
+    match compute_tag_affinity_groups(pool, &config).await {
+        Ok(groups) => {
+            result.tag_affinity_groups = Some(groups);
+            state.mark_completed();
+            debug!(groups, "Tag affinity grouping complete");
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            warn!(error = msg.as_str(), "Tag affinity grouping failed");
+            result.failed_strategies.push(("tag_affinity".into(), msg));
+        }
+    }
+}
+
 /// Compute all groups unconditionally (ignoring staleness).
 ///
 /// Intended for startup reconciliation and manual rebuild.
-/// Runs all four strategies in the correct order.
+/// Runs all five strategies in the correct order.
 pub async fn compute_all_groups(pool: &SqlitePool) -> GroupingResult {
     let mut result = GroupingResult {
         dependency_groups: None,
         workspace_groups: None,
         git_org_groups: None,
         affinity_groups: None,
+        tag_affinity_groups: None,
         skipped_strategies: Vec::new(),
         failed_strategies: Vec::new(),
     };
@@ -298,6 +338,22 @@ pub async fn compute_all_groups(pool: &SqlitePool) -> GroupingResult {
             let msg = e.to_string();
             warn!(error = msg.as_str(), "Startup: affinity grouping failed");
             result.failed_strategies.push(("affinity".into(), msg));
+        }
+    }
+
+    let tag_config = TagAffinityConfig::default();
+    match compute_tag_affinity_groups(pool, &tag_config).await {
+        Ok(groups) => {
+            result.tag_affinity_groups = Some(groups);
+            debug!(groups, "Startup: tag affinity grouping complete");
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            warn!(
+                error = msg.as_str(),
+                "Startup: tag affinity grouping failed"
+            );
+            result.failed_strategies.push(("tag_affinity".into(), msg));
         }
     }
 
@@ -371,6 +427,61 @@ mod tests {
         pool
     }
 
+    /// Helper: create all tables required by every grouping strategy.
+    async fn create_all_strategy_tables(pool: &SqlitePool) {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS project_dependencies \
+             (tenant_id TEXT, dep_name TEXT, dep_type TEXT, updated_at TEXT, \
+              PRIMARY KEY (tenant_id, dep_name))",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS watch_folders \
+             (tenant_id TEXT PRIMARY KEY, folder_path TEXT, watch_type TEXT, \
+              is_active INTEGER DEFAULT 1, last_activity_at TEXT, updated_at TEXT, \
+              git_remote_url TEXT, name TEXT)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS project_embeddings \
+             (tenant_id TEXT PRIMARY KEY, embedding BLOB, updated_at TEXT)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS affinity_labels \
+             (group_id TEXT PRIMARY KEY, label TEXT, category TEXT, score REAL)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS tags \
+             (doc_id TEXT, tag TEXT, tag_type TEXT, score REAL, diversity_score REAL, \
+              PRIMARY KEY (doc_id, tag))",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS tracked_files \
+             (file_id TEXT PRIMARY KEY, tenant_id TEXT, file_path TEXT, status TEXT)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
     #[test]
     fn test_strategy_state_initially_stale() {
         let state = StrategyState::new("test", 3600);
@@ -402,7 +513,7 @@ mod tests {
     fn test_scheduler_status_initially_none() {
         let scheduler = GroupingScheduler::new();
         let status = scheduler.strategy_status();
-        assert_eq!(status.len(), 4);
+        assert_eq!(status.len(), STRATEGY_COUNT);
         for (_, last_run) in &status {
             assert!(last_run.is_none());
         }
@@ -415,10 +526,11 @@ mod tests {
             workspace_groups: Some(1),
             git_org_groups: Some(3),
             affinity_groups: None,
+            tag_affinity_groups: Some(1),
             skipped_strategies: vec![],
             failed_strategies: vec![],
         };
-        assert_eq!(result.total_groups(), 6);
+        assert_eq!(result.total_groups(), 7);
     }
 
     #[test]
@@ -428,60 +540,17 @@ mod tests {
             workspace_groups: None,
             git_org_groups: None,
             affinity_groups: None,
+            tag_affinity_groups: None,
             skipped_strategies: vec![],
             failed_strategies: vec![],
         };
         assert_eq!(result.total_groups(), 0);
     }
 
-    #[test]
-    fn test_scheduler_with_custom_cooldowns() {
-        let scheduler = GroupingScheduler::with_cooldowns(60, 120, 180, 240);
-        assert_eq!(scheduler.dependency.cooldown, Duration::from_secs(60));
-        assert_eq!(scheduler.workspace.cooldown, Duration::from_secs(120));
-        assert_eq!(scheduler.git_org.cooldown, Duration::from_secs(180));
-        assert_eq!(scheduler.affinity.cooldown, Duration::from_secs(240));
-    }
-
     #[tokio::test]
     async fn test_run_stale_on_empty_db() {
         let pool = setup_pool().await;
-
-        // Create minimal required tables for dependency/workspace/git_org/affinity
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_dependencies \
-             (tenant_id TEXT, dep_name TEXT, dep_type TEXT, updated_at TEXT, \
-              PRIMARY KEY (tenant_id, dep_name))",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS watch_folders \
-             (tenant_id TEXT PRIMARY KEY, folder_path TEXT, watch_type TEXT, \
-              is_active INTEGER DEFAULT 1, last_activity_at TEXT, updated_at TEXT, \
-              git_remote_url TEXT, name TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_embeddings \
-             (tenant_id TEXT PRIMARY KEY, embedding BLOB, updated_at TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS affinity_labels \
-             (group_id TEXT PRIMARY KEY, label TEXT, category TEXT, score REAL)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        create_all_strategy_tables(&pool).await;
 
         let mut scheduler = GroupingScheduler::new();
         let result = scheduler.run_stale(&pool).await;
@@ -498,39 +567,7 @@ mod tests {
     #[tokio::test]
     async fn test_run_stale_skips_non_stale() {
         let pool = setup_pool().await;
-
-        // Create required tables
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_dependencies \
-             (tenant_id TEXT, dep_name TEXT, dep_type TEXT, updated_at TEXT, \
-              PRIMARY KEY (tenant_id, dep_name))",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS watch_folders \
-             (tenant_id TEXT PRIMARY KEY, folder_path TEXT, watch_type TEXT, \
-              is_active INTEGER DEFAULT 1, last_activity_at TEXT, updated_at TEXT, \
-              git_remote_url TEXT, name TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_embeddings \
-             (tenant_id TEXT PRIMARY KEY, embedding BLOB, updated_at TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS affinity_labels \
-             (group_id TEXT PRIMARY KEY, label TEXT, category TEXT, score REAL)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        create_all_strategy_tables(&pool).await;
 
         let mut scheduler = GroupingScheduler::new();
 
@@ -540,7 +577,7 @@ mod tests {
 
         // Second run immediately: all strategies skipped (cooldown not expired)
         let result2 = scheduler.run_stale(&pool).await;
-        assert_eq!(result2.skipped_strategies.len(), 4);
+        assert_eq!(result2.skipped_strategies.len(), STRATEGY_COUNT);
         assert_eq!(result2.total_groups(), 0);
     }
 
@@ -592,39 +629,7 @@ mod tests {
     #[tokio::test]
     async fn test_compute_all_groups_on_empty_db() {
         let pool = setup_pool().await;
-
-        // Create required tables
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_dependencies \
-             (tenant_id TEXT, dep_name TEXT, dep_type TEXT, updated_at TEXT, \
-              PRIMARY KEY (tenant_id, dep_name))",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS watch_folders \
-             (tenant_id TEXT PRIMARY KEY, folder_path TEXT, watch_type TEXT, \
-              is_active INTEGER DEFAULT 1, last_activity_at TEXT, updated_at TEXT, \
-              git_remote_url TEXT, name TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_embeddings \
-             (tenant_id TEXT PRIMARY KEY, embedding BLOB, updated_at TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS affinity_labels \
-             (group_id TEXT PRIMARY KEY, label TEXT, category TEXT, score REAL)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        create_all_strategy_tables(&pool).await;
 
         let result = compute_all_groups(&pool).await;
         assert!(result.failed_strategies.is_empty());
@@ -640,7 +645,13 @@ mod tests {
         let names: Vec<&str> = status.iter().map(|(n, _)| *n).collect();
         assert_eq!(
             names,
-            vec!["dependency", "workspace", "git_org", "affinity"]
+            vec![
+                "dependency",
+                "workspace",
+                "git_org",
+                "affinity",
+                "tag_affinity"
+            ]
         );
     }
 }
