@@ -248,7 +248,10 @@ impl GraphService for GraphServiceImpl {
 
         let start = std::time::Instant::now();
 
-        let guard = self.graph_store.read().await;
+        let guard = self.graph_store.read().await.map_err(|e| {
+            error!("Failed to acquire graph read lock: {}", e);
+            Status::unavailable(format!("Graph store busy: {}", e))
+        })?;
         let pool = guard.pool();
 
         // Check graph size before full materialization
@@ -344,7 +347,10 @@ impl GraphService for GraphServiceImpl {
 
         let start = std::time::Instant::now();
 
-        let guard = self.graph_store.read().await;
+        let guard = self.graph_store.read().await.map_err(|e| {
+            error!("Failed to acquire graph read lock: {}", e);
+            Status::unavailable(format!("Graph store busy: {}", e))
+        })?;
         let pool = guard.pool();
 
         // Check graph size before full materialization
@@ -435,7 +441,10 @@ impl GraphService for GraphServiceImpl {
 
         let start = std::time::Instant::now();
 
-        let guard = self.graph_store.read().await;
+        let guard = self.graph_store.read().await.map_err(|e| {
+            error!("Failed to acquire graph read lock: {}", e);
+            Status::unavailable(format!("Graph store busy: {}", e))
+        })?;
         let pool = guard.pool();
 
         // Check graph size before full materialization
@@ -545,7 +554,10 @@ impl GraphService for GraphServiceImpl {
             req.from_backend, req.to_backend, tenant_id, batch_size
         );
 
-        let guard = self.graph_store.read().await;
+        let guard = self.graph_store.read().await.map_err(|e| {
+            error!("Failed to acquire graph read lock: {}", e);
+            Status::unavailable(format!("Graph store busy: {}", e))
+        })?;
         let pool = guard.pool();
 
         // Export from SQLite

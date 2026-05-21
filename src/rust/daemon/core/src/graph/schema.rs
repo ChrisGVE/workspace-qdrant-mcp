@@ -3,6 +3,7 @@
 //! Manages `graph.db` — a dedicated SQLite database for code relationship
 //! storage, separate from `state.db` to avoid lock contention with queue ops.
 
+use std::time::Duration;
 use std::path::{Path, PathBuf};
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -38,6 +39,9 @@ pub enum GraphDbError {
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    #[error("Lock timeout on \"{op}\" after {waited:?}")]
+    LockTimeout { op: String, waited: Duration },
 }
 
 /// Result type for graph database operations.

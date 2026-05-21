@@ -37,7 +37,7 @@ async fn test_migration_sqlite_to_sqlite() {
     assert!(src_stats.total_edges > 0);
 
     // Export from source
-    let guard_src = store_src.read().await;
+    let guard_src = store_src.read().await.unwrap();
     let pool_src = guard_src.pool();
     let snapshot = migrator::export_sqlite(pool_src, Some(TENANT))
         .await
@@ -51,7 +51,7 @@ async fn test_migration_sqlite_to_sqlite() {
     let store_tgt = create_factory_store(dir_tgt.path()).await;
 
     // Import into target (snapshot first, then target store)
-    let guard_tgt = store_tgt.read().await;
+    let guard_tgt = store_tgt.read().await.unwrap();
     let report = migrator::import_to_store(&snapshot, &*guard_tgt, 100)
         .await
         .unwrap();
@@ -84,7 +84,7 @@ async fn test_migration_preserves_types() {
     let src_stats = store_src.stats(Some(TENANT)).await.unwrap();
 
     // Export
-    let guard_src = store_src.read().await;
+    let guard_src = store_src.read().await.unwrap();
     let snapshot = migrator::export_sqlite(guard_src.pool(), Some(TENANT))
         .await
         .unwrap();
@@ -92,7 +92,7 @@ async fn test_migration_preserves_types() {
     // Import into fresh store
     let dir_tgt = tempdir().unwrap();
     let store_tgt = create_factory_store(dir_tgt.path()).await;
-    let guard_tgt = store_tgt.read().await;
+    let guard_tgt = store_tgt.read().await.unwrap();
     migrator::import_to_store(&snapshot, &*guard_tgt, 50)
         .await
         .unwrap();
@@ -125,7 +125,7 @@ async fn test_migration_validation() {
     .await;
 
     // Export
-    let guard_src = store_src.read().await;
+    let guard_src = store_src.read().await.unwrap();
     let snapshot = migrator::export_sqlite(guard_src.pool(), Some(TENANT))
         .await
         .unwrap();
@@ -133,7 +133,7 @@ async fn test_migration_validation() {
     // Import
     let dir_tgt = tempdir().unwrap();
     let store_tgt = create_factory_store(dir_tgt.path()).await;
-    let guard_tgt = store_tgt.read().await;
+    let guard_tgt = store_tgt.read().await.unwrap();
     migrator::import_to_store(&snapshot, &*guard_tgt, 50)
         .await
         .unwrap();

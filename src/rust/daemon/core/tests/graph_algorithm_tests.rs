@@ -31,7 +31,7 @@ async fn test_pagerank_on_extracted_graph() {
     .await;
     ingest_file_chunks(&store, &build_rust_main_chunks(), TENANT, "src/main.rs").await;
 
-    let guard = store.read().await;
+    let guard = store.read().await.unwrap();
     let pool = guard.pool();
 
     let config = PageRankConfig::default();
@@ -74,7 +74,7 @@ async fn test_pagerank_with_edge_filter() {
     )
     .await;
 
-    let guard = store.read().await;
+    let guard = store.read().await.unwrap();
     let pool = guard.pool();
 
     let config = PageRankConfig::default();
@@ -112,7 +112,7 @@ async fn test_community_detection_on_extracted_graph() {
     .await;
     ingest_file_chunks(&store, &build_typescript_chunks(), TENANT, "src/App.tsx").await;
 
-    let guard = store.read().await;
+    let guard = store.read().await.unwrap();
     let pool = guard.pool();
 
     let config = CommunityConfig {
@@ -156,7 +156,7 @@ async fn test_betweenness_on_extracted_graph() {
     .await;
     ingest_file_chunks(&store, &build_rust_main_chunks(), TENANT, "src/main.rs").await;
 
-    let guard = store.read().await;
+    let guard = store.read().await.unwrap();
     let pool = guard.pool();
 
     let results = algorithms::compute_betweenness_centrality(pool, TENANT, None, None)
