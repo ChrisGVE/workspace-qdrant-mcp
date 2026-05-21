@@ -6,10 +6,12 @@
 //! - **Tier 3** (LLM-assisted): structured tag extraction via AI providers
 //!
 //! Each tier progressively increases cost and accuracy.
+//! All tags are concept-normalized before storage (see [`normalize`]).
 
 pub mod aggregation;
 pub mod concepts;
 mod llm_aggregation;
+pub mod normalize;
 pub mod providers;
 pub mod taxonomy;
 pub mod taxonomy_cache;
@@ -38,3 +40,6 @@ pub use tier2::{TaxonomyMatch, Tier2Config, Tier2Tagger};
 // ── Tier 3 re-exports ────────────────────────────────────────────────────
 pub use tier3::Tier3Tagger;
 pub use tier3_config::{AccessMode, LlmProvider, ProviderConfig, Tier3Config};
+
+// ── Normalization re-exports ─────────────────────────────────────────────
+pub use normalize::{normalize_tag, normalize_tags};

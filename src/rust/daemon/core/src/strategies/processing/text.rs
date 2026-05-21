@@ -12,6 +12,7 @@ use crate::context::ProcessingContext;
 use crate::specs::parse_payload;
 use crate::storage::DocumentPoint;
 use crate::strategies::ProcessingStrategy;
+use crate::tagging::normalize::normalize_tags;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
     ContentPayload, ItemType, MemoryPayload, QueueOperation, ScratchpadPayload, UnifiedQueueItem,
@@ -225,7 +226,8 @@ impl TextStrategy {
             point_payload.insert("title".to_string(), serde_json::json!(title));
         }
         if !payload.tags.is_empty() {
-            point_payload.insert("tags".to_string(), serde_json::json!(payload.tags));
+            let normalized = normalize_tags(&payload.tags);
+            point_payload.insert("tags".to_string(), serde_json::json!(normalized));
         }
 
         let point = DocumentPoint {
@@ -378,8 +380,9 @@ fn build_rules_payload(
         point_payload.insert("title".to_string(), serde_json::json!(title));
     }
     if let Some(tags) = &payload.tags {
+        let normalized = normalize_tags(tags);
         // Store as comma-separated string for Qdrant keyword matching
-        point_payload.insert("tags".to_string(), serde_json::json!(tags.join(",")));
+        point_payload.insert("tags".to_string(), serde_json::json!(normalized.join(",")));
     }
     if let Some(priority) = payload.priority {
         point_payload.insert("priority".to_string(), serde_json::json!(priority));
@@ -441,5 +444,52 @@ mod tests {
     fn test_text_strategy_name() {
         let strategy = TextStrategy;
         assert_eq!(strategy.name(), "text");
+    }
+
+    #[test]
+    fn test_rules_payload_normalizes_tags() {
+        let payload = MemoryPayload {
+            content: "test rule content".to_string(),
+            source_type: "user".to_string(),
+            label: None,
+            scope: None,
+            project_id: None,
+            title: None,
+            tags: Some(vec!["ML".to_string(), "DB".to_string()]),
+            priority: None,
+            action: None,
+        };
+
+        // Construct a minimal queue item via JSON deserialization
+        let item: UnifiedQueueItem = serde_json::from_str(
+            r#"{
+                "queue_id": "1",
+                "idempotency_key": "test",
+                "item_type": "text",
+                "op": "add",
+                "tenant_id": "test-tenant",
+                "collection": "rules",
+                "status": "pending",
+                "branch": "main",
+                "payload_json": "",
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z"
+            }"#,
+        )
+        .expect("failed to deserialize test queue item");
+
+        let result = build_rules_payload(&item, &payload, "doc-1", "add");
+        let tags_value = result.get("tags").unwrap();
+        let tags_str = tags_value.as_str().unwrap();
+        assert!(
+            tags_str.contains("machine-learning"),
+            "ML should be expanded to machine-learning, got: {}",
+            tags_str
+        );
+        assert!(
+            tags_str.contains("database"),
+            "DB should be expanded to database, got: {}",
+            tags_str
+        );
     }
 }
