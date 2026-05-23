@@ -17,6 +17,7 @@ pub mod scratchpad;
 
 // Search & Queue
 pub mod graph;
+pub mod groups;
 pub mod queue;
 pub mod search;
 pub mod stats;
@@ -27,10 +28,10 @@ pub mod language;
 
 // System Administration
 pub mod admin;
-pub mod docker;
 pub mod backup;
 pub mod collections;
 pub mod config_cmd;
+pub mod docker;
 pub mod ingest;
 pub mod rebuild;
 pub mod restore;
