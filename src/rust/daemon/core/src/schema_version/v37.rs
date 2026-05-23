@@ -165,6 +165,12 @@ async fn rebuild_tracked_files(
         for stmt in crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_INDEXES_SQL {
             conn.execute(*stmt).await?;
         }
+        conn.execute(crate::tracked_files_schema::CREATE_RECONCILE_INDEX_SQL)
+            .await?;
+        conn.execute(crate::tracked_files_schema::CREATE_BASE_POINT_INDEX_SQL)
+            .await?;
+        conn.execute(crate::tracked_files_schema::CREATE_REFCOUNT_INDEX_SQL)
+            .await?;
         return Ok(());
     }
 

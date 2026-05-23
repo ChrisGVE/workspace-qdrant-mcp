@@ -243,7 +243,7 @@ async fn insert_single_line(
     content: &str,
     insert_counter: u32,
 ) -> Result<i64, SearchDbError> {
-    let temp_seq = 1_000_000_000.0 + f64::from(insert_counter);
+    let temp_seq = 1e15 + f64::from(insert_counter);
     let result = sqlx::query(
         "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)",
     )
