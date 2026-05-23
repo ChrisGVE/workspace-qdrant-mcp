@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "kind": "indexed-projects",
+  "updatedAt": "2026-05-23T00:00:00Z",
+  "projects": [
+    {
+      "name": "meu-app",
+      "root": "C:/dev/meu-app",
+      "projectId": null,
+      "qdrantUrl": "http://localhost:6333",
+      "daemonEndpoint": "localhost:50051",
+      "defaultBranch": "main",
+      "tenantStrategy": "project",
+      "enabled": true,
+      "branches": [
+        {
+          "name": "main",
+          "kind": "primary",
+          "path": "C:/dev/meu-app",
+          "baseBranch": "main",
+          "returnBranch": "main",
+          "status": "active",
+          "createdBy": "human",
+          "createdAt": "2026-05-23T00:00:00Z",
+          "lastSeenAt": "2026-05-23T00:00:00Z",
+          "baseCommit": null,
+          "headCommit": null,
+          "lastIndexedCommit": null,
+          "watchEnabled": true,
+          "indexed": true,
+          "purpose": "primary working tree"
+        },
+        {
+          "name": "agent/auth-retry-20260523",
+          "kind": "agent",
+          "path": "C:/dev/meu-app-agent-auth-retry-20260523",
+          "baseBranch": "main",
+          "returnBranch": "main",
+          "status": "active",
+          "createdBy": "claude-or-codex",
+          "createdAt": "2026-05-23T00:00:00Z",
+          "lastSeenAt": "2026-05-23T00:00:00Z",
+          "baseCommit": null,
+          "headCommit": null,
+          "lastIndexedCommit": null,
+          "watchEnabled": true,
+          "indexed": true,
+          "purpose": "corrigir retry de auth",
+          "useWorktree": true
+        }
+      ]
+    }
+  ]
+}

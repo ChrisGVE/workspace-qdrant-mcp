@@ -1,0 +1,398 @@
+# Makefile.win - operacoes Windows para o fork do workspace-qdrant-mcp.
+#
+# Requer GNU Make e PowerShell. Use:
+#   make -f Makefile.win doctor
+#
+# Variaveis uteis:
+#   REPO=C:\dev\workspace-qdrant-mcp
+#   PROJECT=C:\dev\meu-projeto
+#   BRANCH=personal/windows-hardening
+#   SERVER_NAME=workspace-qdrant
+#   QDRANT_URL=http://localhost:6333
+#   DAEMON_ENDPOINT=localhost:50051
+#   TOOLS=search,retrieve,grep,list,store,rules
+#   LOG_DIR=C:\dev\workspace-qdrant-mcp\.wqm-fork\logs
+#
+# Fluxo de branches recomendado:
+#   upstream/main -> main -> fork/overlay -> fork/fixes -> personal/use-in-projects
+#
+# Politica: nunca fazer merge/commit/push autoral/PR diretamente para main.
+
+SHELL := powershell.exe
+.SHELLFLAGS := -NoProfile -ExecutionPolicy Bypass -Command
+
+REPO ?= $(CURDIR)
+PROJECT ?= $(CURDIR)
+BRANCH ?= personal/windows-hardening
+SERVER_NAME ?= workspace-qdrant
+QDRANT_URL ?= http://localhost:6333
+DAEMON_ENDPOINT ?= localhost:50051
+TOOLS ?= search,retrieve,grep,list,store,rules
+LOG_DIR ?= $(REPO)\.wqm-fork\logs
+OBS_INTERVAL ?= 30
+REPAIR ?= false
+
+UPSTREAM_URL ?= https://github.com/ChrisGVE/workspace-qdrant-mcp.git
+MAIN_BRANCH ?= main
+OVERLAY_BRANCH ?= fork/overlay
+FIXES_BRANCH ?= fork/fixes
+USE_BRANCH ?= personal/use-in-projects
+FIX_BRANCH ?= fix/rules-tenant-scope
+SYNC_STRATEGY ?= merge
+PUSH ?= false
+TAG ?= fork-claude-codex-ready-v0.1.0
+TENANT_PATCH ?= patches/fixes/fix-rules-tenant-scope.patch
+TENANT_HARDEN_PATCH ?= patches/fixes/harden-rules-add-scope-error.patch
+RUN_TYPECHECK ?= false
+
+REGISTRY ?= $(REPO)\.wqm-fork\projects.json
+WORKSPACE_NAME ?= workspace-qdrant
+WORKSPACE_PROJECT ?= $(PROJECT)
+WORKSPACE_FIX_BRANCH ?= $(FIX_BRANCH)
+MCP_MANAGER_PATCH ?= patches/mcp/fork-workspace-mcp-tool.patch
+
+# Registry do fork e registry dos projetos indexados sao diferentes.
+FORK_REGISTRY ?= $(REPO)\.wqm-fork\fork-branches.json
+INDEX_REGISTRY ?= $(REPO)\.wqm-fork\indexed-projects.json
+INDEX_PROJECT_NAME ?= $(WORKSPACE_NAME)
+INDEX_PROJECT ?= $(PROJECT)
+INDEX_BRANCH ?= agent/wqm-change
+INDEX_BASE_BRANCH ?= main
+INDEX_RETURN_BRANCH ?= $(INDEX_BASE_BRANCH)
+INDEX_WORKTREE_PATH ?=
+INDEX_WORKTREE_ROOT ?=
+INDEX_USE_WORKTREE ?= true
+INDEX_PURPOSE ?= agent change
+INDEX_CREATED_BY ?= ai-agent
+INDEX_MUTATE ?= true
+WORKSPACE_INDEX_PATCH ?= patches/mcp/workspace-index-mcp-tool.patch
+
+FLOW_ARGS = -RepoDir "$(REPO)" -UpstreamUrl "$(UPSTREAM_URL)" -MainBranch "$(MAIN_BRANCH)" -OverlayBranch "$(OVERLAY_BRANCH)" -FixesBranch "$(FIXES_BRANCH)" -UseBranch "$(USE_BRANCH)" -Strategy "$(SYNC_STRATEGY)" -Push "$(PUSH)"
+TENANT_ARGS = -RepoDir "$(REPO)" -PatchPath "$(TENANT_PATCH)" -ExtraPatchPath "$(TENANT_HARDEN_PATCH)"
+OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)"
+WORKSPACE_ARGS = -RegistryPath "$(REGISTRY)" -Name "$(WORKSPACE_NAME)" -ProjectDir "$(WORKSPACE_PROJECT)" -MainBranch "$(MAIN_BRANCH)" -OverlayBranch "$(OVERLAY_BRANCH)" -FixesBranch "$(FIXES_BRANCH)" -UseBranch "$(USE_BRANCH)" -UpstreamUrl "$(UPSTREAM_URL)" -UpstreamRef "upstream/$(MAIN_BRANCH)" -FixBranch "$(WORKSPACE_FIX_BRANCH)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)" -Push "$(PUSH)"
+INDEX_ARGS = -RegistryPath "$(INDEX_REGISTRY)" -ProjectName "$(INDEX_PROJECT_NAME)" -ProjectDir "$(INDEX_PROJECT)" -BranchName "$(INDEX_BRANCH)" -BaseBranch "$(INDEX_BASE_BRANCH)" -ReturnBranch "$(INDEX_RETURN_BRANCH)" -WorktreePath "$(INDEX_WORKTREE_PATH)" -WorktreeRoot "$(INDEX_WORKTREE_ROOT)" -UseWorktree "$(INDEX_USE_WORKTREE)" -Purpose "$(INDEX_PURPOSE)" -CreatedBy "$(INDEX_CREATED_BY)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)" -Mutate "$(INDEX_MUTATE)"
+
+.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up build-ts test-ts typecheck-ts build-rust start-daemon config apply-config register smoke smoke-full status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate
+
+help:
+	@Write-Host "Targets principais:"
+	@Write-Host "  doctor              - verifica dependencias, repo, Qdrant, daemon e configs"
+	@Write-Host "  qdrant-up           - sobe Qdrant via Docker"
+	@Write-Host "  build-ts            - instala deps e compila MCP TypeScript"
+	@Write-Host "  config/apply-config - gera/aplica configs Claude Desktop e Codex"
+	@Write-Host "  register            - registra PROJECT no wqm"
+	@Write-Host "  smoke               - valida fluxo minimo wqm/Qdrant/daemon"
+	@Write-Host "  smoke-full          - smoke + tenant validate + incremental-check + health"
+	@Write-Host ""
+	@Write-Host "Confiabilidade / observabilidade:"
+	@Write-Host "  health              - snapshot unico de saude em JSONL + resumo humano"
+	@Write-Host "  observe             - monitor continuo de Qdrant/daemon/wqm/queue/projeto"
+	@Write-Host "  incremental-check   - valida registro, watch e consistencia incremental do PROJECT"
+	@Write-Host "  incremental-repair  - tenta reparos nao destrutivos: register, watch resume, check"
+	@Write-Host "  service-stabilize   - tenta iniciar Qdrant/daemon e grava diagnostico"
+	@Write-Host "  reliability-doctor  - health + incremental-check + tenant-validate"
+	@Write-Host ""
+	@Write-Host "Fluxo de branches:"
+	@Write-Host "  branch-help   - explica main -> overlay -> fixes -> use-in-projects"
+	@Write-Host "  branch-status - mostra branches/remotes/log resumido"
+	@Write-Host "  branch-init   - cria/sincroniza main, overlay, fixes e use-in-projects"
+	@Write-Host "  sync-chain    - atualiza main -> overlay -> fixes -> use-in-projects"
+	@Write-Host "  fix-start     - cria FIX_BRANCH limpo a partir da main"
+	@Write-Host "  fix-promote   - merge de FIX_BRANCH em fixes e use-in-projects"
+	@Write-Host ""
+	@Write-Host "Tenant fix:"
+	@Write-Host "  tenant-check    - verifica se patches de tenant sao aplicaveis ou ja estao presentes"
+	@Write-Host "  tenant-apply    - aplica tenant fix + hardening na branch atual (nunca main)"
+	@Write-Host "  tenant-validate - confirma marcadores do tenant fix/hardening"
+	@Write-Host "  tenant-flow     - cria branch fix/*, aplica tenant fix e mostra proximos passos"
+	@Write-Host ""
+	@Write-Host "Multi-projeto / multi-branch:"
+	@Write-Host "  workspace-help       - explica registry local multi-projeto"
+	@Write-Host "  workspace-init       - inicializa .wqm-fork/projects.json"
+	@Write-Host "  workspace-add        - adiciona WORKSPACE_PROJECT com WORKSPACE_NAME"
+	@Write-Host "  workspace-status-all - status git/branches de todos os projetos"
+	@Write-Host "  workspace-sync-all   - sincroniza overlay->fixes->use em todos os projetos"
+	@Write-Host "  workspace-fix-start  - cria branch de correcao em um projeto sem tocar na main"
+	@Write-Host "  workspace-fix-promote- promove correcao para fixes/use"
+	@Write-Host ""
+	@Write-Host "Projetos indexados / branches de agentes:"
+	@Write-Host "  index-help                  - explica indexed-projects.json e agent branches"
+	@Write-Host "  index-init                  - inicializa .wqm-fork/indexed-projects.json"
+	@Write-Host "  index-project-add           - registra projeto indexado"
+	@Write-Host "  index-project-list          - lista projetos indexados"
+	@Write-Host "  index-project-status        - status do projeto/branches/agentes"
+	@Write-Host "  index-agent-start           - cria branch de agente, preferencialmente em worktree"
+	@Write-Host "  index-agent-finish          - marca branch de agente como pronta sem merge"
+	@Write-Host "  index-agent-abandon         - marca branch de agente como abandonada sem deletar por padrao"
+	@Write-Host "  index-observe-all           - observabilidade de todos os projetos indexados"
+	@Write-Host "  index-incremental-check-all - checagem incremental de todos os projetos/branches"
+	@Write-Host ""
+	@Write-Host "MCP workspace_index:"
+	@Write-Host "  workspace-index-check       - valida patch MCP workspace_index"
+	@Write-Host "  workspace-index-apply       - aplica ferramenta MCP workspace_index"
+	@Write-Host "  workspace-index-validate    - confirma ferramenta MCP instalada"
+	@Write-Host ""
+	@Write-Host "MCP workspace manager legado:"
+	@Write-Host "  mcp-manager-check    - valida se patch MCP fork_workspace aplica"
+	@Write-Host "  mcp-manager-apply    - aplica ferramenta MCP local fork_workspace"
+	@Write-Host "  mcp-manager-validate - confirma ferramenta MCP instalada"
+	@Write-Host ""
+	@Write-Host "Exemplos:"
+	@Write-Host "  make -f Makefile.win sync-chain PUSH=true"
+	@Write-Host "  make -f Makefile.win tenant-flow"
+	@Write-Host "  make -f Makefile.win observe PROJECT=C:\dev\meu-projeto OBS_INTERVAL=15"
+
+branch-help:
+	@Write-Host "Fluxo recomendado para este fork:"
+	@Write-Host ""
+	@Write-Host "  upstream/main -> $(MAIN_BRANCH) -> $(OVERLAY_BRANCH) -> $(FIXES_BRANCH) -> $(USE_BRANCH)"
+	@Write-Host ""
+	@Write-Host "Papel de cada branch:"
+	@Write-Host "  $(MAIN_BRANCH): espelho limpo do upstream original. Nao trabalhe direto nela."
+	@Write-Host "  $(OVERLAY_BRANCH): Makefile.win, scripts Windows, docs, templates, AGENTS.md e .ignore."
+	@Write-Host "  $(FIXES_BRANCH): overlay + correcoes que voce quer usar no fork."
+	@Write-Host "  $(USE_BRANCH): branch diaria para instalar e usar nos seus projetos."
+	@Write-Host ""
+	@Write-Host "Correcoes que podem virar PR upstream devem nascer da $(MAIN_BRANCH):"
+	@Write-Host "  make -f Makefile.win fix-start FIX_BRANCH=fix/minha-correcao"
+	@Write-Host ""
+	@Write-Host "Agentes nunca fazem PR/merge para main. O usuario humano decide PRs."
+
+branch-status:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action status-chain
+
+branch-init:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action init-chain
+
+sync-main:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-main
+
+sync-overlay:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-overlay
+
+sync-fixes:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-fixes
+
+sync-use:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-use
+
+sync-chain:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-chain
+
+fix-start:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action start-fix -FixBranch "$(FIX_BRANCH)"
+
+fix-promote:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action merge-fix -FixBranch "$(FIX_BRANCH)"
+
+tag-use:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action tag-use -Tag "$(TAG)"
+
+tenant-check:
+	.\scripts\windows\apply-tenant-fix.ps1 $(TENANT_ARGS) -CheckOnly
+
+tenant-apply:
+	.\scripts\windows\apply-tenant-fix.ps1 $(TENANT_ARGS)
+
+tenant-validate:
+	.\scripts\windows\apply-tenant-fix.ps1 $(TENANT_ARGS) -ValidateOnly
+
+tenant-flow:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action start-fix -FixBranch "$(FIX_BRANCH)"
+	.\scripts\windows\apply-tenant-fix.ps1 $(TENANT_ARGS)
+	@Write-Host "Proximos passos: make -f Makefile.win typecheck-ts; make -f Makefile.win test-ts; git add src/typescript/mcp-server/src/tools; git commit -m 'fix(mcp/rules): scope rule mutations by tenant'"
+
+no-main-pr:
+	@Write-Error "Bloqueado: agentes nao devem abrir PR para main. Use branch fix/* e peca revisao humana."
+	@exit 1
+
+workspace-help:
+	@Write-Host "Registry multi-projeto: $(REGISTRY)"
+	@Write-Host "Fluxo por projeto: upstream/main -> overlay -> fixes -> use-in-projects (sem merge automatizado na main)"
+	@Write-Host "Adicionar: make -f Makefile.win workspace-add WORKSPACE_NAME=nome WORKSPACE_PROJECT=C:\dev\repo"
+	@Write-Host "Status:    make -f Makefile.win workspace-status-all"
+	@Write-Host "Sync all:  make -f Makefile.win workspace-sync-all PUSH=true"
+
+workspace-init:
+	.\scripts\windows\workspace-registry.ps1 -RegistryPath "$(REGISTRY)" -Action init -Mutate true
+
+workspace-add:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action add -Mutate true
+
+workspace-remove:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action remove -Mutate true
+
+workspace-list:
+	.\scripts\windows\workspace-registry.ps1 -RegistryPath "$(REGISTRY)" -Action list
+
+workspace-status:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action status
+
+workspace-status-all:
+	.\scripts\windows\workspace-registry.ps1 -RegistryPath "$(REGISTRY)" -Action status-all
+
+workspace-sync:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action sync-project -Mutate true
+
+workspace-sync-all:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action sync-all -Mutate true
+
+workspace-fix-start:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action start-fix -Mutate true
+
+workspace-fix-promote:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action promote-fix -Mutate true
+
+workspace-observe-all:
+	.\scripts\windows\workspace-registry.ps1 $(WORKSPACE_ARGS) -Action observe-all
+
+mcp-manager-check:
+	.\scripts\windows\mcp-workspace-manager.ps1 -RepoDir "$(REPO)" -PatchPath "$(MCP_MANAGER_PATCH)" -CheckOnly
+
+mcp-manager-apply:
+	.\scripts\windows\mcp-workspace-manager.ps1 -RepoDir "$(REPO)" -PatchPath "$(MCP_MANAGER_PATCH)"
+
+mcp-manager-validate:
+	.\scripts\windows\mcp-workspace-manager.ps1 -RepoDir "$(REPO)" -PatchPath "$(MCP_MANAGER_PATCH)" -ValidateOnly
+
+
+index-help:
+	@Write-Host "Registry de projetos indexados: $(INDEX_REGISTRY)"
+	@Write-Host "Este registry e diferente do fluxo do fork. Ele controla projetos, branches e worktrees criados por agentes."
+	@Write-Host "Fluxo seguro: start-agent-branch -> trabalhar -> finish-agent-branch -> revisao humana -> merge manual."
+	@Write-Host "Nao ha merge automatico para main/original. Use worktrees para branches paralelas."
+
+index-init:
+	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action init -Mutate true
+
+index-project-add:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action add-project
+
+index-project-list:
+	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action list-projects
+
+index-project-status:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action project-status
+
+index-status-all:
+	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action status-all -LogDir "$(LOG_DIR)"
+
+index-branch-list:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action list-branches
+
+index-agent-start:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action start-agent-branch
+
+index-agent-finish:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action finish-agent-branch
+
+index-agent-abandon:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action abandon-agent-branch
+
+index-agent-status:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action agent-branch-status
+
+index-observe:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action observe-project
+
+index-observe-all:
+	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action observe-all -LogDir "$(LOG_DIR)"
+
+index-incremental-check:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action incremental-check
+
+index-incremental-check-all:
+	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action incremental-check-all -LogDir "$(LOG_DIR)"
+
+index-register-wqm:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action register-wqm
+
+index-register-all-wqm:
+	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action register-all-wqm -LogDir "$(LOG_DIR)" -Mutate "$(INDEX_MUTATE)"
+
+workspace-index-check:
+	.\scripts\windows\mcp-workspace-manager.ps1 -RepoDir "$(REPO)" -PatchPath "$(WORKSPACE_INDEX_PATCH)" -CheckOnly
+
+workspace-index-apply:
+	.\scripts\windows\mcp-workspace-manager.ps1 -RepoDir "$(REPO)" -PatchPath "$(WORKSPACE_INDEX_PATCH)"
+
+workspace-index-validate:
+	.\scripts\windows\mcp-workspace-manager.ps1 -RepoDir "$(REPO)" -PatchPath "$(WORKSPACE_INDEX_PATCH)" -ValidateOnly
+
+doctor:
+	.\scripts\windows\doctor.ps1 -RepoDir "$(REPO)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)"
+
+bootstrap:
+	.\scripts\windows\bootstrap.ps1 -RepoDir "$(REPO)" -Branch "$(BRANCH)"
+
+fork-branch:
+	.\scripts\windows\git-flow.ps1 -RepoDir "$(REPO)" -Branch "$(BRANCH)" -Action branch
+
+pull-upstream:
+	.\scripts\windows\git-flow.ps1 -RepoDir "$(REPO)" -Branch "$(BRANCH)" -Action sync
+
+push:
+	.\scripts\windows\git-flow.ps1 -RepoDir "$(REPO)" -Branch "$(BRANCH)" -Action push
+
+pr:
+	@Write-Error "Bloqueado: este kit nao cria PR para main. Use fix-start/fix-promote; PR upstream e decisao humana explicita."
+	@exit 1
+
+qdrant-up:
+	.\scripts\windows\start-qdrant.ps1 -QdrantUrl "$(QDRANT_URL)"
+
+build-ts:
+	Set-Location "$(REPO)\src\typescript\mcp-server"; npm install; npm run build
+
+test-ts:
+	Set-Location "$(REPO)\src\typescript\mcp-server"; npm test
+
+typecheck-ts:
+	Set-Location "$(REPO)\src\typescript\mcp-server"; npm run typecheck
+
+build-rust:
+	Set-Location "$(REPO)\src\rust"; cargo build --manifest-path Cargo.toml --workspace
+
+start-daemon:
+	.\scripts\windows\start-daemon.ps1 -RepoDir "$(REPO)"
+
+config:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ToolCsv "$(TOOLS)"
+
+apply-config:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ToolCsv "$(TOOLS)" -ApplyClaude -ApplyCodex
+
+register:
+	.\scripts\windows\register-project.ps1 -ProjectDir "$(PROJECT)"
+
+smoke:
+	.\scripts\windows\smoke-test.ps1 -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)"
+
+smoke-full: service-stabilize smoke tenant-validate incremental-check health
+
+health:
+	.\scripts\windows\service-observe.ps1 $(OBS_ARGS) -Once
+
+observability-snapshot: health
+
+observe:
+	.\scripts\windows\service-observe.ps1 $(OBS_ARGS) -IntervalSeconds $(OBS_INTERVAL)
+
+incremental-check:
+	.\scripts\windows\incremental-check.ps1 -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -LogDir "$(LOG_DIR)"
+
+incremental-repair:
+	.\scripts\windows\incremental-check.ps1 -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -LogDir "$(LOG_DIR)" -Repair
+
+service-stabilize:
+	.\scripts\windows\service-stabilize.ps1 $(OBS_ARGS)
+
+reliability-doctor: health incremental-check tenant-validate
+
+status:
+	wqm status health
+	wqm project list
+
+clean:
+	if (Test-Path "$(REPO)\src\typescript\mcp-server\dist") { Remove-Item -Recurse -Force "$(REPO)\src\typescript\mcp-server\dist" }
