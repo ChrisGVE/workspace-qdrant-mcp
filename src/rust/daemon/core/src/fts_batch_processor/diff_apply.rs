@@ -151,6 +151,7 @@ async fn apply_diff_ops(
     // Pre-size: one slot per new-file line (exact count not known,
     // but ops.len() is an upper-bound approximation).
     let mut ordered: Vec<(usize, i64)> = Vec::with_capacity(diff.ops.len());
+    let mut insert_counter: u32 = 0;
 
     for op in &diff.ops {
         match op {
@@ -200,7 +201,8 @@ async fn apply_diff_ops(
                 new_index,
                 new_content: content,
             } => {
-                let line_id = insert_single_line(tx, file_id, content).await?;
+                let line_id = insert_single_line(tx, file_id, content, insert_counter).await?;
+                insert_counter += 1;
                 stats.lines_inserted += 1;
                 ordered.push((*new_index, line_id));
             }
@@ -239,13 +241,14 @@ async fn insert_single_line(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     file_id: i64,
     content: &str,
+    insert_counter: u32,
 ) -> Result<i64, SearchDbError> {
-    // Use a large temporary seq; renumber will fix it.
+    let temp_seq = 1_000_000_000.0 + f64::from(insert_counter);
     let result = sqlx::query(
         "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)",
     )
     .bind(file_id)
-    .bind(f64::MAX / 2.0)
+    .bind(temp_seq)
     .bind(content)
     .execute(&mut **tx)
     .await?;
@@ -318,6 +321,16 @@ async fn renumber_after_changes(
             .await?
     };
 
+    // Two-pass renumber to avoid UNIQUE constraint violations:
+    // pass 1 sets negative temp seqs, pass 2 assigns final values.
+    for (i, line_id) in line_ids.iter().enumerate() {
+        let temp_seq = -(i as f64) - 1.0;
+        sqlx::query("UPDATE code_lines SET seq = ?1 WHERE line_id = ?2")
+            .bind(temp_seq)
+            .bind(*line_id)
+            .execute(&mut **tx)
+            .await?;
+    }
     for (i, line_id) in line_ids.iter().enumerate() {
         let new_seq = initial_seq(i);
         let new_line_number = (i + 1) as i64;

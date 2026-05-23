@@ -65,7 +65,10 @@ export function determineCollections(
 // ── Filter condition builders ─────────────────────────────────────────────
 
 function buildProjectCondition(params: FilterParams): Record<string, unknown> | null {
-  if (params.scope === 'group' && params.groupTenantIds && params.groupTenantIds.length > 0) {
+  if (params.scope === 'group') {
+    if (!params.groupTenantIds || params.groupTenantIds.length === 0) {
+      throw new Error('Group scope requires non-empty tenant ID set');
+    }
     return { key: FIELD_TENANT_ID, match: { any: params.groupTenantIds } };
   }
   if (params.scope !== 'project' || !params.projectId) return null;

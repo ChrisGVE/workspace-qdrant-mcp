@@ -97,7 +97,7 @@ export interface SearchResponse {
   mode: SearchMode;
   scope: SearchScope;
   collections_searched: string[];
-  status?: 'ok' | 'uncertain';
+  status?: 'ok' | 'uncertain' | 'error';
   status_reason?: string;
 }
 

@@ -63,7 +63,7 @@ export async function resolveProjectContext(
   stateManager: SqliteStateManager
 ): Promise<ProjectContextResolution> {
   let currentProjectId = projectId;
-  if (!currentProjectId && scope === 'project') {
+  if (!currentProjectId && (scope === 'project' || scope === 'group')) {
     const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
     currentProjectId = projectInfo?.projectId;
   }

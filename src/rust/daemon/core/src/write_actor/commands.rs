@@ -192,6 +192,7 @@ pub struct ConfigureLibraryData {
 pub struct SetIncrementalData {
     pub file_paths: Vec<String>,
     pub clear: bool,
+    pub watch_folder_id: Option<String>,
 }
 
 /// Result of SetIncremental

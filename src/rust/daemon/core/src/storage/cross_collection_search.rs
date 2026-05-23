@@ -911,9 +911,9 @@ mod tests {
         // After diversity: p3 (rank 3 in projects) gets 1/63 * 0.3
         // p4 (rank 4) gets 1/64 * 0.3^2
         // l1 and l2 untouched (only 2 from libraries, within cap)
-        let p3 = merged.iter().find(|r| r.result.id == "p3").unwrap();
-        let p4 = merged.iter().find(|r| r.result.id == "p4").unwrap();
-        let l1 = merged.iter().find(|r| r.result.id == "l1").unwrap();
+        let _p3 = merged.iter().find(|r| r.result.id == "p3").unwrap();
+        let _p4 = merged.iter().find(|r| r.result.id == "p4").unwrap();
+        let _l1 = merged.iter().find(|r| r.result.id == "l1").unwrap();
 
         // l1 should rank above penalised p3
         let l1_pos = merged.iter().position(|r| r.result.id == "l1").unwrap();

@@ -268,19 +268,30 @@ impl WriteActor {
         let mut not_found = 0u32;
 
         for path in &data.file_paths {
-            // `path` is a relative content path validated by the gRPC layer
-            // (extract_relative_paths! macro). Match directly against
-            // tracked_files.relative_path (the column is relative post-v37).
-            let result = sqlx::query(
-                "UPDATE tracked_files \
-                 SET incremental = ?1, updated_at = ?2 \
-                 WHERE relative_path = ?3",
-            )
-            .bind(value)
-            .bind(&now)
-            .bind(path)
-            .execute(&self.pool)
-            .await
+            let result = if let Some(ref wfid) = data.watch_folder_id {
+                sqlx::query(
+                    "UPDATE tracked_files \
+                     SET incremental = ?1, updated_at = ?2 \
+                     WHERE relative_path = ?3 AND watch_folder_id = ?4",
+                )
+                .bind(value)
+                .bind(&now)
+                .bind(path)
+                .bind(wfid)
+                .execute(&self.pool)
+                .await
+            } else {
+                sqlx::query(
+                    "UPDATE tracked_files \
+                     SET incremental = ?1, updated_at = ?2 \
+                     WHERE relative_path = ?3",
+                )
+                .bind(value)
+                .bind(&now)
+                .bind(path)
+                .execute(&self.pool)
+                .await
+            }
             .map_err(|e| format!("database error: {}", e))?;
 
             if result.rows_affected() > 0 {

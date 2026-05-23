@@ -192,13 +192,10 @@ async fn ddl_crash_both_tables_exist_orphan_leak() {
     assert!(tbl_exists(&pool, "tracked_files").await);
     assert_v37_schema(&get_create_sql(&pool).await);
 
-    // GAP: tracked_files_old is NOT cleaned up by the idempotent path.
-    // The rebuild_tracked_files function returns early when it sees
-    // tracked_files already lacks file_path column, without checking
-    // for a leftover tracked_files_old.
+    // tracked_files_old is cleaned up on idempotent rerun.
     assert!(
-        tbl_exists(&pool, "tracked_files_old").await,
-        "tracked_files_old is leaked (known gap in v37 recovery)"
+        !tbl_exists(&pool, "tracked_files_old").await,
+        "tracked_files_old should be dropped on idempotent rerun"
     );
 
     assert!(is_relative_path_migration_in_progress(&pool).await.unwrap());
@@ -312,10 +309,10 @@ async fn ddl_crash_data_copy_interrupted_orphan_leak() {
     assert_eq!(row_count(&pool, "tracked_files").await, 0);
     assert_v37_schema(&get_create_sql(&pool).await);
 
-    // GAP: tracked_files_old with 6 rows is leaked.
+    // tracked_files_old is cleaned up on idempotent rerun.
     assert!(
-        tbl_exists(&pool, "tracked_files_old").await,
-        "tracked_files_old is leaked (known gap)"
+        !tbl_exists(&pool, "tracked_files_old").await,
+        "tracked_files_old should be dropped on idempotent rerun"
     );
 
     assert!(is_relative_path_migration_in_progress(&pool).await.unwrap());
@@ -329,12 +326,10 @@ async fn ddl_crash_data_copy_interrupted_orphan_leak() {
 /// Crash after tracked_files renamed to tracked_files_old but new
 /// tracked_files NOT created. Only tracked_files_old exists.
 ///
-/// DOCUMENTED GAP: `rebuild_tracked_files` checks `table_exists` for
-/// `tracked_files` first and returns early when it does not exist,
-/// without checking for tracked_files_old. This leaves the database
-/// without a tracked_files table and an orphaned tracked_files_old.
+/// Recovery: rebuild_tracked_files detects orphan state and recreates
+/// tracked_files from v37 DDL, then drops tracked_files_old.
 #[tokio::test]
-async fn ddl_crash_rename_orphan_no_recovery() {
+async fn ddl_crash_rename_orphan_recovers() {
     let pool = create_test_pool().await;
     migrate_to_v36(&pool).await;
     seed_tracked_files(&pool).await;
@@ -348,17 +343,17 @@ async fn ddl_crash_rename_orphan_no_recovery() {
     manager.run_migration(37).await.expect("v37 rerun");
     manager.record_migration(37).await.expect("record v37");
 
-    // GAP: tracked_files is NOT recreated because rebuild_tracked_files
-    // returns early when tracked_files does not exist. The orphaned
-    // tracked_files_old remains.
+    // Recovery: tracked_files recreated with v37 schema, old table dropped.
     assert!(
-        !tbl_exists(&pool, "tracked_files").await,
-        "tracked_files is NOT recreated (known gap)"
+        tbl_exists(&pool, "tracked_files").await,
+        "tracked_files should be recreated from v37 DDL"
     );
     assert!(
-        tbl_exists(&pool, "tracked_files_old").await,
-        "tracked_files_old is still orphaned (known gap)"
+        !tbl_exists(&pool, "tracked_files_old").await,
+        "tracked_files_old should be dropped after recovery"
     );
+    assert_v37_schema(&get_create_sql(&pool).await);
+    assert_eq!(row_count(&pool, "tracked_files").await, 0);
 }
 
 // ============================================================================

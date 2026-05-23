@@ -124,6 +124,7 @@ async fn set_incremental_matches_relative_path() {
         .set_incremental(SetIncrementalData {
             file_paths: vec!["chapter1/intro.md".into(), "nonexistent/file.rs".into()],
             clear: false,
+            watch_folder_id: None,
         })
         .await
         .unwrap();
@@ -182,6 +183,7 @@ async fn set_incremental_clear_resets_flag() {
         .set_incremental(SetIncrementalData {
             file_paths: vec!["lib/core.rs".into()],
             clear: true,
+            watch_folder_id: None,
         })
         .await
         .unwrap();
@@ -232,6 +234,7 @@ async fn set_incremental_absolute_path_does_not_match() {
         .set_incremental(SetIncrementalData {
             file_paths: vec!["/home/user/project/src/main.rs".into()],
             clear: false,
+            watch_folder_id: None,
         })
         .await
         .unwrap();

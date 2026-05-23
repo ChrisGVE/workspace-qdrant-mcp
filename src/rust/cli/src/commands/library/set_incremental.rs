@@ -23,7 +23,11 @@ pub async fn execute(files: &[PathBuf], clear: bool) -> Result<()> {
 
     let response = client
         .library_write()
-        .set_incremental(SetIncrementalRequest { file_paths, clear })
+        .set_incremental(SetIncrementalRequest {
+            file_paths,
+            clear,
+            watch_folder_id: String::new(),
+        })
         .await?
         .into_inner();
 

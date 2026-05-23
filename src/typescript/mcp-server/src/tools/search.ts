@@ -233,6 +233,19 @@ export class SearchTool {
       basePointsActiveCount,
     } = await this.resolveContextAndLog(options, options.query, limit, scope, options.projectId);
     const { groupTenantIds, decayMap } = await this.resolveGroupScope(currentProjectId, scope);
+    if (scope === 'group' && (!groupTenantIds || groupTenantIds.length === 0)) {
+      return {
+        results: [],
+        total: 0,
+        query: options.query,
+        mode,
+        scope,
+        collections_searched: collectionsToSearch,
+        status: 'error',
+        status_reason:
+          'Group scope requires a resolved project context. Could not determine project group membership.',
+      };
+    }
     const embeddings = await this.prepareEmbeddings(
       options,
       options.query,

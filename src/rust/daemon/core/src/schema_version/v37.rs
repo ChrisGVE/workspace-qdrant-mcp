@@ -28,7 +28,7 @@
 
 use async_trait::async_trait;
 use sqlx::{Executor, SqlitePool};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::migration::Migration;
 use super::SchemaError;
@@ -148,6 +148,26 @@ async fn rebuild_tracked_files(
     .fetch_one(&mut **conn)
     .await?;
 
+    let old_table_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files_old')",
+    )
+    .fetch_one(&mut **conn)
+    .await?;
+
+    if !table_exists && old_table_exists {
+        warn!(
+            "Migration v37: tracked_files missing but tracked_files_old exists — \
+             recovering from interrupted rebuild"
+        );
+        conn.execute(crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_SQL)
+            .await?;
+        conn.execute("DROP TABLE tracked_files_old").await?;
+        for stmt in crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_INDEXES_SQL {
+            conn.execute(*stmt).await?;
+        }
+        return Ok(());
+    }
+
     if !table_exists {
         debug!("Migration v37: tracked_files does not exist; skipping rebuild");
         return Ok(());
@@ -162,6 +182,10 @@ async fn rebuild_tracked_files(
 
     if !tracked_sql.contains("file_path TEXT NOT NULL") {
         debug!("Migration v37: tracked_files already lacks file_path column");
+        if old_table_exists {
+            debug!("Migration v37: cleaning up leftover tracked_files_old");
+            conn.execute("DROP TABLE tracked_files_old").await?;
+        }
         return Ok(());
     }
 
