@@ -64,6 +64,15 @@ pub struct WatchValidationStats {
     pub folders_valid: u64,
 }
 
+/// Statistics returned by `reconcile_project_groups`.
+#[derive(Debug, Clone, Default)]
+pub struct GroupReconcileStats {
+    /// Number of workspace groups created (Cargo, npm, Go).
+    pub workspace_groups: usize,
+    /// Number of git org groups created.
+    pub git_org_groups: usize,
+}
+
 /// Clean stale state from previous daemon runs.
 ///
 /// Performs seven cleanup operations in safe order (F-036):
@@ -565,6 +574,57 @@ pub async fn reconcile_all_ignore_rules(
     }
 
     Ok(totals)
+}
+
+/// Recompute all project groups on startup.
+///
+/// Rebuilds workspace membership groups (Cargo, npm, Go) and git org groups
+/// from scratch. This ensures groups stay consistent after projects are added
+/// or removed between daemon runs.
+///
+/// Non-critical: failures are logged as warnings and do not block startup.
+pub async fn reconcile_project_groups(pool: &SqlitePool) -> GroupReconcileStats {
+    let mut stats = GroupReconcileStats::default();
+
+    info!("[project_groups] Recomputing workspace and git org groups on startup");
+
+    // Workspace groups: detect Cargo workspaces, npm workspaces, Go modules
+    match crate::workspace_grouper::compute_workspace_groups(pool).await {
+        Ok(count) => {
+            stats.workspace_groups = count;
+            if count > 0 {
+                info!("[project_groups] Created {} workspace groups", count);
+            } else {
+                debug!("[project_groups] No workspace groups detected");
+            }
+        }
+        Err(e) => {
+            warn!(
+                "[project_groups] Failed to compute workspace groups: {} (non-critical)",
+                e
+            );
+        }
+    }
+
+    // Git org groups: extract org/user from git remote URLs
+    match crate::git_org_grouper::compute_git_org_groups(pool).await {
+        Ok(count) => {
+            stats.git_org_groups = count;
+            if count > 0 {
+                info!("[project_groups] Created {} git org groups", count);
+            } else {
+                debug!("[project_groups] No git org groups detected");
+            }
+        }
+        Err(e) => {
+            warn!(
+                "[project_groups] Failed to compute git org groups: {} (non-critical)",
+                e
+            );
+        }
+    }
+
+    stats
 }
 
 #[cfg(test)]

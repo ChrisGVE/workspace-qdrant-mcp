@@ -3,7 +3,7 @@
 //! FTS5 index is maintained incrementally -- individual rows are inserted/deleted
 //! in the FTS index inline with code_lines changes, avoiding expensive full rebuilds.
 
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::code_lines_schema::{initial_seq, FTS5_DELETE_ROW_SQL, FTS5_INSERT_ROW_SQL};
 use crate::line_diff::compute_line_diff;
@@ -55,6 +55,9 @@ impl<'a> FtsBatchProcessor<'a> {
     /// - If `queue_depth > burst_threshold`, uses batch mode (single transaction).
     /// - Otherwise, processes each file individually.
     ///
+    /// On processing failure the batch is requeued into `pending` so that a
+    /// subsequent `flush` call can retry without data loss.
+    ///
     /// Returns statistics about the processing run.
     pub async fn flush(&mut self, queue_depth: usize) -> Result<BatchStats, SearchDbError> {
         if self.pending.is_empty() {
@@ -65,42 +68,60 @@ impl<'a> FtsBatchProcessor<'a> {
         let batch_mode = self.should_use_batch_mode(queue_depth);
         let changes = std::mem::take(&mut self.pending);
 
-        let mut stats = if batch_mode {
+        let result = if batch_mode {
             info!(
                 "FTS5 batch mode: processing {} file changes in single transaction (queue_depth={})",
                 changes.len(),
                 queue_depth
             );
-            self.process_batch(changes).await?
+            self.process_batch(changes).await
         } else {
             debug!(
                 "FTS5 single-file mode: processing {} file changes individually (queue_depth={})",
                 changes.len(),
                 queue_depth
             );
-            self.process_individually(changes).await?
+            self.process_individually(changes).await
         };
 
-        stats.batch_mode = batch_mode;
-        stats.processing_time_ms = start.elapsed().as_millis() as u64;
+        match result {
+            Ok(mut stats) => {
+                stats.batch_mode = batch_mode;
+                stats.processing_time_ms = start.elapsed().as_millis() as u64;
 
-        info!(
-            "FTS5 flush complete: {} files, {} inserted, {} updated, {} deleted, {} unchanged, {} rebalances, {}ms ({})",
-            stats.files_processed,
-            stats.lines_inserted,
-            stats.lines_updated,
-            stats.lines_deleted,
-            stats.lines_unchanged,
-            stats.rebalances_triggered,
-            stats.processing_time_ms,
-            if stats.batch_mode { "batch" } else { "single-file" }
-        );
+                info!(
+                    "FTS5 flush complete: {} files, {} inserted, {} updated, {} deleted, {} unchanged, {} rebalances, {}ms ({})",
+                    stats.files_processed,
+                    stats.lines_inserted,
+                    stats.lines_updated,
+                    stats.lines_deleted,
+                    stats.lines_unchanged,
+                    stats.rebalances_triggered,
+                    stats.processing_time_ms,
+                    if stats.batch_mode { "batch" } else { "single-file" }
+                );
 
-        Ok(stats)
+                Ok(stats)
+            }
+            Err((requeue, err)) => {
+                let count = requeue.len();
+                warn!(
+                    "FTS5 flush failed, requeuing {} file changes: {}",
+                    count, err
+                );
+                self.pending = requeue;
+                Err(err)
+            }
+        }
     }
 
     /// Process all file changes in a single batch transaction.
-    async fn process_batch(&self, changes: Vec<FileChange>) -> Result<BatchStats, SearchDbError> {
+    ///
+    /// On error, returns the full change list for requeue alongside the error.
+    async fn process_batch(
+        &self,
+        changes: Vec<FileChange>,
+    ) -> Result<BatchStats, (Vec<FileChange>, SearchDbError)> {
         let pool = self.search_db.pool();
         let mut stats = BatchStats::default();
 
@@ -113,12 +134,20 @@ impl<'a> FtsBatchProcessor<'a> {
         }
 
         // Phase 2: Apply all changes in a single transaction
-        let mut tx = pool.begin().await?;
+        let mut tx = pool.begin().await.map_err(|e| {
+            let requeue: Vec<FileChange> = file_diffs.iter().map(|(c, _)| c.clone()).collect();
+            (requeue, SearchDbError::from(e))
+        })?;
 
         for (change, diff) in &file_diffs {
             let file_stats =
                 apply_diff_to_code_lines(&mut tx, change.file_id, diff, &change.new_content)
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        let requeue: Vec<FileChange> =
+                            file_diffs.iter().map(|(c, _)| c.clone()).collect();
+                        (requeue, e)
+                    })?;
 
             stats.lines_inserted += file_stats.lines_inserted;
             stats.lines_updated += file_stats.lines_updated;
@@ -126,39 +155,66 @@ impl<'a> FtsBatchProcessor<'a> {
             stats.lines_unchanged += file_stats.lines_unchanged;
             stats.files_processed += 1;
 
-            upsert_file_metadata(&mut tx, change).await?;
+            upsert_file_metadata(&mut tx, change).await.map_err(|e| {
+                let requeue: Vec<FileChange> = file_diffs.iter().map(|(c, _)| c.clone()).collect();
+                (requeue, e)
+            })?;
         }
 
-        tx.commit().await?;
+        tx.commit().await.map_err(|e| {
+            let requeue: Vec<FileChange> = file_diffs.iter().map(|(c, _)| c.clone()).collect();
+            (requeue, SearchDbError::from(e))
+        })?;
 
         // Phase 3: Check if any files need rebalancing (outside transaction)
         for (change, _) in &file_diffs {
-            self.maybe_rebalance(change.file_id, &mut stats).await?;
+            // Rebalance failures are non-fatal -- log and continue
+            if let Err(e) = self.maybe_rebalance(change.file_id, &mut stats).await {
+                warn!(
+                    "FTS5 rebalance failed for file_id={}: {}",
+                    change.file_id, e
+                );
+            }
         }
 
         Ok(stats)
     }
 
     /// Process each file change individually with incremental FTS5 updates.
+    ///
+    /// On error, returns unprocessed changes for requeue alongside the error.
     async fn process_individually(
         &self,
         changes: Vec<FileChange>,
-    ) -> Result<BatchStats, SearchDbError> {
+    ) -> Result<BatchStats, (Vec<FileChange>, SearchDbError)> {
         let pool = self.search_db.pool();
         let mut stats = BatchStats::default();
 
-        for change in changes {
+        for (i, change) in changes.iter().enumerate() {
             let diff = compute_line_diff(&change.old_content, &change.new_content);
 
-            let mut tx = pool.begin().await?;
+            let mut tx = pool.begin().await.map_err(|e| {
+                let remaining = changes[i..].to_vec();
+                (remaining, SearchDbError::from(e))
+            })?;
 
             let file_stats =
                 apply_diff_to_code_lines(&mut tx, change.file_id, &diff, &change.new_content)
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        let remaining = changes[i..].to_vec();
+                        (remaining, e)
+                    })?;
 
-            upsert_file_metadata(&mut tx, &change).await?;
+            upsert_file_metadata(&mut tx, change).await.map_err(|e| {
+                let remaining = changes[i..].to_vec();
+                (remaining, e)
+            })?;
 
-            tx.commit().await?;
+            tx.commit().await.map_err(|e| {
+                let remaining = changes[i..].to_vec();
+                (remaining, SearchDbError::from(e))
+            })?;
 
             stats.lines_inserted += file_stats.lines_inserted;
             stats.lines_updated += file_stats.lines_updated;
@@ -166,7 +222,12 @@ impl<'a> FtsBatchProcessor<'a> {
             stats.lines_unchanged += file_stats.lines_unchanged;
             stats.files_processed += 1;
 
-            self.maybe_rebalance(change.file_id, &mut stats).await?;
+            self.maybe_rebalance(change.file_id, &mut stats)
+                .await
+                .map_err(|e| {
+                    let remaining = changes[i + 1..].to_vec();
+                    (remaining, e)
+                })?;
         }
 
         Ok(stats)
@@ -245,22 +306,28 @@ impl<'a> FtsBatchProcessor<'a> {
     }
 
     /// Delete all code_lines and file_metadata for a file.
-    /// FTS5 entries are removed incrementally.
+    ///
+    /// FTS5 row reads and deletes happen within the same transaction to
+    /// prevent TOCTOU races with concurrent writers.
     pub async fn delete_file(&self, file_id: i64) -> Result<usize, SearchDbError> {
         let pool = self.search_db.pool();
 
-        let old_rows = fetch_fts5_rows(pool, file_id).await?;
+        let mut tx = pool.begin().await?;
+
+        // Fetch FTS5 rows inside the transaction to avoid TOCTOU race:
+        // a concurrent writer inserting rows between a pre-transaction read
+        // and the delete loop would leave orphaned FTS5 entries.
+        let old_rows = fetch_fts5_rows_in_tx(&mut tx, file_id).await?;
 
         if old_rows.is_empty() {
             // Still clean up file_metadata if it exists
             sqlx::query(crate::code_lines_schema::DELETE_FILE_METADATA_SQL)
                 .bind(file_id)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
+            tx.commit().await?;
             return Ok(0);
         }
-
-        let mut tx = pool.begin().await?;
 
         // Delete FTS5 entries incrementally
         for (line_id, old_content) in &old_rows {
@@ -369,14 +436,16 @@ async fn upsert_file_metadata(
     Ok(())
 }
 
-/// Fetch existing FTS5 rows (line_id, content) for incremental deletion.
-async fn fetch_fts5_rows(
-    pool: &sqlx::SqlitePool,
+/// Fetch existing FTS5 rows (line_id, content) for incremental deletion
+/// within a transaction. This ensures reads and subsequent deletes are
+/// atomic, preventing TOCTOU races with concurrent writers.
+async fn fetch_fts5_rows_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     file_id: i64,
 ) -> Result<Vec<(i64, String)>, SearchDbError> {
     let rows = sqlx::query("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
         .bind(file_id)
-        .fetch_all(pool)
+        .fetch_all(&mut **tx)
         .await?;
     Ok(rows
         .iter()

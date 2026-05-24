@@ -38,7 +38,7 @@ pub async fn get_files_needing_reconcile(
                 lsp_status, treesitter_status, last_error,
                 needs_reconcile, reconcile_reason, extension, is_test,
                 collection, base_point, incremental,
-                component, created_at, updated_at
+                component, routing_reason, created_at, updated_at
          FROM tracked_files
          WHERE needs_reconcile = 1",
     )

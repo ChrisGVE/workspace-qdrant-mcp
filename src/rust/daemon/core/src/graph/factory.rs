@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use super::schema::{GraphDbError, GraphDbManager, GraphDbResult};
+use super::schema::{GraphDbManager, GraphDbResult};
 use super::shared::SharedGraphStore;
 use super::sqlite_store::SqliteGraphStore;
 
@@ -19,7 +19,7 @@ use super::sqlite_store::SqliteGraphStore;
 pub enum GraphBackend {
     /// SQLite with recursive CTEs (default, no extra dependencies).
     Sqlite,
-    /// LadybugDB (Kuzu fork) — requires `ladybug` feature flag.
+    /// LadybugDB (Kuzu fork) --- requires `ladybug` feature flag.
     Ladybug,
 }
 
@@ -127,7 +127,7 @@ pub fn validate_backend(backend: &GraphBackend) -> GraphDbResult<()> {
             }
             #[cfg(not(feature = "ladybug"))]
             {
-                Err(GraphDbError::InvalidInput(
+                Err(super::schema::GraphDbError::InvalidInput(
                     "LadybugDB backend requires the 'ladybug' feature flag. \
                      Rebuild with: cargo build --features ladybug"
                         .to_string(),

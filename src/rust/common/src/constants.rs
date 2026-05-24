@@ -98,6 +98,8 @@ pub mod field {
     pub const FILE_PATH: &str = "file_path";
     /// Concept tags for tag-based filtering
     pub const CONCEPT_TAGS: &str = "concept_tags";
+    /// Metadata and Tier 1 rule-based tags array
+    pub const TAGS: &str = "tags";
     /// Soft-delete flag
     pub const DELETED: &str = "deleted";
     /// Document text content
@@ -224,6 +226,7 @@ mod tests {
         assert_eq!(field::FILE_TYPE, "file_type");
         assert_eq!(field::FILE_PATH, "file_path");
         assert_eq!(field::CONCEPT_TAGS, "concept_tags");
+        assert_eq!(field::TAGS, "tags");
         assert_eq!(field::DELETED, "deleted");
         assert_eq!(field::CONTENT, "content");
         assert_eq!(field::TITLE, "title");

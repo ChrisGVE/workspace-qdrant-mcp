@@ -7,6 +7,7 @@
 //! Split into focused submodules:
 //! - `chunk_embed` — per-chunk embedding, payload construction, LSP enrichment
 //! - `delete` — delete operation, missing-file cleanup, Qdrant failure handling
+//! - `dependency_ingest` — dependency manifest parsing and storage for grouping
 //! - `fts5_index` — FTS5 code search index updates
 //! - `keyword_extract` — keyword/tag extraction pipeline
 //! - `lsp_payload` — LSP enrichment payload serialization
@@ -17,6 +18,7 @@
 mod chunk_embed;
 mod component;
 mod delete;
+mod dependency_ingest;
 mod fts5_index;
 mod grammar;
 mod graph_ingest;
@@ -106,9 +108,13 @@ impl FileStrategy {
         let file_path = Path::new(abs_file_path.as_str());
         let relative_path: &str = payload.file_path.as_str();
 
-        crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+        crate::shared::ensure_collection(
+            &ctx.storage_client,
+            &item.collection,
+            ctx.embedding_generator.dense_dim() as u64,
+        )
+        .await
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         if item.op == QueueOperation::Delete {
             return delete::process_file_delete(
@@ -136,6 +142,19 @@ impl FileStrategy {
             )
             .await?;
             return Ok(());
+        }
+
+        // Security: verify resolved path stays within project root.
+        let base_path_ref = Path::new(&base_path);
+        if !wqm_common::paths::is_within_boundary(file_path, base_path_ref) {
+            warn!(
+                "Symlink boundary escape detected: {} resolves outside project root {}",
+                abs_file_path, base_path
+            );
+            return Err(UnifiedProcessorError::InvalidPayload(format!(
+                "resolved path escapes project boundary: {} (root: {})",
+                abs_file_path, base_path
+            )));
         }
 
         if zero_byte::is_zero_byte(file_path) {

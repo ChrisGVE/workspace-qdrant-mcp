@@ -1,15 +1,17 @@
 //! File content ingestion pipeline — shared by add and update paths.
-//! Orchestrates: document parsing → embedding → keyword extraction → graph
-//! extraction → component detection → Qdrant upsert → FTS5 indexing.
+//! Orchestrates: document parsing → embedding → Tier 2 taxonomy tagging →
+//! keyword extraction → graph extraction → component detection → Qdrant
+//! upsert → FTS5 indexing → dependency extraction.
 
 use std::path::Path;
 use std::time::Instant;
 
 use sqlx::SqlitePool;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::context::ProcessingContext;
 use crate::processing_timings::{self, PhaseTiming};
+use crate::tagging::aggregate_document_embedding;
 use crate::tracked_files_schema;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
@@ -18,6 +20,7 @@ use crate::unified_queue_schema::{
 
 use super::chunk_embed;
 use super::component;
+use super::dependency_ingest;
 use super::fts5_index;
 use super::grammar;
 use super::graph_ingest;
@@ -148,7 +151,7 @@ async fn handle_retry_skip(
     Ok(())
 }
 
-/// Run the main file ingestion pipeline (parse → embed → extract → upsert → FTS5).
+/// Run the main file ingestion pipeline (parse -> embed -> extract -> upsert -> FTS5 -> deps).
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 async fn run_ingest_pipeline(
@@ -224,6 +227,7 @@ async fn run_ingest_pipeline(
         pool,
         file_id,
         payload,
+        file_path,
         abs_file_path,
         &base_point,
         relative_path,
@@ -236,8 +240,7 @@ async fn run_ingest_pipeline(
     Ok(())
 }
 
-/// FTS5 indexing + timing record + success log (phases 7 and final).
-#[allow(clippy::too_many_arguments)]
+/// FTS5 indexing + dependency extraction + timing record + success log.
 #[allow(clippy::too_many_arguments)]
 async fn finish_pipeline(
     ctx: &ProcessingContext,
@@ -245,6 +248,7 @@ async fn finish_pipeline(
     pool: &SqlitePool,
     file_id: i64,
     payload: &FilePayload,
+    file_path: &Path,
     abs_file_path: &str,
     base_point: &str,
     relative_path: &str,
@@ -265,6 +269,13 @@ async fn finish_pipeline(
         timings,
     )
     .await;
+
+    // Phase 8: dependency manifest extraction (non-blocking side effect).
+    // If this file is a dependency manifest (Cargo.toml, package.json, etc.),
+    // parse and cache the project's dependencies for Jaccard grouping.
+    dependency_ingest::maybe_store_dependencies(pool, &item.tenant_id, file_path, abs_file_path)
+        .await;
+
     record_pipeline_timings(pool, item, detected_language, timings).await;
     info!(
         "Successfully processed file item {} ({})",
@@ -273,7 +284,7 @@ async fn finish_pipeline(
     );
 }
 
-/// Phases 2–5: embed chunks, extract keywords/graph, inject component.
+/// Phases 2–5: embed chunks, Tier 2 tagging, extract keywords/graph, inject component.
 ///
 /// Returns `(points, chunk_records, lsp_status, treesitter_status)`.
 #[allow(clippy::too_many_arguments)]
@@ -321,6 +332,9 @@ async fn run_middle_phases(
     let lsp_status = embed_result.lsp_status;
     let treesitter_status = embed_result.treesitter_status;
 
+    // Phase 2b: Tier 2 taxonomy tagging (after embedding, before keyword extraction)
+    run_tier2_tagging(ctx, &mut points, timings).await;
+
     // Phases 3–4: keyword extraction + graph edges
     run_keyword_and_graph_phases(
         ctx,
@@ -347,6 +361,96 @@ async fn run_middle_phases(
     .await;
 
     Ok((points, chunk_records, lsp_status, treesitter_status))
+}
+
+/// Tier 2 taxonomy-based tagging: compute aggregate embedding from chunk
+/// dense vectors, classify against taxonomy terms, inject matching labels
+/// into all point payloads.
+///
+/// Performance target: <30ms per file (cosine sim against ~180 terms is O(n*d)).
+async fn run_tier2_tagging(
+    ctx: &ProcessingContext,
+    points: &mut [crate::storage::DocumentPoint],
+    timings: &mut Vec<PhaseTiming>,
+) {
+    let tagger = match &ctx.tier2_tagger {
+        Some(t) => t,
+        None => return,
+    };
+
+    if points.is_empty() {
+        return;
+    }
+
+    let t0 = Instant::now();
+
+    // Collect chunk dense vectors for aggregation
+    let chunk_embeddings: Vec<Vec<f32>> = points.iter().map(|p| p.dense_vector.clone()).collect();
+
+    // Compute the aggregate (mean) embedding for the whole document
+    let agg_embedding = match aggregate_document_embedding(&chunk_embeddings) {
+        Some(emb) => emb,
+        None => {
+            debug!("Tier 2: no aggregate embedding (empty chunks), skipping");
+            return;
+        }
+    };
+
+    // Classify against taxonomy
+    let matches = tagger.classify(&agg_embedding);
+
+    if matches.is_empty() {
+        timings.push(PhaseTiming {
+            phase: "tier2",
+            duration_ms: t0.elapsed().as_millis() as u64,
+        });
+        debug!("Tier 2: no taxonomy matches above threshold");
+        return;
+    }
+
+    // Collect taxonomy tag labels (category names with tax: prefix)
+    let taxonomy_tags: Vec<String> = matches
+        .iter()
+        .map(|m| format!("tax:{}", m.category))
+        .collect();
+
+    // Inject taxonomy_tags into every point payload and append to existing tags
+    for point in points.iter_mut() {
+        // Add dedicated taxonomy_tags field
+        point.payload.insert(
+            "taxonomy_tags".to_string(),
+            serde_json::json!(taxonomy_tags),
+        );
+
+        // Also append to the general "tags" array for unified search filtering
+        if let Some(existing_tags) = point.payload.get_mut("tags") {
+            if let Some(arr) = existing_tags.as_array_mut() {
+                for tag in &taxonomy_tags {
+                    let tag_val = serde_json::json!(tag);
+                    if !arr.contains(&tag_val) {
+                        arr.push(tag_val);
+                    }
+                }
+            }
+        } else {
+            point
+                .payload
+                .insert("tags".to_string(), serde_json::json!(taxonomy_tags));
+        }
+    }
+
+    let elapsed = t0.elapsed();
+    timings.push(PhaseTiming {
+        phase: "tier2",
+        duration_ms: elapsed.as_millis() as u64,
+    });
+
+    info!(
+        "Tier 2 tagging: {} matches in {}ms (categories: {})",
+        matches.len(),
+        elapsed.as_millis(),
+        taxonomy_tags.join(", ")
+    );
 }
 
 /// Parse the document and compute file identifiers (phase 0 + 1).

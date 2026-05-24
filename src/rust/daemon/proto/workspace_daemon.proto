@@ -171,6 +171,12 @@ service ProjectService {
 
     // Delete a project and optionally its Qdrant data
     rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+
+    // Get all project groups a tenant belongs to (for cross-project search)
+    rpc GetProjectGroups(GetProjectGroupsRequest) returns (GetProjectGroupsResponse);
+
+    // Resolve search scope to concrete tenant filter (for MCP server search)
+    rpc ResolveSearchScope(ResolveSearchScopeRequest) returns (ResolveSearchScopeResponse);
 }
 
 // =============================================================================
@@ -534,6 +540,40 @@ message DeleteProjectResponse {
     string message = 6;
 }
 
+// GetProjectGroups Request/Response
+message GetProjectGroupsRequest {
+    string tenant_id = 1;                         // Tenant to look up groups for
+}
+
+message GetProjectGroupsResponse {
+    repeated ProjectGroupInfo groups = 1;         // Groups this tenant belongs to
+    int32 total_members = 2;                      // Total unique members across all groups
+}
+
+message ProjectGroupInfo {
+    string group_id = 1;                          // Group identifier
+    string group_type = 2;                        // "dependency", "workspace", "git_org", "affinity"
+    repeated string member_tenant_ids = 3;        // All tenants in this group
+    double confidence = 4;                        // Group assignment confidence
+}
+
+// ResolveSearchScope Request/Response
+message ResolveSearchScopeRequest {
+    string tenant_id = 1;                         // Current project tenant_id
+    string scope = 2;                             // "project", "group", or "all"
+}
+
+message ResolveSearchScopeResponse {
+    repeated string tenant_ids = 1;               // Tenant IDs to include in search filter
+    bool filter_by_tenant = 2;                    // false = no tenant filter (scope=all)
+    repeated TenantDecay decay_map = 3;           // Per-tenant relevance decay multiplier
+}
+
+message TenantDecay {
+    string tenant_id = 1;
+    float multiplier = 2;                         // 1.0 = current, 0.7 = group, 0.4 = other
+}
+
 // -----------------------------------------------------------------------------
 // 6. TextSearchService (2 RPCs)
 // -----------------------------------------------------------------------------
@@ -613,6 +653,9 @@ service GraphService {
 
     // Migrate graph data between backends (SQLite ↔ LadybugDB)
     rpc MigrateGraph(GraphMigrateRequest) returns (GraphMigrateResponse);
+
+    // Find shortest path between two nodes
+    rpc FindPath(FindPathRequest) returns (FindPathResponse);
 }
 
 // QueryRelated Request
@@ -774,6 +817,23 @@ message GraphMigrateResponse {
     bool nodes_match = 6;
     bool edges_match = 7;
     repeated string warnings = 8;
+}
+
+// FindPath Request
+message FindPathRequest {
+    string tenant_id = 1;                         // Project tenant_id
+    string source_node_id = 2;                    // Starting node ID
+    string target_node_id = 3;                    // Destination node ID
+    uint32 max_depth = 4;                         // Max path length (1-10)
+    repeated string edge_types = 5;               // Filter edge types, empty = all
+}
+
+// FindPath Response
+message FindPathResponse {
+    bool path_found = 1;
+    repeated TraversalNodeProto path_nodes = 2;   // Ordered nodes along the path
+    uint32 path_length = 3;                       // Number of hops in path
+    int64 query_time_ms = 4;                      // Query execution time in ms
 }
 
 // -----------------------------------------------------------------------------
@@ -1082,6 +1142,7 @@ message ConfigureLibraryRequest {
 message SetIncrementalRequest {
     repeated string file_paths = 1;                   // [relative] File paths relative to project root
     bool clear = 2;                                   // If true, clear flag instead of setting it
+    string watch_folder_id = 3;                       // Scope update to specific watch folder
 }
 
 // SetIncremental Response

@@ -6,7 +6,7 @@ export type SearchOptions = {
   query: string;
   collection?: string;
   mode?: 'hybrid' | 'semantic' | 'keyword';
-  scope?: 'project' | 'global' | 'all';
+  scope?: 'project' | 'group' | 'global' | 'all';
   limit?: number;
   scoreThreshold?: number;
   projectId?: string;
@@ -36,7 +36,8 @@ function extractScopeOptions(
   if (mode === 'hybrid' || mode === 'semantic' || mode === 'keyword') options.mode = mode;
 
   const scope = args?.['scope'] as string | undefined;
-  if (scope === 'project' || scope === 'global' || scope === 'all') options.scope = scope;
+  if (scope === 'project' || scope === 'group' || scope === 'global' || scope === 'all')
+    options.scope = scope;
 
   const limit = args?.['limit'] as number | undefined;
   if (limit !== undefined) options.limit = limit;

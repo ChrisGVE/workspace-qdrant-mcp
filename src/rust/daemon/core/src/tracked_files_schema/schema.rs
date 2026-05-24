@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS tracked_files (
     relative_path TEXT NOT NULL,
     incremental INTEGER DEFAULT 0,
     component TEXT,
+    routing_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),

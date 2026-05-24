@@ -76,6 +76,7 @@ pub(crate) fn chunk_text(
 pub(crate) async fn ensure_collection_exists(
     storage_client: &StorageClient,
     collection_name: &str,
+    vector_size: u64,
 ) -> Result<(), Status> {
     match storage_client.collection_exists(collection_name).await {
         Ok(true) => {
@@ -87,7 +88,10 @@ pub(crate) async fn ensure_collection_exists(
                 "Creating collection '{}' with multi-tenant config (dense+sparse)",
                 collection_name
             );
-            let config = MultiTenantConfig::default();
+            let config = MultiTenantConfig {
+                vector_size,
+                ..MultiTenantConfig::default()
+            };
             storage_client
                 .create_multi_tenant_collection(collection_name, &config)
                 .await
@@ -184,7 +188,12 @@ pub(crate) async fn ingest_text_internal(
         return Err(Status::invalid_argument("Content cannot be empty"));
     }
 
-    ensure_collection_exists(storage_client, &collection_name).await?;
+    ensure_collection_exists(
+        storage_client,
+        &collection_name,
+        embedding::DEFAULT_VECTOR_SIZE,
+    )
+    .await?;
 
     let chunks = chunk_text(&content, do_chunk, chunk_size, chunk_overlap);
     let total_chunks = chunks.len();

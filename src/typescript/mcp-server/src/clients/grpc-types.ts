@@ -47,6 +47,9 @@ export {
   type ListProjectsResponse,
   type HeartbeatRequest,
   type HeartbeatResponse,
+  type ResolveSearchScopeRequest,
+  type ResolveSearchScopeResponse,
+  type TenantDecay,
   // EmbeddingService
   type EmbedTextRequest,
   type EmbedTextResponse,

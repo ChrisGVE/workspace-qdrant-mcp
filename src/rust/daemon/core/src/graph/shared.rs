@@ -1,18 +1,41 @@
-//! Shared graph store with read-write coordination.
+//! Shared graph store with read-write coordination and contention detection.
 //!
 //! Wraps a `GraphStore` in `Arc<RwLock<...>>` so that batch writes
 //! (delete-then-insert during re-ingestion) appear atomic to concurrent
 //! readers. SQLite WAL handles DB-level concurrency; this RwLock
 //! coordinates the Rust-level access pattern.
+//!
+//! Lock acquisition is instrumented with timeout-based contention detection:
+//! a `warn!` log is emitted when any lock wait exceeds 100ms, providing
+//! observability into read-write contention under heavy ingestion loads.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::RwLock;
+use tracing::warn;
 
 use super::{
     EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactReport,
     TraversalNode,
 };
+
+/// Threshold after which a lock acquisition emits a `warn!` log.
+const LOCK_CONTENTION_WARN_THRESHOLD: Duration = Duration::from_millis(100);
+
+/// Timeout for lock acquisition. If exceeded, the operation returns
+/// a `LockTimeout` error instead of blocking indefinitely.
+const LOCK_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Lightweight contention metrics tracked via atomics (no allocation).
+#[derive(Debug, Default)]
+struct LockMetrics {
+    /// Number of read lock acquisitions that exceeded the warn threshold.
+    slow_reads: AtomicU64,
+    /// Number of write lock acquisitions that exceeded the warn threshold.
+    slow_writes: AtomicU64,
+}
 
 /// Thread-safe, cloneable handle to a `GraphStore` with read-write coordination.
 ///
@@ -20,10 +43,15 @@ use super::{
 /// - **Writers** (queue processor): acquire an exclusive write lock for the
 ///   full delete-then-insert cycle, so readers never see a half-updated file.
 ///
+/// Lock acquisitions are instrumented: a warning is logged when wait time
+/// exceeds 100ms, and acquisition times out after 30s to prevent unbounded
+/// starvation.
+///
 /// Cloning is cheap (Arc bump).
 #[derive(Clone)]
 pub struct SharedGraphStore<S: GraphStore> {
     inner: Arc<RwLock<S>>,
+    metrics: Arc<LockMetrics>,
 }
 
 impl<S: GraphStore> SharedGraphStore<S> {
@@ -31,12 +59,93 @@ impl<S: GraphStore> SharedGraphStore<S> {
     pub fn new(store: S) -> Self {
         Self {
             inner: Arc::new(RwLock::new(store)),
+            metrics: Arc::new(LockMetrics::default()),
         }
     }
 
     /// Access the inner store under a read lock for advanced operations.
-    pub async fn read(&self) -> tokio::sync::RwLockReadGuard<'_, S> {
-        self.inner.read().await
+    ///
+    /// Callers should minimize the duration the guard is held. Prefer the
+    /// scoped read methods (`query_related`, `stats`, etc.) when possible,
+    /// as they release the lock immediately after the query completes.
+    pub async fn read(&self) -> GraphDbResult<tokio::sync::RwLockReadGuard<'_, S>> {
+        self.acquire_read("read").await
+    }
+
+    /// Return the cumulative count of slow read lock acquisitions (> 100ms).
+    pub fn slow_read_count(&self) -> u64 {
+        self.metrics.slow_reads.load(Ordering::Relaxed)
+    }
+
+    /// Return the cumulative count of slow write lock acquisitions (> 100ms).
+    pub fn slow_write_count(&self) -> u64 {
+        self.metrics.slow_writes.load(Ordering::Relaxed)
+    }
+
+    // ── Lock acquisition helpers ─────────────────────────────────────
+
+    /// Acquire a read lock with contention detection and timeout.
+    async fn acquire_read(&self, op: &str) -> GraphDbResult<tokio::sync::RwLockReadGuard<'_, S>> {
+        let start = std::time::Instant::now();
+
+        let guard = tokio::time::timeout(LOCK_ACQUIRE_TIMEOUT, self.inner.read())
+            .await
+            .map_err(|_| {
+                warn!(
+                    op,
+                    timeout_secs = LOCK_ACQUIRE_TIMEOUT.as_secs(),
+                    "graph read lock acquisition timed out"
+                );
+                super::GraphDbError::LockTimeout {
+                    op: op.to_string(),
+                    waited: LOCK_ACQUIRE_TIMEOUT,
+                }
+            })?;
+
+        let elapsed = start.elapsed();
+        if elapsed >= LOCK_CONTENTION_WARN_THRESHOLD {
+            self.metrics.slow_reads.fetch_add(1, Ordering::Relaxed);
+            warn!(
+                op,
+                wait_ms = elapsed.as_millis() as u64,
+                slow_reads = self.metrics.slow_reads.load(Ordering::Relaxed),
+                "graph read lock contention detected"
+            );
+        }
+
+        Ok(guard)
+    }
+
+    /// Acquire a write lock with contention detection and timeout.
+    async fn acquire_write(&self, op: &str) -> GraphDbResult<tokio::sync::RwLockWriteGuard<'_, S>> {
+        let start = std::time::Instant::now();
+
+        let guard = tokio::time::timeout(LOCK_ACQUIRE_TIMEOUT, self.inner.write())
+            .await
+            .map_err(|_| {
+                warn!(
+                    op,
+                    timeout_secs = LOCK_ACQUIRE_TIMEOUT.as_secs(),
+                    "graph write lock acquisition timed out"
+                );
+                super::GraphDbError::LockTimeout {
+                    op: op.to_string(),
+                    waited: LOCK_ACQUIRE_TIMEOUT,
+                }
+            })?;
+
+        let elapsed = start.elapsed();
+        if elapsed >= LOCK_CONTENTION_WARN_THRESHOLD {
+            self.metrics.slow_writes.fetch_add(1, Ordering::Relaxed);
+            warn!(
+                op,
+                wait_ms = elapsed.as_millis() as u64,
+                slow_writes = self.metrics.slow_writes.load(Ordering::Relaxed),
+                "graph write lock contention detected"
+            );
+        }
+
+        Ok(guard)
     }
 
     // ── Read operations (shared lock) ────────────────────────────────
@@ -49,7 +158,7 @@ impl<S: GraphStore> SharedGraphStore<S> {
         max_hops: u32,
         edge_types: Option<&[EdgeType]>,
     ) -> GraphDbResult<Vec<TraversalNode>> {
-        let guard = self.inner.read().await;
+        let guard = self.acquire_read("query_related").await?;
         guard
             .query_related(tenant_id, node_id, max_hops, edge_types)
             .await
@@ -62,7 +171,7 @@ impl<S: GraphStore> SharedGraphStore<S> {
         symbol_name: &str,
         file_path: Option<&str>,
     ) -> GraphDbResult<ImpactReport> {
-        let guard = self.inner.read().await;
+        let guard = self.acquire_read("impact_analysis").await?;
         guard
             .impact_analysis(tenant_id, symbol_name, file_path)
             .await
@@ -70,27 +179,44 @@ impl<S: GraphStore> SharedGraphStore<S> {
 
     /// Graph statistics.
     pub async fn stats(&self, tenant_id: Option<&str>) -> GraphDbResult<GraphStats> {
-        let guard = self.inner.read().await;
+        let guard = self.acquire_read("stats").await?;
         guard.stats(tenant_id).await
+    }
+
+    /// Find shortest path between two nodes.
+    pub async fn find_path(
+        &self,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let guard = self.acquire_read("find_path").await?;
+        guard
+            .find_path(tenant_id, source_id, target_id, max_depth, edge_types)
+            .await
     }
 
     // ── Write operations (exclusive lock) ────────────────────────────
 
     /// Upsert a batch of nodes (exclusive lock).
     pub async fn upsert_nodes(&self, nodes: &[GraphNode]) -> GraphDbResult<()> {
-        let guard = self.inner.write().await;
+        let guard = self.acquire_write("upsert_nodes").await?;
         guard.upsert_nodes(nodes).await
     }
 
     /// Insert a batch of edges (exclusive lock).
     pub async fn insert_edges(&self, edges: &[GraphEdge]) -> GraphDbResult<()> {
-        let guard = self.inner.write().await;
+        let guard = self.acquire_write("insert_edges").await?;
         guard.insert_edges(edges).await
     }
 
-    /// Atomic re-ingestion: delete old edges for a file, then insert new
+    /// Atomic re-ingestion: delete old edges for a file, then upsert new
     /// nodes and edges. Holds the write lock for the entire operation so
-    /// readers never see a partially-updated file.
+    /// readers never see a partially-updated file. The underlying store
+    /// runs all three steps in a single SQLite transaction, so a crash
+    /// mid-operation leaves the database unchanged.
     pub async fn reingest_file(
         &self,
         tenant_id: &str,
@@ -98,22 +224,21 @@ impl<S: GraphStore> SharedGraphStore<S> {
         nodes: &[GraphNode],
         edges: &[GraphEdge],
     ) -> GraphDbResult<()> {
-        let guard = self.inner.write().await;
-        guard.delete_edges_by_file(tenant_id, file_path).await?;
-        guard.upsert_nodes(nodes).await?;
-        guard.insert_edges(edges).await?;
-        Ok(())
+        let guard = self.acquire_write("reingest_file").await?;
+        guard
+            .reingest_file(tenant_id, file_path, nodes, edges)
+            .await
     }
 
     /// Delete all data for a tenant (exclusive lock).
     pub async fn delete_tenant(&self, tenant_id: &str) -> GraphDbResult<u64> {
-        let guard = self.inner.write().await;
+        let guard = self.acquire_write("delete_tenant").await?;
         guard.delete_tenant(tenant_id).await
     }
 
     /// Prune orphaned nodes (exclusive lock).
     pub async fn prune_orphans(&self, tenant_id: &str) -> GraphDbResult<u64> {
-        let guard = self.inner.write().await;
+        let guard = self.acquire_write("prune_orphans").await?;
         guard.prune_orphans(tenant_id).await
     }
 }
@@ -123,6 +248,8 @@ mod tests {
     use super::*;
     use crate::graph::SqliteGraphStore;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     async fn test_shared_store() -> SharedGraphStore<SqliteGraphStore> {
         let opts = SqliteConnectOptions::new()
@@ -320,5 +447,240 @@ mod tests {
         let stats2 = clone2.stats(Some(T)).await.unwrap();
         assert_eq!(stats1.total_nodes, 1);
         assert_eq!(stats2.total_nodes, 1);
+    }
+
+    /// Metrics counters start at zero and are shared across clones.
+    #[tokio::test]
+    async fn test_metrics_initial_state() {
+        let store = test_shared_store().await;
+        assert_eq!(store.slow_read_count(), 0);
+        assert_eq!(store.slow_write_count(), 0);
+
+        // Clones share the same metrics
+        let clone = store.clone();
+        assert_eq!(clone.slow_read_count(), 0);
+
+        // After a fast operation, counters remain at zero
+        let a = GraphNode::new(T, "a.rs", "a", super::super::NodeType::Function);
+        store.upsert_nodes(&[a]).await.unwrap();
+        store.stats(Some(T)).await.unwrap();
+
+        assert_eq!(store.slow_read_count(), 0);
+        assert_eq!(store.slow_write_count(), 0);
+    }
+
+    /// Metrics counters are shared across clones (Arc semantics).
+    #[tokio::test]
+    async fn test_metrics_shared_across_clones() {
+        let store = test_shared_store().await;
+        let clone = store.clone();
+
+        // Manually bump to verify Arc sharing
+        store.metrics.slow_reads.store(5, Ordering::Relaxed);
+        assert_eq!(clone.slow_read_count(), 5);
+    }
+
+    /// Concurrent readers + writer: readers see consistent snapshots,
+    /// never a partially-updated file.
+    #[tokio::test]
+    async fn test_concurrent_read_write_consistency() {
+        let store = test_shared_store().await;
+
+        // Seed initial data: file a.rs with node a -> node b
+        let a = GraphNode::new(T, "a.rs", "a", super::super::NodeType::Function);
+        let b = GraphNode::new(T, "b.rs", "b", super::super::NodeType::Function);
+        store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+        let edge_ab = GraphEdge::new(
+            T,
+            &a.node_id,
+            &b.node_id,
+            super::super::EdgeType::Calls,
+            "a.rs",
+        );
+        store.insert_edges(&[edge_ab]).await.unwrap();
+
+        // Barrier: signal to start concurrent work once all tasks are spawned
+        let barrier = Arc::new(tokio::sync::Barrier::new(11)); // 10 readers + 1 writer
+
+        // Spawn 10 concurrent readers that each read stats
+        let mut reader_handles = Vec::new();
+        for _ in 0..10 {
+            let s = store.clone();
+            let b = barrier.clone();
+            reader_handles.push(tokio::spawn(async move {
+                b.wait().await;
+                // Read stats multiple times to increase overlap probability
+                let mut results = Vec::new();
+                for _ in 0..5 {
+                    results.push(s.stats(Some(T)).await.unwrap());
+                }
+                results
+            }));
+        }
+
+        // Spawn a writer that reingests a.rs with different edges
+        let writer_store = store.clone();
+        let writer_barrier = barrier.clone();
+        let a_clone = a.clone();
+        let writer_handle = tokio::spawn(async move {
+            writer_barrier.wait().await;
+            let c = GraphNode::new(T, "c.rs", "c", super::super::NodeType::Function);
+            let edge_ac = GraphEdge::new(
+                T,
+                &a_clone.node_id,
+                &c.node_id,
+                super::super::EdgeType::Calls,
+                "a.rs",
+            );
+            writer_store
+                .reingest_file(T, "a.rs", &[a_clone, c], &[edge_ac])
+                .await
+                .unwrap();
+        });
+
+        writer_handle.await.unwrap();
+
+        for handle in reader_handles {
+            let snapshots = handle.await.unwrap();
+            for stats in &snapshots {
+                // Each snapshot must be internally consistent:
+                // Either before reingest (2 nodes, 1 edge) or after (3 nodes, 1 edge).
+                // The edge count must always be exactly 1 -- never 0 (mid-reingest).
+                assert_eq!(
+                    stats.total_edges, 1,
+                    "reader saw inconsistent edge count: {}",
+                    stats.total_edges
+                );
+                assert!(
+                    stats.total_nodes == 2 || stats.total_nodes == 3,
+                    "reader saw unexpected node count: {}",
+                    stats.total_nodes
+                );
+            }
+        }
+    }
+
+    /// Concurrent writers are serialized: total mutations appear in sequence.
+    #[tokio::test]
+    async fn test_concurrent_writers_serialized() {
+        let store = test_shared_store().await;
+
+        // Seed nodes for edges to reference
+        let a = GraphNode::new(T, "a.rs", "a", super::super::NodeType::Function);
+        let b = GraphNode::new(T, "b.rs", "b", super::super::NodeType::Function);
+        let c = GraphNode::new(T, "c.rs", "c", super::super::NodeType::Function);
+        let d = GraphNode::new(T, "d.rs", "d", super::super::NodeType::Function);
+        store
+            .upsert_nodes(&[a.clone(), b.clone(), c.clone(), d.clone()])
+            .await
+            .unwrap();
+
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+
+        // Writer 1: reingest a.rs with edge a -> c
+        let s1 = store.clone();
+        let b1 = barrier.clone();
+        let a1 = a.clone();
+        let c1 = c.clone();
+        let h1 = tokio::spawn(async move {
+            b1.wait().await;
+            let edge = GraphEdge::new(
+                T,
+                &a1.node_id,
+                &c1.node_id,
+                super::super::EdgeType::Calls,
+                "a.rs",
+            );
+            s1.reingest_file(T, "a.rs", &[a1, c1], &[edge])
+                .await
+                .unwrap();
+        });
+
+        // Writer 2: reingest b.rs with edge b -> d
+        let s2 = store.clone();
+        let b2 = barrier.clone();
+        let b_node = b.clone();
+        let d1 = d.clone();
+        let h2 = tokio::spawn(async move {
+            b2.wait().await;
+            let edge = GraphEdge::new(
+                T,
+                &b_node.node_id,
+                &d1.node_id,
+                super::super::EdgeType::Calls,
+                "b.rs",
+            );
+            s2.reingest_file(T, "b.rs", &[b_node, d1], &[edge])
+                .await
+                .unwrap();
+        });
+
+        h1.await.unwrap();
+        h2.await.unwrap();
+
+        // Both writes completed; edges should reflect both reingestions
+        let stats = store.stats(Some(T)).await.unwrap();
+        assert_eq!(
+            stats.total_edges, 2,
+            "expected 2 edges after concurrent reingestion, got {}",
+            stats.total_edges
+        );
+    }
+
+    /// Read operations still succeed while writer holds the lock for
+    /// a short duration -- no deadlock or panic.
+    #[tokio::test]
+    async fn test_reads_complete_after_write() {
+        let store = test_shared_store().await;
+
+        let a = GraphNode::new(T, "a.rs", "a", super::super::NodeType::Function);
+        store.upsert_nodes(&[a.clone()]).await.unwrap();
+
+        // Perform a write followed immediately by reads
+        let b = GraphNode::new(T, "b.rs", "b", super::super::NodeType::Function);
+        let edge = GraphEdge::new(
+            T,
+            &a.node_id,
+            &b.node_id,
+            super::super::EdgeType::Calls,
+            "a.rs",
+        );
+        store
+            .reingest_file(T, "a.rs", &[a.clone(), b], &[edge])
+            .await
+            .unwrap();
+
+        // Multiple reads should all succeed without timeout
+        let mut handles = Vec::new();
+        for _ in 0..5 {
+            let s = store.clone();
+            handles.push(tokio::spawn(async move { s.stats(Some(T)).await.unwrap() }));
+        }
+
+        for handle in handles {
+            let stats = handle.await.unwrap();
+            assert_eq!(stats.total_nodes, 2);
+            assert_eq!(stats.total_edges, 1);
+        }
+    }
+
+    /// Write lock timeout fires when a read lock is held indefinitely.
+    /// We simulate this by holding a read guard in a task and attempting
+    /// a write with a very short timeout override (via a separate store
+    /// with a custom timeout, but since we use a constant, we test the
+    /// error variant production directly).
+    #[tokio::test]
+    async fn test_lock_timeout_error_variant() {
+        // Verify the error type is well-formed and displays correctly.
+        let err = super::super::GraphDbError::LockTimeout {
+            op: "reingest_file".to_string(),
+            waited: Duration::from_secs(30),
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("reingest_file"),
+            "error should mention the operation"
+        );
+        assert!(msg.contains("30s"), "error should mention the wait time");
     }
 }

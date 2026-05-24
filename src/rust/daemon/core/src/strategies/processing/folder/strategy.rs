@@ -185,6 +185,7 @@ async fn dispatch_scan(
             &ctx.queue_manager,
             &ctx.storage_client,
             &ctx.allowed_extensions,
+            ctx.embedding_generator.dense_dim() as u64,
         )
         .await
     }

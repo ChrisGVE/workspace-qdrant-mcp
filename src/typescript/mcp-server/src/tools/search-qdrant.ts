@@ -292,6 +292,7 @@ function buildFallbackFilter(
     collection,
     scope,
     projectId: context.currentProjectId,
+    groupTenantIds: undefined,
     branch: options.branch,
     fileType: options.fileType,
     libraryName: options.libraryName,

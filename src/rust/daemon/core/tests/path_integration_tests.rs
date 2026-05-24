@@ -211,9 +211,7 @@ async fn case_1_ingest_host_query_host() {
 /// Requires Docker infrastructure — see docs/specs/16-path-abstraction.md §11.
 #[tokio::test]
 #[ignore]
-async fn case_2_ingest_host_query_docker() {
-    // Requires Docker infrastructure — see docs/specs/16-path-abstraction.md §11
-}
+async fn case_2_ingest_host_query_docker() {}
 
 // ===========================================================================
 // Case 3: Ingest docker → Query host
@@ -525,9 +523,34 @@ async fn case_8c_broken_symlink() {
 
 /// Requires Docker infrastructure — see docs/specs/16-path-abstraction.md §11.
 #[tokio::test]
-#[ignore]
 async fn case_8d_symlink_target_outside_root() {
-    // Requires Docker infrastructure — see docs/specs/16-path-abstraction.md §11
+    use std::path::Path;
+    use wqm_common::paths::is_within_boundary;
+
+    let project_tmp = tempfile::TempDir::new().unwrap();
+    let external_tmp = tempfile::TempDir::new().unwrap();
+    let root = project_tmp.path();
+    let ext = external_tmp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    let internal = root.join("src/main.rs");
+    std::fs::write(&internal, "fn main() {}").unwrap();
+    let external = ext.join("secret.txt");
+    std::fs::write(&external, "sensitive").unwrap();
+
+    let escape = root.join("src/escape.txt");
+    std::os::unix::fs::symlink(&external, &escape).unwrap();
+    let safe = root.join("src/alias.rs");
+    std::os::unix::fs::symlink(&internal, &safe).unwrap();
+
+    assert!(is_within_boundary(&internal, root));
+    assert!(!is_within_boundary(&escape, root));
+    assert!(is_within_boundary(&safe, root));
+    assert!(!is_within_boundary(&external, root));
+
+    let broken = root.join("src/broken.rs");
+    std::os::unix::fs::symlink(Path::new("/nonexistent"), &broken).unwrap();
+    assert!(!is_within_boundary(&broken, root));
 }
 
 // ===========================================================================

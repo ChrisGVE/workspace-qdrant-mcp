@@ -51,6 +51,7 @@ Commands by domain:
 
   CODE ANALYSIS:
     \x1b[1mgraph\x1b[0m        Code relationship graph
+    \x1b[1mgroups\x1b[0m       Project group memberships
     \x1b[1mlanguage\x1b[0m     Language tools (LSP, Tree-sitter)
     \x1b[1mtags\x1b[0m         Keyword/tag hierarchy
 
@@ -180,9 +181,23 @@ enum Commands {
     )]
     Tags(commands::tags::TagsArgs),
 
-    /// Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
+    /// Project group memberships (list)
     #[command(
         display_order = 24,
+        long_about = "View project group memberships discovered by the grouping scheduler. \
+            Groups represent relationships between projects such as shared dependencies, \
+            workspace co-location, Git organization, or tag affinity.",
+        after_long_help = "Examples:\n  \
+            wqm groups list                             List all group memberships\n  \
+            wqm groups list --tenant <id>               Filter by tenant ID\n  \
+            wqm groups list --type affinity             Filter by group type\n  \
+            wqm groups list --json                      Output as JSON"
+    )]
+    Groups(commands::groups::GroupsArgs),
+
+    /// Code relationship graph (query, impact, stats, pagerank, communities, betweenness, migrate)
+    #[command(
+        display_order = 25,
         long_about = "Analyze code relationships using the dependency graph built from indexed \
             projects. Supports PageRank for importance ranking, community detection for \
             module clustering, betweenness centrality for bridge identification, and \
@@ -455,6 +470,7 @@ async fn main() -> Result<()> {
         // Code Analysis
         Commands::Tags(args) => commands::tags::execute(args).await,
         Commands::Graph(args) => commands::graph::execute(args).await,
+        Commands::Groups(args) => commands::groups::execute(args).await,
         Commands::Language(args) => commands::language::execute(args).await,
 
         // Queue & Monitoring

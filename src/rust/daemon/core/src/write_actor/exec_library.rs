@@ -268,23 +268,30 @@ impl WriteActor {
         let mut not_found = 0u32;
 
         for path in &data.file_paths {
-            // `path` is an absolute filesystem path supplied by the caller.
-            // Match it against `watch_folders.path || '/' || tracked_files.relative_path`
-            // to find the matching row(s) post-v37.
-            let result = sqlx::query(
-                "UPDATE tracked_files \
-                 SET incremental = ?1, updated_at = ?2 \
-                 WHERE file_id IN ( \
-                     SELECT tf.file_id FROM tracked_files tf \
-                     JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-                     WHERE wf.path || '/' || tf.relative_path = ?3 \
-                 )",
-            )
-            .bind(value)
-            .bind(&now)
-            .bind(path)
-            .execute(&self.pool)
-            .await
+            let result = if let Some(ref wfid) = data.watch_folder_id {
+                sqlx::query(
+                    "UPDATE tracked_files \
+                     SET incremental = ?1, updated_at = ?2 \
+                     WHERE relative_path = ?3 AND watch_folder_id = ?4",
+                )
+                .bind(value)
+                .bind(&now)
+                .bind(path)
+                .bind(wfid)
+                .execute(&self.pool)
+                .await
+            } else {
+                sqlx::query(
+                    "UPDATE tracked_files \
+                     SET incremental = ?1, updated_at = ?2 \
+                     WHERE relative_path = ?3",
+                )
+                .bind(value)
+                .bind(&now)
+                .bind(path)
+                .execute(&self.pool)
+                .await
+            }
             .map_err(|e| format!("database error: {}", e))?;
 
             if result.rows_affected() > 0 {

@@ -176,7 +176,10 @@ fn test_get_database_path() {
     let result = get_database_path();
     assert!(result.is_ok());
     let path = result.unwrap();
-    assert!(path.to_string_lossy().contains(".workspace-qdrant"));
+    assert!(
+        path.to_string_lossy().contains("workspace-qdrant"),
+        "expected path to contain 'workspace-qdrant', got: {path:?}"
+    );
     assert!(path.to_string_lossy().ends_with("state.db"));
 
     // 2. Test environment variable override

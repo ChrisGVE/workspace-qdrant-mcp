@@ -11,8 +11,21 @@ src/rust/**/*.d
 src/typescript/mcp-server/node_modules/
 src/typescript/mcp-server/dist/
 
-# Old Docker folder
-docker/
+# Docker support files: exclude everything except entrypoint scripts
+# Dockerfile.memexd (built from repo root via CI) copies
+# docker/memexd-entrypoint.sh into the image (line 289), so the docker/
+# tree must NOT be excluded wholesale.  Exclude only the sub-trees that
+# are never needed inside a build context.
+docker/compose/
+docker/docs/
+docker/grafana/
+docker/integration-tests/
+docker/k8s/
+docker/nginx/
+docker/caddy/
+docker/otel/
+docker/prometheus/
+docker/tests/
 
 # TaskMaster and Claude config
 .taskmaster/

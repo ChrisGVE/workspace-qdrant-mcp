@@ -15,6 +15,7 @@ import {
   FIELD_FILE_TYPE,
   FIELD_LIBRARY_NAME,
   FIELD_CONCEPT_TAGS,
+  FIELD_TAGS,
   FIELD_FILE_PATH,
   FIELD_DELETED,
 } from '../common/native-bridge.js';
@@ -44,15 +45,14 @@ export function extractGlobPrefix(glob: string): string {
 export function determineCollections(
   collection: string | undefined,
   scope: SearchScope,
-  includeLibraries: boolean,
+  includeLibraries: boolean
 ): string[] {
   if (collection) return [collection];
 
   switch (scope) {
     case 'project':
-      return includeLibraries
-        ? [PROJECTS_COLLECTION, LIBRARIES_COLLECTION]
-        : [PROJECTS_COLLECTION];
+    case 'group':
+      return includeLibraries ? [PROJECTS_COLLECTION, LIBRARIES_COLLECTION] : [PROJECTS_COLLECTION];
     case 'global':
       return [PROJECTS_COLLECTION];
     case 'all':
@@ -65,6 +65,12 @@ export function determineCollections(
 // ── Filter condition builders ─────────────────────────────────────────────
 
 function buildProjectCondition(params: FilterParams): Record<string, unknown> | null {
+  if (params.scope === 'group') {
+    if (!params.groupTenantIds || params.groupTenantIds.length === 0) {
+      throw new Error('Group scope requires non-empty tenant ID set');
+    }
+    return { key: FIELD_TENANT_ID, match: { any: params.groupTenantIds } };
+  }
   if (params.scope !== 'project' || !params.projectId) return null;
   return { key: FIELD_TENANT_ID, match: { value: params.projectId } };
 }
@@ -93,14 +99,21 @@ function buildTagConditions(params: FilterParams): Record<string, unknown>[] {
   const conditions: Record<string, unknown>[] = [];
 
   if (params.tag) {
-    conditions.push({ key: FIELD_CONCEPT_TAGS, match: { value: params.tag } });
+    // Match against both concept_tags (keyword-extracted) and tags (Tier 1 metadata)
+    conditions.push({
+      should: [
+        { key: FIELD_CONCEPT_TAGS, match: { value: params.tag } },
+        { key: FIELD_TAGS, match: { value: params.tag } },
+      ],
+    });
   }
 
   if (params.tags && params.tags.length > 0) {
-    const tagShouldConditions = params.tags.map((t) => ({
-      key: FIELD_CONCEPT_TAGS,
-      match: { value: t },
-    }));
+    // For multi-tag filter, match any tag in either concept_tags or tags fields
+    const tagShouldConditions = params.tags.flatMap((t) => [
+      { key: FIELD_CONCEPT_TAGS, match: { value: t } },
+      { key: FIELD_TAGS, match: { value: t } },
+    ]);
     conditions.push({ should: tagShouldConditions });
   }
 

@@ -4,26 +4,30 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use super::helpers::canonical_from_cli_path;
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::SetIncrementalRequest;
 use crate::output;
 
 /// Set or clear the incremental (do-not-delete) flag on tracked files.
+///
+/// File paths are sent as relative content paths (e.g. `src/main.rs`).
+/// The gRPC handler validates them via `extract_relative_paths!` and the
+/// write-actor matches directly against `tracked_files.relative_path`.
 pub async fn execute(files: &[PathBuf], clear: bool) -> Result<()> {
     let file_paths: Vec<String> = files
         .iter()
-        .map(|f| match canonical_from_cli_path(f) {
-            Ok(cp) => cp.into_string(),
-            Err(_) => f.to_string_lossy().to_string(),
-        })
+        .map(|f| f.to_string_lossy().to_string())
         .collect();
 
     let mut client = ensure_daemon_available().await?;
 
     let response = client
         .library_write()
-        .set_incremental(SetIncrementalRequest { file_paths, clear })
+        .set_incremental(SetIncrementalRequest {
+            file_paths,
+            clear,
+            watch_folder_id: String::new(),
+        })
         .await?
         .into_inner();
 

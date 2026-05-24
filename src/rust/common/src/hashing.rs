@@ -9,6 +9,8 @@ use std::path::Path;
 
 use crate::queue_types::{ItemType, QueueOperation};
 
+const MAX_HASH_READ_BYTES: u64 = 100 * 1024 * 1024;
+
 /// Generate a comprehensive idempotency key for unified queue deduplication
 ///
 /// Creates a deterministic key from all relevant queue item attributes to prevent
@@ -112,13 +114,30 @@ impl std::error::Error for IdempotencyKeyError {}
 /// Compute SHA256 hash of file content
 pub fn compute_file_hash(path: &Path) -> std::io::Result<String> {
     use std::io::Read;
+
+    let meta = std::fs::metadata(path)?;
+    if !meta.file_type().is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("cannot hash non-regular file: {}", path.display()),
+        ));
+    }
+
     let mut file = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 8192];
+    let mut total_read: u64 = 0;
     loop {
         let bytes_read = file.read(&mut buffer)?;
         if bytes_read == 0 {
             break;
+        }
+        total_read += bytes_read as u64;
+        if total_read > MAX_HASH_READ_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("file exceeds max hashable size: {}", path.display()),
+            ));
         }
         hasher.update(&buffer[..bytes_read]);
     }
@@ -379,5 +398,32 @@ mod tests {
 
         let pid = compute_point_id(&bp, 0);
         assert_eq!(pid, "29f8fee936e7f18423f871d91da964fa");
+    }
+
+    #[test]
+    fn hash_rejects_directory() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let result = compute_file_hash(dir.path());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn hash_rejects_dev_null() {
+        let path = Path::new("/dev/null");
+        if !path.exists() {
+            return;
+        }
+        let result = compute_file_hash(path);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn hash_regular_file_works() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let fp = dir.path().join("test.txt");
+        std::fs::write(&fp, b"hello").unwrap();
+        assert!(compute_file_hash(&fp).is_ok());
     }
 }

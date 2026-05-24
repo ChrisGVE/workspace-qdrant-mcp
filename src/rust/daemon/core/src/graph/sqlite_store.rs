@@ -373,6 +373,190 @@ impl GraphStore for SqliteGraphStore {
         debug!("Pruned {} orphaned nodes for tenant {}", count, tenant_id);
         Ok(count)
     }
+
+    async fn find_path(
+        &self,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let num_edge_types = edge_types.map_or(0, |t| t.len());
+        let edge_filter = if num_edge_types > 0 {
+            let placeholders: Vec<String> =
+                (0..num_edge_types).map(|i| format!("?{}", i + 4)).collect();
+            format!("AND e.edge_type IN ({})", placeholders.join(","))
+        } else {
+            String::new()
+        };
+        let target_placeholder = num_edge_types + 4;
+
+        let sql = format!(
+            r#"
+            WITH RECURSIVE bfs(node_id, depth, path) AS (
+                SELECT ?2, 0, ?2
+                UNION ALL
+                SELECT e.target_node_id, bfs.depth + 1,
+                       bfs.path || ',' || e.target_node_id
+                FROM bfs
+                JOIN graph_edges e ON e.source_node_id = bfs.node_id
+                                  AND e.tenant_id = ?1
+                                  {edge_filter}
+                WHERE bfs.depth < ?3
+                  AND INSTR(bfs.path, e.target_node_id) = 0
+            )
+            SELECT bfs.node_id, bfs.depth, bfs.path,
+                   n.symbol_name, n.symbol_type, n.file_path, n.line_number
+            FROM bfs
+            JOIN graph_nodes n ON n.node_id = bfs.node_id AND n.tenant_id = ?1
+            WHERE bfs.node_id = ?{target_placeholder}
+            ORDER BY bfs.depth ASC
+            LIMIT 1
+            "#
+        );
+
+        let mut query = sqlx::query(&sql)
+            .bind(tenant_id)
+            .bind(source_id)
+            .bind(max_depth as i64);
+
+        if let Some(types) = edge_types {
+            for et in types {
+                query = query.bind(et.as_str());
+            }
+        }
+
+        query = query.bind(target_id);
+
+        let row = query.fetch_optional(&self.pool).await?;
+
+        match row {
+            None => Ok(None),
+            Some(row) => {
+                use sqlx::Row;
+                let path_str: String = row.get("path");
+                let node_ids: Vec<&str> = path_str.split(',').collect();
+
+                let mut path_nodes = Vec::with_capacity(node_ids.len());
+                for (hop, nid) in node_ids.iter().enumerate() {
+                    let nr = sqlx::query(
+                        "SELECT symbol_name, symbol_type, file_path, line_number
+                         FROM graph_nodes WHERE node_id = ?1 AND tenant_id = ?2",
+                    )
+                    .bind(nid)
+                    .bind(tenant_id)
+                    .fetch_optional(&self.pool)
+                    .await?;
+
+                    if let Some(nr) = nr {
+                        path_nodes.push(TraversalNode {
+                            node_id: nid.to_string(),
+                            symbol_name: nr.get("symbol_name"),
+                            symbol_type: nr.get("symbol_type"),
+                            file_path: nr.get("file_path"),
+                            edge_type: String::new(),
+                            depth: hop as u32,
+                            path: String::new(),
+                        });
+                    }
+                }
+
+                Ok(Some(path_nodes))
+            }
+        }
+    }
+
+    /// Atomic re-ingestion: delete old edges, upsert nodes, insert new edges
+    /// all within a single SQLite transaction. If any step fails, the entire
+    /// transaction is rolled back leaving the database unchanged.
+    async fn reingest_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+        nodes: &[GraphNode],
+        edges: &[GraphEdge],
+    ) -> GraphDbResult<()> {
+        let now = now_utc();
+        let mut tx = self.pool.begin().await?;
+
+        // Step 1: Delete old edges for this file
+        let deleted =
+            sqlx::query("DELETE FROM graph_edges WHERE tenant_id = ?1 AND source_file = ?2")
+                .bind(tenant_id)
+                .bind(file_path)
+                .execute(&mut *tx)
+                .await?;
+        debug!(
+            "reingest_file: deleted {} old edges for {} in tenant {}",
+            deleted.rows_affected(),
+            file_path,
+            tenant_id,
+        );
+
+        // Step 2: Upsert nodes
+        for node in nodes {
+            sqlx::query(
+                "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
+                    file_path, start_line, end_line, signature, language,
+                    created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    symbol_name = excluded.symbol_name,
+                    symbol_type = excluded.symbol_type,
+                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path
+                                     ELSE excluded.file_path END,
+                    start_line = COALESCE(excluded.start_line, graph_nodes.start_line),
+                    end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
+                    signature = COALESCE(excluded.signature, graph_nodes.signature),
+                    language = COALESCE(excluded.language, graph_nodes.language),
+                    updated_at = ?10",
+            )
+            .bind(&node.node_id)
+            .bind(&node.tenant_id)
+            .bind(&node.symbol_name)
+            .bind(node.symbol_type.as_str())
+            .bind(&node.file_path)
+            .bind(node.start_line.map(|v| v as i64))
+            .bind(node.end_line.map(|v| v as i64))
+            .bind(&node.signature)
+            .bind(&node.language)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Step 3: Insert new edges
+        for edge in edges {
+            sqlx::query(
+                "INSERT OR IGNORE INTO graph_edges
+                    (edge_id, tenant_id, source_node_id, target_node_id, edge_type,
+                     source_file, weight, metadata_json, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .bind(&edge.edge_id)
+            .bind(&edge.tenant_id)
+            .bind(&edge.source_node_id)
+            .bind(&edge.target_node_id)
+            .bind(edge.edge_type.as_str())
+            .bind(&edge.source_file)
+            .bind(edge.weight)
+            .bind(&edge.metadata_json)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        debug!(
+            "reingest_file: committed {} nodes + {} edges for {} in tenant {}",
+            nodes.len(),
+            edges.len(),
+            file_path,
+            tenant_id,
+        );
+        Ok(())
+    }
 }
 
 impl SqliteGraphStore {

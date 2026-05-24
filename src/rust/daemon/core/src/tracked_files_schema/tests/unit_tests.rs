@@ -138,6 +138,7 @@ fn test_tracked_file_struct_serde() {
         base_point: None,
         incremental: false,
         component: None,
+        routing_reason: None,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         updated_at: "2025-01-01T00:00:00Z".to_string(),
     };
@@ -211,6 +212,7 @@ fn test_tracked_file_nullable_fields() {
         base_point: None,
         incremental: false,
         component: None,
+        routing_reason: None,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         updated_at: "2025-01-01T00:00:00Z".to_string(),
     };

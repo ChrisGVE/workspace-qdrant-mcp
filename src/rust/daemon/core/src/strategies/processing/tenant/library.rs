@@ -69,9 +69,13 @@ async fn handle_library_add(
     }
     // Fall back to registration semantics: ensure the collection exists.
     let _payload: LibraryPayload = parse_payload(item)?;
-    crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
-        .await
-        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+    crate::shared::ensure_collection(
+        &ctx.storage_client,
+        &item.collection,
+        ctx.embedding_generator.dense_dim() as u64,
+    )
+    .await
+    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
     Ok(())
 }
 
@@ -100,6 +104,7 @@ async fn handle_library_scan(
                 &ctx.queue_manager,
                 &ctx.storage_client,
                 &ctx.allowed_extensions,
+                ctx.embedding_generator.dense_dim() as u64,
             )
             .await?;
         }
@@ -142,9 +147,13 @@ async fn write_library_content_point(
     item: &UnifiedQueueItem,
     payload: &LibraryContentPayload,
 ) -> UnifiedProcessorResult<()> {
-    crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
-        .await
-        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+    crate::shared::ensure_collection(
+        &ctx.storage_client,
+        &item.collection,
+        ctx.embedding_generator.dense_dim() as u64,
+    )
+    .await
+    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
     let embed_result = crate::shared::embedding_pipeline::embed_with_sparse(
         &ctx.embedding_generator,
@@ -218,8 +227,9 @@ pub(crate) async fn scan_library_directory(
     item: &UnifiedQueueItem,
     folder_path: &str,
     queue_manager: &Arc<QueueManager>,
-    _storage_client: &Arc<StorageClient>,
+    storage_client: &Arc<StorageClient>,
     allowed_extensions: &Arc<AllowedExtensions>,
+    vector_size: u64,
 ) -> UnifiedProcessorResult<()> {
     let library_root = Path::new(folder_path);
 
@@ -236,7 +246,7 @@ pub(crate) async fn scan_library_directory(
         )));
     }
 
-    crate::shared::ensure_collection(_storage_client, &item.collection)
+    crate::shared::ensure_collection(storage_client, &item.collection, vector_size)
         .await
         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
@@ -361,19 +371,18 @@ async fn enqueue_library_file(
         return Ok(FileEnqueueResult::Excluded);
     }
 
-    let library_root_canonical = match CanonicalPath::from_user_input(
-        &library_root.to_string_lossy(),
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(
-                "Library root {} failed canonical validation: {}",
-                library_root.display(),
-                e
-            );
-            return Ok(FileEnqueueResult::Error);
-        }
-    };
+    let library_root_canonical =
+        match CanonicalPath::from_user_input(&library_root.to_string_lossy()) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "Library root {} failed canonical validation: {}",
+                    library_root.display(),
+                    e
+                );
+                return Ok(FileEnqueueResult::Error);
+            }
+        };
     let abs_canonical = match CanonicalPath::from_user_input(&abs_path) {
         Ok(a) => a,
         Err(e) => {
@@ -381,18 +390,19 @@ async fn enqueue_library_file(
             return Ok(FileEnqueueResult::Error);
         }
     };
-    let relative = match RelativePath::from_absolute_and_root(&abs_canonical, &library_root_canonical) {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(
-                "File {} not under library root {} ({}); skipping",
-                abs_path,
-                library_root.display(),
-                e
-            );
-            return Ok(FileEnqueueResult::Error);
-        }
-    };
+    let relative =
+        match RelativePath::from_absolute_and_root(&abs_canonical, &library_root_canonical) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "File {} not under library root {} ({}); skipping",
+                    abs_path,
+                    library_root.display(),
+                    e
+                );
+                return Ok(FileEnqueueResult::Error);
+            }
+        };
 
     let file_payload = FilePayload {
         file_path: relative,

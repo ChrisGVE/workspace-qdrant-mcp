@@ -121,6 +121,7 @@ fn dense_search_params(vector: Vec<f32>, limit: usize, threshold: Option<f32>) -
         limit,
         score_threshold: threshold,
         filter: None,
+        diversity_penalty: None,
     }
 }
 
@@ -186,6 +187,7 @@ async fn test_search_operations() {
         limit: 5,
         score_threshold: None,
         filter: None,
+        diversity_penalty: None,
     };
     let hybrid_res = client
         .search(&collection_name, hybrid_search)
@@ -239,6 +241,7 @@ async fn test_error_handling() {
         limit: 10,
         score_threshold: None,
         filter: None,
+        diversity_penalty: None,
     };
     let search_result = client.search(non_existent, search_params).await;
     assert!(
@@ -254,6 +257,7 @@ async fn test_error_handling() {
         limit: 10,
         score_threshold: None,
         filter: None,
+        diversity_penalty: None,
     };
 
     let collection_name = format!(

@@ -9,6 +9,7 @@
 //! - [`collections`]: Collection CRUD, aliases, and multi-tenant initialization
 //! - [`config`]: Configuration types for transport, HTTP/2, and multi-tenant
 //! - [`convert`]: Value conversion between JSON and Qdrant protobuf types
+//! - [`cross_collection_search`]: Cross-collection RRF fusion search
 //! - [`points`]: Point insert, delete, count, and payload updates
 //! - [`scroll`]: Paginated scroll operations for point retrieval
 //! - [`search`]: Dense, sparse, and hybrid (RRF) search implementations
@@ -18,6 +19,7 @@ mod client;
 mod collections;
 pub mod config;
 pub(crate) mod convert;
+pub mod cross_collection_search;
 mod points;
 pub mod qdrant_circuit_breaker;
 mod scroll;
@@ -31,7 +33,14 @@ pub use client::StorageClient;
 
 pub use config::{Http2Config, MultiTenantConfig, StorageConfig, TransportMode};
 
+pub use cross_collection_search::{
+    apply_collection_diversity, rrf_merge, rrf_score, CollectionDiversityConfig,
+    CrossCollectionConfig, CrossCollectionResponse, CrossCollectionResult, ALL_COLLECTIONS, RRF_K,
+};
+
 pub use qdrant_circuit_breaker::QdrantCircuitBreaker;
+
+pub use search::{build_tag_filter, merge_tag_filter_into};
 
 pub use types::{
     BatchStats, CollectionInfoResult, DocumentPoint, HybridSearchMode, HybridSearchParams,

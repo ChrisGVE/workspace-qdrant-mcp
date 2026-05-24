@@ -69,6 +69,7 @@ fn test_build_chunk_payload_required_fields() {
         "hash-xyz",
         None,
         &metadata,
+        None,
     );
 
     assert_eq!(payload["content"], serde_json::json!("fn main() {}"));
@@ -101,6 +102,7 @@ fn test_build_chunk_payload_code_file_has_language() {
         "hash-1",
         None,
         &HashMap::new(),
+        None,
     );
 
     assert_eq!(payload["language"], serde_json::json!("rust"));
@@ -126,6 +128,7 @@ fn test_build_chunk_payload_non_code_file_no_language() {
         "hash-2",
         None,
         &HashMap::new(),
+        None,
     );
 
     assert!(
@@ -154,6 +157,7 @@ fn test_build_chunk_payload_with_file_type() {
         "hash-3",
         Some("Code"),
         &HashMap::new(),
+        None,
     );
 
     // file_type stored lowercase
@@ -185,6 +189,7 @@ fn test_build_chunk_payload_test_file_gets_test_tag() {
         "hash-4",
         None,
         &HashMap::new(),
+        None,
     );
 
     let tags = payload["tags"].as_array().unwrap();
@@ -219,6 +224,7 @@ fn test_build_chunk_payload_chunk_metadata_prefixed() {
         "hash-5",
         None,
         &metadata,
+        None,
     );
 
     // Metadata keys get prefixed with "chunk_"
@@ -246,6 +252,7 @@ fn test_build_chunk_payload_no_extension() {
         "hash-6",
         None,
         &HashMap::new(),
+        None,
     );
 
     assert!(
@@ -272,6 +279,7 @@ fn test_build_chunk_payload_absolute_path_matches_file_path() {
         "hash-7",
         None,
         &HashMap::new(),
+        None,
     );
 
     // Both file_path and absolute_path should be the same (full path)
@@ -302,6 +310,7 @@ fn test_build_chunk_payload_feature_branch() {
         "hash-8",
         None,
         &HashMap::new(),
+        None,
     );
 
     assert_eq!(payload["branch"], serde_json::json!("feature/auth"));

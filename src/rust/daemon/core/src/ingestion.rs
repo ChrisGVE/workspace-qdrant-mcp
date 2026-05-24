@@ -155,7 +155,11 @@ impl IngestionEngine {
             .await
             .map_err(|e| ProcessingError::Storage(format!("Collection check failed: {}", e)))?
         {
-            let config = crate::storage::MultiTenantConfig::default();
+            let vector_size = self.embedding_generator.dense_dim() as u64;
+            let config = crate::storage::MultiTenantConfig {
+                vector_size,
+                ..crate::storage::MultiTenantConfig::default()
+            };
             self.storage_client
                 .create_multi_tenant_collection(collection, &config)
                 .await
@@ -189,11 +193,8 @@ impl IngestionEngine {
             })?;
 
         let mut points = Vec::with_capacity(content.chunks.len());
-        for (chunk_idx, (chunk, embedding_result)) in content
-            .chunks
-            .iter()
-            .zip(batch_results)
-            .enumerate()
+        for (chunk_idx, (chunk, embedding_result)) in
+            content.chunks.iter().zip(batch_results).enumerate()
         {
             let payload = build_chunk_payload(
                 chunk,

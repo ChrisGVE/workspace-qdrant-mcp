@@ -2,6 +2,10 @@
 //!
 //! Dense, sparse, and hybrid (RRF) search implementations using
 //! Qdrant's QueryPoints API with named vector support.
+//!
+//! When `SearchParams::diversity_penalty` is set, the search method
+//! applies post-retrieval source diversity re-ranking to reduce
+//! result clustering from a single file or project.
 
 use std::collections::HashMap;
 
@@ -14,6 +18,7 @@ use super::convert::convert_qdrant_value_to_json;
 use super::types::{
     HybridSearchMode, HybridSearchParams, SearchParams, SearchResult, StorageError,
 };
+use crate::source_diversity::apply_diversity_penalty;
 
 /// Convert the flat `field -> JSON value` filter map used by callers into a
 /// Qdrant `Filter` of `must` match conditions.
@@ -26,8 +31,8 @@ use super::types::{
 /// - `Bool`              -> match by boolean
 /// - `Number` (float)    -> match by string (stringified) — Qdrant has no
 ///   float-match semantics; preserves the value without crashing.
-/// - `null` / `Array` /
-///   `Object`            -> skipped (no equivalent single-value match)
+/// - `Array` (strings)   -> match any (Qdrant `match_any`)
+/// - `null` / `Object`   -> skipped (no equivalent single-value match)
 ///
 /// Returns `None` when every entry was skipped or the input map was empty.
 pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<Filter> {
@@ -44,7 +49,18 @@ pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<
                     Condition::matches(key.as_str(), n.to_string())
                 }
             }
-            Value::Null | Value::Array(_) | Value::Object(_) => continue,
+            Value::Array(arr) => {
+                // Collect string elements for match-any; skip non-string items.
+                let string_values: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                if string_values.is_empty() {
+                    continue;
+                }
+                Condition::matches(key.as_str(), string_values)
+            }
+            Value::Null | Value::Object(_) => continue,
         };
         conditions.push(cond);
     }
@@ -55,8 +71,58 @@ pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<
     }
 }
 
+/// Build a Qdrant filter that matches tags across both `concept_tags` and `tags` fields.
+pub fn build_tag_filter(tags: &[String]) -> Option<Filter> {
+    if tags.is_empty() {
+        return None;
+    }
+
+    let conditions: Vec<Condition> = if tags.len() == 1 {
+        let tag = tags[0].clone();
+        vec![
+            Condition::matches(wqm_common::constants::field::CONCEPT_TAGS, tag.clone()),
+            Condition::matches(wqm_common::constants::field::TAGS, tag),
+        ]
+    } else {
+        let tag_vec = tags.to_vec();
+        vec![
+            Condition::matches(wqm_common::constants::field::CONCEPT_TAGS, tag_vec.clone()),
+            Condition::matches(wqm_common::constants::field::TAGS, tag_vec),
+        ]
+    };
+
+    Some(Filter::should(conditions))
+}
+
+/// Merge a tag filter into a base filter as a nested `must` condition.
+pub fn merge_tag_filter_into(
+    base_filter: Option<Filter>,
+    tag_filter: Option<Filter>,
+) -> Option<Filter> {
+    match (base_filter, tag_filter) {
+        (Some(base), Some(tags)) => {
+            let tag_condition = Condition::from(tags);
+            let mut must = base.must;
+            must.push(tag_condition);
+            Some(Filter {
+                must,
+                should: base.should,
+                must_not: base.must_not,
+                min_should: base.min_should,
+            })
+        }
+        (Some(base), None) => Some(base),
+        (None, Some(tags)) => Some(Filter::must([Condition::from(tags)])),
+        (None, None) => None,
+    }
+}
+
 impl StorageClient {
     /// Perform hybrid search with dense/sparse vector fusion
+    ///
+    /// When `params.diversity_penalty` is `Some`, applies post-retrieval
+    /// source diversity re-ranking to penalize consecutive results from the
+    /// same file or project before returning.
     #[tracing::instrument(
         name = "qdrant.search",
         skip_all,
@@ -69,6 +135,8 @@ impl StorageClient {
     ) -> Result<Vec<SearchResult>, StorageError> {
         debug!("Performing search in collection: {}", collection_name);
         let started = std::time::Instant::now();
+
+        let diversity_config = params.diversity_penalty.clone();
 
         let results = match params.search_mode {
             HybridSearchMode::Dense => {
@@ -118,6 +186,18 @@ impl StorageClient {
                 };
                 self.search_hybrid(collection_name, hybrid_params).await?
             }
+        };
+
+        // Apply diversity penalty re-ranking when configured.
+        let results = if let Some(ref penalty_config) = diversity_config {
+            debug!(
+                same_file_penalty = penalty_config.same_file_penalty,
+                same_project_penalty = penalty_config.same_project_penalty,
+                "Applying source diversity penalty re-ranking"
+            );
+            apply_diversity_penalty(results, penalty_config)
+        } else {
+            results
         };
 
         debug!("Search completed, returned {} results", results.len());
@@ -390,8 +470,8 @@ mod tests {
         let result = build_filter_from_json(&filter).expect("filter expected");
         assert_eq!(
             result.must.len(),
-            1,
-            "only the string entry should survive type filtering"
+            2,
+            "string + string-array entries produce conditions; null + obj are skipped"
         );
     }
 
@@ -399,7 +479,47 @@ mod tests {
     fn build_filter_from_json_all_unsupported_returns_none() {
         let mut filter = HashMap::new();
         filter.insert("nullish".to_string(), json!(null));
-        filter.insert("arr".to_string(), json!(["a"]));
+        filter.insert("obj".to_string(), json!({"k": "v"}));
         assert!(build_filter_from_json(&filter).is_none());
+    }
+
+    #[test]
+    fn build_filter_from_json_string_array_produces_match_any() {
+        let mut filter = HashMap::new();
+        filter.insert("tags".to_string(), json!(["rust", "path:models"]));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            1,
+            "string array should produce one match-any condition"
+        );
+    }
+
+    #[test]
+    fn build_filter_from_json_empty_array_skipped() {
+        let mut filter = HashMap::new();
+        filter.insert("tags".to_string(), json!([]));
+        assert!(
+            build_filter_from_json(&filter).is_none(),
+            "empty array should be skipped"
+        );
+    }
+
+    #[test]
+    fn build_filter_from_json_mixed_array_only_strings() {
+        let mut filter = HashMap::new();
+        filter.insert("tags".to_string(), json!(["rust", 42, "test"]));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(result.must.len(), 1);
+    }
+
+    #[test]
+    fn build_filter_from_json_non_string_array_skipped() {
+        let mut filter = HashMap::new();
+        filter.insert("nums".to_string(), json!([1, 2, 3]));
+        assert!(
+            build_filter_from_json(&filter).is_none(),
+            "array of non-strings should be skipped"
+        );
     }
 }

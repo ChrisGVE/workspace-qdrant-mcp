@@ -7,6 +7,7 @@
 mod handlers;
 mod helpers;
 mod service_impl;
+mod validation;
 
 // Re-export primary types
 pub use service_impl::GraphServiceImpl;

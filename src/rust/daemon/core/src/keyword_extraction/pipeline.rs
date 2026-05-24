@@ -9,11 +9,13 @@
 //! 6. Tag selection (MMR diversity)
 //! 7. Keyword basket assignment
 //! 8. Structural tag extraction (code only)
+//! 9. Concept normalization (all tag phrases)
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use crate::embedding::EmbeddingGenerator;
+use crate::tagging::normalize::normalize_tag;
 
 use super::embedding_cache::resolve_embeddings;
 
@@ -126,6 +128,35 @@ impl ExtractionResult {
     pub fn basket_map(&self) -> std::collections::HashMap<String, Vec<String>> {
         basket_assignment::baskets_to_map(&self.baskets)
     }
+
+    /// Apply concept normalization to all tag phrases in place.
+    ///
+    /// Normalizes concept tags, structural tags, and basket tag references.
+    /// Deduplicates tags that collapse to the same canonical form after
+    /// normalization, keeping the first occurrence.
+    pub fn normalize_tags_in_place(&mut self) {
+        normalize_tag_vec(&mut self.tags);
+        normalize_tag_vec(&mut self.structural_tags);
+
+        // Also normalize basket tag references so they stay in sync
+        for basket in &mut self.baskets {
+            if let Some(ref mut tag_name) = basket.tag {
+                *tag_name = normalize_tag(tag_name);
+            }
+        }
+    }
+}
+
+/// Normalize `SelectedTag.phrase` values in a vec and deduplicate.
+fn normalize_tag_vec(tags: &mut Vec<SelectedTag>) {
+    let mut seen = std::collections::HashSet::new();
+
+    for tag in tags.iter_mut() {
+        tag.phrase = normalize_tag(&tag.phrase);
+    }
+
+    // Deduplicate: keep first occurrence of each normalized phrase
+    tags.retain(|t| !t.phrase.is_empty() && seen.insert(t.phrase.clone()));
 }
 
 /// Run the full extraction pipeline.
@@ -135,6 +166,8 @@ impl ExtractionResult {
 ///
 /// If any step fails (e.g., embedding generation), the pipeline continues
 /// with partial results rather than failing entirely.
+///
+/// All tag phrases are concept-normalized before the result is returned.
 pub async fn run_pipeline(
     input: &PipelineInput<'_>,
     embedding_generator: &EmbeddingGenerator,
@@ -145,14 +178,20 @@ pub async fn run_pipeline(
 
     let parent_vector = match &summary_vector {
         Some(v) => v,
-        None => return minimal_result(None, gist_indices, input),
+        None => {
+            let mut result = minimal_result(None, gist_indices, input);
+            result.normalize_tags_in_place();
+            return result;
+        }
     };
 
     // Steps 2-4: Extract and rerank candidates; collect phrase→vector cache
     let (ranked, phrase_cache) =
         extract_and_rerank(input, parent_vector, embedding_generator, config).await;
     if ranked.is_empty() {
-        return minimal_result(summary_vector, gist_indices, input);
+        let mut result = minimal_result(summary_vector, gist_indices, input);
+        result.normalize_tags_in_place();
+        return result;
     }
 
     // Step 5: Select keywords with IDF penalty
@@ -170,7 +209,7 @@ pub async fn run_pipeline(
     {
         Some(result) => result,
         None => {
-            return ExtractionResult {
+            let mut result = ExtractionResult {
                 summary_vector,
                 gist_indices,
                 keywords,
@@ -178,6 +217,8 @@ pub async fn run_pipeline(
                 structural_tags: extract_structural(input),
                 baskets: Vec::new(),
             };
+            result.normalize_tags_in_place();
+            return result;
         }
     };
 
@@ -188,14 +229,17 @@ pub async fn run_pipeline(
             None => Vec::new(),
         };
 
-    ExtractionResult {
+    // Step 9: Concept normalization
+    let mut result = ExtractionResult {
         summary_vector,
         gist_indices,
         keywords,
         tags,
         structural_tags: extract_structural(input),
         baskets,
-    }
+    };
+    result.normalize_tags_in_place();
+    result
 }
 
 /// Step 1: Generate quasi-summary vector from chunk embeddings.
@@ -497,5 +541,88 @@ mod tests {
         let map = result.structural_tags_map();
         assert_eq!(map.get("framework").unwrap().len(), 2);
         assert_eq!(map.get("language").unwrap(), &vec!["rust".to_string()]);
+    }
+
+    #[test]
+    fn test_normalize_tags_in_place_concept_tags() {
+        let mut result = ExtractionResult {
+            summary_vector: None,
+            gist_indices: vec![],
+            keywords: vec![],
+            tags: vec![
+                SelectedTag {
+                    phrase: "Machine_Learning".to_string(),
+                    tag_type: TagType::Concept,
+                    score: 0.8,
+                    diversity_score: 0.9,
+                    semantic_score: 0.7,
+                    ngram_size: 1,
+                },
+                SelectedTag {
+                    phrase: "ML".to_string(),
+                    tag_type: TagType::Concept,
+                    score: 0.7,
+                    diversity_score: 0.8,
+                    semantic_score: 0.6,
+                    ngram_size: 1,
+                },
+            ],
+            structural_tags: vec![],
+            baskets: vec![],
+        };
+
+        result.normalize_tags_in_place();
+
+        // Both "Machine_Learning" and "ML" normalize to "machine-learning",
+        // so only one should remain
+        assert_eq!(result.tags.len(), 1);
+        assert_eq!(result.tags[0].phrase, "machine-learning");
+    }
+
+    #[test]
+    fn test_normalize_tags_in_place_structural_tags() {
+        let mut result = ExtractionResult {
+            summary_vector: None,
+            gist_indices: vec![],
+            keywords: vec![],
+            tags: vec![],
+            structural_tags: vec![SelectedTag {
+                phrase: "language:Rust".to_string(),
+                tag_type: TagType::Structural,
+                score: 1.0,
+                diversity_score: 1.0,
+                semantic_score: 1.0,
+                ngram_size: 1,
+            }],
+            baskets: vec![],
+        };
+
+        result.normalize_tags_in_place();
+
+        assert_eq!(result.structural_tags.len(), 1);
+        assert_eq!(result.structural_tags[0].phrase, "language:rust");
+    }
+
+    #[test]
+    fn test_normalize_tags_in_place_abbreviation_expansion() {
+        let mut result = ExtractionResult {
+            summary_vector: None,
+            gist_indices: vec![],
+            keywords: vec![],
+            tags: vec![SelectedTag {
+                phrase: "DB".to_string(),
+                tag_type: TagType::Concept,
+                score: 0.8,
+                diversity_score: 0.9,
+                semantic_score: 0.7,
+                ngram_size: 1,
+            }],
+            structural_tags: vec![],
+            baskets: vec![],
+        };
+
+        result.normalize_tags_in_place();
+
+        assert_eq!(result.tags[0].phrase, "database");
     }
 }

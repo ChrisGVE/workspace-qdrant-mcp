@@ -14,8 +14,8 @@ pub mod rules_backfill;
 
 // Re-export all public items for backward-compatible imports via `crate::startup::*`
 pub use reconciliation::{
-    clean_stale_state, reconcile_all_ignore_rules, validate_watch_folders, StaleCleanupStats,
-    WatchValidationStats,
+    clean_stale_state, reconcile_all_ignore_rules, reconcile_project_groups,
+    validate_watch_folders, GroupReconcileStats, StaleCleanupStats, WatchValidationStats,
 };
 pub use recovery::{
     check_base_point_migration, run_startup_recovery, FullRecoveryStats, RecoveryStats,

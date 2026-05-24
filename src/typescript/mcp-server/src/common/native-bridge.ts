@@ -15,15 +15,34 @@ const require = createRequire(import.meta.url);
 // The native addon is located relative to this file:
 // src/typescript/mcp-server/src/common/native-bridge.ts
 // -> src/rust/common-node/index.js
-const NATIVE_ADDON_PATH = join(__dirname, '..', '..', '..', '..', 'rust', 'common-node', 'index.js');
+const NATIVE_ADDON_PATH = join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'rust',
+  'common-node',
+  'index.js'
+);
 
 interface NativeAddon {
   calculateProjectId(projectRoot: string, gitRemote: string | null): string;
-  calculateProjectIdWithDisambiguation(projectRoot: string, gitRemote: string | null, disambiguationPath: string | null): string;
+  calculateProjectIdWithDisambiguation(
+    projectRoot: string,
+    gitRemote: string | null,
+    disambiguationPath: string | null
+  ): string;
   normalizeGitUrl(url: string): string;
   detectGitRemote(projectRoot: string): string | null;
   calculateTenantId(projectRoot: string): string;
-  generateIdempotencyKey(itemType: string, op: string, tenantId: string, collection: string, payloadJson: string): string | null;
+  generateIdempotencyKey(
+    itemType: string,
+    op: string,
+    tenantId: string,
+    collection: string,
+    payloadJson: string
+  ): string | null;
   computeContentHash(content: string): string;
   tokenize(text: string): string[];
   collectionProjects(): string;
@@ -45,6 +64,7 @@ interface NativeAddon {
   fieldFileType(): string;
   fieldFilePath(): string;
   fieldConceptTags(): string;
+  fieldTags(): string;
   fieldDeleted(): string;
   fieldContent(): string;
   fieldTitle(): string;
@@ -88,8 +108,8 @@ function loadAddon(): NativeAddon {
   } catch (err) {
     throw new Error(
       `Failed to load wqm-common-node native addon from ${NATIVE_ADDON_PATH}. ` +
-      `Build it with: cd src/rust/common-node && napi build --release --platform. ` +
-      `Original error: ${err instanceof Error ? err.message : String(err)}`
+        `Build it with: cd src/rust/common-node && napi build --release --platform. ` +
+        `Original error: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 }
@@ -102,9 +122,13 @@ export function calculateProjectId(projectRoot: string, gitRemote: string | null
 export function calculateProjectIdWithDisambiguation(
   projectRoot: string,
   gitRemote: string | null,
-  disambiguationPath: string | null,
+  disambiguationPath: string | null
 ): string {
-  return loadAddon().calculateProjectIdWithDisambiguation(projectRoot, gitRemote, disambiguationPath);
+  return loadAddon().calculateProjectIdWithDisambiguation(
+    projectRoot,
+    gitRemote,
+    disambiguationPath
+  );
 }
 
 export function normalizeGitUrl(url: string): string {
@@ -124,7 +148,7 @@ export function generateIdempotencyKey(
   op: string,
   tenantId: string,
   collection: string,
-  payloadJson: string,
+  payloadJson: string
 ): string | null {
   return loadAddon().generateIdempotencyKey(itemType, op, tenantId, collection, payloadJson);
 }
@@ -174,6 +198,7 @@ export const FIELD_BRANCH = loadAddon().fieldBranch();
 export const FIELD_FILE_TYPE = loadAddon().fieldFileType();
 export const FIELD_FILE_PATH = loadAddon().fieldFilePath();
 export const FIELD_CONCEPT_TAGS = loadAddon().fieldConceptTags();
+export const FIELD_TAGS = loadAddon().fieldTags();
 export const FIELD_DELETED = loadAddon().fieldDeleted();
 export const FIELD_CONTENT = loadAddon().fieldContent();
 export const FIELD_TITLE = loadAddon().fieldTitle();

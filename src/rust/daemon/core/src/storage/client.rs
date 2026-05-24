@@ -48,19 +48,11 @@ impl StorageClient {
 
     /// Create a storage client with custom configuration
     pub fn with_config(config: StorageConfig) -> Self {
-        // Debug: write to a file to verify code is running
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/storage_debug.log")
-        {
-            use std::io::Write;
-            let _ = writeln!(
-                f,
-                "StorageClient::with_config called: url={}, check_compat={}",
-                config.url, config.check_compatibility
-            );
-        }
+        debug!(
+            url = %config.url,
+            check_compatibility = config.check_compatibility,
+            "StorageClient::with_config called"
+        );
 
         info!(
             "Initializing Qdrant client with transport: {:?}",

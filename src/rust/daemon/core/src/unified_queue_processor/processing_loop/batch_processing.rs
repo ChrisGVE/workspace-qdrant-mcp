@@ -217,10 +217,30 @@ async fn handle_item_success(
     // Resolve overall status. For state-machine items with pending sinks the
     // helper will return InProgress and the item remains in the queue for the
     // next lease cycle.
-    let overall = queue_manager
-        .check_and_finalize(&item.queue_id)
-        .await
-        .unwrap_or(QueueStatus::Done);
+    //
+    // On DB/query error, keep the item in the queue for retry rather than
+    // coercing to Done and deleting it -- a transient DB error must not
+    // permanently discard unfinished work.
+    let overall = match queue_manager.check_and_finalize(&item.queue_id).await {
+        Ok(status) => status,
+        Err(e) => {
+            error!(
+                "check_and_finalize failed for item {}, keeping in queue for retry: {}",
+                item.queue_id, e
+            );
+            // Record success metrics despite finalization failure -- the item
+            // processing itself succeeded; only the bookkeeping step failed.
+            UnifiedQueueProcessor::update_metrics_success(metrics, item_type_str, processing_time)
+                .await;
+            if let Some(ref h) = queue_health {
+                h.record_success(processing_time);
+                h.record_heartbeat();
+            }
+            processed_tenants.insert(item.tenant_id.clone());
+            return;
+        }
+    };
+
     match overall {
         QueueStatus::Done => {
             if let Err(e) = queue_manager.delete_unified_item(&item.queue_id).await {

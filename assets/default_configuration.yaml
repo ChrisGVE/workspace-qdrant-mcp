@@ -985,6 +985,25 @@ observability:
 # the user returns.
 
 # =============================================================================
+# GRAPH DATABASE CONFIGURATION
+# =============================================================================
+# Purpose: Controls the code relationship graph backend used for graph-RAG,
+# impact analysis, and symbol traversal queries.
+graph:
+  # backend: Which graph store implementation to use.
+  # "sqlite" — SQLite with recursive CTEs (default, no extra dependencies)
+  # "ladybug" — LadybugDB (Kuzu fork), requires 'ladybug' compile-time feature
+  backend: sqlite
+
+  # buffer_pool_size: LadybugDB buffer pool size in bytes (ignored for sqlite).
+  # Default: 256MB
+  buffer_pool_size: 268435456
+
+  # max_threads: LadybugDB max worker threads (ignored for sqlite).
+  # Default: 2
+  max_threads: 2
+
+# =============================================================================
 # RESOURCE LIMITS CONFIGURATION
 # =============================================================================
 # Purpose: Controls how the daemon manages system resources to be a good neighbor.

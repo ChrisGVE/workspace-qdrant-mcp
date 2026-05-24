@@ -12,6 +12,7 @@ mod config;
 mod grouper;
 mod schema_sql;
 mod storage;
+pub mod tag_affinity;
 
 // Re-export all public items so callers see the same paths as before.
 pub use computation::{build_affinity_groups, compute_pairwise_affinities, ProjectAffinity};
@@ -21,6 +22,12 @@ pub use schema_sql::{CREATE_AFFINITY_LABELS_SQL, CREATE_PROJECT_EMBEDDINGS_SQL};
 pub use storage::{
     delete_project_embedding, load_affinity_label, load_all_project_embeddings,
     load_project_embedding, store_project_embedding,
+};
+
+// Re-export tag affinity public API.
+pub use tag_affinity::{
+    compute_tag_affinities, compute_tag_affinity_groups, load_project_tag_profiles,
+    tag_jaccard_similarity, TagAffinity, TagAffinityConfig,
 };
 
 // Re-export private helpers and sibling modules needed by the test suite.
@@ -39,3 +46,7 @@ pub(crate) use storage::{blob_to_embedding, embedding_to_blob, store_affinity_la
 #[cfg(test)]
 #[path = "../affinity_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tag_affinity_tests.rs"]
+mod tag_affinity_tests;

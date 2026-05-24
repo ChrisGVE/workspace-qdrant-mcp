@@ -2,18 +2,24 @@
 //!
 //! Uses FastEmbed cosine similarity for zero-shot taxonomy matching:
 //! 1. Load a taxonomy of ~180 concept terms from YAML
-//! 2. Embed each term once (cached in memory)
+//! 2. Embed each term once (cached in SQLite across restarts)
 //! 3. For each document, compute aggregate embedding from chunk embeddings
 //! 4. Cosine similarity against all taxonomy embeddings
 //! 5. Top-N matches above threshold become concept tags
 
 use std::collections::HashMap;
 
+use sqlx::SqlitePool;
+use tracing::info;
+
 use crate::embedding::{EmbeddingError, EmbeddingGenerator};
 use crate::keyword_extraction::semantic_rerank::cosine_similarity;
 use crate::keyword_extraction::tag_selector::{SelectedTag, TagType};
 
 use super::taxonomy::TaxonomyEntry;
+use super::taxonomy_cache::{
+    compute_taxonomy_hash, load_cached_embeddings, save_cached_embeddings, CacheLookup,
+};
 
 // ── Configuration ────────────────────────────────────────────────────────
 
@@ -84,6 +90,59 @@ impl Tier2Tagger {
             embeddings,
             config,
         })
+    }
+
+    /// Create a tagger using the SQLite embedding cache.
+    ///
+    /// Tries to load cached embeddings from `taxonomy_cache` first. On cache
+    /// miss (YAML changed or first startup), embeds all terms and persists
+    /// them for the next startup. Typical cache-hit path: <5ms.
+    pub async fn from_cache_or_embed(
+        entries: Vec<TaxonomyEntry>,
+        taxonomy_yaml: &str,
+        embedding_generator: &EmbeddingGenerator,
+        pool: &SqlitePool,
+        config: Tier2Config,
+    ) -> Result<Self, EmbeddingError> {
+        let taxonomy_hash = compute_taxonomy_hash(taxonomy_yaml);
+
+        match load_cached_embeddings(pool, &taxonomy_hash, entries).await {
+            CacheLookup::Hit {
+                entries,
+                embeddings,
+            } => {
+                info!(
+                    "Tier2Tagger: loaded {} cached taxonomy embeddings",
+                    entries.len()
+                );
+                Ok(Self {
+                    entries,
+                    embeddings,
+                    config,
+                })
+            }
+            CacheLookup::Miss { entries } => {
+                info!(
+                    "Tier2Tagger: cache miss, embedding {} taxonomy terms",
+                    entries.len()
+                );
+                let terms: Vec<String> = entries.iter().map(|e| e.term.clone()).collect();
+                let results = embedding_generator
+                    .generate_embeddings_batch(&terms, "all-MiniLM-L6-v2")
+                    .await?;
+                let embeddings: Vec<Vec<f32>> =
+                    results.into_iter().map(|r| r.dense.vector).collect();
+
+                // Persist to cache (best-effort, non-fatal if it fails)
+                save_cached_embeddings(pool, &taxonomy_hash, &entries, &embeddings).await;
+
+                Ok(Self {
+                    entries,
+                    embeddings,
+                    config,
+                })
+            }
+        }
     }
 
     /// Create a tagger with pre-computed embeddings (for testing).
@@ -174,6 +233,16 @@ impl Tier2Tagger {
     /// Get configuration.
     pub fn config(&self) -> &Tier2Config {
         &self.config
+    }
+
+    /// Get a reference to the pre-computed embeddings (for cache persistence).
+    pub fn embeddings(&self) -> &[Vec<f32>] {
+        &self.embeddings
+    }
+
+    /// Get a reference to the taxonomy entries.
+    pub fn entries(&self) -> &[TaxonomyEntry] {
+        &self.entries
     }
 }
 
@@ -403,5 +472,73 @@ mod tests {
         let embeddings = mock_embeddings(n, 10);
         let tagger = Tier2Tagger::from_precomputed(entries, embeddings, Tier2Config::default());
         assert_eq!(tagger.taxonomy_size(), 5);
+    }
+
+    #[test]
+    fn test_embeddings_accessor() {
+        let entries = sample_taxonomy();
+        let embeddings = mock_embeddings(5, 10);
+        let tagger =
+            Tier2Tagger::from_precomputed(entries, embeddings.clone(), Tier2Config::default());
+        assert_eq!(tagger.embeddings().len(), 5);
+        assert_eq!(tagger.embeddings()[0], embeddings[0]);
+    }
+
+    #[test]
+    fn test_entries_accessor() {
+        let entries = sample_taxonomy();
+        let embeddings = mock_embeddings(5, 10);
+        let tagger = Tier2Tagger::from_precomputed(entries, embeddings, Tier2Config::default());
+        assert_eq!(tagger.entries().len(), 5);
+        assert_eq!(tagger.entries()[0].term, "machine learning algorithms");
+    }
+
+    #[tokio::test]
+    async fn test_from_cache_or_embed_miss_and_hit() {
+        use sqlx::sqlite::SqlitePoolOptions;
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        // Create the taxonomy_cache table manually (simulating migration v39)
+        sqlx::query(crate::schema_version::v39::CREATE_TAXONOMY_CACHE_SQL)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let yaml = r#"
+categories:
+  test-cat:
+    - alpha term
+    - beta term
+"#;
+        let entries = crate::tagging::taxonomy::load_taxonomy(yaml).unwrap();
+        let hash = crate::tagging::taxonomy_cache::compute_taxonomy_hash(yaml);
+
+        // Simulate a cache miss: manually populate with known embeddings
+        let mock_embs = vec![vec![1.0f32, 0.0, 0.0], vec![0.0, 1.0, 0.0]];
+
+        // Manually save to cache
+        crate::tagging::taxonomy_cache::save_cached_embeddings(&pool, &hash, &entries, &mock_embs)
+            .await;
+
+        // Now load should hit
+        let lookup =
+            crate::tagging::taxonomy_cache::load_cached_embeddings(&pool, &hash, entries.clone())
+                .await;
+        assert!(matches!(lookup, CacheLookup::Hit { .. }));
+
+        if let CacheLookup::Hit {
+            entries: loaded_entries,
+            embeddings: loaded_embs,
+        } = lookup
+        {
+            assert_eq!(loaded_entries.len(), 2);
+            assert_eq!(loaded_embs[0], vec![1.0f32, 0.0, 0.0]);
+            assert_eq!(loaded_embs[1], vec![0.0f32, 1.0, 0.0]);
+        }
     }
 }

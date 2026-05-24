@@ -184,6 +184,34 @@ export class SearchTool {
     };
   }
 
+  private async resolveGroupScope(
+    currentProjectId: string | undefined,
+    scope: import('./search-types.js').SearchScope
+  ): Promise<{
+    groupTenantIds: string[] | undefined;
+    decayMap: Map<string, number> | undefined;
+  }> {
+    if (scope !== 'group' || !currentProjectId) {
+      return { groupTenantIds: undefined, decayMap: undefined };
+    }
+    try {
+      const response = await this.daemonClient.resolveSearchScope({
+        tenant_id: currentProjectId,
+        scope: 'group',
+      });
+      const decayMap = new Map<string, number>();
+      for (const entry of response.decay_map ?? []) {
+        decayMap.set(entry.tenant_id, entry.multiplier);
+      }
+      return {
+        groupTenantIds: response.filter_by_tenant ? response.tenant_ids : undefined,
+        decayMap,
+      };
+    } catch {
+      return { groupTenantIds: undefined, decayMap: undefined };
+    }
+  }
+
   async search(options: SearchOptions): Promise<SearchResponse> {
     if (options.exact) {
       return searchExact(this.daemonClient, this._stateManager, this.projectDetector, options);
@@ -204,6 +232,20 @@ export class SearchTool {
       basePointsDegraded,
       basePointsActiveCount,
     } = await this.resolveContextAndLog(options, options.query, limit, scope, options.projectId);
+    const { groupTenantIds, decayMap } = await this.resolveGroupScope(currentProjectId, scope);
+    if (scope === 'group' && (!groupTenantIds || groupTenantIds.length === 0)) {
+      return {
+        results: [],
+        total: 0,
+        query: options.query,
+        mode,
+        scope,
+        collections_searched: collectionsToSearch,
+        status: 'error',
+        status_reason:
+          'Group scope requires a resolved project context. Could not determine project group membership.',
+      };
+    }
     const embeddings = await this.prepareEmbeddings(
       options,
       options.query,
@@ -213,9 +255,6 @@ export class SearchTool {
       basePoints
     );
     if ('fallback' in embeddings) {
-      // F-014: if base-point isolation degraded, surface it on the
-      // fallback response too — tenant filter still applies via
-      // fallbackSearch, but instance/worktree narrowing was bypassed.
       if (basePointsDegraded) {
         embeddings.fallback.status = 'uncertain';
         const reason = formatBasePointsDegradedReason(basePointsActiveCount);
@@ -238,7 +277,9 @@ export class SearchTool {
       basePointsDegraded,
       basePointsActiveCount,
       embeddings.denseEmbedding,
-      embeddings.sparseVector
+      embeddings.sparseVector,
+      groupTenantIds,
+      decayMap
     );
   }
 
@@ -251,13 +292,15 @@ export class SearchTool {
     currentProjectId: string | undefined,
     basePoints: string[] | undefined,
     denseEmbedding: number[] | undefined,
-    sparseVector: Record<number, number> | undefined
+    sparseVector: Record<number, number> | undefined,
+    groupTenantIds: string[] | undefined
   ) {
     const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
     return searchAllCollections(this.qdrantClient, {
       collectionsToSearch,
       scope,
       currentProjectId,
+      groupTenantIds,
       basePoints,
       branch: options.branch,
       fileType: options.fileType,
@@ -273,6 +316,21 @@ export class SearchTool {
     });
   }
 
+  private applyRelevanceDecay(
+    results: import('./search-types.js').SearchResult[],
+    currentProjectId: string | undefined,
+    decayMap: Map<string, number> | undefined
+  ): void {
+    if (!decayMap || !currentProjectId) return;
+    for (const result of results) {
+      const tenantId = result.metadata?.tenant_id as string | undefined;
+      if (!tenantId) continue;
+      const multiplier = decayMap.get(tenantId) ?? 0.4;
+      result.score *= multiplier;
+    }
+    results.sort((a, b) => b.score - a.score);
+  }
+
   private async runSearchAndFinalize(
     options: SearchOptions,
     mode: import('./search-types.js').SearchMode,
@@ -286,7 +344,9 @@ export class SearchTool {
     basePointsDegraded: boolean,
     basePointsActiveCount: number | undefined,
     denseEmbedding: number[] | undefined,
-    sparseVector: Record<number, number> | undefined
+    sparseVector: Record<number, number> | undefined,
+    groupTenantIds: string[] | undefined,
+    decayMap: Map<string, number> | undefined
   ): Promise<SearchResponse> {
     const collectionsResult = await this.runSearchCollections(
       options,
@@ -297,12 +357,14 @@ export class SearchTool {
       currentProjectId,
       basePoints,
       denseEmbedding,
-      sparseVector
+      sparseVector,
+      groupTenantIds
     );
+    if (decayMap && decayMap.size > 0) {
+      this.applyRelevanceDecay(collectionsResult.allResults, currentProjectId, decayMap);
+    }
     let { status, statusReason } = collectionsResult;
     if (basePointsDegraded) {
-      // F-014: merge the explicit degradation message into the final
-      // response so callers know instance isolation was bypassed.
       status = 'uncertain';
       const reason = formatBasePointsDegradedReason(basePointsActiveCount);
       statusReason = statusReason ? `${statusReason}; ${reason}` : reason;

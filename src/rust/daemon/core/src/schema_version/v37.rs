@@ -28,7 +28,7 @@
 
 use async_trait::async_trait;
 use sqlx::{Executor, SqlitePool};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::migration::Migration;
 use super::SchemaError;
@@ -148,6 +148,32 @@ async fn rebuild_tracked_files(
     .fetch_one(&mut **conn)
     .await?;
 
+    let old_table_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files_old')",
+    )
+    .fetch_one(&mut **conn)
+    .await?;
+
+    if !table_exists && old_table_exists {
+        warn!(
+            "Migration v37: tracked_files missing but tracked_files_old exists — \
+             recovering from interrupted rebuild"
+        );
+        conn.execute(crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_SQL)
+            .await?;
+        conn.execute("DROP TABLE tracked_files_old").await?;
+        for stmt in crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_INDEXES_SQL {
+            conn.execute(*stmt).await?;
+        }
+        conn.execute(crate::tracked_files_schema::CREATE_RECONCILE_INDEX_SQL)
+            .await?;
+        conn.execute(crate::tracked_files_schema::CREATE_BASE_POINT_INDEX_SQL)
+            .await?;
+        conn.execute(crate::tracked_files_schema::CREATE_REFCOUNT_INDEX_SQL)
+            .await?;
+        return Ok(());
+    }
+
     if !table_exists {
         debug!("Migration v37: tracked_files does not exist; skipping rebuild");
         return Ok(());
@@ -162,6 +188,10 @@ async fn rebuild_tracked_files(
 
     if !tracked_sql.contains("file_path TEXT NOT NULL") {
         debug!("Migration v37: tracked_files already lacks file_path column");
+        if old_table_exists {
+            debug!("Migration v37: cleaning up leftover tracked_files_old");
+            conn.execute("DROP TABLE tracked_files_old").await?;
+        }
         return Ok(());
     }
 
@@ -304,6 +334,40 @@ pub async fn finalize_relative_path_migration(pool: &SqlitePool) -> Result<(), S
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Queue depth helpers for the post-startup migration hook
+// ---------------------------------------------------------------------------
+
+/// Count of pending + in_progress items in the unified queue.
+///
+/// Returns a `Result` so callers can distinguish a genuine zero-depth
+/// from a DB error -- coercing errors to 0 would allow premature
+/// finalization (marker deletion before actual drain).
+pub async fn active_queue_depth(pool: &SqlitePool) -> Result<i64, SchemaError> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM unified_queue WHERE status IN ('pending', 'in_progress')",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(count)
+}
+
+/// Count of pending + in_progress migration-era items only.
+///
+/// Scoped to items with `created_at <= cutoff_ts` so that unrelated live
+/// traffic arriving after the initial walk settles does not prevent the
+/// migration from finalizing.
+pub async fn migration_queue_depth(pool: &SqlitePool, cutoff_ts: &str) -> Result<i64, SchemaError> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM unified_queue \
+         WHERE status IN ('pending', 'in_progress') AND created_at <= ?1",
+    )
+    .bind(cutoff_ts)
+    .fetch_one(pool)
+    .await?;
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,5 +431,126 @@ mod tests {
         let pool = fresh_pool().await;
         let status = get_relative_path_migration_status(&pool).await.unwrap();
         assert!(status.is_none());
+    }
+
+    /// Create a pool with the unified_queue table for queue-depth tests.
+    async fn pool_with_queue() -> SqlitePool {
+        let pool = fresh_pool().await;
+        sqlx::query(
+            "CREATE TABLE unified_queue (
+                queue_id TEXT PRIMARY KEY,
+                item_type TEXT NOT NULL,
+                op TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                idempotency_key TEXT NOT NULL UNIQUE,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                file_path TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    /// Insert a queue item with the given status and created_at timestamp.
+    async fn insert_item(pool: &SqlitePool, id: &str, status: &str, created_at: &str) {
+        sqlx::query(
+            "INSERT INTO unified_queue \
+             (queue_id, item_type, op, tenant_id, collection, status, \
+              created_at, idempotency_key) \
+             VALUES (?1, 'file', 'add', 'tenant1', 'projects', ?2, ?3, ?4)",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(created_at)
+        .bind(format!("key-{id}"))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    // -- Finding 1: active_queue_depth returns Result, propagates errors --
+
+    #[tokio::test]
+    async fn active_queue_depth_returns_correct_count() {
+        let pool = pool_with_queue().await;
+        assert_eq!(active_queue_depth(&pool).await.unwrap(), 0);
+
+        insert_item(&pool, "a", "pending", "2025-01-01T00:00:00.000Z").await;
+        insert_item(&pool, "b", "in_progress", "2025-01-01T00:00:00.000Z").await;
+        insert_item(&pool, "c", "done", "2025-01-01T00:00:00.000Z").await;
+        insert_item(&pool, "d", "failed", "2025-01-01T00:00:00.000Z").await;
+
+        // Only pending + in_progress count.
+        assert_eq!(active_queue_depth(&pool).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn active_queue_depth_propagates_db_error() {
+        let pool = fresh_pool().await;
+        // No unified_queue table exists => query error propagates.
+        let result = active_queue_depth(&pool).await;
+        assert!(result.is_err(), "expected DB error to propagate");
+    }
+
+    // -- Finding 2: migration_queue_depth scoped by cutoff timestamp --
+
+    #[tokio::test]
+    async fn migration_queue_depth_ignores_post_cutoff_items() {
+        let pool = pool_with_queue().await;
+
+        // Migration-era items (before cutoff).
+        insert_item(&pool, "m1", "pending", "2025-06-01T00:00:00.000Z").await;
+        insert_item(&pool, "m2", "in_progress", "2025-06-01T00:00:01.000Z").await;
+
+        // Live traffic after cutoff.
+        insert_item(&pool, "l1", "pending", "2025-06-01T00:01:00.000Z").await;
+        insert_item(&pool, "l2", "in_progress", "2025-06-01T00:02:00.000Z").await;
+
+        let cutoff = "2025-06-01T00:00:30.000Z";
+
+        // Only the 2 migration-era items should be counted.
+        let depth = migration_queue_depth(&pool, cutoff).await.unwrap();
+        assert_eq!(depth, 2);
+
+        // Total active depth includes all 4.
+        assert_eq!(active_queue_depth(&pool).await.unwrap(), 4);
+    }
+
+    #[tokio::test]
+    async fn migration_queue_depth_reaches_zero_when_migration_items_drain() {
+        let pool = pool_with_queue().await;
+
+        // Migration-era item.
+        insert_item(&pool, "m1", "pending", "2025-06-01T00:00:00.000Z").await;
+        // Live traffic after cutoff.
+        insert_item(&pool, "l1", "pending", "2025-06-01T00:01:00.000Z").await;
+
+        let cutoff = "2025-06-01T00:00:30.000Z";
+
+        assert_eq!(migration_queue_depth(&pool, cutoff).await.unwrap(), 1);
+
+        // Mark the migration item as done.
+        sqlx::query("UPDATE unified_queue SET status = 'done' WHERE queue_id = 'm1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Migration depth is 0, even though live traffic still pending.
+        assert_eq!(migration_queue_depth(&pool, cutoff).await.unwrap(), 0);
+        assert_eq!(active_queue_depth(&pool).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn migration_queue_depth_propagates_db_error() {
+        let pool = fresh_pool().await;
+        // No unified_queue table exists => query error propagates.
+        let result = migration_queue_depth(&pool, "2025-06-01T00:00:00.000Z").await;
+        assert!(result.is_err(), "expected DB error to propagate");
     }
 }

@@ -3,7 +3,11 @@
  */
 
 // Canonical collection names from native bridge (single source of truth)
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_SCRATCHPAD } from '../common/native-bridge.js';
+import {
+  COLLECTION_PROJECTS,
+  COLLECTION_LIBRARIES,
+  COLLECTION_SCRATCHPAD,
+} from '../common/native-bridge.js';
 export const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
 export const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 export const SCRATCHPAD_COLLECTION = COLLECTION_SCRATCHPAD;
@@ -24,7 +28,7 @@ export const DEFAULT_EXPANSION_WEIGHT = 0.5;
 export const DEFAULT_MAX_EXPANDED_KEYWORDS = 10;
 
 export type SearchMode = 'hybrid' | 'semantic' | 'keyword';
-export type SearchScope = 'project' | 'global' | 'all';
+export type SearchScope = 'project' | 'group' | 'global' | 'all';
 
 export interface SearchOptions {
   query: string;
@@ -93,7 +97,7 @@ export interface SearchResponse {
   mode: SearchMode;
   scope: SearchScope;
   collections_searched: string[];
-  status?: 'ok' | 'uncertain';
+  status?: 'ok' | 'uncertain' | 'error';
   status_reason?: string;
 }
 
@@ -113,6 +117,8 @@ export interface FilterParams {
   collection: string;
   scope: SearchScope;
   projectId: string | undefined;
+  /** For group scope: additional tenant IDs to include in search */
+  groupTenantIds: string[] | undefined;
   branch: string | undefined;
   fileType: string | undefined;
   libraryName: string | undefined;

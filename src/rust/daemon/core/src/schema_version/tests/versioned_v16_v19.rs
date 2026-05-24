@@ -376,20 +376,22 @@ async fn test_migration_v19_backfill() {
          VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'deadbeef', 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
-    let bp: Option<String> =
-        sqlx::query_scalar("SELECT base_point FROM tracked_files WHERE relative_path = 'src/main.rs'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let bp: Option<String> = sqlx::query_scalar(
+        "SELECT base_point FROM tracked_files WHERE relative_path = 'src/main.rs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert!(
         bp.is_none(),
         "base_point should be NULL for insert without explicit value"
     );
 
-    let incr: i32 =
-        sqlx::query_scalar("SELECT incremental FROM tracked_files WHERE relative_path = 'src/main.rs'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let incr: i32 = sqlx::query_scalar(
+        "SELECT incremental FROM tracked_files WHERE relative_path = 'src/main.rs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(incr, 0, "incremental should default to 0");
 }

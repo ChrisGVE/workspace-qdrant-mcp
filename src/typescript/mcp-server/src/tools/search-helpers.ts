@@ -31,6 +31,7 @@ import {
   fallbackSearch,
 } from './search-qdrant.js';
 import { expandGraphContext } from './search-graph-context.js';
+import { expandAndFuseWithGraph } from './search-graph-expansion.js';
 
 /** Maximum active base_points we still attach as a Qdrant filter. Above
  * this the filter clause would blow past server-side limits; we instead
@@ -62,7 +63,7 @@ export async function resolveProjectContext(
   stateManager: SqliteStateManager
 ): Promise<ProjectContextResolution> {
   let currentProjectId = projectId;
-  if (!currentProjectId && scope === 'project') {
+  if (!currentProjectId && (scope === 'project' || scope === 'group')) {
     const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
     currentProjectId = projectInfo?.projectId;
   }
@@ -82,7 +83,7 @@ export async function resolveProjectContext(
         // the single base point matching the caller's working directory.
         // Tenant filter still applies for project-level scoping.
         const cwd = process.cwd();
-        const primaryPoint = points.find(bp => cwd.startsWith(bp));
+        const primaryPoint = points.find((bp) => cwd.startsWith(bp));
         if (primaryPoint) {
           basePoints = [primaryPoint];
         } else {
@@ -174,6 +175,7 @@ export interface SearchAllCollectionsParams {
   collectionsToSearch: string[];
   scope: SearchScope;
   currentProjectId: string | undefined;
+  groupTenantIds: string[] | undefined;
   basePoints: string[] | undefined;
   branch: string | undefined;
   fileType: string | undefined;
@@ -197,6 +199,7 @@ function buildCollectionSearchParams(
     collection: coll,
     scope: params.scope,
     projectId: params.currentProjectId,
+    groupTenantIds: params.groupTenantIds,
     branch: params.branch,
     fileType: params.fileType,
     libraryName: params.libraryName,
@@ -295,6 +298,12 @@ export async function finalizeResults(
 ): Promise<SearchResponse> {
   const fusedResults = applyRRFFusion(params.allResults, params.mode);
   fusedResults.sort((a, b) => b.score - a.score);
+
+  if (params.options.includeGraphContext) {
+    const primaryCollection = params.collectionsToSearch[0] ?? 'projects';
+    await expandAndFuseWithGraph(daemonClient, fusedResults, primaryCollection);
+  }
+
   const finalResults = fusedResults.slice(0, params.limit);
 
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);

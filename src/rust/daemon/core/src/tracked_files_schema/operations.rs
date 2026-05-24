@@ -69,6 +69,7 @@ pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         base_point: r.get("base_point"),
         incremental: r.get::<Option<i32>, _>("incremental").unwrap_or(0) != 0,
         component: r.get("component"),
+        routing_reason: r.get("routing_reason"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
@@ -119,7 +120,7 @@ pub async fn lookup_tracked_file(
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
                         collection, base_point, incremental,
-                        component, created_at, updated_at
+                        component, routing_reason, created_at, updated_at
                  FROM tracked_files
                  WHERE watch_folder_id = ?1 AND relative_path = ?2 AND branch = ?3",
             )
@@ -136,7 +137,7 @@ pub async fn lookup_tracked_file(
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
                         collection, base_point, incremental,
-                        component, created_at, updated_at
+                        component, routing_reason, created_at, updated_at
                  FROM tracked_files
                  WHERE watch_folder_id = ?1 AND relative_path = ?2 AND branch IS NULL",
             )

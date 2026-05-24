@@ -153,11 +153,18 @@ impl LibraryWriteService for LibraryWriteServiceImpl {
         let validated_strings: Vec<String> =
             validated.into_iter().map(|rp| rp.into_string()).collect();
 
+        let watch_folder_id = if req.watch_folder_id.is_empty() {
+            None
+        } else {
+            Some(req.watch_folder_id)
+        };
+
         let result = self
             .write_actor
             .set_incremental(SetIncrementalData {
                 file_paths: validated_strings,
                 clear: req.clear,
+                watch_folder_id,
             })
             .await
             .map_err(to_status)?;
@@ -284,6 +291,7 @@ mod tests {
         let request = Request::new(SetIncrementalRequest {
             file_paths: vec!["src/ok.rs".to_string(), "/absolute/bad.rs".to_string()],
             clear: false,
+            watch_folder_id: String::new(),
         });
 
         let result = service.set_incremental(request).await;
@@ -304,6 +312,7 @@ mod tests {
         let request = Request::new(SetIncrementalRequest {
             file_paths: vec!["../escape.rs".to_string()],
             clear: false,
+            watch_folder_id: String::new(),
         });
 
         let result = service.set_incremental(request).await;
@@ -321,6 +330,7 @@ mod tests {
         let request = Request::new(SetIncrementalRequest {
             file_paths: vec![String::new()],
             clear: false,
+            watch_folder_id: String::new(),
         });
 
         let result = service.set_incremental(request).await;
@@ -337,6 +347,7 @@ mod tests {
         let request = Request::new(SetIncrementalRequest {
             file_paths: vec!["~/not/relative".to_string()],
             clear: false,
+            watch_folder_id: String::new(),
         });
 
         let result = service.set_incremental(request).await;
