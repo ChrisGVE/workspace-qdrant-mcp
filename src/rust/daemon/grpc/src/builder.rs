@@ -158,4 +158,15 @@ impl GrpcServer {
         self.embedding_settings = Some(settings);
         self
     }
+
+    /// Inject a shared probe cache (same instance given to ProviderHealthMonitor).
+    pub fn with_probe_cache(
+        mut self,
+        cache: Arc<
+            tokio::sync::Mutex<workspace_qdrant_core::embedding::provider::SharedProbeCache>,
+        >,
+    ) -> Self {
+        self.probe_cache = Some(cache);
+        self
+    }
 }

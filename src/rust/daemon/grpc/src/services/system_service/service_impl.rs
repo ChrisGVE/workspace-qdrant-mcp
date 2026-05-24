@@ -11,8 +11,7 @@ use std::time::SystemTime;
 use tokio::sync::{Mutex, Notify, RwLock};
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
 use workspace_qdrant_core::config::EmbeddingSettings;
-use workspace_qdrant_core::embedding::provider::DenseProvider;
-use workspace_qdrant_core::embedding::EmbeddingError;
+use workspace_qdrant_core::embedding::provider::{DenseProvider, SharedProbeCache};
 use workspace_qdrant_core::QueueProcessorHealth;
 
 use super::types::ServerStatusStore;
@@ -50,16 +49,9 @@ pub struct SystemServiceImpl {
     pub(super) dense_provider: Option<Arc<dyn DenseProvider>>,
     /// Embedding settings — authoritative `output_dim`, model id, base url.
     pub(super) embedding_settings: Option<Arc<EmbeddingSettings>>,
-    /// Cached embedding-provider probe result (TTL = settings.health_probe_cache_secs).
-    /// `None` means no probe has completed yet.
-    pub(super) embedding_probe_cache: Arc<Mutex<EmbeddingProbeCache>>,
-}
-
-/// Cached state of the most recent embedding-provider probe call.
-#[derive(Default, Debug)]
-pub(super) struct EmbeddingProbeCache {
-    pub(super) last_probe_at: Option<std::time::Instant>,
-    pub(super) last_result: Option<Result<(), EmbeddingError>>,
+    /// Shared probe cache written by `ProviderHealthMonitor` (background) and
+    /// read/written by on-demand `GetEmbeddingProviderStatus` RPC.
+    pub(super) embedding_probe_cache: Arc<Mutex<SharedProbeCache>>,
 }
 
 impl std::fmt::Debug for SystemServiceImpl {
@@ -93,7 +85,7 @@ impl SystemServiceImpl {
             storage_client: None,
             dense_provider: None,
             embedding_settings: None,
-            embedding_probe_cache: Arc::new(Mutex::new(EmbeddingProbeCache::default())),
+            embedding_probe_cache: SharedProbeCache::new(),
         }
     }
 
@@ -175,6 +167,12 @@ impl SystemServiceImpl {
     /// Set the embedding settings (model, output_dim, base_url, probe TTL).
     pub fn with_embedding_settings(mut self, settings: Arc<EmbeddingSettings>) -> Self {
         self.embedding_settings = Some(settings);
+        self
+    }
+
+    /// Set a shared probe cache (same instance passed to ProviderHealthMonitor).
+    pub fn with_probe_cache(mut self, cache: Arc<Mutex<SharedProbeCache>>) -> Self {
+        self.embedding_probe_cache = cache;
         self
     }
 
