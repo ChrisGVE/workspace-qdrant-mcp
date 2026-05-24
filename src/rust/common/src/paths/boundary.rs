@@ -48,6 +48,7 @@ pub fn is_within_boundary(path: &Path, root: &Path) -> bool {
 }
 
 /// Thin wrapper around [`std::fs::canonicalize`] for testability.
+// CATEGORY-B: process-local symlink resolution for boundary validation
 fn real_path(p: &Path) -> io::Result<std::path::PathBuf> {
     std::fs::canonicalize(p)
 }
