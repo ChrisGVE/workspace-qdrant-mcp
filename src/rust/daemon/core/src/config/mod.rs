@@ -28,7 +28,7 @@ pub use url_ingestion::UrlIngestionConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::storage::{StorageConfig, TransportMode};
+use crate::storage::StorageConfig;
 use processing::default_retry_delays_seconds;
 use wqm_common::paths::MountMap;
 use wqm_common::yaml_defaults::{self, YamlConfig, YamlMountEntry};
@@ -555,6 +555,7 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::TransportMode;
 
     #[test]
     fn test_daemon_config_defaults() {
