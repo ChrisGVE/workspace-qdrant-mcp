@@ -134,6 +134,7 @@ mod tests {
     fn isolated_config(tmp: &tempfile::TempDir) -> std::path::PathBuf {
         let path = tmp.path().join("wqm").join("cli-config.toml");
         std::env::set_var("WQM_CLI_CONFIG", &path);
+        std::env::set_var("XDG_CONFIG_HOME", tmp.path().join("xdg"));
         std::env::remove_var("WQM_PROFILE");
         path
     }
@@ -152,7 +153,12 @@ mod tests {
         let cfg = wqm_common::cli_profiles::load_cli_config_from(&path).unwrap();
         assert_eq!(cfg.active, "native");
 
+        cleanup_env();
+    }
+
+    fn cleanup_env() {
         std::env::remove_var("WQM_CLI_CONFIG");
+        std::env::remove_var("XDG_CONFIG_HOME");
     }
 
     #[test]
@@ -172,7 +178,7 @@ mod tests {
             "error should list known profiles: {msg}"
         );
 
-        std::env::remove_var("WQM_CLI_CONFIG");
+        cleanup_env();
     }
 
     #[test]
@@ -185,6 +191,6 @@ mod tests {
         list_profiles().unwrap();
         assert!(path.exists(), "list should create default file if missing");
 
-        std::env::remove_var("WQM_CLI_CONFIG");
+        cleanup_env();
     }
 }
