@@ -184,6 +184,24 @@ impl FileStrategy {
             .await?
                 == UpdateAction::Skip
             {
+                if item.decision_json.is_some() {
+                    let _ = ctx
+                        .queue_manager
+                        .update_destination_status(
+                            &item.queue_id,
+                            "qdrant",
+                            crate::unified_queue_schema::DestinationStatus::Done,
+                        )
+                        .await;
+                    let _ = ctx
+                        .queue_manager
+                        .update_destination_status(
+                            &item.queue_id,
+                            "search",
+                            crate::unified_queue_schema::DestinationStatus::Done,
+                        )
+                        .await;
+                }
                 return Ok(());
             }
         }
