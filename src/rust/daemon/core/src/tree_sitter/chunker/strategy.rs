@@ -45,7 +45,7 @@ pub(super) fn create_extractor(
     language: &str,
     dynamic_lang: Option<Language>,
 ) -> Option<Box<dyn ChunkExtractor>> {
-    let lang = dynamic_lang?;
+    let lang = dynamic_lang.or_else(|| crate::tree_sitter::get_static_language(language))?;
     let patterns = registry_patterns().get(language)?;
     Some(Box::new(GenericExtractor::new(
         language,

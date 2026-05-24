@@ -35,13 +35,6 @@ pub(super) async fn ensure_grammar_available(
     let grammar_mgr = ctx.grammar_manager.as_ref()?;
     let language = detect_language_with_overrides(file_path, relative_path, overrides)?;
 
-    // If the language has a statically compiled grammar, don't use the dynamic
-    // provider. The static path is faster and avoids memory corruption from
-    // ABI mismatches between cached .dylib grammars and the linked tree-sitter.
-    if crate::tree_sitter::is_language_supported(language) {
-        return None;
-    }
-
     // Fast path: read lock to check if grammar is already loaded
     {
         let mgr = grammar_mgr.read().await;
