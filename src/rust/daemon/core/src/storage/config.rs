@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransportMode {
     /// gRPC transport (default, more efficient)
+    #[serde(alias = "grpc")]
     Grpc,
     /// HTTP transport (fallback)
+    #[serde(alias = "http")]
     Http,
 }
 

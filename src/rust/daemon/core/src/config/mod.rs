@@ -28,7 +28,7 @@ pub use url_ingestion::UrlIngestionConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::storage::StorageConfig;
+use crate::storage::{StorageConfig, TransportMode};
 use processing::default_retry_delays_seconds;
 use wqm_common::paths::MountMap;
 use wqm_common::yaml_defaults::{self, YamlConfig, YamlMountEntry};
@@ -80,6 +80,7 @@ impl DaemonEndpointConfig {
 
 /// Complete daemon configuration that matches the TOML structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DaemonConfig {
     /// Log file path
     pub log_file: Option<PathBuf>,
@@ -902,5 +903,65 @@ mod tests {
             mk_mount("/Users/chris/reference", "/mnt/reference"),
         ];
         assert!(cfg.validate().is_ok());
+    }
+
+    // ── Config architecture drift regression tests ─────────────────────────
+
+    #[test]
+    fn empty_yaml_produces_valid_daemon_config() {
+        let yaml: YamlConfig =
+            serde_yaml_ng::from_str("{}").expect("empty YAML must parse to YamlConfig");
+        let config = DaemonConfig::from(&yaml);
+        assert!(
+            config.validate().is_ok(),
+            "DaemonConfig from empty YAML must validate"
+        );
+    }
+
+    #[test]
+    fn partial_yaml_fills_defaults() {
+        let partial = r#"
+qdrant:
+  url: "http://custom-host:6333"
+"#;
+        let yaml: YamlConfig = serde_yaml_ng::from_str(partial).expect("partial YAML must parse");
+        let config = DaemonConfig::from(&yaml);
+        assert_eq!(config.qdrant.url, "http://custom-host:6333");
+        assert_eq!(
+            config.queue_processor.batch_size, 10,
+            "unspecified sections must use defaults"
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn default_yaml_round_trips_to_daemon_config() {
+        let yaml: YamlConfig = serde_yaml_ng::from_str(yaml_defaults::DEFAULT_YAML)
+            .expect("DEFAULT_YAML must parse to YamlConfig");
+        let from_yaml = DaemonConfig::from(&yaml);
+        let from_default = DaemonConfig::default();
+        assert_eq!(
+            from_yaml.queue_processor.batch_size,
+            from_default.queue_processor.batch_size
+        );
+        assert_eq!(
+            from_yaml.resource_limits.nice_level,
+            from_default.resource_limits.nice_level
+        );
+        assert_eq!(
+            from_yaml.embedding.cache_max_entries,
+            from_default.embedding.cache_max_entries
+        );
+        assert!(from_yaml.validate().is_ok());
+    }
+
+    #[test]
+    fn transport_mode_deserializes_lowercase_alias() {
+        let grpc: TransportMode =
+            serde_yaml_ng::from_str("grpc").expect("lowercase grpc must parse");
+        assert!(matches!(grpc, TransportMode::Grpc));
+        let http: TransportMode =
+            serde_yaml_ng::from_str("http").expect("lowercase http must parse");
+        assert!(matches!(http, TransportMode::Http));
     }
 }
