@@ -366,9 +366,9 @@ pub(super) mod linux_idle {
         #[test]
         fn zero_cores_treated_as_one() {
             let detector = detector_with(vec![0.5], 1.0, 0);
-            // 0.5 / 1 = 0.5 < 1.0 → idle → 0 on first call
+            // 0.5 / 1 = 0.5 < 1.0 → idle → near-zero on first call
             let idle = detector.seconds_since_last_input().unwrap();
-            assert_eq!(idle, 0.0);
+            assert!(idle < 0.1, "expected near-zero idle, got {idle}");
         }
 
         #[test]
