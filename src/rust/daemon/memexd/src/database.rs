@@ -181,12 +181,14 @@ pub async fn run_reconciliation(queue_pool: &SqlitePool) {
 
 /// Spawn the **slow** half of startup reconciliation in the background.
 ///
-/// Ignore-rule reconciliation walks the filesystem and enqueues `file/add`
-/// / `file/delete` items for any drift, which on large projects (e.g.
-/// 90K+ files) can take several minutes. Calling this from the main
-/// startup path delayed gRPC readiness for that entire window. Running
-/// it on a spawned task lets gRPC come up immediately while the reconcile
-/// proceeds concurrently (issue #59).
+/// Two phases:
+/// 1. Ignore-rule reconciliation: walk filesystem, enqueue `file/add` /
+///    `file/delete` for any ignore drift (issue #59).
+/// 2. Full-scan reconciliation: enqueue a `rebuild=true` scan for each
+///    enabled project so that missing/changed/deleted files are discovered
+///    without relying on `last_scan` mtime pruning.
+///
+/// Running on a spawned task lets gRPC come up immediately.
 pub fn spawn_background_reconciliation(queue_pool: SqlitePool) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let qm = Arc::new(workspace_qdrant_core::queue_operations::QueueManager::new(
@@ -214,7 +216,75 @@ pub fn spawn_background_reconciliation(queue_pool: SqlitePool) -> tokio::task::J
                 e
             ),
         }
+
+        enqueue_startup_scans(&queue_pool, &qm).await;
     })
+}
+
+/// Enqueue a rebuild scan for each enabled project watch folder.
+///
+/// This ensures that files added/modified/deleted while the daemon was
+/// down are discovered on the next startup. The scan uses `rebuild=true`
+/// to bypass `last_scan` mtime pruning. The `file/update` path compares
+/// hashes against tracked_files and skips unchanged files cheaply.
+async fn enqueue_startup_scans(
+    pool: &SqlitePool,
+    qm: &Arc<workspace_qdrant_core::queue_operations::QueueManager>,
+) {
+    let folders: Vec<(String, String, String)> = match sqlx::query_as(
+        "SELECT watch_id, tenant_id, path FROM watch_folders \
+         WHERE enabled = 1 AND collection = 'projects'",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(f) => f,
+        Err(e) => {
+            warn!(
+                "[startup-bg] Failed to query watch_folders for reconciliation scans: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let mut enqueued = 0u32;
+    for (_watch_id, tenant_id, path) in &folders {
+        let payload = serde_json::json!({
+            "project_root": path,
+            "rebuild": true,
+        });
+        let payload_json = payload.to_string();
+
+        match qm
+            .enqueue_unified(
+                workspace_qdrant_core::unified_queue_schema::ItemType::Tenant,
+                workspace_qdrant_core::unified_queue_schema::QueueOperation::Scan,
+                tenant_id,
+                "projects",
+                &payload_json,
+                None,
+                None,
+            )
+            .await
+        {
+            Ok((_, true)) => enqueued += 1,
+            Ok((_, false)) => {}
+            Err(e) => {
+                warn!(
+                    "[startup-bg] Failed to enqueue reconciliation scan for {}: {}",
+                    tenant_id, e
+                );
+            }
+        }
+    }
+
+    if enqueued > 0 {
+        info!(
+            "[startup-bg] Enqueued {} reconciliation scans (rebuild=true)",
+            enqueued
+        );
+    }
 }
 
 /// Initialize the shared pause flag from database state (Task 543.16).

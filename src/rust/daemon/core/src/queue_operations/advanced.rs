@@ -29,6 +29,7 @@ impl QueueManager {
                 project_type: None,
                 old_tenant_id: Some(old_tenant_id.to_string()),
                 is_active: None,
+                rebuild: false,
             };
 
             let payload_json = serde_json::to_string(&payload)

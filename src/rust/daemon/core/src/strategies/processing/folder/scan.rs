@@ -184,6 +184,7 @@ async fn enqueue_submodule(
         project_type: None,
         old_tenant_id: None,
         is_active: None,
+        rebuild: false,
     };
     let payload_json = serde_json::to_string(&submodule_payload)
         .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, path.display()));
