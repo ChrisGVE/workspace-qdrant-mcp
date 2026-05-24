@@ -361,21 +361,6 @@ mod tests {
         }
     }
 
-    fn make_result_with_payload(id: &str, score: f32, collection: &str) -> SearchResult {
-        let mut payload = HashMap::new();
-        payload.insert(
-            "source_collection".to_string(),
-            serde_json::json!(collection),
-        );
-        SearchResult {
-            id: id.to_string(),
-            score,
-            payload,
-            dense_vector: None,
-            sparse_vector: None,
-        }
-    }
-
     // ── RRF score math ──────────────────────────────────────────────
 
     #[test]
