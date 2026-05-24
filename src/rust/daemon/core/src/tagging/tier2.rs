@@ -522,10 +522,13 @@ categories:
         let mock_embs = vec![vec![1.0f32, 0.0, 0.0], vec![0.0, 1.0, 0.0]];
 
         // Manually save to cache
-        crate::tagging::taxonomy_cache::save_cached_embeddings(&pool, &hash, &entries, &mock_embs).await;
+        crate::tagging::taxonomy_cache::save_cached_embeddings(&pool, &hash, &entries, &mock_embs)
+            .await;
 
         // Now load should hit
-        let lookup = crate::tagging::taxonomy_cache::load_cached_embeddings(&pool, &hash, entries.clone()).await;
+        let lookup =
+            crate::tagging::taxonomy_cache::load_cached_embeddings(&pool, &hash, entries.clone())
+                .await;
         assert!(matches!(lookup, CacheLookup::Hit { .. }));
 
         if let CacheLookup::Hit {

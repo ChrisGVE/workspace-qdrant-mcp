@@ -122,7 +122,7 @@ async fn test_vector_insertion_retrieval() {
         limit: 1,
         score_threshold: Some(0.5),
         filter: None,
-            diversity_penalty: None,
+        diversity_penalty: None,
     };
 
     let search_result = client.search(&collection_name, search_params).await;
@@ -276,7 +276,7 @@ async fn test_batch_operations() {
         limit: 10,
         score_threshold: Some(0.1),
         filter: None,
-            diversity_penalty: None,
+        diversity_penalty: None,
     };
 
     let search_result = client.search(&collection_name, search_params).await;

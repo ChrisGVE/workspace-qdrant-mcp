@@ -187,4 +187,3 @@ async fn poll_and_finalize(
     info!("relative-path migration: complete — marker deleted");
     Ok(())
 }
-

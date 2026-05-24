@@ -305,7 +305,7 @@ async fn test_comprehensive_workflow() {
         limit: 3,
         score_threshold: Some(0.1),
         filter: None,
-            diversity_penalty: None,
+        diversity_penalty: None,
     };
 
     let results = client

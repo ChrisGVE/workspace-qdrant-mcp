@@ -26,7 +26,7 @@ pub use storage::{
 
 // Re-export tag affinity public API.
 pub use tag_affinity::{
-    compute_tag_affinity_groups, compute_tag_affinities, load_project_tag_profiles,
+    compute_tag_affinities, compute_tag_affinity_groups, load_project_tag_profiles,
     tag_jaccard_similarity, TagAffinity, TagAffinityConfig,
 };
 

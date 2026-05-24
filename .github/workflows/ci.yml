@@ -175,10 +175,10 @@ jobs:
       - name: Unit tests
         working-directory: src/typescript/mcp-server
         # Run tests that don't require the wqm-common-node native addon.
-        # Tests needing SQLite (better-sqlite3) work after native addon rebuild.
-        # Tests requiring live services (Qdrant, daemon) are in tests/integration/
-        # and excluded here — they run in the integration-tests job below.
-        run: npm test -- --exclude 'tests/integration/**'
+        # Tests needing the Rust native bridge are excluded in vitest.config.ci.ts.
+        # Full test suite (including native-addon-dependent tests) runs in the
+        # release workflow where the Rust toolchain is available.
+        run: npx vitest run --config vitest.config.ci.ts
 
   # TypeScript integration tests — require live daemon or Qdrant
   # These are allowed to skip in CI (no live services available).

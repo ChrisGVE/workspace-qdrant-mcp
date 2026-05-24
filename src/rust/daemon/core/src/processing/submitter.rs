@@ -376,13 +376,14 @@ impl TaskSubmitter {
                         tenant_id, collection
                     ))
                 })?;
-                let root = wqm_common::paths::CanonicalPath::from_user_input(&watch_path)
-                    .map_err(|e| {
+                let root = wqm_common::paths::CanonicalPath::from_user_input(&watch_path).map_err(
+                    |e| {
                         PriorityError::Communication(format!(
                             "Spill: watch_folder.path is not canonical: {}",
                             e
                         ))
-                    })?;
+                    },
+                )?;
                 let abs = wqm_common::paths::CanonicalPath::from_user_input(&file_path_str)
                     .map_err(|e| {
                         PriorityError::Communication(format!(
@@ -390,17 +391,15 @@ impl TaskSubmitter {
                             file_path_str, e
                         ))
                     })?;
-                let relative =
-                    wqm_common::paths::RelativePath::from_absolute_and_root(&abs, &root).map_err(
-                        |e| {
-                            PriorityError::Communication(format!(
-                                "Spill: file {} not under watch_folder root {}: {}",
-                                file_path_str,
-                                root.as_str(),
-                                e
-                            ))
-                        },
-                    )?;
+                let relative = wqm_common::paths::RelativePath::from_absolute_and_root(&abs, &root)
+                    .map_err(|e| {
+                        PriorityError::Communication(format!(
+                            "Spill: file {} not under watch_folder root {}: {}",
+                            file_path_str,
+                            root.as_str(),
+                            e
+                        ))
+                    })?;
 
                 let file_payload = UqFilePayload {
                     file_path: relative,

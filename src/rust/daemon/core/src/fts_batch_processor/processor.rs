@@ -156,8 +156,7 @@ impl<'a> FtsBatchProcessor<'a> {
             stats.files_processed += 1;
 
             upsert_file_metadata(&mut tx, change).await.map_err(|e| {
-                let requeue: Vec<FileChange> =
-                    file_diffs.iter().map(|(c, _)| c.clone()).collect();
+                let requeue: Vec<FileChange> = file_diffs.iter().map(|(c, _)| c.clone()).collect();
                 (requeue, e)
             })?;
         }
