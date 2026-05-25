@@ -91,7 +91,7 @@ pub async fn get_files_needing_upgrade(
         format!(
             "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
              FROM tracked_files tf
-             JOIN watch_folders wf ON tf.watch_folder_id = wf.id
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
              WHERE wf.tenant_id = ?1
                AND ({})
                AND tf.language = ?2",
@@ -101,7 +101,7 @@ pub async fn get_files_needing_upgrade(
         format!(
             "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
              FROM tracked_files tf
-             JOIN watch_folders wf ON tf.watch_folder_id = wf.id
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
              WHERE wf.tenant_id = ?1
                AND ({})",
             status_filter

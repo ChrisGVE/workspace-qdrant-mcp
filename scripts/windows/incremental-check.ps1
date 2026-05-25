@@ -14,10 +14,94 @@ function Resolve-LogDir {
   return (Join-Path $Base $PathValue)
 }
 
+function Resolve-CommandOnPath([string]$CommandName) {
+  if (-not $CommandName) { return $null }
+
+  if ([System.IO.Path]::IsPathRooted($CommandName)) {
+    if (Test-Path -LiteralPath $CommandName) {
+      return [System.IO.Path]::GetFullPath($CommandName)
+    }
+    return $null
+  }
+
+  $searchNames = @($CommandName)
+  if (-not [System.IO.Path]::HasExtension($CommandName)) {
+    $searchNames += @(
+      "$CommandName.exe",
+      "$CommandName.cmd",
+      "$CommandName.bat"
+    )
+  }
+
+  if ($env:PATH) {
+    foreach ($entry in @($env:PATH -split ';' | Where-Object { $_ })) {
+      foreach ($name in $searchNames) {
+        $candidate = Join-Path $entry $name
+        if (Test-Path -LiteralPath $candidate) {
+          return [System.IO.Path]::GetFullPath($candidate)
+        }
+      }
+    }
+  }
+
+  $cmd = Get-Command $CommandName -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd) {
+    foreach ($property in @('Source', 'Path', 'Definition')) {
+      $value = $cmd.$property
+      if ($value) {
+        if ([System.IO.Path]::IsPathRooted($value)) {
+          return [System.IO.Path]::GetFullPath($value)
+        }
+        $resolved = Resolve-Path -LiteralPath $value -ErrorAction SilentlyContinue
+        if ($resolved) {
+          return [System.IO.Path]::GetFullPath($resolved.Path)
+        }
+        return $value
+      }
+    }
+  }
+
+  return $null
+}
+
+function Resolve-WqmPath {
+  param([string]$BaseDir)
+
+  foreach ($envName in @('WQM_PATH', 'WQM_EXECUTABLE')) {
+    $configured = [Environment]::GetEnvironmentVariable($envName)
+    if ($configured) {
+      $resolvedConfigured = Resolve-CommandOnPath $configured
+      if ($resolvedConfigured) {
+        return $resolvedConfigured
+      }
+    }
+  }
+
+  $candidates = @(
+    (Join-Path $BaseDir "src\rust\target\debug\wqm.exe"),
+    (Join-Path $BaseDir "src\rust\target\release\wqm.exe")
+  )
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return (Resolve-Path $candidate).Path
+    }
+  }
+
+  foreach ($name in @('wqm','wqm.exe','wqm.cmd','wqm.bat')) {
+    $resolved = Resolve-CommandOnPath $name
+    if ($resolved) {
+      return $resolved
+    }
+  }
+
+  return $null
+}
+
 function Invoke-Captured {
   param(
     [string]$File,
-    [string[]]$Args = @(),
+    [string[]]$CommandArgs = @(),
     [string]$WorkingDirectory = $ProjectDir,
     [int]$TimeoutSeconds = 60
   )
@@ -25,12 +109,30 @@ function Invoke-Captured {
   $outFile = [System.IO.Path]::GetTempFileName()
   $errFile = [System.IO.Path]::GetTempFileName()
   try {
-    $p = Start-Process -FilePath $File -ArgumentList $Args -WorkingDirectory $WorkingDirectory -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-    if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
-      try { $p.Kill() } catch {}
-      return @{ ok = $false; exitCode = -1; stdout = ""; stderr = "timeout after ${TimeoutSeconds}s"; durationMs = $sw.ElapsedMilliseconds }
+    $sanitizedArgs = @($CommandArgs | Where-Object { $_ -ne $null -and $_ -ne '' })
+    $resolvedFile = $File
+    if ($resolvedFile -and -not [System.IO.Path]::IsPathRooted($resolvedFile)) {
+      $resolvedCandidate = Resolve-CommandOnPath $resolvedFile
+      if ($resolvedCandidate) {
+        $resolvedFile = $resolvedCandidate
+      }
     }
-    return @{ ok = ($p.ExitCode -eq 0); exitCode = $p.ExitCode; stdout = (Get-Content -Raw $outFile -ErrorAction SilentlyContinue); stderr = (Get-Content -Raw $errFile -ErrorAction SilentlyContinue); durationMs = $sw.ElapsedMilliseconds }
+    Push-Location $WorkingDirectory
+    try {
+      if ($sanitizedArgs.Count -gt 0) {
+        & $resolvedFile @sanitizedArgs 1> $outFile 2> $errFile
+      } else {
+        & $resolvedFile 1> $outFile 2> $errFile
+      }
+      $exitCode = $LASTEXITCODE
+    } finally {
+      Pop-Location
+    }
+
+    if ($exitCode -eq $null) {
+      $exitCode = -1
+    }
+    return @{ ok = ($exitCode -eq 0); exitCode = $exitCode; stdout = (Truncate-Text (Get-Content -Raw -Path $outFile -ErrorAction SilentlyContinue)); stderr = (Truncate-Text (Get-Content -Raw -Path $errFile -ErrorAction SilentlyContinue)); durationMs = $sw.ElapsedMilliseconds }
   } catch {
     return @{ ok = $false; exitCode = -1; stdout = ""; stderr = $_.Exception.Message; durationMs = $sw.ElapsedMilliseconds }
   } finally {
@@ -39,6 +141,8 @@ function Invoke-Captured {
 }
 
 if (-not (Test-Path $ProjectDir)) { throw "ProjectDir nao existe: $ProjectDir" }
+$WqmPath = Resolve-WqmPath -BaseDir $RepoDir
+if (-not $WqmPath) { $WqmPath = "wqm" }
 $ResolvedLogDir = Resolve-LogDir -Base $RepoDir -PathValue $LogDir
 New-Item -ItemType Directory -Force -Path $ResolvedLogDir | Out-Null
 $logFile = Join-Path $ResolvedLogDir ("incremental-check-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + ".json")
@@ -48,20 +152,20 @@ $before = [ordered]@{
   repoDir = $RepoDir
   projectDir = $ProjectDir
   repairRequested = [bool]$Repair
-  projectStatus = Invoke-Captured wqm @('project','status', $ProjectDir) $ProjectDir 30
-  projectCheck = Invoke-Captured wqm @('project','check', $ProjectDir, '--json') $ProjectDir 120
-  watchList = Invoke-Captured wqm @('project','watch','list','--json') $ProjectDir 60
-  queueStats = Invoke-Captured wqm @('queue','stats') $ProjectDir 60
+  projectStatus = Invoke-Captured $WqmPath @('project','status', $ProjectDir) $ProjectDir 30
+  projectCheck = Invoke-Captured $WqmPath @('project','check', $ProjectDir, '--json') $ProjectDir 120
+  watchList = Invoke-Captured $WqmPath @('project','watch','list','--json') $ProjectDir 60
+  queueStats = Invoke-Captured $WqmPath @('queue','stats') $ProjectDir 60
 }
 
 $repairResult = $null
 if ($Repair) {
   Write-Host "Rodando reparos nao destrutivos: register --yes, watch resume, project check."
   $repairResult = [ordered]@{
-    register = Invoke-Captured wqm @('project','register', $ProjectDir, '--yes') $ProjectDir 120
-    watchResume = Invoke-Captured wqm @('project','watch','resume') $ProjectDir 60
-    projectCheckAfter = Invoke-Captured wqm @('project','check', $ProjectDir, '--json') $ProjectDir 120
-    queueStatsAfter = Invoke-Captured wqm @('queue','stats') $ProjectDir 60
+    register = Invoke-Captured $WqmPath @('project','register', $ProjectDir, '--yes') $ProjectDir 120
+    watchResume = Invoke-Captured $WqmPath @('project','watch','resume') $ProjectDir 60
+    projectCheckAfter = Invoke-Captured $WqmPath @('project','check', $ProjectDir, '--json') $ProjectDir 120
+    queueStatsAfter = Invoke-Captured $WqmPath @('queue','stats') $ProjectDir 60
   }
 }
 

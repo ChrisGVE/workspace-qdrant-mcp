@@ -304,7 +304,7 @@ When `tenant_id` must change (local project gains remote, remote URL renamed, pr
 | Duplicate detection & disambiguation | On-demand (when `RegisterProject` received from MCP server) |
 | Project move detection               | On-demand (when `RegisterProject` received from MCP server) |
 
-**"Active" definition:** A project becomes active when it has been explicitly registered (via CLI `wqm project add` or MCP with `register_if_new=true`) AND the MCP server sends `RegisterProject` to re-activate it. The MCP server does NOT auto-register new projects — it only re-activates existing entries in `watch_folders`. This triggers on-demand operations like duplicate detection.
+**"Active" definition:** A project becomes active when it has been explicitly registered (via CLI `wqm project add` or MCP with `register_if_new=true`) or auto-registered on session start, and the MCP server sends `RegisterProject` to re-activate it. The MCP server first re-activates existing entries in `watch_folders`; if the current path is unknown, it falls back to `register_if_new=true` so fresh projects and worktrees are brought online automatically. This triggers on-demand operations like duplicate detection.
 
 #### Watch Folders Table (Unified)
 

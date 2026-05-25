@@ -87,6 +87,12 @@ impl OtelConfig {
             config.service_name = name;
         }
 
+        if let Ok(protocol) = env::var("OTEL_EXPORTER_OTLP_PROTOCOL") {
+            if !protocol.trim().is_empty() {
+                config.otlp_protocol = protocol;
+            }
+        }
+
         if let Ok(ratio) = env::var("OTEL_TRACES_SAMPLER_ARG") {
             if let Ok(r) = ratio.parse::<f64>() {
                 config.sampling_ratio = r.clamp(0.0, 1.0);
@@ -128,32 +134,47 @@ pub fn init_tracer_provider(
             endpoint,
             config.otlp_protocol
         );
-        if config.otlp_protocol != "grpc" {
-            tracing::warn!(
-                "OTLP protocol '{}' requested but only the tonic/gRPC exporter is \
-                 compiled in. Falling back to gRPC transport to the configured endpoint.",
-                config.otlp_protocol
-            );
+        let exporter = match config.otlp_protocol.as_str() {
+            "http/protobuf" | "http-protobuf" => {
+                let builder = opentelemetry_otlp::new_exporter()
+                    .http()
+                    .with_endpoint(endpoint.clone());
+                let builder = if !config.otlp_headers.is_empty() {
+                    builder.with_headers(config.otlp_headers.clone())
+                } else {
+                    builder
+                };
+                builder.build_span_exporter()
+            }
+            "grpc" => {
+                if !config.otlp_headers.is_empty() {
+                    // Header/metadata injection for tonic remains delegated to
+                    // OTEL_EXPORTER_OTLP_HEADERS so operators can keep using the
+                    // SDK's native metadata parsing.
+                    tracing::warn!(
+                        "telemetry.otlp.headers configured ({} entries) but are \
+                         not directly injected for the tonic exporter; use \
+                         OTEL_EXPORTER_OTLP_HEADERS for gRPC metadata",
+                        config.otlp_headers.len()
+                    );
+                }
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(endpoint.clone())
+                    .build_span_exporter()
+            }
+            other => {
+                tracing::warn!(
+                    "Unknown OTLP protocol '{}' requested; falling back to gRPC transport.",
+                    other
+                );
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(endpoint.clone())
+                    .build_span_exporter()
+            }
         }
-
-        if !config.otlp_headers.is_empty() {
-            // Header/metadata injection requires tonic version alignment with
-            // opentelemetry-otlp 0.14's vendored tonic. Relying on the
-            // `OTEL_EXPORTER_OTLP_HEADERS` env variable is the interop path
-            // the SDK already honors. Warn so operators know we're not
-            // wiring them manually yet.
-            tracing::warn!(
-                "telemetry.otlp.headers configured ({} entries) but are being \
-                 forwarded via OTEL_EXPORTER_OTLP_HEADERS env only; direct \
-                 injection is not yet implemented",
-                config.otlp_headers.len()
-            );
-        }
-        let exporter = opentelemetry_otlp::new_exporter()
-            .tonic()
-            .with_endpoint(endpoint.clone())
-            .build_span_exporter()
-            .map_err(|e| opentelemetry::trace::TraceError::Other(Box::new(e)))?;
+        .map_err(|e| opentelemetry::trace::TraceError::Other(Box::new(e)))?;
 
         let batch_processor = BatchSpanProcessor::builder(exporter, runtime::Tokio).build();
 
@@ -295,5 +316,24 @@ mod tests {
             o.otlp_headers.get("x-trace").map(String::as_str),
             Some("yes")
         );
+    }
+
+    #[test]
+    fn init_tracer_provider_supports_http_protobuf() {
+        let config = OtelConfig {
+            service_name: "daemon-test".to_string(),
+            service_version: "9.9.9".to_string(),
+            otlp_endpoint: Some("http://collector.example:4318".to_string()),
+            sampling_ratio: 1.0,
+            propagate_context: true,
+            otlp_protocol: "http/protobuf".to_string(),
+            otlp_headers: std::collections::HashMap::new(),
+        };
+
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let provider = init_tracer_provider(&config).expect("HTTP exporter should build");
+            drop(provider);
+        });
     }
 }

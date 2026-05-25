@@ -4,8 +4,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
 
 import type { DaemonClient } from './clients/daemon-client.js';
+import type { RegisterProjectResponse } from './clients/grpc-types.js';
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { ProjectDetector } from './utils/project-detector.js';
 import { getGitRemoteUrl } from './utils/project-detector.js';
@@ -17,7 +19,8 @@ import { HEARTBEAT_INTERVAL_MS } from './server-types.js';
 import type { SessionState } from './server-types.js';
 
 /**
- * Initialize session: detect project, connect daemon, start heartbeat.
+ * Initialize session: detect project, connect daemon, auto-register if needed,
+ * then start heartbeat.
  * Mutates sessionState in place.
  */
 /** Detect and assign project info to session state. */
@@ -27,7 +30,7 @@ async function detectProjectForSession(
 ): Promise<void> {
   const cwd = process.cwd();
   const projectRoot = projectDetector.findProjectRoot(cwd) ?? cwd;
-  const projectInfo = await projectDetector.getProjectInfo(projectRoot, true);
+  const projectInfo = await projectDetector.getProjectInfo(projectRoot, false);
   if (projectInfo) {
     sessionState.projectPath = projectInfo.projectPath;
     sessionState.projectId = projectInfo.projectId;
@@ -71,8 +74,10 @@ export async function initializeSession(
 /**
  * Register/activate the current project with the daemon.
  *
- * Only re-activates EXISTING projects (register_if_new: false).
- * New projects must be registered explicitly via CLI or other means.
+ * First tries to re-activate an existing project (`register_if_new: false`).
+ * If the current path is unknown to the daemon, falls back to
+ * `register_if_new: true` so fresh projects and worktrees are registered
+ * automatically during session startup.
  */
 /** Apply daemon registration response to session state. */
 function applyRegistrationResponse(
@@ -102,14 +107,34 @@ export async function registerProject(
 
   try {
     const gitRemote = getGitRemoteUrl(sessionState.projectPath);
-    const response = await daemonClient.registerProject({
-      path: sessionState.projectPath,
-      project_id: sessionState.projectId ?? '',
-      name: sessionState.projectPath.split('/').pop() ?? 'unknown',
-      register_if_new: false,
-      priority: 'high',
-      ...(gitRemote ? { git_remote: gitRemote } : {}),
-    });
+    const projectName = basename(sessionState.projectPath) || 'unknown';
+    const unknownProject = sessionState.projectId === null;
+
+    let response = await callRegisterProject(
+      daemonClient,
+      sessionState.projectPath,
+      projectName,
+      gitRemote,
+      sessionState.projectId ?? '',
+      false,
+      false
+    );
+
+    if (!response.created && !response.is_active && unknownProject) {
+      logInfo('Project not registered yet; auto-registering on session start', {
+        project_path: sessionState.projectPath,
+        project_id: response.project_id,
+      });
+      response = await callRegisterProject(
+        daemonClient,
+        sessionState.projectPath,
+        projectName,
+        gitRemote,
+        '',
+        true,
+        false
+      );
+    }
 
     if (!response.is_active && !response.created) {
       logInfo('Project not registered with daemon, skipping activation', {
@@ -138,38 +163,38 @@ export async function registerProject(
 /**
  * Register a project via the store tool (type: "project").
  *
- * Unlike session-start registration (register_if_new: false), this explicitly
- * registers new projects with register_if_new: true.
+ * Unlike session-start registration, this explicitly registers new projects
+ * with `register_if_new: true`.
  */
 /** Call the daemon to register a project and log the event. */
 async function callRegisterProject(
   daemonClient: DaemonClient,
   resolvedPath: string,
   name: string,
-  gitRemote: string | null
-): Promise<{
-  project_id: string;
-  created: boolean;
-  newly_registered: boolean;
-  is_active: boolean;
-  priority: string;
-}> {
+  gitRemote: string | null,
+  projectId: string,
+  registerIfNew: boolean,
+  logEvent = true
+): Promise<RegisterProjectResponse> {
   const response = await daemonClient.registerProject({
     path: resolvedPath,
-    project_id: '',
+    project_id: projectId,
     name,
-    register_if_new: true,
+    register_if_new: registerIfNew,
     priority: 'high',
     ...(gitRemote ? { git_remote: gitRemote } : {}),
   });
-  logSessionEvent('register', {
-    project_id: response.project_id,
-    project_path: resolvedPath,
-    created: response.created,
-    priority: response.priority,
-    is_active: response.is_active,
-    newly_registered: response.newly_registered,
-  });
+  if (logEvent && (response.created || response.is_active || registerIfNew)) {
+    logSessionEvent('register', {
+      project_id: response.project_id,
+      project_path: resolvedPath,
+      created: response.created,
+      priority: response.priority,
+      is_active: response.is_active,
+      newly_registered: response.newly_registered,
+      register_if_new: registerIfNew,
+    });
+  }
   return response;
 }
 
@@ -190,10 +215,18 @@ export async function registerProjectFromTool(
     throw new Error('Daemon is not connected — cannot register project');
 
   const resolvedPath = findGitRoot(path) ?? path;
-  const name = (args?.['name'] as string) ?? resolvedPath.split('/').pop() ?? 'unknown';
+  const name = (args?.['name'] as string) ?? (basename(resolvedPath) || 'unknown');
   const gitRemote = getGitRemoteUrl(resolvedPath);
 
-  const response = await callRegisterProject(daemonClient, resolvedPath, name, gitRemote);
+  const response = await callRegisterProject(
+    daemonClient,
+    resolvedPath,
+    name,
+    gitRemote,
+    '',
+    true,
+    true
+  );
 
   return {
     success: true,

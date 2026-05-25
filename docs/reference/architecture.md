@@ -162,7 +162,7 @@ When an MCP client (Claude) connects:
 1. MCP server detects project from working directory, computes `tenant_id`
 2. Server calls `GetProjectStatus` on daemon to check if project is registered
 3. If registered: server calls `RegisterProject` (re-activation, `register_if_new=false`) — daemon sets `is_active=true`
-4. If not registered: server logs a warning; search tools work but file watching is not active
+4. If not registered: server retries with `register_if_new=true` so fresh projects and worktrees are registered automatically before the session continues
 5. Heartbeat runs every 30 seconds to prevent session timeout (60-second timeout)
 
 When the client disconnects (`server.onclose`):

@@ -24,6 +24,7 @@ use super::{
     TaskResultData, TaskSource,
 };
 use crate::queue_operations::QueueManager;
+use crate::watching_queue::WatchManager;
 
 /// Handle for submitting tasks to the pipeline
 #[derive(Clone)]
@@ -376,7 +377,9 @@ impl TaskSubmitter {
                         tenant_id, collection
                     ))
                 })?;
-                let root = wqm_common::paths::CanonicalPath::from_user_input(&watch_path)
+                let resolved_watch_path = WatchManager::resolve_local_watch_path(&watch_path);
+                let resolved_watch_path = resolved_watch_path.to_string_lossy().to_string();
+                let root = wqm_common::paths::CanonicalPath::from_user_input(&resolved_watch_path)
                     .map_err(|e| {
                         PriorityError::Communication(format!(
                             "Spill: watch_folder.path is not canonical: {}",
@@ -463,10 +466,12 @@ impl TaskSubmitter {
 
         match &context.source {
             TaskSource::ProjectWatcher { project_path } => {
-                wqm_common::project_id::calculate_tenant_id(std::path::Path::new(project_path))
+                let resolved = WatchManager::resolve_local_watch_path(project_path);
+                wqm_common::project_id::calculate_tenant_id(resolved.as_path())
             }
             TaskSource::BackgroundWatcher { folder_path } => {
-                wqm_common::project_id::calculate_tenant_id(std::path::Path::new(folder_path))
+                let resolved = WatchManager::resolve_local_watch_path(folder_path);
+                wqm_common::project_id::calculate_tenant_id(resolved.as_path())
             }
             _ => {
                 let parent = file_path

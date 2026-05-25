@@ -1,21 +1,24 @@
 diff --git a/src/typescript/mcp-server/src/tool-definitions/index.ts b/src/typescript/mcp-server/src/tool-definitions/index.ts
+index c6bfecc8..c1b0a001 100644
 --- a/src/typescript/mcp-server/src/tool-definitions/index.ts
 +++ b/src/typescript/mcp-server/src/tool-definitions/index.ts
-@@ -12,14 +12,17 @@ export { storeToolDefinition } from './store.js';
+@@ -12,6 +12,7 @@ export { storeToolDefinition } from './store.js';
  export { grepToolDefinition } from './grep.js';
  export { listToolDefinition } from './list.js';
  export { embeddingToolDefinition } from './embedding.js';
 +export { workspaceIndexToolDefinition } from './workspace-index.js';
-
+ 
  import { searchToolDefinition } from './search.js';
  import { retrieveToolDefinition } from './retrieve.js';
- import { rulesToolDefinition } from './rules.js';
- import { storeToolDefinition } from './store.js';
+@@ -20,6 +21,7 @@ import { storeToolDefinition } from './store.js';
  import { grepToolDefinition } from './grep.js';
  import { listToolDefinition } from './list.js';
  import { embeddingToolDefinition } from './embedding.js';
 +import { workspaceIndexToolDefinition } from './workspace-index.js';
-@@ -33,5 +36,6 @@ export function getToolDefinitions() {
+ 
+ /**
+  * Returns the full list of tool definitions for the ListTools MCP response
+@@ -33,5 +35,6 @@ export function getToolDefinitions() {
      grepToolDefinition,
      listToolDefinition,
      embeddingToolDefinition,
@@ -24,17 +27,23 @@ diff --git a/src/typescript/mcp-server/src/tool-definitions/index.ts b/src/types
  }
 diff --git a/src/typescript/mcp-server/src/tool-definitions/workspace-index.ts b/src/typescript/mcp-server/src/tool-definitions/workspace-index.ts
 new file mode 100644
+index 00000000..f6b9d1a1
 --- /dev/null
 +++ b/src/typescript/mcp-server/src/tool-definitions/workspace-index.ts
-@@ -0,0 +1,65 @@
-+
+@@ -0,0 +1,106 @@
 +/**
-+ * MCP tool schema definition for indexed project / agent branch management.
++ * MCP tool schema definition for the 'workspace_index' tool.
++ *
++ * This tool is intentionally conservative. Read-only actions are allowed by
++ * default. Mutating actions require both:
++ * - WQM_INDEX_MANAGER_ALLOW_MUTATION=1 in the MCP server environment
++ * - allowMutation: true in the tool call
 + */
++
 +export const workspaceIndexToolDefinition = {
 +  name: 'workspace_index',
 +  description:
-+    'Safely inspect and manage indexed projects, worktrees, and AI-agent branches. Read actions are allowed by default. Mutations require allowMutation=true and WQM_INDEX_MANAGER_ALLOW_MUTATION=1. This tool never merges agent branches back to main/original branches.',
++    'Manage and observe indexed projects, agent branches, and worktrees for workspace-qdrant. Read-only by default; mutations require explicit double opt-in.',
 +  inputSchema: {
 +    type: 'object' as const,
 +    properties: {
@@ -43,52 +52,77 @@ new file mode 100644
 +        enum: [
 +          'init',
 +          'list_projects',
-+          'add_project',
 +          'project_status',
 +          'status_all',
 +          'list_branches',
-+          'start_agent_branch',
-+          'finish_agent_branch',
-+          'abandon_agent_branch',
 +          'agent_branch_status',
 +          'observe_project',
 +          'observe_all',
 +          'incremental_check',
 +          'incremental_check_all',
++          'add_project',
++          'start_agent_branch',
++          'finish_agent_branch',
++          'abandon_agent_branch',
 +          'register_wqm',
 +          'register_all_wqm',
 +        ],
-+        description: 'Workspace index action to run.',
++        description: 'Workspace index action to execute.',
 +      },
-+      projectName: { type: 'string', description: 'Logical project name in indexed-projects registry.' },
-+      projectDir: { type: 'string', description: 'Absolute path to the project working tree.' },
-+      branchName: { type: 'string', description: 'Branch name, e.g. agent/auth-retry-20260523.' },
-+      baseBranch: { type: 'string', description: 'Base/original branch for agent branches. Default: main.' },
-+      returnBranch: { type: 'string', description: 'Branch the agent should return to after finishing. No merge is performed.' },
-+      worktreePath: { type: 'string', description: 'Optional explicit worktree path for an agent branch.' },
-+      worktreeRoot: { type: 'string', description: 'Optional parent folder for generated worktree paths.' },
-+      useWorktree: { type: 'boolean', description: 'Create/use a git worktree for the agent branch. Default: true.' },
-+      purpose: { type: 'string', description: 'Human-readable reason for the agent branch.' },
-+      createdBy: { type: 'string', description: 'Agent/user creating the branch.' },
-+      registryPath: { type: 'string', description: 'Path to .wqm-fork/indexed-projects.json. Defaults to env/default.' },
-+      allowMutation: { type: 'boolean', description: 'Required for mutating actions, together with WQM_INDEX_MANAGER_ALLOW_MUTATION=1.' },
++      projectName: {
++        type: 'string',
++        description: 'Logical project name in .wqm-fork/indexed-projects.json.',
++      },
++      projectPath: {
++        type: 'string',
++        description: 'Absolute path to a project root when adding/registering a project.',
++      },
++      branchName: {
++        type: 'string',
++        description: 'Agent branch name, for example agent/auth-retry-20260523.',
++      },
++      baseBranch: {
++        type: 'string',
++        description: 'Base branch for an agent branch. Defaults to main in the PowerShell helper.',
++      },
++      useWorktree: {
++        type: 'boolean',
++        description: 'Create/use a parallel git worktree for the agent branch.',
++      },
++      purpose: {
++        type: 'string',
++        description: 'Human-readable purpose for an agent branch.',
++      },
++      repoDir: {
++        type: 'string',
++        description:
++          'Optional absolute path to the workspace-qdrant-mcp repo. Defaults to WQM_REPO_DIR or process.cwd().',
++      },
++      allowMutation: {
++        type: 'boolean',
++        description:
++          'Required for mutating actions, in addition to WQM_INDEX_MANAGER_ALLOW_MUTATION=1.',
++      },
 +    },
 +    required: ['action'],
 +  },
 +};
 diff --git a/src/typescript/mcp-server/src/tool-dispatcher.ts b/src/typescript/mcp-server/src/tool-dispatcher.ts
+index e17c0a40..ea7f7c2b 100644
 --- a/src/typescript/mcp-server/src/tool-dispatcher.ts
 +++ b/src/typescript/mcp-server/src/tool-dispatcher.ts
 @@ -20,6 +20,7 @@ import {
+ } from './tool-builders/index.js';
  import { storeUrl, storeScratchpad } from './store-handlers.js';
  import { handleEmbedding } from './tools/embedding.js';
 +import { handleWorkspaceIndex } from './tools/workspace-index.js';
  import { registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
  import { withToolMetrics } from './telemetry/metrics.js';
-@@ -28,7 +29,17 @@ export type ToolResult = {
+ 
+@@ -28,7 +29,16 @@ export type ToolResult = {
    isError?: boolean;
  };
-
+ 
 -const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'] as const;
 +const KNOWN_TOOLS = [
 +  'search',
@@ -100,7 +134,10 @@ diff --git a/src/typescript/mcp-server/src/tool-dispatcher.ts b/src/typescript/m
 +  'embedding',
 +  'workspace_index',
 +] as const;
-@@ -78,6 +89,8 @@ async function routeTool(
+ 
+ /** Dispatch the 'store' tool subtypes. */
+ async function dispatchStore(
+@@ -80,6 +90,8 @@ async function routeTool(
        return listTool.list(buildListOptions(args));
      case 'embedding':
        return handleEmbedding(args, daemonClient);
@@ -111,23 +148,23 @@ diff --git a/src/typescript/mcp-server/src/tool-dispatcher.ts b/src/typescript/m
    }
 diff --git a/src/typescript/mcp-server/src/tools/workspace-index.ts b/src/typescript/mcp-server/src/tools/workspace-index.ts
 new file mode 100644
+index 00000000..d1b0137c
 --- /dev/null
 +++ b/src/typescript/mcp-server/src/tools/workspace-index.ts
-@@ -0,0 +1,169 @@
-+
+@@ -0,0 +1,162 @@
 +/**
-+ * workspace_index MCP handler.
++ * workspace_index MCP tool implementation.
 + *
-+ * Delegates to scripts/windows/indexed-projects-registry.ps1 and keeps a hard
-+ * mutation gate. It is intentionally conservative: finishing a branch only marks
-+ * it ready for review; it never merges back to the original branch.
++ * The actual registry/worktree logic lives in the Windows PowerShell helper
++ * scripts shipped by the fork kit. This TypeScript layer only:
++ * - validates the double opt-in required for mutating actions;
++ * - finds the repo-local PowerShell bridge;
++ * - executes it and returns structured JSON to the MCP client.
 + */
-+import { execFile } from 'node:child_process';
-+import { existsSync } from 'node:fs';
-+import { join, resolve } from 'node:path';
-+import { promisify } from 'node:util';
 +
-+const execFileAsync = promisify(execFile);
++import { spawn } from 'node:child_process';
++import { existsSync } from 'node:fs';
++import { resolve } from 'node:path';
 +
 +const MUTATING_ACTIONS = new Set([
 +  'init',
@@ -139,135 +176,152 @@ new file mode 100644
 +  'register_all_wqm',
 +]);
 +
-+const ACTION_MAP: Record<string, string> = {
-+  init: 'init',
-+  list_projects: 'list-projects',
-+  add_project: 'add-project',
-+  project_status: 'project-status',
-+  status_all: 'status-all',
-+  list_branches: 'list-branches',
-+  start_agent_branch: 'start-agent-branch',
-+  finish_agent_branch: 'finish-agent-branch',
-+  abandon_agent_branch: 'abandon-agent-branch',
-+  agent_branch_status: 'agent-branch-status',
-+  observe_project: 'observe-project',
-+  observe_all: 'observe-all',
-+  incremental_check: 'incremental-check',
-+  incremental_check_all: 'incremental-check-all',
-+  register_wqm: 'register-wqm',
-+  register_all_wqm: 'register-all-wqm',
-+};
++type JsonObject = Record<string, unknown>;
 +
-+function str(args: Record<string, unknown>, key: string): string | undefined {
++function asObject(value: Record<string, unknown> | undefined): JsonObject {
++  return value ?? {};
++}
++
++function stringArg(args: JsonObject, key: string): string | undefined {
 +  const value = args[key];
-+  return typeof value === 'string' && value.length > 0 ? value : undefined;
++  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 +}
 +
-+function boolString(value: unknown, defaultValue = false): string {
-+  if (typeof value === 'boolean') return value ? 'true' : 'false';
-+  if (typeof value === 'string') return /^(1|true|yes|y)$/i.test(value) ? 'true' : 'false';
-+  return defaultValue ? 'true' : 'false';
++function isMutation(action: string): boolean {
++  return MUTATING_ACTIONS.has(action);
 +}
 +
-+function resolveScriptPath(): string {
-+  const explicit = process.env['WQM_WORKSPACE_INDEX_SCRIPT'];
-+  if (explicit) return resolve(explicit);
-+  const repoDir = process.env['WQM_REPO_DIR'] ?? process.cwd();
-+  return resolve(repoDir, 'scripts', 'windows', 'indexed-projects-registry.ps1');
++function assertMutationAllowed(action: string, args: JsonObject): void {
++  if (!isMutation(action)) return;
++
++  const envAllowed = process.env['WQM_INDEX_MANAGER_ALLOW_MUTATION'] === '1';
++  const callAllowed = args['allowMutation'] === true;
++  if (!envAllowed || !callAllowed) {
++    throw new Error(
++      `workspace_index action '${action}' is mutating and requires both ` +
++        'WQM_INDEX_MANAGER_ALLOW_MUTATION=1 and allowMutation=true.'
++    );
++  }
 +}
 +
-+function mutationAllowed(args: Record<string, unknown>): boolean {
++function resolveRepoDir(args: JsonObject): string {
 +  return (
-+    boolString(args['allowMutation']) === 'true' &&
-+    /^(1|true|yes|y)$/i.test(process.env['WQM_INDEX_MANAGER_ALLOW_MUTATION'] ?? '')
++    stringArg(args, 'repoDir') ??
++    process.env['WQM_REPO_DIR'] ??
++    process.cwd()
 +  );
++}
++
++function resolveBridgeScript(repoDir: string): string {
++  return resolve(repoDir, 'scripts', 'windows', 'workspace-index-mcp.ps1');
++}
++
++function resolvePowerShellCommand(): string {
++  return process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
++}
++
++function parseToolOutput(stdout: string, stderr: string): unknown {
++  const trimmed = stdout.trim();
++  if (trimmed.length === 0) {
++    return {
++      success: true,
++      message: 'workspace_index command completed with no stdout.',
++      stderr: stderr.trim() || undefined,
++    };
++  }
++
++  try {
++    return JSON.parse(trimmed);
++  } catch {
++    return {
++      success: true,
++      raw: trimmed,
++      stderr: stderr.trim() || undefined,
++    };
++  }
++}
++
++function runPowerShellBridge(
++  scriptPath: string,
++  repoDir: string,
++  payload: JsonObject
++): Promise<unknown> {
++  const command = resolvePowerShellCommand();
++  const inputJson = JSON.stringify(payload);
++
++  const childArgs = [
++    '-NoProfile',
++    '-ExecutionPolicy',
++    'Bypass',
++    '-File',
++    scriptPath,
++    '-RepoDir',
++    repoDir,
++    '-InputJson',
++    inputJson,
++  ];
++
++  return new Promise((resolvePromise, reject) => {
++    const child = spawn(command, childArgs, {
++      cwd: repoDir,
++      windowsHide: true,
++      env: {
++        ...process.env,
++        WQM_WORKSPACE_INDEX_ARGS_JSON: inputJson,
++      },
++    });
++
++    let stdout = '';
++    let stderr = '';
++
++    child.stdout.setEncoding('utf8');
++    child.stderr.setEncoding('utf8');
++
++    child.stdout.on('data', (chunk: string) => {
++      stdout += chunk;
++    });
++    child.stderr.on('data', (chunk: string) => {
++      stderr += chunk;
++    });
++
++    child.on('error', (error) => {
++      reject(error);
++    });
++
++    child.on('close', (code) => {
++      if (code !== 0) {
++        reject(
++          new Error(
++            `workspace_index PowerShell bridge failed with code ${code}. ` +
++              `stderr: ${stderr.trim() || '(empty)'}`
++          )
++        );
++        return;
++      }
++      resolvePromise(parseToolOutput(stdout, stderr));
++    });
++  });
 +}
 +
 +export async function handleWorkspaceIndex(
 +  rawArgs: Record<string, unknown> | undefined
 +): Promise<unknown> {
-+  const args = rawArgs ?? {};
-+  const action = str(args, 'action');
-+  if (!action || !(action in ACTION_MAP)) {
-+    return { success: false, error: `Unknown or missing workspace_index action: ${String(action)}` };
++  const args = asObject(rawArgs);
++  const action = stringArg(args, 'action');
++  if (!action) {
++    throw new Error('workspace_index requires an action.');
 +  }
 +
-+  const isMutation = MUTATING_ACTIONS.has(action);
-+  const allowMutation = mutationAllowed(args);
-+  if (isMutation && !allowMutation) {
-+    return {
-+      success: false,
-+      action,
-+      error:
-+        'Mutation blocked. Set allowMutation=true in the tool call and WQM_INDEX_MANAGER_ALLOW_MUTATION=1 in the MCP environment.',
-+    };
++  assertMutationAllowed(action, args);
++
++  const repoDir = resolveRepoDir(args);
++  const scriptPath = resolveBridgeScript(repoDir);
++  if (!existsSync(scriptPath)) {
++    throw new Error(
++      `workspace_index bridge script not found at ${scriptPath}. ` +
++        'Apply the fork kit overlay before enabling this MCP tool.'
++    );
 +  }
 +
-+  const script = resolveScriptPath();
-+  if (!existsSync(script)) {
-+    return { success: false, action, error: `workspace_index script not found: ${script}` };
-+  }
-+
-+  const ps = process.env['WQM_POWERSHELL'] ?? (process.platform === 'win32' ? 'powershell.exe' : 'pwsh');
-+  const registry =
-+    str(args, 'registryPath') ??
-+    process.env['WQM_INDEX_REGISTRY'] ??
-+    join(process.cwd(), '.wqm-fork', 'indexed-projects.json');
-+
-+  const psArgs = [
-+    '-NoProfile',
-+    '-ExecutionPolicy',
-+    'Bypass',
-+    '-File',
-+    script,
-+    '-Action',
-+    ACTION_MAP[action],
-+    '-RegistryPath',
-+    registry,
-+    '-Json',
-+    'true',
-+    '-Mutate',
-+    allowMutation ? 'true' : 'false',
-+  ];
-+
-+  const mappings: Array<[string, string]> = [
-+    ['projectName', 'ProjectName'],
-+    ['projectDir', 'ProjectDir'],
-+    ['branchName', 'BranchName'],
-+    ['baseBranch', 'BaseBranch'],
-+    ['returnBranch', 'ReturnBranch'],
-+    ['worktreePath', 'WorktreePath'],
-+    ['worktreeRoot', 'WorktreeRoot'],
-+    ['purpose', 'Purpose'],
-+    ['createdBy', 'CreatedBy'],
-+  ];
-+  for (const [from, to] of mappings) {
-+    const value = str(args, from);
-+    if (value) psArgs.push(`-${to}`, value);
-+  }
-+  psArgs.push('-UseWorktree', boolString(args['useWorktree'], true));
-+
-+  try {
-+    const { stdout, stderr } = await execFileAsync(ps, psArgs, {
-+      timeout: Number(process.env['WQM_INDEX_MANAGER_TIMEOUT_MS'] ?? 120_000),
-+      maxBuffer: 2 * 1024 * 1024,
-+    });
-+    const trimmed = stdout.trim();
-+    if (!trimmed) return { success: true, action, stderr: stderr.trim() };
-+    try {
-+      return JSON.parse(trimmed);
-+    } catch {
-+      return { success: true, action, output: trimmed, stderr: stderr.trim() };
-+    }
-+  } catch (error: unknown) {
-+    const e = error as { message?: string; stdout?: string; stderr?: string; code?: number };
-+    return {
-+      success: false,
-+      action,
-+      error: e.message ?? String(error),
-+      exitCode: e.code,
-+      stdout: e.stdout,
-+      stderr: e.stderr,
-+    };
-+  }
++  return runPowerShellBridge(scriptPath, repoDir, { ...args, action, repoDir });
 +}

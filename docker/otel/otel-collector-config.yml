@@ -28,12 +28,15 @@ exporters:
   prometheus:
     endpoint: 0.0.0.0:8888
 
-  logging:
+  debug:
     verbosity: detailed
 
 service:
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8889
   pipelines:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [prometheus, logging]
+      exporters: [prometheus, debug]

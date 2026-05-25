@@ -119,8 +119,13 @@ function applyEnvironmentOverrides(config: ServerConfig): ServerConfig {
   if (process.env['QDRANT_URL']) {
     result.qdrant = { ...result.qdrant, url: process.env['QDRANT_URL'] };
   }
-  if (process.env['QDRANT_API_KEY']) {
-    result.qdrant = { ...result.qdrant, apiKey: process.env['QDRANT_API_KEY'] };
+  if (Object.prototype.hasOwnProperty.call(process.env, 'QDRANT_API_KEY')) {
+    const apiKey = process.env['QDRANT_API_KEY']?.trim();
+    if (apiKey && apiKey.length > 0) {
+      result.qdrant = { ...result.qdrant, apiKey };
+    } else {
+      delete result.qdrant.apiKey;
+    }
   }
 
   // Database path override

@@ -3,6 +3,13 @@
 Run individual containers without Docker Compose. Use this when you want a
 single service and do not need the full compose orchestration.
 
+If you want the MCP one-liners to reflect local changes from this fork,
+build the image first with:
+
+```bash
+docker build -t workspace-qdrant-mcp:local .
+```
+
 ## Standalone memexd
 
 Start the daemon only. Qdrant must be reachable at `QDRANT_URL`.
@@ -45,7 +52,7 @@ docker run -d \
   -v "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant" \
   -v "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant" \
   -p 9092:9092 \
-  chrisgve/workspace-qdrant-mcp:v0.1.3
+  workspace-qdrant-mcp:local
 ```
 
 ## Running both standalone containers
@@ -81,7 +88,7 @@ docker run -d \
   -v "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant" \
   -v "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant" \
   -p 9092:9092 \
-  chrisgve/workspace-qdrant-mcp:v0.1.3
+  workspace-qdrant-mcp:local
 ```
 
 On the same user-defined network, container names resolve as hostnames, so
@@ -89,8 +96,8 @@ On the same user-defined network, container names resolve as hostnames, so
 
 ## Compose-file equivalents
 
-The `docker run` commands above are documented verbatim in the compose files for
-reference:
+The `docker run` commands above have compose equivalents in the compose files
+for reference:
 
 - `docker/compose/standalone-memexd.yml` — memexd only
 - `docker/compose/standalone-mcp.yml` — MCP server only
@@ -100,7 +107,7 @@ health check wiring without repeating flags.
 
 ```bash
 docker compose -f docker/compose/standalone-memexd.yml --env-file docker/.env up -d
-docker compose -f docker/compose/standalone-mcp.yml   --env-file docker/.env up -d
+docker compose -f docker/compose/standalone-mcp.yml --env-file docker/.env up -d --build
 ```
 
 ## Ports

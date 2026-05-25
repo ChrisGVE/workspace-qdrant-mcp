@@ -1,5 +1,5 @@
 /**
- * Tool dispatcher — executes a named MCP tool and returns its result.
+ * Tool dispatcher ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â executes a named MCP tool and returns its result.
  *
  * Extracted from WorkspaceQdrantMcpServer.handleToolCall to keep server.ts
  * within the 300-line file-size limit.
@@ -18,6 +18,7 @@ import {
 } from './tool-builders/index.js';
 import { storeUrl, storeScratchpad } from './store-handlers.js';
 import { handleEmbedding } from './tools/embedding.js';
+import { handleWorkspaceIndex } from './tools/workspace-index.js';
 import { registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
 import { withToolMetrics } from './telemetry/metrics.js';
 
@@ -26,7 +27,7 @@ export type ToolResult = {
   isError?: boolean;
 };
 
-const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'] as const;
+const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding', 'workspace_index'] as const;
 
 /** Dispatch the 'store' tool subtypes. */
 async function dispatchStore(
@@ -75,6 +76,8 @@ async function routeTool(
       return listTool.list(buildListOptions(args));
     case 'embedding':
       return handleEmbedding(args, daemonClient);
+    case 'workspace_index':
+      return handleWorkspaceIndex(args);
     default:
       throw new Error(`Unexpected tool: ${toolName}`);
   }

@@ -23,6 +23,25 @@ function Test-TcpPort([string]$HostName, [int]$Port, [int]$TimeoutMs = 1200) {
   } catch { return $false }
 }
 
+function Convert-ToWqmPath([string]$PathValue) {
+  if (-not $PathValue) { return $PathValue }
+
+  $absolute = [System.IO.Path]::GetFullPath($PathValue)
+  $normalized = $absolute -replace '\\', '/'
+
+  if ($normalized -match '^/mnt/[a-z]/') {
+    return $normalized
+  }
+
+  if ($normalized -match '^([A-Za-z]):/(.*)$') {
+    $drive = $Matches[1].ToLower()
+    $rest = $Matches[2].TrimStart('/')
+    return "/mnt/$drive/$rest"
+  }
+
+  return $normalized
+}
+
 Step "Qdrant"
 Invoke-WebRequest -Uri "$QdrantUrl/collections" -UseBasicParsing -TimeoutSec 5 | Out-Null
 Write-Host "Qdrant OK"
@@ -58,8 +77,9 @@ Write-Host "MCP dist OK: $dist"
 
 Step "Project registration"
 if (Test-Path $ProjectDir) {
-  wqm project register $ProjectDir --yes
-  wqm project status $ProjectDir
+  $WqmProjectDir = Convert-ToWqmPath $ProjectDir
+  wqm project register $WqmProjectDir --yes
+  wqm project status $WqmProjectDir
 } else {
   Write-Warning "ProjectDir não existe; pulando registro: $ProjectDir"
 }

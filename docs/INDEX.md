@@ -53,6 +53,12 @@ Technical specifications for developers and contributors.
 | [ADR-002](adr/ADR-002-daemon-only-write-policy.md) | Daemon-only Qdrant writes |
 | [ADR-003](adr/ADR-003-daemon-owns-sqlite.md) | Daemon owns SQLite |
 
+## Plans
+
+| Document | Description |
+|----------|-------------|
+| [Search Quality Next Steps](plans/2026-05-25-search-quality-next-steps.md) | Configurable roadmap for embedding profiles, rerank, diversity, GPU, and benchmarking |
+
 ## Reading Paths
 
 **New user:** [Quick Start](quick-start.md) → [User Manual](user-manual.md) → [LLM Integration](reference/mcp-best-practices.md)

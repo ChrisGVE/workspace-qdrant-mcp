@@ -1,16 +1,20 @@
 # workspace-qdrant-mcp — Docker Deployment
 
-Three compose configurations cover the common deployment scenarios. Choose the one
-that matches your existing infrastructure.
+The root `docker-compose.yml` is the canonical entrypoint for day-to-day use.
+The files under `docker/compose/` remain available as overlays and reference
+examples, but they are not the primary path.
+
+All of the compose-based paths build the MCP image locally from this
+checkout, so use `--build` when you run them.
 
 ## Deployment modes
 
 | Mode | Use case | Compose file | Qdrant | Observability |
 |---|---|---|---|---|
-| **Minimal** | You already run Qdrant | `docker/compose/minimal.yml` | External | None |
-| **Minimal + observability** | Self-contained stack, no main-docker | `minimal.yml` + `observability.yml` | External | Self-hosted (Prometheus, Grafana, otel-collector) |
-| **Full-stack** | Integrated with main-docker | `docker/compose/full-stack.yml` | `main-docker` | Owned by `main-docker` |
-| **Standalone** | Single container | `docker run` one-liners | External | None |
+| **Minimal** | You already run Qdrant and want a local MCP build | `docker/compose/minimal.yml` | External | None |
+| **Minimal + observability** | Self-contained stack, no main-docker, with a local MCP build | `docker-compose.yml` + `observability.yml` | External | Self-hosted (Prometheus, Grafana, otel-collector) |
+| **Full-stack** | Integrated with main-docker, local MCP build | `docker/compose/full-stack.yml` | `main-docker` | Owned by `main-docker` |
+| **Standalone** | Single container, local MCP image | `docker run` one-liners | External | None |
 
 ## Decision guide
 
@@ -25,12 +29,12 @@ Do you run the main-docker stack?
 Need just the daemon or just the MCP server without Docker Compose?  
 Use the `docker run` one-liners in [standalone.md](standalone.md).
 
-## Quick start (minimal)
+## Quick start (canonical root stack)
 
 ```bash
 cp docker/.env.example docker/.env
-# Edit QDRANT_URL to point at your Qdrant instance
-docker compose -f docker/compose/minimal.yml --env-file docker/.env up -d
+# Fill MCP_HTTP_TOKEN and WQM_DEV_ROOT, then start the root stack
+docker compose --env-file docker/.env up -d --build
 ```
 
 Verify:
@@ -52,7 +56,7 @@ curl -s http://localhost:9091/metrics  # Prometheus metrics endpoint
 | `docker/.env.example` | All environment variables with defaults |
 | `docker/prometheus/prometheus.yml` | Prometheus scrape config (4 jobs) |
 | `docker/prometheus/alerts.yml` | 6 alerting rules |
-| `docker/grafana/dashboards/*.json` | 4 pre-built Grafana dashboards |
+| `docker/grafana/dashboards/*.json` | 5 pre-built Grafana dashboards |
 | `docker/grafana/provisioning/` | Grafana auto-provisioning |
 | `docker/otel/otel-collector-config.yml` | OTLP → Prometheus bridge |
 

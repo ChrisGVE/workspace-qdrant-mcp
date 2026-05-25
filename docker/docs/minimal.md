@@ -36,8 +36,11 @@ Qdrant Cloud or a secured instance.
 ### 2. Start the stack
 
 ```bash
-docker compose -f docker/compose/minimal.yml --env-file docker/.env up -d
+docker compose -f docker/compose/minimal.yml --env-file docker/.env up -d --build
 ```
+
+This builds the MCP image from the repository Dockerfile, so local
+TypeScript and Rust changes are included automatically.
 
 ### 3. Verify
 
@@ -63,7 +66,7 @@ docker compose \
   -f docker/compose/minimal.yml \
   -f docker/compose/observability.yml \
   --env-file docker/.env \
-  up -d
+  up -d --build
 ```
 
 Services started by this combined stack:

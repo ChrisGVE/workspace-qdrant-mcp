@@ -2,14 +2,16 @@
 
 ## Estratégia recomendada
 
-Use STDIO como transporte padrão no Windows local. Evite HTTP até ter necessidade real.
+Use o stack Docker como backend padrão do fork. O cliente continua em STDIO para Claude Desktop e Codex, mas o daemon e a indexação ficam containerizados, com o caminho padrão em `localhost:50051`.
+
+Esse caminho também suporta FastEmbed, mas dentro do `memexd` do Docker; o endpoint continua em `localhost:50051`.
 
 Motivos:
 
-- Menos superfície de rede.
-- Não precisa token HTTP.
-- Funciona bem com clientes MCP locais.
-- Isola o processo por cliente.
+- Menos dependência de um daemon local no host.
+- Uma configuração única para Claude Desktop e Codex.
+- O caminho padrão já sai pronto com `make -f Makefile.win apply-config`.
+- O fluxo FastEmbed local fica disponível só como alternativa explícita.
 
 ## Gerar configs
 
@@ -23,6 +25,12 @@ Para aplicar diretamente em Claude Desktop e Codex:
 
 ```powershell
 make -f Makefile.win apply-config
+```
+
+Se você realmente quiser o fluxo local FastEmbed + gRPC, use:
+
+```powershell
+make -f Makefile.win apply-config-fastembed
 ```
 
 Por padrão, os destinos são:
@@ -53,6 +61,8 @@ Exemplo:
 }
 ```
 
+Esse é o perfil padrão do fork para o stack Docker. Só troque para `http://localhost:55151` se você estiver usando o fluxo local FastEmbed.
+
 Depois de alterar, reinicie o Claude Desktop.
 
 ## Codex
@@ -72,6 +82,8 @@ enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules"]
 QDRANT_URL = "http://localhost:6333"
 WQM_DAEMON_ENDPOINT = "localhost:50051"
 ```
+
+No fluxo local FastEmbed, use `WQM_DAEMON_ENDPOINT = "http://localhost:55151"`. No padrão do fork, mantenha `localhost:50051`.
 
 Use `/mcp` no TUI do Codex para ver servidores ativos.
 

@@ -70,11 +70,18 @@ export class RulesTool {
         // project's add.
         if (options.content?.trim()) {
           const dupScope: RuleScope = options.scope ?? 'project';
-          const { resolvedProjectId } = await resolveProjectScopeId(
+          const { resolvedProjectId, error: scopeError } = await resolveProjectScopeId(
             dupScope,
             options.projectId,
             this.projectDetector
           );
+
+          // Tenant hardening: do not run a broad duplicate search when a
+          // project-scoped rule cannot resolve a project tenant. Returning
+          // the explicit scope error here prevents misleading duplicate
+          // errors and, more importantly, prevents accidental global fallback.
+          if (scopeError) return scopeError;
+
           const duplicates = await this.findSimilarRules(
             options.content,
             dupScope,

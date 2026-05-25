@@ -36,6 +36,7 @@ git commit -m "feat(mcp): add workspace index management tool"
 - `abandon_agent_branch`
 - `register_wqm`
 - `register_all_wqm`
+- `cleanup_orphans`
 
 Mutação exige:
 
@@ -68,3 +69,9 @@ E `allowMutation: true` na chamada MCP.
 ## Garantia importante
 
 `workspace_index` **não faz merge para a branch original**. `finish_agent_branch` apenas marca a branch como `ready_for_review`.
+
+Quando `start_agent_branch` cria uma branch nova, o fluxo tenta registrar automaticamente o caminho no daemon para que a branch fique pesquisável sem um passo manual extra.
+
+O mesmo registry também pode ser alimentado por hooks locais instalados com `make -f Makefile.win index-hooks-install`. Isso fecha a brecha das criações manuais com `git checkout -b` e `git worktree add`, que passam a aparecer sem depender de helper específico.
+
+Para higienização periódica, use `cleanup_orphans`. A ação remove do registry as entradas cujas branches ou worktrees já não existem mais, sem apagar nada do disco. Ela é mutável, então continua sujeita ao `allowMutation: true` e ao opt-in do ambiente. Isso permite rodar a limpeza de forma assíncrona depois que um worktree foi removido.

@@ -5,7 +5,7 @@
     { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
   ],
   "annotations": { "list": [] },
-  "description": "Qdrant vector database health: collections, vector counts, REST latency, gRPC latency, and resource utilisation.",
+  "description": "Qdrant health: collection counts, resource saturation, REST/gRPC throughput and latency.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -15,7 +15,7 @@
     {
       "id": 1,
       "title": "Collections",
-      "description": "Total number of Qdrant collections (app_info label may vary by version; falls back to 0 if metric absent).",
+      "description": "Total number of Qdrant collections.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -26,8 +26,8 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 50 },
-              { "color": "red", "value": 200 }
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
             ]
           },
           "mappings": []
@@ -45,16 +45,17 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "qdrant_collections_total or vector(0)",
+          "expr": "collections_total",
           "legendFormat": "collections",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "id": 2,
       "title": "Total Vectors",
-      "description": "Total number of vectors stored across all collections (qdrant_collections_vector_total).",
+      "description": "Total vectors stored across all collections.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -84,18 +85,59 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "qdrant_collections_vector_total or vector(0)",
+          "expr": "collections_vector_total",
           "legendFormat": "vectors",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "id": 3,
-      "title": "Qdrant Up",
-      "description": "Prometheus scrape target health for the qdrant job.",
+      "title": "Total Points",
+      "description": "Approximate number of points across all collections.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10000 },
+              { "color": "red", "value": 100000 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(collection_points)",
+          "legendFormat": "points",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Qdrant Target Health",
+      "description": "Prometheus scrape target health for Qdrant.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -126,15 +168,96 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "up{job=\"qdrant\"}",
-          "legendFormat": "qdrant",
-          "refId": "A"
+          "legendFormat": "{{job}} @ {{instance}}",
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
-      "id": 4,
+      "id": 5,
+      "title": "Resident Memory",
+      "description": "Qdrant resident memory usage.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 536870912 },
+              { "color": "red", "value": 1073741824 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "memory_resident_bytes",
+          "legendFormat": "resident bytes",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Open FD Saturation",
+      "description": "Open file descriptor ratio against the configured limit.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.9 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "process_open_fds / clamp_min(process_max_fds, 1)",
+          "legendFormat": "fd saturation",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 7,
       "title": "REST Request Rate",
-      "description": "HTTP request throughput served by Qdrant (qdrant_rest_responses_total). Falls back gracefully when metric is absent.",
+      "description": "HTTP request throughput served by Qdrant.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -161,16 +284,16 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (endpoint) (rate(qdrant_rest_responses_total[2m])) or vector(0)",
+          "expr": "sum by (endpoint) (rate(rest_responses_total[2m]))",
           "legendFormat": "{{endpoint}}",
           "refId": "A"
         }
       ]
     },
     {
-      "id": 5,
+      "id": 8,
       "title": "REST P99 Latency",
-      "description": "99th-percentile REST response latency (qdrant_rest_responses_duration_seconds_bucket). Guards with or vector(0) so the panel loads even when Qdrant has not yet served requests.",
+      "description": "99th-percentile REST response latency.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -201,16 +324,16 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (endpoint, le) (rate(qdrant_rest_responses_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (endpoint, le) (rate(rest_responses_duration_seconds_bucket[5m])))",
           "legendFormat": "{{endpoint}} p99",
           "refId": "A"
         }
       ]
     },
     {
-      "id": 6,
+      "id": 9,
       "title": "gRPC Request Rate",
-      "description": "gRPC call throughput (qdrant_grpc_responses_total). Absent on installations that disable gRPC.",
+      "description": "gRPC call throughput.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -237,16 +360,16 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (endpoint) (rate(qdrant_grpc_responses_total[2m])) or vector(0)",
+          "expr": "sum by (endpoint) (rate(grpc_responses_total[2m]))",
           "legendFormat": "{{endpoint}}",
           "refId": "A"
         }
       ]
     },
     {
-      "id": 7,
+      "id": 10,
       "title": "gRPC P99 Latency",
-      "description": "99th-percentile gRPC response latency (qdrant_grpc_responses_duration_seconds_bucket).",
+      "description": "99th-percentile gRPC response latency.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -277,16 +400,16 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (endpoint, le) (rate(qdrant_grpc_responses_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (endpoint, le) (rate(grpc_responses_duration_seconds_bucket[5m])))",
           "legendFormat": "{{endpoint}} p99",
           "refId": "A"
         }
       ]
     },
     {
-      "id": 8,
-      "title": "Pending Optimisations",
-      "description": "Number of collection segments currently being optimised (qdrant_collections_optimizers_status). A sustained non-zero value means ongoing compaction work.",
+      "id": 11,
+      "title": "Running Optimisations",
+      "description": "Currently running optimisation tasks per collection.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -303,8 +426,8 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
             ]
           }
         },
@@ -312,14 +435,126 @@
       },
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (collection_name, shard_id, optimizer_name) (qdrant_collections_optimizers_status) or vector(0)",
-          "legendFormat": "{{collection_name}} / {{optimizer_name}}",
+          "expr": "sum by (id) (collection_running_optimizations)",
+          "legendFormat": "{{id}}",
           "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Collection Catalog",
+      "description": "Canonical Qdrant collection names and the registry sources used for project/branch/worktree observability.",
+      "type": "text",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 28 },
+      "mode": "markdown",
+      "content": "## Qdrant collection catalog\n\n| Collection | Purpose | Notes |\n|---|---|---|\n| `projects` | Project-scoped documents and search corpus. | Shows the main project knowledge base. |\n| `libraries` | Reference docs and shared libraries. | Useful for docs and reusable references. |\n| `rules` | Behavioral rules and policy snippets. | Used by the MCP rule layer. |\n| `scratchpad` | Temporary notes and scratch content. | Short-lived working memory. |\n| `images` | Image embeddings and image search payloads. | Supports image lookups. |\n\n> Projects, branches and worktrees are tracked in `watch_folders` and `.wqm-fork/indexed-projects.json`, not as Qdrant collections.\n",
+      "transparent": false
+    },
+    {
+      "id": 13,
+      "title": "Collection Inventory",
+      "description": "Per-collection point, vector, optimisation and excluded-point counts for the current Qdrant tenant set.",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto",
+            "filterable": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10000 },
+              { "color": "red", "value": 100000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          { "displayName": "Points", "desc": true }
+        ],
+        "footer": { "show": false }
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "collection",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Metric": true,
+              "__name__": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "Value #A": "Points",
+              "Value #B": "Vectors",
+              "Value #C": "Running Optimisations",
+              "Value #D": "Excluded Points"
+            },
+            "indexByName": {
+              "collection": 0,
+              "Points": 1,
+              "Vectors": 2,
+              "Running Optimisations": 3,
+              "Excluded Points": 4
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "label_replace(sum by (id) (collection_points), \"collection\", \"$1\", \"id\", \"(.+)\")",
+          "legendFormat": "{{collection}}",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (collection) (collection_vectors)",
+          "legendFormat": "{{collection}}",
+          "refId": "B",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "label_replace(sum by (id) (collection_running_optimizations), \"collection\", \"$1\", \"id\", \"(.+)\")",
+          "legendFormat": "{{collection}}",
+          "refId": "C",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "label_replace(sum by (id) (collection_indexed_only_excluded_points), \"collection\", \"$1\", \"id\", \"(.+)\")",
+          "legendFormat": "{{collection}}",
+          "refId": "D",
+          "instant": true,
+          "format": "table"
         }
       ]
     }

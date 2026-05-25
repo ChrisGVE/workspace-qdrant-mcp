@@ -9,6 +9,7 @@ use tracing::{debug, warn};
 
 use crate::context::ProcessingContext;
 use crate::unified_queue_schema::{ProjectPayload, UnifiedQueueItem};
+use crate::watching_queue::WatchManager;
 use wqm_common::constants::COLLECTION_PROJECTS;
 
 /// Resolve worktree information for a project being registered.
@@ -55,27 +56,42 @@ pub(super) async fn resolve_worktree_info(
         payload.project_root, main_path_str
     );
 
-    // Look up the watch_id of the main worktree in watch_folders
-    let main_watch_id = sqlx::query_scalar::<_, String>(
-        "SELECT watch_id FROM watch_folders \
-         WHERE path = ?1 AND tenant_id = ?2 AND collection = ?3",
-    )
-    .bind(&main_path_str)
-    .bind(&item.tenant_id)
-    .bind(COLLECTION_PROJECTS)
-    .fetch_optional(ctx.queue_manager.pool())
-    .await;
+    // Look up the watch_id of the main worktree in watch_folders.
+    // Docker Desktop may expose the same bind mount under a different
+    // container-local alias, so try the current path plus common aliases.
+    let mut main_watch_id = None;
+    let mut candidate_paths = Vec::with_capacity(3);
+    candidate_paths.push(main_path_str.clone());
+    candidate_paths.extend(
+        WatchManager::watch_path_aliases(&main_path_str)
+            .into_iter()
+            .map(|path| path.to_string_lossy().to_string()),
+    );
 
-    let main_watch_id = match main_watch_id {
-        Ok(v) => v,
-        Err(e) => {
-            warn!(
-                "Failed to look up main worktree watch_id for path={} tenant={}: {}",
-                main_path_str, item.tenant_id, e
-            );
-            None
+    for candidate_path in candidate_paths {
+        match sqlx::query_scalar::<_, String>(
+            "SELECT watch_id FROM watch_folders \
+             WHERE path = ?1 AND tenant_id = ?2 AND collection = ?3",
+        )
+        .bind(&candidate_path)
+        .bind(&item.tenant_id)
+        .bind(COLLECTION_PROJECTS)
+        .fetch_optional(ctx.queue_manager.pool())
+        .await
+        {
+            Ok(Some(watch_id)) => {
+                main_watch_id = Some(watch_id);
+                break;
+            }
+            Ok(None) => continue,
+            Err(e) => {
+                warn!(
+                    "Failed to look up main worktree watch_id for path={} tenant={} (candidate={}): {}",
+                    main_path_str, item.tenant_id, candidate_path, e
+                );
+            }
         }
-    };
+    }
 
     if main_watch_id.is_none() {
         debug!(

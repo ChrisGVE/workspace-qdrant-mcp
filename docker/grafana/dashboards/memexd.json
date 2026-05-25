@@ -5,7 +5,7 @@
     { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
   ],
   "annotations": { "list": [] },
-  "description": "Rust daemon (memexd) health: queue depth, processing throughput, processing latency, sessions, watch errors and uptime.",
+  "description": "Rust daemon health: uptime, stale queue items and oldest pending age.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -13,9 +13,56 @@
   "links": [],
   "panels": [
     {
+      "id": 6,
+      "title": "memexd Target Health",
+      "description": "Prometheus scrape target health for the memexd job.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "DOWN", "color": "red", "index": 0 },
+                "1": { "text": "UP", "color": "green", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "up{job=\"memexd\"}",
+          "legendFormat": "{{job}} @ {{instance}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
       "id": 1,
       "title": "Daemon Uptime",
-      "description": "memexd process uptime in seconds (memexd_uptime_seconds).",
+      "description": "memexd process uptime in seconds.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -47,53 +94,15 @@
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "max(memexd_uptime_seconds)",
           "legendFormat": "uptime",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "id": 2,
-      "title": "Active Sessions",
-      "description": "Number of active daemon sessions across all projects (memexd_active_sessions).",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 50 },
-              { "color": "red", "value": 200 }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_active_sessions)",
-          "legendFormat": "active sessions",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Watches in Backoff",
-      "description": "Number of file-system watches currently in exponential backoff (memexd_watches_in_backoff). Any non-zero value warrants investigation.",
+      "title": "Stale Queue Items",
+      "description": "Current number of stale lease items in the unified queue.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -123,16 +132,17 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_watches_in_backoff)",
-          "legendFormat": "backoff watches",
-          "refId": "A"
+          "expr": "sum(memexd_unified_queue_stale_items)",
+          "legendFormat": "stale items",
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
-      "id": 4,
+      "id": 3,
       "title": "Oldest Pending Queue Item Age",
-      "description": "Age in seconds of the oldest pending item in the unified queue (wqm_queue_oldest_pending_age_seconds). High values indicate processing stalls.",
+      "description": "Age in seconds of the oldest pending queue item.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -164,14 +174,15 @@
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "wqm_queue_oldest_pending_age_seconds",
           "legendFormat": "oldest pending",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
-      "id": 5,
-      "title": "Queue Depth by Priority",
-      "description": "Current queue depth broken down by priority and collection (memexd_queue_depth).",
+      "id": 4,
+      "title": "Stale Queue Items Trend",
+      "description": "History of stale lease items in the unified queue.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -188,86 +199,39 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 100 },
-              { "color": "red", "value": 500 }
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last", "max", "mean"] }
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (priority) (memexd_queue_depth)",
-          "legendFormat": "priority={{priority}}",
+          "expr": "sum(memexd_unified_queue_stale_items)",
+          "legendFormat": "stale items",
           "refId": "A"
         }
       ]
     },
     {
-      "id": 6,
-      "title": "Queue Processing Throughput",
-      "description": "Items processed per second by priority and status (memexd_queue_items_processed_total).",
+      "id": 5,
+      "title": "Oldest Pending Age Trend",
+      "description": "History of the oldest pending queue item age.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 8,
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byFrameRefID", "options": "B" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
-          }
-        ]
-      },
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (priority) (rate(memexd_queue_items_processed_total{status=\"success\"}[2m]))",
-          "legendFormat": "success priority={{priority}}",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (priority) (rate(memexd_queue_items_processed_total{status=\"failure\"}[2m]))",
-          "legendFormat": "failure priority={{priority}}",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "title": "Queue Processing Latency (P50 / P95 / P99)",
-      "description": "Queue item processing time distribution (memexd_queue_processing_time_seconds).",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 6,
+            "fillOpacity": 15,
             "showPoints": "never",
             "spanNulls": true
           },
@@ -275,121 +239,22 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 10 }
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last", "max", "mean"] }
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (priority, le) (rate(memexd_queue_processing_time_seconds_bucket[5m])))",
-          "legendFormat": "p50 priority={{priority}}",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (priority, le) (rate(memexd_queue_processing_time_seconds_bucket[5m])))",
-          "legendFormat": "p95 priority={{priority}}",
-          "refId": "B"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (priority, le) (rate(memexd_queue_processing_time_seconds_bucket[5m])))",
-          "legendFormat": "p99 priority={{priority}}",
-          "refId": "C"
-        }
-      ]
-    },
-    {
-      "id": 8,
-      "title": "Ingestion and Watch Error Rates",
-      "description": "Rate of ingestion errors (memexd_ingestion_errors_total) and watch errors (memexd_watch_errors_total). Both should be zero in steady state.",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 12,
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.01 },
-              { "color": "red", "value": 0.1 }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (error_type) (rate(memexd_ingestion_errors_total[2m]))",
-          "legendFormat": "ingest {{error_type}}",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (watch_id) (rate(memexd_watch_errors_total[2m]))",
-          "legendFormat": "watch {{watch_id}}",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "id": 9,
-      "title": "Unified Queue Depth by Type and Status",
-      "description": "Unified queue item counts broken down by item_type and status (memexd_unified_queue_depth).",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 200 },
-              { "color": "red", "value": 1000 }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (item_type, status) (memexd_unified_queue_depth)",
-          "legendFormat": "{{item_type}} / {{status}}",
+          "expr": "wqm_queue_oldest_pending_age_seconds",
+          "legendFormat": "oldest pending age",
           "refId": "A"
         }
       ]

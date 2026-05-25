@@ -304,6 +304,20 @@ npm run lint
 npm run format
 ```
 
+## Semantic Search Benchmark
+
+Run a curated benchmark that compares `semantic`, `hybrid`, and `exact` search:
+
+```bash
+npm run benchmark:semantic
+npm run benchmark:semantic -- --output reports/semantic-search.json
+npm run benchmark:semantic -- --project-id <tenant-id> --workspace-root /path/to/workspace-qdrant-mcp
+```
+
+- The default dataset is `scripts/benchmark-data/semantic-search-quality.yaml`.
+- File paths in the dataset are relative to `--workspace-root` and default to the repository root.
+- The report includes top-1/top-3/top-10 hit rates, precision@10, recall@10, MRR, duplication rate, and a verdict for semantic quality.
+
 ## Health Status
 
 The server monitors system health and reports status in search results:

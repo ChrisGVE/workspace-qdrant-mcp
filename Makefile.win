@@ -10,6 +10,7 @@
 #   SERVER_NAME=workspace-qdrant
 #   QDRANT_URL=http://localhost:6333
 #   DAEMON_ENDPOINT=localhost:50051
+#   FASTEMBED_DAEMON_ENDPOINT=http://localhost:55151
 #   TOOLS=search,retrieve,grep,list,store,rules
 #   LOG_DIR=C:\dev\workspace-qdrant-mcp\.wqm-fork\logs
 #
@@ -25,7 +26,11 @@ REPO ?= $(CURDIR)
 PROJECT ?= $(CURDIR)
 BRANCH ?= personal/windows-hardening
 SERVER_NAME ?= workspace-qdrant
-QDRANT_URL ?= http://localhost:6333
+COMPOSE_FILE ?= $(REPO)\docker-compose.yml
+COMPOSE_ENV_FILE ?= $(REPO)\docker\.env
+QDRANT_HTTP_PORT ?= 6333
+QDRANT_GRPC_PORT ?= 6334
+QDRANT_URL ?= http://localhost:$(QDRANT_HTTP_PORT)
 DAEMON_ENDPOINT ?= localhost:50051
 TOOLS ?= search,retrieve,grep,list,store,rules
 LOG_DIR ?= $(REPO)\.wqm-fork\logs
@@ -66,21 +71,39 @@ INDEX_PURPOSE ?= agent change
 INDEX_CREATED_BY ?= ai-agent
 INDEX_MUTATE ?= true
 WORKSPACE_INDEX_PATCH ?= patches/mcp/workspace-index-mcp-tool.patch
+FASTEMBED_CACHE_DIR ?= $(REPO)\.fastembed_cache
+FASTEMBED_QDRANT_URL ?= http://127.0.0.1:$(QDRANT_GRPC_PORT)
+FASTEMBED_GRPC_PORT ?= 55151
+FASTEMBED_CONTROL_PORT ?= 7798
+FASTEMBED_METRICS_PORT ?= 9091
+FASTEMBED_DAEMON_ENDPOINT ?= http://localhost:$(FASTEMBED_GRPC_PORT)
+FASTEMBED_LOG_LEVEL ?= info
 
 FLOW_ARGS = -RepoDir "$(REPO)" -UpstreamUrl "$(UPSTREAM_URL)" -MainBranch "$(MAIN_BRANCH)" -OverlayBranch "$(OVERLAY_BRANCH)" -FixesBranch "$(FIXES_BRANCH)" -UseBranch "$(USE_BRANCH)" -Strategy "$(SYNC_STRATEGY)" -Push "$(PUSH)"
 TENANT_ARGS = -RepoDir "$(REPO)" -PatchPath "$(TENANT_PATCH)" -ExtraPatchPath "$(TENANT_HARDEN_PATCH)"
 OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)"
 WORKSPACE_ARGS = -RegistryPath "$(REGISTRY)" -Name "$(WORKSPACE_NAME)" -ProjectDir "$(WORKSPACE_PROJECT)" -MainBranch "$(MAIN_BRANCH)" -OverlayBranch "$(OVERLAY_BRANCH)" -FixesBranch "$(FIXES_BRANCH)" -UseBranch "$(USE_BRANCH)" -UpstreamUrl "$(UPSTREAM_URL)" -UpstreamRef "upstream/$(MAIN_BRANCH)" -FixBranch "$(WORKSPACE_FIX_BRANCH)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)" -Push "$(PUSH)"
 INDEX_ARGS = -RegistryPath "$(INDEX_REGISTRY)" -ProjectName "$(INDEX_PROJECT_NAME)" -ProjectDir "$(INDEX_PROJECT)" -BranchName "$(INDEX_BRANCH)" -BaseBranch "$(INDEX_BASE_BRANCH)" -ReturnBranch "$(INDEX_RETURN_BRANCH)" -WorktreePath "$(INDEX_WORKTREE_PATH)" -WorktreeRoot "$(INDEX_WORKTREE_ROOT)" -UseWorktree "$(INDEX_USE_WORKTREE)" -Purpose "$(INDEX_PURPOSE)" -CreatedBy "$(INDEX_CREATED_BY)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)" -Mutate "$(INDEX_MUTATE)"
+FASTEMBED_OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(FASTEMBED_DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)"
+FASTEMBED_SERVICE_ARGS = -FastEmbed -FastEmbedCacheDir "$(FASTEMBED_CACHE_DIR)" -FastEmbedQdrantUrl "$(FASTEMBED_QDRANT_URL)" -FastEmbedGrpcPort $(FASTEMBED_GRPC_PORT) -FastEmbedControlPort $(FASTEMBED_CONTROL_PORT) -FastEmbedMetricsPort $(FASTEMBED_METRICS_PORT) -FastEmbedLogLevel "$(FASTEMBED_LOG_LEVEL)"
+FASTEMBED_DAEMON_ARGS = -RepoDir "$(REPO)" -CacheDir "$(FASTEMBED_CACHE_DIR)" -QdrantUrl "$(FASTEMBED_QDRANT_URL)" -GrpcPort $(FASTEMBED_GRPC_PORT) -ControlPort $(FASTEMBED_CONTROL_PORT) -MetricsPort $(FASTEMBED_METRICS_PORT) -LogLevel "$(FASTEMBED_LOG_LEVEL)"
 
-.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up build-ts test-ts typecheck-ts build-rust start-daemon config apply-config register smoke smoke-full status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate
+.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed register smoke smoke-full status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
 
 help:
 	@Write-Host "Targets principais:"
+	@Write-Host "  up                  - compila tudo, sobe Qdrant/daemon padrao e aplica config MCP"
+	@Write-Host "  up-fastembed        - compila tudo, sobe Qdrant/daemon com FastEmbed e aplica config MCP"
+	@Write-Host "  compose-up          - sobe docker-compose.yml da raiz com build local do MCP"
+	@Write-Host "  compose-down        - para o stack unificado"
+	@Write-Host "  compose-ps          - mostra o status do stack unificado"
 	@Write-Host "  doctor              - verifica dependencias, repo, Qdrant, daemon e configs"
 	@Write-Host "  qdrant-up           - sobe Qdrant via Docker"
+	@Write-Host "  qdrant-up-grpc      - sobe Qdrant via Docker com porta gRPC 6334"
+	@Write-Host "  start-daemon-fastembed - inicia memexd local com FastEmbed e gRPC"
 	@Write-Host "  build-ts            - instala deps e compila MCP TypeScript"
-	@Write-Host "  config/apply-config - gera/aplica configs Claude Desktop e Codex"
+	@Write-Host "  config/apply-config - gera/aplica configs Claude Desktop e Codex para o fluxo padrao (50051)"
+	@Write-Host "  config-fastembed/apply-config-fastembed - mesma config para o fluxo FastEmbed local (55151)"
 	@Write-Host "  register            - registra PROJECT no wqm"
 	@Write-Host "  smoke               - valida fluxo minimo wqm/Qdrant/daemon"
 	@Write-Host "  smoke-full          - smoke + tenant validate + incremental-check + health"
@@ -91,6 +114,7 @@ help:
 	@Write-Host "  incremental-check   - valida registro, watch e consistencia incremental do PROJECT"
 	@Write-Host "  incremental-repair  - tenta reparos nao destrutivos: register, watch resume, check"
 	@Write-Host "  service-stabilize   - tenta iniciar Qdrant/daemon e grava diagnostico"
+	@Write-Host "  service-stabilize-fastembed - sobe Qdrant/daemon com FastEmbed e gRPC"
 	@Write-Host "  reliability-doctor  - health + incremental-check + tenant-validate"
 	@Write-Host ""
 	@Write-Host "Fluxo de branches:"
@@ -119,13 +143,17 @@ help:
 	@Write-Host "Projetos indexados / branches de agentes:"
 	@Write-Host "  index-help                  - explica indexed-projects.json e agent branches"
 	@Write-Host "  index-init                  - inicializa .wqm-fork/indexed-projects.json"
-	@Write-Host "  index-project-add           - registra projeto indexado"
+	@Write-Host "  index-hooks-install         - instala hooks locais para checkout/commit/worktree"
+	@Write-Host "  index-hooks-status          - mostra hooksPath atual e arquivos gerados"
+	@Write-Host "  index-project-add           - registra projeto indexado e tenta registrar no daemon"
 	@Write-Host "  index-project-list          - lista projetos indexados"
 	@Write-Host "  index-project-status        - status do projeto/branches/agentes"
-	@Write-Host "  index-agent-start           - cria branch de agente, preferencialmente em worktree"
+	@Write-Host "  index-agent-start           - cria branch de agente, preferencialmente em worktree, e registra no daemon"
+	@Write-Host "  index-register-wqm          - re-registra projeto/branches no daemon"
 	@Write-Host "  index-agent-finish          - marca branch de agente como pronta sem merge"
 	@Write-Host "  index-agent-abandon         - marca branch de agente como abandonada sem deletar por padrao"
 	@Write-Host "  index-observe-all           - observabilidade de todos os projetos indexados"
+	@Write-Host "  index-prune-orphans         - remove do registry branches/worktrees que nao existem mais"
 	@Write-Host "  index-incremental-check-all - checagem incremental de todos os projetos/branches"
 	@Write-Host ""
 	@Write-Host "MCP workspace_index:"
@@ -266,6 +294,12 @@ index-help:
 index-init:
 	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action init -Mutate true
 
+index-hooks-install:
+	.\scripts\windows\indexed-projects-hooks.ps1 -Action install -RepoDir "$(REPO)"
+
+index-hooks-status:
+	.\scripts\windows\indexed-projects-hooks.ps1 -Action status -RepoDir "$(REPO)"
+
 index-project-add:
 	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action add-project
 
@@ -299,6 +333,9 @@ index-observe:
 index-observe-all:
 	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action observe-all -LogDir "$(LOG_DIR)"
 
+index-prune-orphans:
+	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action cleanup-orphans
+
 index-incremental-check:
 	.\scripts\windows\indexed-projects-registry.ps1 $(INDEX_ARGS) -Action incremental-check
 
@@ -319,6 +356,10 @@ workspace-index-apply:
 
 workspace-index-validate:
 	.\scripts\windows\mcp-workspace-manager.ps1 -RepoDir "$(REPO)" -PatchPath "$(WORKSPACE_INDEX_PATCH)" -ValidateOnly
+
+up: build-ts build-rust apply-config service-stabilize
+
+up-fastembed: build-ts build-rust apply-config-fastembed service-stabilize-fastembed
 
 doctor:
 	.\scripts\windows\doctor.ps1 -RepoDir "$(REPO)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)"
@@ -342,6 +383,18 @@ pr:
 qdrant-up:
 	.\scripts\windows\start-qdrant.ps1 -QdrantUrl "$(QDRANT_URL)"
 
+qdrant-up-grpc:
+	.\scripts\windows\start-qdrant.ps1 -QdrantUrl "$(QDRANT_URL)" -HttpPort $(QDRANT_HTTP_PORT) -GrpcPort $(QDRANT_GRPC_PORT) -EnsureGrpc
+
+compose-up:
+	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --build } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" up -d --build }
+
+compose-down:
+	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" down } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" down }
+
+compose-ps:
+	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" ps } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" ps }
+
 build-ts:
 	Set-Location "$(REPO)\src\typescript\mcp-server"; npm install; npm run build
 
@@ -357,11 +410,20 @@ build-rust:
 start-daemon:
 	.\scripts\windows\start-daemon.ps1 -RepoDir "$(REPO)"
 
+start-daemon-fastembed:
+	.\scripts\windows\start-daemon-fastembed.ps1 $(FASTEMBED_DAEMON_ARGS)
+
 config:
 	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ToolCsv "$(TOOLS)"
 
+config-fastembed:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(FASTEMBED_DAEMON_ENDPOINT)" -ToolCsv "$(TOOLS)" -ConfigSuffix ".fastembed"
+
 apply-config:
 	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ToolCsv "$(TOOLS)" -ApplyClaude -ApplyCodex
+
+apply-config-fastembed:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(FASTEMBED_DAEMON_ENDPOINT)" -ToolCsv "$(TOOLS)" -ConfigSuffix ".fastembed" -ApplyClaude -ApplyCodex
 
 register:
 	.\scripts\windows\register-project.ps1 -ProjectDir "$(PROJECT)"
@@ -388,11 +450,13 @@ incremental-repair:
 service-stabilize:
 	.\scripts\windows\service-stabilize.ps1 $(OBS_ARGS)
 
+service-stabilize-fastembed:
+	.\scripts\windows\service-stabilize.ps1 $(FASTEMBED_OBS_ARGS) $(FASTEMBED_SERVICE_ARGS)
+
 reliability-doctor: health incremental-check tenant-validate
 
 status:
-	wqm status health
-	wqm project list
+	.\scripts\windows\status.ps1 -RepoDir "$(REPO)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)"
 
 clean:
 	if (Test-Path "$(REPO)\src\typescript\mcp-server\dist") { Remove-Item -Recurse -Force "$(REPO)\src\typescript\mcp-server\dist" }

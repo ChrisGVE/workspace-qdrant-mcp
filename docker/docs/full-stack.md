@@ -96,7 +96,7 @@ publish is rejected at generation time — see spec §10.1.
 docker compose \
   -f docker/compose/full-stack.yml \
   -f docker-compose.override.yaml \
-  --env-file docker/.env up -d
+  --env-file docker/.env up -d --build
 ```
 
 ### 4. Wait for memexd to pass its health check
@@ -138,7 +138,7 @@ If Grafana is not already provisioned from this project:
 3. Upload each JSON file from `docker/grafana/dashboards/`:
    - `system-overview.json` — service up/down, queue depth, error events
    - `memexd.json` — daemon queue, latency, sessions, watch errors
-   - `claude-mcp.json` — MCP tool rates, durations, sessions, fallbacks
+   - `mcp-server.json` — MCP tool rates, durations, sessions, fallbacks
    - `qdrant.json` — collections, vector counts, REST/gRPC latency
 
 Alternatively, configure provisioning so Grafana loads dashboards automatically

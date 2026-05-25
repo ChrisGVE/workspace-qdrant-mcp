@@ -1,0 +1,1716 @@
+{
+  "generatedAt": "2026-05-25T01:06:31.513Z",
+  "workspaceRoot": "C:\\Users\\alber\\Documents\\repositorios\\workspace-qdrant-mcp",
+  "dataset": {
+    "name": "workspace-qdrant semantic search quality",
+    "queryCount": 12,
+    "description": "Curated project questions that should be answered by semantic search on the repository itself.",
+    "sourcePath": "C:\\Users\\alber\\Documents\\repositorios\\workspace-qdrant-mcp\\src\\typescript\\mcp-server\\scripts\\benchmark-data\\semantic-search-quality.yaml",
+    "defaults": {
+      "scope": "project",
+      "collection": "projects",
+      "includeLibraries": false,
+      "limit": 10
+    }
+  },
+  "config": {
+    "workspaceRoot": "C:\\Users\\alber\\Documents\\repositorios\\workspace-qdrant-mcp",
+    "scope": "all",
+    "collection": "projects",
+    "limit": 10,
+    "topK": 10,
+    "warmupRuns": 0,
+    "iterations": 1,
+    "modes": [
+      "semantic",
+      "hybrid",
+      "exact"
+    ],
+    "datasetSourcePath": "C:\\Users\\alber\\Documents\\repositorios\\workspace-qdrant-mcp\\src\\typescript\\mcp-server\\scripts\\benchmark-data\\semantic-search-quality.yaml"
+  },
+  "summary": {
+    "queryCount": 12,
+    "modes": {
+      "semantic": {
+        "runs": 12,
+        "top1HitRate": 0,
+        "top3HitRate": 0,
+        "top10HitRate": 0,
+        "precisionAt10": 0,
+        "recallAt10": 0,
+        "mrr": 0,
+        "duplicateRate": 0,
+        "avgLatencyMs": 9.151025000000013,
+        "p95LatencyMs": 12.664815000000035
+      },
+      "hybrid": {
+        "runs": 12,
+        "top1HitRate": 0,
+        "top3HitRate": 0,
+        "top10HitRate": 0,
+        "precisionAt10": 0,
+        "recallAt10": 0,
+        "mrr": 0,
+        "duplicateRate": 0,
+        "avgLatencyMs": 11.934466666666689,
+        "p95LatencyMs": 28.782225000000004
+      },
+      "exact": {
+        "runs": 12,
+        "top1HitRate": 0,
+        "top3HitRate": 0,
+        "top10HitRate": 0,
+        "precisionAt10": 0,
+        "recallAt10": 0,
+        "mrr": 0,
+        "duplicateRate": 0,
+        "avgLatencyMs": 3.35004166666666,
+        "p95LatencyMs": 9.802240000000005
+      }
+    },
+    "semanticVerdict": {
+      "grade": "poor",
+      "reasons": [
+        "top-3 useful rate 0.0% is below 80.0%",
+        "recall@10 0.0% is below 70.0%",
+        "precision@10 0.0% is below 84.0%"
+      ],
+      "thresholds": {
+        "top3UsefulRate": 0.8,
+        "recallAt10": 0.7,
+        "precisionAt10": 0.84
+      }
+    },
+    "rescueCounts": {
+      "hybridRescuedSemanticTop10": 0,
+      "exactRescuedSemanticTop10": 0
+    }
+  },
+  "queries": [
+    {
+      "id": "project-id-resolution",
+      "query": "How does the MCP server resolve projectId for project-scoped searches?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/search-helpers.ts",
+        "src/typescript/mcp-server/src/utils/project-detector.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "How does the MCP server resolve projectId for project-scoped searches?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            15.794700000000034
+          ],
+          "latencyMeanMs": 15.794700000000034,
+          "latencyMedianMs": 15.794700000000034,
+          "latencyP95Ms": 15.794700000000034,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/utils/project-detector.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/utils/project-detector.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "How does the MCP server resolve projectId for project-scoped searches?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            12.601800000000026
+          ],
+          "latencyMeanMs": 12.601800000000026,
+          "latencyMedianMs": 12.601800000000026,
+          "latencyP95Ms": 12.601800000000026,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/utils/project-detector.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/utils/project-detector.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "How does the MCP server resolve projectId for project-scoped searches?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            18.821800000000053
+          ],
+          "latencyMeanMs": 18.821800000000053,
+          "latencyMedianMs": 18.821800000000053,
+          "latencyP95Ms": 18.821800000000053,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/utils/project-detector.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/utils/project-detector.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "hybrid-rrf",
+      "query": "Where are dense and keyword search results combined with reciprocal rank fusion?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "Where are dense and keyword search results combined with reciprocal rank fusion?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            9.355400000000031
+          ],
+          "latencyMeanMs": 9.355400000000031,
+          "latencyMedianMs": 9.355400000000031,
+          "latencyP95Ms": 9.355400000000031,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "Where are dense and keyword search results combined with reciprocal rank fusion?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            9.708300000000008
+          ],
+          "latencyMeanMs": 9.708300000000008,
+          "latencyMedianMs": 9.708300000000008,
+          "latencyP95Ms": 9.708300000000008,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "Where are dense and keyword search results combined with reciprocal rank fusion?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            2.4225999999999885
+          ],
+          "latencyMeanMs": 2.4225999999999885,
+          "latencyMedianMs": 2.4225999999999885,
+          "latencyP95Ms": 2.4225999999999885,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "score-threshold",
+      "query": "Where is the Qdrant score threshold applied for semantic search?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+        "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "Where is the Qdrant score threshold applied for semantic search?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            10.104000000000042
+          ],
+          "latencyMeanMs": 10.104000000000042,
+          "latencyMedianMs": 10.104000000000042,
+          "latencyP95Ms": 10.104000000000042,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "Where is the Qdrant score threshold applied for semantic search?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.096099999999979
+          ],
+          "latencyMeanMs": 8.096099999999979,
+          "latencyMedianMs": 8.096099999999979,
+          "latencyP95Ms": 8.096099999999979,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "Where is the Qdrant score threshold applied for semantic search?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.933499999999981
+          ],
+          "latencyMeanMs": 1.933499999999981,
+          "latencyMedianMs": 1.933499999999981,
+          "latencyP95Ms": 1.933499999999981,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "graph-context",
+      "query": "Where does the search tool attach graph context to results?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+        "src/typescript/mcp-server/src/tools/search-helpers.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "Where does the search tool attach graph context to results?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.097300000000018
+          ],
+          "latencyMeanMs": 8.097300000000018,
+          "latencyMedianMs": 8.097300000000018,
+          "latencyP95Ms": 8.097300000000018,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "Where does the search tool attach graph context to results?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            9.11099999999999
+          ],
+          "latencyMeanMs": 9.11099999999999,
+          "latencyMedianMs": 9.11099999999999,
+          "latencyP95Ms": 9.11099999999999,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "Where does the search tool attach graph context to results?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.8811000000000604
+          ],
+          "latencyMeanMs": 1.8811000000000604,
+          "latencyMedianMs": 1.8811000000000604,
+          "latencyP95Ms": 1.8811000000000604,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "rules-tenant-scope",
+      "query": "How are project-scoped rules prevented from falling back to the global tenant?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/rules.ts",
+        "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "How are project-scoped rules prevented from falling back to the global tenant?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.050799999999981
+          ],
+          "latencyMeanMs": 8.050799999999981,
+          "latencyMedianMs": 8.050799999999981,
+          "latencyP95Ms": 8.050799999999981,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "How are project-scoped rules prevented from falling back to the global tenant?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            7.660000000000082
+          ],
+          "latencyMeanMs": 7.660000000000082,
+          "latencyMedianMs": 7.660000000000082,
+          "latencyP95Ms": 7.660000000000082,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "How are project-scoped rules prevented from falling back to the global tenant?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.8239999999999554
+          ],
+          "latencyMeanMs": 1.8239999999999554,
+          "latencyMedianMs": 1.8239999999999554,
+          "latencyP95Ms": 1.8239999999999554,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "embedding-provider",
+      "query": "How does the server report the active embedding provider?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/embedding.ts",
+        "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "How does the server report the active embedding provider?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.730199999999968
+          ],
+          "latencyMeanMs": 8.730199999999968,
+          "latencyMedianMs": 8.730199999999968,
+          "latencyP95Ms": 8.730199999999968,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "How does the server report the active embedding provider?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.342100000000073
+          ],
+          "latencyMeanMs": 8.342100000000073,
+          "latencyMedianMs": 8.342100000000073,
+          "latencyP95Ms": 8.342100000000073,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "How does the server report the active embedding provider?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.744799999999941
+          ],
+          "latencyMeanMs": 1.744799999999941,
+          "latencyMedianMs": 1.744799999999941,
+          "latencyP95Ms": 1.744799999999941,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "daemon-health-timeout",
+      "query": "Where is the daemon health check timeout enforced during client bootstrap?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+        "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "Where is the daemon health check timeout enforced during client bootstrap?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.430100000000039
+          ],
+          "latencyMeanMs": 8.430100000000039,
+          "latencyMedianMs": 8.430100000000039,
+          "latencyP95Ms": 8.430100000000039,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "Where is the daemon health check timeout enforced during client bootstrap?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            7.935699999999997
+          ],
+          "latencyMeanMs": 7.935699999999997,
+          "latencyMedianMs": 7.935699999999997,
+          "latencyP95Ms": 7.935699999999997,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "Where is the daemon health check timeout enforced during client bootstrap?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            2.1707000000000107
+          ],
+          "latencyMeanMs": 2.1707000000000107,
+          "latencyMedianMs": 2.1707000000000107,
+          "latencyP95Ms": 2.1707000000000107,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "watcher-latency",
+      "query": "Where is watcher processing latency tracked in the daemon?",
+      "expectedFiles": [
+        "src/rust/daemon/core/src/watching/telemetry.rs",
+        "src/rust/daemon/core/src/watching/watcher_processing.rs"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "Where is watcher processing latency tracked in the daemon?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            9.102899999999977
+          ],
+          "latencyMeanMs": 9.102899999999977,
+          "latencyMedianMs": 9.102899999999977,
+          "latencyP95Ms": 9.102899999999977,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/watching/watcher_processing.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/watching/watcher_processing.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "Where is watcher processing latency tracked in the daemon?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            7.56759999999997
+          ],
+          "latencyMeanMs": 7.56759999999997,
+          "latencyMedianMs": 7.56759999999997,
+          "latencyP95Ms": 7.56759999999997,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/watching/watcher_processing.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/watching/watcher_processing.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "Where is watcher processing latency tracked in the daemon?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.8683999999999514
+          ],
+          "latencyMeanMs": 1.8683999999999514,
+          "latencyMedianMs": 1.8683999999999514,
+          "latencyP95Ms": 1.8683999999999514,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/watching/watcher_processing.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/watching/watcher_processing.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "queue-metrics",
+      "query": "Where is queue throughput measured in the daemon?",
+      "expectedFiles": [
+        "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
+        "src/rust/daemon/core/src/processing/metrics.rs"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "Where is queue throughput measured in the daemon?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            7.439100000000053
+          ],
+          "latencyMeanMs": 7.439100000000053,
+          "latencyMedianMs": 7.439100000000053,
+          "latencyP95Ms": 7.439100000000053,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
+              "src/rust/daemon/core/src/processing/metrics.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
+              "src/rust/daemon/core/src/processing/metrics.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "Where is queue throughput measured in the daemon?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.086000000000013
+          ],
+          "latencyMeanMs": 8.086000000000013,
+          "latencyMedianMs": 8.086000000000013,
+          "latencyP95Ms": 8.086000000000013,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
+              "src/rust/daemon/core/src/processing/metrics.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
+              "src/rust/daemon/core/src/processing/metrics.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "Where is queue throughput measured in the daemon?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            2.2650999999999613
+          ],
+          "latencyMeanMs": 2.2650999999999613,
+          "latencyMedianMs": 2.2650999999999613,
+          "latencyP95Ms": 2.2650999999999613,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
+              "src/rust/daemon/core/src/processing/metrics.rs"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
+              "src/rust/daemon/core/src/processing/metrics.rs"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "search-quality-plan",
+      "query": "Which document describes the next steps for semantic search quality and rerank?",
+      "expectedFiles": [
+        "docs/plans/2026-05-25-search-quality-next-steps.md",
+        "docs/ci-cd-processes.md"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "Which document describes the next steps for semantic search quality and rerank?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.200300000000084
+          ],
+          "latencyMeanMs": 8.200300000000084,
+          "latencyMedianMs": 8.200300000000084,
+          "latencyP95Ms": 8.200300000000084,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "docs/plans/2026-05-25-search-quality-next-steps.md",
+              "docs/ci-cd-processes.md"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "docs/plans/2026-05-25-search-quality-next-steps.md",
+              "docs/ci-cd-processes.md"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "Which document describes the next steps for semantic search quality and rerank?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.027600000000007
+          ],
+          "latencyMeanMs": 8.027600000000007,
+          "latencyMedianMs": 8.027600000000007,
+          "latencyP95Ms": 8.027600000000007,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "docs/plans/2026-05-25-search-quality-next-steps.md",
+              "docs/ci-cd-processes.md"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "docs/plans/2026-05-25-search-quality-next-steps.md",
+              "docs/ci-cd-processes.md"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "Which document describes the next steps for semantic search quality and rerank?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.8478000000000065
+          ],
+          "latencyMeanMs": 1.8478000000000065,
+          "latencyMedianMs": 1.8478000000000065,
+          "latencyP95Ms": 1.8478000000000065,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "docs/plans/2026-05-25-search-quality-next-steps.md",
+              "docs/ci-cd-processes.md"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "docs/plans/2026-05-25-search-quality-next-steps.md",
+              "docs/ci-cd-processes.md"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "search-modes-scope",
+      "query": "How does the search tool choose semantic, hybrid, and exact modes?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/search.ts",
+        "src/typescript/mcp-server/src/tools/search-types.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "How does the search tool choose semantic, hybrid, and exact modes?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            8.888699999999972
+          ],
+          "latencyMeanMs": 8.888699999999972,
+          "latencyMedianMs": 8.888699999999972,
+          "latencyP95Ms": 8.888699999999972,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "How does the search tool choose semantic, hybrid, and exact modes?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            48.55830000000003
+          ],
+          "latencyMeanMs": 48.55830000000003,
+          "latencyMedianMs": 48.55830000000003,
+          "latencyP95Ms": 48.55830000000003,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "How does the search tool choose semantic, hybrid, and exact modes?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.595199999999977
+          ],
+          "latencyMeanMs": 1.595199999999977,
+          "latencyMedianMs": 1.595199999999977,
+          "latencyP95Ms": 1.595199999999977,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "fallback-tenant-scope",
+      "query": "How does fallback search avoid broadening project scope across tenants?",
+      "expectedFiles": [
+        "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+        "src/typescript/mcp-server/src/tools/search-helpers.ts"
+      ],
+      "bestMode": "semantic",
+      "semanticRescuedByHybridTop10": false,
+      "semanticRescuedByExactTop10": false,
+      "modes": {
+        "semantic": {
+          "mode": "semantic",
+          "searchOptions": {
+            "query": "How does fallback search avoid broadening project scope across tenants?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "semantic"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            7.618799999999965
+          ],
+          "latencyMeanMs": 7.618799999999965,
+          "latencyMedianMs": 7.618799999999965,
+          "latencyP95Ms": 7.618799999999965,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "hybrid": {
+          "mode": "hybrid",
+          "searchOptions": {
+            "query": "How does fallback search avoid broadening project scope across tenants?",
+            "scope": "all",
+            "limit": 0,
+            "mode": "hybrid"
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            7.519100000000094
+          ],
+          "latencyMeanMs": 7.519100000000094,
+          "latencyMedianMs": 7.519100000000094,
+          "latencyP95Ms": 7.519100000000094,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "searchOptions": {
+            "query": "How does fallback search avoid broadening project scope across tenants?",
+            "scope": "all",
+            "limit": 0,
+            "exact": true
+          },
+          "status": "ok",
+          "total": 0,
+          "collectionsSearched": [
+            "projects"
+          ],
+          "latencySamplesMs": [
+            1.8255000000000337
+          ],
+          "latencyMeanMs": 1.8255000000000337,
+          "latencyMedianMs": 1.8255000000000337,
+          "latencyP95Ms": 1.8255000000000337,
+          "topResults": [],
+          "evaluation": {
+            "expectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "matchedExpectedFiles": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts"
+            ],
+            "rawTopPaths": [],
+            "topPaths": [],
+            "top1Hit": false,
+            "top3Hit": false,
+            "top10Hit": false,
+            "precisionAt10": 0,
+            "recallAt10": 0,
+            "duplicateRate": 0,
+            "mrr": 0
+          }
+        }
+      }
+    }
+  ]
+}

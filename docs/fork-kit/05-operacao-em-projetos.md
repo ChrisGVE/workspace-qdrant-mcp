@@ -67,6 +67,8 @@ Depois de aplicar config:
 make -f Makefile.win apply-config REPO=C:\dev\workspace-qdrant-mcp
 ```
 
+Esse comando gera o padrão Docker do fork, apontando para o daemon em `localhost:50051`. Se você realmente precisar do fluxo local FastEmbed, use `apply-config-fastembed`.
+
 No prompt do agente, use uma instrução parecida com:
 
 ```text

@@ -1,6 +1,5 @@
 //! WatchManager operations - refresh, reconciliation, persistence, polling.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -174,7 +173,7 @@ impl WatchManager {
 
             let config = WatchConfig {
                 id: id.clone(),
-                path: PathBuf::from(&path),
+                path: Self::resolve_local_watch_path(&path),
                 tenant_id,
                 collection,
                 patterns: vec!["*".to_string()],
@@ -225,7 +224,7 @@ impl WatchManager {
 
             let config = WatchConfig {
                 id: id.clone(),
-                path: PathBuf::from(path),
+                path: Self::resolve_local_watch_path(&path),
                 tenant_id: tenant_id.clone(),
                 collection,
                 patterns: vec!["*".to_string()],

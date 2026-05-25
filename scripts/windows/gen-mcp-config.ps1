@@ -5,6 +5,7 @@ param(
   [string]$QdrantUrl = "http://localhost:6333",
   [string]$DaemonEndpoint = "localhost:50051",
   [string]$ToolCsv = "search,retrieve,grep,list,store,rules",
+  [string]$ConfigSuffix = "",
   [string]$ClaudeConfigPath = "",
   [string]$CodexConfigPath = "",
   [switch]$ApplyClaude,
@@ -51,7 +52,7 @@ $claudeSnippet = [pscustomobject]@{
     $ServerName = (Json-ServerObject $IndexPath)
   }
 }
-$claudeOut = Join-Path $GeneratedDir "claude_desktop_config.$ServerName.json"
+$claudeOut = Join-Path $GeneratedDir "claude_desktop_config.$ServerName$ConfigSuffix.json"
 $claudeSnippet | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 $claudeOut
 
 $tools = $ToolCsv.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
@@ -76,7 +77,7 @@ WQM_DAEMON_ENDPOINT = "$daemonToml"
 # END workspace-qdrant-fork-kit
 "@
 
-$codexOut = Join-Path $GeneratedDir "codex_config.$ServerName.toml"
+$codexOut = Join-Path $GeneratedDir "codex_config.$ServerName$ConfigSuffix.toml"
 $codexBlock | Set-Content -Encoding UTF8 $codexOut
 
 Write-Host "Gerado:"

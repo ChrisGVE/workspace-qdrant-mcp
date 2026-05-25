@@ -1,204 +1,209 @@
 # Grafana dashboards
 
-Four pre-built dashboards are provisioned automatically when Grafana starts with
+Five pre-built dashboards are provisioned automatically when Grafana starts with
 the config in `docker/grafana/provisioning/`. All dashboards auto-refresh every
 30 seconds and default to a 1-hour time window.
 
 Import JSON files from `docker/grafana/dashboards/` if auto-provisioning is not
-in use (Dashboards → Import in the Grafana UI).
+in use (Dashboards -> Import in the Grafana UI).
 
 ## Dashboard list
 
 | File | UID | Title | Focus |
 |---|---|---|---|
-| `system-overview.json` | `wqm-system` | WQM — System Overview | Service health, queue summary, error events |
-| `memexd.json` | `wqm-memexd` | WQM — memexd Daemon | Queue depth, throughput, latency, sessions |
-| `claude-mcp.json` | `wqm-claude-mcp` | WQM — MCP Server | Tool rates, durations, sessions, fallbacks |
-| `qdrant.json` | `wqm-qdrant` | WQM — Qdrant | Collections, vectors, REST/gRPC latency |
+| `system-overview.json` | `wqm-system` | WQM — System Overview | Service health, queue freshness, MCP activity, indexed project inventory, error rates |
+| `memexd.json` | `wqm-memexd` | WQM — memexd Daemon | Target health, uptime, stale queue items, oldest pending age |
+| `mcp-server.json` | `wqm-mcp-server` | WQM — MCP Server | Tool rates, durations, daemon fallbacks, recent tool logs, cache ratio |
+| `mcp-http.json` | `wqm-mcp-http` | WQM — MCP HTTP Transport | Request mix, auth failures, rate limits |
+| `qdrant.json` | `wqm-qdrant` | WQM — Qdrant | Collections, target health, resource saturation, REST/gRPC throughput and latency |
 
-Navigation links in the System Overview header jump directly to the other three
+Navigation links in the System Overview header jump directly to the other four
 dashboards.
 
 ---
 
 ## WQM — System Overview (`system-overview.json`)
 
-Start here. Gives a health snapshot across all services and surfaces active
-problems.
-
-[Screenshot: five stat panels in a row, then two time series below, then a table]
+Start here. It gives a health snapshot across the stack and surfaces the most
+actionable queue and MCP signals.
 
 ### Panel inventory
 
-**Row 1 — Service health (stat panels)**
+**Row 1 - Service health and queue state**
 
 | Panel | Metric | Interpretation |
 |---|---|---|
-| memexd | `up{job="memexd"}` | GREEN=UP / RED=DOWN. Any red value requires immediate attention. |
-| MCP Server | `up{job="mcp"}` | Same. Note: only meaningful in HTTP mode; in stdio mode the scrape job is absent. |
-| Qdrant | `up{job="qdrant"}` | RED means all searches and writes are failing. |
-| Total Pending Queue Items | `sum(memexd_unified_queue_depth{status="pending"})` | Counts items waiting to be processed. Amber above 100, red above 500. |
-| Active MCP Sessions | `wqm_mcp_session_count` | Number of connected Claude Code sessions. |
+| memexd Target Health | `up{job="memexd"}` | GREEN = UP / RED = DOWN. Uses an instant query so stale series do not duplicate the current state. |
+| MCP Target Health | `up{job="mcp"}` | GREEN = UP / RED = DOWN. Uses an instant query so stale series do not duplicate the current state. |
+| Qdrant Target Health | `up{job="qdrant"}` | GREEN = UP / RED = DOWN. Uses an instant query so stale series do not duplicate the current state. |
+| Oldest Pending Queue Item Age | `wqm_queue_oldest_pending_age_seconds` | High values indicate a queue stall. |
+| Stale Queue Items | `sum(memexd_unified_queue_stale_items)` | Non-zero means recovered leases are lagging behind. |
+| Active MCP Sessions | `wqm_mcp_session_count` | Connected MCP sessions currently active. |
 
-**Row 2 — Activity trend (time series)**
+**Row 2 - Activity and queue freshness**
 
 | Panel | Query summary | Interpretation |
 |---|---|---|
-| MCP Tool Invocation Rate | `sum(rate(wqm_mcp_tool_invocations_total[2m]))` | Overall call rate across all tools. A flat line at zero when sessions are active indicates a stalled client. |
-| Queue Depth Trend | `sum(memexd_queue_depth)` (legacy) + `sum(memexd_unified_queue_depth{status="pending"})` | Rising trend with no corresponding throughput increase indicates a queue processor problem. |
+| MCP Tool Invocation Rate | `sum(rate(wqm_mcp_tool_invocations_total[2m]))` | Overall call rate across all tools. |
+| Queue Health Trend | `wqm_queue_oldest_pending_age_seconds` + `sum(memexd_unified_queue_stale_items)` | Lets you see whether queue age and stale items are trending up together. |
 
-**Row 3 — Error events (table)**
+**Row 3 - Recent errors**
 
-Instant snapshot of the current error rate across four sources:
+| Panel | Query summary | Interpretation |
+|---|---|---|
+| Recent Error Rates | `wqm_mcp_tool_invocations_total{status="error"}` + `wqm_mcp_daemon_fallback_total` + `wqm_mcp_http_auth_failures_total` + `wqm_mcp_http_rate_limited_total` | Highlights tool failures, daemon reachability issues, auth failures, and rate limiting. |
 
-- `memexd_ingestion_errors_total` — ingestion failures by error type
-- `memexd_watch_errors_total` — filesystem watch failures by watch ID
-- `wqm_mcp_tool_invocations_total{status="error"}` — MCP tool errors by tool
-- `wqm_mcp_daemon_fallback_total` — daemon-unreachable fallbacks by tool and reason
+**Row 4 - Indexed projects**
 
-All rows are green at zero. Non-zero rows with a yellow or red background mean
-active errors. Use the tool and error_type labels to identify the failing component.
+| Panel | Query summary | Interpretation |
+|---|---|---|
+| Indexed Projects | `memexd_indexed_project_tracked_files` + `memexd_indexed_project_points` + `memexd_indexed_project_last_scan_seconds` + `memexd_indexed_project_last_activity_seconds` | Live per-project inventory exported from the daemon's `watch_folders` table, with document counts, point counts, status flags, and scan/activity timestamps for the table view. |
 
 ---
 
 ## WQM — memexd Daemon (`memexd.json`)
 
-Deep-dive on the Rust daemon internals.
-
-[Screenshot: four stat panels in a row, then four time series below, then a full-width time series]
+The daemon dashboard is intentionally lean in this fork. The current exported
+surface is target health, uptime and queue freshness.
 
 ### Panel inventory
 
-**Row 1 — Instant state (stat panels)**
-
-| Panel | Metric | Thresholds | Interpretation |
-|---|---|---|---|
-| Daemon Uptime | `max(memexd_uptime_seconds)` | Red < 60 s, yellow < 5 min, green ≥ 5 min | A low value after a known-stable run indicates a recent restart. |
-| Active Sessions | `sum(memexd_active_sessions)` | Yellow ≥ 50, red ≥ 200 | Sessions across all projects and priorities. |
-| Watches in Backoff | `sum(memexd_watches_in_backoff)` | Yellow ≥ 1, red ≥ 5 | Any non-zero value means at least one filesystem watch is experiencing errors and is throttling events. Investigate with `wqm project watch status`. |
-| Oldest Pending Queue Item Age | `wqm_queue_oldest_pending_age_seconds` | Yellow ≥ 60 s, red ≥ 300 s | The QueueStuck alert fires at 12 hours; this panel gives earlier warning. |
-
-**Row 2 — Queue (time series)**
-
-| Panel | Queries | Interpretation |
+| Panel | Metric | Interpretation |
 |---|---|---|
-| Queue Depth by Priority | `sum by (priority) (memexd_queue_depth)` | Separate lines per priority level. A persistent non-draining queue indicates processor slowness or blockage. |
-| Queue Processing Throughput | Success: `rate(memexd_queue_items_processed_total{status="success"})` / Failure: same with `status="failure"` | Failure lines in red. Any visible failure rate warrants log investigation. |
-
-**Row 3 — Latency and errors (time series)**
-
-| Panel | Queries | Interpretation |
-|---|---|---|
-| Queue Processing Latency (P50/P95/P99) | `histogram_quantile(0.50|0.95|0.99, rate(memexd_queue_processing_time_seconds_bucket[5m]))` | Normal processing should stay well under 1 s at P99. Elevated P99 with normal P50 suggests occasional slow items (large files, tree-sitter parse time). |
-| Ingestion and Watch Error Rates | `rate(memexd_ingestion_errors_total[2m])` + `rate(memexd_watch_errors_total[2m])` | Both should be zero in steady state. Persistent watch errors often indicate a deleted or unmounted directory that memexd is trying to watch. |
-
-**Row 4 — Unified queue (time series)**
-
-| Panel | Query | Interpretation |
-|---|---|---|
-| Unified Queue Depth by Type and Status | `sum by (item_type, status) (memexd_unified_queue_depth)` | Breaks down pending, in_progress, done, failed items per item type. A growing `in_progress` count with no corresponding `done` increase indicates stalled processing. |
+| memexd Target Health | `up{job="memexd"}` | Prometheus scrape health for the memexd job. |
+| Daemon Uptime | `max(memexd_uptime_seconds)` | Low values mean the daemon restarted recently. |
+| Stale Queue Items | `sum(memexd_unified_queue_stale_items)` | Non-zero means queue recovery is behind. |
+| Oldest Pending Queue Item Age | `wqm_queue_oldest_pending_age_seconds` | High values indicate backlog or a stuck processor. |
+| Stale Queue Items Trend | `sum(memexd_unified_queue_stale_items)` | Trend line for lease recovery lag. |
+| Oldest Pending Age Trend | `wqm_queue_oldest_pending_age_seconds` | Trend line for queue stall detection. |
 
 ---
 
-## WQM — MCP Server (`claude-mcp.json`)
+## WQM — MCP Server (`mcp-server.json`)
 
-MCP-layer observability: what tools are being called, how fast, and whether the
-daemon connection is healthy.
-
-[Screenshot: one stat, two time series on row 1; two time series on row 2; two time series on row 3; one full-width bar chart]
+This is the server-level MCP dashboard. It tracks tool usage, latency, daemon
+fallbacks, cache ratios and the recent structured tool-call logs shipped to
+Loki from `mcp-server.jsonl`.
 
 ### Panel inventory
 
-**Row 1 — Session and call rates**
+**Row 1 - Session and call rates**
 
 | Panel | Metric | Interpretation |
 |---|---|---|
-| Active MCP Sessions | `wqm_mcp_session_count` | Gauge. Increments on session open, decrements on close. |
-| Tool Invocation Rate | `sum by (tool) (rate(wqm_mcp_tool_invocations_total[2m]))` | Per-tool call rates. Identifies which tools are most active. |
-| Tool Error Rate | `sum by (tool) (rate(wqm_mcp_tool_invocations_total{status="error"}[2m]))` | Red lines. Non-zero indicates tool failures; correlate with `docker logs workspace-qdrant-mcp`. |
+| Active MCP Sessions | `wqm_mcp_session_count` | Open MCP sessions. |
+| Tool Invocation Rate | `sum by (tool) (rate(wqm_mcp_tool_invocations_total[2m]))` | Per-tool call rate. |
+| Tool Error Rate | `sum by (tool) (rate(wqm_mcp_tool_invocations_total{status="error"}[2m]))` | Errors per tool. |
 
-**Row 2 — Latency**
-
-| Panel | Queries | Interpretation |
-|---|---|---|
-| Tool P99 Duration | `histogram_quantile(0.99, rate(wqm_mcp_tool_duration_seconds_bucket[5m]))` | Per-tool 99th-percentile latency. Consistently above 1 s is amber; above 5 s is red. |
-| Tool Duration Heatmap (p50/p95/p99) | Three quantiles across all tools, bar gauge | Horizontal bars. Useful for spotting which tools are consistently slow vs. occasionally spiking. |
-
-**Row 3 — Connectivity and cache**
-
-| Panel | Metric | Interpretation |
-|---|---|---|
-| Daemon Fallback Rate | `sum by (tool, reason) (rate(wqm_mcp_daemon_fallback_total[2m]))` | Non-zero means the MCP server could not reach memexd. Check the `reason` label (`connection_failed`, `timeout`, etc.) and inspect memexd health. |
-| Cache Hit Ratio | `hits / (hits + misses)` using `wqm_mcp_cache_hits_total` and `wqm_mcp_cache_misses_total` | Always zero at v0.1.3 — no cache layer is implemented. Panel is present for future use. |
-
-**Row 4 — Cumulative breakdown (bar chart)**
+**Row 2 - Latency**
 
 | Panel | Query | Interpretation |
 |---|---|---|
-| Tool Success / Error Breakdown | `sum by (tool, status) (increase(wqm_mcp_tool_invocations_total[$__range]))` | Absolute counts for the selected time range, stacked by status. Identifies error-prone tools at a glance. |
+| Tool P99 Duration | `histogram_quantile(0.99, sum by (tool, le) (rate(wqm_mcp_tool_duration_seconds_bucket[5m])))` | 99th percentile latency per tool. |
+| Tool Duration Heatmap | `p50`, `p95`, `p99` over `wqm_mcp_tool_duration_seconds_bucket` | Compares latency spread across tools. |
+
+**Row 3 - Connectivity and cache**
+
+| Panel | Metric | Interpretation |
+|---|---|---|
+| Daemon Fallback Rate | `sum by (tool, reason) (rate(wqm_mcp_daemon_fallback_total[2m]))` | Non-zero means the MCP server could not reach memexd. |
+| Cache Hit Ratio | `wqm_mcp_cache_hits_total` / `wqm_mcp_cache_hits_total + wqm_mcp_cache_misses_total` | Present for future cache work; should remain zero until a cache exists. |
+
+**Row 4 - Cumulative breakdown**
+
+| Panel | Query | Interpretation |
+|---|---|---|
+| Tool Success / Error Breakdown | `sum by (tool, status) (increase(wqm_mcp_tool_invocations_total[$__range]))` | Absolute count totals for the selected window. |
+
+**Row 5 - Recent tool calls**
+
+| Panel | Query | Interpretation |
+|---|---|---|
+| Recent MCP Tool Calls | `{job="mcp-logs", container="wqm-mcp"} | json | msg="Tool called"` | Loki log view of the structured tool-call entries written by the MCP server. This is the best place to inspect the latest invocations, durations and success/failure state. |
+
+---
+
+## WQM — MCP HTTP Transport (`mcp-http.json`)
+
+HTTP mode adds a transport-level view of the MCP server.
+
+### Panel inventory
+
+| Panel | Metric | Interpretation |
+|---|---|---|
+| Request rate by path | `sum by (path) (rate(wqm_mcp_http_requests_total[5m]))` | `/mcp`, `/healthz` and other paths. |
+| Request rate by status class | `sum by (status_class) (rate(wqm_mcp_http_requests_total[5m]))` | 2xx / 4xx / 5xx split. |
+| Auth failures by reason | `sum by (reason) (rate(wqm_mcp_http_auth_failures_total[5m]))` | Token problems and other auth failures. |
+| Rate-limit hits | `rate(wqm_mcp_http_rate_limited_total[5m])` | Requests throttled by the IP limiter. |
+| Total requests | `sum(increase(wqm_mcp_http_requests_total[24h]))` | Request volume over the selected window. |
+| Auth failure share | `sum(rate(wqm_mcp_http_auth_failures_total[5m])) / sum(rate(wqm_mcp_http_requests_total[5m]))` | Useful when tokens are misconfigured. |
+| 5xx share | `sum(rate(wqm_mcp_http_requests_total{status_class="5xx"}[5m])) / sum(rate(wqm_mcp_http_requests_total[5m]))` | Server-side HTTP failures. |
+| Healthz share | `sum(rate(wqm_mcp_http_requests_total{path="/healthz"}[5m])) / sum(rate(wqm_mcp_http_requests_total[5m]))` | Helps distinguish probes from actual tool traffic. |
 
 ---
 
 ## WQM — Qdrant (`qdrant.json`)
 
-Monitors the Qdrant vector database. Qdrant metrics are native to Qdrant — this
-dashboard does not require any workspace-qdrant instrumentation.
-
-[Screenshot: three stat panels on row 1; two time series on row 2; two time series on row 3; one full-width time series]
+The Qdrant dashboard uses the native Qdrant metrics exposed by the container.
+It now shows both a collection catalog and a live inventory, so the
+collection names are easy to read while the counts stay dynamic.
 
 ### Panel inventory
 
-**Row 1 — Database state (stat panels)**
+**Row 1 - Database state**
 
 | Panel | Metric | Interpretation |
 |---|---|---|
-| Collections | `qdrant_collections_total` | Total number of Qdrant collections. workspace-qdrant uses 4: `projects`, `libraries`, `rules`, `scratchpad`. |
-| Total Vectors | `qdrant_collections_vector_total` | All vectors across all collections. Amber at 1 M, red at 10 M. |
-| Qdrant Up | `up{job="qdrant"}` | UP / DOWN scrape health indicator. |
+| Collections | `collections_total` | Number of Qdrant collections. |
+| Total Vectors | `collections_vector_total` | Total vectors across all collections. |
+| Total Points | `sum(collection_points)` | Approximate total point count. |
+| Qdrant Target Health | `up{job="qdrant"}` | Prometheus scrape health, shown with an instant query so the current target does not appear duplicated. |
+| Resident Memory | `memory_resident_bytes` | Working set size. |
+| Open FD Saturation | `process_open_fds / process_max_fds` | File descriptor pressure. |
 
-**Row 2 — REST traffic**
+**Row 2 - Collection catalog**
+
+| Panel | Content | Interpretation |
+|---|---|---|
+| Collection Catalog | Markdown table with the canonical collection names (`projects`, `libraries`, `rules`, `scratchpad`, `images`). | Static legend for the collections that hold project data, docs, rules, scratch notes and images. It also notes that project/branch/worktree registry data lives in `watch_folders` and `.wqm-fork/indexed-projects.json`. |
+
+**Row 3 - Collection inventory**
+
+| Panel | Query | Interpretation |
+|---|---|---|
+| Collection Inventory | `label_replace(sum by (id) (collection_points), "collection", "$1", "id", "(.+)")`, `sum by (collection) (collection_vectors)`, `label_replace(sum by (id) (collection_running_optimizations), "collection", "$1", "id", "(.+)")`, `label_replace(sum by (id) (collection_indexed_only_excluded_points), "collection", "$1", "id", "(.+)")` | Table of collections with points, vectors, running optimisations and excluded points, sorted by Points descending. |
+
+**Row 4 - REST traffic**
+
+| Panel | Query | Interpretation |
+|---|---|---|
+| REST Request Rate | `sum by (endpoint) (rate(rest_responses_total[2m]))` | HTTP throughput per endpoint. |
+| REST P99 Latency | `histogram_quantile(0.99, sum by (endpoint, le) (rate(rest_responses_duration_seconds_bucket[5m])))` | 99th percentile REST latency. |
+
+**Row 5 - gRPC traffic**
+
+| Panel | Query | Interpretation |
+|---|---|---|
+| gRPC Request Rate | `sum by (endpoint) (rate(grpc_responses_total[2m]))` | gRPC throughput per endpoint. |
+| gRPC P99 Latency | `histogram_quantile(0.99, sum by (endpoint, le) (rate(grpc_responses_duration_seconds_bucket[5m])))` | 99th percentile gRPC latency. |
+
+**Row 6 - Compaction**
 
 | Panel | Metric | Interpretation |
 |---|---|---|
-| REST Request Rate | `sum by (endpoint) (rate(qdrant_rest_responses_total[2m]))` | Per-endpoint HTTP throughput. |
-| REST P99 Latency | `histogram_quantile(0.99, rate(qdrant_rest_responses_duration_seconds_bucket[5m]))` | 99th-percentile response time. Amber above 100 ms, red above 1 s. |
-
-**Row 3 — gRPC traffic**
-
-| Panel | Metric | Interpretation |
-|---|---|---|
-| gRPC Request Rate | `sum by (endpoint) (rate(qdrant_grpc_responses_total[2m]))` | gRPC call throughput. Absent if Qdrant runs without gRPC enabled. |
-| gRPC P99 Latency | `histogram_quantile(0.99, rate(qdrant_grpc_responses_duration_seconds_bucket[5m]))` | Amber above 50 ms, red above 500 ms. |
-
-**Row 4 — Compaction**
-
-| Panel | Metric | Interpretation |
-|---|---|---|
-| Pending Optimisations | `sum by (collection_name, optimizer_name) (qdrant_collections_optimizers_status)` | Collection segments under active optimisation. A sustained non-zero value is normal during heavy ingestion. A value that never returns to zero indicates a stuck optimizer. |
+| Running Optimisations | `sum by (id) (collection_running_optimizations)` | Ongoing optimisation tasks per collection. |
 
 ---
 
 ## Navigation tips
 
-- Use the **time range picker** (top right) to zoom into incident windows. The
-  dashboards use 30 s auto-refresh; disable it to keep a static view during
-  investigation.
-- The System Overview dashboard links (top header) jump directly to the other
-  three dashboards with the same time range preserved.
-- In table panels, click a column header to sort. Click a row value to copy it
-  as a filter for further exploration in Explore.
-- In time series panels, click a legend entry to isolate that series; Shift+click
-  to add more.
+- Use the time range picker to zoom into incident windows.
+- In table panels, click a column header to sort.
+- In time series panels, click a legend entry to isolate that series.
 
-## Adding custom alerts to dashboard panels
+## Notes
 
-1. Open the panel in edit mode (click the panel title → Edit).
-2. Go to **Alert → New alert rule**.
-3. Set the condition using the existing query or a modified version.
-4. Assign a contact point in **Alerting → Contact points** first.
+- The server dashboard now uses `mcp-server.json`.
+- The memexd dashboard now reflects the lean telemetry surface exposed by the current daemon build.
 
-Alternatively, add rules directly to `docker/prometheus/alerts.yml` and reload
-Prometheus. This keeps alert definitions in version control alongside the rest of
-the deployment config.
-
-_workspace-qdrant-mcp v0.1.3 — documentation updated 2026-04-18_
+_workspace-qdrant-mcp v0.1.3 - documentation updated 2026-05-24_

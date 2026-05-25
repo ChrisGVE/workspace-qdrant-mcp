@@ -38,12 +38,40 @@ C:\dev\meu-app-agent-ui        agent/ui-fix-20260523
 
 ## Fluxo seguro para agentes
 
-1. `index-agent-start`: cria branch e registra no registry.
+1. `index-agent-start`: cria branch, registra no registry e tenta registrar o caminho no daemon.
 2. agente altera código na branch.
 3. `index-incremental-check`: valida indexação incremental.
 4. `index-observe`: captura status, fila, daemon, Qdrant e Git.
 5. `index-agent-finish`: marca `ready_for_review`, sem merge.
 6. humano decide merge/cherry-pick/PR/descarte.
+
+## Hooks locais para branches manuais
+
+Para cobrir criações feitas fora dos helpers do fork, rode uma vez:
+
+```powershell
+make -f Makefile.win index-hooks-install
+```
+
+Esse comando instala hooks locais em `.wqm-fork/git-hooks/` e passa a sincronizar automaticamente:
+
+- `git checkout -b ...` e `git switch -c ...`
+- `git worktree add ...`
+- `git commit`, merge e rewrite para atualizar `headCommit` e `lastSeenAt`
+
+O resultado continua indo para o mesmo registry compartilhado em `.wqm-fork/indexed-projects.json`.
+Os hooks permanecem no host, dentro do próprio repositório, sem depender de `docker compose` para esse fluxo local.
+
+## Higienização do registry
+
+O registry também pode ser limpo com:
+
+```powershell
+make -f Makefile.win index-prune-orphans
+```
+
+Esse comando remove do índice entradas cujas branches/worktrees já não existem mais. Ele não apaga branch local, worktree ou arquivos do disco; só limpa o registry. Para simular antes de aplicar, execute com `INDEX_MUTATE=false`.
+É seguro rodar depois que o worktree já foi removido, porque a limpeza é assíncrona e preserva a branch base/projeto que ainda existem.
 
 ## Comandos
 

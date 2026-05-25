@@ -38,10 +38,13 @@ export class DaemonClientSystem extends DaemonClientBase {
               reject(err);
               return;
             }
-            this.systemClient!.health({}, (error, response) => {
-              if (error) reject(error);
-              else resolve(response);
-            });
+            grpcUnaryWithTimeout<{}, HealthCheckResponse>(
+              this.systemClient,
+              'health',
+              {},
+              this.timeoutMs,
+              'health'
+            ).then(resolve, reject);
           });
         })
     );

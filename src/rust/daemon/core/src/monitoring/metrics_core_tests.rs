@@ -125,6 +125,65 @@ fn encode_contains_extension_metric_names() {
 }
 
 #[test]
+fn indexed_project_inventory_metrics_are_exported() {
+    let m = DaemonMetrics::new();
+    m.set_indexed_project_tracked_files(
+        "watch-123",
+        "proj-123",
+        "C:/dev/project",
+        true,
+        true,
+        false,
+        false,
+        false,
+        true,
+        42,
+    );
+    m.set_indexed_project_points("watch-123", 128);
+    m.set_indexed_project_last_scan("watch-123", Some(1_717_000_000));
+    m.set_indexed_project_last_activity("watch-123", Some(1_717_000_123));
+
+    assert_eq!(
+        m.indexed_project_tracked_files.with_label_values(&[
+            "watch-123",
+            "proj-123",
+            "C:/dev/project",
+            "true",
+            "true",
+            "false",
+            "false",
+            "false",
+            "true",
+        ]).get(),
+        42
+    );
+    assert_eq!(
+        m.indexed_project_points
+            .with_label_values(&["watch-123"])
+            .get(),
+        128
+    );
+    assert_eq!(
+        m.indexed_project_last_scan_seconds
+            .with_label_values(&["watch-123"])
+            .get(),
+        1_717_000_000
+    );
+    assert_eq!(
+        m.indexed_project_last_activity_seconds
+            .with_label_values(&["watch-123"])
+            .get(),
+        1_717_000_123
+    );
+
+    let out = m.encode().expect("encode ok");
+    assert!(out.contains("memexd_indexed_project_tracked_files"));
+    assert!(out.contains("memexd_indexed_project_points"));
+    assert!(out.contains("memexd_indexed_project_last_scan_seconds"));
+    assert!(out.contains("memexd_indexed_project_last_activity_seconds"));
+}
+
+#[test]
 fn embedding_records_duration_and_batch_size() {
     let m = DaemonMetrics::new();
     m.record_embedding("all-MiniLM-L6-v2", 32, Duration::from_millis(150));

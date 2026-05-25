@@ -43,6 +43,7 @@ logs/
 *.jsonl
 .wqm-fork/
 .wqm-fork/logs/
+.wqm-fork/git-hooks/
 .wqm-fork/tmp/
 .wqm-fork/reports/
 

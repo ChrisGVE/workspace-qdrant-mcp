@@ -208,6 +208,19 @@ Comportamento obrigatório:
 - `scope="global"` usa explicitamente tenant global;
 - duplicate detection de regras project-scoped considera projeto atual + regras globais, não todos os projetos.
 
+## Lições aprendidas até agora
+
+- Para `list/search` sem `projectId`, o projeto precisa estar registrado no daemon em `watch_folders`; sem isso o detector não resolve `projectPath` e `projectId`.
+- O padrão do fork é Docker: `make -f Makefile.win apply-config` gera clientes para `localhost:50051`; o FastEmbed continua disponível dentro do `memexd` containerizado, enquanto `apply-config-fastembed`/`55151` é só o caminho local opcional.
+- Em Docker, `WQM_DEV_ROOT` precisa espelhar o caminho real do repositório no host; se o bind mount não bater com o path git, o daemon pode logar `Not a Git repository, defaulting to 'main'` e a resolução de branch fica degradada.
+- `daemon_unavailable` no bootstrap pode ser só endpoint/profile errado; antes de culpar o daemon, confirme `50051` vs `55151` e qual stack está de pé.
+- Para wrappers host-side do fluxo Docker (`status`, `project list`, `project status`), também é preciso apontar `WQM_DATABASE_PATH` para o `state/memexd/memexd.db` do bind mount; sem isso o CLI cai no `state.db` local e pode reclamar de banco ausente mesmo com os containers saudáveis.
+- `wqm status health` pode sair como `degraded` por `Embedding Provider: degraded / probe pending` mesmo quando conexão, gRPC, fila e Qdrant estão OK; distinguir isso de falha real de conexão.
+- `healthCheck()` do daemon em `src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts` precisa de timeout explícito, ou o bootstrap pode ficar preso esperando a RPC.
+- Em WSL, `npx tsc -p tsconfig.json` funcionou, mas `npm run build` pode falhar por IPC/temporários do `tsx` em caminho Windows; trate isso como diferença de ambiente, não como falha do TypeScript.
+- Ao validar o MCP, não assumir que o handshake completo está resolvido só porque o transporte conectou; confirmar `initialize` e a resposta real das tools antes de declarar sucesso.
+- Para testar o servidor compilado, garantir que `dist/proto/workspace_daemon.proto` acompanhe o JS gerado.
+
 ## Antes de alterar código
 
 1. Rode `git status --short --branch`.

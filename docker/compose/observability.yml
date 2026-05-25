@@ -48,16 +48,20 @@ services:
     image: prom/prometheus:v2.55.0
     container_name: wqm-prometheus
     <<: *restart
+    entrypoint: ["/bin/sh", "/etc/prometheus/run-prometheus.sh"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
     volumes:
+      - ../prometheus/run-prometheus.sh:/etc/prometheus/run-prometheus.sh:ro
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
+    environment:
+      MCP_METRICS_TOKEN: ${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; used to authenticate the MCP metrics scrape}
     networks:
       - workspace-network
     labels:
@@ -101,6 +105,38 @@ services:
     labels:
       <<: *watchtower-off
 
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: wqm-loki
+    <<: *restart
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ../loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/tmp/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: wqm-promtail
+    <<: *restart
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ../promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ${WQM_MCP_LOGS_DIR:-./state/mcp/logs}:/var/log/mcp:ro
+    depends_on:
+      - loki
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
 # ── Networks + Volumes ───────────────────────────────────────────────────────
 #
 # Network name matches reference.yml and minimal.yml so services resolve
@@ -113,3 +149,4 @@ networks:
 volumes:
   prometheus_data:
   grafana_data:
+  loki_data:

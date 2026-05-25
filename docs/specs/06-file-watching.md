@@ -4,11 +4,11 @@
 
 | Source  | Target Collection | Trigger                                                          |
 | ------- | ----------------- | ---------------------------------------------------------------- |
-| **MCP** | `projects`        | `RegisterProject` → re-activates existing watch entry only       |
+| **MCP** | `projects`        | `RegisterProject` → re-activates existing watch entry, auto-registers unknown projects/worktrees on session start |
 | **CLI** | `projects`        | `wqm project add` → explicit new project registration            |
 | **CLI** | `libraries`       | `wqm library add` → explicit library registration                |
 
-**Note:** The MCP server does NOT auto-register new projects. It only re-activates projects that were previously registered (via CLI or a prior MCP session with `register_if_new=true`). If the project is not found in `watch_folders`, MCP logs a warning and continues without registration. CLI is the primary path for registering new projects and libraries.
+**Note:** The MCP server first re-activates projects that already exist in `watch_folders`. If the current path is unknown, it now falls back to `register_if_new=true` during session start, so fresh projects and worktrees are registered automatically and become searchable right away. CLI remains useful for explicit pre-registration and library management.
 
 ### Watch Table Schema
 

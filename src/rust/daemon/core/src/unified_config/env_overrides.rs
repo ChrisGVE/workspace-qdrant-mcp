@@ -14,6 +14,7 @@ pub fn apply_env_overrides(mut config: DaemonConfig) -> Result<DaemonConfig, Uni
     apply_qdrant_overrides(&mut config)?;
     apply_auto_ingestion_overrides(&mut config)?;
     apply_daemon_endpoint_overrides(&mut config)?;
+    config.embedding.apply_env_overrides();
     // Telemetry export settings follow OTEL_* (and WQM_PROMETHEUS_*)
     // conventions; the logic lives on the config struct so tests and
     // external callers can reuse it without depending on this module.
@@ -70,8 +71,32 @@ fn apply_general_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfi
 }
 
 fn apply_qdrant_overrides(config: &mut DaemonConfig) -> Result<(), UnifiedConfigError> {
+    if let Ok(url) = std::env::var("QDRANT_URL") {
+        if !url.trim().is_empty() {
+            config.qdrant.url = url;
+        }
+    }
+
     if let Ok(url) = std::env::var(format!("{}QDRANT__URL", ENV_PREFIX)) {
-        config.qdrant.url = url;
+        if !url.trim().is_empty() {
+            config.qdrant.url = url;
+        }
+    }
+
+    if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
+        config.qdrant.api_key = if api_key.trim().is_empty() {
+            None
+        } else {
+            Some(api_key)
+        };
+    }
+
+    if let Ok(api_key) = std::env::var(format!("{}QDRANT__API_KEY", ENV_PREFIX)) {
+        config.qdrant.api_key = if api_key.trim().is_empty() {
+            None
+        } else {
+            Some(api_key)
+        };
     }
 
     if let Ok(transport) = std::env::var(format!("{}QDRANT__TRANSPORT", ENV_PREFIX)) {

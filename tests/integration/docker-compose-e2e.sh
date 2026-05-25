@@ -3,7 +3,8 @@
 #
 # End-to-end integration test for the workspace-qdrant-mcp telemetry pipeline.
 #
-# Boots: minimal.yml + observability.yml + qdrant.yml (CI overlay)
+# Boots: unified root compose stack (with the observability services enabled
+# by default).
 # Validates:
 #   - All service health endpoints respond
 #   - Prometheus scrapes all three jobs (memexd, mcp, qdrant)
@@ -28,20 +29,32 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-COMPOSE_DIR="${REPO_ROOT}/docker/compose"
+COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
 
 export MEMEXD_IMAGE="${MEMEXD_IMAGE:-chrisgve/memexd:v0.1.3}"
 export MCP_IMAGE="${MCP_IMAGE:-chrisgve/workspace-qdrant-mcp:v0.1.3}"
 export MCP_SERVER_MODE="http"   # enable /metrics on :9092 for the test
 
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-wqm-e2e-telemetry}"
+
 LOG_DIR="${LOG_DIR:-/tmp/wqm-e2e-logs}"
 POLL_TIMEOUT="${POLL_TIMEOUT:-120}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
+WQM_DEV_ROOT="${WQM_DEV_ROOT:-${LOG_DIR}/dev-root}"
+WQM_STATE_DIR="${WQM_STATE_DIR:-${LOG_DIR}/state}"
+WQM_FASTEMBED_CACHE_DIR="${WQM_FASTEMBED_CACHE_DIR:-${LOG_DIR}/fastembed-cache}"
+MCP_HTTP_TOKEN="${MCP_HTTP_TOKEN:-$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+
+mkdir -p "${WQM_DEV_ROOT}" "${WQM_STATE_DIR}" "${WQM_FASTEMBED_CACHE_DIR}" "${LOG_DIR}"
+
+export WQM_DEV_ROOT
+export WQM_STATE_DIR
+export WQM_FASTEMBED_CACHE_DIR
+export MCP_HTTP_TOKEN
 
 COMPOSE_CMD="docker compose \
-  -f ${COMPOSE_DIR}/minimal.yml \
-  -f ${COMPOSE_DIR}/observability.yml \
-  -f ${COMPOSE_DIR}/qdrant.yml"
+  --project-name ${COMPOSE_PROJECT} \
+  -f ${COMPOSE_FILE}"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -97,7 +110,7 @@ trap cleanup EXIT
 
 # ── Step 1: Boot stack ─────────────────────────────────────────────────────────
 
-log "Starting stack: minimal + observability + qdrant ..."
+log "Starting stack: unified compose root ..."
 log "  MEMEXD_IMAGE=${MEMEXD_IMAGE}"
 log "  MCP_IMAGE=${MCP_IMAGE}"
 ${COMPOSE_CMD} up -d
@@ -197,6 +210,6 @@ log "wqm_mcp_session_count is present in Prometheus (${count} series)"
 # ── All assertions passed ──────────────────────────────────────────────────────
 
 log "=== All checks passed ==="
-log "Stack: minimal + observability + qdrant"
+log "Stack: unified root compose"
 log "Services: memexd, workspace-qdrant-mcp, qdrant, prometheus, grafana, otel-collector"
 exit 0

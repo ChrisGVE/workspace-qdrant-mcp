@@ -9,7 +9,7 @@
 #   cp docker/.env.example docker/.env          # then edit values
 #   docker compose \
 #     --env-file docker/.env \
-#     -f docker/compose/reference.yml up -d
+#     -f docker/compose/reference.yml up -d --build
 #
 # With TLS overlay:
 #   docker compose \
@@ -41,8 +41,6 @@ services:
     volumes:
       - ${WQM_STATE_DIR:-./state}/qdrant/storage:/qdrant/storage
       - ${WQM_STATE_DIR:-./state}/qdrant/snapshots:/qdrant/snapshots
-    environment:
-      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
     healthcheck:
       # Qdrant exposes /readyz for readiness probes.
       test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
@@ -102,7 +100,10 @@ services:
   # workspace-qdrant-mcp — TypeScript MCP server (Streamable HTTP)
   # ─────────────────────────────────────────────
   mcp:
-    image: ${MCP_IMAGE:-ghcr.io/chrisgve/workspace-qdrant-mcp:${WQM_VERSION:-latest}}
+    image: ${MCP_IMAGE:-workspace-qdrant-mcp:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
     container_name: wqm-mcp
     restart: unless-stopped
     depends_on:
@@ -117,13 +118,18 @@ services:
       MCP_HTTP_PORT: ${MCP_HTTP_PORT:-6335}
       MCP_HTTP_PATH: ${MCP_HTTP_PATH:-/mcp}
       MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; generate with `openssl rand -hex 32`}
+      MCP_METRICS_HOST: 0.0.0.0
+      MCP_METRICS_TOKEN: ${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; used for /metrics scrape}
       MCP_HTTP_RATE_LIMIT: ${MCP_HTTP_RATE_LIMIT:-100}
       MCP_HTTP_CORS_ORIGINS: ${MCP_HTTP_CORS_ORIGINS:-}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       WQM_DAEMON_ENDPOINT: memexd:50051
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
+      WQM_LOG_DIR: /home/node/.local/share/workspace-qdrant/logs
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    volumes:
+      - ${WQM_STATE_DIR:-./state}/mcp:/home/node/.local/share/workspace-qdrant
     networks:
       - workspace-network
 

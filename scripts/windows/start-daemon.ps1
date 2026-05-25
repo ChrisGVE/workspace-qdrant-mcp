@@ -5,6 +5,28 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-MemexdPath {
+  param([string]$BaseDir)
+
+  $candidates = @(
+    (Join-Path $BaseDir "src\rust\target\debug\memexd.exe"),
+    (Join-Path $BaseDir "src\rust\target\release\memexd.exe")
+  )
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return (Resolve-Path $candidate).Path
+    }
+  }
+
+  $memexd = Get-Command memexd -ErrorAction SilentlyContinue
+  if ($memexd) {
+    return $memexd.Source
+  }
+
+  return $null
+}
+
 if (Get-Command wqm -ErrorAction SilentlyContinue) {
   Write-Host "Iniciando serviço via wqm..."
   wqm service start
@@ -12,18 +34,10 @@ if (Get-Command wqm -ErrorAction SilentlyContinue) {
   exit 0
 }
 
-$memexd = Get-Command memexd -ErrorAction SilentlyContinue
+$memexd = Resolve-MemexdPath -BaseDir $RepoDir
 if ($memexd) {
-  Write-Host "Iniciando memexd do PATH em nova janela..."
-  Start-Process -FilePath $memexd.Source
-  Start-Sleep -Seconds 2
-  exit 0
-}
-
-$localMemexd = Join-Path $RepoDir "src\rust\target\release\memexd.exe"
-if (Test-Path $localMemexd) {
   Write-Host "Iniciando memexd local em nova janela..."
-  Start-Process -FilePath $localMemexd
+  Start-Process -FilePath $memexd
   Start-Sleep -Seconds 2
   exit 0
 }

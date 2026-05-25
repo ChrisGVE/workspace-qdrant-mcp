@@ -100,11 +100,11 @@ function Apply-PatchIfNeeded {
   Test-PatchApplies -PatchFullPath $PatchFullPath
 
   if ($CheckOnly) {
-    Write-Host "$Name: patch valido e aplicavel." -ForegroundColor Green
+    Write-Host "$($Name): patch valido e aplicavel." -ForegroundColor Green
     return
   }
 
-  Write-Host "Aplicando $Name: $PatchFullPath"
+  Write-Host "Aplicando $($Name): $PatchFullPath"
   Invoke-Git apply $PatchFullPath
 
   if (-not (& $AlreadyApplied)) {

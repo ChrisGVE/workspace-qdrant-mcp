@@ -15,6 +15,7 @@ use super::delete::process_folder_delete;
 use super::scan::scan_directory_single_level;
 use crate::allowed_extensions::AllowedExtensions;
 use crate::queue_operations::QueueManager;
+use crate::watching_queue::WatchManager;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -210,14 +211,18 @@ async fn lookup_watch_folder_root(
 
     match row {
         None => Ok(None),
-        Some(path) => CanonicalPath::from_user_input(&path)
-            .map(Some)
-            .map_err(|e| {
-                UnifiedProcessorError::InvalidPayload(format!(
-                    "watch_folder.path stored for tenant_id={} is not canonical: {}",
-                    tenant_id, e
-                ))
-            }),
+        Some(path) => {
+            let resolved_path = WatchManager::resolve_local_watch_path(&path);
+            let resolved_path = resolved_path.to_string_lossy().to_string();
+            CanonicalPath::from_user_input(&resolved_path)
+                .map(Some)
+                .map_err(|e| {
+                    UnifiedProcessorError::InvalidPayload(format!(
+                        "watch_folder.path stored for tenant_id={} is not canonical: {}",
+                        tenant_id, e
+                    ))
+                })
+        }
     }
 }
 

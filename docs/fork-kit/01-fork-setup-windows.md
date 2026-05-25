@@ -71,6 +71,12 @@ O doctor valida:
 make -f Makefile.win qdrant-up
 ```
 
+Se você quiser garantir o fluxo gRPC usado pelo daemon local, use:
+
+```powershell
+make -f Makefile.win qdrant-up-grpc
+```
+
 Isto cria/inicia um container Docker:
 
 ```text
@@ -89,6 +95,17 @@ qdrant_storage
 make -f Makefile.win build-ts
 ```
 
+## Padrão do fork: Docker
+
+Se você quer usar tudo containerizado, este é o caminho padrão do fork:
+
+```powershell
+make -f Makefile.win compose-up
+make -f Makefile.win apply-config
+```
+
+Isso sobe o stack Docker e gera as configs de Claude Desktop e Codex apontando para o daemon em `localhost:50051`.
+
 ## Daemon e CLI
 
 Se você já instalou binários pré-compilados:
@@ -104,6 +121,14 @@ Ou:
 ```powershell
 make -f Makefile.win start-daemon
 ```
+
+Se você quiser o fluxo local opcional com FastEmbed e gRPC:
+
+```powershell
+make -f Makefile.win service-stabilize-fastembed
+```
+
+Esse caminho não é o padrão do fork; use-o só quando você realmente quiser o daemon fora do Docker.
 
 Compilar Rust localmente pode exigir configuração de ONNX Runtime estático. Para começar rápido, prefira binários pré-compilados e use source build só quando for mexer no daemon/CLI.
 
