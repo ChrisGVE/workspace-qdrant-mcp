@@ -103,6 +103,7 @@ export class WorkspaceQdrantMcpServer {
           'Use the `rules` tool to check for behavioral preferences before starting work.',
           'Use `retrieve` to access specific documents when you know the document ID.',
           'Use `list` to browse project file/folder structure — start with format "summary" to get an overview.',
+          'Use `workspace_index` for indexed-project and agent-branch coordination; prefer read-only actions first, and for Codex context pass projectId, branch, worktree, and action-specific fields inside payload when helpful.',
           'Collections: projects (indexed code), libraries (reference docs), rules (behavioral rules).',
         ].join(' '),
       }

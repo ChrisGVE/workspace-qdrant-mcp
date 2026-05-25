@@ -43,14 +43,44 @@ const ACTION_TO_PS: Record<string, string> = {
   cleanup_orphans: 'cleanup-orphans',
 };
 
-function stringArg(args: JsonObject, key: string): string | undefined {
-  const value = args[key];
-  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+function payloadObject(args: JsonObject): JsonObject {
+  const payload = args['payload'];
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as JsonObject;
+  }
+  return {};
 }
 
-function boolArg(args: JsonObject, key: string): string | undefined {
-  const value = args[key];
-  return typeof value === 'boolean' ? String(value) : undefined;
+function argValues(args: JsonObject, key: string, aliases: string[] = []): unknown[] {
+  const payload = payloadObject(args);
+  const keys = [key, ...aliases];
+  const values: unknown[] = [];
+
+  for (const candidate of keys) {
+    if (Object.prototype.hasOwnProperty.call(args, candidate)) values.push(args[candidate]);
+  }
+  for (const candidate of keys) {
+    if (Object.prototype.hasOwnProperty.call(payload, candidate)) values.push(payload[candidate]);
+  }
+
+  return values;
+}
+
+function stringArg(args: JsonObject, key: string, aliases: string[] = []): string | undefined {
+  for (const value of argValues(args, key, aliases)) {
+    if (typeof value === 'string' && value.trim().length > 0) return value;
+  }
+  return undefined;
+}
+
+function boolArg(args: JsonObject, key: string, aliases: string[] = []): string | undefined {
+  for (const value of argValues(args, key, aliases)) {
+    if (typeof value === 'boolean') return String(value);
+    if (typeof value === 'string' && value.trim().match(/^(1|0|true|false|yes|no|y|n)$/i)) {
+      return value.trim();
+    }
+  }
+  return undefined;
 }
 
 function assertMutationAllowed(action: string, args: JsonObject): void {
@@ -97,11 +127,12 @@ function buildScriptArgs(args: JsonObject, repoDir: string): string[] {
 
   const pairs: Array<[string, string | undefined]> = [
     ['-ProjectName', stringArg(args, 'projectName')],
+    ['-ProjectId', stringArg(args, 'projectId')],
     ['-ProjectDir', stringArg(args, 'projectPath')],
-    ['-BranchName', stringArg(args, 'branchName')],
+    ['-BranchName', stringArg(args, 'branchName', ['branch'])],
     ['-BaseBranch', stringArg(args, 'baseBranch')],
     ['-ReturnBranch', stringArg(args, 'returnBranch')],
-    ['-WorktreePath', stringArg(args, 'worktreePath')],
+    ['-WorktreePath', stringArg(args, 'worktreePath', ['worktree'])],
     ['-WorktreeRoot', stringArg(args, 'worktreeRoot')],
     ['-UseWorktree', boolArg(args, 'useWorktree')],
     ['-Purpose', stringArg(args, 'purpose')],

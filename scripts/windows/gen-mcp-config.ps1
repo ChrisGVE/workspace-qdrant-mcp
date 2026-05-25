@@ -8,7 +8,7 @@ param(
   [string]$CodexTransport = "http",
   [string]$CodexHttpUrl = "http://localhost:6335/mcp",
   [string]$CodexBearerTokenEnvVar = "MCP_HTTP_TOKEN",
-  [string]$ToolCsv = "search,retrieve,grep,list,store,rules",
+  [string]$ToolCsv = "search,retrieve,grep,list,store,rules,workspace_index",
   [string]$ConfigSuffix = "",
   [string]$ClaudeConfigPath = "",
   [string]$CodexConfigPath = "",

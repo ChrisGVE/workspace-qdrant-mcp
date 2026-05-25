@@ -3,6 +3,7 @@ param(
   [string]$Action = "list-projects",
   [string]$RegistryPath = ".wqm-fork\indexed-projects.json",
   [string]$ProjectName = "",
+  [string]$ProjectId = "",
   [string]$ProjectDir = "",
   [string]$BranchName = "",
   [string]$BaseBranch = "main",
@@ -21,5 +22,5 @@ $mutate = "false"
 if (($AllowMutation -match '^(1|true|yes|y)$') -and ($env:WQM_INDEX_MANAGER_ALLOW_MUTATION -match '^(1|true|yes|y)$')) {
   $mutate = "true"
 }
-& $registryScript -Action $Action -RegistryPath $RegistryPath -ProjectName $ProjectName -ProjectDir $ProjectDir -BranchName $BranchName -BaseBranch $BaseBranch -ReturnBranch $ReturnBranch -WorktreePath $WorktreePath -WorktreeRoot $WorktreeRoot -UseWorktree $UseWorktree -Purpose $Purpose -CreatedBy $CreatedBy -Mutate $mutate -Json true
+& $registryScript -Action $Action -RegistryPath $RegistryPath -ProjectName $ProjectName -ProjectId $ProjectId -ProjectDir $ProjectDir -BranchName $BranchName -BaseBranch $BaseBranch -ReturnBranch $ReturnBranch -WorktreePath $WorktreePath -WorktreeRoot $WorktreeRoot -UseWorktree $UseWorktree -Purpose $Purpose -CreatedBy $CreatedBy -Mutate $mutate -Json true
 exit $LASTEXITCODE

@@ -52,6 +52,28 @@ E `allowMutation: true` na chamada MCP.
 { "action": "list_projects" }
 ```
 
+## Envelope recomendado para Codex
+
+`workspace_index` tambem aceita aliases pensados para Codex:
+
+```json
+{
+  "action": "agent_branch_status",
+  "projectId": "tenant-id-do-projeto",
+  "branch": "agent/auth-retry-20260523",
+  "worktree": "C:/dev/meu-app-agent-auth-retry-20260523",
+  "payload": {
+    "purpose": "corrigir retry de auth"
+  }
+}
+```
+
+Use `projectId` quando voce conhece o tenant retornado pelo workspace-qdrant.
+Use `projectName` quando voce conhece apenas o nome local registrado em
+`.wqm-fork/indexed-projects.json`. `branch` e alias de `branchName`;
+`worktree` e alias de `worktreePath`. Campos no topo da chamada tem
+precedencia sobre campos dentro de `payload`.
+
 ## Exemplo MCP: criar branch de agente
 
 ```json

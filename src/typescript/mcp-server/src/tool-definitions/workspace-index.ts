@@ -41,6 +41,11 @@ export const workspaceIndexToolDefinition = {
         type: 'string',
         description: 'Logical project name in .wqm-fork/indexed-projects.json.',
       },
+      projectId: {
+        type: 'string',
+        description:
+          'Project tenant ID from workspace-qdrant. Also accepted inside payload; use projectName when only the logical registry name is known.',
+      },
       projectPath: {
         type: 'string',
         description: 'Absolute path to a project root when adding/registering a project.',
@@ -48,6 +53,10 @@ export const workspaceIndexToolDefinition = {
       branchName: {
         type: 'string',
         description: 'Agent branch name, for example agent/auth-retry-20260523.',
+      },
+      branch: {
+        type: 'string',
+        description: 'Alias for branchName, useful in Codex context envelopes.',
       },
       baseBranch: {
         type: 'string',
@@ -60,6 +69,10 @@ export const workspaceIndexToolDefinition = {
       worktreePath: {
         type: 'string',
         description: 'Optional explicit worktree path for an agent branch.',
+      },
+      worktree: {
+        type: 'string',
+        description: 'Alias for worktreePath, useful in Codex context envelopes.',
       },
       worktreeRoot: {
         type: 'string',
@@ -86,6 +99,12 @@ export const workspaceIndexToolDefinition = {
         type: 'boolean',
         description:
           'Required for mutating actions, in addition to WQM_INDEX_MANAGER_ALLOW_MUTATION=1.',
+      },
+      payload: {
+        type: 'object',
+        description:
+          'Optional action-specific arguments. Top-level arguments take precedence; payload may contain projectId, branch, worktree, baseBranch, returnBranch, useWorktree, purpose, createdBy, projectName, projectPath, worktreePath, worktreeRoot, or repoDir.',
+        additionalProperties: true,
       },
     },
     required: ['action'],

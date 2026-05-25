@@ -5,6 +5,7 @@ param(
   [ValidateSet("init","list-projects","add-project","remove-project","project-status","status-all","list-branches","add-branch","start-agent-branch","finish-agent-branch","abandon-agent-branch","agent-branch-status","observe-project","observe-all","incremental-check","incremental-check-all","register-wqm","register-all-wqm","sync-current-branch","cleanup-orphans")]
   [string]$Action = "list-projects",
   [string]$ProjectName = "",
+  [string]$ProjectId = "",
   [string]$ProjectDir = "",
   [string]$BranchName = "",
   [string]$BaseBranch = "main",
@@ -195,11 +196,13 @@ function Find-Project($Registry) {
     if ($m.Count -gt 1) { throw "Projeto ambiguo: $ProjectName $ProjectDir" }
   }
 
-  if ($ProjectName) { $m = @($projects | Where-Object { $_.name -eq $ProjectName }) }
-  elseif ($ProjectDir) { $m = @() }
-  else { throw "Informe -ProjectName ou -ProjectDir." }
-  if ($m.Count -eq 0) { throw "Projeto indexado nao encontrado: $ProjectName $ProjectDir" }
-  if ($m.Count -gt 1) { throw "Projeto ambiguo: $ProjectName $ProjectDir" }
+  $m = @($projects)
+  if ($ProjectName) { $m = @($m | Where-Object { $_.name -eq $ProjectName }) }
+  if ($ProjectId) { $m = @($m | Where-Object { $_.projectId -eq $ProjectId }) }
+  if (-not $ProjectName -and -not $ProjectId -and -not $ProjectDir) { throw "Informe -ProjectName, -ProjectId ou -ProjectDir." }
+  if ($ProjectDir -and -not $ProjectName -and -not $ProjectId) { $m = @() }
+  if ($m.Count -eq 0) { throw "Projeto indexado nao encontrado: $ProjectName $ProjectId $ProjectDir" }
+  if ($m.Count -gt 1) { throw "Projeto ambiguo: $ProjectName $ProjectId $ProjectDir" }
   return $m[0]
 }
 function Find-ProjectByRoot($Registry, [string]$RootPath) {
@@ -793,14 +796,15 @@ try {
       if (-not $registerResult.ok) {
         Write-Warning "Auto-registration falhou para $root (codigo $($registerResult.exitCode)). O registro local foi mantido; rode index-register-wqm depois se quiser reintentar."
       }
-      $project = [ordered]@{ name=$ProjectName; root=$root; projectId=$null; qdrantUrl=$QdrantUrl; daemonEndpoint=$DaemonEndpoint; defaultBranch=$BaseBranch; tenantStrategy='project'; enabled=$true; createdAt=UtcNow; updatedAt=UtcNow; branches=@([ordered]@{ name=$currentBranch; kind='primary'; path=$root; baseBranch=$BaseBranch; returnBranch=$currentBranch; status='active'; createdBy='human'; createdAt=UtcNow; lastSeenAt=UtcNow; baseCommit=$null; headCommit=$head; lastIndexedCommit=$(if ($registerResult.ok) { $head } else { $null }); watchEnabled=$true; indexed=$registerResult.ok; purpose='primary working tree' }) }
+      $storedProjectId = if ($ProjectId) { $ProjectId } elseif ($registerResult.ok -and $registerResult.project_id) { $registerResult.project_id } else { $null }
+      $project = [ordered]@{ name=$ProjectName; root=$root; projectId=$storedProjectId; qdrantUrl=$QdrantUrl; daemonEndpoint=$DaemonEndpoint; defaultBranch=$BaseBranch; tenantStrategy='project'; enabled=$true; createdAt=UtcNow; updatedAt=UtcNow; branches=@([ordered]@{ name=$currentBranch; kind='primary'; path=$root; baseBranch=$BaseBranch; returnBranch=$currentBranch; status='active'; createdBy='human'; createdAt=UtcNow; lastSeenAt=UtcNow; baseCommit=$null; headCommit=$head; lastIndexedCommit=$(if ($registerResult.ok) { $head } else { $null }); watchEnabled=$true; indexed=$registerResult.ok; purpose='primary working tree' }) }
       Upsert-Project $registry $project
       Write-Registry $registry
       Output-Result ([ordered]@{ success=$true; action=$Action; project=$project; register=$registerResult })
     }
     'list-projects' {
       $registry = Read-Registry
-      Output-Result ([ordered]@{ success=$true; registry=$RegistryPath; projects=@(Get-Projects $registry | Select-Object name,root,defaultBranch,tenantStrategy,enabled) })
+      Output-Result ([ordered]@{ success=$true; registry=$RegistryPath; projects=@(Get-Projects $registry | Select-Object name,projectId,root,defaultBranch,tenantStrategy,enabled) })
     }
     'project-status' {
       $registry = Read-Registry; $project = Find-Project $registry
