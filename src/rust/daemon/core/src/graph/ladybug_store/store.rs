@@ -406,6 +406,7 @@ impl GraphStore for LadybugGraphStore {
         node_id: &str,
         max_hops: u32,
         edge_types: Option<&[EdgeType]>,
+        _branch: Option<&str>,
     ) -> GraphDbResult<Vec<TraversalNode>> {
         let conn = self.connect()?;
 
@@ -467,6 +468,7 @@ impl GraphStore for LadybugGraphStore {
         tenant_id: &str,
         symbol_name: &str,
         file_path: Option<&str>,
+        _branch: Option<&str>,
     ) -> GraphDbResult<ImpactReport> {
         let conn = self.connect()?;
 
@@ -537,13 +539,18 @@ impl GraphStore for LadybugGraphStore {
         _target_id: &str,
         _max_depth: u32,
         _edge_types: Option<&[EdgeType]>,
+        _branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
         // LadybugDB path-finding will use Cypher SHORTEST PATH in a future iteration.
         // For now, return None (no path found) — callers handle this gracefully.
         Ok(None)
     }
 
-    async fn stats(&self, tenant_id: Option<&str>) -> GraphDbResult<GraphStats> {
+    async fn stats(
+        &self,
+        tenant_id: Option<&str>,
+        _branch: Option<&str>,
+    ) -> GraphDbResult<GraphStats> {
         let conn = self.connect()?;
 
         // --- Node counts by type ---

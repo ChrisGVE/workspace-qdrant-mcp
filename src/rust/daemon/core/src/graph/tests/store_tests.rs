@@ -11,7 +11,7 @@ async fn test_upsert_node_insert() {
     store.upsert_node(&node).await.unwrap();
 
     // Verify via stats
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_nodes, 1);
 }
 
@@ -32,7 +32,7 @@ async fn test_upsert_node_update() {
     store.upsert_node(&full).await.unwrap();
 
     // Should still be one node
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_nodes, 1);
 
     // Verify file_path was updated (non-empty replaces empty)
@@ -56,7 +56,7 @@ async fn test_upsert_nodes_batch() {
     ];
     store.upsert_nodes(&nodes).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_nodes, 3);
 }
 
@@ -88,7 +88,7 @@ async fn test_insert_edge() {
     );
     store.insert_edge(&edge).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 1);
     assert_eq!(stats.edges_by_type.get("CALLS"), Some(&1));
 }
@@ -105,7 +105,7 @@ async fn test_insert_edge_duplicate_ignored() {
     store.insert_edge(&edge).await.unwrap();
     store.insert_edge(&edge).await.unwrap(); // duplicate -- should not error
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 1);
 }
 
@@ -129,7 +129,7 @@ async fn test_insert_edges_batch() {
     ];
     store.insert_edges(&edges).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 2);
 }
 
@@ -158,7 +158,7 @@ async fn test_delete_edges_by_file() {
     let deleted = store.delete_edges_by_file(TENANT, "a.rs").await.unwrap();
     assert_eq!(deleted, 2);
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 1); // only the b->c edge remains
 }
 
@@ -178,7 +178,7 @@ async fn test_delete_tenant() {
     let deleted = store.delete_tenant(TENANT).await.unwrap();
     assert_eq!(deleted, 3); // 1 edge + 2 nodes
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_nodes, 0);
     assert_eq!(stats.total_edges, 0);
 }
@@ -205,7 +205,7 @@ async fn test_reingest_file_replaces_edges() {
         .await
         .unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 1, "old edge deleted, new edge inserted");
     assert_eq!(stats.total_nodes, 3, "a, b, c all present");
 }
@@ -225,7 +225,7 @@ async fn test_reingest_file_with_empty_nodes_and_edges() {
     // reingest with empty nodes/edges = just delete old edges
     store.reingest_file(TENANT, "a.rs", &[], &[]).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 0, "all edges from a.rs deleted");
     assert_eq!(stats.total_nodes, 2, "nodes are preserved");
 }
@@ -250,7 +250,7 @@ async fn test_reingest_file_does_not_affect_other_files() {
     // reingest a.rs with no new edges
     store.reingest_file(TENANT, "a.rs", &[], &[]).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 1, "b.rs edge untouched");
 }
 
@@ -281,7 +281,7 @@ async fn test_reingest_file_rollback_on_edge_insert_failure() {
     // three steps commit or none do.
 
     // Snapshot before
-    let stats_before = store.stats(Some(TENANT)).await.unwrap();
+    let stats_before = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats_before.total_edges, 1);
     assert_eq!(stats_before.total_nodes, 2);
 
@@ -293,7 +293,7 @@ async fn test_reingest_file_rollback_on_edge_insert_failure() {
         .await
         .unwrap();
 
-    let stats_after = store.stats(Some(TENANT)).await.unwrap();
+    let stats_after = store.stats(Some(TENANT), None).await.unwrap();
     // Old a->b edge replaced by a->d
     assert_eq!(stats_after.total_edges, 1);
     // b still exists (not deleted), d was added
@@ -320,7 +320,7 @@ async fn test_reingest_file_idempotent() {
         .await
         .unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_edges, 1);
     assert_eq!(stats.total_nodes, 2);
 }

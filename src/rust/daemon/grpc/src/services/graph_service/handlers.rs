@@ -76,6 +76,7 @@ impl GraphService for GraphServiceImpl {
                 &req.node_id,
                 max_hops,
                 edge_types.as_deref(),
+                None,
             )
             .await;
 
@@ -146,6 +147,7 @@ impl GraphService for GraphServiceImpl {
                 &req.tenant_id,
                 &req.symbol_name,
                 validated_file_path.as_deref(),
+                None,
             )
             .await;
 
@@ -193,7 +195,7 @@ impl GraphService for GraphServiceImpl {
 
         let start = std::time::Instant::now();
 
-        match self.graph_store.stats(tenant_filter).await {
+        match self.graph_store.stats(tenant_filter, None).await {
             Ok(stats) => {
                 let query_time_ms = start.elapsed().as_millis();
                 debug!(
@@ -623,6 +625,7 @@ impl GraphService for GraphServiceImpl {
                 &req.target_node_id,
                 max_depth,
                 edge_types.as_deref(),
+                None,
             )
             .await
             .map_err(|e| {

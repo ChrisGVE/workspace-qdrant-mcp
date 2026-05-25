@@ -128,7 +128,9 @@ pub(super) async fn collect_regex_matches(
         query = query.bind(tid);
     }
     if let Some(ref branch) = options.branch {
-        query = query.bind(branch);
+        if branch != "*" {
+            query = query.bind(branch);
+        }
     }
     if let Some(ref prefix) = options.path_prefix {
         query = query.bind(format!("{}%", prefix));

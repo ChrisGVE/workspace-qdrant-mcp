@@ -86,7 +86,7 @@ async fn test_ladybug_store_reopen() {
     // Second open: schema already exists, data persists
     {
         let store = LadybugGraphStore::new(config).unwrap();
-        let stats = store.stats(Some(T)).await.unwrap();
+        let stats = store.stats(Some(T), None).await.unwrap();
         assert_eq!(stats.total_nodes, 1, "Data should persist across reopens");
     }
 }
@@ -100,7 +100,7 @@ async fn test_ladybug_upsert_and_stats() {
     let node = GraphNode::new(T, "src/main.rs", "main", NodeType::Function);
     store.upsert_node(&node).await.unwrap();
 
-    let stats = store.stats(Some(T)).await.unwrap();
+    let stats = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats.total_nodes, 1);
     assert_eq!(*stats.nodes_by_type.get("function").unwrap(), 1);
 }
@@ -117,7 +117,7 @@ async fn test_ladybug_upsert_idempotent() {
     node.language = Some("python".to_string());
     store.upsert_node(&node).await.unwrap();
 
-    let stats = store.stats(Some(T)).await.unwrap();
+    let stats = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats.total_nodes, 1, "MERGE should not duplicate");
 }
 
@@ -132,7 +132,7 @@ async fn test_ladybug_batch_upsert() {
     ];
     store.upsert_nodes(&nodes).await.unwrap();
 
-    let stats = store.stats(Some(T)).await.unwrap();
+    let stats = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats.total_nodes, 3);
     assert_eq!(*stats.nodes_by_type.get("function").unwrap_or(&0), 1);
     assert_eq!(*stats.nodes_by_type.get("struct").unwrap_or(&0), 1);
@@ -143,7 +143,7 @@ async fn test_ladybug_batch_upsert() {
 async fn test_ladybug_upsert_empty() {
     let (store, _tmp) = fresh_store("graph_empty_upsert");
     store.upsert_nodes(&[]).await.unwrap();
-    let stats = store.stats(None).await.unwrap();
+    let stats = store.stats(None, None).await.unwrap();
     assert_eq!(stats.total_nodes, 0);
 }
 
@@ -163,7 +163,7 @@ async fn test_ladybug_insert_edge() {
     let edge = GraphEdge::new(T, &node_a.node_id, &node_b.node_id, EdgeType::Calls, "a.rs");
     store.insert_edge(&edge).await.unwrap();
 
-    let stats = store.stats(Some(T)).await.unwrap();
+    let stats = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats.total_edges, 1);
     assert_eq!(*stats.edges_by_type.get("CALLS").unwrap(), 1);
 }
@@ -187,7 +187,7 @@ async fn test_ladybug_insert_edges_batch() {
     ];
     store.insert_edges(&edges).await.unwrap();
 
-    let stats = store.stats(Some(T)).await.unwrap();
+    let stats = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats.total_edges, 3);
     assert_eq!(*stats.edges_by_type.get("CALLS").unwrap(), 1);
     assert_eq!(*stats.edges_by_type.get("USES_TYPE").unwrap(), 1);
@@ -222,13 +222,13 @@ async fn test_ladybug_delete_edges_by_file() {
     ];
     store.insert_edges(&edges).await.unwrap();
 
-    let stats_before = store.stats(Some(T)).await.unwrap();
+    let stats_before = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats_before.total_edges, 3);
 
     // Delete edges owned by a.rs
     store.delete_edges_by_file(T, "a.rs").await.unwrap();
 
-    let stats_after = store.stats(Some(T)).await.unwrap();
+    let stats_after = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats_after.total_edges, 1, "Only b.rs edge should remain");
     assert_eq!(stats_after.total_nodes, 3, "Nodes should not be deleted");
 }
@@ -249,11 +249,11 @@ async fn test_ladybug_delete_tenant() {
 
     store.delete_tenant(T).await.unwrap();
 
-    let stats_t = store.stats(Some(T)).await.unwrap();
+    let stats_t = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats_t.total_nodes, 0, "All test-tenant data gone");
     assert_eq!(stats_t.total_edges, 0);
 
-    let stats_other = store.stats(Some("other-tenant")).await.unwrap();
+    let stats_other = store.stats(Some("other-tenant"), None).await.unwrap();
     assert_eq!(stats_other.total_nodes, 1, "Other tenant unaffected");
 }
 
@@ -278,12 +278,12 @@ async fn test_ladybug_query_related() {
     store.insert_edges(&edges).await.unwrap();
 
     // 1-hop from a: should find b
-    let related = store.query_related(T, &a.node_id, 1, None).await.unwrap();
+    let related = store.query_related(T, &a.node_id, 1, None, None).await.unwrap();
     assert_eq!(related.len(), 1);
     assert_eq!(related[0].symbol_name, "bar");
 
     // 2-hop from a: should find both b and c
-    let related = store.query_related(T, &a.node_id, 2, None).await.unwrap();
+    let related = store.query_related(T, &a.node_id, 2, None, None).await.unwrap();
     assert_eq!(related.len(), 2);
     let names: Vec<&str> = related.iter().map(|n| n.symbol_name.as_str()).collect();
     assert!(names.contains(&"bar"));
@@ -310,7 +310,7 @@ async fn test_ladybug_query_related_edge_filter() {
 
     // Filter to only CALLS: should find b but not c
     let related = store
-        .query_related(T, &a.node_id, 1, Some(&[EdgeType::Calls]))
+        .query_related(T, &a.node_id, 1, Some(&[EdgeType::Calls]), None)
         .await
         .unwrap();
     assert_eq!(related.len(), 1);
@@ -318,7 +318,7 @@ async fn test_ladybug_query_related_edge_filter() {
 
     // Filter to only USES_TYPE: should find c but not b
     let related = store
-        .query_related(T, &a.node_id, 1, Some(&[EdgeType::UsesType]))
+        .query_related(T, &a.node_id, 1, Some(&[EdgeType::UsesType]), None)
         .await
         .unwrap();
     assert_eq!(related.len(), 1);
@@ -344,7 +344,7 @@ async fn test_ladybug_impact_analysis() {
     ];
     store.insert_edges(&edges).await.unwrap();
 
-    let report = store.impact_analysis(T, "target_fn", None).await.unwrap();
+    let report = store.impact_analysis(T, "target_fn", None, None).await.unwrap();
     assert_eq!(report.symbol_name, "target_fn");
     assert!(
         report.total_impacted >= 1,
@@ -370,7 +370,7 @@ async fn test_ladybug_reingest_file() {
     let old_edge = GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs");
     store.insert_edges(&[old_edge]).await.unwrap();
 
-    let stats_before = store.stats(Some(T)).await.unwrap();
+    let stats_before = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats_before.total_edges, 1);
 
     // Reingest a.rs: delete old edges, insert new ones (a -> c instead of a -> b)
@@ -379,12 +379,12 @@ async fn test_ladybug_reingest_file() {
     store.upsert_nodes(&[a.clone()]).await.unwrap();
     store.insert_edges(&[new_edge]).await.unwrap();
 
-    let stats_after = store.stats(Some(T)).await.unwrap();
+    let stats_after = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats_after.total_edges, 1, "Old edge replaced by new");
     assert_eq!(stats_after.total_nodes, 3, "All nodes preserved");
 
     // Verify new edge target: query_related from a should find c, not b
-    let related = store.query_related(T, &a.node_id, 1, None).await.unwrap();
+    let related = store.query_related(T, &a.node_id, 1, None, None).await.unwrap();
     assert_eq!(related.len(), 1);
     assert_eq!(related[0].symbol_name, "baz");
 }
@@ -401,7 +401,7 @@ async fn test_ladybug_stats_global() {
     store.upsert_nodes(&[a1.clone(), a2.clone()]).await.unwrap();
 
     // Global stats (None tenant filter)
-    let stats = store.stats(None).await.unwrap();
+    let stats = store.stats(None, None).await.unwrap();
     assert_eq!(stats.total_nodes, 2);
 }
 
@@ -426,6 +426,6 @@ async fn test_ladybug_injection_safe() {
     let node = GraphNode::new(T, "a.rs", malicious_name, NodeType::Function);
     store.upsert_node(&node).await.unwrap();
 
-    let stats = store.stats(Some(T)).await.unwrap();
+    let stats = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats.total_nodes, 1, "Node created despite special chars");
 }

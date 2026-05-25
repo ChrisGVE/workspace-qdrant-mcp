@@ -34,7 +34,7 @@ async fn test_query_related_1_hop() {
     let (a, b, _c, _d) = build_call_chain(&store).await;
 
     let results = store
-        .query_related(TENANT, &a.node_id, 1, None)
+        .query_related(TENANT, &a.node_id, 1, None, None)
         .await
         .unwrap();
 
@@ -49,7 +49,7 @@ async fn test_query_related_2_hops() {
     let (a, _b, _c, _d) = build_call_chain(&store).await;
 
     let results = store
-        .query_related(TENANT, &a.node_id, 2, None)
+        .query_related(TENANT, &a.node_id, 2, None, None)
         .await
         .unwrap();
 
@@ -64,7 +64,7 @@ async fn test_query_related_3_hops_reaches_end() {
     let (a, _b, _c, _d) = build_call_chain(&store).await;
 
     let results = store
-        .query_related(TENANT, &a.node_id, 3, None)
+        .query_related(TENANT, &a.node_id, 3, None, None)
         .await
         .unwrap();
 
@@ -76,9 +76,8 @@ async fn test_query_related_max_hops_boundary() {
     let store = test_store().await;
     let (a, _b, _c, _d) = build_call_chain(&store).await;
 
-    // max_hops=0 should return nothing
     let results = store
-        .query_related(TENANT, &a.node_id, 0, None)
+        .query_related(TENANT, &a.node_id, 0, None, None)
         .await
         .unwrap();
     assert_eq!(results.len(), 0);
@@ -102,17 +101,15 @@ async fn test_query_related_edge_type_filter() {
     ];
     store.insert_edges(&edges).await.unwrap();
 
-    // Filter to CALLS only
     let results = store
-        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::Calls]))
+        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::Calls]), None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].node_id, b.node_id);
 
-    // Filter to USES_TYPE only
     let results = store
-        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::UsesType]))
+        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::UsesType]), None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
@@ -152,7 +149,7 @@ async fn test_impact_analysis_direct_callers() {
     store.insert_edges(&edges).await.unwrap();
 
     let report = store
-        .impact_analysis(TENANT, "target_fn", Some("lib.rs"))
+        .impact_analysis(TENANT, "target_fn", Some("lib.rs"), None)
         .await
         .unwrap();
 
@@ -168,7 +165,6 @@ async fn test_impact_analysis_direct_callers() {
 async fn test_impact_analysis_transitive() {
     let store = test_store().await;
 
-    // indirect_caller -> direct_caller -> target
     let indirect = GraphNode::new(TENANT, "a.rs", "indirect", NodeType::Function);
     let direct = GraphNode::new(TENANT, "b.rs", "direct", NodeType::Function);
     let target = GraphNode::new(TENANT, "c.rs", "target", NodeType::Function);
@@ -196,12 +192,11 @@ async fn test_impact_analysis_transitive() {
     store.insert_edges(&edges).await.unwrap();
 
     let report = store
-        .impact_analysis(TENANT, "target", Some("c.rs"))
+        .impact_analysis(TENANT, "target", Some("c.rs"), None)
         .await
         .unwrap();
 
     assert_eq!(report.total_impacted, 2);
-    // direct at distance 1, indirect at distance 2
     let direct_node = report
         .impacted_nodes
         .iter()
@@ -221,7 +216,7 @@ async fn test_impact_analysis_symbol_not_found() {
     let store = test_store().await;
 
     let report = store
-        .impact_analysis(TENANT, "nonexistent", None)
+        .impact_analysis(TENANT, "nonexistent", None, None)
         .await
         .unwrap();
 
@@ -234,7 +229,7 @@ async fn test_impact_analysis_symbol_not_found() {
 #[tokio::test]
 async fn test_stats_empty() {
     let store = test_store().await;
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_nodes, 0);
     assert_eq!(stats.total_edges, 0);
 }
@@ -250,7 +245,7 @@ async fn test_stats_by_type() {
     ];
     store.upsert_nodes(&nodes).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_nodes, 3);
     assert_eq!(stats.nodes_by_type.get("function"), Some(&2));
     assert_eq!(stats.nodes_by_type.get("struct"), Some(&1));
@@ -264,7 +259,7 @@ async fn test_stats_all_tenants() {
     let node_b = GraphNode::new("tenant-b", "b.rs", "y", NodeType::Function);
     store.upsert_nodes(&[node_a, node_b]).await.unwrap();
 
-    let stats = store.stats(None).await.unwrap();
+    let stats = store.stats(None, None).await.unwrap();
     assert_eq!(stats.total_nodes, 2);
 }
 
@@ -282,7 +277,6 @@ async fn test_prune_orphans() {
         .await
         .unwrap();
 
-    // Only a->b has an edge; orphan has none
     let edge = GraphEdge::new(
         TENANT,
         &connected_a.node_id,
@@ -295,8 +289,8 @@ async fn test_prune_orphans() {
     let pruned = store.prune_orphans(TENANT).await.unwrap();
     assert_eq!(pruned, 1);
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
-    assert_eq!(stats.total_nodes, 2); // only connected nodes remain
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
+    assert_eq!(stats.total_nodes, 2);
 }
 
 #[tokio::test]
@@ -312,4 +306,124 @@ async fn test_prune_orphans_none_to_prune() {
 
     let pruned = store.prune_orphans(TENANT).await.unwrap();
     assert_eq!(pruned, 0);
+}
+
+// -- Branch filtering --
+
+#[tokio::test]
+async fn test_query_related_branch_filter() {
+    let store = test_store().await;
+
+    let a = GraphNode::new(TENANT, "a.rs", "a", NodeType::Function).with_branch("main");
+    let b = GraphNode::new(TENANT, "b.rs", "b", NodeType::Function).with_branch("main");
+    let c = GraphNode::new(TENANT, "c.rs", "c", NodeType::Function).with_branch("feature");
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+        .await
+        .unwrap();
+
+    let edge_ab =
+        GraphEdge::new(TENANT, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs").with_branch("main");
+    let edge_ac = GraphEdge::new(TENANT, &a.node_id, &c.node_id, EdgeType::Calls, "a.rs")
+        .with_branch("feature");
+    store.insert_edges(&[edge_ab, edge_ac]).await.unwrap();
+
+    // No branch filter: see both
+    let all = store
+        .query_related(TENANT, &a.node_id, 1, None, None)
+        .await
+        .unwrap();
+    assert_eq!(all.len(), 2);
+
+    // Branch "main": only b
+    let main_only = store
+        .query_related(TENANT, &a.node_id, 1, None, Some("main"))
+        .await
+        .unwrap();
+    assert_eq!(main_only.len(), 1);
+    assert_eq!(main_only[0].node_id, b.node_id);
+
+    // Branch "feature": only c
+    let feat = store
+        .query_related(TENANT, &a.node_id, 1, None, Some("feature"))
+        .await
+        .unwrap();
+    assert_eq!(feat.len(), 1);
+    assert_eq!(feat[0].node_id, c.node_id);
+
+    // Wildcard "*": cross-branch
+    let wild = store
+        .query_related(TENANT, &a.node_id, 1, None, Some("*"))
+        .await
+        .unwrap();
+    assert_eq!(wild.len(), 2);
+}
+
+#[tokio::test]
+async fn test_stats_branch_filter() {
+    let store = test_store().await;
+
+    let a = GraphNode::new(TENANT, "a.rs", "a", NodeType::Function).with_branch("main");
+    let b = GraphNode::new(TENANT, "b.rs", "b", NodeType::Function).with_branch("dev");
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+
+    let edge =
+        GraphEdge::new(TENANT, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs").with_branch("main");
+    store.insert_edge(&edge).await.unwrap();
+
+    let all = store.stats(Some(TENANT), None).await.unwrap();
+    assert_eq!(all.total_nodes, 2);
+    assert_eq!(all.total_edges, 1);
+
+    let main = store.stats(Some(TENANT), Some("main")).await.unwrap();
+    assert_eq!(main.total_nodes, 1);
+    assert_eq!(main.total_edges, 1);
+
+    let dev = store.stats(Some(TENANT), Some("dev")).await.unwrap();
+    assert_eq!(dev.total_nodes, 1);
+    assert_eq!(dev.total_edges, 0);
+}
+
+#[tokio::test]
+async fn test_impact_analysis_branch_filter() {
+    let store = test_store().await;
+
+    let caller = GraphNode::new(TENANT, "a.rs", "caller", NodeType::Function).with_branch("main");
+    let target = GraphNode::new(TENANT, "b.rs", "target", NodeType::Function).with_branch("main");
+    let other = GraphNode::new(TENANT, "c.rs", "other", NodeType::Function).with_branch("dev");
+    store
+        .upsert_nodes(&[caller.clone(), target.clone(), other.clone()])
+        .await
+        .unwrap();
+
+    let e1 = GraphEdge::new(
+        TENANT,
+        &caller.node_id,
+        &target.node_id,
+        EdgeType::Calls,
+        "a.rs",
+    )
+    .with_branch("main");
+    let e2 = GraphEdge::new(
+        TENANT,
+        &other.node_id,
+        &target.node_id,
+        EdgeType::Calls,
+        "c.rs",
+    )
+    .with_branch("dev");
+    store.insert_edges(&[e1, e2]).await.unwrap();
+
+    let all = store
+        .impact_analysis(TENANT, "target", Some("b.rs"), None)
+        .await
+        .unwrap();
+    assert_eq!(all.total_impacted, 2);
+
+    let main = store
+        .impact_analysis(TENANT, "target", Some("b.rs"), Some("main"))
+        .await
+        .unwrap();
+    assert_eq!(main.total_impacted, 1);
+    assert_eq!(main.impacted_nodes[0].symbol_name, "caller");
 }

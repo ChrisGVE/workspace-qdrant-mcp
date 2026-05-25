@@ -6,8 +6,8 @@ use tracing::debug;
 use wqm_common::timestamps::now_utc;
 
 use super::{
-    EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode,
-    ImpactReport, TraversalNode,
+    is_cross_branch, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore,
+    ImpactNode, ImpactReport, TraversalNode,
 };
 
 /// SQLite-backed implementation of `GraphStore`.
@@ -29,6 +29,18 @@ impl SqliteGraphStore {
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
+}
+
+// ── SQL fragment helpers ────────────────────────────────────────────
+
+/// SQL clause filtering nodes by branch membership in their JSON array.
+fn node_branch_clause(alias: &str, idx: usize) -> String {
+    format!(" AND EXISTS (SELECT 1 FROM json_each({alias}.branches) WHERE value = ?{idx})")
+}
+
+/// SQL clause filtering edges by branch (NULL branch = global, always included).
+fn edge_branch_clause(alias: &str, idx: usize) -> String {
+    format!(" AND ({alias}.branch = ?{idx} OR {alias}.branch IS NULL)")
 }
 
 #[async_trait]
@@ -65,7 +77,6 @@ impl GraphStore for SqliteGraphStore {
         .bind(&now)
         .execute(&self.pool)
         .await?;
-
         Ok(())
     }
 
@@ -75,7 +86,6 @@ impl GraphStore for SqliteGraphStore {
         }
         let now = now_utc();
         let mut tx = self.pool.begin().await?;
-
         for node in nodes {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
@@ -108,7 +118,6 @@ impl GraphStore for SqliteGraphStore {
             .execute(&mut *tx)
             .await?;
         }
-
         tx.commit().await?;
         debug!("Upserted {} graph nodes", nodes.len());
         Ok(())
@@ -134,7 +143,6 @@ impl GraphStore for SqliteGraphStore {
         .bind(&now)
         .execute(&self.pool)
         .await?;
-
         Ok(())
     }
 
@@ -144,7 +152,6 @@ impl GraphStore for SqliteGraphStore {
         }
         let now = now_utc();
         let mut tx = self.pool.begin().await?;
-
         for edge in edges {
             sqlx::query(
                 "INSERT OR IGNORE INTO graph_edges
@@ -165,7 +172,6 @@ impl GraphStore for SqliteGraphStore {
             .execute(&mut *tx)
             .await?;
         }
-
         tx.commit().await?;
         debug!("Inserted {} graph edges", edges.len());
         Ok(())
@@ -178,7 +184,6 @@ impl GraphStore for SqliteGraphStore {
                 .bind(file_path)
                 .execute(&self.pool)
                 .await?;
-
         let count = result.rows_affected();
         debug!(
             "Deleted {} graph edges for file {} in tenant {}",
@@ -189,19 +194,15 @@ impl GraphStore for SqliteGraphStore {
 
     async fn delete_tenant(&self, tenant_id: &str) -> GraphDbResult<u64> {
         let mut tx = self.pool.begin().await?;
-
         let edge_result = sqlx::query("DELETE FROM graph_edges WHERE tenant_id = ?1")
             .bind(tenant_id)
             .execute(&mut *tx)
             .await?;
-
         let node_result = sqlx::query("DELETE FROM graph_nodes WHERE tenant_id = ?1")
             .bind(tenant_id)
             .execute(&mut *tx)
             .await?;
-
         tx.commit().await?;
-
         let total = edge_result.rows_affected() + node_result.rows_affected();
         debug!(
             "Deleted {} items (edges + nodes) for tenant {}",
@@ -216,47 +217,58 @@ impl GraphStore for SqliteGraphStore {
         node_id: &str,
         max_hops: u32,
         edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Vec<TraversalNode>> {
-        // Build edge type filter clause
         let type_filter = match edge_types {
             Some(types) if !types.is_empty() => {
-                let placeholders: Vec<String> =
-                    types.iter().map(|t| format!("'{}'", t.as_str())).collect();
-                format!("AND e.edge_type IN ({})", placeholders.join(", "))
+                let vals: Vec<String> = types.iter().map(|t| format!("'{}'", t.as_str())).collect();
+                format!("AND e.edge_type IN ({})", vals.join(", "))
             }
             _ => String::new(),
         };
+        let scoped = !is_cross_branch(branch);
+        let edge_br = if scoped {
+            edge_branch_clause("e", 4)
+        } else {
+            String::new()
+        };
+        let node_br = if scoped {
+            node_branch_clause("n", 4)
+        } else {
+            String::new()
+        };
 
-        let query = format!(
+        let sql = format!(
             "WITH RECURSIVE graph_traverse AS (
                 SELECT e.target_node_id AS node_id, e.edge_type, 1 AS depth,
                        e.source_node_id || ' -> ' || e.target_node_id AS path
                 FROM graph_edges e
-                WHERE e.source_node_id = ?1 AND e.tenant_id = ?2 AND ?3 >= 1 {type_filter}
-
+                WHERE e.source_node_id = ?1 AND e.tenant_id = ?2 AND ?3 >= 1
+                      {type_filter}{edge_br}
                 UNION ALL
-
                 SELECT e.target_node_id, e.edge_type, gt.depth + 1,
                        gt.path || ' -> ' || e.target_node_id
                 FROM graph_edges e
                 INNER JOIN graph_traverse gt ON e.source_node_id = gt.node_id
-                WHERE gt.depth < ?3 AND e.tenant_id = ?2 {type_filter}
+                WHERE gt.depth < ?3 AND e.tenant_id = ?2
+                      {type_filter}{edge_br}
             )
             SELECT DISTINCT gt.node_id, gt.edge_type, gt.depth, gt.path,
                    n.symbol_name, n.symbol_type, n.file_path
             FROM graph_traverse gt
             JOIN graph_nodes n ON gt.node_id = n.node_id
+            WHERE 1=1{node_br}
             ORDER BY gt.depth, n.symbol_name"
         );
-
-        let rows = sqlx::query(&query)
+        let mut qb = sqlx::query(&sql)
             .bind(node_id)
             .bind(tenant_id)
-            .bind(max_hops as i64)
-            .fetch_all(&self.pool)
-            .await?;
-
-        let results = rows
+            .bind(max_hops as i64);
+        if scoped {
+            qb = qb.bind(branch.unwrap_or_default());
+        }
+        let rows = qb.fetch_all(&self.pool).await?;
+        Ok(rows
             .iter()
             .map(|row| TraversalNode {
                 node_id: row.get("node_id"),
@@ -267,9 +279,7 @@ impl GraphStore for SqliteGraphStore {
                 depth: row.get::<i64, _>("depth") as u32,
                 path: row.get("path"),
             })
-            .collect();
-
-        Ok(results)
+            .collect())
     }
 
     async fn impact_analysis(
@@ -277,40 +287,64 @@ impl GraphStore for SqliteGraphStore {
         tenant_id: &str,
         symbol_name: &str,
         file_path: Option<&str>,
+        branch: Option<&str>,
     ) -> GraphDbResult<ImpactReport> {
-        let target_nodes = self
-            .find_target_nodes(tenant_id, symbol_name, file_path)
+        let targets = self
+            .find_target_nodes(tenant_id, symbol_name, file_path, branch)
             .await?;
-
-        if target_nodes.is_empty() {
+        if targets.is_empty() {
             return Ok(ImpactReport {
                 symbol_name: symbol_name.to_string(),
                 impacted_nodes: vec![],
                 total_impacted: 0,
             });
         }
-
-        let mut all_impacted = Vec::new();
-        for target_id in &target_nodes {
-            let impacted = self.reverse_traverse(tenant_id, target_id).await?;
-            all_impacted.extend(impacted);
+        let mut all = Vec::new();
+        for tid in &targets {
+            all.extend(self.reverse_traverse(tenant_id, tid, branch).await?);
         }
-
-        all_impacted.sort_by_key(|n| n.distance);
+        all.sort_by_key(|n| n.distance);
         let mut seen = std::collections::HashSet::new();
-        all_impacted.retain(|n| seen.insert(n.node_id.clone()));
-
-        let total = all_impacted.len() as u32;
+        all.retain(|n| seen.insert(n.node_id.clone()));
+        let total = all.len() as u32;
         Ok(ImpactReport {
             symbol_name: symbol_name.to_string(),
-            impacted_nodes: all_impacted,
+            impacted_nodes: all,
             total_impacted: total,
         })
     }
 
-    async fn stats(&self, tenant_id: Option<&str>) -> GraphDbResult<GraphStats> {
-        let (node_rows, edge_rows) = match tenant_id {
-            Some(tid) => {
+    async fn stats(
+        &self,
+        tenant_id: Option<&str>,
+        branch: Option<&str>,
+    ) -> GraphDbResult<GraphStats> {
+        let scoped = !is_cross_branch(branch);
+        let (node_rows, edge_rows) = match (tenant_id, scoped) {
+            (Some(tid), true) => {
+                let b = branch.unwrap_or_default();
+                let nodes = sqlx::query(
+                    "SELECT symbol_type, COUNT(*) as cnt FROM graph_nodes
+                     WHERE tenant_id = ?1
+                       AND EXISTS (SELECT 1 FROM json_each(branches) WHERE value = ?2)
+                     GROUP BY symbol_type",
+                )
+                .bind(tid)
+                .bind(b)
+                .fetch_all(&self.pool)
+                .await?;
+                let edges = sqlx::query(
+                    "SELECT edge_type, COUNT(*) as cnt FROM graph_edges
+                     WHERE tenant_id = ?1 AND (branch = ?2 OR branch IS NULL)
+                     GROUP BY edge_type",
+                )
+                .bind(tid)
+                .bind(b)
+                .fetch_all(&self.pool)
+                .await?;
+                (nodes, edges)
+            }
+            (Some(tid), false) => {
                 let nodes = sqlx::query(
                     "SELECT symbol_type, COUNT(*) as cnt FROM graph_nodes
                      WHERE tenant_id = ?1 GROUP BY symbol_type",
@@ -327,23 +361,39 @@ impl GraphStore for SqliteGraphStore {
                 .await?;
                 (nodes, edges)
             }
-            None => {
+            (None, true) => {
+                let b = branch.unwrap_or_default();
                 let nodes = sqlx::query(
                     "SELECT symbol_type, COUNT(*) as cnt FROM graph_nodes
+                     WHERE EXISTS (SELECT 1 FROM json_each(branches) WHERE value = ?1)
                      GROUP BY symbol_type",
                 )
+                .bind(b)
                 .fetch_all(&self.pool)
                 .await?;
                 let edges = sqlx::query(
                     "SELECT edge_type, COUNT(*) as cnt FROM graph_edges
-                     GROUP BY edge_type",
+                     WHERE (branch = ?1 OR branch IS NULL) GROUP BY edge_type",
+                )
+                .bind(b)
+                .fetch_all(&self.pool)
+                .await?;
+                (nodes, edges)
+            }
+            (None, false) => {
+                let nodes = sqlx::query(
+                    "SELECT symbol_type, COUNT(*) as cnt FROM graph_nodes GROUP BY symbol_type",
+                )
+                .fetch_all(&self.pool)
+                .await?;
+                let edges = sqlx::query(
+                    "SELECT edge_type, COUNT(*) as cnt FROM graph_edges GROUP BY edge_type",
                 )
                 .fetch_all(&self.pool)
                 .await?;
                 (nodes, edges)
             }
         };
-
         let mut stats = GraphStats::default();
         for row in &node_rows {
             let stype: String = row.get("symbol_type");
@@ -357,14 +407,12 @@ impl GraphStore for SqliteGraphStore {
             stats.total_edges += cnt as u64;
             stats.edges_by_type.insert(etype, cnt as u64);
         }
-
         Ok(stats)
     }
 
     async fn prune_orphans(&self, tenant_id: &str) -> GraphDbResult<u64> {
         let result = sqlx::query(
-            "DELETE FROM graph_nodes
-             WHERE tenant_id = ?1
+            "DELETE FROM graph_nodes WHERE tenant_id = ?1
                AND node_id NOT IN (
                    SELECT source_node_id FROM graph_edges WHERE tenant_id = ?1
                    UNION
@@ -374,7 +422,6 @@ impl GraphStore for SqliteGraphStore {
         .bind(tenant_id)
         .execute(&self.pool)
         .await?;
-
         let count = result.rows_affected();
         debug!("Pruned {} orphaned nodes for tenant {}", count, tenant_id);
         Ok(count)
@@ -387,16 +434,23 @@ impl GraphStore for SqliteGraphStore {
         target_id: &str,
         max_depth: u32,
         edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
-        let num_edge_types = edge_types.map_or(0, |t| t.len());
-        let edge_filter = if num_edge_types > 0 {
-            let placeholders: Vec<String> =
-                (0..num_edge_types).map(|i| format!("?{}", i + 4)).collect();
-            format!("AND e.edge_type IN ({})", placeholders.join(","))
+        let scoped = !is_cross_branch(branch);
+        let num_et = edge_types.map_or(0, |t| t.len());
+        let edge_filter = if num_et > 0 {
+            let ph: Vec<String> = (0..num_et).map(|i| format!("?{}", i + 4)).collect();
+            format!("AND e.edge_type IN ({})", ph.join(","))
         } else {
             String::new()
         };
-        let target_placeholder = num_edge_types + 4;
+        let branch_slot = num_et + 4;
+        let edge_br = if scoped {
+            edge_branch_clause("e", branch_slot)
+        } else {
+            String::new()
+        };
+        let target_slot = if scoped { branch_slot + 1 } else { branch_slot };
 
         let sql = format!(
             r#"
@@ -408,7 +462,7 @@ impl GraphStore for SqliteGraphStore {
                 FROM bfs
                 JOIN graph_edges e ON e.source_node_id = bfs.node_id
                                   AND e.tenant_id = ?1
-                                  {edge_filter}
+                                  {edge_filter}{edge_br}
                 WHERE bfs.depth < ?3
                   AND INSTR(bfs.path, e.target_node_id) = 0
             )
@@ -416,34 +470,31 @@ impl GraphStore for SqliteGraphStore {
                    n.symbol_name, n.symbol_type, n.file_path
             FROM bfs
             JOIN graph_nodes n ON n.node_id = bfs.node_id AND n.tenant_id = ?1
-            WHERE bfs.node_id = ?{target_placeholder}
-            ORDER BY bfs.depth ASC
-            LIMIT 1
+            WHERE bfs.node_id = ?{target_slot}
+            ORDER BY bfs.depth ASC LIMIT 1
             "#
         );
-
         let mut query = sqlx::query(&sql)
             .bind(tenant_id)
             .bind(source_id)
             .bind(max_depth as i64);
-
         if let Some(types) = edge_types {
             for et in types {
                 query = query.bind(et.as_str());
             }
         }
-
+        if scoped {
+            query = query.bind(branch.unwrap_or_default());
+        }
         query = query.bind(target_id);
 
         let row = query.fetch_optional(&self.pool).await?;
-
         match row {
             None => Ok(None),
             Some(row) => {
                 use sqlx::Row;
                 let path_str: String = row.get("path");
                 let node_ids: Vec<&str> = path_str.split(',').collect();
-
                 let mut path_nodes = Vec::with_capacity(node_ids.len());
                 for (hop, nid) in node_ids.iter().enumerate() {
                     let nr = sqlx::query(
@@ -454,7 +505,6 @@ impl GraphStore for SqliteGraphStore {
                     .bind(tenant_id)
                     .fetch_optional(&self.pool)
                     .await?;
-
                     if let Some(nr) = nr {
                         path_nodes.push(TraversalNode {
                             node_id: nid.to_string(),
@@ -467,15 +517,11 @@ impl GraphStore for SqliteGraphStore {
                         });
                     }
                 }
-
                 Ok(Some(path_nodes))
             }
         }
     }
 
-    /// Atomic re-ingestion: delete old edges, upsert nodes, insert new edges
-    /// all within a single SQLite transaction. If any step fails, the entire
-    /// transaction is rolled back leaving the database unchanged.
     async fn reingest_file(
         &self,
         tenant_id: &str,
@@ -485,8 +531,6 @@ impl GraphStore for SqliteGraphStore {
     ) -> GraphDbResult<()> {
         let now = now_utc();
         let mut tx = self.pool.begin().await?;
-
-        // Step 1: Delete old edges for this file
         let deleted =
             sqlx::query("DELETE FROM graph_edges WHERE tenant_id = ?1 AND source_file = ?2")
                 .bind(tenant_id)
@@ -497,10 +541,8 @@ impl GraphStore for SqliteGraphStore {
             "reingest_file: deleted {} old edges for {} in tenant {}",
             deleted.rows_affected(),
             file_path,
-            tenant_id,
+            tenant_id
         );
-
-        // Step 2: Upsert nodes
         for node in nodes {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
@@ -510,8 +552,7 @@ impl GraphStore for SqliteGraphStore {
                 ON CONFLICT(node_id) DO UPDATE SET
                     symbol_name = excluded.symbol_name,
                     symbol_type = excluded.symbol_type,
-                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path
-                                     ELSE excluded.file_path END,
+                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path ELSE excluded.file_path END,
                     start_line = COALESCE(excluded.start_line, graph_nodes.start_line),
                     end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
                     signature = COALESCE(excluded.signature, graph_nodes.signature),
@@ -519,22 +560,12 @@ impl GraphStore for SqliteGraphStore {
                     branches = excluded.branches,
                     updated_at = ?11",
             )
-            .bind(&node.node_id)
-            .bind(&node.tenant_id)
-            .bind(&node.symbol_name)
-            .bind(node.symbol_type.as_str())
-            .bind(&node.file_path)
-            .bind(node.start_line.map(|v| v as i64))
-            .bind(node.end_line.map(|v| v as i64))
-            .bind(&node.signature)
-            .bind(&node.language)
-            .bind(&node.branches)
-            .bind(&now)
-            .execute(&mut *tx)
-            .await?;
+            .bind(&node.node_id).bind(&node.tenant_id).bind(&node.symbol_name)
+            .bind(node.symbol_type.as_str()).bind(&node.file_path)
+            .bind(node.start_line.map(|v| v as i64)).bind(node.end_line.map(|v| v as i64))
+            .bind(&node.signature).bind(&node.language).bind(&node.branches).bind(&now)
+            .execute(&mut *tx).await?;
         }
-
-        // Step 3: Insert new edges
         for edge in edges {
             sqlx::query(
                 "INSERT OR IGNORE INTO graph_edges
@@ -555,14 +586,13 @@ impl GraphStore for SqliteGraphStore {
             .execute(&mut *tx)
             .await?;
         }
-
         tx.commit().await?;
         debug!(
             "reingest_file: committed {} nodes + {} edges for {} in tenant {}",
             nodes.len(),
             edges.len(),
             file_path,
-            tenant_id,
+            tenant_id
         );
         Ok(())
     }
@@ -574,28 +604,60 @@ impl SqliteGraphStore {
         tenant_id: &str,
         symbol_name: &str,
         file_path: Option<&str>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Vec<String>> {
-        if let Some(fp) = file_path {
-            let rows = sqlx::query(
-                "SELECT node_id FROM graph_nodes
-                 WHERE tenant_id = ?1 AND symbol_name = ?2 AND file_path = ?3",
-            )
-            .bind(tenant_id)
-            .bind(symbol_name)
-            .bind(fp)
-            .fetch_all(&self.pool)
-            .await?;
-            Ok(rows.iter().map(|r| r.get("node_id")).collect())
-        } else {
-            let rows = sqlx::query(
-                "SELECT node_id FROM graph_nodes
-                 WHERE tenant_id = ?1 AND symbol_name = ?2",
-            )
-            .bind(tenant_id)
-            .bind(symbol_name)
-            .fetch_all(&self.pool)
-            .await?;
-            Ok(rows.iter().map(|r| r.get("node_id")).collect())
+        let scoped = !is_cross_branch(branch);
+        match (file_path, scoped) {
+            (Some(fp), true) => {
+                let rows = sqlx::query(
+                    "SELECT node_id FROM graph_nodes
+                     WHERE tenant_id = ?1 AND symbol_name = ?2 AND file_path = ?3
+                       AND EXISTS (SELECT 1 FROM json_each(branches) WHERE value = ?4)",
+                )
+                .bind(tenant_id)
+                .bind(symbol_name)
+                .bind(fp)
+                .bind(branch.unwrap_or_default())
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.iter().map(|r| r.get("node_id")).collect())
+            }
+            (Some(fp), false) => {
+                let rows = sqlx::query(
+                    "SELECT node_id FROM graph_nodes
+                     WHERE tenant_id = ?1 AND symbol_name = ?2 AND file_path = ?3",
+                )
+                .bind(tenant_id)
+                .bind(symbol_name)
+                .bind(fp)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.iter().map(|r| r.get("node_id")).collect())
+            }
+            (None, true) => {
+                let rows = sqlx::query(
+                    "SELECT node_id FROM graph_nodes
+                     WHERE tenant_id = ?1 AND symbol_name = ?2
+                       AND EXISTS (SELECT 1 FROM json_each(branches) WHERE value = ?3)",
+                )
+                .bind(tenant_id)
+                .bind(symbol_name)
+                .bind(branch.unwrap_or_default())
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.iter().map(|r| r.get("node_id")).collect())
+            }
+            (None, false) => {
+                let rows = sqlx::query(
+                    "SELECT node_id FROM graph_nodes
+                     WHERE tenant_id = ?1 AND symbol_name = ?2",
+                )
+                .bind(tenant_id)
+                .bind(symbol_name)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows.iter().map(|r| r.get("node_id")).collect())
+            }
         }
     }
 
@@ -603,31 +665,42 @@ impl SqliteGraphStore {
         &self,
         tenant_id: &str,
         target_id: &str,
+        branch: Option<&str>,
     ) -> GraphDbResult<Vec<ImpactNode>> {
-        let rows = sqlx::query(
+        let scoped = !is_cross_branch(branch);
+        let edge_br = if scoped {
+            edge_branch_clause("e", 3)
+        } else {
+            String::new()
+        };
+        let node_br = if scoped {
+            node_branch_clause("n", 3)
+        } else {
+            String::new()
+        };
+        let sql = format!(
             "WITH RECURSIVE reverse_traverse AS (
                 SELECT e.source_node_id AS node_id, e.edge_type, 1 AS depth
                 FROM graph_edges e
-                WHERE e.target_node_id = ?1 AND e.tenant_id = ?2
-
+                WHERE e.target_node_id = ?1 AND e.tenant_id = ?2{edge_br}
                 UNION ALL
-
                 SELECT e.source_node_id, e.edge_type, rt.depth + 1
                 FROM graph_edges e
                 INNER JOIN reverse_traverse rt ON e.target_node_id = rt.node_id
-                WHERE rt.depth < 3 AND e.tenant_id = ?2
+                WHERE rt.depth < 3 AND e.tenant_id = ?2{edge_br}
             )
             SELECT DISTINCT rt.node_id, rt.edge_type, rt.depth,
                    n.symbol_name, n.file_path
             FROM reverse_traverse rt
             JOIN graph_nodes n ON rt.node_id = n.node_id
-            ORDER BY rt.depth, n.symbol_name",
-        )
-        .bind(target_id)
-        .bind(tenant_id)
-        .fetch_all(&self.pool)
-        .await?;
-
+            WHERE 1=1{node_br}
+            ORDER BY rt.depth, n.symbol_name"
+        );
+        let mut qb = sqlx::query(&sql).bind(target_id).bind(tenant_id);
+        if scoped {
+            qb = qb.bind(branch.unwrap_or_default());
+        }
+        let rows = qb.fetch_all(&self.pool).await?;
         Ok(rows
             .iter()
             .map(|row| {

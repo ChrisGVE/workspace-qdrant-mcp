@@ -318,6 +318,17 @@ pub struct GraphStats {
     pub edges_by_type: std::collections::HashMap<String, u64>,
 }
 
+/// Check whether a branch filter should be applied.
+///
+/// Returns `true` when the caller wants cross-branch (unscoped) results:
+/// `None`, empty string, or the wildcard `"*"`.
+pub fn is_cross_branch(branch: Option<&str>) -> bool {
+    match branch {
+        None => true,
+        Some(b) => b.is_empty() || b == "*",
+    }
+}
+
 /// Trait abstracting graph storage operations.
 ///
 /// Implementations:
@@ -344,29 +355,45 @@ pub trait GraphStore: Send + Sync {
     async fn delete_tenant(&self, tenant_id: &str) -> GraphDbResult<u64>;
 
     /// Query nodes related to a given node within N hops.
+    ///
+    /// When `branch` is `Some(name)` (and not `"*"`), only nodes whose
+    /// `branches` JSON array contains `name` and edges whose `branch`
+    /// column equals `name` (or is `NULL`) are traversed.
     async fn query_related(
         &self,
         tenant_id: &str,
         node_id: &str,
         max_hops: u32,
         edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Vec<TraversalNode>>;
 
     /// Find all nodes that would be affected by changing a given symbol.
+    ///
+    /// When `branch` is provided (and not `"*"`), only edges and nodes
+    /// belonging to that branch are considered.
     async fn impact_analysis(
         &self,
         tenant_id: &str,
         symbol_name: &str,
         file_path: Option<&str>,
+        branch: Option<&str>,
     ) -> GraphDbResult<ImpactReport>;
 
-    /// Get graph statistics, optionally filtered by tenant.
-    async fn stats(&self, tenant_id: Option<&str>) -> GraphDbResult<GraphStats>;
+    /// Get graph statistics, optionally filtered by tenant and branch.
+    async fn stats(
+        &self,
+        tenant_id: Option<&str>,
+        branch: Option<&str>,
+    ) -> GraphDbResult<GraphStats>;
 
     /// Delete orphaned nodes (nodes with no edges).
     async fn prune_orphans(&self, tenant_id: &str) -> GraphDbResult<u64>;
 
     /// Find shortest path between two nodes using BFS.
+    ///
+    /// When `branch` is provided (and not `"*"`), only edges belonging
+    /// to that branch (or with `NULL` branch) are traversed.
     async fn find_path(
         &self,
         tenant_id: &str,
@@ -374,6 +401,7 @@ pub trait GraphStore: Send + Sync {
         target_id: &str,
         max_depth: u32,
         edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>>;
 
     /// Atomically re-ingest a file: delete old edges, upsert nodes, insert new

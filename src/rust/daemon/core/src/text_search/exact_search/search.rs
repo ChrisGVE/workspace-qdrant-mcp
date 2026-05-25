@@ -125,7 +125,9 @@ async fn run_bound_query(
         query = query.bind(tid);
     }
     if let Some(ref branch) = effective_options.branch {
-        query = query.bind(branch);
+        if branch != "*" {
+            query = query.bind(branch);
+        }
     }
     if let Some(ref prefix_arg) = path_prefix_arg {
         query = query.bind(prefix_arg);

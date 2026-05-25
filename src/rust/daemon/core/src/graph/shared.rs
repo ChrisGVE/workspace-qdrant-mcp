@@ -157,10 +157,11 @@ impl<S: GraphStore> SharedGraphStore<S> {
         node_id: &str,
         max_hops: u32,
         edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Vec<TraversalNode>> {
         let guard = self.acquire_read("query_related").await?;
         guard
-            .query_related(tenant_id, node_id, max_hops, edge_types)
+            .query_related(tenant_id, node_id, max_hops, edge_types, branch)
             .await
     }
 
@@ -170,17 +171,22 @@ impl<S: GraphStore> SharedGraphStore<S> {
         tenant_id: &str,
         symbol_name: &str,
         file_path: Option<&str>,
+        branch: Option<&str>,
     ) -> GraphDbResult<ImpactReport> {
         let guard = self.acquire_read("impact_analysis").await?;
         guard
-            .impact_analysis(tenant_id, symbol_name, file_path)
+            .impact_analysis(tenant_id, symbol_name, file_path, branch)
             .await
     }
 
     /// Graph statistics.
-    pub async fn stats(&self, tenant_id: Option<&str>) -> GraphDbResult<GraphStats> {
+    pub async fn stats(
+        &self,
+        tenant_id: Option<&str>,
+        branch: Option<&str>,
+    ) -> GraphDbResult<GraphStats> {
         let guard = self.acquire_read("stats").await?;
-        guard.stats(tenant_id).await
+        guard.stats(tenant_id, branch).await
     }
 
     /// Find shortest path between two nodes.
@@ -191,10 +197,13 @@ impl<S: GraphStore> SharedGraphStore<S> {
         target_id: &str,
         max_depth: u32,
         edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
         let guard = self.acquire_read("find_path").await?;
         guard
-            .find_path(tenant_id, source_id, target_id, max_depth, edge_types)
+            .find_path(
+                tenant_id, source_id, target_id, max_depth, edge_types, branch,
+            )
             .await
     }
 
@@ -369,7 +378,7 @@ mod tests {
         );
         store.insert_edges(&[edge]).await.unwrap();
 
-        let stats = store.stats(Some(T)).await.unwrap();
+        let stats = store.stats(Some(T), None).await.unwrap();
         assert_eq!(stats.total_nodes, 2);
         assert_eq!(stats.total_edges, 1);
     }
@@ -405,7 +414,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stats = store.stats(Some(T)).await.unwrap();
+        let stats = store.stats(Some(T), None).await.unwrap();
         // Old a->b edge deleted, new a->c edge inserted
         assert_eq!(stats.total_edges, 1);
     }
@@ -433,7 +442,7 @@ mod tests {
             let s = store.clone();
             let node_id = a.node_id.clone();
             handles.push(tokio::spawn(async move {
-                s.query_related(T, &node_id, 1, None).await.unwrap()
+                s.query_related(T, &node_id, 1, None, None).await.unwrap()
             }));
         }
 
@@ -453,8 +462,8 @@ mod tests {
         let a = GraphNode::new(T, "a.rs", "a", super::super::NodeType::Function);
         store.upsert_nodes(&[a]).await.unwrap();
 
-        let stats1 = clone1.stats(Some(T)).await.unwrap();
-        let stats2 = clone2.stats(Some(T)).await.unwrap();
+        let stats1 = clone1.stats(Some(T), None).await.unwrap();
+        let stats2 = clone2.stats(Some(T), None).await.unwrap();
         assert_eq!(stats1.total_nodes, 1);
         assert_eq!(stats2.total_nodes, 1);
     }
@@ -473,7 +482,7 @@ mod tests {
         // After a fast operation, counters remain at zero
         let a = GraphNode::new(T, "a.rs", "a", super::super::NodeType::Function);
         store.upsert_nodes(&[a]).await.unwrap();
-        store.stats(Some(T)).await.unwrap();
+        store.stats(Some(T), None).await.unwrap();
 
         assert_eq!(store.slow_read_count(), 0);
         assert_eq!(store.slow_write_count(), 0);
@@ -522,7 +531,7 @@ mod tests {
                 // Read stats multiple times to increase overlap probability
                 let mut results = Vec::new();
                 for _ in 0..5 {
-                    results.push(s.stats(Some(T)).await.unwrap());
+                    results.push(s.stats(Some(T), None).await.unwrap());
                 }
                 results
             }));
@@ -629,7 +638,7 @@ mod tests {
         h2.await.unwrap();
 
         // Both writes completed; edges should reflect both reingestions
-        let stats = store.stats(Some(T)).await.unwrap();
+        let stats = store.stats(Some(T), None).await.unwrap();
         assert_eq!(
             stats.total_edges, 2,
             "expected 2 edges after concurrent reingestion, got {}",
@@ -664,7 +673,7 @@ mod tests {
         let mut handles = Vec::new();
         for _ in 0..5 {
             let s = store.clone();
-            handles.push(tokio::spawn(async move { s.stats(Some(T)).await.unwrap() }));
+            handles.push(tokio::spawn(async move { s.stats(Some(T), None).await.unwrap() }));
         }
 
         for handle in handles {

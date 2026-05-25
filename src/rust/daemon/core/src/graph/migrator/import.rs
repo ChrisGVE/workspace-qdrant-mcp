@@ -165,7 +165,7 @@ pub async fn validate_migration<S: GraphStore>(
     };
 
     // Count target
-    let target_stats = target.stats(tenant_id).await?;
+    let target_stats = target.stats(tenant_id, None).await?;
 
     let nodes_ok = source_nodes == target_stats.total_nodes;
     let edges_ok = source_edges == target_stats.total_edges;

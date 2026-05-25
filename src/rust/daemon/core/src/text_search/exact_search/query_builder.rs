@@ -69,7 +69,7 @@ WHERE 1=1",
         sql.push_str(&format!(" AND fm.tenant_id = ?{}", next_param));
         next_param += 1;
     }
-    if options.branch.is_some() {
+    if options.branch.as_deref().is_some_and(|b| b != "*") {
         sql.push_str(&format!(" AND fm.branch = ?{}", next_param));
         next_param += 1;
     }
