@@ -291,6 +291,48 @@ impl StorageClient {
 
         Ok(count)
     }
+
+    /// Delete points by a custom filter.
+    ///
+    /// Used by branch cleanup to delete orphaned points by base_point.
+    pub async fn delete_points_with_filter(
+        &self,
+        collection_name: &str,
+        filter: Filter,
+    ) -> Result<u64, StorageError> {
+        if !self.collection_exists(collection_name).await? {
+            return Ok(0);
+        }
+
+        let count = self
+            .count_points_with_filter(collection_name, filter.clone())
+            .await?;
+
+        if count == 0 {
+            return Ok(0);
+        }
+
+        let delete_request = DeletePointsBuilder::new(collection_name)
+            .points(filter)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client
+                .delete_points(delete_request.clone())
+                .await
+                .map_err(|e| StorageError::Point(format!("Failed to delete points: {}", e)))
+        })
+        .await?;
+
+        info!(
+            collection = collection_name,
+            op = "delete_with_filter",
+            point_count = count,
+            "qdrant delete completed"
+        );
+
+        Ok(count)
+    }
 }
 
 /// Validate the inputs to `delete_points_by_payload_fields` and lower them

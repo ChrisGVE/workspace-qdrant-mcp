@@ -1,0 +1,235 @@
+//! Branch cleanup: removal of branch membership data when a branch is deleted.
+//!
+//! When a branch is deleted (both locally and remotely), this module removes
+//! the branch from all tracked_files.branches[] arrays, Qdrant point payloads,
+//! and file_metadata rows. Points left with an empty branches[] array are
+//! fully deleted (orphaned content).
+
+mod db;
+
+#[cfg(test)]
+mod tests;
+
+use std::path::Path;
+
+use sqlx::SqlitePool;
+use tracing::{debug, info, warn};
+
+use crate::branch_switch::BranchUpdateContext;
+
+/// Result of a branch cleanup operation.
+#[derive(Debug, Default)]
+pub struct BranchCleanupResult {
+    /// Files where the branch was removed but content retained (other branches still reference it).
+    pub updated: u64,
+    /// Files fully deleted (no branches remain).
+    pub deleted: u64,
+    /// Whether cleanup was skipped (branch still exists somewhere).
+    pub skipped: bool,
+    /// Errors encountered.
+    pub errors: u64,
+}
+
+/// Check whether a branch still exists locally or on a remote.
+#[derive(Debug, PartialEq)]
+pub enum BranchExistence {
+    ExistsLocally,
+    ExistsRemotely,
+    Gone,
+    CheckFailed(String),
+}
+
+/// Check if a branch still exists locally or on a remote.
+pub fn check_branch_existence(project_root: &Path, branch: &str) -> BranchExistence {
+    // Check local refs
+    let local = std::process::Command::new("git")
+        .args([
+            "-C",
+            &project_root.to_string_lossy(),
+            "branch",
+            "--list",
+            branch,
+        ])
+        .output();
+
+    match local {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+            return BranchExistence::ExistsLocally;
+        }
+        Err(e) => return BranchExistence::CheckFailed(format!("git branch --list: {}", e)),
+        _ => {}
+    }
+
+    // Check remote refs
+    let remote = std::process::Command::new("git")
+        .args([
+            "-C",
+            &project_root.to_string_lossy(),
+            "ls-remote",
+            "--heads",
+            "origin",
+            &format!("refs/heads/{}", branch),
+        ])
+        .output();
+
+    match remote {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+            BranchExistence::ExistsRemotely
+        }
+        Ok(out) if out.status.success() => BranchExistence::Gone,
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if stderr.contains("Could not read from remote")
+                || stderr.contains("does not appear to be a git repository")
+            {
+                // No remote configured — treat as "gone" since we already checked local
+                BranchExistence::Gone
+            } else {
+                BranchExistence::CheckFailed(format!("git ls-remote exit={}", out.status))
+            }
+        }
+        Err(e) => BranchExistence::CheckFailed(format!("git ls-remote: {}", e)),
+    }
+}
+
+/// Clean up a deleted branch: remove from tracked_files, Qdrant, and search.db.
+///
+/// Only proceeds if the branch doesn't exist locally or remotely.
+/// When remote check fails (network error), cleanup is deferred (no data loss).
+pub async fn cleanup_deleted_branch(
+    pool: &SqlitePool,
+    branch_ctx: &BranchUpdateContext,
+    watch_folder_id: &str,
+    tenant_id: &str,
+    project_root: &Path,
+    deleted_branch: &str,
+) -> BranchCleanupResult {
+    let existence = check_branch_existence(project_root, deleted_branch);
+
+    match existence {
+        BranchExistence::ExistsLocally => {
+            debug!(
+                "Branch '{}' still exists locally, skipping cleanup",
+                deleted_branch
+            );
+            return BranchCleanupResult {
+                skipped: true,
+                ..Default::default()
+            };
+        }
+        BranchExistence::ExistsRemotely => {
+            debug!(
+                "Branch '{}' still exists on remote, skipping cleanup",
+                deleted_branch
+            );
+            return BranchCleanupResult {
+                skipped: true,
+                ..Default::default()
+            };
+        }
+        BranchExistence::CheckFailed(reason) => {
+            warn!(
+                "Branch existence check failed for '{}': {}. Deferring cleanup.",
+                deleted_branch, reason
+            );
+            return BranchCleanupResult {
+                skipped: true,
+                errors: 1,
+                ..Default::default()
+            };
+        }
+        BranchExistence::Gone => {
+            info!(
+                "Branch '{}' confirmed gone (local + remote), proceeding with cleanup",
+                deleted_branch
+            );
+        }
+    }
+
+    // Fetch all affected files
+    let affected = match db::fetch_affected_files(pool, watch_folder_id, deleted_branch).await {
+        Ok(files) => files,
+        Err(e) => {
+            warn!("Failed to fetch affected files for cleanup: {}", e);
+            return BranchCleanupResult {
+                errors: 1,
+                ..Default::default()
+            };
+        }
+    };
+
+    if affected.is_empty() {
+        debug!(
+            "No tracked files reference branch '{}', nothing to clean up",
+            deleted_branch
+        );
+        return BranchCleanupResult::default();
+    }
+
+    let mut result = BranchCleanupResult::default();
+
+    // Classify: files to update (remove branch) vs files to delete (orphaned)
+    let (to_update, to_delete): (Vec<_>, Vec<_>) =
+        affected.iter().partition(|f| f.remaining_branches > 0);
+
+    // 1. Update files that still have other branches
+    if !to_update.is_empty() {
+        match db::remove_branch_from_tracked_files(pool, &to_update, deleted_branch).await {
+            Ok(count) => result.updated = count,
+            Err(e) => {
+                warn!("Failed to remove branch from tracked files: {}", e);
+                result.errors += 1;
+            }
+        }
+
+        // Update Qdrant: set new branches array (without deleted branch)
+        let lock = branch_ctx.branch_locks.get(tenant_id);
+        let _guard = lock.lock().await;
+        for f in &to_update {
+            if let Some(ref bp) = f.base_point {
+                let new_branches: Vec<&str> = f
+                    .branches
+                    .iter()
+                    .filter(|b| b.as_str() != deleted_branch)
+                    .map(|b| b.as_str())
+                    .collect();
+                db::update_qdrant_branches(branch_ctx, bp, &new_branches).await;
+            }
+        }
+    }
+
+    // 2. Delete orphaned files (no branches remain)
+    if !to_delete.is_empty() {
+        let base_points: Vec<&str> = to_delete
+            .iter()
+            .filter_map(|f| f.base_point.as_deref())
+            .collect();
+        let file_ids: Vec<i64> = to_delete.iter().map(|f| f.file_id).collect();
+
+        // Delete Qdrant points
+        for bp in &base_points {
+            db::delete_qdrant_points(branch_ctx, bp).await;
+        }
+
+        // Delete tracked_files and qdrant_chunks rows
+        match db::delete_orphaned_files(pool, &file_ids).await {
+            Ok(count) => result.deleted = count,
+            Err(e) => {
+                warn!("Failed to delete orphaned files: {}", e);
+                result.errors += 1;
+            }
+        }
+    }
+
+    // 3. Delete file_metadata rows for the deleted branch
+    if let Some(ref sdb) = branch_ctx.search_db {
+        db::delete_file_metadata_for_branch(sdb.pool(), tenant_id, deleted_branch).await;
+    }
+
+    info!(
+        "Branch '{}' cleanup complete: {} updated, {} deleted, {} errors",
+        deleted_branch, result.updated, result.deleted, result.errors
+    );
+
+    result
+}
