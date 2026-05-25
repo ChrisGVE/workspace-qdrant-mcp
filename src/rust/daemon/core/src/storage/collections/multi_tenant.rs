@@ -242,6 +242,12 @@ impl StorageClient {
                 result.projects_indexed = true;
             }
         }
+        if let Err(e) = self
+            .create_payload_index(COLLECTION_PROJECTS, "branches")
+            .await
+        {
+            warn!("Could not create branches index (may already exist): {}", e);
+        }
         Ok(())
     }
 

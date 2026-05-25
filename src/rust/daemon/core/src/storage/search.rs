@@ -39,7 +39,11 @@ pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<
     let mut conditions: Vec<Condition> = Vec::with_capacity(filter.len());
     for (key, value) in filter {
         let (effective_key, effective_value);
-        if key == "branch" {
+        if key == "branch" || key == "branches" {
+            // Cross-branch wildcard: omit branch filter entirely
+            if matches!(value, Value::String(s) if s == "*") {
+                continue;
+            }
             effective_key = "branches";
             effective_value = match value {
                 Value::String(_) => std::borrow::Cow::Owned(Value::Array(vec![value.clone()])),
@@ -554,6 +558,29 @@ mod tests {
             result.must.len(),
             1,
             "branches array should produce one match-any condition"
+        );
+    }
+
+    #[test]
+    fn build_filter_branch_wildcard_omits_branch_condition() {
+        let mut filter = HashMap::new();
+        filter.insert("tenant_id".to_string(), json!("proj1"));
+        filter.insert("branch".to_string(), json!("*"));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            1,
+            "branch='*' should be skipped, leaving only tenant_id"
+        );
+    }
+
+    #[test]
+    fn build_filter_branches_wildcard_omits_branch_condition() {
+        let mut filter = HashMap::new();
+        filter.insert("branches".to_string(), json!("*"));
+        assert!(
+            build_filter_from_json(&filter).is_none(),
+            "branches='*' alone should produce no conditions"
         );
     }
 }
