@@ -21,6 +21,7 @@ mod component;
 mod dedup;
 mod delete;
 mod dependency_ingest;
+mod discovery_trigger;
 mod fts5_index;
 mod grammar;
 mod graph_ingest;

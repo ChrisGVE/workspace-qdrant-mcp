@@ -64,6 +64,40 @@ impl Default for TenantBranchLocks {
     }
 }
 
+/// Tracks which (watch_folder_id, branch) pairs have had discovery checked.
+///
+/// This prevents re-running the expensive filesystem scan on every file
+/// event for a branch that's already been discovered or confirmed as known.
+pub struct DiscoveryTracker {
+    checked: std::sync::Mutex<HashSet<(String, String)>>,
+}
+
+impl DiscoveryTracker {
+    pub fn new() -> Self {
+        Self {
+            checked: std::sync::Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// Returns true if this (watch_folder_id, branch) has already been checked.
+    pub fn is_checked(&self, watch_folder_id: &str, branch: &str) -> bool {
+        let set = self.checked.lock().expect("DiscoveryTracker poisoned");
+        set.contains(&(watch_folder_id.to_string(), branch.to_string()))
+    }
+
+    /// Mark a (watch_folder_id, branch) as checked.
+    pub fn mark_checked(&self, watch_folder_id: &str, branch: &str) {
+        let mut set = self.checked.lock().expect("DiscoveryTracker poisoned");
+        set.insert((watch_folder_id.to_string(), branch.to_string()));
+    }
+}
+
+impl Default for DiscoveryTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Bundled processing dependencies for queue item strategies.
 ///
 /// Instead of passing 11+ arguments through every function call in the
@@ -141,6 +175,11 @@ pub struct ProcessingContext {
     /// during content-hash deduplication. Prevents read-modify-write races
     /// when adding a branch to an existing Qdrant point's `branches` payload.
     pub branch_locks: Arc<TenantBranchLocks>,
+
+    /// Tracks (watch_folder_id, branch) pairs that have already been checked
+    /// for discovery. Prevents re-running discovery on every file event for
+    /// a branch that's already been processed.
+    pub discovery_tracker: Arc<DiscoveryTracker>,
 }
 
 impl ProcessingContext {
@@ -179,6 +218,7 @@ impl ProcessingContext {
             tier2_tagger: None,
             branch_cache: Arc::new(BranchCache::new()),
             branch_locks: Arc::new(TenantBranchLocks::new()),
+            discovery_tracker: Arc::new(DiscoveryTracker::new()),
         }
     }
 }
@@ -247,6 +287,7 @@ mod tests {
             let _ = &ctx.tier2_tagger;
             let _ = &ctx.branch_cache;
             let _ = &ctx.branch_locks;
+            let _ = &ctx.discovery_tracker;
         }
     }
 

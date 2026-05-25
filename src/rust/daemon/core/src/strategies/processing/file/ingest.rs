@@ -49,6 +49,19 @@ pub(crate) async fn ingest_file_content(
         .branch_cache
         .get_branch(Path::new(base_path), &item.branch);
 
+    // === BRANCH DISCOVERY CHECK ===
+    // If this is the first file event for an unknown branch, run discovery
+    // to populate existing content before processing individual files.
+    super::discovery_trigger::check_and_run_discovery(
+        ctx,
+        pool,
+        watch_folder_id,
+        &item.tenant_id,
+        base_path,
+        &detected_branch,
+    )
+    .await;
+
     // === PER-DESTINATION RETRY SKIP (Task 6) ===
     let qdrant_already_done = item.qdrant_status == Some(DestinationStatus::Done);
     if qdrant_already_done {
