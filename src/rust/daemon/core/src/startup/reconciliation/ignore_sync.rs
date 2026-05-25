@@ -215,7 +215,9 @@ async fn enqueue_ignore_ops(
 }
 
 /// Walk project tree and collect all eligible file paths (not excluded
-/// by .gitignore or .wqmignore). Returns absolute path strings.
+/// by .gitignore or .wqmignore). Returns relative path strings (relative
+/// to `project_root`), matching the post-v37 `tracked_files.relative_path`
+/// column format.
 fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
     let mut builder = WalkBuilder::new(project_root);
     builder
@@ -229,20 +231,29 @@ fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
     let mut files = HashSet::new();
     for entry in builder.build().flatten() {
         if entry.file_type().map_or(false, |ft| ft.is_file()) {
-            files.insert(entry.path().to_string_lossy().to_string());
+            let rel = entry
+                .path()
+                .strip_prefix(project_root)
+                .unwrap_or(entry.path())
+                .to_string_lossy()
+                .to_string();
+            files.insert(rel);
         }
     }
 
     Ok(files)
 }
 
-/// Get all tracked file paths for a watch folder from the DB.
+/// Get all tracked relative file paths for a watch folder from the DB.
+///
+/// Post-v37: the absolute `file_path` column no longer exists; relative paths
+/// are stored in `relative_path`.
 async fn get_indexed_file_paths(
     pool: &SqlitePool,
     watch_folder_id: &str,
 ) -> Result<HashSet<String>, String> {
     let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT file_path FROM tracked_files WHERE watch_folder_id = ?1")
+        sqlx::query_as("SELECT relative_path FROM tracked_files WHERE watch_folder_id = ?1")
             .bind(watch_folder_id)
             .fetch_all(pool)
             .await
