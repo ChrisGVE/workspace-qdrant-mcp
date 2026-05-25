@@ -218,6 +218,7 @@ pub fn spawn_background_reconciliation(queue_pool: SqlitePool) -> tokio::task::J
         }
 
         enqueue_startup_scans(&queue_pool, &qm).await;
+        trigger_semantic_upgrade(&queue_pool, &qm).await;
     })
 }
 
@@ -285,6 +286,87 @@ async fn enqueue_startup_scans(
             enqueued
         );
     }
+}
+
+/// One-time migration: reset treesitter_status for files that were incorrectly
+/// marked 'done' by the old text-only chunking path, then trigger capability
+/// upgrade to re-process them with proper semantic chunking.
+///
+/// Uses a lightweight `startup_migrations` table to ensure this runs only once.
+async fn trigger_semantic_upgrade(
+    pool: &SqlitePool,
+    qm: &Arc<workspace_qdrant_core::queue_operations::QueueManager>,
+) {
+    let migration_key = "semantic_chunking_upgrade_v1";
+
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS startup_migrations (\
+         key TEXT PRIMARY KEY, applied_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+    )
+    .execute(pool)
+    .await;
+
+    let already_done: bool =
+        sqlx::query_scalar("SELECT COUNT(*) > 0 FROM startup_migrations WHERE key = ?1")
+            .bind(migration_key)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(false);
+
+    if already_done {
+        return;
+    }
+
+    let reset = sqlx::query(
+        "UPDATE tracked_files SET treesitter_status = 'none' \
+         WHERE treesitter_status = 'done'",
+    )
+    .execute(pool)
+    .await;
+
+    let reset_count = match reset {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            warn!("[startup-bg] Failed to reset treesitter_status: {}", e);
+            return;
+        }
+    };
+
+    if reset_count > 0 {
+        info!(
+            "[startup-bg] Reset treesitter_status for {} files (semantic chunking upgrade)",
+            reset_count
+        );
+
+        let tenants: Vec<String> =
+            sqlx::query_scalar("SELECT DISTINCT tenant_id FROM watch_folders WHERE enabled = 1")
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+
+        let mut total_enqueued = 0u32;
+        for tenant_id in &tenants {
+            total_enqueued +=
+                workspace_qdrant_core::strategies::capability_upgrade::trigger_capability_upgrade(
+                    pool,
+                    qm,
+                    tenant_id,
+                    workspace_qdrant_core::tracked_files_schema::UpgradeReason::GrammarAvailable,
+                    None,
+                )
+                .await;
+        }
+
+        info!(
+            "[startup-bg] Semantic chunking upgrade: {} files enqueued for re-processing",
+            total_enqueued
+        );
+    }
+
+    let _ = sqlx::query("INSERT OR IGNORE INTO startup_migrations (key) VALUES (?1)")
+        .bind(migration_key)
+        .execute(pool)
+        .await;
 }
 
 /// Initialize the shared pause flag from database state (Task 543.16).
