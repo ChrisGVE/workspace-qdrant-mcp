@@ -28,6 +28,7 @@ workspace-qdrant-mcp (v0.1.0) is a Model Context Protocol (MCP) server providing
 - Path validation for orphaned project cleanup
 - Code relationship graph (SQLite CTEs) with algorithms: PageRank, community detection, betweenness centrality
 - Graph CLI (`wqm graph`) with 7 subcommands: query, impact, stats, pagerank, communities, betweenness, migrate
+- Branch management: content-hash dedup across branches, branch-scoped search (default), discovery algorithm for resilient branch population, branch lifecycle (create/delete/rename) handling
 
 **Critical Design Files:**
 1. **FIRST-PRINCIPLES.md** - Core architectural principles (in project root)
