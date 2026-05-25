@@ -11,15 +11,16 @@ use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::QueueOperation;
 use crate::watching_queue::get_current_branch;
 
-use super::db::{batch_update_branch, fetch_watch_folder, update_last_commit_hash};
+use super::db::{batch_add_branch_to_unchanged_files, fetch_watch_folder, update_last_commit_hash};
 use super::queue::{enqueue_changed_file, enqueue_tenant_scan};
-use super::types::BranchSwitchStats;
+use super::types::{BranchSwitchStats, BranchUpdateContext};
 
 /// Handle a git event by dispatching to the appropriate handler.
 pub async fn handle_git_event(
     event: &GitEvent,
     pool: &SqlitePool,
     queue_manager: &QueueManager,
+    branch_ctx: &BranchUpdateContext,
 ) -> Result<BranchSwitchStats, String> {
     let (project_root, collection, tenant_id) =
         fetch_watch_folder(pool, &event.watch_folder_id).await?;
@@ -30,6 +31,7 @@ pub async fn handle_git_event(
                 event,
                 pool,
                 queue_manager,
+                branch_ctx,
                 &project_root,
                 &collection,
                 &tenant_id,
@@ -48,7 +50,6 @@ pub async fn handle_git_event(
             .await
         }
         GitEventType::Reset => {
-            // Reset can change arbitrary files -- enqueue a full scan
             info!(
                 "Git reset detected for {}, enqueueing full scan",
                 event.watch_folder_id
@@ -66,11 +67,12 @@ pub async fn handle_git_event(
     }
 }
 
-/// Handle a branch switch: diff-tree for changes, batch-update unchanged, enqueue changed.
+/// Handle a branch switch: diff-tree for changes, add branch to unchanged, enqueue changed.
 async fn handle_branch_switch(
     event: &GitEvent,
     pool: &SqlitePool,
     queue_manager: &QueueManager,
+    branch_ctx: &BranchUpdateContext,
     project_root: &str,
     collection: &str,
     tenant_id: &str,
@@ -93,10 +95,12 @@ async fn handle_branch_switch(
     let changed_paths: HashSet<String> = changes.iter().map(|c| c.path.clone()).collect();
     let mut stats = BranchSwitchStats::default();
 
-    // 1. Batch update unchanged files: update branch in tracked_files
-    apply_batch_branch_update(
+    // 1. Add new branch to unchanged files' branches[] arrays
+    apply_branch_add(
         pool,
+        branch_ctx,
         &event.watch_folder_id,
+        tenant_id,
         old_branch,
         new_branch,
         &changed_paths,
@@ -104,7 +108,7 @@ async fn handle_branch_switch(
     )
     .await;
 
-    // 2. Enqueue changed files for re-ingestion
+    // 2. Enqueue changed files for re-ingestion (dedup handles cross-branch matching)
     enqueue_all_changed_files(
         queue_manager,
         &changes,
@@ -123,35 +127,42 @@ async fn handle_branch_switch(
     }
 
     info!(
-        "Branch switch complete for {}: {} batch-updated, {} changed, {} added, {} deleted, {} errors",
-        event.watch_folder_id, stats.batch_updated, stats.enqueued_changed,
+        "Branch switch complete for {}: {} branch-added, {} changed, {} added, {} deleted, {} errors",
+        event.watch_folder_id, stats.branch_added, stats.enqueued_changed,
         stats.enqueued_added, stats.enqueued_deleted, stats.errors
     );
 
     Ok(stats)
 }
 
-/// Apply the batch branch update for unchanged files.
-async fn apply_batch_branch_update(
+/// Add new branch to unchanged files via batch SQLite + Qdrant update.
+#[allow(clippy::too_many_arguments)]
+async fn apply_branch_add(
     pool: &SqlitePool,
+    branch_ctx: &BranchUpdateContext,
     watch_folder_id: &str,
+    tenant_id: &str,
     old_branch: &str,
     new_branch: &str,
     changed_paths: &HashSet<String>,
     stats: &mut BranchSwitchStats,
 ) {
-    match batch_update_branch(pool, watch_folder_id, old_branch, new_branch, changed_paths).await {
+    match batch_add_branch_to_unchanged_files(
+        pool,
+        branch_ctx,
+        watch_folder_id,
+        tenant_id,
+        old_branch,
+        new_branch,
+        changed_paths,
+    )
+    .await
+    {
         Ok(count) => {
-            stats.batch_updated = count;
-            if count > 0 {
-                info!(
-                    "Batch-updated {} unchanged files: branch {} -> {}",
-                    count, old_branch, new_branch
-                );
-            }
+            stats.branch_added = count;
         }
         Err(e) => {
-            warn!("Batch branch update failed: {}", e);
+            warn!("Batch branch add failed: {}", e);
             stats.errors += 1;
         }
     }

@@ -15,7 +15,7 @@ use crate::unified_queue_schema::{
 };
 use crate::watch_folders_schema;
 
-use super::db::{batch_update_branch, update_last_commit_hash};
+use super::db::update_last_commit_hash;
 use super::queue::enqueue_file_op;
 use super::types::BranchSwitchStats;
 
@@ -73,11 +73,7 @@ async fn insert_tracked_file(
     relative_path: &str,
     base_point: &str,
 ) {
-    // Post-v37: the schema has only `relative_path` (no `file_path`). The
-    // legacy `file_path` parameter is retained as the test's local key for
-    // backwards-compatible test fixture code paths; it is bound to the
-    // relative_path column (tests pass identical paths into both slots).
-    let _ = file_path; // legacy param, no SQL column
+    let _ = file_path;
     let branches_json = format!(r#"["{}"]"#, branch);
     sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, relative_path, primary_branch, branches,
@@ -97,7 +93,7 @@ async fn insert_tracked_file(
 #[test]
 fn test_branch_switch_stats_default() {
     let stats = BranchSwitchStats::default();
-    assert_eq!(stats.batch_updated, 0);
+    assert_eq!(stats.branch_added, 0);
     assert_eq!(stats.enqueued_changed, 0);
     assert_eq!(stats.enqueued_added, 0);
     assert_eq!(stats.enqueued_deleted, 0);
@@ -105,7 +101,7 @@ fn test_branch_switch_stats_default() {
 }
 
 #[tokio::test]
-async fn test_batch_update_branch_basic() {
+async fn test_branch_add_unchanged_files_sqlite() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
@@ -113,7 +109,6 @@ async fn test_batch_update_branch_basic() {
     let watch_id = "w1";
     insert_watch_folder(&pool, watch_id, tenant, "/tmp/project").await;
 
-    // Insert 3 files on branch "main"
     let bp1 = wqm_common::hashing::compute_base_point(tenant, "src/a.rs", "hash_a");
     let bp2 = wqm_common::hashing::compute_base_point(tenant, "src/b.rs", "hash_b");
     let bp3 = wqm_common::hashing::compute_base_point(tenant, "src/c.rs", "hash_c");
@@ -131,88 +126,114 @@ async fn test_batch_update_branch_basic() {
     )
     .await;
 
-    // File b.rs changed on the target branch
+    // b.rs changed on target branch
     let mut changed = HashSet::new();
     changed.insert("src/b.rs".to_string());
 
-    // Batch update from "main" to "feature"
-    let count = batch_update_branch(&pool, watch_id, "main", "feature", &changed)
-        .await
-        .unwrap();
+    // Directly test the SQLite batch-add function (no Qdrant needed)
+    let count = super::db::add_branch_to_tracked_files_batch_pub(
+        &pool, watch_id, "main", "feature", &changed,
+    )
+    .await
+    .unwrap();
 
-    // Only 2 files should be updated (a.rs, c.rs — b.rs is in changed set)
+    // 2 files updated (a.rs, c.rs — b.rs excluded)
     assert_eq!(count, 2);
 
-    // Verify primary_branch was updated for unchanged files
-    let branch_a: String = sqlx::query_scalar(
-        "SELECT primary_branch FROM tracked_files WHERE relative_path = 'src/a.rs'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(branch_a, "feature");
-
-    let branch_c: String = sqlx::query_scalar(
-        "SELECT primary_branch FROM tracked_files WHERE relative_path = 'src/c.rs'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(branch_c, "feature");
-
-    // b.rs should still be on "main"
-    let branch_b: String = sqlx::query_scalar(
-        "SELECT primary_branch FROM tracked_files WHERE relative_path = 'src/b.rs'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(branch_b, "main");
-
-    // Verify base_point was recomputed for updated files
-    let new_bp_a = wqm_common::hashing::compute_base_point(tenant, "src/a.rs", "hash_a");
-    let stored_bp: String =
-        sqlx::query_scalar("SELECT base_point FROM tracked_files WHERE relative_path = 'src/a.rs'")
+    // Verify branches[] was updated for unchanged files
+    let branches_a: String =
+        sqlx::query_scalar("SELECT branches FROM tracked_files WHERE relative_path = 'src/a.rs'")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(stored_bp, new_bp_a);
+    let parsed: Vec<String> = serde_json::from_str(&branches_a).unwrap();
+    assert!(parsed.contains(&"main".to_string()));
+    assert!(parsed.contains(&"feature".to_string()));
+
+    let branches_c: String =
+        sqlx::query_scalar("SELECT branches FROM tracked_files WHERE relative_path = 'src/c.rs'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let parsed: Vec<String> = serde_json::from_str(&branches_c).unwrap();
+    assert!(parsed.contains(&"main".to_string()));
+    assert!(parsed.contains(&"feature".to_string()));
+
+    // b.rs should still only have "main"
+    let branches_b: String =
+        sqlx::query_scalar("SELECT branches FROM tracked_files WHERE relative_path = 'src/b.rs'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let parsed: Vec<String> = serde_json::from_str(&branches_b).unwrap();
+    assert_eq!(parsed, vec!["main"]);
 }
 
 #[tokio::test]
-async fn test_batch_update_branch_empty_changed_set() {
+async fn test_branch_add_idempotent() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let tenant = "t1";
-    let watch_id = "w1";
-    insert_watch_folder(&pool, watch_id, tenant, "/tmp/project").await;
+    insert_watch_folder(&pool, "w1", "t1", "/tmp/project").await;
 
-    let bp = wqm_common::hashing::compute_base_point(tenant, "src/a.rs", "hash_a");
-    insert_tracked_file(
-        &pool, watch_id, "src/a.rs", "main", "hash_a", "src/a.rs", &bp,
-    )
-    .await;
+    let bp = wqm_common::hashing::compute_base_point("t1", "src/a.rs", "hash_a");
+    insert_tracked_file(&pool, "w1", "src/a.rs", "main", "hash_a", "src/a.rs", &bp).await;
 
     let changed = HashSet::new();
-    let count = batch_update_branch(&pool, watch_id, "main", "dev", &changed)
-        .await
-        .unwrap();
+
+    // First add
+    let count =
+        super::db::add_branch_to_tracked_files_batch_pub(&pool, "w1", "main", "feature", &changed)
+            .await
+            .unwrap();
     assert_eq!(count, 1);
+
+    // Second add — branch already present, should skip
+    let count =
+        super::db::add_branch_to_tracked_files_batch_pub(&pool, "w1", "main", "feature", &changed)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
 }
 
 #[tokio::test]
-async fn test_batch_update_branch_no_files() {
+async fn test_branch_add_no_files() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
     insert_watch_folder(&pool, "w1", "t1", "/tmp/empty").await;
 
     let changed = HashSet::new();
-    let count = batch_update_branch(&pool, "w1", "main", "dev", &changed)
+    let count =
+        super::db::add_branch_to_tracked_files_batch_pub(&pool, "w1", "main", "dev", &changed)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn test_branch_add_preserves_primary_branch() {
+    let pool = create_test_pool().await;
+    setup_tables(&pool).await;
+
+    insert_watch_folder(&pool, "w1", "t1", "/tmp/project").await;
+
+    let bp = wqm_common::hashing::compute_base_point("t1", "src/a.rs", "hash_a");
+    insert_tracked_file(&pool, "w1", "src/a.rs", "main", "hash_a", "src/a.rs", &bp).await;
+
+    let changed = HashSet::new();
+    super::db::add_branch_to_tracked_files_batch_pub(&pool, "w1", "main", "feature", &changed)
         .await
         .unwrap();
-    assert_eq!(count, 0);
+
+    // primary_branch should remain unchanged
+    let primary: String = sqlx::query_scalar(
+        "SELECT primary_branch FROM tracked_files WHERE relative_path = 'src/a.rs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(primary, "main");
 }
 
 #[tokio::test]
@@ -238,7 +259,6 @@ async fn test_update_last_commit_hash() {
 async fn test_enqueue_file_op() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
-    // Watch folder is needed so the helper can anchor the absolute path.
     insert_watch_folder(&pool, "w1", "t1", "/tmp/project").await;
 
     let qm = QueueManager::new(pool.clone());

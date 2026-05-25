@@ -102,6 +102,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Per-extension ingestion size limits (Task 14)
     ingestion_limits: Arc<IngestionLimitsConfig>,
+
+    /// Per-tenant mutex registry for serializing branch-array mutations.
+    branch_locks: Arc<crate::context::TenantBranchLocks>,
 }
 
 impl UnifiedQueueProcessor {
@@ -170,6 +173,7 @@ impl UnifiedQueueProcessor {
             watch_refresh_signal: None,
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
+            branch_locks: Arc::new(crate::context::TenantBranchLocks::new()),
         }
     }
 
@@ -230,6 +234,7 @@ impl UnifiedQueueProcessor {
             watch_refresh_signal: None,
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
+            branch_locks: Arc::new(crate::context::TenantBranchLocks::new()),
         }
     }
 
@@ -309,6 +314,21 @@ impl UnifiedQueueProcessor {
     /// Get a reference to the queue manager
     pub fn queue_manager(&self) -> &QueueManager {
         &self.queue_manager
+    }
+
+    /// Get the storage client for Qdrant operations.
+    pub fn storage_client(&self) -> &Arc<StorageClient> {
+        &self.storage_client
+    }
+
+    /// Get the search database manager (if configured).
+    pub fn search_db(&self) -> Option<&Arc<SearchDbManager>> {
+        self.search_db.as_ref()
+    }
+
+    /// Get the per-tenant branch locks for serializing branch-array mutations.
+    pub fn branch_locks(&self) -> &Arc<crate::context::TenantBranchLocks> {
+        &self.branch_locks
     }
 
     /// Recover stale leases at startup (Task 37.19)

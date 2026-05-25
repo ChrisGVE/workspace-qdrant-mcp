@@ -295,6 +295,11 @@ fn spawn_git_event_consumer(
 ) {
     let git_pool = uqp.pool().clone();
     let git_qm = uqp.queue_manager().clone();
+    let branch_ctx = Arc::new(workspace_qdrant_core::branch_switch::BranchUpdateContext {
+        storage_client: Arc::clone(uqp.storage_client()),
+        search_db: uqp.search_db().cloned(),
+        branch_locks: Arc::clone(uqp.branch_locks()),
+    });
     let git_watch_manager = Arc::clone(watch_manager);
     tokio::spawn(async move {
         if let Some(mut rx) = git_watch_manager.take_git_event_rx().await {
@@ -304,7 +309,7 @@ fn spawn_git_event_consumer(
                     "Processing git event: {:?} for {}",
                     event.event_type, event.watch_folder_id
                 );
-                handle_single_git_event(&event, &git_pool, &git_qm).await;
+                handle_single_git_event(&event, &git_pool, &git_qm, &branch_ctx).await;
             }
             info!("Git event consumer stopped (channel closed)");
         } else {
@@ -318,19 +323,21 @@ async fn handle_single_git_event(
     event: &workspace_qdrant_core::git::GitEvent,
     pool: &sqlx::SqlitePool,
     qm: &workspace_qdrant_core::queue_operations::QueueManager,
+    branch_ctx: &workspace_qdrant_core::branch_switch::BranchUpdateContext,
 ) {
-    match workspace_qdrant_core::branch_switch::handle_git_event(event, pool, qm).await {
+    match workspace_qdrant_core::branch_switch::handle_git_event(event, pool, qm, branch_ctx).await
+    {
         Ok(stats) => {
-            let total = stats.batch_updated
+            let total = stats.branch_added
                 + stats.enqueued_changed
                 + stats.enqueued_added
                 + stats.enqueued_deleted;
             if total > 0 {
                 info!(
-                    "Git event {:?} processed: {} batch-updated, \
+                    "Git event {:?} processed: {} branch-added, \
                      {} changed, {} added, {} deleted",
                     event.event_type,
-                    stats.batch_updated,
+                    stats.branch_added,
                     stats.enqueued_changed,
                     stats.enqueued_added,
                     stats.enqueued_deleted

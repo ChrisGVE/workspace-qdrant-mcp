@@ -1,171 +1,250 @@
-//! Database operations for branch switch: batch updates and commit hash tracking.
+//! Database operations for branch switch: branch-array updates and commit hash tracking.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use qdrant_client::qdrant::{Condition, Filter};
 use sqlx::SqlitePool;
+use tracing::{debug, info, warn};
 use wqm_common::timestamps;
 
-/// Batch update primary_branch column in tracked_files for unchanged files.
+use super::types::BranchUpdateContext;
+
+/// Tracked file info needed for branch-add operations.
+struct BranchAddCandidate {
+    file_id: i64,
+    relative_path: String,
+    base_point: Option<String>,
+    branches: String,
+}
+
+/// Add new branch to unchanged files' `branches[]` arrays in SQLite and Qdrant.
 ///
-/// Within a single transaction, updates all tracked files on the old branch
-/// that are NOT in the changed_paths set. Also recomputes base_point since
-/// it includes the branch in its hash input.
-pub async fn batch_update_branch(
+/// For each unchanged file (not in `changed_paths`), adds `new_branch` to:
+/// 1. `tracked_files.branches` JSON array in state.db
+/// 2. Qdrant points' `branches` payload field
+/// 3. `file_metadata` row in search.db (for FTS5 branch-scoped search)
+pub async fn batch_add_branch_to_unchanged_files(
+    pool: &SqlitePool,
+    branch_ctx: &BranchUpdateContext,
+    watch_folder_id: &str,
+    tenant_id: &str,
+    old_branch: &str,
+    new_branch: &str,
+    changed_paths: &HashSet<String>,
+) -> Result<u64, String> {
+    let candidates =
+        fetch_unchanged_candidates(pool, watch_folder_id, old_branch, new_branch, changed_paths)
+            .await?;
+
+    if candidates.is_empty() {
+        return Ok(0);
+    }
+
+    let count = candidates.len() as u64;
+
+    // 1. Batch update SQLite tracked_files.branches[]
+    add_branch_to_tracked_files_batch(pool, &candidates, new_branch).await?;
+
+    // 2. Batch update Qdrant points' branches[] payload
+    let lock = branch_ctx.branch_locks.get(tenant_id);
+    let _guard = lock.lock().await;
+    update_qdrant_branches_batch(branch_ctx, &candidates, new_branch).await;
+
+    // 3. Insert file_metadata rows for the new branch in search.db
+    if let Some(ref sdb) = branch_ctx.search_db {
+        insert_file_metadata_for_branch(sdb, pool, &candidates, tenant_id, new_branch).await;
+    }
+
+    info!(
+        "Added branch '{}' to {} unchanged files (was '{}')",
+        new_branch, count, old_branch
+    );
+
+    Ok(count)
+}
+
+/// Fetch candidates for branch-add: files on old_branch NOT in changed_paths,
+/// excluding files that already have new_branch in their branches array.
+async fn fetch_unchanged_candidates(
     pool: &SqlitePool,
     watch_folder_id: &str,
     old_branch: &str,
     new_branch: &str,
     changed_paths: &HashSet<String>,
-) -> Result<u64, String> {
-    let now = timestamps::now_utc();
-
-    let (tenant_id, files) = fetch_branch_data(pool, watch_folder_id, old_branch).await?;
-
-    if files.is_empty() {
-        return Ok(0);
-    }
-
-    // Pre-compute (file_id, new_base_point) for unchanged files
-    let updates = compute_unchanged_updates(&files, changed_paths, &tenant_id);
-
-    if updates.is_empty() {
-        return Ok(0);
-    }
-
-    let updated = updates.len() as u64;
-
-    execute_batch_update(pool, &updates, new_branch, &now).await?;
-
-    Ok(updated)
-}
-
-/// Fetch tenant_id and tracked files for the given watch folder and branch.
-async fn fetch_branch_data(
-    pool: &SqlitePool,
-    watch_folder_id: &str,
-    old_branch: &str,
-) -> Result<(String, Vec<(i64, String, String)>), String> {
-    // Post-v37: the row carries only `relative_path`; the legacy absolute
-    // `file_path` column is gone. Tuple shape: `(file_id, relative_path, file_hash)`.
-    let files: Vec<(i64, String, String)> = sqlx::query_as(
-        "SELECT file_id, relative_path, COALESCE(file_hash, '')
+) -> Result<Vec<BranchAddCandidate>, String> {
+    let rows: Vec<(i64, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT file_id, relative_path, base_point, COALESCE(branches, '[]')
          FROM tracked_files
-         WHERE watch_folder_id = ?1 AND primary_branch = ?2",
+         WHERE watch_folder_id = ?1
+           AND EXISTS (
+               SELECT 1 FROM json_each(branches) WHERE json_each.value = ?2
+           )",
     )
     .bind(watch_folder_id)
     .bind(old_branch)
     .fetch_all(pool)
     .await
-    .map_err(|e| format!("Failed to query tracked files: {}", e))?;
+    .map_err(|e| format!("Failed to query tracked files for branch add: {}", e))?;
 
-    if files.is_empty() {
-        return Ok((String::new(), files));
-    }
-
-    let tenant_id: String =
-        sqlx::query_scalar("SELECT tenant_id FROM watch_folders WHERE watch_id = ?1")
-            .bind(watch_folder_id)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| format!("Failed to query tenant_id: {}", e))?;
-
-    Ok((tenant_id, files))
+    Ok(rows
+        .into_iter()
+        .filter(|(_, rel_path, _, _)| !changed_paths.contains(rel_path.as_str()))
+        .filter(|(_, _, _, branches_json)| {
+            let branches: Vec<String> = serde_json::from_str(branches_json).unwrap_or_default();
+            !branches.iter().any(|b| b == new_branch)
+        })
+        .map(
+            |(file_id, relative_path, base_point, branches)| BranchAddCandidate {
+                file_id,
+                relative_path,
+                base_point,
+                branches,
+            },
+        )
+        .collect())
 }
 
-/// Compute new base_points for unchanged files.
-fn compute_unchanged_updates(
-    files: &[(i64, String, String)],
-    changed_paths: &HashSet<String>,
-    tenant_id: &str,
-) -> Vec<(i64, String)> {
-    let mut updates: Vec<(i64, String)> = Vec::new();
-    for (file_id, relative_path, file_hash) in files {
-        if changed_paths.contains(relative_path.as_str()) {
-            continue;
-        }
-        let new_bp =
-            wqm_common::hashing::compute_base_point(tenant_id, relative_path.as_str(), file_hash);
-        updates.push((*file_id, new_bp));
-    }
-    updates
-}
-
-/// Execute the batch update within a transaction using a temp table join.
-async fn execute_batch_update(
+/// Batch-add new_branch to tracked_files.branches[] for all candidates.
+async fn add_branch_to_tracked_files_batch(
     pool: &SqlitePool,
-    updates: &[(i64, String)],
+    candidates: &[BranchAddCandidate],
     new_branch: &str,
-    now: &str,
 ) -> Result<(), String> {
+    let now = timestamps::now_utc();
+
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
-    // Create temp table for batch join-update
-    sqlx::query(
-        "CREATE TEMP TABLE IF NOT EXISTS _bp_update(file_id INTEGER PRIMARY KEY, base_point TEXT)",
-    )
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("Failed to create temp table: {}", e))?;
-
-    sqlx::query("DELETE FROM _bp_update")
+    for candidate in candidates {
+        sqlx::query(
+            "UPDATE tracked_files
+             SET branches = json_insert(branches, '$[#]', ?1),
+                 updated_at = ?2
+             WHERE file_id = ?3",
+        )
+        .bind(new_branch)
+        .bind(&now)
+        .bind(candidate.file_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| format!("Failed to clear temp table: {}", e))?;
-
-    // Batch-insert into temp table (chunks of 200 to stay under SQLite's 999 param limit)
-    insert_temp_batches(updates, &mut tx).await?;
-
-    // Single join-update replaces N individual UPDATEs
-    sqlx::query(
-        "UPDATE tracked_files
-         SET primary_branch = ?1, base_point = _bp_update.base_point, updated_at = ?2
-         FROM _bp_update
-         WHERE tracked_files.file_id = _bp_update.file_id",
-    )
-    .bind(new_branch)
-    .bind(now)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| format!("Failed to batch-update branch: {}", e))?;
-
-    sqlx::query("DROP TABLE IF EXISTS _bp_update")
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to drop temp table: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to add branch to file_id={}: {}",
+                candidate.file_id, e
+            )
+        })?;
+    }
 
     tx.commit()
         .await
-        .map_err(|e| format!("Failed to commit batch branch update: {}", e))?;
+        .map_err(|e| format!("Failed to commit batch branch add: {}", e))?;
 
     Ok(())
 }
 
-/// Batch-insert update pairs into the temp table in chunks.
-async fn insert_temp_batches(
-    updates: &[(i64, String)],
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-) -> Result<(), String> {
-    const CHUNK_SIZE: usize = 200;
-    for chunk in updates.chunks(CHUNK_SIZE) {
-        let placeholders: Vec<String> = (0..chunk.len())
-            .map(|i| format!("(?{}, ?{})", i * 2 + 1, i * 2 + 2))
-            .collect();
-        let insert_sql = format!(
-            "INSERT INTO _bp_update(file_id, base_point) VALUES {}",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query(&insert_sql);
-        for (file_id, base_point) in chunk {
-            q = q.bind(file_id).bind(base_point);
+/// Batch-update Qdrant points' `branches` payload for all candidates.
+///
+/// Groups candidates by base_point (one Qdrant set_payload per unique base_point)
+/// since all chunks of a file share the same base_point.
+async fn update_qdrant_branches_batch(
+    branch_ctx: &BranchUpdateContext,
+    candidates: &[BranchAddCandidate],
+    new_branch: &str,
+) {
+    let mut by_base_point: HashMap<&str, Vec<String>> = HashMap::new();
+
+    for c in candidates {
+        if let Some(ref bp) = c.base_point {
+            let current: Vec<String> = serde_json::from_str(&c.branches).unwrap_or_default();
+            by_base_point
+                .entry(bp.as_str())
+                .or_insert_with(|| current)
+                .push(new_branch.to_string());
         }
-        q.execute(&mut **tx)
-            .await
-            .map_err(|e| format!("Failed to batch-insert temp data: {}", e))?;
     }
-    Ok(())
+
+    // Deduplicate branches in each set
+    for (_, branches) in &mut by_base_point {
+        branches.sort();
+        branches.dedup();
+    }
+
+    let collection = "projects";
+    let mut success = 0u64;
+    let mut errors = 0u64;
+
+    for (base_point, branches) in &by_base_point {
+        let filter = Filter::must([Condition::matches("base_point", base_point.to_string())]);
+
+        let mut payload = HashMap::new();
+        payload.insert("branches".to_string(), serde_json::json!(branches));
+
+        match branch_ctx
+            .storage_client
+            .set_payload_by_filter(collection, filter, payload)
+            .await
+        {
+            Ok(_) => success += 1,
+            Err(e) => {
+                warn!(
+                    "Failed to update Qdrant branches for base_point={}: {}",
+                    base_point, e
+                );
+                errors += 1;
+            }
+        }
+    }
+
+    if success > 0 || errors > 0 {
+        debug!(
+            "Qdrant branch update: {} base_points updated, {} errors",
+            success, errors
+        );
+    }
+}
+
+/// Insert file_metadata rows for the new branch in search.db.
+async fn insert_file_metadata_for_branch(
+    sdb: &crate::search_db::SearchDbManager,
+    state_pool: &SqlitePool,
+    candidates: &[BranchAddCandidate],
+    tenant_id: &str,
+    new_branch: &str,
+) {
+    let search_pool = sdb.pool();
+
+    for candidate in candidates {
+        let file_hash: Option<String> =
+            sqlx::query_scalar("SELECT file_hash FROM tracked_files WHERE file_id = ?1")
+                .bind(candidate.file_id)
+                .fetch_optional(state_pool)
+                .await
+                .unwrap_or(None);
+
+        let result = sqlx::query(
+            "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(file_id, branch) DO NOTHING",
+        )
+        .bind(candidate.file_id)
+        .bind(tenant_id)
+        .bind(new_branch)
+        .bind(&candidate.relative_path)
+        .bind(candidate.base_point.as_deref())
+        .bind(&candidate.relative_path)
+        .bind(file_hash.as_deref())
+        .execute(search_pool)
+        .await;
+
+        if let Err(e) = result {
+            warn!(
+                "Failed to insert file_metadata for file_id={}, branch='{}': {}",
+                candidate.file_id, new_branch, e
+            );
+        }
+    }
 }
 
 /// Update last_commit_hash in watch_folders.
@@ -185,6 +264,28 @@ pub async fn update_last_commit_hash(
     .await
     .map_err(|e| format!("Failed to update last_commit_hash: {}", e))?;
     Ok(())
+}
+
+/// Test-only: SQLite-only batch branch add (no Qdrant, no search.db).
+///
+/// Returns the number of files where the branch was added.
+#[cfg(test)]
+pub async fn add_branch_to_tracked_files_batch_pub(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    old_branch: &str,
+    new_branch: &str,
+    changed_paths: &std::collections::HashSet<String>,
+) -> Result<u64, String> {
+    let candidates =
+        fetch_unchanged_candidates(pool, watch_folder_id, old_branch, new_branch, changed_paths)
+            .await?;
+    if candidates.is_empty() {
+        return Ok(0);
+    }
+    let count = candidates.len() as u64;
+    add_branch_to_tracked_files_batch(pool, &candidates, new_branch).await?;
+    Ok(count)
 }
 
 /// Fetch watch folder info: (path, collection, tenant_id).
