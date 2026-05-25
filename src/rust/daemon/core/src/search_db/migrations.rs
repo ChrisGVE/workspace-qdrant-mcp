@@ -115,6 +115,45 @@ pub(super) async fn migrate_v6(pool: &SqlitePool) -> SearchDbResult<()> {
     Ok(())
 }
 
+/// Migration v7: Rebuild file_metadata for per-(file_id, branch) rows.
+///
+/// Changes PK from `file_id INTEGER PRIMARY KEY` to `rowid AUTOINCREMENT`
+/// with `UNIQUE(file_id, branch)`, enabling multiple rows per file (one per
+/// branch) for fast FTS5 branch-scoped search.
+pub(super) async fn migrate_v7(pool: &SqlitePool) -> SearchDbResult<()> {
+    use crate::code_lines_schema::{
+        CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL, CREATE_FILE_METADATA_INDEXES_SQL,
+        CREATE_FILE_METADATA_V7_SQL,
+    };
+
+    info!("Search DB migration v7: rebuild file_metadata for per-(file_id, branch) rows");
+
+    let table_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='file_metadata')",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if table_exists {
+        sqlx::query("DROP TABLE file_metadata")
+            .execute(pool)
+            .await?;
+    }
+
+    sqlx::query(CREATE_FILE_METADATA_V7_SQL)
+        .execute(pool)
+        .await?;
+
+    for index_sql in CREATE_FILE_METADATA_INDEXES_SQL {
+        sqlx::query(index_sql).execute(pool).await?;
+    }
+    sqlx::query(CREATE_FILE_METADATA_BASE_POINT_INDEX_SQL)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 /// Dispatch a single migration by version number.
 pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbResult<()> {
     match version {
@@ -124,6 +163,7 @@ pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbRe
         4 => migrate_v4(pool).await,
         5 => migrate_v5(pool).await,
         6 => migrate_v6(pool).await,
+        7 => migrate_v7(pool).await,
         _ => Err(SearchDbError::Migration(format!(
             "Unknown search DB migration version: {}",
             version

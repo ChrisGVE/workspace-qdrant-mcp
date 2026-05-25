@@ -199,20 +199,34 @@ pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_file_metadata_tenant_branch ON file_metadata(tenant_id, branch)",
 ];
 
-/// SQL to upsert a file_metadata row.
+/// SQL to upsert a file_metadata row (pre-v7, single row per file_id).
 ///
 /// `?1` = file_id, `?2` = tenant_id, `?3` = branch (nullable), `?4` = file_path,
 /// `?5` = base_point (nullable), `?6` = relative_path (nullable), `?7` = file_hash (nullable).
 pub const UPSERT_FILE_METADATA_SQL: &str = r#"
 INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-ON CONFLICT(file_id) DO UPDATE SET
+ON CONFLICT(file_id, branch) DO UPDATE SET
     tenant_id = excluded.tenant_id,
-    branch = excluded.branch,
     file_path = excluded.file_path,
     base_point = excluded.base_point,
     relative_path = excluded.relative_path,
     file_hash = excluded.file_hash
+"#;
+
+/// Post-v7 DDL for file_metadata: per-(file_id, branch) rows for FTS5 branch scoping.
+pub const CREATE_FILE_METADATA_V7_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS file_metadata (
+    rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id INTEGER NOT NULL,
+    tenant_id TEXT NOT NULL,
+    branch TEXT,
+    file_path TEXT NOT NULL,
+    base_point TEXT,
+    relative_path TEXT,
+    file_hash TEXT,
+    UNIQUE(file_id, branch)
+)
 "#;
 
 /// SQL to delete a file_metadata row when its code_lines are removed.
@@ -447,7 +461,7 @@ mod tests {
     #[test]
     fn test_upsert_file_metadata_sql_valid() {
         assert!(UPSERT_FILE_METADATA_SQL.contains("INSERT INTO file_metadata"));
-        assert!(UPSERT_FILE_METADATA_SQL.contains("ON CONFLICT(file_id)"));
+        assert!(UPSERT_FILE_METADATA_SQL.contains("ON CONFLICT(file_id, branch)"));
         assert!(UPSERT_FILE_METADATA_SQL.contains("DO UPDATE SET"));
         // v5 columns
         assert!(UPSERT_FILE_METADATA_SQL.contains("base_point"));
