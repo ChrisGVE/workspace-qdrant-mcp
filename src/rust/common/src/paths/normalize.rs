@@ -14,8 +14,6 @@
 //!
 //! No filesystem access, no symlink resolution, no case folding.
 
-use std::path::{Component, Path};
-
 use super::PathError;
 
 /// Apply the nine normalization rules to `input` and return the canonical
@@ -48,50 +46,40 @@ pub(super) fn normalize_path(input: &str) -> Result<String, PathError> {
     let expanded = shellexpand::tilde(input);
     let expanded_str: &str = &expanded;
 
-    // Rule 1: must be absolute after tilde expansion. We check the expanded
-    // form because `~/foo` becomes `/Users/chris/foo` and IS absolute, but
-    // `foo/bar` stays relative.
-    let path = Path::new(expanded_str);
-    if !path.is_absolute() {
+    // Normalize Windows separators first so the canonical form stays POSIX-like
+    // even when the input originated from a Windows shell.
+    let as_posix = expanded_str.replace('\\', "/");
+
+    // Rule 1: must be absolute after tilde expansion and separator
+    // normalization. This accepts `/mnt/c/...`-style inputs while still
+    // rejecting relative paths and drive-prefixed Windows paths.
+    if !as_posix.starts_with('/') {
         return Err(PathError::RelativeInput(input.to_string()));
     }
 
-    let mut normalized = String::with_capacity(expanded_str.len());
+    let mut parts = Vec::new();
 
-    for component in path.components() {
-        match component {
-            // Rule 4: reject `..` entirely. §3.2.1 explains why we do NOT
-            // resolve syntactically — combined with rule 7's no-symlink
-            // resolution it produces paths that don't correspond to a real
-            // filesystem location.
-            Component::ParentDir => {
-                return Err(PathError::ContainsParentDir(input.to_string()));
-            }
-            // Rule 3: drop `.` segments.
-            Component::CurDir => continue,
-            // Rule 5 (start): leading `/`.
-            Component::RootDir => normalized.push('/'),
-            // Rule 6 + Rule 9: preserve case, require UTF-8.
-            Component::Normal(s) => {
-                if !normalized.ends_with('/') && !normalized.is_empty() {
-                    normalized.push('/');
-                }
-                let segment = s.to_str().ok_or(PathError::NonUtf8)?;
-                normalized.push_str(segment);
-            }
-            // Windows-only components (Prefix). Out of scope per spec §13;
-            // reject defensively so a Windows-style path doesn't sneak through.
-            Component::Prefix(_) => {
-                return Err(PathError::InvalidNormalization(
-                    "windows path prefix not supported".to_string(),
-                ));
-            }
+    for component in as_posix.split('/') {
+        // Rule 3: drop `.` segments.
+        if component.is_empty() || component == "." {
+            continue;
         }
+
+        // Rule 4: reject `..` entirely. §3.2.1 explains why we do NOT
+        // resolve syntactically — combined with rule 7's no-symlink
+        // resolution it produces paths that don't correspond to a real
+        // filesystem location.
+        if component == ".." {
+            return Err(PathError::ContainsParentDir(input.to_string()));
+        }
+
+        // Rule 6 + Rule 9: preserve case, require UTF-8.
+        parts.push(component);
     }
 
-    if normalized.is_empty() {
+    if parts.is_empty() {
         return Err(PathError::EmptyPath);
     }
 
-    Ok(normalized)
+    Ok(format!("/{}", parts.join("/")))
 }

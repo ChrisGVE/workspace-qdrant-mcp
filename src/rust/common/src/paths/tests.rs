@@ -25,6 +25,12 @@ fn rule_1_absolute_required() {
 }
 
 #[test]
+fn rule_1_mnt_style_path_accepted() {
+    let p = CanonicalPath::from_user_input("/mnt/c/Users/chris/dev").unwrap();
+    assert_eq!(p.as_str(), "/mnt/c/Users/chris/dev");
+}
+
+#[test]
 fn rule_2_tilde_expansion() {
     // shellexpand::tilde calls dirs::home_dir(), which uses
     // platform APIs (NSHomeDirectory on macOS) rather than $HOME.
@@ -117,6 +123,12 @@ fn rule_9_local_to_canonical_rejects_non_utf8() {
 #[test]
 fn error_relative_input() {
     let err = CanonicalPath::from_user_input("relative/path").unwrap_err();
+    assert!(matches!(err, PathError::RelativeInput(_)));
+}
+
+#[test]
+fn error_windows_drive_path_rejected() {
+    let err = CanonicalPath::from_user_input("C:\\Users\\chris\\dev").unwrap_err();
     assert!(matches!(err, PathError::RelativeInput(_)));
 }
 

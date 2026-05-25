@@ -337,6 +337,24 @@ function Upsert-Branch($Registry, $Project, $BranchObject) {
   $stored.updatedAt = UtcNow
   Upsert-Project $Registry $stored
 }
+function Strip-AnsiEscapeSequences([string]$Text) {
+  if (-not $Text) { return $Text }
+  return ($Text -replace "`e\[[0-9;?]*[ -/]*[@-~]", '')
+}
+function Get-ProjectIdFromRegisterOutput([string]$Stdout, [string]$Stderr) {
+  foreach ($chunk in @($Stdout, $Stderr)) {
+    if (-not $chunk) { continue }
+
+    $plain = Strip-AnsiEscapeSequences $chunk
+    foreach ($line in ($plain -split "`r?`n")) {
+      if ($line -match '^\s*(?:Existing\s+)?Project I[Dd]:\s*(?<id>.+?)\s*$') {
+        return $Matches['id'].Trim()
+      }
+    }
+  }
+
+  return $null
+}
 function Get-GitDir([string]$Repo) {
   $repoAbs = Convert-ToAbs $Repo
   $gitMarker = Join-Path $repoAbs '.git'
@@ -588,6 +606,7 @@ function Invoke-WqmProjectRegister([string]$PathValue, [string]$ProjectName, [st
   $commandArgs = @('project', 'register', $projectWqmPath, '--yes')
   if ($ProjectName) { $commandArgs += @('--name', $ProjectName) }
   $result = Invoke-Captured $WqmPath $commandArgs $Cwd 60
+  $projectId = Get-ProjectIdFromRegisterOutput $result.stdout $result.stderr
   if (-not $result.ok) {
     return [pscustomobject]@{
       ok = $false
@@ -597,6 +616,7 @@ function Invoke-WqmProjectRegister([string]$PathValue, [string]$ProjectName, [st
       exitCode = $result.exitCode
       stdout = $result.stdout
       stderr = $result.stderr
+      project_id = $projectId
     }
   }
   [pscustomobject]@{
@@ -607,6 +627,7 @@ function Invoke-WqmProjectRegister([string]$PathValue, [string]$ProjectName, [st
     exitCode = $result.exitCode
     stdout = $result.stdout
     stderr = $result.stderr
+    project_id = $projectId
   }
 }
 function Test-TcpEndpoint([string]$Endpoint) {
