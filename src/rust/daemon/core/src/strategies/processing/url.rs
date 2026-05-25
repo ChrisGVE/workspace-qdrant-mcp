@@ -266,7 +266,7 @@ fn build_url_payload(
     point_payload.insert("title".to_string(), serde_json::json!(title));
     point_payload.insert("source_type".to_string(), serde_json::json!("web"));
     point_payload.insert("item_type".to_string(), serde_json::json!("url"));
-    point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+    point_payload.insert("branches".to_string(), serde_json::json!([&item.branch]));
     point_payload.insert("chunk_index".to_string(), serde_json::json!(chunk_index));
     point_payload.insert("chunk_count".to_string(), serde_json::json!(chunk_count));
     point_payload.insert("chunk_start".to_string(), serde_json::json!(start_char));

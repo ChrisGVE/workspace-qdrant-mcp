@@ -38,19 +38,29 @@ use crate::source_diversity::apply_diversity_penalty;
 pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<Filter> {
     let mut conditions: Vec<Condition> = Vec::with_capacity(filter.len());
     for (key, value) in filter {
+        let (effective_key, effective_value);
+        if key == "branch" {
+            effective_key = "branches";
+            effective_value = match value {
+                Value::String(_) => std::borrow::Cow::Owned(Value::Array(vec![value.clone()])),
+                _ => std::borrow::Cow::Borrowed(value),
+            };
+        } else {
+            effective_key = key.as_str();
+            effective_value = std::borrow::Cow::Borrowed(value);
+        }
+        let value = effective_value.as_ref();
         let cond = match value {
-            Value::String(s) => Condition::matches(key.as_str(), s.clone()),
-            Value::Bool(b) => Condition::matches(key.as_str(), *b),
+            Value::String(s) => Condition::matches(effective_key, s.clone()),
+            Value::Bool(b) => Condition::matches(effective_key, *b),
             Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    Condition::matches(key.as_str(), i)
+                    Condition::matches(effective_key, i)
                 } else {
-                    // f64 or u64 outside i64 range — fall back to stringified
-                    Condition::matches(key.as_str(), n.to_string())
+                    Condition::matches(effective_key, n.to_string())
                 }
             }
             Value::Array(arr) => {
-                // Collect string elements for match-any; skip non-string items.
                 let string_values: Vec<String> = arr
                     .iter()
                     .filter_map(|v| v.as_str().map(String::from))
@@ -58,7 +68,7 @@ pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<
                 if string_values.is_empty() {
                     continue;
                 }
-                Condition::matches(key.as_str(), string_values)
+                Condition::matches(effective_key, string_values)
             }
             Value::Null | Value::Object(_) => continue,
         };
@@ -520,6 +530,30 @@ mod tests {
         assert!(
             build_filter_from_json(&filter).is_none(),
             "array of non-strings should be skipped"
+        );
+    }
+
+    #[test]
+    fn build_filter_branch_string_rewritten_to_branches_array() {
+        let mut filter = HashMap::new();
+        filter.insert("branch".to_string(), json!("main"));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            1,
+            "legacy branch string should produce one condition on branches"
+        );
+    }
+
+    #[test]
+    fn build_filter_branches_array_passed_through() {
+        let mut filter = HashMap::new();
+        filter.insert("branches".to_string(), json!(["main", "dev"]));
+        let result = build_filter_from_json(&filter).expect("filter expected");
+        assert_eq!(
+            result.must.len(),
+            1,
+            "branches array should produce one match-any condition"
         );
     }
 }

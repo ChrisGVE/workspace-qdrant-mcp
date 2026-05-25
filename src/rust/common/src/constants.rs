@@ -90,8 +90,10 @@ pub mod field {
     pub const ROUTING_REASON: &str = "routing_reason";
     /// Instance-aware filtering (base point IDs)
     pub const BASE_POINT: &str = "base_point";
-    /// Git branch filter
+    /// Git branch filter (legacy scalar — use BRANCHES for new code)
     pub const BRANCH: &str = "branch";
+    /// Git branches array filter (replaces scalar BRANCH in Qdrant payloads)
+    pub const BRANCHES: &str = "branches";
     /// File extension discriminator
     pub const FILE_TYPE: &str = "file_type";
     /// File path for glob matching
@@ -223,6 +225,7 @@ mod tests {
         assert_eq!(field::LIBRARY_NAME, "library_name");
         assert_eq!(field::BASE_POINT, "base_point");
         assert_eq!(field::BRANCH, "branch");
+        assert_eq!(field::BRANCHES, "branches");
         assert_eq!(field::FILE_TYPE, "file_type");
         assert_eq!(field::FILE_PATH, "file_path");
         assert_eq!(field::CONCEPT_TAGS, "concept_tags");

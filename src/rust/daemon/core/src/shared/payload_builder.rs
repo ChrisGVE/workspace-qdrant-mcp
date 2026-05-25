@@ -50,8 +50,13 @@ impl PayloadBuilder {
         self
     }
 
-    pub fn branch(mut self, b: &str) -> Self {
-        self.inner.insert("branch".into(), serde_json::json!(b));
+    pub fn branches(mut self, bs: &[&str]) -> Self {
+        self.inner.insert("branches".into(), serde_json::json!(bs));
+        self
+    }
+
+    pub fn branches_single(mut self, b: &str) -> Self {
+        self.inner.insert("branches".into(), serde_json::json!([b]));
         self
     }
 
@@ -205,13 +210,13 @@ mod tests {
         let payload = PayloadBuilder::new()
             .tenant_id("test-tenant")
             .content("hello world")
-            .branch("main")
+            .branches_single("main")
             .item_type("file")
             .build();
 
         assert_eq!(payload["tenant_id"], serde_json::json!("test-tenant"));
         assert_eq!(payload["content"], serde_json::json!("hello world"));
-        assert_eq!(payload["branch"], serde_json::json!("main"));
+        assert_eq!(payload["branches"], serde_json::json!(["main"]));
         assert_eq!(payload["item_type"], serde_json::json!("file"));
     }
 

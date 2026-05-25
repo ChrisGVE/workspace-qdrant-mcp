@@ -179,8 +179,11 @@ fn insert_library_tracked_file(
         .as_str()
         .unwrap_or("")
         .to_string();
-    let branch = first["payload"]["branch"]
-        .as_str()
+    let branch = first["payload"]["branches"]
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|v| v.as_str())
+        .or_else(|| first["payload"]["branch"].as_str())
         .unwrap_or("main")
         .to_string();
 
@@ -301,8 +304,11 @@ fn group_points_by_file<'a>(
             .or_else(|| point["payload"]["absolute_path"].as_str())
             .unwrap_or("")
             .to_string();
-        let branch = point["payload"]["branch"]
-            .as_str()
+        let branch = point["payload"]["branches"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|v| v.as_str())
+            .or_else(|| point["payload"]["branch"].as_str())
             .unwrap_or("main")
             .to_string();
         if !file_path.is_empty() {

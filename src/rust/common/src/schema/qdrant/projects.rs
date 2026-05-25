@@ -15,6 +15,7 @@ pub const DOCUMENT_TYPE: FieldDef = FieldDef::categorical("document_type");
 pub const FILE_PATH: FieldDef = FieldDef::content("file_path");
 pub const FILE_TYPE: FieldDef = FieldDef::categorical("file_type");
 pub const BRANCH: FieldDef = FieldDef::categorical("branch");
+pub const BRANCHES: FieldDef = FieldDef::categorical("branches");
 
 // Chunk data
 pub const CONTENT: FieldDef = FieldDef::content("content");

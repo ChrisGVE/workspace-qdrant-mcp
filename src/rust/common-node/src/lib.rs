@@ -207,10 +207,16 @@ pub fn field_base_point() -> String {
     wqm_common::constants::field::BASE_POINT.to_string()
 }
 
-/// Get the "branch" payload field name
+/// Get the "branch" payload field name (legacy scalar)
 #[napi]
 pub fn field_branch() -> String {
     wqm_common::constants::field::BRANCH.to_string()
+}
+
+/// Get the "branches" payload field name (array, replaces scalar branch)
+#[napi]
+pub fn field_branches() -> String {
+    wqm_common::constants::field::BRANCHES.to_string()
 }
 
 /// Get the "file_type" payload field name

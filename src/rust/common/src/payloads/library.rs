@@ -123,6 +123,7 @@ mod tests {
             project_type: None,
             old_tenant_id: Some("old_abc123".to_string()),
             is_active: None,
+            rebuild: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("old_tenant_id"));

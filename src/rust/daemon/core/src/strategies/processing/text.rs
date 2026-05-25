@@ -218,7 +218,7 @@ impl TextStrategy {
         point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
         point_payload.insert("source_type".to_string(), serde_json::json!("scratchpad"));
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
-        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+        point_payload.insert("branches".to_string(), serde_json::json!([&item.branch]));
         point_payload.insert("created_at".to_string(), serde_json::json!(&now));
         point_payload.insert("updated_at".to_string(), serde_json::json!(&now));
 
@@ -280,7 +280,7 @@ impl TextStrategy {
         point_payload.insert("content".to_string(), serde_json::json!(payload.content));
         point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
         point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+        point_payload.insert("branches".to_string(), serde_json::json!([&item.branch]));
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
         point_payload.insert(
             "source_type".to_string(),
@@ -361,7 +361,7 @@ fn build_rules_payload(
     point_payload.insert("content".to_string(), serde_json::json!(payload.content));
     point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
     point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-    point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+    point_payload.insert("branches".to_string(), serde_json::json!([&item.branch]));
     point_payload.insert("item_type".to_string(), serde_json::json!("content"));
     point_payload.insert(
         "source_type".to_string(),

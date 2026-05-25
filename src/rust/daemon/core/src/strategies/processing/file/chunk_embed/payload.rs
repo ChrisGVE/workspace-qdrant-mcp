@@ -57,7 +57,7 @@ pub(super) fn build_chunk_payload(
         serde_json::json!(file_document_id),
     );
     payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-    payload.insert("branch".to_string(), serde_json::json!(item.branch));
+    payload.insert("branches".to_string(), serde_json::json!([&item.branch]));
     payload.insert("base_point".to_string(), serde_json::json!(base_point));
     payload.insert(
         "relative_path".to_string(),
