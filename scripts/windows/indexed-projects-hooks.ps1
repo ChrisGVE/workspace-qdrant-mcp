@@ -255,6 +255,19 @@ function Get-HookStatus([string]$RepoRoot, [string]$SharedRoot, [string]$HooksDi
   }
 
   $hookNames = @('post-checkout','post-commit','post-merge','post-rewrite','post-worktree-add')
+  $runnerExists = (Test-Path -LiteralPath (Join-Path $HooksDir 'wqm-git-hook.ps1'))
+  $hookCount = @($hookNames | Where-Object { Test-Path -LiteralPath (Join-Path $HooksDir $_) }).Count
+  $installed = ($configured -eq $HooksDir) -and $runnerExists -and ($hookCount -ge 5)
+  $reason = $null
+  if (-not $configured) {
+    $reason = 'hooks path not configured'
+  } elseif ($configured -ne $HooksDir) {
+    $reason = 'hooks path mismatch'
+  } elseif (-not $runnerExists) {
+    $reason = 'hook runner missing'
+  } elseif ($hookCount -lt 5) {
+    $reason = "missing hook files ($hookCount/5)"
+  }
 
   [pscustomobject]@{
     repoRoot = $RepoRoot
@@ -262,8 +275,11 @@ function Get-HookStatus([string]$RepoRoot, [string]$SharedRoot, [string]$HooksDi
     hooksDir = $HooksDir
     configuredHooksPath = $configured
     hooksPathMatches = ($configured -eq $HooksDir)
-    runnerExists = (Test-Path -LiteralPath (Join-Path $HooksDir 'wqm-git-hook.ps1'))
-    hookCount = @($hookNames | Where-Object { Test-Path -LiteralPath (Join-Path $HooksDir $_) }).Count
+    runnerExists = $runnerExists
+    hookCount = $hookCount
+    installed = $installed
+    healthy = $installed
+    reason = $(if ($installed) { $null } else { $reason })
   }
 }
 
@@ -274,8 +290,8 @@ $commonGitDir = Get-CommonGitDir $repoRoot
 $commonConfig = Join-Path $commonGitDir 'config'
 $registryScript = Join-Path $repoRoot 'scripts\windows\indexed-projects-registry.ps1'
 $registryPath = Join-Path $sharedRoot '.wqm-fork\indexed-projects.json'
-$installerScriptDir = Split-Path -Parent $PSCommandPath
-$registryScriptSource = Join-Path $installerScriptDir 'indexed-projects-registry.ps1'
+# Resolve against the shared repo root so hooks keep working across worktrees.
+$registryScriptSource = Join-Path $sharedRoot 'scripts\windows\indexed-projects-registry.ps1'
 
 switch ($Action) {
   'install' {

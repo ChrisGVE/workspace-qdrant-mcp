@@ -67,7 +67,7 @@ Depois de aplicar config:
 make -f Makefile.win apply-config REPO=C:\dev\workspace-qdrant-mcp
 ```
 
-Esse comando gera o padrão Docker do fork, apontando para o daemon em `localhost:50051`. Se você realmente precisar do fluxo local FastEmbed, use `apply-config-fastembed`.
+Esse comando gera o padrão Docker do fork: Claude Desktop continua apontando para o daemon em `http://localhost:50051`, e o Codex usa o MCP HTTP do stack em `http://localhost:6335/mcp`. Se você realmente precisar do fluxo local FastEmbed, use `apply-config-fastembed`.
 
 No prompt do agente, use uma instrução parecida com:
 

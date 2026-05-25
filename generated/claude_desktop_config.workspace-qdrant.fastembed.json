@@ -1,9 +1,9 @@
-﻿{
+{
     "mcpServers":  {
                        "workspace-qdrant":  {
                                                 "command":  "node",
                                                 "args":  [
-                                                             "C:\\Users\\alber\\Documents\\repositorios\\workspace-qdrant-mcp\\src\\typescript\\mcp-server\\dist\\index.js"
+                                                             "C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"
                                                          ],
                                                 "env":  {
                                                             "QDRANT_URL":  "http://localhost:6333",

@@ -285,7 +285,7 @@ async fn handle_missing_file(
             crate::unified_queue_schema::DestinationStatus::Done,
         )
         .await;
-    info!(
+    debug!(
         "File no longer exists, cleaned up and dequeuing: {}",
         payload.file_path.as_str()
     );

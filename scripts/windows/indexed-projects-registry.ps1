@@ -188,8 +188,15 @@ function Normalize-Project($Project) {
 function Get-Projects($Registry) { To-Array $Registry.projects | ForEach-Object { Normalize-Project $_ } }
 function Find-Project($Registry) {
   $projects = @(Get-Projects $Registry)
+  if ($ProjectDir) {
+    $resolvedRoot = Resolve-ProjectRoot $ProjectDir
+    $m = @($projects | Where-Object { (Convert-ToAbs $_.root) -eq $resolvedRoot })
+    if ($m.Count -eq 1) { return $m[0] }
+    if ($m.Count -gt 1) { throw "Projeto ambiguo: $ProjectName $ProjectDir" }
+  }
+
   if ($ProjectName) { $m = @($projects | Where-Object { $_.name -eq $ProjectName }) }
-  elseif ($ProjectDir) { $abs = Convert-ToAbs $ProjectDir; $m = @($projects | Where-Object { (Convert-ToAbs $_.root) -eq $abs }) }
+  elseif ($ProjectDir) { $m = @() }
   else { throw "Informe -ProjectName ou -ProjectDir." }
   if ($m.Count -eq 0) { throw "Projeto indexado nao encontrado: $ProjectName $ProjectDir" }
   if ($m.Count -gt 1) { throw "Projeto ambiguo: $ProjectName $ProjectDir" }
@@ -197,7 +204,7 @@ function Find-Project($Registry) {
 }
 function Find-ProjectByRoot($Registry, [string]$RootPath) {
   if (-not $RootPath) { return $null }
-  $abs = Convert-ToAbs $RootPath
+  $abs = Resolve-ProjectRoot $RootPath
   return @(Get-Projects $Registry | Where-Object { (Convert-ToAbs $_.root) -eq $abs }) | Select-Object -First 1
 }
 function Invoke-Git([string]$Repo, [string[]]$CommandArgs) {
@@ -366,12 +373,20 @@ function Get-ProjectRootFromRepo([string]$Repo) {
   if (-not $commonDir) { return $null }
   return (Resolve-Path -LiteralPath (Split-Path -Parent $commonDir)).Path
 }
+function Resolve-ProjectRoot([string]$PathValue) {
+  if (-not $PathValue) { return $null }
+
+  $resolved = Get-ProjectRootFromRepo $PathValue
+  if ($resolved) {
+    return $resolved
+  }
+
+  return Convert-ToAbs $PathValue
+}
 function Get-SyncBranchSnapshot([string]$Repo, $ExistingBranch, [string]$ProjectDefaultBranch, [bool]$UseWorktree) {
   $currentBranch = Get-CurrentBranch $Repo
   if (-not $currentBranch) {
-    $currentBranch = $ProjectDefaultBranch
-  }
-  if (-not $currentBranch) {
+    # Detached HEAD has no branch to track, so leave the registry untouched.
     return $null
   }
 
@@ -417,7 +432,7 @@ function Sync-CurrentBranch($Registry, [string]$Repo) {
   if (-not $project) {
     $defaultBranch = Get-PreferredDefaultBranch $repoPath (Get-CurrentBranch $repoPath)
     $project = [ordered]@{
-      name = (Split-Path -Leaf $projectRoot)
+      name = $(if ($ProjectName) { $ProjectName } else { (Split-Path -Leaf $projectRoot) })
       root = $projectRoot
       projectId = $null
       qdrantUrl = $QdrantUrl
@@ -618,7 +633,12 @@ function Test-Qdrant([string]$Url) {
 function Invoke-Captured([string]$File, [string[]]$CommandArgs, [string]$Cwd, [int]$TimeoutSeconds = 20) {
   $outFile = [System.IO.Path]::GetTempFileName()
   $errFile = [System.IO.Path]::GetTempFileName()
+  $previousConsoleEncoding = [Console]::OutputEncoding
+  $previousOutputEncoding = $OutputEncoding
+  $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
   try {
+    [Console]::OutputEncoding = $utf8Encoding
+    $OutputEncoding = $utf8Encoding
     $sanitizedArgs = @($CommandArgs | Where-Object { $_ -ne $null -and $_ -ne '' })
     $resolvedFile = $File
     if ($resolvedFile -and -not [System.IO.Path]::IsPathRooted($resolvedFile)) {
@@ -646,8 +666,33 @@ function Invoke-Captured([string]$File, [string[]]$CommandArgs, [string]$Cwd, [i
   } catch {
     [pscustomobject]@{ ok=$false; exitCode=-1; file=$resolvedFile; stderr=$_.Exception.Message; stdout="" }
   } finally {
+    [Console]::OutputEncoding = $previousConsoleEncoding
+    $OutputEncoding = $previousOutputEncoding
     Remove-Item $outFile,$errFile -ErrorAction SilentlyContinue
   }
+}
+
+function Invoke-OptionalWatchCapture([string]$File, [string[]]$CommandArgs, [string]$Cwd, [int]$TimeoutSeconds = 20) {
+  $result = Invoke-Captured $File $CommandArgs $Cwd $TimeoutSeconds
+  if ($result.ok) {
+    return $result
+  }
+
+  $combined = @($result.stdout, $result.stderr) -join "`n"
+  if ($combined -match "unrecognized subcommand 'watch'") {
+    return [pscustomobject]@{
+      ok = $true
+      skipped = $true
+      available = $false
+      reason = 'watch subcommand unavailable'
+      exitCode = 0
+      stdout = $result.stdout
+      stderr = $result.stderr
+      durationMs = $result.durationMs
+    }
+  }
+
+  return $result
 }
 function Get-GitSnapshot([string]$Repo, [string]$Base = "") {
   $branch = Get-CurrentBranch $Repo
@@ -752,7 +797,36 @@ try {
     'start-agent-branch' {
       Assert-MutationAllowed
       if (-not $BranchName) { throw "BranchName obrigatorio" }
-      $registry = Read-Registry; $project = Find-Project $registry
+      $createdProject = $false
+      $registry = Read-Registry
+      try {
+        $project = Find-Project $registry
+      } catch {
+        $lookupError = $_.Exception.Message
+        if ($lookupError -notmatch 'Projeto indexado nao encontrado|Informe -ProjectName ou -ProjectDir') {
+          throw
+        }
+
+        $bootstrapSource = if ($ProjectDir) { $ProjectDir } else { $RepoDir }
+        if (-not $bootstrapSource) { throw $lookupError }
+
+        $bootstrap = Sync-CurrentBranch $registry $bootstrapSource
+        if (-not $bootstrap -or $bootstrap.skipped) {
+          throw "Nao foi possivel indexar automaticamente o projeto a partir de ${bootstrapSource}: $($bootstrap.reason)"
+        }
+        $createdProject = [bool]$bootstrap.createdProject
+
+        $registry = Read-Registry
+        $bootstrapRoot = Get-ProjectRootFromRepo $bootstrapSource
+        if (-not $bootstrapRoot) {
+          $bootstrapRoot = Convert-ToAbs $bootstrapSource
+        }
+
+        $project = Find-ProjectByRoot $registry $bootstrapRoot
+        if (-not $project) {
+          throw "Projeto indexado nao encontrado apos auto-indexacao: $bootstrapSource"
+        }
+      }
       $repo = $project.root
       $return = if ($ReturnBranch) { $ReturnBranch } else { Get-CurrentBranch $repo }
       $baseCommit = $null
@@ -784,7 +858,7 @@ try {
       $branch = [ordered]@{ name=$BranchName; kind='agent'; path=(Convert-ToAbs $branchPath); baseBranch=$BaseBranch; returnBranch=$return; status='active'; createdBy=$CreatedBy; createdAt=UtcNow; lastSeenAt=UtcNow; baseCommit=$baseCommit; headCommit=$head; lastIndexedCommit=$(if ($registerResult.ok) { $head } else { $null }); watchEnabled=$true; indexed=$registerResult.ok; purpose=$Purpose; useWorktree=(Test-TrueValue $UseWorktree) }
       Upsert-Branch $registry $project $branch
       Write-Registry $registry
-      Output-Result ([ordered]@{ success=$true; action=$Action; project=$project.name; branch=$branch; register=$registerResult; message='Branch de agente criada/registrada. Nao houve merge para branch original.' })
+      Output-Result ([ordered]@{ success=$true; action=$Action; createdProject=$createdProject; project=$project.name; branch=$branch; register=$registerResult; message='Branch de agente criada/registrada. Nao houve merge para branch original.' })
     }
     'finish-agent-branch' {
       Assert-MutationAllowed
@@ -825,7 +899,7 @@ try {
     }
     'incremental-check' {
       $registry = Read-Registry; $project = Find-Project $registry; $results=@()
-      foreach ($b in To-Array $project.branches) { $path = Convert-ToAbs $b.path; $projectWqmPath = Convert-ToWqmPath $path; $results += [pscustomobject]@{ branch=$b.name; path=$path; projectStatus=(Invoke-Captured $WqmPath @('project','status',$projectWqmPath) $path 20); projectCheck=(Invoke-Captured $WqmPath @('project','check',$projectWqmPath,'--json') $path 60); watchList=(Invoke-Captured $WqmPath @('project','watch','list','--json') $path 20); queue=(Invoke-Captured $WqmPath @('queue','stats') $path 20) } }
+      foreach ($b in To-Array $project.branches) { $path = Convert-ToAbs $b.path; $projectWqmPath = Convert-ToWqmPath $path; $results += [pscustomobject]@{ branch=$b.name; path=$path; projectStatus=(Invoke-Captured $WqmPath @('project','status',$projectWqmPath) $path 20); projectCheck=(Invoke-Captured $WqmPath @('project','check',$projectWqmPath,'--json') $path 60); watchList=(Invoke-OptionalWatchCapture $WqmPath @('watch','list','--json') $path 20); queue=(Invoke-Captured $WqmPath @('queue','stats') $path 20) } }
       Output-Result ([ordered]@{ success=$true; action=$Action; project=$project.name; results=$results })
     }
     'incremental-check-all' {

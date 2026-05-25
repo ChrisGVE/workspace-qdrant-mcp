@@ -108,7 +108,12 @@ function Invoke-Captured {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   $outFile = [System.IO.Path]::GetTempFileName()
   $errFile = [System.IO.Path]::GetTempFileName()
+  $previousConsoleEncoding = [Console]::OutputEncoding
+  $previousOutputEncoding = $OutputEncoding
+  $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
   try {
+    [Console]::OutputEncoding = $utf8Encoding
+    $OutputEncoding = $utf8Encoding
     $sanitizedArgs = @($CommandArgs | Where-Object { $_ -ne $null -and $_ -ne '' })
     $resolvedFile = $File
     if ($resolvedFile -and -not [System.IO.Path]::IsPathRooted($resolvedFile)) {
@@ -136,8 +141,40 @@ function Invoke-Captured {
   } catch {
     return @{ ok = $false; exitCode = -1; stdout = ""; stderr = $_.Exception.Message; durationMs = $sw.ElapsedMilliseconds }
   } finally {
+    [Console]::OutputEncoding = $previousConsoleEncoding
+    $OutputEncoding = $previousOutputEncoding
     Remove-Item $outFile,$errFile -ErrorAction SilentlyContinue
   }
+}
+
+function Invoke-OptionalWatchCapture {
+  param(
+    [string]$File,
+    [string[]]$CommandArgs = @(),
+    [string]$WorkingDirectory = $ProjectDir,
+    [int]$TimeoutSeconds = 60
+  )
+
+  $result = Invoke-Captured $File $CommandArgs $WorkingDirectory $TimeoutSeconds
+  if ($result.ok) {
+    return $result
+  }
+
+  $combined = @($result.stdout, $result.stderr) -join "`n"
+  if ($combined -match "unrecognized subcommand 'watch'") {
+    return @{
+      ok = $true
+      skipped = $true
+      available = $false
+      reason = 'watch subcommand unavailable'
+      exitCode = 0
+      stdout = $result.stdout
+      stderr = $result.stderr
+      durationMs = $result.durationMs
+    }
+  }
+
+  return $result
 }
 
 if (-not (Test-Path $ProjectDir)) { throw "ProjectDir nao existe: $ProjectDir" }
@@ -154,7 +191,7 @@ $before = [ordered]@{
   repairRequested = [bool]$Repair
   projectStatus = Invoke-Captured $WqmPath @('project','status', $ProjectDir) $ProjectDir 30
   projectCheck = Invoke-Captured $WqmPath @('project','check', $ProjectDir, '--json') $ProjectDir 120
-  watchList = Invoke-Captured $WqmPath @('project','watch','list','--json') $ProjectDir 60
+  watchList = Invoke-OptionalWatchCapture $WqmPath @('watch','list','--json') $ProjectDir 60
   queueStats = Invoke-Captured $WqmPath @('queue','stats') $ProjectDir 60
 }
 
@@ -163,7 +200,7 @@ if ($Repair) {
   Write-Host "Rodando reparos nao destrutivos: register --yes, watch resume, project check."
   $repairResult = [ordered]@{
     register = Invoke-Captured $WqmPath @('project','register', $ProjectDir, '--yes') $ProjectDir 120
-    watchResume = Invoke-Captured $WqmPath @('project','watch','resume') $ProjectDir 60
+    watchResume = Invoke-OptionalWatchCapture $WqmPath @('watch','resume') $ProjectDir 60
     projectCheckAfter = Invoke-Captured $WqmPath @('project','check', $ProjectDir, '--json') $ProjectDir 120
     queueStatsAfter = Invoke-Captured $WqmPath @('queue','stats') $ProjectDir 60
   }
@@ -175,7 +212,8 @@ $result | ConvertTo-Json -Depth 12 | Set-Content -Path $logFile -Encoding UTF8
 $checkOk = $before.projectCheck.ok
 $statusOk = $before.projectStatus.ok
 $watchOk = $before.watchList.ok
-Write-Host "incremental-check status=$statusOk check=$checkOk watchList=$watchOk log=$logFile"
+$watchState = if ($before.watchList.skipped) { 'skip' } elseif ($watchOk) { 'ok' } else { 'fail' }
+Write-Host "incremental-check status=$statusOk check=$checkOk watchList=$watchState log=$logFile"
 
 if (-not $statusOk -or -not $checkOk) {
   Write-Host "Aviso: verificacao incremental encontrou falhas. Use incremental-repair para reparos nao destrutivos antes de rebuild/delete." -ForegroundColor Yellow

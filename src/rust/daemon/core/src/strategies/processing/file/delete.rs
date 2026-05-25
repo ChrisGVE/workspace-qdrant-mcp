@@ -425,7 +425,7 @@ pub(super) async fn cleanup_missing_file(
             )
             .await;
         } else {
-            info!(
+            debug!(
                 "Cleaned up {} Qdrant points and tracked record for missing file: {}",
                 point_ids.len(),
                 relative_path

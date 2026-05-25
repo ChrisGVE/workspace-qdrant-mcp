@@ -1,4 +1,4 @@
-﻿# BEGIN workspace-qdrant-fork-kit
+# BEGIN workspace-qdrant-fork-kit
 [mcp_servers.workspace-qdrant]
 command = "node"
 args = ["C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"]

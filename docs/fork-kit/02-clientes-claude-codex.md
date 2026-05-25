@@ -2,14 +2,14 @@
 
 ## Estratégia recomendada
 
-Use o stack Docker como backend padrão do fork. O cliente continua em STDIO para Claude Desktop e Codex, mas o daemon e a indexação ficam containerizados, com o caminho padrão em `localhost:50051`.
+Use o stack Docker como backend padrão do fork. O daemon, a indexação e o MCP ficam containerizados; o Codex fala com o MCP HTTP do stack em `http://localhost:6335/mcp`. O Claude Desktop pode continuar no perfil STDIO local enquanto você ainda não migrou esse cliente.
 
-Esse caminho também suporta FastEmbed, mas dentro do `memexd` do Docker; o endpoint continua em `localhost:50051`.
+Esse caminho também suporta FastEmbed, mas dentro do `memexd` do Docker. O fluxo local FastEmbed continua disponível como alternativa explícita.
 
 Motivos:
 
 - Menos dependência de um daemon local no host.
-- Uma configuração única para Claude Desktop e Codex.
+- O Codex não depende de um processo MCP local; ele fala direto com o container HTTP.
 - O caminho padrão já sai pronto com `make -f Makefile.win apply-config`.
 - O fluxo FastEmbed local fica disponível só como alternativa explícita.
 
@@ -54,7 +54,7 @@ Exemplo:
       ],
       "env": {
         "QDRANT_URL": "http://localhost:6333",
-        "WQM_DAEMON_ENDPOINT": "localhost:50051"
+        "WQM_DAEMON_ENDPOINT": "http://localhost:50051"
       }
     }
   }
@@ -71,19 +71,18 @@ Codex usa `config.toml`. Exemplo:
 
 ```toml
 [mcp_servers.workspace-qdrant]
-command = "node"
-args = ["C:/dev/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"]
+url = "http://localhost:6335/mcp"
+bearer_token_env_var = "MCP_HTTP_TOKEN"
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 required = true
 enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules"]
-
-[mcp_servers.workspace-qdrant.env]
-QDRANT_URL = "http://localhost:6333"
-WQM_DAEMON_ENDPOINT = "localhost:50051"
 ```
 
-No fluxo local FastEmbed, use `WQM_DAEMON_ENDPOINT = "http://localhost:55151"`. No padrão do fork, mantenha `localhost:50051`.
+Use o mesmo valor de `MCP_HTTP_TOKEN` que você colocou em `docker/.env` para o stack Docker.
+No Windows, deixe `MCP_HTTP_TOKEN` disponível no ambiente antes de abrir o Codex, ou inicie o Codex a partir de um shell onde esse env var já esteja exportado.
+
+No fluxo local FastEmbed, `apply-config-fastembed` gera o perfil stdio tradicional e usa `WQM_DAEMON_ENDPOINT = "http://localhost:55151"`.
 
 Use `/mcp` no TUI do Codex para ver servidores ativos.
 

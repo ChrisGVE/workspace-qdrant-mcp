@@ -104,7 +104,7 @@ make -f Makefile.win compose-up
 make -f Makefile.win apply-config
 ```
 
-Isso sobe o stack Docker e gera as configs de Claude Desktop e Codex apontando para o daemon em `localhost:50051`.
+Isso sobe o stack Docker e gera as configs de Claude Desktop e Codex: o Claude Desktop continua apontando para o daemon em `http://localhost:50051`, e o Codex usa o MCP HTTP containerizado em `http://localhost:6335/mcp`.
 
 ## Daemon e CLI
 
@@ -128,7 +128,7 @@ Se você quiser o fluxo local opcional com FastEmbed e gRPC:
 make -f Makefile.win service-stabilize-fastembed
 ```
 
-Esse caminho não é o padrão do fork; use-o só quando você realmente quiser o daemon fora do Docker.
+Esse caminho não é o padrão do fork; use-o só quando você realmente quiser o daemon fora do Docker. Nesse modo, o `apply-config-fastembed` volta a gerar o perfil stdio local para o Codex.
 
 Compilar Rust localmente pode exigir configuração de ONNX Runtime estático. Para começar rápido, prefira binários pré-compilados e use source build só quando for mexer no daemon/CLI.
 

@@ -163,7 +163,12 @@ function Invoke-Captured {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   $outFile = [System.IO.Path]::GetTempFileName()
   $errFile = [System.IO.Path]::GetTempFileName()
+  $previousConsoleEncoding = [Console]::OutputEncoding
+  $previousOutputEncoding = $OutputEncoding
+  $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
   try {
+    [Console]::OutputEncoding = $utf8Encoding
+    $OutputEncoding = $utf8Encoding
     $sanitizedArgs = @($CommandArgs | Where-Object { $_ -ne $null -and $_ -ne '' })
     $resolvedFile = $File
     if ($resolvedFile -and -not [System.IO.Path]::IsPathRooted($resolvedFile)) {
@@ -174,7 +179,10 @@ function Invoke-Captured {
     }
     Push-Location $WorkingDirectory
     try {
-      if ($sanitizedArgs.Count -gt 0) {
+      if ($resolvedFile -and $resolvedFile -match '\.ps1$') {
+        $scriptArgs = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $resolvedFile) + $sanitizedArgs
+        & powershell.exe @scriptArgs 1> $outFile 2> $errFile
+      } elseif ($sanitizedArgs.Count -gt 0) {
         & $resolvedFile @sanitizedArgs 1> $outFile 2> $errFile
       } else {
         & $resolvedFile 1> $outFile 2> $errFile
@@ -197,8 +205,40 @@ function Invoke-Captured {
   } catch {
     return @{ ok = $false; exitCode = -1; stdout = ""; stderr = $_.Exception.Message; durationMs = $sw.ElapsedMilliseconds }
   } finally {
+    [Console]::OutputEncoding = $previousConsoleEncoding
+    $OutputEncoding = $previousOutputEncoding
     Remove-Item $outFile,$errFile -ErrorAction SilentlyContinue
   }
+}
+
+function Invoke-OptionalWatchCapture {
+  param(
+    [string]$File,
+    [string[]]$CommandArgs = @(),
+    [string]$WorkingDirectory = $RepoDir,
+    [int]$TimeoutSeconds = 15
+  )
+
+  $result = Invoke-Captured $File $CommandArgs $WorkingDirectory $TimeoutSeconds
+  if ($result.ok) {
+    return $result
+  }
+
+  $combined = @($result.stdout, $result.stderr) -join "`n"
+  if ($combined -match "unrecognized subcommand 'watch'") {
+    return @{
+      ok = $true
+      skipped = $true
+      available = $false
+      reason = 'watch subcommand unavailable'
+      exitCode = 0
+      stdout = $result.stdout
+      stderr = $result.stderr
+      durationMs = $result.durationMs
+    }
+  }
+
+  return $result
 }
 
 function Test-TcpEndpoint {
@@ -247,12 +287,67 @@ function Get-GitInfo {
   }
 }
 
+function Get-HookInfo {
+  param([string]$BaseDir)
+
+  $hookScript = Join-Path $BaseDir 'scripts\windows\indexed-projects-hooks.ps1'
+  $report = [ordered]@{
+    available = (Test-Path -LiteralPath $hookScript)
+    installed = $false
+    healthy = $false
+    scriptPath = $hookScript
+  }
+
+  if (-not $report.available) {
+    $report.reason = 'hook script missing'
+    return $report
+  }
+
+  $result = Invoke-Captured $hookScript @('-Action', 'status', '-RepoDir', $BaseDir) $BaseDir 15
+  $report.lastCheck = $result
+
+  if (-not $result.ok) {
+    $report.reason = $(if ($result.stderr) { $result.stderr } else { 'hook status command failed' })
+    return $report
+  }
+
+  try {
+    $status = $result.stdout | ConvertFrom-Json -ErrorAction Stop
+    $hookCount = 0
+    if ($null -ne $status.hookCount) {
+      $hookCount = [int]$status.hookCount
+    }
+    if ($null -ne $status.installed) {
+      $installed = [bool]$status.installed
+    } else {
+      $installed = [bool]$status.hooksPathMatches -and [bool]$status.runnerExists -and ($hookCount -ge 5)
+    }
+    if ($null -ne $status.healthy) {
+      $healthy = [bool]$status.healthy
+    } else {
+      $healthy = $installed
+    }
+    $report.status = $status
+    $report.installed = $installed
+    $report.healthy = $healthy
+    if (-not $installed) {
+      $report.reason = $(if ($status.reason) { $status.reason } else { 'hooks not fully installed' })
+    }
+  } catch {
+    $report.reason = $_.Exception.Message
+  }
+
+  return $report
+}
+
 function New-Snapshot {
   Trace-Observe "snapshot: resolve wqm"
   $resolvedWqmPath = Resolve-WqmPath -BaseDir $RepoDir
   if (-not $resolvedWqmPath) { $resolvedWqmPath = "wqm" }
   Trace-Observe "snapshot: git"
   $git = Get-GitInfo
+  Trace-Observe "snapshot: hooks"
+  $hooks = Get-HookInfo -BaseDir $RepoDir
   Trace-Observe "snapshot: qdrant"
   $qdrant = Test-Qdrant $QdrantUrl
   Trace-Observe "snapshot: daemon"
@@ -272,7 +367,7 @@ function New-Snapshot {
     $queueStats = Invoke-Captured $resolvedWqmPath @('queue','stats') $RepoDir 20
     $projectStatus = Invoke-Captured $resolvedWqmPath @('project','status', $ProjectDir) $ProjectDir 20
     $projectList = Invoke-Captured $resolvedWqmPath @('project','list') $RepoDir 20
-    $watchList = Invoke-Captured $resolvedWqmPath @('project','watch','list','--json') $ProjectDir 20
+    $watchList = Invoke-OptionalWatchCapture $resolvedWqmPath @('watch','list','--json') $ProjectDir 20
   } finally {
     if ($null -eq $previousWqmDaemonAddr) {
       Remove-Item Env:WQM_DAEMON_ADDR -ErrorAction SilentlyContinue
@@ -327,6 +422,7 @@ function New-Snapshot {
     git = $git
     qdrant = $qdrant
     daemonTcp = $daemonTcp
+    hooks = $hooks
     wqm = @{ health = $wqmHealth; queueStats = $queueStats; projectStatus = $projectStatus; projectList = $projectList; watchList = $watchList }
     processes = @{ node = $nodeProc; memexd = $memexProc }
   }
@@ -349,7 +445,8 @@ while ($true) {
   $q = if ($snap.qdrant.ok) { 'ok' } else { 'fail' }
   $d = if ($snap.daemonTcp.ok) { 'ok' } else { 'fail' }
   $h = if ($snap.wqm.health.ok) { 'ok' } else { 'fail' }
-  Write-Host ("[{0}] qdrant={1} daemonTcp={2} wqmHealth={3} log={4}" -f (Get-Date -Format 'HH:mm:ss'), $q, $d, $h, $logFile)
+  $hooks = if ($snap.hooks.healthy) { 'ok' } elseif ($snap.hooks.available) { 'warn' } else { 'off' }
+  Write-Host ("[{0}] qdrant={1} daemonTcp={2} wqmHealth={3} hooks={4} log={5}" -f (Get-Date -Format 'HH:mm:ss'), $q, $d, $h, $hooks, $logFile)
 
   if ($Once) { break }
   Start-Sleep -Seconds $IntervalSeconds
