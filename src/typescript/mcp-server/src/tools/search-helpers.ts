@@ -286,6 +286,9 @@ function recordAndBuildResponse(
     status: params.status,
   };
   if (params.statusReason) response.status_reason = params.statusReason;
+  // Expose the branch filter that was applied so callers can see which branch
+  // scoped the search (absent when cross-branch via "*" or no filter).
+  if (params.options.branch) response.branch = params.options.branch;
   return response;
 }
 

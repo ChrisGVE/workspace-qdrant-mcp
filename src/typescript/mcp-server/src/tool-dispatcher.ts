@@ -60,7 +60,9 @@ async function routeTool(
     components;
   switch (toolName) {
     case 'search': {
-      const searchResult = await searchTool.search(buildSearchOptions(args));
+      const searchResult = await searchTool.search(
+        buildSearchOptions(args, sessionState.currentBranch)
+      );
       return healthMonitor.augmentSearchResults({ success: true, ...searchResult });
     }
     case 'retrieve':
@@ -72,7 +74,7 @@ async function routeTool(
     case 'grep':
       return grepTool.grep(buildGrepOptions(args));
     case 'list':
-      return listTool.list(buildListOptions(args));
+      return listTool.list(buildListOptions(args, sessionState.currentBranch));
     case 'embedding':
       return handleEmbedding(args, daemonClient);
     default:

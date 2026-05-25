@@ -82,7 +82,7 @@ describe('SearchTool — tag filtering', () => {
       { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
       createMockDaemonClient(),
       createMockStateManager(),
-      createMockProjectDetector(),
+      createMockProjectDetector()
     );
 
     const result = await tool.search({
@@ -100,7 +100,7 @@ describe('SearchTool — tag filtering', () => {
       { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
       createMockDaemonClient(),
       createMockStateManager(),
-      createMockProjectDetector(),
+      createMockProjectDetector()
     );
 
     const result = await tool.search({
@@ -128,7 +128,7 @@ describe('SearchTool — tag filtering', () => {
       { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
       createMockDaemonClient(),
       createMockStateManager(),
-      createMockProjectDetector(),
+      createMockProjectDetector()
     );
 
     await tool.search({
@@ -141,13 +141,18 @@ describe('SearchTool — tag filtering', () => {
     expect(searchFn).toHaveBeenCalled();
     const filter = searchFn.mock.calls[0][1].filter;
 
+    // A single `tag` produces a `should` wrapper matching both concept_tags and tags fields.
     expect(filter).toBeDefined();
     expect(filter.must).toBeDefined();
-    const tagCondition = filter.must.find(
-      (c: Record<string, unknown>) => c.key === 'concept_tags'
+    const tagWrapper = filter.must.find((c: Record<string, unknown>) => Array.isArray(c.should));
+    expect(tagWrapper).toBeDefined();
+    const conceptTagsCond = (tagWrapper.should as Record<string, unknown>[]).find(
+      (s: Record<string, unknown>) => s.key === 'concept_tags'
     );
-    expect(tagCondition).toBeDefined();
-    expect(tagCondition.match.value).toBe('async runtime');
+    expect(conceptTagsCond).toBeDefined();
+    expect((conceptTagsCond as { key: string; match: { value: string } }).match.value).toBe(
+      'async runtime'
+    );
   });
 
   it('should pass tags array as a should sub-condition', async () => {
@@ -165,7 +170,7 @@ describe('SearchTool — tag filtering', () => {
       { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
       createMockDaemonClient(),
       createMockStateManager(),
-      createMockProjectDetector(),
+      createMockProjectDetector()
     );
 
     await tool.search({
@@ -184,7 +189,9 @@ describe('SearchTool — tag filtering', () => {
       (c: Record<string, unknown>) => c.should !== undefined
     );
     expect(shouldCondition).toBeDefined();
-    expect(shouldCondition.should).toHaveLength(2);
+    // Each tag matches against both concept_tags and tags fields:
+    // 2 tags × 2 fields = 4 entries in the should array.
+    expect(shouldCondition.should).toHaveLength(4);
   });
 });
 
@@ -206,7 +213,7 @@ describe('SearchTool — component filtering', () => {
       { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
       createMockDaemonClient(),
       createMockStateManager(),
-      createMockProjectDetector(),
+      createMockProjectDetector()
     );
 
     await tool.search({
@@ -254,7 +261,7 @@ describe('SearchTool — component filtering', () => {
       { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
       createMockDaemonClient(),
       createMockStateManager(),
-      createMockProjectDetector(),
+      createMockProjectDetector()
     );
 
     await tool.search({

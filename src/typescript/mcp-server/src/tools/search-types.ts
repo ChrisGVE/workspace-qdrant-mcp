@@ -99,6 +99,8 @@ export interface SearchResponse {
   collections_searched: string[];
   status?: 'ok' | 'uncertain' | 'error';
   status_reason?: string;
+  /** Branch filter applied to this search, or undefined when cross-branch ("*") */
+  branch?: string;
 }
 
 export interface SearchToolConfig {

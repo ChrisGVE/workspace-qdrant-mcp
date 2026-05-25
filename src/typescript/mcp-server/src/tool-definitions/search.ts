@@ -49,7 +49,8 @@ export const searchToolDefinition = {
       },
       branch: {
         type: 'string',
-        description: 'Filter by branch name',
+        description:
+          'Filter by branch name. Defaults to the current git branch. Pass "*" to search across all branches.',
       },
       fileType: {
         type: 'string',

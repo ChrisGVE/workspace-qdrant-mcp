@@ -48,7 +48,8 @@ function extractScopeOptions(
 
 function extractIdentifierOptions(
   args: Record<string, unknown> | undefined,
-  options: SearchOptions
+  options: SearchOptions,
+  defaultBranch: string | null | undefined
 ): void {
   const projectId = args?.['projectId'] as string | undefined;
   if (projectId) options.projectId = projectId;
@@ -57,7 +58,16 @@ function extractIdentifierOptions(
   if (libraryName) options.libraryName = libraryName;
 
   const branch = args?.['branch'] as string | undefined;
-  if (branch) options.branch = branch;
+  if (branch === '*') {
+    // Explicit wildcard — cross-branch search, no filter applied
+  } else if (branch) {
+    options.branch = branch;
+  } else if (defaultBranch && defaultBranch !== 'default') {
+    // Fall back to the session's current branch when not explicitly provided.
+    // Skip when the sentinel value "default" is set — that indicates the
+    // session is not inside a git repository and no branch filter should apply.
+    options.branch = defaultBranch;
+  }
 
   const fileType = args?.['fileType'] as string | undefined;
   if (fileType) options.fileType = fileType;
@@ -97,12 +107,23 @@ function extractOutputOptions(
   if (includeGraphContext !== undefined) options.includeGraphContext = includeGraphContext;
 }
 
-/** Build search options from raw tool arguments */
-export function buildSearchOptions(args: Record<string, unknown> | undefined): SearchOptions {
+/**
+ * Build search options from raw tool arguments.
+ *
+ * @param args           Raw MCP tool arguments.
+ * @param defaultBranch  Session's current branch, used when the caller does
+ *                       not explicitly pass a `branch` argument. Pass `null`
+ *                       or omit to skip the default. Pass the string `"*"` as
+ *                       the `branch` argument to bypass filtering entirely.
+ */
+export function buildSearchOptions(
+  args: Record<string, unknown> | undefined,
+  defaultBranch?: string | null
+): SearchOptions {
   const options: SearchOptions = { query: (args?.['query'] as string) ?? '' };
 
   extractScopeOptions(args, options);
-  extractIdentifierOptions(args, options);
+  extractIdentifierOptions(args, options, defaultBranch);
   extractFilterOptions(args, options);
   extractOutputOptions(args, options);
 
