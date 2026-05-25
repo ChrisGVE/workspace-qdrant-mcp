@@ -63,6 +63,7 @@ mod path_validation {
             tenant_id: "abcd12345678".to_string(),
             symbol_name: "my_func".to_string(),
             file_path: Some("/absolute/path.rs".to_string()),
+            branch: None,
         });
 
         let result = service.impact_analysis(request).await;
@@ -84,6 +85,7 @@ mod path_validation {
             tenant_id: "abcd12345678".to_string(),
             symbol_name: "my_func".to_string(),
             file_path: Some("src/../secret.rs".to_string()),
+            branch: None,
         });
 
         let result = service.impact_analysis(request).await;
@@ -102,6 +104,7 @@ mod path_validation {
             tenant_id: "abcd12345678".to_string(),
             symbol_name: "my_func".to_string(),
             file_path: Some(String::new()),
+            branch: None,
         });
 
         // Empty string is filtered to None by the handler.
@@ -117,6 +120,7 @@ mod path_validation {
             tenant_id: "abcd12345678".to_string(),
             symbol_name: "my_func".to_string(),
             file_path: Some("src/lib.rs".to_string()),
+            branch: None,
         });
 
         // Valid relative path should pass validation (query may return empty).

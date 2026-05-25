@@ -664,6 +664,7 @@ message QueryRelatedRequest {
     string node_id = 2;                           // Node ID to query from
     uint32 max_hops = 3;                          // Max traversal depth (1-5)
     repeated string edge_types = 4;               // Filter: ["CALLS", "IMPORTS"], empty = all
+    optional string branch = 5;                    // Scope to branch (empty/"*" = all)
 }
 
 // QueryRelated Response
@@ -689,6 +690,7 @@ message ImpactAnalysisRequest {
     string tenant_id = 1;                         // Project tenant_id
     string symbol_name = 2;                       // Symbol to analyze
     optional string file_path = 3;                // [relative] Narrow to specific file (relative path)
+    optional string branch = 4;                    // Scope to branch (empty/"*" = all)
 }
 
 // ImpactAnalysis Response
@@ -710,6 +712,7 @@ message ImpactNodeProto {
 // GraphStats Request
 message GraphStatsRequest {
     optional string tenant_id = 1;                // Empty = all tenants
+    optional string branch = 2;                    // Scope to branch (empty/"*" = all)
 }
 
 // GraphStats Response
@@ -826,6 +829,7 @@ message FindPathRequest {
     string target_node_id = 3;                    // Destination node ID
     uint32 max_depth = 4;                         // Max path length (1-10)
     repeated string edge_types = 5;               // Filter edge types, empty = all
+    optional string branch = 6;                    // Scope to branch (empty/"*" = all)
 }
 
 // FindPath Response

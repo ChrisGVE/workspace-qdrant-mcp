@@ -20,6 +20,7 @@ pub async fn graph_stats(tenant_id: Option<String>) -> Result<()> {
         .graph()
         .get_graph_stats(GraphStatsRequest {
             tenant_id: tenant_id.clone(),
+            branch: None,
         })
         .await
         .context("GetGraphStats RPC failed")?

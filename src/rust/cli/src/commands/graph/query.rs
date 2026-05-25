@@ -32,6 +32,7 @@ pub async fn query_related(
             node_id: node_id.to_string(),
             max_hops,
             edge_types,
+            branch: None,
         })
         .await
         .context("QueryRelated RPC failed")?

@@ -29,6 +29,7 @@ pub async fn impact_analysis(
             tenant_id: tenant_id.to_string(),
             symbol_name: symbol_name.to_string(),
             file_path,
+            branch: None,
         })
         .await
         .context("ImpactAnalysis RPC failed")?

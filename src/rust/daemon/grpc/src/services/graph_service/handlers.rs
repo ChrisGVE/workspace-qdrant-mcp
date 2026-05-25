@@ -25,6 +25,13 @@ use super::validation::{
     DEFAULT_MAX_NODES,
 };
 
+/// Extract branch filter from an optional proto string field.
+///
+/// Returns `None` (cross-branch) when the field is absent or empty.
+fn branch_filter(branch: &Option<String>) -> Option<&str> {
+    branch.as_deref().filter(|b| !b.is_empty())
+}
+
 #[tonic::async_trait]
 impl GraphService for GraphServiceImpl {
     #[tracing::instrument(skip_all, fields(method = "GraphService.query_related"))]
@@ -62,9 +69,11 @@ impl GraphService for GraphServiceImpl {
             Some(types)
         };
 
+        let branch = branch_filter(&req.branch);
+
         debug!(
-            "GraphService.QueryRelated: tenant={} node={} hops={} edge_types={:?}",
-            req.tenant_id, req.node_id, max_hops, edge_types
+            "GraphService.QueryRelated: tenant={} node={} hops={} edge_types={:?} branch={:?}",
+            req.tenant_id, req.node_id, max_hops, edge_types, branch
         );
 
         let start = std::time::Instant::now();
@@ -76,7 +85,7 @@ impl GraphService for GraphServiceImpl {
                 &req.node_id,
                 max_hops,
                 edge_types.as_deref(),
-                None,
+                branch,
             )
             .await;
 
@@ -134,9 +143,11 @@ impl GraphService for GraphServiceImpl {
             None => None,
         };
 
+        let branch = branch_filter(&req.branch);
+
         debug!(
-            "GraphService.ImpactAnalysis: tenant={} symbol={} file={:?}",
-            req.tenant_id, req.symbol_name, validated_file_path
+            "GraphService.ImpactAnalysis: tenant={} symbol={} file={:?} branch={:?}",
+            req.tenant_id, req.symbol_name, validated_file_path, branch
         );
 
         let start = std::time::Instant::now();
@@ -147,7 +158,7 @@ impl GraphService for GraphServiceImpl {
                 &req.tenant_id,
                 &req.symbol_name,
                 validated_file_path.as_deref(),
-                None,
+                branch,
             )
             .await;
 
@@ -190,12 +201,16 @@ impl GraphService for GraphServiceImpl {
         let req = request.into_inner();
 
         let tenant_filter = req.tenant_id.as_deref().filter(|s| !s.is_empty());
+        let branch = branch_filter(&req.branch);
 
-        debug!("GraphService.GetGraphStats: tenant={:?}", tenant_filter);
+        debug!(
+            "GraphService.GetGraphStats: tenant={:?} branch={:?}",
+            tenant_filter, branch
+        );
 
         let start = std::time::Instant::now();
 
-        match self.graph_store.stats(tenant_filter, None).await {
+        match self.graph_store.stats(tenant_filter, branch).await {
             Ok(stats) => {
                 let query_time_ms = start.elapsed().as_millis();
                 debug!(
@@ -552,7 +567,7 @@ impl GraphService for GraphServiceImpl {
         let batch_size = req.batch_size.unwrap_or(500) as usize;
 
         info!(
-            "GraphService.MigrateGraph: {} → {} (tenant={:?}, batch={})",
+            "GraphService.MigrateGraph: {} -> {} (tenant={:?}, batch={})",
             req.from_backend, req.to_backend, tenant_id, batch_size
         );
 
@@ -570,9 +585,6 @@ impl GraphService for GraphServiceImpl {
                 Status::internal(format!("Export failed: {}", e))
             })?;
 
-        // For now, import back to the same SQLite store (real ladybug migration
-        // requires runtime construction of the ladybug store which needs the
-        // graph config from daemon state — future enhancement)
         let report =
             workspace_qdrant_core::graph::migrator::import_to_store(&snapshot, &*guard, batch_size)
                 .await
@@ -617,6 +629,8 @@ impl GraphService for GraphServiceImpl {
             .as_ref()
             .map(|strs| strs.iter().filter_map(|s| EdgeType::from_str(s)).collect());
 
+        let branch = branch_filter(&req.branch);
+
         let result = self
             .graph_store
             .find_path(
@@ -625,7 +639,7 @@ impl GraphService for GraphServiceImpl {
                 &req.target_node_id,
                 max_depth,
                 edge_types.as_deref(),
-                None,
+                branch,
             )
             .await
             .map_err(|e| {
