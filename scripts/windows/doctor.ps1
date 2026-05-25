@@ -9,6 +9,8 @@ $ErrorActionPreference = "Stop"
 $script:Failures = 0
 $script:Warnings = 0
 
+. (Join-Path $PSScriptRoot "semantic-mcp-common.ps1")
+
 function Write-Pass([string]$Message) { Write-Host "[PASS] $Message" -ForegroundColor Green }
 function Write-Warn2([string]$Message) { $script:Warnings++; Write-Host "[WARN] $Message" -ForegroundColor Yellow }
 function Write-Fail2([string]$Message) { $script:Failures++; Write-Host "[FAIL] $Message" -ForegroundColor Red }
@@ -116,6 +118,26 @@ $claudeConfig = Join-Path $env:APPDATA "Claude\claude_desktop_config.json"
 $codexConfig = Join-Path $env:USERPROFILE ".codex\config.toml"
 if (Test-Path $claudeConfig) { Write-Pass "Claude config existe: $claudeConfig" } else { Write-Warn2 "Claude config não existe: $claudeConfig" }
 if (Test-Path $codexConfig) { Write-Pass "Codex config existe: $codexConfig" } else { Write-Warn2 "Codex config não existe: $codexConfig" }
+
+Write-Host ""
+Write-Host "== Codex HTTP token =="
+$codexTokenEnv = [Environment]::GetEnvironmentVariable("MCP_HTTP_TOKEN")
+$codexTokenFile = Get-EnvFileValue -RepoDir $RepoDir -Name "MCP_HTTP_TOKEN"
+if ($codexTokenEnv) {
+  if ($codexTokenEnv.Trim().Length -lt 16) {
+    Write-Warn2 "MCP_HTTP_TOKEN tem menos de 16 caracteres; o Codex HTTP vai falhar com required=true"
+  } else {
+    Write-Pass "MCP_HTTP_TOKEN visível no ambiente atual"
+  }
+} elseif ($codexTokenFile) {
+  if ($codexTokenFile.Trim().Length -lt 16) {
+    Write-Warn2 "MCP_HTTP_TOKEN em docker\.env ou .env tem menos de 16 caracteres; o Codex HTTP vai falhar com required=true"
+  } else {
+    Write-Warn2 "MCP_HTTP_TOKEN está em docker\.env ou .env, mas não está exportado neste shell; use scripts/windows/start-codex.ps1 para abrir o Codex"
+  }
+} else {
+  Write-Warn2 "MCP_HTTP_TOKEN não foi encontrado no ambiente nem em docker\.env/.env; o Codex HTTP vai falhar com required=true"
+}
 
 Write-Host ""
 Write-Host "Resultado: $script:Failures falha(s), $script:Warnings aviso(s)."

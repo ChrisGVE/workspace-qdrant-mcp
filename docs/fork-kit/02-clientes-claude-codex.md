@@ -81,6 +81,7 @@ enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "worksp
 
 Use o mesmo valor de `MCP_HTTP_TOKEN` que você colocou em `docker/.env` para o stack Docker.
 No Windows, deixe `MCP_HTTP_TOKEN` disponível no ambiente antes de abrir o Codex, ou inicie o Codex a partir de um shell onde esse env var já esteja exportado.
+Se quiser evitar export manual, use `make -f Makefile.win codex-open` ou `.\scripts\windows\start-codex.ps1`; ambos leem `docker\.env` e exportam `MCP_HTTP_TOKEN` antes de abrir o Codex.
 
 No fluxo local FastEmbed, `apply-config-fastembed` gera o perfil stdio tradicional e usa `WQM_DAEMON_ENDPOINT = "http://localhost:55151"`.
 

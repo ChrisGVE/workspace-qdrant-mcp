@@ -41,6 +41,8 @@ function Write-Utf8NoBomFile([string]$Path, [string]$Content) {
   [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
 }
 
+. (Join-Path $PSScriptRoot "semantic-mcp-common.ps1")
+
 $IndexPath = Join-Path $RepoDir "src\typescript\mcp-server\dist\index.js"
 if (-not (Test-Path $IndexPath)) {
   Write-Warning "MCP dist/index.js não encontrado: $IndexPath"
@@ -72,6 +74,24 @@ $qdrantToml = Escape-TomlString $QdrantUrl
 $daemonToml = Escape-TomlString $DaemonEndpoint
 $codexHttpToml = Escape-TomlString $CodexHttpUrl
 $codexBearerTokenEnvVarToml = Escape-TomlString $CodexBearerTokenEnvVar
+
+if ($CodexTransport -eq "http") {
+  $codexTokenEnv = [Environment]::GetEnvironmentVariable($CodexBearerTokenEnvVar)
+  $codexTokenFile = Get-EnvFileValue -RepoDir $RepoDir -Name $CodexBearerTokenEnvVar
+  if ($codexTokenEnv) {
+    if ($codexTokenEnv.Trim().Length -lt 16) {
+      Write-Warning "$CodexBearerTokenEnvVar tem menos de 16 caracteres; o Codex HTTP vai falhar com required=true."
+    }
+  } elseif ($codexTokenFile) {
+    if ($codexTokenFile.Trim().Length -lt 16) {
+      Write-Warning "$CodexBearerTokenEnvVar em docker\.env ou .env tem menos de 16 caracteres; o Codex HTTP vai falhar com required=true."
+    } else {
+      Write-Warning "$CodexBearerTokenEnvVar está em docker\.env ou .env, mas não está exportado neste shell; use scripts/windows/start-codex.ps1 ou make -f Makefile.win codex-open para abrir o Codex."
+    }
+  } else {
+    Write-Warning "$CodexBearerTokenEnvVar não foi encontrado no ambiente nem em docker\.env/.env; o Codex HTTP vai falhar com required=true."
+  }
+}
 
 $codexBlock = if ($CodexTransport -eq "http") {
 @"

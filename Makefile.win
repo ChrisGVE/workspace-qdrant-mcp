@@ -12,6 +12,7 @@
 #   DAEMON_ENDPOINT=http://localhost:50051
 #   FASTEMBED_DAEMON_ENDPOINT=http://localhost:55151
 #   TOOLS=search,retrieve,grep,list,store,rules
+#   MCP_HTTP_PORT=6335
 #   LOG_DIR=C:\dev\workspace-qdrant-mcp\.wqm-fork\logs
 #
 # Fluxo de branches recomendado:
@@ -30,6 +31,7 @@ COMPOSE_FILE ?= $(REPO)\docker-compose.yml
 COMPOSE_ENV_FILE ?= $(REPO)\docker\.env
 QDRANT_HTTP_PORT ?= 6333
 QDRANT_GRPC_PORT ?= 6334
+MCP_HTTP_PORT ?= 6335
 QDRANT_URL ?= http://localhost:$(QDRANT_HTTP_PORT)
 DAEMON_ENDPOINT ?= http://localhost:50051
 TOOLS ?= search,retrieve,grep,list,store,rules
@@ -88,7 +90,7 @@ FASTEMBED_OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(Q
 FASTEMBED_SERVICE_ARGS = -FastEmbed -FastEmbedCacheDir "$(FASTEMBED_CACHE_DIR)" -FastEmbedQdrantUrl "$(FASTEMBED_QDRANT_URL)" -FastEmbedGrpcPort $(FASTEMBED_GRPC_PORT) -FastEmbedControlPort $(FASTEMBED_CONTROL_PORT) -FastEmbedMetricsPort $(FASTEMBED_METRICS_PORT) -FastEmbedLogLevel "$(FASTEMBED_LOG_LEVEL)"
 FASTEMBED_DAEMON_ARGS = -RepoDir "$(REPO)" -CacheDir "$(FASTEMBED_CACHE_DIR)" -QdrantUrl "$(FASTEMBED_QDRANT_URL)" -GrpcPort $(FASTEMBED_GRPC_PORT) -ControlPort $(FASTEMBED_CONTROL_PORT) -MetricsPort $(FASTEMBED_METRICS_PORT) -LogLevel "$(FASTEMBED_LOG_LEVEL)"
 
-.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed register smoke smoke-full status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
+.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed codex-open register smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
 
 help:
 	@Write-Host "Targets principais:"
@@ -104,9 +106,13 @@ help:
 	@Write-Host "  build-ts            - instala deps e compila MCP TypeScript"
 	@Write-Host "  config/apply-config - gera/aplica configs Claude Desktop (http://localhost:50051) e Codex HTTP (http://localhost:6335/mcp)"
 	@Write-Host "  config-fastembed/apply-config-fastembed - mesma base, com Codex/Claude no fluxo FastEmbed local (http://localhost:55151)"
+	@Write-Host "  codex-open          - abre o Codex carregando MCP_HTTP_TOKEN de docker/.env"
 	@Write-Host "  register            - registra PROJECT no wqm"
 	@Write-Host "  smoke               - valida fluxo minimo wqm/Qdrant/daemon"
 	@Write-Host "  smoke-full          - smoke + tenant validate + incremental-check + health"
+	@Write-Host "  semantic-smoke      - roda os smokes de busca semantica em biblioteca e projeto"
+	@Write-Host "  semantic-search-library-smoke - força uma busca semantica na collection libraries"
+	@Write-Host "  semantic-search-project-smoke - registra projeto temporario e força busca semantica"
 	@Write-Host ""
 	@Write-Host "Confiabilidade / observabilidade:"
 	@Write-Host "  health              - snapshot unico de saude em JSONL + resumo humano"
@@ -425,6 +431,9 @@ apply-config:
 apply-config-fastembed:
 	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(FASTEMBED_DAEMON_ENDPOINT)" -CodexTransport stdio -ToolCsv "$(TOOLS)" -ConfigSuffix ".fastembed" -ApplyClaude -ApplyCodex
 
+codex-open:
+	.\scripts\windows\start-codex.ps1 -RepoDir "$(REPO)"
+
 register:
 	.\scripts\windows\register-project.ps1 -ProjectDir "$(PROJECT)"
 
@@ -432,6 +441,14 @@ smoke:
 	.\scripts\windows\smoke-test.ps1 -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)"
 
 smoke-full: service-stabilize smoke tenant-validate incremental-check health
+
+semantic-search-library-smoke:
+	.\scripts\windows\semantic-search-library-smoke.ps1 -RepoDir "$(REPO)" -McpUrl "http://localhost:$(MCP_HTTP_PORT)/mcp"
+
+semantic-search-project-smoke:
+	.\scripts\windows\semantic-search-project-smoke.ps1 -RepoDir "$(REPO)" -McpUrl "http://localhost:$(MCP_HTTP_PORT)/mcp"
+
+semantic-smoke: semantic-search-library-smoke semantic-search-project-smoke
 
 health:
 	.\scripts\windows\service-observe.ps1 $(OBS_ARGS) -Once
