@@ -147,26 +147,83 @@ async fn test_heartbeat_updates_timestamp() {
 }
 
 #[tokio::test]
-async fn test_heartbeat_no_op_for_inactive_project() {
+async fn test_heartbeat_reactivates_inactive_project() {
     let (pool, _temp_dir) = setup_test_db().await;
     let priority_manager = PriorityManager::new(pool.clone());
 
-    // Create test project without active sessions (is_active=0)
+    // Create test project without active sessions (is_active=0), simulating a
+    // project that was deactivated by the inactivity monitor while the MCP
+    // client was still alive.
     create_test_project(&pool, "abcd12345678", "/test/project").await;
 
-    // Heartbeat should not update a project with no active sessions.
-    // With reference counting, only live sessions can keep a project active;
-    // heartbeat cannot resurrect a project with 0 sessions.
+    // A heartbeat from a live client is proof of an active session, so the
+    // project should be reactivated even when is_active was 0.
     let updated = priority_manager.heartbeat("abcd12345678").await.unwrap();
-    assert!(!updated);
+    assert!(
+        updated,
+        "heartbeat should reactivate a project with is_active=0"
+    );
 
-    // Verify project remains inactive
+    // Verify project is now active
     let info = priority_manager
         .get_session_info("abcd12345678")
         .await
         .unwrap()
         .unwrap();
-    assert!(!info.is_active);
+    assert!(info.is_active);
+    assert_eq!(info.priority, "high");
+}
+
+#[tokio::test]
+async fn test_heartbeat_reactivates_after_inactivity_timeout() {
+    let (pool, _temp_dir) = setup_test_db().await;
+    let priority_manager = PriorityManager::new(pool.clone());
+
+    // Register a session, then simulate the inactivity monitor deactivating
+    // the project by directly zeroing is_active (the monitor does the same).
+    create_test_project(&pool, "abcd12345678", "/test/project").await;
+    priority_manager
+        .register_session("abcd12345678", "main")
+        .await
+        .unwrap();
+
+    // Directly zero is_active to simulate what deactivate_inactive_projects does
+    sqlx::query(
+        "UPDATE watch_folders SET is_active = 0 WHERE tenant_id = ?1 AND collection = 'projects'",
+    )
+    .bind("abcd12345678")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Verify project is now inactive
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !info.is_active,
+        "project should be inactive after deactivation"
+    );
+
+    // A subsequent heartbeat from the still-alive MCP client must reactivate it
+    let updated = priority_manager.heartbeat("abcd12345678").await.unwrap();
+    assert!(
+        updated,
+        "heartbeat should reactivate project after inactivity timeout"
+    );
+
+    let info = priority_manager
+        .get_session_info("abcd12345678")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        info.is_active,
+        "project should be active again after heartbeat"
+    );
+    assert_eq!(info.priority, "high");
 }
 
 #[tokio::test]

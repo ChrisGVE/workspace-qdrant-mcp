@@ -234,13 +234,7 @@ impl PriorityManager {
 
         let now = Utc::now();
 
-        // A heartbeat refreshes the activity timestamp for a project that has at least
-        // one active session (is_active > 0). With reference counting, is_active
-        // accurately reflects the number of live sessions — a heartbeat cannot
-        // resurrect a project with 0 sessions, because that would bypass the register/
-        // unregister lifecycle. The race condition that required `SET is_active = 1`
-        // (Task 518) is resolved by reference counting: one session ending no longer
-        // drops the count to 0 while another session is still alive.
+        // Attempt to refresh the activity timestamp for an active project.
         let result = sqlx::query(
             r#"
             UPDATE watch_folders
@@ -257,7 +251,40 @@ impl PriorityManager {
         .execute(&self.db_pool)
         .await?;
 
-        let updated = result.rows_affected() > 0;
+        let updated = if result.rows_affected() > 0 {
+            true
+        } else {
+            // No active rows were updated. Check whether the project exists but has
+            // is_active = 0 — this happens when the inactivity monitor deactivated the
+            // project while the MCP client was still alive. A heartbeat from a live
+            // client is proof of an active session, so reactivate the project.
+            let exists: Option<i32> = sqlx::query_scalar(
+                "SELECT 1 FROM watch_folders \
+                 WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1",
+            )
+            .bind(tenant_id)
+            .bind(COLLECTION_PROJECTS)
+            .fetch_optional(&self.db_pool)
+            .await?;
+
+            if exists.is_some() {
+                let lifecycle = WatchFolderLifecycle::new(self.db_pool.clone());
+                let reactivated = lifecycle
+                    .activate_by_tenant(tenant_id, COLLECTION_PROJECTS)
+                    .await?;
+                if reactivated > 0 {
+                    info!(
+                        "Heartbeat reactivated project {} (was inactive, client still alive)",
+                        tenant_id
+                    );
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
 
         // Record heartbeat latency metric
         let latency_secs = start.elapsed().as_secs_f64();
