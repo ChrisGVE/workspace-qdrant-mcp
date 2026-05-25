@@ -35,7 +35,7 @@ use crate::source_diversity::apply_diversity_penalty;
 /// - `null` / `Object`   -> skipped (no equivalent single-value match)
 ///
 /// Returns `None` when every entry was skipped or the input map was empty.
-pub(crate) fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<Filter> {
+pub fn build_filter_from_json(filter: &HashMap<String, Value>) -> Option<Filter> {
     let mut conditions: Vec<Condition> = Vec::with_capacity(filter.len());
     for (key, value) in filter {
         let (effective_key, effective_value);

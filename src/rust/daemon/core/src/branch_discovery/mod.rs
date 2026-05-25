@@ -6,8 +6,8 @@
 //! points) or NOVEL (queue for embedding). This handles daemon restarts,
 //! worktree additions, and database wipes without relying on creation-time events.
 
-mod db;
-mod scanner;
+pub mod db;
+pub mod scanner;
 
 #[cfg(test)]
 mod tests;

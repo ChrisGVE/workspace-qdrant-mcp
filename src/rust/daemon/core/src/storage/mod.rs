@@ -23,7 +23,7 @@ pub mod cross_collection_search;
 mod points;
 pub mod qdrant_circuit_breaker;
 mod scroll;
-mod search;
+pub(crate) mod search;
 pub mod types;
 
 // Re-export all public types from the root of the storage module
@@ -39,6 +39,8 @@ pub use cross_collection_search::{
 };
 
 pub use qdrant_circuit_breaker::QdrantCircuitBreaker;
+
+pub use search::build_filter_from_json;
 
 pub use search::{build_tag_filter, merge_tag_filter_into};
 

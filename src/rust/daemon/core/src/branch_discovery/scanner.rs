@@ -161,12 +161,12 @@ fn scan_filesystem(project_root: &Path) -> Result<HashMap<String, String>, Strin
 }
 
 /// Shared file info for batch processing.
-pub(crate) struct SharedFile {
-    pub(crate) file_id: i64,
-    pub(crate) base_point: Option<String>,
-    pub(crate) relative_path: String,
-    pub(crate) file_hash: String,
-    pub(crate) existing_branches: Vec<String>,
+pub struct SharedFile {
+    pub file_id: i64,
+    pub base_point: Option<String>,
+    pub relative_path: String,
+    pub file_hash: String,
+    pub existing_branches: Vec<String>,
 }
 
 /// Classify filesystem files as shared or novel.
@@ -174,7 +174,7 @@ pub(crate) struct SharedFile {
 /// A file is SHARED if its (relative_path, file_hash) matches a known tracked_files entry
 /// and the new_branch is not already in that entry's branches array.
 /// A file is NOVEL if no matching entry exists.
-pub(crate) fn classify_files(
+pub fn classify_files(
     fs_files: &HashMap<String, String>,
     known: &HashMap<(String, String), db::KnownFile>,
     new_branch: &str,
@@ -282,7 +282,7 @@ async fn process_shared_files(
 
 /// Infer the parent branch by finding the branch with the smallest diff
 /// (most files in common with the new branch's filesystem).
-pub(crate) fn infer_parent_branch(
+pub fn infer_parent_branch(
     fs_files: &HashMap<String, String>,
     known: &HashMap<(String, String), db::KnownFile>,
 ) -> Option<String> {
