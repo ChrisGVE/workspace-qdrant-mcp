@@ -58,10 +58,9 @@ impl Migration for V19Migration {
 
         if !rows.is_empty() {
             info!("Backfilling base_point for {} existing rows", rows.len());
-            for (file_id, tenant_id, branch, file_path, file_hash) in &rows {
-                let base_point = wqm_common::hashing::compute_base_point(
-                    tenant_id, branch, file_path, file_hash,
-                );
+            for (file_id, tenant_id, _branch, file_path, file_hash) in &rows {
+                let base_point =
+                    wqm_common::hashing::compute_base_point(tenant_id, file_path, file_hash);
                 sqlx::query("UPDATE tracked_files SET base_point = ?1 WHERE file_id = ?2")
                     .bind(&base_point)
                     .bind(file_id)

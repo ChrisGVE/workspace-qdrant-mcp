@@ -485,12 +485,8 @@ async fn parse_document(
     let file_document_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
     let file_hash = tracked_files_schema::compute_file_hash(file_path)
         .unwrap_or_else(|_| "unknown".to_string());
-    let base_point = wqm_common::hashing::compute_base_point(
-        &item.tenant_id,
-        &item.branch,
-        relative_path,
-        &file_hash,
-    );
+    let base_point =
+        wqm_common::hashing::compute_base_point(&item.tenant_id, relative_path, &file_hash);
 
     Ok((document_content, file_document_id, file_hash, base_point))
 }

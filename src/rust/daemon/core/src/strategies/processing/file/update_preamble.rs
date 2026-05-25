@@ -36,12 +36,8 @@ pub(super) async fn execute_update_deletion(
 ) -> UnifiedProcessorResult<()> {
     let preamble_start = Instant::now();
 
-    let new_base_point = wqm_common::hashing::compute_base_point(
-        &item.tenant_id,
-        &item.branch,
-        relative_path,
-        new_hash,
-    );
+    let new_base_point =
+        wqm_common::hashing::compute_base_point(&item.tenant_id, relative_path, new_hash);
 
     let delete_old = resolve_delete_old(ctx, existing, watch_folder_id).await;
 

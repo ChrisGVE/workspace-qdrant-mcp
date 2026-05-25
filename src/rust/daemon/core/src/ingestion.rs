@@ -68,7 +68,7 @@ impl IngestionEngine {
         &self,
         file_path: &Path,
         collection: &str,
-        branch: &str,
+        _branch: &str,
     ) -> std::result::Result<DocumentResult, ProcessingError> {
         let start = Instant::now();
 
@@ -82,8 +82,7 @@ impl IngestionEngine {
 
         let file_hash = wqm_common::hashing::compute_file_hash(file_path)
             .unwrap_or_else(|_| "unknown".to_string());
-        let base_point =
-            wqm_common::hashing::compute_base_point(collection, branch, &path_str, &file_hash);
+        let base_point = wqm_common::hashing::compute_base_point(collection, &path_str, &file_hash);
 
         let (points, embed_ms) = self
             .stage3_embed_chunks(

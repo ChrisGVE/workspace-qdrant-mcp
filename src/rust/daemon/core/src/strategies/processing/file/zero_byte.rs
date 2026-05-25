@@ -55,12 +55,8 @@ pub(super) async fn handle_zero_byte_file(
 
     let extension = get_extension_for_storage(file_path);
     let is_test = is_test_file(file_path);
-    let base_point = wqm_common::hashing::compute_base_point(
-        &item.tenant_id,
-        &item.branch,
-        relative_path,
-        &file_hash,
-    );
+    let base_point =
+        wqm_common::hashing::compute_base_point(&item.tenant_id, relative_path, &file_hash);
 
     record_tracked_file(
         pool,

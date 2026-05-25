@@ -111,9 +111,9 @@ async fn test_batch_update_branch_basic() {
     insert_watch_folder(&pool, watch_id, tenant, "/tmp/project").await;
 
     // Insert 3 files on branch "main"
-    let bp1 = wqm_common::hashing::compute_base_point(tenant, "main", "src/a.rs", "hash_a");
-    let bp2 = wqm_common::hashing::compute_base_point(tenant, "main", "src/b.rs", "hash_b");
-    let bp3 = wqm_common::hashing::compute_base_point(tenant, "main", "src/c.rs", "hash_c");
+    let bp1 = wqm_common::hashing::compute_base_point(tenant, "src/a.rs", "hash_a");
+    let bp2 = wqm_common::hashing::compute_base_point(tenant, "src/b.rs", "hash_b");
+    let bp3 = wqm_common::hashing::compute_base_point(tenant, "src/c.rs", "hash_c");
 
     insert_tracked_file(
         &pool, watch_id, "src/a.rs", "main", "hash_a", "src/a.rs", &bp1,
@@ -164,7 +164,7 @@ async fn test_batch_update_branch_basic() {
     assert_eq!(branch_b, "main");
 
     // Verify base_point was recomputed for updated files
-    let new_bp_a = wqm_common::hashing::compute_base_point(tenant, "feature", "src/a.rs", "hash_a");
+    let new_bp_a = wqm_common::hashing::compute_base_point(tenant, "src/a.rs", "hash_a");
     let stored_bp: String =
         sqlx::query_scalar("SELECT base_point FROM tracked_files WHERE relative_path = 'src/a.rs'")
             .fetch_one(&pool)
@@ -182,7 +182,7 @@ async fn test_batch_update_branch_empty_changed_set() {
     let watch_id = "w1";
     insert_watch_folder(&pool, watch_id, tenant, "/tmp/project").await;
 
-    let bp = wqm_common::hashing::compute_base_point(tenant, "main", "src/a.rs", "hash_a");
+    let bp = wqm_common::hashing::compute_base_point(tenant, "src/a.rs", "hash_a");
     insert_tracked_file(
         &pool, watch_id, "src/a.rs", "main", "hash_a", "src/a.rs", &bp,
     )

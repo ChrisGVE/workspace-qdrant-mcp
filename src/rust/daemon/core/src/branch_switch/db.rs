@@ -26,7 +26,7 @@ pub async fn batch_update_branch(
     }
 
     // Pre-compute (file_id, new_base_point) for unchanged files
-    let updates = compute_unchanged_updates(&files, changed_paths, &tenant_id, new_branch);
+    let updates = compute_unchanged_updates(&files, changed_paths, &tenant_id);
 
     if updates.is_empty() {
         return Ok(0);
@@ -77,19 +77,14 @@ fn compute_unchanged_updates(
     files: &[(i64, String, String)],
     changed_paths: &HashSet<String>,
     tenant_id: &str,
-    new_branch: &str,
 ) -> Vec<(i64, String)> {
     let mut updates: Vec<(i64, String)> = Vec::new();
     for (file_id, relative_path, file_hash) in files {
         if changed_paths.contains(relative_path.as_str()) {
             continue;
         }
-        let new_bp = wqm_common::hashing::compute_base_point(
-            tenant_id,
-            new_branch,
-            relative_path.as_str(),
-            file_hash,
-        );
+        let new_bp =
+            wqm_common::hashing::compute_base_point(tenant_id, relative_path.as_str(), file_hash);
         updates.push((*file_id, new_bp));
     }
     updates

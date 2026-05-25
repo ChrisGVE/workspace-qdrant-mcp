@@ -16,26 +16,20 @@ export function normalizePathForId(path: string): string {
 }
 
 /**
- * Compute the base point hash: SHA256(tenant_id|branch|relative_path|file_hash)[:32]
+ * Compute the base point hash: SHA256(tenant_id|relative_path|file_hash)[:32]
  *
- * The base point uniquely identifies a specific VERSION of a specific file.
- * It is shared across all chunks of that file version and across Qdrant
- * and the search DB.
+ * The base point uniquely identifies a specific VERSION of a specific file,
+ * independent of branch. Identical content at the same path shares one
+ * base_point across all branches, enabling content-hash dedup.
  *
  * @param tenantId - derived from git remote URL hash (git) or path hash (non-git)
- * @param branch - current branch name (git) or "default" (non-git)
  * @param relativePath - file path relative to project root (normalized)
  * @param fileHash - SHA256 of file content or git blob SHA
  * @returns 32-char hex string
  */
-export function computeBasePoint(
-  tenantId: string,
-  branch: string,
-  relativePath: string,
-  fileHash: string,
-): string {
+export function computeBasePoint(tenantId: string, relativePath: string, fileHash: string): string {
   const normalized = normalizePathForId(relativePath);
-  const input = `${tenantId}|${branch}|${normalized}|${fileHash}`;
+  const input = `${tenantId}|${normalized}|${fileHash}`;
   return createHash('sha256').update(input).digest('hex').slice(0, 32);
 }
 
@@ -48,10 +42,7 @@ export function computeBasePoint(
  * @param chunkIndex - zero-based chunk index
  * @returns 32-char hex string
  */
-export function computePointId(
-  basePoint: string,
-  chunkIndex: number,
-): string {
+export function computePointId(basePoint: string, chunkIndex: number): string {
   const input = `${basePoint}|${chunkIndex}`;
   return createHash('sha256').update(input).digest('hex').slice(0, 32);
 }
