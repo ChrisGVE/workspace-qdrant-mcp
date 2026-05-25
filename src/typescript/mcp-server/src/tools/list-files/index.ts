@@ -212,6 +212,8 @@ export class ListFilesTool {
     if (options.pattern) baseOpts.glob = options.pattern;
     if (componentBasePaths && componentBasePaths.length > 0)
       baseOpts.componentBasePaths = componentBasePaths;
+    // "*" means cross-branch — omit the filter to return all branches.
+    if (options.branch && options.branch !== '*') baseOpts.branch = options.branch;
 
     // Accurate total: COUNT(*) with all filters except the cursor
     const totalMatching = this.stateManager.countTrackedFiles(baseOpts);

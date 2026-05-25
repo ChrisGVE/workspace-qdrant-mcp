@@ -30,6 +30,12 @@ export interface ListOptions {
   cursor?: string;
   /** Page size for cursor-based pagination (falls back to limit) */
   pageSize?: number;
+  /**
+   * Filter by branch name.
+   * Pass "*" to list files across all branches.
+   * Defaults to the session's current branch when not provided.
+   */
+  branch?: string;
 }
 
 // ── Internal tree types ──────────────────────────────────────────────────

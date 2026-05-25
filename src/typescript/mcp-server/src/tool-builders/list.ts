@@ -6,8 +6,19 @@ import type { ListOptions } from '../tools/list-files-types.js';
 
 export type { ListOptions };
 
-/** Build list options from raw tool arguments */
-export function buildListOptions(args: Record<string, unknown> | undefined): ListOptions {
+/**
+ * Build list options from raw tool arguments.
+ *
+ * @param args           Raw MCP tool arguments.
+ * @param defaultBranch  Session's current branch, used when the caller does
+ *                       not explicitly pass a `branch` argument. Pass `null`
+ *                       or omit to skip the default. Pass the string `"*"` as
+ *                       the `branch` argument to list files across all branches.
+ */
+export function buildListOptions(
+  args: Record<string, unknown> | undefined,
+  defaultBranch?: string | null
+): ListOptions {
   const options: ListOptions = {};
 
   const path = args?.['path'] as string | undefined;
@@ -42,6 +53,19 @@ export function buildListOptions(args: Record<string, unknown> | undefined): Lis
 
   const component = args?.['component'] as string | undefined;
   if (component) options.component = component;
+
+  const branch = args?.['branch'] as string | undefined;
+  if (branch === '*') {
+    // Explicit wildcard — cross-branch listing, no filter applied
+    options.branch = '*';
+  } else if (branch) {
+    options.branch = branch;
+  } else if (defaultBranch && defaultBranch !== 'default') {
+    // Fall back to the session's current branch when not explicitly provided.
+    // Skip when the sentinel value "default" is set — that indicates the
+    // session is not inside a git repository and no branch filter should apply.
+    options.branch = defaultBranch;
+  }
 
   return options;
 }

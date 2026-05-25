@@ -55,6 +55,11 @@ export const listToolDefinition = {
         description:
           'Filter by component (dot-separated ID or prefix, e.g. "daemon" or "daemon.core"). Auto-detected from Cargo.toml/package.json workspaces.',
       },
+      branch: {
+        type: 'string',
+        description:
+          'Filter by branch name. Defaults to the current git branch. Pass "*" to list files across all branches.',
+      },
     },
   },
 };
