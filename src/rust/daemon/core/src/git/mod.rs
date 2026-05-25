@@ -1,3 +1,4 @@
+mod branch_cache;
 mod branch_detector;
 mod branch_lifecycle;
 mod diff_tree;
@@ -7,6 +8,9 @@ mod types;
 mod watcher;
 mod watcher_types;
 mod worktree;
+
+// Re-export from branch_cache
+pub use branch_cache::BranchCache;
 
 // Re-export from types
 pub use types::{detect_git_status, CacheStats, GitError, GitResult, GitStatus};

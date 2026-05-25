@@ -33,6 +33,10 @@ type ChunkTuple = (
 
 /// Upsert points to Qdrant and record in tracked_files + qdrant_chunks atomically.
 ///
+/// `detected_branch` is the branch resolved from the `BranchCache` at
+/// processing time; it may differ from `item.branch` after a branch switch.
+/// Used for `tracked_files.primary_branch` and the lookup key.
+///
 /// Returns the `file_id` from `tracked_files` on success.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn upsert_and_track(
@@ -51,6 +55,7 @@ pub(super) async fn upsert_and_track(
     treesitter_status: ProcessingStatus,
     payload_file_type: Option<&str>,
     component: Option<String>,
+    detected_branch: &str,
 ) -> Result<i64, UnifiedProcessorError> {
     upsert_to_qdrant(
         ctx,
@@ -67,7 +72,7 @@ pub(super) async fn upsert_and_track(
         pool,
         watch_folder_id,
         relative_path,
-        Some(item.branch.as_str()),
+        Some(detected_branch),
     )
     .await
     .map_err(|e| {
@@ -92,6 +97,7 @@ pub(super) async fn upsert_and_track(
         treesitter_status,
         payload_file_type,
         component.as_deref(),
+        detected_branch,
     )
     .await;
 
@@ -235,6 +241,7 @@ async fn run_tracking_transaction(
     treesitter_status: ProcessingStatus,
     payload_file_type: Option<&str>,
     component: Option<&str>,
+    detected_branch: &str,
 ) -> Result<i64, UnifiedProcessorError> {
     let meta = build_file_track_meta(file_path, document_content, treesitter_status);
 
@@ -276,6 +283,7 @@ async fn run_tracking_transaction(
                 meta.is_test,
                 base_point,
                 component,
+                detected_branch,
             )
             .await?
         }
@@ -359,12 +367,13 @@ async fn insert_new_tracked_file(
     is_test: bool,
     base_point: &str,
     component: Option<&str>,
+    detected_branch: &str,
 ) -> Result<i64, UnifiedProcessorError> {
     tracked_files_schema::insert_tracked_file_tx(
         tx,
         watch_folder_id,
         relative_path,
-        Some(item.branch.as_str()),
+        Some(detected_branch),
         payload_file_type,
         language,
         file_mtime,

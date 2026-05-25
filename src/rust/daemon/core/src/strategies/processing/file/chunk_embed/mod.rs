@@ -38,6 +38,9 @@ struct ChunkOutput {
 /// handles sub-chunking by `remote_batch_size` internally). Per-chunk work
 /// (sparse vectors, LSP enrichment, payload construction) runs sequentially
 /// after the batch returns.
+///
+/// `branch` is the detected current branch (from `BranchCache`), used for
+/// the `"branches"` Qdrant payload field.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn embed_chunks(
     ctx: &ProcessingContext,
@@ -49,6 +52,7 @@ pub(super) async fn embed_chunks(
     base_point: &str,
     file_hash: &str,
     file_type: Option<&str>,
+    branch: &str,
 ) -> Result<EmbedResult, UnifiedProcessorError> {
     if document_content.chunks.is_empty() {
         debug!(
@@ -122,6 +126,7 @@ pub(super) async fn embed_chunks(
             file_type,
             &chunk.metadata,
             None, // library_ctx
+            branch,
         );
 
         let (symbol_name, start_line, end_line, chunk_type) = extract_chunk_metadata(chunk);

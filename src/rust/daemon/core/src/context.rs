@@ -14,6 +14,7 @@ use crate::component_detection::ComponentMap;
 use crate::config::{IngestionLimitsConfig, UrlIngestionConfig};
 use crate::document_processor::DocumentProcessor;
 use crate::embedding::EmbeddingGenerator;
+use crate::git::BranchCache;
 use crate::graph::{SharedGraphStore, SqliteGraphStore};
 use crate::keyword_extraction::cooccurrence_graph::CentralityCache;
 use crate::lexicon::LexiconManager;
@@ -92,6 +93,11 @@ pub struct ProcessingContext {
     /// Tier 2 taxonomy-based tagger (optional — initialized at daemon startup
     /// after embedding generator and taxonomy YAML are available).
     pub tier2_tagger: Option<Arc<Tier2Tagger>>,
+
+    /// TTL-based cache for resolving the current git branch from `.git/HEAD`.
+    /// Shared across all file items so rapid successive items from the same
+    /// project avoid repeated filesystem reads.
+    pub branch_cache: Arc<BranchCache>,
 }
 
 impl ProcessingContext {
@@ -128,6 +134,7 @@ impl ProcessingContext {
             gitattributes_cache: Arc::new(RwLock::new(HashMap::new())),
             url_ingestion: Arc::new(UrlIngestionConfig::default()),
             tier2_tagger: None,
+            branch_cache: Arc::new(BranchCache::new()),
         }
     }
 }
@@ -194,6 +201,7 @@ mod tests {
             let _ = &ctx.gitattributes_cache;
             let _ = &ctx.url_ingestion;
             let _ = &ctx.tier2_tagger;
+            let _ = &ctx.branch_cache;
         }
     }
 }

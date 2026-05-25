@@ -70,6 +70,7 @@ fn test_build_chunk_payload_required_fields() {
         None,
         &metadata,
         None,
+        "main",
     );
 
     assert_eq!(payload["content"], serde_json::json!("fn main() {}"));
@@ -103,6 +104,7 @@ fn test_build_chunk_payload_code_file_has_language() {
         None,
         &HashMap::new(),
         None,
+        "main",
     );
 
     assert_eq!(payload["language"], serde_json::json!("rust"));
@@ -129,6 +131,7 @@ fn test_build_chunk_payload_non_code_file_no_language() {
         None,
         &HashMap::new(),
         None,
+        "main",
     );
 
     assert!(
@@ -158,6 +161,7 @@ fn test_build_chunk_payload_with_file_type() {
         Some("Code"),
         &HashMap::new(),
         None,
+        "main",
     );
 
     // file_type stored lowercase
@@ -190,6 +194,7 @@ fn test_build_chunk_payload_test_file_gets_test_tag() {
         None,
         &HashMap::new(),
         None,
+        "main",
     );
 
     let tags = payload["tags"].as_array().unwrap();
@@ -225,6 +230,7 @@ fn test_build_chunk_payload_chunk_metadata_prefixed() {
         None,
         &metadata,
         None,
+        "main",
     );
 
     // Metadata keys get prefixed with "chunk_"
@@ -253,6 +259,7 @@ fn test_build_chunk_payload_no_extension() {
         None,
         &HashMap::new(),
         None,
+        "main",
     );
 
     assert!(
@@ -280,6 +287,7 @@ fn test_build_chunk_payload_absolute_path_matches_file_path() {
         None,
         &HashMap::new(),
         None,
+        "main",
     );
 
     // Both file_path and absolute_path should be the same (full path)
@@ -298,6 +306,8 @@ fn test_build_chunk_payload_feature_branch() {
     let doc = test_doc_content(DocumentType::Code("typescript".into()));
     let path = PathBuf::from("/project/src/auth.ts");
 
+    // Pass a detected branch that differs from item.branch to verify the
+    // payload uses the detected branch (not item.branch).
     let payload = build_chunk_payload(
         "export class Auth {}",
         0,
@@ -311,9 +321,40 @@ fn test_build_chunk_payload_feature_branch() {
         None,
         &HashMap::new(),
         None,
+        "detected/branch",
     );
 
-    assert_eq!(payload["branches"], serde_json::json!(["feature/auth"]));
+    assert_eq!(payload["branches"], serde_json::json!(["detected/branch"]));
+}
+
+#[test]
+fn test_build_chunk_payload_uses_branch_param_not_item_branch() {
+    let item = test_queue_item();
+    let doc = test_doc_content(DocumentType::Code("rust".into()));
+    let path = PathBuf::from("/project/src/lib.rs");
+
+    // item.branch is "main" but we pass "develop" as the detected branch
+    let payload = build_chunk_payload(
+        "pub fn foo() {}",
+        0,
+        &item,
+        &doc,
+        &path,
+        "doc-9",
+        "src/lib.rs",
+        "bp-9",
+        "hash-9",
+        None,
+        &HashMap::new(),
+        None,
+        "develop",
+    );
+
+    assert_eq!(
+        payload["branches"],
+        serde_json::json!(["develop"]),
+        "branches payload should use the branch parameter, not item.branch"
+    );
 }
 
 // ---- ChunkRecord construction tests ----

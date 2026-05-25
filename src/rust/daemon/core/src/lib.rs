@@ -142,7 +142,7 @@ pub use crate::error::{
     Result, WorkspaceError,
 };
 pub use crate::git::{
-    branch_schema, BranchEvent, BranchEventHandler, BranchLifecycleConfig, BranchLifecycleDetector,
+    branch_schema, BranchCache, BranchEvent, BranchEventHandler, BranchLifecycleConfig, BranchLifecycleDetector,
     BranchLifecycleStats, CacheStats, GitBranchDetector, GitError, GitResult,
 };
 pub use crate::monitoring::{

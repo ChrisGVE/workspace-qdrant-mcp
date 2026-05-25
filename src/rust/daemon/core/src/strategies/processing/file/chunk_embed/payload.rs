@@ -31,6 +31,10 @@ pub(crate) struct LibraryContext<'a> {
 }
 
 /// Build the Qdrant payload map for a single chunk.
+///
+/// `branch` is the detected current branch (from `BranchCache`), which may
+/// differ from `item.branch` when a branch switch happened after the queue
+/// item was enqueued.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_chunk_payload(
     content: &str,
@@ -45,6 +49,7 @@ pub(super) fn build_chunk_payload(
     file_type: Option<&str>,
     chunk_metadata: &HashMap<String, String>,
     library_ctx: Option<&LibraryContext<'_>>,
+    branch: &str,
 ) -> HashMap<String, serde_json::Value> {
     let file_path_str = file_path.to_string_lossy();
     let mut payload = HashMap::new();
@@ -57,7 +62,7 @@ pub(super) fn build_chunk_payload(
         serde_json::json!(file_document_id),
     );
     payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
-    payload.insert("branches".to_string(), serde_json::json!([&item.branch]));
+    payload.insert("branches".to_string(), serde_json::json!([branch]));
     payload.insert("base_point".to_string(), serde_json::json!(base_point));
     payload.insert(
         "relative_path".to_string(),

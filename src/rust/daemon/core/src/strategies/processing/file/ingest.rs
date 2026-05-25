@@ -1,7 +1,7 @@
 //! File content ingestion pipeline — shared by add and update paths.
-//! Orchestrates: document parsing → embedding → Tier 2 taxonomy tagging →
-//! keyword extraction → graph extraction → component detection → Qdrant
-//! upsert → FTS5 indexing → dependency extraction.
+//! Orchestrates: document parsing -> embedding -> Tier 2 taxonomy tagging ->
+//! keyword extraction -> graph extraction -> component detection -> Qdrant
+//! upsert -> FTS5 indexing -> dependency extraction.
 
 use std::path::Path;
 use std::time::Instant;
@@ -32,7 +32,6 @@ use super::store_track;
 ///
 /// Shared by both add and update paths (after update preamble completes).
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn ingest_file_content(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -44,6 +43,12 @@ pub(crate) async fn ingest_file_content(
     base_path: &str,
     relative_path: &str,
 ) -> UnifiedProcessorResult<()> {
+    // Detect the current branch from the filesystem via the TTL cache.
+    // Falls back to item.branch when git detection fails (non-git dir, detached HEAD).
+    let detected_branch = ctx
+        .branch_cache
+        .get_branch(Path::new(base_path), &item.branch);
+
     // === PER-DESTINATION RETRY SKIP (Task 6) ===
     let qdrant_already_done = item.qdrant_status == Some(DestinationStatus::Done);
     if qdrant_already_done {
@@ -55,6 +60,7 @@ pub(crate) async fn ingest_file_content(
             relative_path,
             abs_file_path,
             payload,
+            &detected_branch,
         )
         .await;
     }
@@ -76,6 +82,7 @@ pub(crate) async fn ingest_file_content(
         watch_folder_id,
         base_path,
         relative_path,
+        &detected_branch,
     )
     .await
 }
@@ -90,6 +97,7 @@ async fn handle_retry_skip(
     relative_path: &str,
     abs_file_path: &str,
     _payload: &FilePayload,
+    detected_branch: &str,
 ) -> UnifiedProcessorResult<()> {
     info!(
         "Qdrant already done for {} (retry), skipping to search DB update",
@@ -101,7 +109,7 @@ async fn handle_retry_skip(
             pool,
             watch_folder_id,
             relative_path,
-            Some(item.branch.as_str()),
+            Some(detected_branch),
         )
         .await
         {
@@ -115,7 +123,7 @@ async fn handle_retry_skip(
                 existing.file_id,
                 abs_file_path,
                 &item.tenant_id,
-                Some(&item.branch),
+                Some(detected_branch),
                 existing.base_point.as_deref(),
                 Some(relative_path),
                 Some(existing.file_hash.as_str()),
@@ -153,7 +161,6 @@ async fn handle_retry_skip(
 
 /// Run the main file ingestion pipeline (parse -> embed -> extract -> upsert -> FTS5 -> deps).
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 async fn run_ingest_pipeline(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -164,6 +171,7 @@ async fn run_ingest_pipeline(
     watch_folder_id: &str,
     base_path: &str,
     relative_path: &str,
+    detected_branch: &str,
 ) -> UnifiedProcessorResult<()> {
     let mut timings: Vec<PhaseTiming> = Vec::new();
 
@@ -199,6 +207,7 @@ async fn run_ingest_pipeline(
         &file_hash,
         payload.file_type.as_deref(),
         &mut timings,
+        detected_branch,
     )
     .await?;
 
@@ -218,6 +227,7 @@ async fn run_ingest_pipeline(
         treesitter_status,
         payload,
         &mut timings,
+        detected_branch,
     )
     .await?;
 
@@ -234,6 +244,7 @@ async fn run_ingest_pipeline(
         &file_hash,
         detected_language,
         &mut timings,
+        detected_branch,
     )
     .await;
 
@@ -255,6 +266,7 @@ async fn finish_pipeline(
     file_hash: &str,
     detected_language: Option<&'static str>,
     timings: &mut Vec<PhaseTiming>,
+    detected_branch: &str,
 ) {
     update_search_index(
         ctx,
@@ -267,6 +279,7 @@ async fn finish_pipeline(
         relative_path,
         file_hash,
         timings,
+        detected_branch,
     )
     .await;
 
@@ -284,7 +297,7 @@ async fn finish_pipeline(
     );
 }
 
-/// Phases 2–5: embed chunks, Tier 2 tagging, extract keywords/graph, inject component.
+/// Phases 2-5: embed chunks, Tier 2 tagging, extract keywords/graph, inject component.
 ///
 /// Returns `(points, chunk_records, lsp_status, treesitter_status)`.
 #[allow(clippy::too_many_arguments)]
@@ -302,6 +315,7 @@ async fn run_middle_phases(
     file_hash: &str,
     file_type: Option<&str>,
     timings: &mut Vec<PhaseTiming>,
+    detected_branch: &str,
 ) -> UnifiedProcessorResult<(
     Vec<crate::storage::DocumentPoint>,
     Vec<chunk_embed::ChunkRecord>,
@@ -320,6 +334,7 @@ async fn run_middle_phases(
         base_point,
         file_hash,
         file_type,
+        detected_branch,
     )
     .await?;
     timings.push(PhaseTiming {
@@ -335,7 +350,7 @@ async fn run_middle_phases(
     // Phase 2b: Tier 2 taxonomy tagging (after embedding, before keyword extraction)
     run_tier2_tagging(ctx, &mut points, timings).await;
 
-    // Phases 3–4: keyword extraction + graph edges
+    // Phases 3-4: keyword extraction + graph edges
     run_keyword_and_graph_phases(
         ctx,
         item,
@@ -455,7 +470,6 @@ async fn run_tier2_tagging(
 
 /// Parse the document and compute file identifiers (phase 0 + 1).
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 async fn parse_document(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -560,6 +574,7 @@ async fn upsert_and_mark_done(
     treesitter_status: crate::tracked_files_schema::ProcessingStatus,
     payload: &FilePayload,
     timings: &mut Vec<PhaseTiming>,
+    detected_branch: &str,
 ) -> UnifiedProcessorResult<i64> {
     let t0 = Instant::now();
     let file_id = store_track::upsert_and_track(
@@ -578,6 +593,7 @@ async fn upsert_and_mark_done(
         treesitter_status,
         payload.file_type.as_deref(),
         None,
+        detected_branch,
     )
     .await?;
     timings.push(PhaseTiming {
@@ -595,7 +611,6 @@ async fn upsert_and_mark_done(
 
 /// Update FTS5 search index for a file (phase 7).
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 async fn update_search_index(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -607,6 +622,7 @@ async fn update_search_index(
     relative_path: &str,
     file_hash: &str,
     timings: &mut Vec<PhaseTiming>,
+    detected_branch: &str,
 ) {
     let _ = ctx
         .queue_manager
@@ -621,7 +637,7 @@ async fn update_search_index(
             file_id,
             abs_file_path,
             &item.tenant_id,
-            Some(&item.branch),
+            Some(detected_branch),
             Some(base_point),
             Some(relative_path),
             Some(file_hash),
