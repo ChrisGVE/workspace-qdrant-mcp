@@ -23,6 +23,9 @@ pub struct WatchManager {
     pub(super) git_watchers: Arc<Mutex<HashMap<String, crate::git::GitWatcher>>>,
     pub(super) git_event_tx: mpsc::UnboundedSender<crate::git::GitEvent>,
     pub(super) git_event_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<crate::git::GitEvent>>>>,
+    pub(super) branch_event_tx: mpsc::UnboundedSender<(String, String, crate::git::BranchEvent)>,
+    pub(super) branch_event_rx:
+        Arc<Mutex<Option<mpsc::UnboundedReceiver<(String, String, crate::git::BranchEvent)>>>>,
     pub(super) allowed_extensions: Arc<AllowedExtensions>,
     pub(super) refresh_signal: Option<Arc<Notify>>,
 }
@@ -31,12 +34,15 @@ impl WatchManager {
     /// Create a new watch manager
     pub fn new(pool: SqlitePool, allowed_extensions: Arc<AllowedExtensions>) -> Self {
         let (git_event_tx, git_event_rx) = mpsc::unbounded_channel();
+        let (branch_event_tx, branch_event_rx) = mpsc::unbounded_channel();
         Self {
             pool,
             watchers: Arc::new(RwLock::new(HashMap::new())),
             git_watchers: Arc::new(Mutex::new(HashMap::new())),
             git_event_tx,
             git_event_rx: Arc::new(Mutex::new(Some(git_event_rx))),
+            branch_event_tx,
+            branch_event_rx: Arc::new(Mutex::new(Some(branch_event_rx))),
             allowed_extensions,
             refresh_signal: None,
         }
@@ -45,6 +51,14 @@ impl WatchManager {
     /// Take the git event receiver (can only be called once).
     pub async fn take_git_event_rx(&self) -> Option<mpsc::UnboundedReceiver<crate::git::GitEvent>> {
         let mut rx_lock = self.git_event_rx.lock().await;
+        rx_lock.take()
+    }
+
+    /// Take the branch event receiver (can only be called once).
+    pub async fn take_branch_event_rx(
+        &self,
+    ) -> Option<mpsc::UnboundedReceiver<(String, String, crate::git::BranchEvent)>> {
+        let mut rx_lock = self.branch_event_rx.lock().await;
         rx_lock.take()
     }
 
@@ -109,25 +123,31 @@ impl WatchManager {
                 library_name: None,
             };
 
+            let watcher_tenant_id = config.tenant_id.clone();
             self.start_watcher(id.clone(), config, queue_manager.clone())
                 .await;
 
             if is_git_tracked {
-                self.start_git_watcher(&id, &path).await;
+                self.start_git_watcher(&id, &path, &watcher_tenant_id).await;
             }
         }
 
         Ok(())
     }
 
-    /// Start a git watcher for a git-tracked project
-    pub(super) async fn start_git_watcher(&self, watch_id: &str, project_path: &str) {
-        use crate::git::GitWatcher;
+    /// Start a git watcher and branch lifecycle detector for a git-tracked project.
+    pub(super) async fn start_git_watcher(
+        &self,
+        watch_id: &str,
+        project_path: &str,
+        tenant_id: &str,
+    ) {
+        use crate::git::{BranchLifecycleDetector, GitWatcher};
 
         let project_root = PathBuf::from(project_path);
         match GitWatcher::new(
             watch_id.to_string(),
-            project_root,
+            project_root.clone(),
             self.git_event_tx.clone(),
         ) {
             Ok(mut git_watcher) => match git_watcher.start() {
@@ -147,6 +167,39 @@ impl WatchManager {
                 );
             }
         }
+
+        // Start branch lifecycle detector for periodic branch change scanning.
+        let detector = BranchLifecycleDetector::with_defaults(project_root);
+        if let Err(e) = detector.initialize().await {
+            debug!(
+                "Branch lifecycle detector init failed for {}: {} (non-fatal)",
+                watch_id, e
+            );
+            return;
+        }
+
+        let branch_tx = self.branch_event_tx.clone();
+        let wid = watch_id.to_string();
+        let tid = tenant_id.to_string();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                match detector.scan_for_changes().await {
+                    Ok(events) => {
+                        for event in events {
+                            if branch_tx.send((wid.clone(), tid.clone(), event)).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Branch lifecycle scan error for {}: {}", wid, e);
+                    }
+                }
+            }
+        });
+        info!("Started branch lifecycle detector for {}", watch_id);
     }
 
     /// Load library watch configurations from watch_folders table

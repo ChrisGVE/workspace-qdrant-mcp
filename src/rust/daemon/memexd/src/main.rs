@@ -261,6 +261,7 @@ async fn start_watchers_and_hierarchy(
 ) -> (Arc<WatchManager>, tokio_util::sync::CancellationToken) {
     let watch_manager = start_file_watchers(qc, watch_refresh_signal).await;
     spawn_git_event_consumer(&qc.unified_queue_processor, &watch_manager);
+    spawn_branch_event_consumer(&qc.unified_queue_processor, &watch_manager);
     let hierarchy_cancel = tokio_util::sync::CancellationToken::new();
     let _hierarchy_handle =
         Arc::clone(&qc.hierarchy_builder).start_scheduled(hierarchy_cancel.clone());
@@ -346,6 +347,98 @@ async fn handle_single_git_event(
         }
         Err(e) => {
             tracing::warn!("Git event processing failed (non-fatal): {}", e);
+        }
+    }
+}
+
+/// Spawn the branch lifecycle event consumer that handles branch creation/deletion.
+fn spawn_branch_event_consumer(
+    uqp: &workspace_qdrant_core::UnifiedQueueProcessor,
+    watch_manager: &Arc<WatchManager>,
+) {
+    let pool = uqp.pool().clone();
+    let branch_ctx = Arc::new(workspace_qdrant_core::branch_switch::BranchUpdateContext {
+        storage_client: Arc::clone(uqp.storage_client()),
+        search_db: uqp.search_db().cloned(),
+        branch_locks: Arc::clone(uqp.branch_locks()),
+    });
+    let wm = Arc::clone(watch_manager);
+    tokio::spawn(async move {
+        if let Some(mut rx) = wm.take_branch_event_rx().await {
+            info!("Branch lifecycle event consumer started");
+            while let Some((watch_folder_id, tenant_id, event)) = rx.recv().await {
+                handle_branch_lifecycle_event(
+                    &pool,
+                    &branch_ctx,
+                    &watch_folder_id,
+                    &tenant_id,
+                    &event,
+                )
+                .await;
+            }
+            info!("Branch lifecycle event consumer stopped");
+        }
+    });
+}
+
+/// Process a single branch lifecycle event.
+async fn handle_branch_lifecycle_event(
+    pool: &sqlx::SqlitePool,
+    branch_ctx: &workspace_qdrant_core::branch_switch::BranchUpdateContext,
+    watch_folder_id: &str,
+    tenant_id: &str,
+    event: &workspace_qdrant_core::git::BranchEvent,
+) {
+    use workspace_qdrant_core::git::BranchEvent;
+
+    match event {
+        BranchEvent::Deleted { branch } => {
+            info!(
+                "Branch lifecycle: '{}' deleted for {}",
+                branch, watch_folder_id
+            );
+            let project_root: Option<String> =
+                sqlx::query_scalar("SELECT path FROM watch_folders WHERE watch_id = ?1")
+                    .bind(watch_folder_id)
+                    .fetch_optional(pool)
+                    .await
+                    .unwrap_or(None);
+
+            if let Some(root) = project_root {
+                let result = workspace_qdrant_core::branch_cleanup::cleanup_deleted_branch(
+                    pool,
+                    branch_ctx,
+                    watch_folder_id,
+                    tenant_id,
+                    std::path::Path::new(&root),
+                    branch,
+                )
+                .await;
+                info!(
+                    "Branch cleanup for '{}': {} updated, {} deleted, skipped={}",
+                    branch, result.updated, result.deleted, result.skipped
+                );
+            }
+        }
+        BranchEvent::Created { branch, .. } => {
+            debug!(
+                "Branch lifecycle: '{}' created for {} (discovery on first file event)",
+                branch, watch_folder_id
+            );
+        }
+        BranchEvent::Renamed {
+            old_name, new_name, ..
+        } => {
+            info!(
+                "Branch lifecycle: '{}' renamed to '{}' for {}",
+                old_name, new_name, watch_folder_id
+            );
+        }
+        _ => {
+            debug!(
+                "Branch lifecycle event: {:?} for {}",
+                event, watch_folder_id
+            );
         }
     }
 }

@@ -74,7 +74,7 @@ impl WatchManager {
     async fn reconcile_git_watchers(&self) {
         let rows = sqlx::query(
             r#"
-            SELECT watch_id, path,
+            SELECT watch_id, path, tenant_id,
                    COALESCE(is_git_tracked, 0) AS is_git_tracked,
                    COALESCE(is_active, 0) AS is_active
             FROM watch_folders
@@ -98,6 +98,7 @@ impl WatchManager {
         for row in rows {
             let watch_id: String = row.get("watch_id");
             let path: String = row.get("path");
+            let tenant_id: String = row.get("tenant_id");
             let is_git_tracked: bool = row.get::<i32, _>("is_git_tracked") != 0;
             let is_active: bool = row.get::<i32, _>("is_active") != 0;
 
@@ -108,7 +109,7 @@ impl WatchManager {
 
             if is_active && is_git_tracked && !has_git_watcher {
                 debug!("Starting git watcher for active project: {}", watch_id);
-                self.start_git_watcher(&watch_id, &path).await;
+                self.start_git_watcher(&watch_id, &path, &tenant_id).await;
             } else if (!is_active || !is_git_tracked) && has_git_watcher {
                 let mut git_watchers = self.git_watchers.lock().await;
                 if let Some(mut gw) = git_watchers.remove(&watch_id) {
@@ -186,11 +187,12 @@ impl WatchManager {
                 library_name: None,
             };
 
+            let watcher_tenant_id = config.tenant_id.clone();
             self.start_watcher(id.clone(), config, queue_manager.clone())
                 .await;
 
             if is_git_tracked {
-                self.start_git_watcher(&id, &path).await;
+                self.start_git_watcher(&id, &path, &watcher_tenant_id).await;
             }
         }
 

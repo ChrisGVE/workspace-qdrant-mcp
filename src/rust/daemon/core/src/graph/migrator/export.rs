@@ -18,7 +18,8 @@ pub async fn export_nodes_sqlite(
         Some(tid) => {
             sqlx::query(
                 "SELECT node_id, tenant_id, symbol_name, symbol_type,
-                        file_path, start_line, end_line, signature, language
+                        file_path, start_line, end_line, signature, language,
+                        branches
                  FROM graph_nodes WHERE tenant_id = ?1
                  ORDER BY node_id",
             )
@@ -29,7 +30,8 @@ pub async fn export_nodes_sqlite(
         None => {
             sqlx::query(
                 "SELECT node_id, tenant_id, symbol_name, symbol_type,
-                        file_path, start_line, end_line, signature, language
+                        file_path, start_line, end_line, signature, language,
+                        branches
                  FROM graph_nodes ORDER BY node_id",
             )
             .fetch_all(pool)
@@ -52,6 +54,7 @@ pub async fn export_nodes_sqlite(
                 end_line: row.get::<Option<i64>, _>("end_line").map(|v| v as u32),
                 signature: row.get("signature"),
                 language: row.get("language"),
+                branches: row.get("branches"),
             })
         })
         .collect::<Vec<_>>();
@@ -69,7 +72,7 @@ pub async fn export_edges_sqlite(
         Some(tid) => {
             sqlx::query(
                 "SELECT edge_id, tenant_id, source_node_id, target_node_id,
-                        edge_type, source_file, weight, metadata_json
+                        edge_type, source_file, weight, metadata_json, branch
                  FROM graph_edges WHERE tenant_id = ?1
                  ORDER BY edge_id",
             )
@@ -80,7 +83,7 @@ pub async fn export_edges_sqlite(
         None => {
             sqlx::query(
                 "SELECT edge_id, tenant_id, source_node_id, target_node_id,
-                        edge_type, source_file, weight, metadata_json
+                        edge_type, source_file, weight, metadata_json, branch
                  FROM graph_edges ORDER BY edge_id",
             )
             .fetch_all(pool)
@@ -104,6 +107,7 @@ pub async fn export_edges_sqlite(
                     source_file: row.get("source_file"),
                     weight: row.get("weight"),
                     metadata_json: row.get("metadata_json"),
+                    branch: row.get("branch"),
                 });
             }
             None => {
@@ -171,6 +175,7 @@ pub fn export_nodes_ladybug(
             end_line: row.get(6).and_then(|s| s.parse().ok()),
             signature: row.get(7).map(|s| s.clone()).filter(|s| !s.is_empty()),
             language: row.get(8).map(|s| s.clone()).filter(|s| !s.is_empty()),
+            branches: r#"["main"]"#.to_string(),
         });
     }
 
@@ -225,6 +230,7 @@ pub fn export_edges_ladybug(
                 source_file: row[4].clone(),
                 weight: row[5].parse().unwrap_or(1.0),
                 metadata_json: None,
+                branch: None,
             });
         }
     }
