@@ -101,7 +101,9 @@ mod tests {
     async fn v38_routing_reason_is_nullable() {
         let pool = setup_pool().await;
 
-        // Insert a tracked_file without routing_reason — should succeed
+        // Insert a tracked_file without routing_reason — should succeed.
+        // Post-v40: the `branch` column no longer exists; use the v40
+        // schema which has `primary_branch` and `branches` instead.
         sqlx::query(
             "INSERT INTO watch_folders (watch_id, tenant_id, collection, path, created_at, updated_at)
              VALUES ('wf1', 'tenant1', 'projects', '/tmp/test', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
@@ -111,8 +113,8 @@ mod tests {
         .unwrap();
 
         let result = sqlx::query(
-            "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, created_at, updated_at)
-             VALUES ('wf1', 'src/main.rs', 'main', '2024-01-01T00:00:00Z', 'abc123', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at)
+             VALUES ('wf1', 'src/main.rs', '2024-01-01T00:00:00Z', 'abc123', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
         )
         .execute(&pool)
         .await;
@@ -120,8 +122,8 @@ mod tests {
 
         // Insert with routing_reason set — should also succeed
         let result = sqlx::query(
-            "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, routing_reason, created_at, updated_at)
-             VALUES ('wf1', 'docs/manual.pdf', 'main', '2024-01-01T00:00:00Z', 'def456', 'format_based', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+            "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, routing_reason, created_at, updated_at)
+             VALUES ('wf1', 'docs/manual.pdf', '2024-01-01T00:00:00Z', 'def456', 'format_based', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
         )
         .execute(&pool)
         .await;

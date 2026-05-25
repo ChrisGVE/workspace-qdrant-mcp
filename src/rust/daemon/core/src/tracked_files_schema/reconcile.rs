@@ -33,7 +33,8 @@ pub async fn get_files_needing_reconcile(
     pool: &SqlitePool,
 ) -> Result<Vec<TrackedFile>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
+        "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
+                file_type, language,
                 file_mtime, file_hash, chunk_count, chunking_method,
                 lsp_status, treesitter_status, last_error,
                 needs_reconcile, reconcile_reason, extension, is_test,
@@ -71,7 +72,7 @@ impl UpgradeReason {
 
 /// Find files needing capability upgrade for a given tenant and language.
 ///
-/// Returns `(file_id, relative_path, branch, collection)` tuples for files
+/// Returns `(file_id, relative_path, primary_branch, collection)` tuples for files
 /// where:
 /// - `treesitter_status` is 'none', 'failed', or 'skipped' (grammar upgrade), or
 /// - `lsp_status` is 'none' or 'failed' (LSP upgrade)
@@ -89,7 +90,7 @@ pub async fn get_files_needing_upgrade(
 
     let query = if language.is_some() {
         format!(
-            "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
+            "SELECT tf.file_id, tf.relative_path, COALESCE(tf.primary_branch, 'default') AS primary_branch, tf.collection
              FROM tracked_files tf
              JOIN watch_folders wf ON tf.watch_folder_id = wf.id
              WHERE wf.tenant_id = ?1
@@ -99,7 +100,7 @@ pub async fn get_files_needing_upgrade(
         )
     } else {
         format!(
-            "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
+            "SELECT tf.file_id, tf.relative_path, COALESCE(tf.primary_branch, 'default') AS primary_branch, tf.collection
              FROM tracked_files tf
              JOIN watch_folders wf ON tf.watch_folder_id = wf.id
              WHERE wf.tenant_id = ?1
@@ -125,7 +126,7 @@ pub async fn get_files_needing_upgrade(
             (
                 r.get::<i64, _>("file_id"),
                 r.get::<String, _>("relative_path"),
-                r.get::<String, _>("branch"),
+                r.get::<String, _>("primary_branch"),
                 r.get::<String, _>("collection"),
             )
         })

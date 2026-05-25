@@ -191,3 +191,12 @@ pub const CREATE_TRACKED_FILES_V37_INDEXES_SQL: &[&str] = &[
     r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_branch
        ON tracked_files(watch_folder_id, branch)"#,
 ];
+
+// ---------------------------------------------------------------------------
+// Re-exports from v40 migration for use by tests and future migrations.
+// The canonical DDL lives in schema_version/v40.rs.
+// ---------------------------------------------------------------------------
+
+pub use crate::schema_version::v40::{
+    CREATE_TRACKED_FILES_V40_INDEXES_SQL, CREATE_TRACKED_FILES_V40_SQL,
+};

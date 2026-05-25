@@ -85,18 +85,20 @@ async fn test_tracked_files_unique_constraint() {
          VALUES ('w1', '/tmp/test', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
+    // Post-v40 UNIQUE is (watch_folder_id, relative_path, file_hash).
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'hash1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at)
+         VALUES ('w1', 'src/main.rs', '2025-01-01T00:00:00Z', 'hash1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
+    // Same (watch_folder_id, relative_path, file_hash) should be rejected.
     let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', 'main', '2025-01-02T00:00:00Z', 'hash2', '2025-01-02T00:00:00Z', '2025-01-02T00:00:00Z')"
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at)
+         VALUES ('w1', 'src/main.rs', '2025-01-02T00:00:00Z', 'hash1', '2025-01-02T00:00:00Z', '2025-01-02T00:00:00Z')"
     ).execute(&pool).await;
 
     assert!(
         result.is_err(),
-        "Duplicate (watch_folder_id, relative_path, branch) should violate UNIQUE constraint"
+        "Duplicate (watch_folder_id, relative_path, file_hash) should violate UNIQUE constraint"
     );
 }

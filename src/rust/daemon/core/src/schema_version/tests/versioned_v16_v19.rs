@@ -371,9 +371,11 @@ async fn test_migration_v19_backfill() {
          VALUES ('w1', '/tmp/project', 'projects', 'tenant_abc', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
+    // Post-v40: the `branch` column no longer exists; use the v40 schema
+    // which has `primary_branch` and `branches` instead.
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_mtime, file_hash, collection, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'deadbeef', 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, collection, created_at, updated_at)
+         VALUES ('w1', 'src/main.rs', '2025-01-01T00:00:00Z', 'deadbeef', 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let bp: Option<String> = sqlx::query_scalar(

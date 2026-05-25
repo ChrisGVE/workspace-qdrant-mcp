@@ -120,7 +120,8 @@ fn test_tracked_file_struct_serde() {
         file_id: 1,
         watch_folder_id: "watch_abc".to_string(),
         relative_path: wqm_common::paths::RelativePath::from_user_input("src/main.rs").unwrap(),
-        branch: Some("main".to_string()),
+        primary_branch: Some("main".to_string()),
+        branches: r#"["main"]"#.to_string(),
         file_type: Some("code".to_string()),
         language: Some("rust".to_string()),
         file_mtime: "2025-01-01T00:00:00Z".to_string(),
@@ -150,7 +151,7 @@ fn test_tracked_file_struct_serde() {
     assert_eq!(deserialized.file_id, 1);
     assert_eq!(deserialized.watch_folder_id, "watch_abc");
     assert_eq!(deserialized.relative_path.as_str(), "src/main.rs");
-    assert_eq!(deserialized.branch, Some("main".to_string()));
+    assert_eq!(deserialized.primary_branch, Some("main".to_string()));
     assert_eq!(deserialized.chunk_count, 5);
     assert_eq!(deserialized.lsp_status, ProcessingStatus::Done);
     assert!(!deserialized.needs_reconcile);
@@ -194,7 +195,8 @@ fn test_tracked_file_nullable_fields() {
         file_id: 1,
         watch_folder_id: "w1".to_string(),
         relative_path: wqm_common::paths::RelativePath::from_user_input("doc.pdf").unwrap(),
-        branch: None,
+        primary_branch: None,
+        branches: "[]".to_string(),
         file_type: None,
         language: None,
         file_mtime: "2025-01-01T00:00:00Z".to_string(),
@@ -218,7 +220,7 @@ fn test_tracked_file_nullable_fields() {
     };
 
     let json = serde_json::to_string(&file).expect("Failed to serialize");
-    assert!(json.contains("\"branch\":null"));
+    assert!(json.contains("\"primary_branch\":null"));
     assert!(json.contains("\"language\":null"));
     assert!(json.contains("\"extension\":null"));
 }

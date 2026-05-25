@@ -39,7 +39,10 @@ pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         file_id: r.get("file_id"),
         watch_folder_id: r.get("watch_folder_id"),
         relative_path,
-        branch: r.get("branch"),
+        primary_branch: r.get("primary_branch"),
+        branches: r
+            .get::<Option<String>, _>("branches")
+            .unwrap_or_else(|| "[]".to_string()),
         file_type: r.get("file_type"),
         language: r.get("language"),
         file_mtime: r.get("file_mtime"),
@@ -100,7 +103,7 @@ pub async fn lookup_watch_folder(
     Ok(row.map(|r| (r.get("watch_id"), r.get("path"))))
 }
 
-/// Look up a tracked file by (watch_folder_id, relative_path, branch).
+/// Look up a tracked file by (watch_folder_id, relative_path, primary_branch).
 ///
 /// `relative_path` here is the validated relative-path string (the
 /// post-v37 column). Callers pass a `&str` because the value typically
@@ -115,14 +118,15 @@ pub async fn lookup_tracked_file(
     let row = match branch {
         Some(b) => {
             sqlx::query(
-                "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
+                "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
+                        file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
                         collection, base_point, incremental,
                         component, routing_reason, created_at, updated_at
                  FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND branch = ?3",
+                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND primary_branch = ?3",
             )
             .bind(watch_folder_id)
             .bind(relative_path)
@@ -132,14 +136,15 @@ pub async fn lookup_tracked_file(
         }
         None => {
             sqlx::query(
-                "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
+                "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
+                        file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
                         collection, base_point, incremental,
                         component, routing_reason, created_at, updated_at
                  FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND branch IS NULL",
+                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND primary_branch IS NULL",
             )
             .bind(watch_folder_id)
             .bind(relative_path)
@@ -177,15 +182,22 @@ pub async fn insert_tracked_file(
 ) -> Result<i64, sqlx::Error> {
     let now = timestamps::now_utc();
     let collection = collection.unwrap_or(COLLECTION_PROJECTS);
+    // Build the branches JSON array from the branch parameter.
+    let branches_json = match branch {
+        Some(b) => format!(r#"["{}"]"#, b),
+        None => "[]".to_string(),
+    };
     let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_type, language,
+        "INSERT INTO tracked_files (watch_folder_id, relative_path, primary_branch, branches,
+         file_type, language,
          file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
          extension, is_test, collection, base_point, component, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
     )
     .bind(watch_folder_id)
     .bind(relative_path)
     .bind(branch)
+    .bind(&branches_json)
     .bind(file_type)
     .bind(language)
     .bind(file_mtime)
@@ -417,13 +429,13 @@ pub async fn set_incremental(
 
 /// Get all tracked file paths for a watch_folder (for cleanup/recovery).
 ///
-/// Returns `(file_id, relative_path, branch)`.
+/// Returns `(file_id, relative_path, primary_branch)`.
 pub async fn get_tracked_file_paths(
     pool: &SqlitePool,
     watch_folder_id: &str,
 ) -> Result<Vec<(i64, String, Option<String>)>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT file_id, relative_path, branch FROM tracked_files WHERE watch_folder_id = ?1",
+        "SELECT file_id, relative_path, primary_branch FROM tracked_files WHERE watch_folder_id = ?1",
     )
     .bind(watch_folder_id)
     .fetch_all(pool)
@@ -431,7 +443,13 @@ pub async fn get_tracked_file_paths(
 
     Ok(rows
         .iter()
-        .map(|r| (r.get("file_id"), r.get("relative_path"), r.get("branch")))
+        .map(|r| {
+            (
+                r.get("file_id"),
+                r.get("relative_path"),
+                r.get("primary_branch"),
+            )
+        })
         .collect())
 }
 
@@ -453,7 +471,7 @@ pub async fn get_tracked_files_by_prefix(
     };
 
     let rows = sqlx::query(
-        "SELECT file_id, relative_path, branch FROM tracked_files
+        "SELECT file_id, relative_path, primary_branch FROM tracked_files
          WHERE watch_folder_id = ?1 AND (relative_path LIKE ?2 OR relative_path = ?3)",
     )
     .bind(watch_folder_id)
@@ -464,7 +482,13 @@ pub async fn get_tracked_files_by_prefix(
 
     Ok(rows
         .iter()
-        .map(|r| (r.get("file_id"), r.get("relative_path"), r.get("branch")))
+        .map(|r| {
+            (
+                r.get("file_id"),
+                r.get("relative_path"),
+                r.get("primary_branch"),
+            )
+        })
         .collect())
 }
 

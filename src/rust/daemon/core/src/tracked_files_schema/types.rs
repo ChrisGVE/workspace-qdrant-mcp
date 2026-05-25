@@ -119,8 +119,10 @@ pub struct TrackedFile {
     /// Replaces both the legacy absolute `file_path` and the prior optional
     /// `relative_path` string.
     pub relative_path: RelativePath,
-    /// Git branch (NULL for libraries or non-git contexts)
-    pub branch: Option<String>,
+    /// Primary branch that last wrote this row (NULL for libraries or non-git contexts)
+    pub primary_branch: Option<String>,
+    /// JSON array of branch names sharing this file content (e.g., '["main","feature/auth"]')
+    pub branches: String,
     /// Detected file type (e.g., "code", "markdown", "config")
     pub file_type: Option<String>,
     /// Detected programming language (e.g., "rust", "python")
@@ -149,7 +151,7 @@ pub struct TrackedFile {
     pub is_test: bool,
     /// Target Qdrant collection this file was routed to (e.g., "projects" or "libraries")
     pub collection: String,
-    /// Content-addressed identity: SHA256(tenant_id|branch|relative_path|file_hash)[:32]
+    /// Content-addressed identity: SHA256(tenant_id|relative_path|file_hash)[:32]
     pub base_point: Option<String>,
     /// Whether this file supports incremental (chunk-level) updates
     pub incremental: bool,

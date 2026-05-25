@@ -53,7 +53,7 @@ fn test_compute_relative_path_for_recovery() {
 }
 
 use crate::tracked_files_schema::{
-    self as tfs, CREATE_TRACKED_FILES_V37_INDEXES_SQL, CREATE_TRACKED_FILES_V37_SQL,
+    self as tfs, CREATE_TRACKED_FILES_V40_INDEXES_SQL, CREATE_TRACKED_FILES_V40_SQL,
 };
 use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL};
 use crate::watch_folders_schema;
@@ -78,11 +78,11 @@ async fn setup_reconcile_tables(pool: &SqlitePool) {
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query(CREATE_TRACKED_FILES_V37_SQL)
+    sqlx::query(CREATE_TRACKED_FILES_V40_SQL)
         .execute(pool)
         .await
         .unwrap();
-    for idx in CREATE_TRACKED_FILES_V37_INDEXES_SQL {
+    for idx in CREATE_TRACKED_FILES_V40_INDEXES_SQL {
         sqlx::query(idx).execute(pool).await.unwrap();
     }
     sqlx::query(CREATE_UNIFIED_QUEUE_SQL)

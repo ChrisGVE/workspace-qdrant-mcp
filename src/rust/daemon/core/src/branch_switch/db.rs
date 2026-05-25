@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use sqlx::SqlitePool;
 use wqm_common::timestamps;
 
-/// Batch update branch column in tracked_files for unchanged files.
+/// Batch update primary_branch column in tracked_files for unchanged files.
 ///
 /// Within a single transaction, updates all tracked files on the old branch
 /// that are NOT in the changed_paths set. Also recomputes base_point since
@@ -50,7 +50,7 @@ async fn fetch_branch_data(
     let files: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT file_id, relative_path, COALESCE(file_hash, '')
          FROM tracked_files
-         WHERE watch_folder_id = ?1 AND branch = ?2",
+         WHERE watch_folder_id = ?1 AND primary_branch = ?2",
     )
     .bind(watch_folder_id)
     .bind(old_branch)
@@ -121,7 +121,7 @@ async fn execute_batch_update(
     // Single join-update replaces N individual UPDATEs
     sqlx::query(
         "UPDATE tracked_files
-         SET branch = ?1, base_point = _bp_update.base_point, updated_at = ?2
+         SET primary_branch = ?1, base_point = _bp_update.base_point, updated_at = ?2
          FROM _bp_update
          WHERE tracked_files.file_id = _bp_update.file_id",
     )
