@@ -30,17 +30,22 @@ fn extract_chunk_edges(
     node: &GraphNode,
     tenant_id: &str,
     file_path: &str,
+    branch: Option<&str>,
     result: &mut ExtractionResult,
 ) {
     if let Some(ref parent) = chunk.parent_symbol {
         let parent_type = infer_parent_node_type(parent, &chunk.language);
-        let parent_node = GraphNode::stub(tenant_id, parent, parent_type);
-        let edge = GraphEdge::new(
-            tenant_id,
-            &parent_node.node_id,
-            &node.node_id,
-            EdgeType::Contains,
-            file_path,
+        let parent_node =
+            maybe_with_branch(GraphNode::stub(tenant_id, parent, parent_type), branch);
+        let edge = maybe_edge_with_branch(
+            GraphEdge::new(
+                tenant_id,
+                &parent_node.node_id,
+                &node.node_id,
+                EdgeType::Contains,
+                file_path,
+            ),
+            branch,
         );
         result.nodes.push(parent_node);
         result.edges.push(edge);
@@ -51,13 +56,19 @@ fn extract_chunk_edges(
         if callee_name.is_empty() {
             continue;
         }
-        let callee_stub = GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
-        let edge = GraphEdge::new(
-            tenant_id,
-            &node.node_id,
-            &callee_stub.node_id,
-            EdgeType::Calls,
-            file_path,
+        let callee_stub = maybe_with_branch(
+            GraphNode::stub(tenant_id, &callee_name, NodeType::Function),
+            branch,
+        );
+        let edge = maybe_edge_with_branch(
+            GraphEdge::new(
+                tenant_id,
+                &node.node_id,
+                &callee_stub.node_id,
+                EdgeType::Calls,
+                file_path,
+            ),
+            branch,
         );
         result.nodes.push(callee_stub);
         result.edges.push(edge);
@@ -66,13 +77,19 @@ fn extract_chunk_edges(
     if let Some(ref sig) = chunk.signature {
         let type_refs = extract_type_references(sig, &chunk.language);
         for type_name in type_refs {
-            let type_stub = GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
-            let edge = GraphEdge::new(
-                tenant_id,
-                &node.node_id,
-                &type_stub.node_id,
-                EdgeType::UsesType,
-                file_path,
+            let type_stub = maybe_with_branch(
+                GraphNode::stub(tenant_id, &type_name, NodeType::Struct),
+                branch,
+            );
+            let edge = maybe_edge_with_branch(
+                GraphEdge::new(
+                    tenant_id,
+                    &node.node_id,
+                    &type_stub.node_id,
+                    EdgeType::UsesType,
+                    file_path,
+                ),
+                branch,
             );
             result.nodes.push(type_stub);
             result.edges.push(edge);
@@ -89,10 +106,23 @@ pub fn extract_edges(
     tenant_id: &str,
     file_path: &str,
 ) -> ExtractionResult {
+    extract_edges_with_branch(chunks, tenant_id, file_path, None)
+}
+
+/// Extract graph nodes and edges from semantic chunks with branch context.
+pub fn extract_edges_with_branch(
+    chunks: &[SemanticChunk],
+    tenant_id: &str,
+    file_path: &str,
+    branch: Option<&str>,
+) -> ExtractionResult {
     let mut result = ExtractionResult::default();
 
     // Create a File node for import edges
-    let file_node = GraphNode::new(tenant_id, file_path, file_path, NodeType::File);
+    let file_node = maybe_with_branch(
+        GraphNode::new(tenant_id, file_path, file_path, NodeType::File),
+        branch,
+    );
     result.nodes.push(file_node);
 
     for chunk in chunks {
@@ -117,9 +147,10 @@ pub fn extract_edges(
         node.end_line = Some(chunk.end_line as u32);
         node.signature = chunk.signature.clone();
         node.language = Some(chunk.language.clone());
+        let node = maybe_with_branch(node, branch);
         result.nodes.push(node.clone());
 
-        extract_chunk_edges(chunk, &node, tenant_id, file_path, &mut result);
+        extract_chunk_edges(chunk, &node, tenant_id, file_path, branch, &mut result);
     }
 
     result
@@ -136,14 +167,18 @@ pub fn extract_edges_from_text_chunks(
     chunks: &[TextChunk],
     tenant_id: &str,
     file_path: &str,
+    branch: Option<&str>,
 ) -> ExtractionResult {
     let mut result = ExtractionResult::default();
 
-    let file_node = GraphNode::new(tenant_id, file_path, file_path, NodeType::File);
+    let file_node = maybe_with_branch(
+        GraphNode::new(tenant_id, file_path, file_path, NodeType::File),
+        branch,
+    );
     result.nodes.push(file_node);
 
     for chunk in chunks {
-        process_text_chunk(chunk, tenant_id, file_path, &mut result);
+        process_text_chunk(chunk, tenant_id, file_path, branch, &mut result);
     }
 
     result
@@ -154,6 +189,7 @@ fn process_text_chunk(
     chunk: &TextChunk,
     tenant_id: &str,
     file_path: &str,
+    branch: Option<&str>,
     result: &mut ExtractionResult,
 ) {
     let meta = &chunk.metadata;
@@ -181,11 +217,12 @@ fn process_text_chunk(
     node.end_line = meta.get("end_line").and_then(|s| s.parse::<u32>().ok());
     node.signature = meta.get("signature").cloned();
     node.language = Some(language.clone());
+    let node = maybe_with_branch(node, branch);
     result.nodes.push(node.clone());
 
-    add_contains_edges(meta, &node, tenant_id, file_path, &language, result);
-    add_calls_edges(meta, &node, tenant_id, file_path, result);
-    add_uses_type_edges(meta, &node, tenant_id, file_path, &language, result);
+    add_contains_edges(meta, &node, tenant_id, file_path, &language, branch, result);
+    add_calls_edges(meta, &node, tenant_id, file_path, branch, result);
+    add_uses_type_edges(meta, &node, tenant_id, file_path, &language, branch, result);
 }
 
 fn add_contains_edges(
@@ -194,18 +231,23 @@ fn add_contains_edges(
     tenant_id: &str,
     file_path: &str,
     language: &str,
+    branch: Option<&str>,
     result: &mut ExtractionResult,
 ) {
     if let Some(parent) = meta.get("parent_symbol") {
         if !parent.is_empty() {
             let parent_type = infer_parent_node_type(parent, language);
-            let parent_node = GraphNode::stub(tenant_id, parent, parent_type);
-            let edge = GraphEdge::new(
-                tenant_id,
-                &parent_node.node_id,
-                &node.node_id,
-                EdgeType::Contains,
-                file_path,
+            let parent_node =
+                maybe_with_branch(GraphNode::stub(tenant_id, parent, parent_type), branch);
+            let edge = maybe_edge_with_branch(
+                GraphEdge::new(
+                    tenant_id,
+                    &parent_node.node_id,
+                    &node.node_id,
+                    EdgeType::Contains,
+                    file_path,
+                ),
+                branch,
             );
             result.nodes.push(parent_node);
             result.edges.push(edge);
@@ -218,6 +260,7 @@ fn add_calls_edges(
     node: &GraphNode,
     tenant_id: &str,
     file_path: &str,
+    branch: Option<&str>,
     result: &mut ExtractionResult,
 ) {
     if let Some(calls_str) = meta.get("calls") {
@@ -230,13 +273,19 @@ fn add_calls_edges(
             if callee_name.is_empty() {
                 continue;
             }
-            let callee_stub = GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
-            let edge = GraphEdge::new(
-                tenant_id,
-                &node.node_id,
-                &callee_stub.node_id,
-                EdgeType::Calls,
-                file_path,
+            let callee_stub = maybe_with_branch(
+                GraphNode::stub(tenant_id, &callee_name, NodeType::Function),
+                branch,
+            );
+            let edge = maybe_edge_with_branch(
+                GraphEdge::new(
+                    tenant_id,
+                    &node.node_id,
+                    &callee_stub.node_id,
+                    EdgeType::Calls,
+                    file_path,
+                ),
+                branch,
             );
             result.nodes.push(callee_stub);
             result.edges.push(edge);
@@ -250,22 +299,45 @@ fn add_uses_type_edges(
     tenant_id: &str,
     file_path: &str,
     language: &str,
+    branch: Option<&str>,
     result: &mut ExtractionResult,
 ) {
     if let Some(sig) = meta.get("signature") {
         let type_refs = extract_type_references(sig, language);
         for type_name in type_refs {
-            let type_stub = GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
-            let edge = GraphEdge::new(
-                tenant_id,
-                &node.node_id,
-                &type_stub.node_id,
-                EdgeType::UsesType,
-                file_path,
+            let type_stub = maybe_with_branch(
+                GraphNode::stub(tenant_id, &type_name, NodeType::Struct),
+                branch,
+            );
+            let edge = maybe_edge_with_branch(
+                GraphEdge::new(
+                    tenant_id,
+                    &node.node_id,
+                    &type_stub.node_id,
+                    EdgeType::UsesType,
+                    file_path,
+                ),
+                branch,
             );
             result.nodes.push(type_stub);
             result.edges.push(edge);
         }
+    }
+}
+
+/// Apply branch to a `GraphNode` if provided.
+fn maybe_with_branch(node: GraphNode, branch: Option<&str>) -> GraphNode {
+    match branch {
+        Some(b) => node.with_branch(b),
+        None => node,
+    }
+}
+
+/// Apply branch to a `GraphEdge` if provided.
+fn maybe_edge_with_branch(edge: GraphEdge, branch: Option<&str>) -> GraphEdge {
+    match branch {
+        Some(b) => edge.with_branch(b),
+        None => edge,
     }
 }
 

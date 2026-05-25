@@ -44,7 +44,7 @@ async fn test_extract_from_text_chunks() {
         metadata: meta_fn,
     };
 
-    let result = extractor::extract_edges_from_text_chunks(&[text_chunk], TENANT, "src/calc.rs");
+    let result = extractor::extract_edges_from_text_chunks(&[text_chunk], TENANT, "src/calc.rs", None);
 
     // Should produce function node
     let fn_nodes: Vec<_> = result

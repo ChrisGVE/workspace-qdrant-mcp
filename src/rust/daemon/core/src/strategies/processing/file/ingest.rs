@@ -391,6 +391,7 @@ async fn run_middle_phases(
         relative_path,
         &mut points,
         timings,
+        detected_branch,
     )
     .await;
 
@@ -547,6 +548,7 @@ async fn run_keyword_and_graph_phases(
     relative_path: &str,
     points: &mut [crate::storage::DocumentPoint],
     timings: &mut Vec<PhaseTiming>,
+    detected_branch: &str,
 ) {
     if matches!(
         item.op,
@@ -578,6 +580,7 @@ async fn run_keyword_and_graph_phases(
         &item.tenant_id,
         relative_path,
         &document_content.chunks,
+        Some(detected_branch),
     )
     .await;
     timings.push(PhaseTiming {

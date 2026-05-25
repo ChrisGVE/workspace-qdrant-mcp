@@ -29,7 +29,7 @@ async fn test_store() -> SqliteGraphStore {
         .await
         .unwrap();
 
-    // Run schema migration manually (GraphDbManager::migrate_v1 logic)
+    // Run schema migration manually (GraphDbManager::migrate_v1 + v2 logic)
     sqlx::query(
         "CREATE TABLE graph_nodes (
             node_id TEXT PRIMARY KEY,
@@ -41,6 +41,7 @@ async fn test_store() -> SqliteGraphStore {
             end_line INTEGER,
             signature TEXT,
             language TEXT,
+            branches TEXT NOT NULL DEFAULT '[\"main\"]',
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         )",
@@ -61,6 +62,10 @@ async fn test_store() -> SqliteGraphStore {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("CREATE INDEX idx_nodes_branches ON graph_nodes(tenant_id, branches)")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sqlx::query(
         "CREATE TABLE graph_edges (
@@ -72,6 +77,7 @@ async fn test_store() -> SqliteGraphStore {
             source_file TEXT NOT NULL,
             weight REAL DEFAULT 1.0,
             metadata_json TEXT,
+            branch TEXT,
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             FOREIGN KEY (source_node_id) REFERENCES graph_nodes(node_id),
             FOREIGN KEY (target_node_id) REFERENCES graph_nodes(node_id)
@@ -98,6 +104,10 @@ async fn test_store() -> SqliteGraphStore {
         .await
         .unwrap();
     sqlx::query("CREATE INDEX idx_edges_type ON graph_edges(edge_type)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE INDEX idx_edges_branch ON graph_edges(tenant_id, branch)")
         .execute(&pool)
         .await
         .unwrap();

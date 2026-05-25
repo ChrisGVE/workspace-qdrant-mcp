@@ -22,13 +22,14 @@ pub(super) async fn ingest_graph_edges(
     tenant_id: &str,
     file_path: &str,
     chunks: &[TextChunk],
+    branch: Option<&str>,
 ) {
     let Some(ref graph_store) = ctx.graph_store else {
         return; // Graph not initialized — skip silently
     };
 
     let ExtractionResult { nodes, edges } =
-        extract_edges_from_text_chunks(chunks, tenant_id, file_path);
+        extract_edges_from_text_chunks(chunks, tenant_id, file_path, branch);
 
     if nodes.is_empty() && edges.is_empty() {
         return;

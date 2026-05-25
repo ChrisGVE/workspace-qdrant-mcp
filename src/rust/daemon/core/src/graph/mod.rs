@@ -39,6 +39,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 
+/// Default branches JSON for new nodes: `["main"]`.
+const DEFAULT_BRANCHES_JSON: &str = r#"["main"]"#;
+
 /// Node types in the code graph, mapping to semantic chunk types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -167,6 +170,8 @@ pub struct GraphNode {
     pub end_line: Option<u32>,
     pub signature: Option<String>,
     pub language: Option<String>,
+    /// JSON array of branch names this node belongs to, e.g. `["main"]`.
+    pub branches: String,
 }
 
 impl GraphNode {
@@ -191,6 +196,7 @@ impl GraphNode {
             end_line: None,
             signature: None,
             language: None,
+            branches: DEFAULT_BRANCHES_JSON.to_string(),
         }
     }
 
@@ -214,7 +220,14 @@ impl GraphNode {
             end_line: None,
             signature: None,
             language: None,
+            branches: DEFAULT_BRANCHES_JSON.to_string(),
         }
+    }
+
+    /// Set the branches JSON from a branch name (wraps in a single-element array).
+    pub fn with_branch(mut self, branch: &str) -> Self {
+        self.branches = format!(r#"["{}"]"#, branch);
+        self
     }
 }
 
@@ -230,6 +243,8 @@ pub struct GraphEdge {
     pub source_file: String,
     pub weight: f64,
     pub metadata_json: Option<String>,
+    /// The branch this edge was extracted on. `None` means globally inferred.
+    pub branch: Option<String>,
 }
 
 impl GraphEdge {
@@ -253,7 +268,14 @@ impl GraphEdge {
             source_file: source_file.into(),
             weight: 1.0,
             metadata_json: None,
+            branch: None,
         }
+    }
+
+    /// Set the branch for this edge.
+    pub fn with_branch(mut self, branch: &str) -> Self {
+        self.branch = Some(branch.to_string());
+        self
     }
 }
 

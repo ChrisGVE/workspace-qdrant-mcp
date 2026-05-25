@@ -11,7 +11,7 @@ async fn setup_graph_pool() -> SqlitePool {
         .unwrap();
 
     sqlx::query(
-        "CREATE TABLE graph_nodes (
+        r#"CREATE TABLE graph_nodes (
             node_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
             symbol_name TEXT NOT NULL,
@@ -21,9 +21,10 @@ async fn setup_graph_pool() -> SqlitePool {
             end_line INTEGER,
             signature TEXT,
             language TEXT,
+            branches TEXT NOT NULL DEFAULT '["main"]',
             created_at TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL DEFAULT ''
-        )",
+        )"#,
     )
     .execute(&pool)
     .await
@@ -44,6 +45,7 @@ async fn setup_graph_pool() -> SqlitePool {
             source_file TEXT NOT NULL,
             weight REAL DEFAULT 1.0,
             metadata_json TEXT,
+            branch TEXT,
             created_at TEXT NOT NULL DEFAULT ''
         )",
     )

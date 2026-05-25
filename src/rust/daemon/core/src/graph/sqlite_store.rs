@@ -38,8 +38,8 @@ impl GraphStore for SqliteGraphStore {
         sqlx::query(
             "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                 file_path, start_line, end_line, signature, language,
-                created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                branches, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
             ON CONFLICT(node_id) DO UPDATE SET
                 symbol_name = excluded.symbol_name,
                 symbol_type = excluded.symbol_type,
@@ -49,7 +49,8 @@ impl GraphStore for SqliteGraphStore {
                 end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
                 signature = COALESCE(excluded.signature, graph_nodes.signature),
                 language = COALESCE(excluded.language, graph_nodes.language),
-                updated_at = ?10",
+                branches = excluded.branches,
+                updated_at = ?11",
         )
         .bind(&node.node_id)
         .bind(&node.tenant_id)
@@ -60,6 +61,7 @@ impl GraphStore for SqliteGraphStore {
         .bind(node.end_line.map(|v| v as i64))
         .bind(&node.signature)
         .bind(&node.language)
+        .bind(&node.branches)
         .bind(&now)
         .execute(&self.pool)
         .await?;
@@ -78,8 +80,8 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                     file_path, start_line, end_line, signature, language,
-                    created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                    branches, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
                 ON CONFLICT(node_id) DO UPDATE SET
                     symbol_name = excluded.symbol_name,
                     symbol_type = excluded.symbol_type,
@@ -89,7 +91,8 @@ impl GraphStore for SqliteGraphStore {
                     end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
                     signature = COALESCE(excluded.signature, graph_nodes.signature),
                     language = COALESCE(excluded.language, graph_nodes.language),
-                    updated_at = ?10",
+                    branches = excluded.branches,
+                    updated_at = ?11",
             )
             .bind(&node.node_id)
             .bind(&node.tenant_id)
@@ -100,6 +103,7 @@ impl GraphStore for SqliteGraphStore {
             .bind(node.end_line.map(|v| v as i64))
             .bind(&node.signature)
             .bind(&node.language)
+            .bind(&node.branches)
             .bind(&now)
             .execute(&mut *tx)
             .await?;
@@ -115,8 +119,8 @@ impl GraphStore for SqliteGraphStore {
         sqlx::query(
             "INSERT OR IGNORE INTO graph_edges
                 (edge_id, tenant_id, source_node_id, target_node_id, edge_type,
-                 source_file, weight, metadata_json, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 source_file, weight, metadata_json, branch, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         )
         .bind(&edge.edge_id)
         .bind(&edge.tenant_id)
@@ -126,6 +130,7 @@ impl GraphStore for SqliteGraphStore {
         .bind(&edge.source_file)
         .bind(edge.weight)
         .bind(&edge.metadata_json)
+        .bind(&edge.branch)
         .bind(&now)
         .execute(&self.pool)
         .await?;
@@ -144,8 +149,8 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT OR IGNORE INTO graph_edges
                     (edge_id, tenant_id, source_node_id, target_node_id, edge_type,
-                     source_file, weight, metadata_json, created_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     source_file, weight, metadata_json, branch, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )
             .bind(&edge.edge_id)
             .bind(&edge.tenant_id)
@@ -155,6 +160,7 @@ impl GraphStore for SqliteGraphStore {
             .bind(&edge.source_file)
             .bind(edge.weight)
             .bind(&edge.metadata_json)
+            .bind(&edge.branch)
             .bind(&now)
             .execute(&mut *tx)
             .await?;
@@ -407,7 +413,7 @@ impl GraphStore for SqliteGraphStore {
                   AND INSTR(bfs.path, e.target_node_id) = 0
             )
             SELECT bfs.node_id, bfs.depth, bfs.path,
-                   n.symbol_name, n.symbol_type, n.file_path, n.line_number
+                   n.symbol_name, n.symbol_type, n.file_path
             FROM bfs
             JOIN graph_nodes n ON n.node_id = bfs.node_id AND n.tenant_id = ?1
             WHERE bfs.node_id = ?{target_placeholder}
@@ -441,7 +447,7 @@ impl GraphStore for SqliteGraphStore {
                 let mut path_nodes = Vec::with_capacity(node_ids.len());
                 for (hop, nid) in node_ids.iter().enumerate() {
                     let nr = sqlx::query(
-                        "SELECT symbol_name, symbol_type, file_path, line_number
+                        "SELECT symbol_name, symbol_type, file_path
                          FROM graph_nodes WHERE node_id = ?1 AND tenant_id = ?2",
                     )
                     .bind(nid)
@@ -499,8 +505,8 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                     file_path, start_line, end_line, signature, language,
-                    created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+                    branches, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
                 ON CONFLICT(node_id) DO UPDATE SET
                     symbol_name = excluded.symbol_name,
                     symbol_type = excluded.symbol_type,
@@ -510,7 +516,8 @@ impl GraphStore for SqliteGraphStore {
                     end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
                     signature = COALESCE(excluded.signature, graph_nodes.signature),
                     language = COALESCE(excluded.language, graph_nodes.language),
-                    updated_at = ?10",
+                    branches = excluded.branches,
+                    updated_at = ?11",
             )
             .bind(&node.node_id)
             .bind(&node.tenant_id)
@@ -521,6 +528,7 @@ impl GraphStore for SqliteGraphStore {
             .bind(node.end_line.map(|v| v as i64))
             .bind(&node.signature)
             .bind(&node.language)
+            .bind(&node.branches)
             .bind(&now)
             .execute(&mut *tx)
             .await?;
@@ -531,8 +539,8 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT OR IGNORE INTO graph_edges
                     (edge_id, tenant_id, source_node_id, target_node_id, edge_type,
-                     source_file, weight, metadata_json, created_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     source_file, weight, metadata_json, branch, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )
             .bind(&edge.edge_id)
             .bind(&edge.tenant_id)
@@ -542,6 +550,7 @@ impl GraphStore for SqliteGraphStore {
             .bind(&edge.source_file)
             .bind(edge.weight)
             .bind(&edge.metadata_json)
+            .bind(&edge.branch)
             .bind(&now)
             .execute(&mut *tx)
             .await?;

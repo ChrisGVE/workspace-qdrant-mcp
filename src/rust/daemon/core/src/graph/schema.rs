@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 /// Current schema version for graph.db.
-pub const GRAPH_SCHEMA_VERSION: i32 = 1;
+pub const GRAPH_SCHEMA_VERSION: i32 = 2;
 
 /// Default graph database filename.
 pub const GRAPH_DB_FILENAME: &str = "graph.db";
@@ -168,6 +168,7 @@ impl GraphDbManager {
     async fn run_migration(&self, version: i32) -> GraphDbResult<()> {
         match version {
             1 => self.migrate_v1().await,
+            2 => self.migrate_v2().await,
             _ => Err(GraphDbError::Migration(format!(
                 "Unknown graph migration version: {}",
                 version
@@ -241,6 +242,39 @@ impl GraphDbManager {
             .execute(&mut *tx)
             .await?;
         sqlx::query("CREATE INDEX idx_edges_type ON graph_edges(edge_type)")
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Migration v2: add `branches` column to `graph_nodes` and `branch`
+    /// column to `graph_edges` for branch-scoped graph queries.
+    async fn migrate_v2(&self) -> GraphDbResult<()> {
+        info!("Graph migration v2: adding branches/branch columns");
+
+        let mut tx = self.pool.begin().await?;
+
+        // Add branches JSON array to nodes (defaults to ["main"])
+        sqlx::query(
+            r#"ALTER TABLE graph_nodes ADD COLUMN branches TEXT NOT NULL DEFAULT '["main"]'"#,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // Add scalar branch to edges (NULL = globally inferred)
+        sqlx::query("ALTER TABLE graph_edges ADD COLUMN branch TEXT")
+            .execute(&mut *tx)
+            .await?;
+
+        // Index for branch-scoped node queries
+        sqlx::query("CREATE INDEX idx_nodes_branches ON graph_nodes(tenant_id, branches)")
+            .execute(&mut *tx)
+            .await?;
+
+        // Index for branch-scoped edge queries
+        sqlx::query("CREATE INDEX idx_edges_branch ON graph_edges(tenant_id, branch)")
             .execute(&mut *tx)
             .await?;
 
