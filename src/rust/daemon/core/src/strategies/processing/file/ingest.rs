@@ -65,6 +65,23 @@ pub(crate) async fn ingest_file_content(
         .await;
     }
 
+    // === CONTENT-HASH DEDUP CHECK ===
+    // If identical content exists at same path for another branch, skip embedding.
+    if let Some(()) = super::dedup::try_dedup(
+        ctx,
+        item,
+        pool,
+        file_path,
+        watch_folder_id,
+        relative_path,
+        abs_file_path,
+        &detected_branch,
+    )
+    .await?
+    {
+        return Ok(());
+    }
+
     // Mark qdrant status as in_progress
     let _ = ctx
         .queue_manager

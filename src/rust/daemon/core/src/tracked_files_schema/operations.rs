@@ -156,6 +156,83 @@ pub async fn lookup_tracked_file(
     Ok(row.map(|r| tracked_file_from_row(&r)))
 }
 
+/// Look up a tracked file by content hash for cross-branch deduplication.
+///
+/// Finds an existing `tracked_files` row for the same `watch_folder_id` and
+/// `relative_path` that has the same `file_hash` but a **different**
+/// `primary_branch`. This is the key query for content-hash dedup: if a
+/// matching row exists, the Qdrant points already contain the embeddings and
+/// only the `branches` array needs updating.
+///
+/// Returns `None` when no cross-branch duplicate exists.
+pub async fn lookup_tracked_file_by_hash(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    relative_path: &str,
+    file_hash: &str,
+    exclude_branch: &str,
+) -> Result<Option<TrackedFile>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
+                file_type, language,
+                file_mtime, file_hash, chunk_count, chunking_method,
+                lsp_status, treesitter_status, last_error,
+                needs_reconcile, reconcile_reason, extension, is_test,
+                collection, base_point, incremental,
+                component, routing_reason, created_at, updated_at
+         FROM tracked_files
+         WHERE watch_folder_id = ?1
+           AND relative_path = ?2
+           AND file_hash = ?3
+           AND primary_branch IS NOT NULL
+           AND primary_branch != ?4
+         LIMIT 1",
+    )
+    .bind(watch_folder_id)
+    .bind(relative_path)
+    .bind(file_hash)
+    .bind(exclude_branch)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| tracked_file_from_row(&r)))
+}
+
+/// Add a branch name to the `branches` JSON array of a tracked file.
+///
+/// Uses SQLite's `json_insert` to append the branch at the end of the array
+/// (`'$[#]'`). The caller must hold the per-tenant branch lock to prevent
+/// concurrent read-modify-write races.
+///
+/// Returns the updated `branches` JSON string after the mutation.
+pub async fn add_branch_to_tracked_file(
+    pool: &SqlitePool,
+    file_id: i64,
+    branch: &str,
+) -> Result<String, sqlx::Error> {
+    let now = timestamps::now_utc();
+    sqlx::query(
+        "UPDATE tracked_files
+         SET branches = json_insert(branches, '$[#]', ?1),
+             updated_at = ?2
+         WHERE file_id = ?3",
+    )
+    .bind(branch)
+    .bind(&now)
+    .bind(file_id)
+    .execute(pool)
+    .await?;
+
+    // Fetch the updated branches value
+    let row: (String,) =
+        sqlx::query_as("SELECT COALESCE(branches, '[]') FROM tracked_files WHERE file_id = ?1")
+            .bind(file_id)
+            .fetch_one(pool)
+            .await?;
+
+    Ok(row.0)
+}
+
 /// Insert a new tracked file record, returning the file_id.
 ///
 /// `relative_path` is the post-v37 anchored relative path stored alongside

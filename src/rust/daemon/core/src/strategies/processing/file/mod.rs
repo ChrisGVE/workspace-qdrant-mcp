@@ -6,6 +6,7 @@
 //!
 //! Split into focused submodules:
 //! - `chunk_embed` — per-chunk embedding, payload construction, LSP enrichment
+//! - `dedup` — content-hash deduplication for cross-branch file ingestion
 //! - `delete` — delete operation, missing-file cleanup, Qdrant failure handling
 //! - `dependency_ingest` — dependency manifest parsing and storage for grouping
 //! - `fts5_index` — FTS5 code search index updates
@@ -17,6 +18,7 @@
 
 mod chunk_embed;
 mod component;
+mod dedup;
 mod delete;
 mod dependency_ingest;
 mod fts5_index;
@@ -218,6 +220,27 @@ impl FileStrategy {
                 &payload,
             )
             .await?;
+        }
+
+        // Content-hash dedup: if identical content already exists under a
+        // different branch, skip embedding and just add this branch.
+        // Only applies to Add operations (Update already handles hash comparison
+        // in prepare_update, and Uplift intentionally re-processes).
+        if item.op == QueueOperation::Add {
+            if let Some(()) = dedup::try_dedup(
+                ctx,
+                item,
+                pool,
+                file_path,
+                &watch_folder_id,
+                relative_path,
+                &abs_file_path,
+                &item.branch,
+            )
+            .await?
+            {
+                return Ok(());
+            }
         }
 
         ingest::ingest_file_content(

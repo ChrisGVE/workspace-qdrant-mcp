@@ -26,6 +26,44 @@ use crate::storage::StorageClient;
 use crate::tagging::Tier2Tagger;
 use crate::tree_sitter::GrammarManager;
 
+/// Per-tenant mutex registry for serializing branch-array mutations.
+///
+/// When content-hash deduplication detects that identical file content already
+/// exists under a different branch, the Qdrant point `branches` payload and
+/// the SQLite `tracked_files.branches` JSON array are updated via
+/// read-modify-write. This struct provides a per-tenant async mutex to
+/// prevent concurrent mutations from racing on the same array.
+pub struct TenantBranchLocks {
+    locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+impl TenantBranchLocks {
+    /// Create an empty lock registry.
+    pub fn new() -> Self {
+        Self {
+            locks: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Get (or create) the async mutex for `tenant_id`.
+    ///
+    /// The returned `Arc<Mutex<()>>` is shared across all callers for the same
+    /// tenant, so acquiring it serializes branch-array mutations for that tenant.
+    pub fn get(&self, tenant_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut map = self.locks.lock().expect("TenantBranchLocks poisoned");
+        Arc::clone(
+            map.entry(tenant_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    }
+}
+
+impl Default for TenantBranchLocks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Bundled processing dependencies for queue item strategies.
 ///
 /// Instead of passing 11+ arguments through every function call in the
@@ -98,6 +136,11 @@ pub struct ProcessingContext {
     /// Shared across all file items so rapid successive items from the same
     /// project avoid repeated filesystem reads.
     pub branch_cache: Arc<BranchCache>,
+
+    /// Per-tenant mutex registry for serializing branch-array mutations
+    /// during content-hash deduplication. Prevents read-modify-write races
+    /// when adding a branch to an existing Qdrant point's `branches` payload.
+    pub branch_locks: Arc<TenantBranchLocks>,
 }
 
 impl ProcessingContext {
@@ -135,6 +178,7 @@ impl ProcessingContext {
             url_ingestion: Arc::new(UrlIngestionConfig::default()),
             tier2_tagger: None,
             branch_cache: Arc::new(BranchCache::new()),
+            branch_locks: Arc::new(TenantBranchLocks::new()),
         }
     }
 }
@@ -202,6 +246,33 @@ mod tests {
             let _ = &ctx.url_ingestion;
             let _ = &ctx.tier2_tagger;
             let _ = &ctx.branch_cache;
+            let _ = &ctx.branch_locks;
         }
+    }
+
+    #[test]
+    fn test_tenant_branch_locks_returns_same_lock_for_same_tenant() {
+        let locks = TenantBranchLocks::new();
+        let lock1 = locks.get("tenant_a");
+        let lock2 = locks.get("tenant_a");
+        // Same Arc pointer
+        assert!(Arc::ptr_eq(&lock1, &lock2));
+    }
+
+    #[test]
+    fn test_tenant_branch_locks_returns_different_lock_for_different_tenant() {
+        let locks = TenantBranchLocks::new();
+        let lock_a = locks.get("tenant_a");
+        let lock_b = locks.get("tenant_b");
+        // Different Arc pointers
+        assert!(!Arc::ptr_eq(&lock_a, &lock_b));
+    }
+
+    #[test]
+    fn test_tenant_branch_locks_default() {
+        let locks = TenantBranchLocks::default();
+        let lock = locks.get("test");
+        // Verify we can get a lock from default-constructed instance
+        assert!(Arc::strong_count(&lock) >= 1);
     }
 }
