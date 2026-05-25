@@ -7,6 +7,7 @@
 
 pub mod adaptive_resources;
 pub mod allowed_extensions;
+pub mod branch_discovery;
 pub mod branch_switch;
 pub mod clip;
 pub mod component_detection;
@@ -142,8 +143,9 @@ pub use crate::error::{
     Result, WorkspaceError,
 };
 pub use crate::git::{
-    branch_schema, BranchCache, BranchEvent, BranchEventHandler, BranchLifecycleConfig, BranchLifecycleDetector,
-    BranchLifecycleStats, CacheStats, GitBranchDetector, GitError, GitResult,
+    branch_schema, BranchCache, BranchEvent, BranchEventHandler, BranchLifecycleConfig,
+    BranchLifecycleDetector, BranchLifecycleStats, CacheStats, GitBranchDetector, GitError,
+    GitResult,
 };
 pub use crate::monitoring::{
     create_orphaned_session_alert,
