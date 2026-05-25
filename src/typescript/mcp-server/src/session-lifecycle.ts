@@ -10,6 +10,7 @@ import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { ProjectDetector } from './utils/project-detector.js';
 import { getGitRemoteUrl } from './utils/project-detector.js';
 import { findGitRoot } from './utils/git-utils.js';
+import { detectCurrentBranch } from './utils/git-branch.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
 import { logInfo, logError, logDebug, logSessionEvent, logDaemonStatus } from './utils/logger.js';
 import { recordDaemonFallback } from './telemetry/metrics.js';
@@ -39,6 +40,11 @@ async function detectProjectForSession(
     sessionState.projectPath = projectRoot;
     logDebug('Project root detected but not registered', { projectRoot, cwd });
   }
+
+  // Detect current git branch for use as the default filter
+  const branch = detectCurrentBranch(projectRoot);
+  sessionState.currentBranch = branch;
+  logDebug('Branch detected', { branch });
 }
 
 export async function initializeSession(

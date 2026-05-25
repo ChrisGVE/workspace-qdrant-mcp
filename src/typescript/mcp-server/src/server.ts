@@ -66,6 +66,7 @@ export class WorkspaceQdrantMcpServer {
     heartbeatInterval: null,
     daemonConnected: false,
     cleaned: false,
+    currentBranch: null,
   };
 
   private readonly mode: ServerMode;

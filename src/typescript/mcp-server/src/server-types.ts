@@ -26,6 +26,12 @@ export interface SessionState {
    * Set to `true` on the first cleanup invocation; subsequent calls no-op.
    */
   cleaned: boolean;
+  /**
+   * Current git branch detected at session start.
+   * Used as the default branch filter for search and list tools.
+   * "default" when not inside a git repository.
+   */
+  currentBranch: string | null;
 }
 
 /**
