@@ -83,6 +83,9 @@ fn wire_grpc(
     lsp_manager: &Option<Arc<tokio::sync::RwLock<workspace_qdrant_core::LanguageServerManager>>>,
     watch_refresh_signal: &Arc<Notify>,
     embedding_settings: Arc<workspace_qdrant_core::config::EmbeddingSettings>,
+    probe_cache: Arc<
+        tokio::sync::Mutex<workspace_qdrant_core::embedding::provider::SharedProbeCache>,
+    >,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     grpc_setup::spawn_grpc_server(
         args,
@@ -98,6 +101,7 @@ fn wire_grpc(
         qc.watch_pool.clone(),
         Arc::clone(&qc.dense_provider),
         embedding_settings,
+        probe_cache,
     )
 }
 
@@ -148,7 +152,7 @@ async fn run_daemon(
     .await?;
 
     // Phase 5a-5b: Dimension consistency + health monitor
-    check_dim_and_start_health_monitor(&daemon_config, &args, &mut qc).await?;
+    let probe_cache = check_dim_and_start_health_monitor(&daemon_config, &args, &mut qc).await?;
 
     // Phase 6: gRPC server + queue start + recovery
     let embedding_settings = Arc::new(daemon_config.embedding.clone());
@@ -159,6 +163,7 @@ async fn run_daemon(
         &lsp_manager,
         &watch_refresh_signal,
         embedding_settings,
+        probe_cache,
     )?);
     queue_init::start_processor(&mut qc.unified_queue_processor, &daemon_config).await?;
     queue_init::spawn_recovery_tasks(
@@ -198,11 +203,15 @@ async fn run_daemon(
 }
 
 /// Phase 5a-5b: Verify embedding dimension consistency and start health monitor.
+/// Returns the shared probe cache so gRPC can read background probe results.
 async fn check_dim_and_start_health_monitor(
     daemon_config: &DaemonConfig,
     args: &DaemonArgs,
     qc: &mut queue_init::QueueComponents,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<
+    Arc<tokio::sync::Mutex<workspace_qdrant_core::embedding::provider::SharedProbeCache>>,
+    Box<dyn std::error::Error>,
+> {
     let active_dim = daemon_config.embedding.output_dim;
     if let Err(e) = workspace_qdrant_core::specs::check_dim_consistency(
         &qc.mirror_storage,
@@ -231,16 +240,18 @@ async fn check_dim_and_start_health_monitor(
         return Err(Box::new(e));
     }
 
+    let probe_cache = workspace_qdrant_core::embedding::provider::SharedProbeCache::new();
     let health_monitor = workspace_qdrant_core::embedding::provider::ProviderHealthMonitor::new(
         Arc::clone(&qc.dense_provider),
         std::time::Duration::from_secs(
             workspace_qdrant_core::embedding::provider::health_monitor::DEFAULT_PROBE_INTERVAL_SECS,
         ),
+        Arc::clone(&probe_cache),
     );
     let health_monitor_token = qc.adaptive_shutdown_token.child_token();
     tokio::spawn(async move { health_monitor.run(health_monitor_token).await });
 
-    Ok(())
+    Ok(probe_cache)
 }
 
 /// Phase 6b: Start file watchers, git event consumer, and hierarchy builder.

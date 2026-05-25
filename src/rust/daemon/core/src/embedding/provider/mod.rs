@@ -23,7 +23,7 @@ pub mod health_monitor;
 pub mod openai;
 pub mod rate_limit;
 pub use fastembed::FastEmbedProvider;
-pub use health_monitor::ProviderHealthMonitor;
+pub use health_monitor::{ProviderHealthMonitor, SharedProbeCache};
 pub use openai::OpenAiCompatibleProvider;
 pub use rate_limit::RateLimitAdapter;
 

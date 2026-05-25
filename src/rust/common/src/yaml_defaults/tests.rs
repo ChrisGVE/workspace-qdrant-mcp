@@ -282,6 +282,36 @@ grammars:
     );
 }
 
+/// Empty YAML `{}` must parse into YamlConfig with all defaults.
+/// This is the critical partial-config scenario: a user config file
+/// that specifies nothing must still produce a valid config.
+#[test]
+fn test_empty_yaml_parses_to_defaults() {
+    let config: YamlConfig = serde_yaml_ng::from_str("{}").expect("empty YAML must parse");
+    let defaults = &*DEFAULT_YAML_CONFIG;
+    assert_eq!(config.qdrant.url, "http://localhost:6333");
+    assert_eq!(config.grpc.port, defaults.grpc.port);
+    assert_eq!(
+        config.performance.chunk_size,
+        defaults.performance.chunk_size
+    );
+    assert!(config.mounts.is_empty());
+}
+
+/// A YAML with only one section must still produce valid defaults for all others.
+#[test]
+fn test_partial_yaml_fills_missing_sections() {
+    let partial = r#"
+qdrant:
+  url: "http://custom:6333"
+"#;
+    let config: YamlConfig = serde_yaml_ng::from_str(partial).expect("partial YAML must parse");
+    assert_eq!(config.qdrant.url, "http://custom:6333");
+    assert_eq!(config.grpc.port, 50051);
+    assert_eq!(config.performance.max_concurrent_tasks, 4);
+    assert!(config.performance.enable_preemption);
+}
+
 /// Malformed YAML must return an Err — not panic or produce a default value.
 #[test]
 fn test_malformed_yaml_returns_err() {

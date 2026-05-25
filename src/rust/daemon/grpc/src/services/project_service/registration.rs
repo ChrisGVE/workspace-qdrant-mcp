@@ -420,6 +420,7 @@ impl ProjectServiceImpl {
             project_type: None,
             old_tenant_id: None,
             is_active: Some(is_high_priority),
+            rebuild: false,
         };
         let payload_json = serde_json::to_string(&payload)
             .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, effective_root_str));

@@ -121,6 +121,9 @@ impl GrpcServer {
         if let Some(ref settings) = self.embedding_settings {
             svc = svc.with_embedding_settings(Arc::clone(settings));
         }
+        if let Some(ref cache) = self.probe_cache {
+            svc = svc.with_probe_cache(Arc::clone(cache));
+        }
 
         svc
     }

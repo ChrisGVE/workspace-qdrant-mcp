@@ -9,6 +9,7 @@ use crate::config::DaemonConfig;
 use crate::unified_config::env_overrides::apply_env_overrides;
 use crate::unified_config::types::{ConfigFormat, UnifiedConfigError};
 use crate::unified_config::validation::{expand_config_paths, validate_config};
+use wqm_common::yaml_defaults::YamlConfig;
 
 /// Unified configuration manager for Rust daemon
 ///
@@ -118,6 +119,11 @@ impl UnifiedConfigManager {
     }
 
     /// Load and deserialise a configuration file.
+    ///
+    /// User YAML is always parsed into [`YamlConfig`] first (which carries
+    /// `#[serde(default)]` on every section), then converted to
+    /// [`DaemonConfig`] via `From<&YamlConfig>`. This ensures partial
+    /// user configs layer correctly on top of compiled-in defaults.
     fn load_config_file(
         &self,
         file_path: &Path,
@@ -125,8 +131,11 @@ impl UnifiedConfigManager {
     ) -> Result<DaemonConfig, UnifiedConfigError> {
         let content = fs::read_to_string(file_path)?;
         match format {
-            ConfigFormat::Yaml => serde_yaml_ng::from_str(&content)
-                .map_err(|e| UnifiedConfigError::YamlError(e.to_string())),
+            ConfigFormat::Yaml => {
+                let yaml_config: YamlConfig = serde_yaml_ng::from_str(&content)
+                    .map_err(|e| UnifiedConfigError::YamlError(e.to_string()))?;
+                Ok(DaemonConfig::from(&yaml_config))
+            }
         }
     }
 

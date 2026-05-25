@@ -92,11 +92,7 @@ fn qdrant_url() -> String {
             return url;
         }
     }
-    let cfg = crate::config::Config::from_env();
-    if !cfg.active_profile.is_empty() {
-        return cfg.qdrant_url;
-    }
-    "http://127.0.0.1:6333".to_string()
+    crate::config::Config::from_env().qdrant_url
 }
 
 /// Optional MCP HTTP URL. Returns `None` in stdio deployments so the probe
@@ -380,7 +376,7 @@ mod tests {
     #[serial]
     fn qdrant_url_defaults_to_loopback_when_no_env() {
         clear_url_env();
-        assert_eq!(qdrant_url(), "http://127.0.0.1:6333");
+        assert_eq!(qdrant_url(), wqm_common::constants::DEFAULT_QDRANT_URL);
     }
 
     #[test]

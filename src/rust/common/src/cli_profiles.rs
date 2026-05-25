@@ -228,14 +228,13 @@ impl CliConfigFile {
 
 /// Canonical path search order for `cli-config.toml`.
 pub fn get_cli_config_search_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
     if let Ok(explicit) = std::env::var("WQM_CLI_CONFIG") {
         if !explicit.is_empty() {
-            paths.push(PathBuf::from(explicit));
+            return vec![PathBuf::from(explicit)];
         }
     }
 
+    let mut paths = Vec::new();
     if let Some(home) = dirs::home_dir() {
         let xdg = std::env::var("XDG_CONFIG_HOME")
             .ok()

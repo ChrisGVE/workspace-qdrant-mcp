@@ -298,6 +298,8 @@ async fn enqueue_project_scan(
 ///
 /// Reads `last_scan` from the watch_folder record before scanning so that
 /// mtime-based pruning can skip files unchanged since the previous scan.
+/// When `payload.rebuild` is true, `last_scan` is ignored to force full
+/// re-discovery of all files.
 /// Enumerates the project directory (single-level progressive scan) and
 /// queues file ingestion items, then cleans up excluded files.
 async fn handle_project_scan(
@@ -305,16 +307,23 @@ async fn handle_project_scan(
     item: &UnifiedQueueItem,
     payload: &ProjectPayload,
 ) -> UnifiedProcessorResult<()> {
-    // Read the previous scan timestamp to seed mtime pruning.
-    let last_scan: Option<String> = sqlx::query_scalar(
-        "SELECT last_scan FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
-    )
-    .bind(&item.tenant_id)
-    .bind(COLLECTION_PROJECTS)
-    .fetch_optional(ctx.queue_manager.pool())
-    .await
-    .unwrap_or(None)
-    .flatten();
+    let last_scan: Option<String> = if payload.rebuild {
+        info!(
+            "Rebuild flag set — ignoring last_scan for tenant_id={}",
+            item.tenant_id
+        );
+        None
+    } else {
+        sqlx::query_scalar(
+            "SELECT last_scan FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
+        )
+        .bind(&item.tenant_id)
+        .bind(COLLECTION_PROJECTS)
+        .fetch_optional(ctx.queue_manager.pool())
+        .await
+        .unwrap_or(None)
+        .flatten()
+    };
 
     scan_project_directory(ctx, item, payload, last_scan.as_deref()).await?;
 

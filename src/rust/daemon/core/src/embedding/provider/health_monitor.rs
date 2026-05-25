@@ -11,27 +11,52 @@
 //! the duration of one probe call after `cancel.cancel()` is invoked.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use tokio::sync::Mutex;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use super::DenseProvider;
+use crate::embedding::types::EmbeddingError;
 
 /// Default monitor tick interval (seconds). Override via `new()` argument.
 pub const DEFAULT_PROBE_INTERVAL_SECS: u64 = 30;
+
+/// Shared probe result cache written by `ProviderHealthMonitor` and read by
+/// gRPC health endpoints. Lives in `core` so both crates can reference it.
+#[derive(Debug, Default)]
+pub struct SharedProbeCache {
+    pub last_probe_at: Option<Instant>,
+    pub last_result: Option<Result<(), EmbeddingError>>,
+}
+
+impl SharedProbeCache {
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self::default()))
+    }
+}
 
 /// Owns the probe schedule for a single active provider.
 #[derive(Debug)]
 pub struct ProviderHealthMonitor {
     provider: Arc<dyn DenseProvider>,
     interval: Duration,
+    cache: Arc<Mutex<SharedProbeCache>>,
 }
 
 impl ProviderHealthMonitor {
-    pub fn new(provider: Arc<dyn DenseProvider>, interval: Duration) -> Self {
-        Self { provider, interval }
+    pub fn new(
+        provider: Arc<dyn DenseProvider>,
+        interval: Duration,
+        cache: Arc<Mutex<SharedProbeCache>>,
+    ) -> Self {
+        Self {
+            provider,
+            interval,
+            cache,
+        }
     }
 
     /// Run the probe loop. Terminates cleanly when `cancel` is cancelled.
@@ -48,7 +73,8 @@ impl ProviderHealthMonitor {
                     return;
                 }
                 _ = ticker.tick() => {
-                    match self.provider.probe().await {
+                    let result = self.provider.probe().await;
+                    match &result {
                         Ok(()) => {
                             debug!(
                                 provider = self.provider.provider_label(),
@@ -64,6 +90,9 @@ impl ProviderHealthMonitor {
                             );
                         }
                     }
+                    let mut cache = self.cache.lock().await;
+                    cache.last_probe_at = Some(Instant::now());
+                    cache.last_result = Some(result);
                 }
             }
         }
@@ -117,9 +146,11 @@ mod tests {
     #[tokio::test]
     async fn test_health_monitor_exits_on_cancel() {
         let provider = Arc::new(StubProvider::new());
+        let cache = SharedProbeCache::new();
         let monitor = ProviderHealthMonitor::new(
             provider.clone() as Arc<dyn DenseProvider>,
             Duration::from_millis(50),
+            cache,
         );
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
@@ -133,5 +164,31 @@ mod tests {
             .await
             .expect("monitor must exit promptly after cancel")
             .expect("monitor task must not panic");
+    }
+
+    #[tokio::test]
+    async fn test_health_monitor_writes_cache() {
+        let provider = Arc::new(StubProvider::new());
+        let cache = SharedProbeCache::new();
+        let cache_clone = Arc::clone(&cache);
+        let monitor = ProviderHealthMonitor::new(
+            provider.clone() as Arc<dyn DenseProvider>,
+            Duration::from_millis(20),
+            cache,
+        );
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+        let handle = tokio::spawn(monitor.run(cancel_clone));
+
+        // Wait enough for at least one probe tick
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        cancel.cancel();
+        let _ = handle.await;
+
+        let lock = cache_clone.lock().await;
+        assert!(lock.last_probe_at.is_some());
+        assert!(lock.last_result.is_some());
+        assert!(lock.last_result.as_ref().unwrap().is_ok());
+        assert!(provider.probe_calls.load(Ordering::Relaxed) >= 1);
     }
 }

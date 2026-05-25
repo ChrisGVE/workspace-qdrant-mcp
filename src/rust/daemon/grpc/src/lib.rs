@@ -321,6 +321,10 @@ pub struct GrpcServer {
     pub(crate) dense_provider: Option<Arc<dyn DenseProvider>>,
     /// Embedding settings — authoritative dim for reembed recreation.
     pub(crate) embedding_settings: Option<Arc<workspace_qdrant_core::config::EmbeddingSettings>>,
+    /// Shared probe cache (written by ProviderHealthMonitor, read by SystemService).
+    pub(crate) probe_cache: Option<
+        Arc<tokio::sync::Mutex<workspace_qdrant_core::embedding::provider::SharedProbeCache>>,
+    >,
 }
 
 /// Server metrics for monitoring
@@ -354,6 +358,7 @@ impl GrpcServer {
             write_actor: None,
             dense_provider: None,
             embedding_settings: None,
+            probe_cache: None,
         }
     }
 }

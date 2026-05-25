@@ -21,6 +21,13 @@ pub struct ProjectPayload {
     /// Whether to set is_active=1 on watch_folder creation (used when op=Add)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_active: Option<bool>,
+    /// When true, ignore last_scan and perform a full re-scan (used by rebuild)
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rebuild: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
 }
 
 /// Payload for tenant items with collection="libraries"
