@@ -12,6 +12,9 @@ use clap::{Args, Subcommand};
 use crate::grpc::client::DaemonClient;
 use crate::output;
 
+/// Sentinel value meaning "search across all branches".
+const BRANCH_WILDCARD: &str = "*";
+
 /// Search command arguments
 #[derive(Args)]
 pub struct SearchArgs {
@@ -39,7 +42,7 @@ enum SearchCommand {
         #[arg(short, long)]
         file_type: Option<String>,
 
-        /// Filter by branch
+        /// Branch to search (auto-detected from CWD if omitted; use "*" for all branches)
         #[arg(short, long)]
         branch: Option<String>,
     },
@@ -108,14 +111,18 @@ async fn search_project(
 ) -> Result<()> {
     output::section("Project Search");
 
+    // Resolve branch: explicit arg > auto-detect from CWD > cross-branch fallback
+    let resolved_branch = resolve_branch(branch);
+
     output::kv("Query", query);
     output::kv("Limit", limit.to_string());
     output::kv("Include Libraries", include_libs.to_string());
     if let Some(ft) = &file_type {
         output::kv("File Type", ft);
     }
-    if let Some(b) = &branch {
-        output::kv("Branch", b);
+    match &resolved_branch {
+        BranchFilter::Specific(b) => output::kv("Branch", b),
+        BranchFilter::All => output::kv("Branch", "*  (all branches)"),
     }
     output::separator();
 
@@ -129,6 +136,9 @@ async fn search_project(
             output::info("  mcp__workspace_qdrant__search(");
             output::info(format!("    query=\"{}\",", query));
             output::info("    scope=\"project\",");
+            if let BranchFilter::Specific(b) = &resolved_branch {
+                output::info(format!("    branch=\"{}\",", b));
+            }
             output::info(format!("    limit={}", limit));
             output::info("  )");
         }
@@ -138,6 +148,52 @@ async fn search_project(
     }
 
     Ok(())
+}
+
+/// The resolved branch filter for a search operation.
+enum BranchFilter {
+    /// Search a specific named branch.
+    Specific(String),
+    /// Cross-branch search (no branch filter applied).
+    All,
+}
+
+/// Resolve the branch to use for a project search.
+///
+/// Resolution order:
+/// 1. Explicit `"*"` → cross-branch (no filter)
+/// 2. Any other explicit value → use as-is
+/// 3. Omitted → auto-detect from the current working directory via git
+/// 4. Git unavailable or HEAD detached → cross-branch fallback
+fn resolve_branch(arg: Option<String>) -> BranchFilter {
+    match arg {
+        Some(b) if b == BRANCH_WILDCARD => BranchFilter::All,
+        Some(b) => BranchFilter::Specific(b),
+        None => match detect_branch_from_cwd() {
+            Some(branch) => BranchFilter::Specific(branch),
+            None => BranchFilter::All,
+        },
+    }
+}
+
+/// Ask git for the current branch in the process's working directory.
+/// Returns `None` when git is unavailable or HEAD is detached.
+fn detect_branch_from_cwd() -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let output = std::process::Command::new("git")
+        .args(["-C", cwd.to_str()?, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() || branch == "HEAD" {
+            None
+        } else {
+            Some(branch)
+        }
+    } else {
+        None
+    }
 }
 
 async fn search_collection(
@@ -209,4 +265,48 @@ async fn search_rules(query: &str, limit: usize, scope: Option<String>) -> Resul
     output::info("  )");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn is_specific(f: BranchFilter, expected: &str) -> bool {
+        matches!(f, BranchFilter::Specific(b) if b == expected)
+    }
+
+    fn is_all(f: BranchFilter) -> bool {
+        matches!(f, BranchFilter::All)
+    }
+
+    #[test]
+    fn test_resolve_branch_wildcard() {
+        let f = resolve_branch(Some("*".to_string()));
+        assert!(is_all(f), "\"*\" should resolve to BranchFilter::All");
+    }
+
+    #[test]
+    fn test_resolve_branch_explicit_name() {
+        let f = resolve_branch(Some("main".to_string()));
+        assert!(
+            is_specific(f, "main"),
+            "explicit branch name should pass through"
+        );
+    }
+
+    #[test]
+    fn test_resolve_branch_explicit_slash() {
+        let f = resolve_branch(Some("feature/my-work".to_string()));
+        assert!(
+            is_specific(f, "feature/my-work"),
+            "branch with slash should pass through unchanged"
+        );
+    }
+
+    #[test]
+    fn test_resolve_branch_none_produces_valid_filter() {
+        // When branch is None, auto-detect runs. In a git repo it returns the
+        // current branch; outside git it falls back to All. Either is valid.
+        let _f = resolve_branch(None);
+    }
 }

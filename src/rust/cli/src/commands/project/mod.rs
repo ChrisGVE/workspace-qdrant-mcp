@@ -1,6 +1,6 @@
 //! Project command - project management
 //!
-//! Subcommands: list, status, register, delete, search
+//! Subcommands: list, status, register, delete, search, branches
 
 use std::path::PathBuf;
 
@@ -8,12 +8,13 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 mod activate;
+mod branches;
 mod delete;
 mod list;
 mod register;
 pub(crate) mod resolver;
 mod search;
-mod status;
+pub(super) mod status;
 #[cfg(test)]
 mod tests;
 
@@ -116,6 +117,23 @@ enum ProjectCommand {
         keep_data: bool,
     },
 
+    /// List branches known to the index for this project
+    #[command(
+        long_about = "Show all git branches that have indexed files in this project. Each branch \
+            is listed with its indexed file count. The currently checked-out branch is marked \
+            in the Current column. Branch data comes from the `tracked_files.branches` JSON \
+            arrays in the local state database — no daemon connection required.\n\n\
+            Use `--branch \"*\"` on `wqm search project` to search across all branches.",
+        after_long_help = "Examples:\n  \
+            wqm project branches                        List branches for current project\n  \
+            wqm project branches my-project             List branches for a named project\n  \
+            wqm project branches /path/to/repo          List branches for a specific path"
+    )]
+    Branches {
+        /// Project name, ID, or path (auto-detected from CWD if omitted)
+        project: Option<String>,
+    },
+
     /// Search project content (text or regex)
     #[command(
         long_about = "Full-text search across all indexed files in the current project. Supports \
@@ -169,6 +187,7 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
         ProjectCommand::List { active, verbose } => {
             list::list_projects(active, verbose, None).await
         }
+        ProjectCommand::Branches { project } => branches::list_branches(project.as_deref()).await,
         ProjectCommand::Status { project } => status::project_status(project.as_deref()).await,
         ProjectCommand::Register { path, name, yes } => {
             register::register_project(path, name, yes).await
