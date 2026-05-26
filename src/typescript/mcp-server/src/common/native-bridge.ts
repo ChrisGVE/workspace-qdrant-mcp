@@ -61,6 +61,7 @@ interface NativeAddon {
   fieldLibraryName(): string;
   fieldBasePoint(): string;
   fieldBranch(): string;
+  fieldBranches(): string;
   fieldFileType(): string;
   fieldFilePath(): string;
   fieldConceptTags(): string;
@@ -195,6 +196,7 @@ export const FIELD_PROJECT_ID = loadAddon().fieldProjectId();
 export const FIELD_LIBRARY_NAME = loadAddon().fieldLibraryName();
 export const FIELD_BASE_POINT = loadAddon().fieldBasePoint();
 export const FIELD_BRANCH = loadAddon().fieldBranch();
+export const FIELD_BRANCHES = loadAddon().fieldBranches();
 export const FIELD_FILE_TYPE = loadAddon().fieldFileType();
 export const FIELD_FILE_PATH = loadAddon().fieldFilePath();
 export const FIELD_CONCEPT_TAGS = loadAddon().fieldConceptTags();

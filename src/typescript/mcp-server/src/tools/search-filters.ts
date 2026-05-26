@@ -11,7 +11,7 @@ import {
 import {
   FIELD_TENANT_ID,
   FIELD_BASE_POINT,
-  FIELD_BRANCH,
+  FIELD_BRANCHES,
   FIELD_FILE_TYPE,
   FIELD_LIBRARY_NAME,
   FIELD_CONCEPT_TAGS,
@@ -82,7 +82,7 @@ function buildBasePointCondition(params: FilterParams): Record<string, unknown> 
 
 function buildBranchCondition(params: FilterParams): Record<string, unknown> | null {
   if (!params.branch || params.branch === '*') return null;
-  return { key: FIELD_BRANCH, match: { value: params.branch } };
+  return { key: FIELD_BRANCHES, match: { value: params.branch } };
 }
 
 function buildFileTypeCondition(params: FilterParams): Record<string, unknown> | null {
