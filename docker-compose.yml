@@ -94,6 +94,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       WQM_EMBEDDING_PROVIDER: ${WQM_EMBEDDING_PROVIDER:-fastembed}
+      # Process-RSS safety valve (queue processor pauses when exceeded).
+      # Default 2048 is too tight for FastEmbed + heap + mmap on this stack;
+      # 4096 gives headroom without disabling the leak guard entirely.
+      WQM_MAX_RSS_MB: ${WQM_MAX_RSS_MB:-4096}
       WQM_DATABASE_PATH: /home/memexd/.workspace-qdrant/memexd.db
       WQM_EMBEDDING_MODEL_CACHE_DIR: /home/memexd/.workspace-qdrant/models
       HF_HOME: /home/memexd/.workspace-qdrant/models
@@ -161,6 +165,11 @@ services:
       MCP_METRICS_TOKEN: ${MCP_HTTP_TOKEN:?Set MCP_HTTP_TOKEN in .env and reuse it for /metrics}
       MCP_HTTP_RATE_LIMIT: ${MCP_HTTP_RATE_LIMIT:-100}
       MCP_HTTP_CORS_ORIGINS: ${MCP_HTTP_CORS_ORIGINS:-}
+      # Skip bearer check for loopback peers (also covers Docker bridge
+      # gateway 172.16-31.x, so curl from the host works without the token).
+      # Listener is already on a loopback-published port; this only relaxes
+      # auth for same-machine traffic.
+      MCP_HTTP_TRUST_LOCALHOST: ${MCP_HTTP_TRUST_LOCALHOST:-1}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       WQM_DAEMON_ENDPOINT: memexd:50051
