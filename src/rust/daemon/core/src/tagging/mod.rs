@@ -13,6 +13,7 @@ pub mod concepts;
 mod llm_aggregation;
 pub mod normalize;
 pub mod providers;
+pub mod startup;
 pub mod taxonomy;
 pub mod taxonomy_cache;
 pub mod tier1;
