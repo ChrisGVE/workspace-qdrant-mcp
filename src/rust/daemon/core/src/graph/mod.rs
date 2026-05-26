@@ -276,6 +276,64 @@ impl GraphNode {
     }
 }
 
+/// Depth level for concept coverage — how deeply a source covers a topic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DepthLevel {
+    Qualitative,
+    Introductory,
+    Intermediate,
+    Rigorous,
+    Reference,
+}
+
+impl DepthLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DepthLevel::Qualitative => "qualitative",
+            DepthLevel::Introductory => "introductory",
+            DepthLevel::Intermediate => "intermediate",
+            DepthLevel::Rigorous => "rigorous",
+            DepthLevel::Reference => "reference",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "qualitative" => Some(DepthLevel::Qualitative),
+            "introductory" => Some(DepthLevel::Introductory),
+            "intermediate" => Some(DepthLevel::Intermediate),
+            "rigorous" => Some(DepthLevel::Rigorous),
+            "reference" => Some(DepthLevel::Reference),
+            _ => None,
+        }
+    }
+
+    pub fn to_metadata_json(&self) -> String {
+        format!(r#"{{"depth":"{}"}}"#, self.as_str())
+    }
+
+    pub fn from_metadata_json(json: &str) -> Option<Self> {
+        let trimmed = json.trim();
+        if let Some(start) = trimmed.find("\"depth\"") {
+            let rest = &trimmed[start + 7..];
+            if let Some(colon) = rest.find(':') {
+                let after_colon = rest[colon + 1..].trim().trim_start_matches('"');
+                if let Some(end) = after_colon.find('"') {
+                    return Self::from_str(&after_colon[..end]);
+                }
+            }
+        }
+        None
+    }
+}
+
+impl std::fmt::Display for DepthLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// An edge in the code graph representing a relationship between entities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
@@ -321,6 +379,19 @@ impl GraphEdge {
     pub fn with_branch(mut self, branch: &str) -> Self {
         self.branch = Some(branch.to_string());
         self
+    }
+
+    /// Set depth level metadata (for CoversTopic edges).
+    pub fn with_depth(mut self, depth: DepthLevel) -> Self {
+        self.metadata_json = Some(depth.to_metadata_json());
+        self
+    }
+
+    /// Extract depth level from metadata_json (if present).
+    pub fn depth_level(&self) -> Option<DepthLevel> {
+        self.metadata_json
+            .as_deref()
+            .and_then(DepthLevel::from_metadata_json)
     }
 }
 
@@ -485,6 +556,89 @@ pub fn compute_node_id(
         symbol_name,
         symbol_type.as_str()
     );
+    let hash = Sha256::digest(input.as_bytes());
+    let mut out = String::with_capacity(32);
+    for b in &hash[..16] {
+        let _ = write!(out, "{:02x}", b);
+    }
+    out
+}
+
+/// Fields for computing node IDs for narrative/concept node types.
+#[derive(Debug, Clone)]
+pub struct NodeIdFields<'a> {
+    pub tenant_id: &'a str,
+    pub file_path: &'a str,
+    pub symbol_name: &'a str,
+    pub symbol_type: NodeType,
+    pub section_index: Option<u32>,
+    pub start_line: Option<u32>,
+    pub library_name: Option<&'a str>,
+}
+
+impl<'a> NodeIdFields<'a> {
+    pub fn new(
+        tenant_id: &'a str,
+        file_path: &'a str,
+        symbol_name: &'a str,
+        symbol_type: NodeType,
+    ) -> Self {
+        Self {
+            tenant_id,
+            file_path,
+            symbol_name,
+            symbol_type,
+            section_index: None,
+            start_line: None,
+            library_name: None,
+        }
+    }
+}
+
+/// Compute node ID dispatching to type-specific hashing logic.
+pub fn compute_node_id_for_type(fields: &NodeIdFields<'_>) -> String {
+    let input = match fields.symbol_type {
+        NodeType::ConceptNode => {
+            format!("concept_node|{}", fields.symbol_name)
+        }
+        NodeType::DocumentSection => {
+            let idx = fields.section_index.unwrap_or(0);
+            format!(
+                "{}|{}|{}|document_section|{}",
+                fields.tenant_id, fields.file_path, fields.symbol_name, idx
+            )
+        }
+        NodeType::CodeComment => {
+            let line = fields.start_line.unwrap_or(0);
+            format!(
+                "{}|{}|code_comment|{}",
+                fields.tenant_id, fields.file_path, line
+            )
+        }
+        NodeType::Docstring => {
+            format!(
+                "{}|{}|{}|docstring",
+                fields.tenant_id, fields.file_path, fields.symbol_name
+            )
+        }
+        NodeType::LibrarySection => {
+            let lib = fields.library_name.unwrap_or(fields.tenant_id);
+            let idx = fields.section_index.unwrap_or(0);
+            format!(
+                "{}|{}|{}|library_section|{}",
+                lib, fields.file_path, fields.symbol_name, idx
+            )
+        }
+        _ => {
+            return compute_node_id(
+                fields.tenant_id,
+                fields.file_path,
+                fields.symbol_name,
+                fields.symbol_type,
+            );
+        }
+    };
+
     let hash = Sha256::digest(input.as_bytes());
     let mut out = String::with_capacity(32);
     for b in &hash[..16] {

@@ -139,3 +139,129 @@ fn test_narrative_node_types_strings() {
     assert_eq!(NodeType::LibrarySection.as_str(), "library_section");
     assert_eq!(NodeType::ConceptNode.as_str(), "concept_node");
 }
+
+#[test]
+fn test_depth_level_roundtrip() {
+    use super::super::DepthLevel;
+    for dl in [
+        DepthLevel::Qualitative,
+        DepthLevel::Introductory,
+        DepthLevel::Intermediate,
+        DepthLevel::Rigorous,
+        DepthLevel::Reference,
+    ] {
+        let s = dl.as_str();
+        let parsed = DepthLevel::from_str(s).unwrap();
+        assert_eq!(parsed, dl);
+    }
+}
+
+#[test]
+fn test_depth_metadata_json_roundtrip() {
+    use super::super::DepthLevel;
+    for dl in [
+        DepthLevel::Qualitative,
+        DepthLevel::Introductory,
+        DepthLevel::Intermediate,
+        DepthLevel::Rigorous,
+        DepthLevel::Reference,
+    ] {
+        let json = dl.to_metadata_json();
+        let parsed = DepthLevel::from_metadata_json(&json).unwrap();
+        assert_eq!(parsed, dl);
+    }
+}
+
+#[test]
+fn test_edge_with_depth() {
+    use super::super::DepthLevel;
+    let edge = GraphEdge::new("t1", "src", "tgt", EdgeType::CoversTopic, "file.rs")
+        .with_depth(DepthLevel::Rigorous);
+    assert_eq!(edge.depth_level(), Some(DepthLevel::Rigorous));
+    assert_eq!(
+        edge.metadata_json.as_deref(),
+        Some(r#"{"depth":"rigorous"}"#)
+    );
+}
+
+#[test]
+fn test_edge_no_depth_returns_none() {
+    let edge = GraphEdge::new("t1", "src", "tgt", EdgeType::Calls, "file.rs");
+    assert_eq!(edge.depth_level(), None);
+}
+
+// -- compute_node_id_for_type tests --
+
+#[test]
+fn test_concept_node_id_deterministic() {
+    use super::super::{compute_node_id_for_type, NodeIdFields};
+    let f1 = NodeIdFields::new("tenant_a", "", "machine learning", NodeType::ConceptNode);
+    let f2 = NodeIdFields::new(
+        "tenant_b",
+        "other.rs",
+        "machine learning",
+        NodeType::ConceptNode,
+    );
+    assert_eq!(
+        compute_node_id_for_type(&f1),
+        compute_node_id_for_type(&f2),
+        "ConceptNode ID ignores tenant and file path"
+    );
+}
+
+#[test]
+fn test_concept_node_id_differs_by_label() {
+    use super::super::{compute_node_id_for_type, NodeIdFields};
+    let f1 = NodeIdFields::new("t", "", "rust", NodeType::ConceptNode);
+    let f2 = NodeIdFields::new("t", "", "python", NodeType::ConceptNode);
+    assert_ne!(compute_node_id_for_type(&f1), compute_node_id_for_type(&f2));
+}
+
+#[test]
+fn test_document_section_uses_index() {
+    use super::super::{compute_node_id_for_type, NodeIdFields};
+    let mut f1 = NodeIdFields::new("t", "doc.md", "Overview", NodeType::DocumentSection);
+    f1.section_index = Some(0);
+    let mut f2 = NodeIdFields::new("t", "doc.md", "Overview", NodeType::DocumentSection);
+    f2.section_index = Some(1);
+    assert_ne!(
+        compute_node_id_for_type(&f1),
+        compute_node_id_for_type(&f2),
+        "Different section_index produces different IDs"
+    );
+}
+
+#[test]
+fn test_code_comment_uses_start_line() {
+    use super::super::{compute_node_id_for_type, NodeIdFields};
+    let mut f1 = NodeIdFields::new("t", "main.rs", "", NodeType::CodeComment);
+    f1.start_line = Some(42);
+    let mut f2 = NodeIdFields::new("t", "main.rs", "", NodeType::CodeComment);
+    f2.start_line = Some(100);
+    assert_ne!(compute_node_id_for_type(&f1), compute_node_id_for_type(&f2));
+}
+
+#[test]
+fn test_structural_node_falls_back_to_legacy() {
+    use super::super::{compute_node_id, compute_node_id_for_type, NodeIdFields};
+    let fields = NodeIdFields::new("t", "main.rs", "main", NodeType::Function);
+    let new_id = compute_node_id_for_type(&fields);
+    let legacy_id = compute_node_id("t", "main.rs", "main", NodeType::Function);
+    assert_eq!(new_id, legacy_id, "Structural types use legacy hashing");
+}
+
+#[test]
+fn test_library_section_uses_library_name() {
+    use super::super::{compute_node_id_for_type, NodeIdFields};
+    let mut f1 = NodeIdFields::new("t", "intro.md", "Getting Started", NodeType::LibrarySection);
+    f1.library_name = Some("tokio");
+    f1.section_index = Some(0);
+    let mut f2 = NodeIdFields::new("t", "intro.md", "Getting Started", NodeType::LibrarySection);
+    f2.library_name = Some("serde");
+    f2.section_index = Some(0);
+    assert_ne!(
+        compute_node_id_for_type(&f1),
+        compute_node_id_for_type(&f2),
+        "Different library_name produces different IDs"
+    );
+}
