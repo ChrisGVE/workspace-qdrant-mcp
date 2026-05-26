@@ -45,7 +45,7 @@ impl UnifiedQueueProcessor {
         allowed_extensions: &Arc<AllowedExtensions>,
         lexicon_manager: &Arc<LexiconManager>,
         search_db: &Option<Arc<SearchDbManager>>,
-        graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        graph_store: &Option<Arc<dyn crate::graph::GraphStore>>,
         grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
         ingestion_limits: &Arc<IngestionLimitsConfig>,
     ) -> UnifiedProcessorResult<()> {
@@ -67,7 +67,7 @@ impl UnifiedQueueProcessor {
             Arc::clone(allowed_extensions),
         );
         if let Some(gs) = graph_store {
-            ctx = ctx.with_graph_store(gs.clone());
+            ctx = ctx.with_graph_store(Arc::clone(gs));
         }
         if let Some(gm) = grammar_manager {
             ctx = ctx.with_grammar_manager(Arc::clone(gm));

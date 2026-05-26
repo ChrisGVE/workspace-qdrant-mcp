@@ -266,6 +266,107 @@ impl<S: GraphStore> SharedGraphStore<S> {
     }
 }
 
+#[async_trait::async_trait]
+impl<S: GraphStore + 'static> GraphStore for SharedGraphStore<S> {
+    async fn upsert_node(&self, node: &GraphNode) -> GraphDbResult<()> {
+        let guard = self.acquire_write("upsert_node").await?;
+        guard.upsert_node(node).await
+    }
+
+    async fn upsert_nodes(&self, nodes: &[GraphNode]) -> GraphDbResult<()> {
+        self.upsert_nodes(nodes).await
+    }
+
+    async fn insert_edge(&self, edge: &GraphEdge) -> GraphDbResult<()> {
+        let guard = self.acquire_write("insert_edge").await?;
+        guard.insert_edge(edge).await
+    }
+
+    async fn insert_edges(&self, edges: &[GraphEdge]) -> GraphDbResult<()> {
+        self.insert_edges(edges).await
+    }
+
+    async fn delete_edges_by_file(&self, tenant_id: &str, file_path: &str) -> GraphDbResult<u64> {
+        let guard = self.acquire_write("delete_edges_by_file").await?;
+        guard.delete_edges_by_file(tenant_id, file_path).await
+    }
+
+    async fn delete_tenant(&self, tenant_id: &str) -> GraphDbResult<u64> {
+        self.delete_tenant(tenant_id).await
+    }
+
+    async fn query_related(
+        &self,
+        tenant_id: &str,
+        node_id: &str,
+        max_hops: u32,
+        edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
+    ) -> GraphDbResult<Vec<TraversalNode>> {
+        self.query_related(tenant_id, node_id, max_hops, edge_types, branch)
+            .await
+    }
+
+    async fn impact_analysis(
+        &self,
+        tenant_id: &str,
+        symbol_name: &str,
+        file_path: Option<&str>,
+        branch: Option<&str>,
+    ) -> GraphDbResult<ImpactReport> {
+        self.impact_analysis(tenant_id, symbol_name, file_path, branch)
+            .await
+    }
+
+    async fn stats(
+        &self,
+        tenant_id: Option<&str>,
+        branch: Option<&str>,
+    ) -> GraphDbResult<GraphStats> {
+        self.stats(tenant_id, branch).await
+    }
+
+    async fn prune_orphans(&self, tenant_id: &str) -> GraphDbResult<u64> {
+        self.prune_orphans(tenant_id).await
+    }
+
+    async fn find_path(
+        &self,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
+        branch: Option<&str>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        self.find_path(
+            tenant_id, source_id, target_id, max_depth, edge_types, branch,
+        )
+        .await
+    }
+
+    async fn query_cross_boundary(
+        &self,
+        source_tenant: &str,
+        source_node_id: &str,
+        edge_types: &[EdgeType],
+        max_hops: u32,
+    ) -> GraphDbResult<Vec<TraversalNode>> {
+        self.query_cross_boundary(source_tenant, source_node_id, edge_types, max_hops)
+            .await
+    }
+
+    async fn reingest_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+        nodes: &[GraphNode],
+        edges: &[GraphEdge],
+    ) -> GraphDbResult<()> {
+        self.reingest_file(tenant_id, file_path, nodes, edges).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

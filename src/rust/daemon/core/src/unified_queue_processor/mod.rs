@@ -92,7 +92,7 @@ pub struct UnifiedQueueProcessor {
     search_db: Option<Arc<SearchDbManager>>,
 
     /// Graph store for code relationship extraction and storage (graph-rag)
-    graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+    graph_store: Option<Arc<dyn crate::graph::GraphStore>>,
 
     /// Signal to trigger WatchManager refresh after creating a new watch_folder (Task 12)
     watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
@@ -263,10 +263,7 @@ impl UnifiedQueueProcessor {
     }
 
     /// Set the graph store for code relationship extraction (graph-rag)
-    pub fn with_graph_store(
-        mut self,
-        store: crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>,
-    ) -> Self {
+    pub fn with_graph_store(mut self, store: Arc<dyn crate::graph::GraphStore>) -> Self {
         self.graph_store = Some(store);
         self
     }
@@ -432,7 +429,7 @@ impl UnifiedQueueProcessor {
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
         search_db: Option<Arc<SearchDbManager>>,
-        graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+        graph_store: Option<Arc<dyn crate::graph::GraphStore>>,
         watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
         grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
         ingestion_limits: Arc<IngestionLimitsConfig>,

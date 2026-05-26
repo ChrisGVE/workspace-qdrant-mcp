@@ -47,7 +47,7 @@ pub(super) async fn process_batch(
     allowed_extensions: &Arc<AllowedExtensions>,
     lexicon_manager: &Arc<LexiconManager>,
     search_db: &Option<Arc<SearchDbManager>>,
-    graph_store: &Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+    graph_store: &Option<Arc<dyn crate::graph::GraphStore>>,
     watch_refresh_signal: &Option<Arc<tokio::sync::Notify>>,
     grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
     ingestion_limits: &Arc<IngestionLimitsConfig>,

@@ -15,7 +15,7 @@ use crate::config::{IngestionLimitsConfig, UrlIngestionConfig};
 use crate::document_processor::DocumentProcessor;
 use crate::embedding::EmbeddingGenerator;
 use crate::git::BranchCache;
-use crate::graph::{SharedGraphStore, SqliteGraphStore};
+use crate::graph::GraphStore;
 use crate::keyword_extraction::cooccurrence_graph::CentralityCache;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
@@ -138,7 +138,7 @@ pub struct ProcessingContext {
     pub cooccurrence_cache: Arc<tokio::sync::Mutex<CentralityCache>>,
 
     /// Graph store for code relationship storage (optional — initialized when graph.db available).
-    pub graph_store: Option<SharedGraphStore<SqliteGraphStore>>,
+    pub graph_store: Option<Arc<dyn GraphStore>>,
 
     /// Cache of detected project components, keyed by watch_folder_id.
     /// Lazily populated on first file processed per watch folder.
@@ -225,7 +225,7 @@ impl ProcessingContext {
 
 impl ProcessingContext {
     /// Attach a graph store to the processing context.
-    pub fn with_graph_store(mut self, store: SharedGraphStore<SqliteGraphStore>) -> Self {
+    pub fn with_graph_store(mut self, store: Arc<dyn GraphStore>) -> Self {
         self.graph_store = Some(store);
         self
     }
