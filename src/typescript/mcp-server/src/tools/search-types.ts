@@ -28,7 +28,7 @@ export const DEFAULT_EXPANSION_WEIGHT = 0.5;
 export const DEFAULT_MAX_EXPANDED_KEYWORDS = 10;
 
 export type SearchMode = 'hybrid' | 'semantic' | 'keyword';
-export type SearchScope = 'project' | 'group' | 'global' | 'all';
+export type SearchScope = 'project' | 'group' | 'all';
 
 export interface SearchOptions {
   query: string;

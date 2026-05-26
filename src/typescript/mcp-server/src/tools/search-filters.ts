@@ -53,8 +53,6 @@ export function determineCollections(
     case 'project':
     case 'group':
       return includeLibraries ? [PROJECTS_COLLECTION, LIBRARIES_COLLECTION] : [PROJECTS_COLLECTION];
-    case 'global':
-      return [PROJECTS_COLLECTION];
     case 'all':
       return [PROJECTS_COLLECTION, LIBRARIES_COLLECTION, SCRATCHPAD_COLLECTION];
     default:

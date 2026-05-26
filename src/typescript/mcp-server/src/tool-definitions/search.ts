@@ -32,8 +32,9 @@ export const searchToolDefinition = {
       },
       scope: {
         type: 'string',
-        enum: ['project', 'global', 'all'],
-        description: 'Search scope: project (current), global, or all (default: project)',
+        enum: ['project', 'group', 'all'],
+        description:
+          'Search scope: project (current), group (related projects), or all (default: project)',
       },
       limit: {
         type: 'number',

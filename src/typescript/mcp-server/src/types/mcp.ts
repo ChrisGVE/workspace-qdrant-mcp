@@ -15,7 +15,7 @@ export type SearchMode = z.infer<typeof SearchModeSchema>;
 export const CollectionSchema = z.enum(['projects', 'libraries', 'rules']);
 export type Collection = z.infer<typeof CollectionSchema>;
 
-export const SearchScopeSchema = z.enum(['all', 'global', 'project', 'current', 'other']);
+export const SearchScopeSchema = z.enum(['all', 'group', 'project']);
 export type SearchScope = z.infer<typeof SearchScopeSchema>;
 
 export const SearchInputSchema = z.object({
