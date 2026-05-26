@@ -183,6 +183,17 @@ services:
       # root instead of the container's own cwd (`/app/src/...`), which
       # otherwise gets registered as a spurious project. See spec 19 §7.4.
       WQM_PROJECT_ROOT: ${WQM_DEV_ROOT}
+      # Point workspace_index actions at the bind-mounted repo so the registry
+      # JSON (`.wqm-fork/indexed-projects.json`) is reached without relying on
+      # the auto-detect that walks up from /app/. This is the path *inside*
+      # the container — identical to the host path because of the bind mount.
+      WQM_REPO_DIR: ${WQM_DEV_ROOT}/workspace-qdrant-mcp
+      # Path translation pair so the TS-native workspace_index module can
+      # convert host-style paths (`C:\\Users\\...`) stored in the registry
+      # JSON into the bind-mount path visible inside the container. The hook
+      # writer (host) and the MCP reader (container) thus stay schema-compatible.
+      WQM_HOST_DEV_ROOT: ${WQM_HOST_DEV_ROOT:-}
+      WQM_DEV_ROOT: ${WQM_DEV_ROOT}
       # Trust the bind-mounted repo: git's "dubious ownership" check
       # otherwise rejects every command because the bind mount preserves
       # host uids that don't match the container's `node` user.
@@ -190,6 +201,10 @@ services:
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: "safe.directory"
       GIT_CONFIG_VALUE_0: "*"
+      # Double opt-in for mutating workspace_index actions (start_agent_branch,
+      # finish_agent_branch, register_*, cleanup_orphans). Set to "1" only in
+      # trusted local/dev environments — never in shared deployments.
+      WQM_INDEX_MANAGER_ALLOW_MUTATION: ${WQM_INDEX_MANAGER_ALLOW_MUTATION:-0}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     networks:
       - workspace-network

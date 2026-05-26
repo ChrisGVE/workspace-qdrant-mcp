@@ -15,6 +15,21 @@ import { fileURLToPath } from 'node:url';
 
 import type { DaemonClient } from './../clients/daemon-client.js';
 import { getGitState } from './../utils/git-utils.js';
+import {
+  defaultRegistryPath,
+  runAbandonAgentBranch,
+  runAgentBranchStatus,
+  runFinishAgentBranch,
+  runInit,
+  runListBranches,
+  runListProjects,
+  runStartAgentBranch,
+  type AbandonAgentBranchArgs,
+  type BaseArgs,
+  type BranchArgs,
+  type ProjectArgs,
+  type StartAgentBranchArgs,
+} from './indexed-projects-registry.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -285,6 +300,111 @@ function parseOutput(stdout: string, stderr: string): unknown {
   }
 }
 
+/**
+ * TypeScript-native action handlers. These operate directly on
+ * `.wqm-fork/indexed-projects.json` via the indexed-projects-registry module
+ * and don't require PowerShell, so they work inside the dockerized MCP
+ * container as well as on Windows hosts.
+ *
+ * Schema (field names, enum values, JSON shape) matches the legacy PS1
+ * implementation byte-for-byte.
+ */
+const TS_NATIVE_ACTIONS = new Set([
+  'init',
+  'list_projects',
+  'list_branches',
+  'agent_branch_status',
+  'start_agent_branch',
+  'finish_agent_branch',
+  'abandon_agent_branch',
+]);
+
+function projectSelectorFromArgs(args: JsonObject): {
+  projectName?: string;
+  projectId?: string;
+  projectDir?: string;
+} {
+  const name = stringArg(args, 'projectName', ['name']);
+  const id = stringArg(args, 'projectId');
+  const dir = stringArg(args, 'projectPath', ['projectDir']);
+  return {
+    ...(name !== undefined ? { projectName: name } : {}),
+    ...(id !== undefined ? { projectId: id } : {}),
+    ...(dir !== undefined ? { projectDir: dir } : {}),
+  };
+}
+
+function buildStartAgentBranchArgs(
+  base: ProjectArgs,
+  args: JsonObject,
+  branchName: string
+): StartAgentBranchArgs {
+  const baseBranch = stringArg(args, 'baseBranch');
+  const returnBranch = stringArg(args, 'returnBranch');
+  const worktreePath = stringArg(args, 'worktreePath', ['worktree']);
+  const worktreeRoot = stringArg(args, 'worktreeRoot');
+  const purpose = stringArg(args, 'purpose');
+  const createdBy = stringArg(args, 'createdBy');
+  const useWtRaw = boolArg(args, 'useWorktree');
+  const useWorktree =
+    useWtRaw === 'true' || useWtRaw === '1' || useWtRaw === 'yes' || useWtRaw === 'y';
+  return {
+    ...base,
+    branchName,
+    useWorktree,
+    ...(baseBranch !== undefined ? { baseBranch } : {}),
+    ...(returnBranch !== undefined ? { returnBranch } : {}),
+    ...(worktreePath !== undefined ? { worktreePath } : {}),
+    ...(worktreeRoot !== undefined ? { worktreeRoot } : {}),
+    ...(purpose !== undefined ? { purpose } : {}),
+    ...(createdBy !== undefined ? { createdBy } : {}),
+  };
+}
+
+function dispatchTsAction(action: string, args: JsonObject, repoDir: string): unknown {
+  const registryPath = stringArg(args, 'registryPath') ?? defaultRegistryPath(repoDir);
+  const base: BaseArgs = { registryPath };
+  const projectSel = projectSelectorFromArgs(args);
+  const projectArgs: ProjectArgs = { ...base, ...projectSel };
+
+  switch (action) {
+    case 'init':
+      return runInit(base);
+    case 'list_projects':
+      return runListProjects(base);
+    case 'list_branches':
+      return runListBranches(projectArgs);
+    case 'agent_branch_status': {
+      const branchName = stringArg(args, 'branchName', ['branch']);
+      if (!branchName) throw new Error('branchName obrigatorio');
+      const arg: BranchArgs = { ...projectArgs, branchName };
+      return runAgentBranchStatus(arg);
+    }
+    case 'start_agent_branch': {
+      const branchName = stringArg(args, 'branchName', ['branch']);
+      if (!branchName) throw new Error('branchName obrigatorio');
+      return runStartAgentBranch(buildStartAgentBranchArgs(projectArgs, args, branchName));
+    }
+    case 'finish_agent_branch': {
+      const branchName = stringArg(args, 'branchName', ['branch']);
+      if (!branchName) throw new Error('branchName obrigatorio');
+      const arg: BranchArgs = { ...projectArgs, branchName };
+      return runFinishAgentBranch(arg);
+    }
+    case 'abandon_agent_branch': {
+      const branchName = stringArg(args, 'branchName', ['branch']);
+      if (!branchName) throw new Error('branchName obrigatorio');
+      const rmWtRaw = boolArg(args, 'removeWorktree');
+      const removeWorktree =
+        rmWtRaw === 'true' || rmWtRaw === '1' || rmWtRaw === 'yes' || rmWtRaw === 'y';
+      const arg: AbandonAgentBranchArgs = { ...projectArgs, branchName, removeWorktree };
+      return runAbandonAgentBranch(arg);
+    }
+    default:
+      throw new Error(`TS-native handler missing for action: ${action}`);
+  }
+}
+
 export async function handleWorkspaceIndex(
   rawArgs: Record<string, unknown> | undefined,
   daemonClient?: DaemonClient
@@ -302,6 +422,15 @@ export async function handleWorkspaceIndex(
       );
     }
     return handleSyncCurrentBranch(args, daemonClient);
+  }
+
+  // TS-native registry actions (Phase 1 port from indexed-projects-registry.ps1).
+  // These run inside the container; they only need a writable
+  // .wqm-fork/indexed-projects.json on disk and a `git` CLI in PATH.
+  if (action && TS_NATIVE_ACTIONS.has(action)) {
+    assertMutationAllowed(action, args);
+    const repoDir = resolveRepoDir(args);
+    return dispatchTsAction(action, args, repoDir);
   }
 
   // PowerShell-backed actions: require the workspace-qdrant-mcp checkout to
