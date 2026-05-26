@@ -63,7 +63,12 @@ vi.mock('@qdrant/js-client-rest', () => ({
         },
       ]);
     }),
-    scroll: vi.fn().mockResolvedValue({ points: [] }),
+    // Return a stable UUID-shaped point so update's label→id lookup
+    // succeeds and lets the test inspect the tenant routing on the
+    // resulting ingestText call.
+    scroll: vi.fn().mockResolvedValue({
+      points: [{ id: '00000000-0000-0000-0000-000000000001' }],
+    }),
   })),
 }));
 

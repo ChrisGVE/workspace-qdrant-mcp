@@ -99,7 +99,13 @@ export class RulesTool {
         return addRule(this.daemonClient, this.stateManager, this.projectDetector, options);
       }
       case 'update':
-        return updateRule(this.daemonClient, this.stateManager, this.projectDetector, options);
+        return updateRule(
+          this.daemonClient,
+          this.qdrantClient,
+          this.stateManager,
+          this.projectDetector,
+          options
+        );
       case 'remove':
         return removeRule(this.stateManager, this.projectDetector, options);
       case 'list':
