@@ -141,7 +141,7 @@ fi
   printf 'Pass --wqm-script <path> to override.\n' >&2
   exit 1
 }
-chmod +x "$WQM_SCRIPT" 2>/dev/null || true
+chmod +x "$WQM_SCRIPT" 2>/dev/null || true  # bind-mounted hosts may refuse chmod
 
 # ── Generate each hook script ─────────────────────────────────────────────────
 write_hook() {
@@ -170,7 +170,7 @@ WQM_DEV_ROOT="$CONTAINER_DEV_ROOT" \\
 "$WQM_SCRIPT" "$_hook_name" >/dev/null 2>&1 || true
 exit 0
 EOF
-  chmod +x "$_target"
+  chmod +x "$_target" 2>/dev/null || true  # bind-mounted hosts may refuse chmod; files are usually +x already
   printf 'installed: %s\n' "$_target"
 }
 
