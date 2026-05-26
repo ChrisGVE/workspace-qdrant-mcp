@@ -1,6 +1,6 @@
 # workspace-qdrant-mcp
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/ChrisGVE/workspace-qdrant-mcp)](https://github.com/ChrisGVE/workspace-qdrant-mcp/releases)
 [![Glama](https://glama.ai/mcp/servers/ChrisGVE/workspace-qdrant-mcp/badges/score.svg)](https://glama.ai/mcp/servers/ChrisGVE/workspace-qdrant-mcp)
 [![Homebrew](https://img.shields.io/badge/Homebrew-tap-orange.svg)](https://github.com/ChrisGVE/homebrew-tap)
@@ -354,7 +354,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 ---
 
