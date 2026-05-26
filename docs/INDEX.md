@@ -18,6 +18,7 @@
 | [MCP Tools](reference/mcp-tools.md) | Tool parameters, schemas, and example calls |
 | [LLM Integration](reference/mcp-best-practices.md) | Best practices for Claude and other AI assistants |
 | [Architecture](reference/architecture.md) | Component overview and data flow |
+| [Admin UI](ADMIN_UI.md) | Browser dashboard at `/admin/` — project discovery, real-time index info, CRUD over watch folders |
 
 ## Specifications
 

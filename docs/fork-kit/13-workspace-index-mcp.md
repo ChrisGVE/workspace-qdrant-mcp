@@ -37,6 +37,15 @@ git commit -m "feat(mcp): add workspace index management tool"
 - `register_wqm`
 - `register_all_wqm`
 - `cleanup_orphans`
+- `sync_current_branch` — *nativa em TypeScript, não passa por PowerShell*
+
+A ação `sync_current_branch` é o ponto de integração para hooks git que
+rodam no host e querem registrar branch/worktree no daemon containerizado
+sem depender de PowerShell. Recebe o estado git da chamada (branch,
+commit, isWorktree, worktreePath, gitRemote) e despacha um
+`RegisterProject` gRPC com `register_if_new=true`. Implementação em
+`src/typescript/mcp-server/src/tools/workspace-index.ts`; ver também
+[scripts/git-hooks/README.md](../../scripts/git-hooks/README.md).
 
 Mutação exige:
 

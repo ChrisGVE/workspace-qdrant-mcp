@@ -113,6 +113,13 @@ and want Let's Encrypt certificates. Local-only deployments can skip it.
    MCP configuration at `http://127.0.0.1:6335/mcp` (or the TLS URL if
    you ran the overlay) with a `Bearer <MCP_HTTP_TOKEN>` header.
 
+7. **(Optional) open the admin UI.** The MCP container also serves a
+   browser dashboard at `http://127.0.0.1:6335/admin/`. Paste your
+   `MCP_HTTP_TOKEN` to log in. From there you can configure a parent
+   directory, scan it for git repositories, and register them with
+   the daemon — useful for setups with many sibling repos that you
+   don't want to add via `wqm` one-by-one. See [Admin UI](../ADMIN_UI.md).
+
 ## Configuration
 
 ### `docker/.env`
@@ -185,7 +192,7 @@ separate optional path and stays on `55151`; do not mix the two.
 | 6334 | qdrant | Qdrant gRPC |
 | 50051 | memexd | memexd gRPC (`wqm` CLI) |
 | 9091 | memexd | memexd Prometheus metrics + `/health` |
-| 6335 | mcp | MCP Streamable HTTP (`/mcp`, `/healthz`) |
+| 6335 | mcp | MCP Streamable HTTP (`/mcp`, `/healthz`); admin dashboard under `/admin/` (same port, Bearer-authed REST under `/admin/api/*`) |
 | 9092 | mcp | MCP Prometheus metrics |
 | 80, 443 | caddy (TLS overlay only) | Reverse proxy to MCP |
 
