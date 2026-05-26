@@ -90,7 +90,7 @@ FASTEMBED_OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(Q
 FASTEMBED_SERVICE_ARGS = -FastEmbed -FastEmbedCacheDir "$(FASTEMBED_CACHE_DIR)" -FastEmbedQdrantUrl "$(FASTEMBED_QDRANT_URL)" -FastEmbedGrpcPort $(FASTEMBED_GRPC_PORT) -FastEmbedControlPort $(FASTEMBED_CONTROL_PORT) -FastEmbedMetricsPort $(FASTEMBED_METRICS_PORT) -FastEmbedLogLevel "$(FASTEMBED_LOG_LEVEL)"
 FASTEMBED_DAEMON_ARGS = -RepoDir "$(REPO)" -CacheDir "$(FASTEMBED_CACHE_DIR)" -QdrantUrl "$(FASTEMBED_QDRANT_URL)" -GrpcPort $(FASTEMBED_GRPC_PORT) -ControlPort $(FASTEMBED_CONTROL_PORT) -MetricsPort $(FASTEMBED_METRICS_PORT) -LogLevel "$(FASTEMBED_LOG_LEVEL)"
 
-.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed codex-open register smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
+.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed codex-open register smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-uninstall index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
 
 help:
 	@Write-Host "Targets principais:"
@@ -149,7 +149,8 @@ help:
 	@Write-Host "Projetos indexados / branches de agentes:"
 	@Write-Host "  index-help                  - explica indexed-projects.json e agent branches"
 	@Write-Host "  index-init                  - inicializa .wqm-fork/indexed-projects.json"
-	@Write-Host "  index-hooks-install         - instala hooks locais para checkout/commit/worktree"
+	@Write-Host "  index-hooks-install         - instala hooks POSIX em .wqm-fork/git-hooks (sobrescreve PS legacy)"
+	@Write-Host "  index-hooks-uninstall       - remove hooks WQM gerados em .wqm-fork/git-hooks"
 	@Write-Host "  index-hooks-status          - mostra hooksPath atual e arquivos gerados"
 	@Write-Host "  index-project-add           - registra projeto indexado e tenta registrar no daemon"
 	@Write-Host "  index-project-list          - lista projetos indexados"
@@ -301,7 +302,15 @@ index-init:
 	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action init -Mutate true
 
 index-hooks-install:
-	.\scripts\windows\indexed-projects-hooks.ps1 -Action install -RepoDir "$(REPO)"
+	@Write-Host "Installing POSIX git hooks (sh + curl → MCP HTTP)..."
+	@if (-not (Get-Command sh -ErrorAction SilentlyContinue)) { \
+		Write-Host "ERROR: 'sh' not on PATH. Install Git Bash (https://gitforwindows.org) or add C:\Program Files\Git\usr\bin to PATH." -ForegroundColor Red; \
+		exit 1; \
+	}
+	sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
+
+index-hooks-uninstall:
+	sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --uninstall
 
 index-hooks-status:
 	.\scripts\windows\indexed-projects-hooks.ps1 -Action status -RepoDir "$(REPO)"
